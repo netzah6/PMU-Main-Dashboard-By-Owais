@@ -1,0 +1,192 @@
+import { google } from "googleapis";
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+export async function getSheetsClient() {
+  let credentials: Record<string, unknown>;
+
+  // Support full service-account JSON blob in one env var
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    try {
+      credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    } catch {
+      throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON");
+    }
+  } else {
+    const privateKey = (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
+    credentials = {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      private_key: privateKey,
+    };
+  }
+
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    // Full read + write access
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+  return google.sheets({ version: "v4", auth });
+}
+
+// ─── Tab name discovery / resolution ─────────────────────────────────────────
+
+const tabCache = new Map<string, string[]>();
+
+export async function getTabNames(spreadsheetId: string): Promise<string[]> {
+  if (tabCache.has(spreadsheetId)) return tabCache.get(spreadsheetId)!;
+  const sheets = await getSheetsClient();
+  const res = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets.properties.title",
+  });
+  const names = res.data.sheets?.map((s) => s.properties?.title ?? "") ?? [];
+  tabCache.set(spreadsheetId, names);
+  return names;
+}
+
+export async function resolveTabName(
+  spreadsheetId: string,
+  preferredName: string,
+  fallbackIndex = 0
+): Promise<string> {
+  const tabs = await getTabNames(spreadsheetId);
+  if (tabs.includes(preferredName)) return preferredName;
+  const lower = preferredName.toLowerCase();
+  const ci = tabs.find((t) => t.toLowerCase() === lower);
+  if (ci) return ci;
+  const partial = tabs.find(
+    (t) => t.toLowerCase().includes(lower) || lower.includes(t.toLowerCase())
+  );
+  if (partial) return partial;
+  return tabs[fallbackIndex] ?? preferredName;
+}
+
+// ─── Read ─────────────────────────────────────────────────────────────────────
+
+export async function readSheetValues(
+  spreadsheetId: string,
+  sheetName: string,
+  fallbackIndex = 0
+): Promise<string[][]> {
+  const sheets = await getSheetsClient();
+  const resolvedName = await resolveTabName(spreadsheetId, sheetName, fallbackIndex);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${resolvedName}'`,
+    valueRenderOption: "UNFORMATTED_VALUE",
+    dateTimeRenderOption: "FORMATTED_STRING",
+  });
+  return (res.data.values ?? []) as string[][];
+}
+
+export function rowsToObjects(rows: string[][]): Record<string, unknown>[] {
+  if (rows.length === 0) return [];
+
+  // Find the best header row in the first 10 rows:
+  // the first row whose non-empty cell count is >= 3 (skips merged title rows)
+  let headerRowIdx = 0;
+  let maxNonEmpty = 0;
+  const scanLimit = Math.min(10, rows.length);
+  for (let i = 0; i < scanLimit; i++) {
+    const count = rows[i].filter((c) => c != null && String(c).trim() !== "").length;
+    if (count > maxNonEmpty) {
+      maxNonEmpty = count;
+      headerRowIdx = i;
+      if (count >= 3) break; // good enough header row found
+    }
+  }
+
+  const headers = rows[headerRowIdx].map((h, i) =>
+    String(h ?? "").trim() !== "" ? String(h).trim() : `col_${i + 1}`
+  );
+
+  // Store rows AFTER the header row (skip the header row itself).
+  // row_number = actual 1-based sheet row index so write-back works correctly.
+  return rows.slice(headerRowIdx + 1).map((row, rowIdx) => {
+    const obj: Record<string, unknown> = { row_number: headerRowIdx + 2 + rowIdx };
+    headers.forEach((h, i) => {
+      const val = row[i];
+      obj[h] = val === undefined || val === "" ? "" : val;
+    });
+    return obj;
+  });
+}
+
+// ─── Write ────────────────────────────────────────────────────────────────────
+
+/** Convert column number (1-based) to letter(s): 1→A, 26→Z, 27→AA */
+function colLetter(n: number): string {
+  let result = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    result = String.fromCharCode(65 + rem) + result;
+    n = Math.floor((n - 1) / 26);
+  }
+  return result;
+}
+
+/**
+ * Write a single row back to Google Sheets.
+ * - rowNumber is 1-based (matches data.row_number from the sheet).
+ * - data is the full row object; columns are mapped from the sheet's header row.
+ */
+export async function writeRowToSheet(
+  spreadsheetId: string,
+  sheetName: string,
+  rowNumber: number,
+  data: Record<string, unknown>,
+  fallbackIndex = 0
+): Promise<void> {
+  const sheets = await getSheetsClient();
+  const resolvedName = await resolveTabName(spreadsheetId, sheetName, fallbackIndex);
+
+  // Fetch the header row to know column order
+  const headerRes = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${resolvedName}'!1:1`,
+    valueRenderOption: "FORMATTED_VALUE",
+  });
+  const headers = (headerRes.data.values?.[0] ?? []) as string[];
+  if (headers.length === 0) throw new Error(`No headers found in ${resolvedName}`);
+
+  // Build the values array in column order
+  const values = headers.map((h) => {
+    if (!h || h.trim() === "") return "";
+    const v = data[h.trim()];
+    return v === undefined || v === null ? "" : v;
+  });
+
+  const lastCol = colLetter(headers.length);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${resolvedName}'!A${rowNumber}:${lastCol}${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+}
+
+// ─── Sheet ↔ Table mapping ────────────────────────────────────────────────────
+
+export const SHEET_MAP: Array<{
+  spreadsheetId: string;
+  sheetName: string;
+  table: string;
+  fallbackIndex: number;
+}> = [
+  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Clients Master",           table: "clients_master",       fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Leads Master",             table: "leads_master",         fallbackIndex: 1 },
+  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Deposits",                 table: "deposits",             fallbackIndex: 2 },
+  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Outgoing Call Master",     table: "outgoing_calls",       fallbackIndex: 3 },
+  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Bookings Master",          table: "bookings",             fallbackIndex: 4 },
+  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Signed Agreements",        table: "signed_agreements",    fallbackIndex: 5 },
+  { spreadsheetId: process.env.SHEET2_ID!, sheetName: "Sheet1",                   table: "ltv_sheet1",           fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET2_ID!, sheetName: "Sheet2",                   table: "ltv_sheet2",           fallbackIndex: 1 },
+  { spreadsheetId: process.env.SHEET3_ID!, sheetName: "Add Data - Tracking",      table: "performance_tracking", fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET4_ID!, sheetName: "7 Days CPL",               table: "cpl_7days",            fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET4_ID!, sheetName: "14 Days CPL",              table: "cpl_14days",           fallbackIndex: 1 },
+  { spreadsheetId: process.env.SHEET4_ID!, sheetName: "All Time Campaign Budget", table: "campaign_spent",       fallbackIndex: 2 },
+];
+
+export function getSheetEntryForTable(table: string) {
+  return SHEET_MAP.find((s) => s.table === table);
+}
