@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/layout/Navbar";
 import {
   RefreshCw, CheckCircle, XCircle, AlertCircle,
-  ArrowRight, Clock, Database, Sheet,
+  ArrowRight, Clock, Database, Sheet, LayoutDashboard,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 interface SyncResult {
@@ -157,7 +158,14 @@ export default function SyncPage() {
         </div>
 
         {/* Action buttons */}
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          <Link href="/clients"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors"
+            style={{ background: "#1a2744", border: "1px solid #00B4A6" }}>
+            <LayoutDashboard size={14} style={{ color: "#00B4A6" }} />
+            Go to Dashboard
+          </Link>
+
           <button
             onClick={handleDiscover}
             disabled={isBusy}

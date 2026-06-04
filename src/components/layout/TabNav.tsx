@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const TABS = [
+  { label: "Overview", href: "/overview" },
   { label: "Clients", href: "/clients" },
   { label: "Performance", href: "/performance" },
   { label: "Deposits", href: "/deposits" },
@@ -16,6 +17,7 @@ const TABS = [
   { label: "Budget", href: "/budget" },
   { label: "LTV", href: "/ltv" },
   { label: "Map", href: "/map" },
+  { label: "Reports", href: "/reports" },
 ];
 
 export function TabNav() {
@@ -27,7 +29,7 @@ export function TabNav() {
       style={{ scrollbarWidth: "none" }}
     >
       {TABS.map((tab) => {
-        const active = pathname === tab.href || (tab.href !== "/clients" && pathname.startsWith(tab.href));
+        const active = pathname === tab.href || pathname.startsWith(tab.href + "/");
         return (
           <Link
             key={tab.href}
