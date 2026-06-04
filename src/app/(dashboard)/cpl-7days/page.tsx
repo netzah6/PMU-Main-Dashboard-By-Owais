@@ -1,41 +1,20 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
-import { DataTable, Column } from "@/components/ui/DataTable";
-import { Badge } from "@/components/ui/Badge";
-import { formatCurrency } from "@/lib/utils";
-import { normalizeCpl } from "@/lib/normalizers";
+import { AutoTable } from "@/components/ui/AutoTable";
 import { Search } from "lucide-react";
 
-type CplRow = Record<string, unknown>;
-
 export default function Cpl7DaysPage() {
-  const { data: raw, loading, error } = useTableData<CplRow>({ table: "cpl_7days" });
-  const data = useMemo(
-    () => raw.map(normalizeCpl),
-    [raw]
-  );
+  const { data, loading, error } = useTableData<Record<string, unknown>>({ table: "cpl_7days" });
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
     if (!search) return data;
+    const q = search.toLowerCase();
     return data.filter((r) =>
-      `${r.campaign_name ?? ""} ${r.account_name ?? ""}`.toLowerCase().includes(search.toLowerCase())
+      Object.values(r).some((v) => String(v ?? "").toLowerCase().includes(q))
     );
   }, [data, search]);
-
-  const columns: Column<CplRow>[] = [
-    { key: "campaign_name", header: "Campaign Name" },
-    { key: "website_leads", header: "Website Leads" },
-    { key: "cost_per_result", header: "CPL", render: (r) => <span className="text-teal-300 font-medium">{formatCurrency(String(r.cost_per_result ?? ""))}</span> },
-    { key: "account_name", header: "Account Name" },
-    { key: "account_status", header: "Account Status", render: (r) => {
-      const s = String(r.account_status ?? "");
-      return <Badge variant={s.toUpperCase() === "ACTIVE" ? "green" : s.toUpperCase() === "UNSETTLED" ? "red" : "gray"}>{s || "—"}</Badge>;
-    }},
-    { key: "daily_budget", header: "Daily Budget", render: (r) => formatCurrency(String(r.daily_budget ?? "")) },
-    { key: "amount_spent", header: "Amount Spent", render: (r) => formatCurrency(String(r.amount_spent ?? "")) },
-  ];
 
   return (
     <div className="p-6 space-y-4">
@@ -45,12 +24,11 @@ export default function Cpl7DaysPage() {
       </div>
       <div className="relative w-72">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input type="text" placeholder="Search campaign or account…" value={search}
+        <input type="text" placeholder="Search…" value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-8 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-500" />
       </div>
-      <DataTable columns={columns} data={filtered} loading={loading} error={error}
-        exportFilename="cpl-7days.csv" emptyMessage="No CPL data found" />
+      <AutoTable data={filtered} loading={loading} error={error} exportFilename="cpl-7days.csv" />
     </div>
   );
 }

@@ -1,32 +1,19 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
-import { DataTable, Column } from "@/components/ui/DataTable";
-import { formatDate } from "@/lib/utils";
-import { normalizeCall } from "@/lib/normalizers";
+import { AutoTable } from "@/components/ui/AutoTable";
 import { Search } from "lucide-react";
 
-type CallRow = Record<string, unknown>;
-
 export default function CallsPage() {
-  const { data: raw, loading, error } = useTableData<CallRow>({ table: "outgoing_calls" });
-  const data = useMemo(() => raw.map(normalizeCall), [raw]);
+  const { data, loading, error } = useTableData<Record<string, unknown>>({ table: "outgoing_calls" });
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
-    return data.filter((r) => {
-      if (search && !String(r.client_name ?? "").toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
+    if (!search) return data;
+    return data.filter((r) =>
+      `${r["Business Name"] ?? ""} ${r["Full Name"] ?? ""}`.toLowerCase().includes(search.toLowerCase())
+    );
   }, [data, search]);
-
-  const columns: Column<CallRow>[] = [
-    { key: "client_name", header: "Client" },
-    { key: "date", header: "Date", render: (r) => formatDate(String(r.date ?? "")) },
-    { key: "month", header: "Month" },
-    { key: "outcome", header: "Outcome" },
-    { key: "notes", header: "Notes" },
-  ];
 
   return (
     <div className="p-6 space-y-4">
@@ -40,8 +27,7 @@ export default function CallsPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-8 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-500" />
       </div>
-      <DataTable columns={columns} data={filtered} loading={loading} error={error}
-        exportFilename="calls.csv" emptyMessage="No calls found" />
+      <AutoTable data={filtered} loading={loading} error={error} exportFilename="calls.csv" />
     </div>
   );
 }

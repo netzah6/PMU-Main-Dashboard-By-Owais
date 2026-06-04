@@ -102,14 +102,12 @@ export function ClientProfile({
   }, [rowNumber, localClient, editValues, client, onUpdate]);
 
   // ── Step tracker save ────────────────────────────────────────────────────
-  const saveStep = useCallback(async (stepIndex: number, value: boolean) => {
+  const saveStep = useCallback(async (stepIndex: number, key: string, value: boolean) => {
     if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
-    const stepKey = `step${stepIndex + 1}`;
-    const sheetKey = `Step ${stepIndex + 1}`;
+    // key is the actual field name e.g. "Launch Call", "A2P Verified" etc.
     const updated: ClientRecord = {
       ...localClient,
-      [stepKey]: value,
-      [sheetKey]: value,
+      [key]: value,
     };
     setLocalClient(updated);
     try {
@@ -237,7 +235,7 @@ export function ClientProfile({
           <StepTracker
             data={(localClient as Record<string, unknown>)}
             canEdit={canEdit}
-            onChange={saveStep}
+            onChange={(i, key, val) => saveStep(i, key, val)}
           />
         </Section>
 

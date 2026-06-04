@@ -1,44 +1,29 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
-import { DataTable, Column } from "@/components/ui/DataTable";
-import { formatDate } from "@/lib/utils";
-import { normalizeLead } from "@/lib/normalizers";
+import { AutoTable } from "@/components/ui/AutoTable";
 import { Search } from "lucide-react";
 
-type LeadRow = Record<string, unknown>;
 type DateRange = "7" | "14" | "30" | "all";
 
 export default function LeadsPage() {
-  const { data: raw, loading, error } = useTableData<LeadRow>({ table: "leads_master" });
-  const data = useMemo(() => raw.map(normalizeLead), [raw]);
+  const { data, loading, error } = useTableData<Record<string, unknown>>({ table: "leads_master" });
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState<DateRange>("all");
 
   const filtered = useMemo(() => {
     const now = new Date();
     return data.filter((r) => {
-      const text = `${r.name ?? ""} ${r.email ?? ""} ${r.business ?? ""}`.toLowerCase();
+      const text = `${r["Full Name"] ?? ""} ${r["Email"] ?? ""} ${r["Business Name"] ?? ""}`.toLowerCase();
       if (search && !text.includes(search.toLowerCase())) return false;
       if (dateRange !== "all") {
-        const days = parseInt(dateRange);
-        const d = new Date(String(r.date ?? ""));
+        const d = new Date(String(r["Date"] ?? r.date ?? ""));
         const diff = (now.getTime() - d.getTime()) / 86400000;
-        if (isNaN(diff) || diff > days) return false;
+        if (isNaN(diff) || diff > parseInt(dateRange)) return false;
       }
       return true;
     });
   }, [data, search, dateRange]);
-
-  const columns: Column<LeadRow>[] = [
-    { key: "name", header: "Name" },
-    { key: "email", header: "Email" },
-    { key: "phone", header: "Phone" },
-    { key: "business", header: "Business" },
-    { key: "date", header: "Date", render: (r) => formatDate(String(r.date ?? "")) },
-    { key: "source", header: "Source" },
-    { key: "status", header: "Status" },
-  ];
 
   return (
     <div className="p-6 space-y-4">
@@ -61,8 +46,7 @@ export default function LeadsPage() {
           <option value="30">Last 30 Days</option>
         </select>
       </div>
-      <DataTable columns={columns} data={filtered} loading={loading} error={error}
-        exportFilename="leads.csv" emptyMessage="No leads found" />
+      <AutoTable data={filtered} loading={loading} error={error} exportFilename="leads.csv" />
     </div>
   );
 }

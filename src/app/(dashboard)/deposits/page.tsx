@@ -1,66 +1,55 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
-import { DataTable, Column } from "@/components/ui/DataTable";
-import { Badge, statusVariant } from "@/components/ui/Badge";
-import { formatDate, formatCurrency } from "@/lib/utils";
-import { normalizeDeposit } from "@/lib/normalizers";
+import { AutoTable } from "@/components/ui/AutoTable";
+import { formatCurrency } from "@/lib/utils";
 import { Search } from "lucide-react";
 
-type DepositRow = Record<string, unknown>;
-
 export default function DepositsPage() {
-  const { data: raw, loading, error } = useTableData<DepositRow>({ table: "deposits" });
-  const data = useMemo(() => raw.map(normalizeDeposit), [raw]);
+  const { data, loading, error } = useTableData<Record<string, unknown>>({ table: "deposits" });
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
 
   const filtered = useMemo(() => {
     return data.filter((r) => {
-      if (search && !String(r.client_name ?? "").toLowerCase().includes(search.toLowerCase())) return false;
-      if (dateFrom && String(r.date ?? "") < dateFrom) return false;
-      if (dateTo && String(r.date ?? "") > dateTo) return false;
-      if (statusFilter !== "All" && String(r.status ?? "") !== statusFilter) return false;
+      const name = String(r["Business Name"] ?? r.client_name ?? "").toLowerCase();
+      const date = String(r["Date"] ?? r.date ?? "");
+      if (search && !name.includes(search.toLowerCase())) return false;
+      if (dateFrom && date && date < dateFrom) return false;
+      if (dateTo && date && date > dateTo) return false;
       return true;
     });
-  }, [data, search, dateFrom, dateTo, statusFilter]);
+  }, [data, search, dateFrom, dateTo]);
 
-  const totalAmount = filtered.reduce((sum, r) => {
-    const amt = parseFloat(String(r.amount ?? "").replace(/[$,]/g, ""));
-    return sum + (isNaN(amt) ? 0 : amt);
-  }, 0);
+  const total = useMemo(() => filtered.reduce((s, r) => {
+    const v = parseFloat(String(r["Amount"] ?? r.amount ?? "").replace(/[$,]/g, ""));
+    return s + (isNaN(v) ? 0 : v);
+  }, 0), [filtered]);
 
-  const thisMonthAmount = filtered.filter((r) => {
-    const d = new Date(String(r.date ?? ""));
+  const thisMonth = useMemo(() => {
     const now = new Date();
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  }).reduce((sum, r) => {
-    const amt = parseFloat(String(r.amount ?? "").replace(/[$,]/g, ""));
-    return sum + (isNaN(amt) ? 0 : amt);
-  }, 0);
-
-  const columns: Column<DepositRow>[] = [
-    { key: "client_name", header: "Client" },
-    { key: "date", header: "Date", render: (r) => formatDate(String(r.date ?? "")) },
-    { key: "amount", header: "Amount", render: (r) => <span className="text-emerald-400 font-medium">{formatCurrency(String(r.amount ?? ""))}</span> },
-    { key: "status", header: "Status", render: (r) => <Badge variant={statusVariant(String(r.status ?? ""))}>{String(r.status ?? "—")}</Badge> },
-    { key: "notes", header: "Notes" },
-  ];
+    return filtered.filter((r) => {
+      const d = new Date(String(r["Date"] ?? r.date ?? ""));
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).reduce((s, r) => {
+      const v = parseFloat(String(r["Amount"] ?? r.amount ?? "").replace(/[$,]/g, ""));
+      return s + (isNaN(v) ? 0 : v);
+    }, 0);
+  }, [filtered]);
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-lg font-semibold text-white">Deposits</h1>
-        <div className="flex gap-4 text-sm">
+        <div className="flex gap-3 text-sm">
           <div className="bg-slate-800 rounded-lg px-4 py-2 border border-slate-700">
-            <span className="text-slate-400 text-xs">Total</span>
-            <p className="text-emerald-400 font-semibold">{formatCurrency(totalAmount)}</p>
+            <p className="text-xs text-slate-400">Total</p>
+            <p className="text-emerald-400 font-semibold">{formatCurrency(total)}</p>
           </div>
           <div className="bg-slate-800 rounded-lg px-4 py-2 border border-slate-700">
-            <span className="text-slate-400 text-xs">This Month</span>
-            <p className="text-emerald-400 font-semibold">{formatCurrency(thisMonthAmount)}</p>
+            <p className="text-xs text-slate-400">This Month</p>
+            <p className="text-emerald-400 font-semibold">{formatCurrency(thisMonth)}</p>
           </div>
         </div>
       </div>
@@ -75,16 +64,8 @@ export default function DepositsPage() {
           className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-teal-500" />
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
           className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-teal-500" />
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-teal-500">
-          <option value="All">All Status</option>
-          <option value="Paid">Paid</option>
-          <option value="Pending">Pending</option>
-          <option value="Failed">Failed</option>
-        </select>
       </div>
-      <DataTable columns={columns} data={filtered} loading={loading} error={error}
-        exportFilename="deposits.csv" emptyMessage="No deposits found" />
+      <AutoTable data={filtered} loading={loading} error={error} exportFilename="deposits.csv" />
     </div>
   );
 }

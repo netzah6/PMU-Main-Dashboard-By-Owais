@@ -16,7 +16,7 @@ const STEPS: { key: string; label: string }[] = [
 interface StepTrackerProps {
   data: Record<string, unknown>;
   canEdit: boolean;
-  onChange?: (stepIndex: number, value: boolean) => void;
+  onChange?: (stepIndex: number, key: string, value: boolean) => void;
 }
 
 function isComplete(val: unknown): boolean {
@@ -65,7 +65,7 @@ export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
                 <input
                   type="checkbox"
                   checked={done}
-                  onChange={(e) => onChange?.(i, e.target.checked)}
+                  onChange={(e) => onChange?.(i, key, e.target.checked)}
                   className="w-4 h-4 rounded accent-teal-500 flex-shrink-0"
                 />
               ) : (

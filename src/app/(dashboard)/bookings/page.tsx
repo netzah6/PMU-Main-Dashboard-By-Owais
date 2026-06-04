@@ -1,38 +1,25 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
-import { DataTable, Column } from "@/components/ui/DataTable";
-import { formatDate } from "@/lib/utils";
-import { normalizeBooking } from "@/lib/normalizers";
+import { AutoTable } from "@/components/ui/AutoTable";
 import { Search } from "lucide-react";
 
-type BookingRow = Record<string, unknown>;
-
 export default function BookingsPage() {
-  const { data: raw, loading, error } = useTableData<BookingRow>({ table: "bookings" });
-  const data = useMemo(() => raw.map(normalizeBooking), [raw]);
+  const { data, loading, error } = useTableData<Record<string, unknown>>({ table: "bookings" });
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
   const filtered = useMemo(() => {
     return data.filter((r) => {
-      const text = `${r.client_name ?? ""} ${r.name ?? ""}`.toLowerCase();
+      const text = `${r["Business Name"] ?? ""} ${r["Full Name"] ?? ""}`.toLowerCase();
+      const date = String(r["Date"] ?? r.date ?? "");
       if (search && !text.includes(search.toLowerCase())) return false;
-      if (dateFrom && String(r.date ?? "") < dateFrom) return false;
-      if (dateTo && String(r.date ?? "") > dateTo) return false;
+      if (dateFrom && date && date < dateFrom) return false;
+      if (dateTo && date && date > dateTo) return false;
       return true;
     });
   }, [data, search, dateFrom, dateTo]);
-
-  const columns: Column<BookingRow>[] = [
-    { key: "client_name", header: "Business" },
-    { key: "name", header: "Lead Name" },
-    { key: "date", header: "Date", render: (r) => formatDate(String(r.date ?? "")) },
-    { key: "email", header: "Email" },
-    { key: "phone", header: "Phone" },
-    { key: "status", header: "Status" },
-  ];
 
   return (
     <div className="p-6 space-y-4">
@@ -52,8 +39,7 @@ export default function BookingsPage() {
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
           className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-300 focus:outline-none focus:border-teal-500" />
       </div>
-      <DataTable columns={columns} data={filtered} loading={loading} error={error}
-        exportFilename="bookings.csv" emptyMessage="No bookings found" />
+      <AutoTable data={filtered} loading={loading} error={error} exportFilename="bookings.csv" />
     </div>
   );
 }
