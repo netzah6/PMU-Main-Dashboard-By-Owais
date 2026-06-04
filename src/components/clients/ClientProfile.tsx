@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback } from "react";
-import { ExternalLink, Edit2, Save, X, MessageSquare, TrendingUp } from "lucide-react";
+import { Edit2, Save, X, MessageSquare, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { GhlNotes } from "./GhlNotes";

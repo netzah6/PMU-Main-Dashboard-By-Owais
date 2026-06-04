@@ -27,10 +27,18 @@ export default function SettingsPage() {
     }
   }, [userLoading, role, router]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (role === "admin") fetchUsers();
-  }, [role]);
+    if (role !== "admin") return;
+    setLoadingUsers(true);
+    supabase
+      .from("user_roles")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .then(({ data }) => {
+        setUsers((data as UserRoleRecord[]) ?? []);
+        setLoadingUsers(false);
+      });
+  }, [role, supabase]);
 
   async function fetchUsers() {
     setLoadingUsers(true);

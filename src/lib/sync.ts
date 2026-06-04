@@ -134,7 +134,7 @@ export async function validateAllSheets(): Promise<ValidationResult[]> {
         missingInSupabase: Math.max(0, sheetRows - sb),
         extraInSupabase: Math.max(0, sb - sheetRows),
       });
-    } catch (err) {
+    } catch {
       results.push({
         table,
         sheetRows: -1,

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo } from "react";
 import { Search, X } from "lucide-react";
-import { Badge, statusVariant } from "@/components/ui/Badge";
+import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 import type { ClientRecord } from "@/lib/types";
 
