@@ -23,7 +23,9 @@ export interface ValidationResult {
 
 /**
  * Sync a single sheet tab → Supabase table.
- * Strategy: DELETE all existing rows, then INSERT fresh from sheet.
+ * Strategy: UPSERT by sheet_row (stable key), then delete rows that no longer
+ * exist in the sheet. Non-destructive — UUIDs stay stable so Supabase Realtime
+ * only fires for rows that actually changed.
  * Uses service role key to bypass RLS.
  */
 export async function syncOneSheet(
@@ -35,7 +37,6 @@ export async function syncOneSheet(
   const start = Date.now();
   const supabase = createServiceClient();
 
-  // Count existing rows
   const { count: beforeCount } = await supabase
     .from(table)
     .select("*", { count: "exact", head: true });
@@ -56,20 +57,25 @@ export async function syncOneSheet(
       };
     }
 
-    // 2. Delete all existing rows
-    await supabase.from(table).delete().not("id", "is", null);
-
-    // 3. Insert fresh data in batches of 200
-    const BATCH = 200;
+    // 2. UPSERT by sheet_row in batches of 500
+    const BATCH = 500;
     const now = new Date().toISOString();
+    let maxSheetRow = 0;
+
     for (let i = 0; i < objects.length; i += BATCH) {
-      const batch = objects.slice(i, i + BATCH).map((data) => ({
-        data,
-        synced_at: now,
-      }));
-      const { error } = await supabase.from(table).insert(batch);
+      const batch = objects.slice(i, i + BATCH).map((data) => {
+        const sr = Number(data.row_number) || 0;
+        if (sr > maxSheetRow) maxSheetRow = sr;
+        return { sheet_row: sr, data, synced_at: now };
+      });
+      const { error } = await supabase
+        .from(table)
+        .upsert(batch, { onConflict: "sheet_row" });
       if (error) throw new Error(`Batch ${i / BATCH + 1}: ${error.message}`);
     }
+
+    // 3. Delete rows that were removed from the sheet (sheet_row beyond current max)
+    await supabase.from(table).delete().gt("sheet_row", maxSheetRow);
 
     const { count: afterCount } = await supabase
       .from(table)

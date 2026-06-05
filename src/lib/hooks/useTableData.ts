@@ -18,32 +18,38 @@ export function useTableData<T>({ table, realtimeEnabled = false }: UseTableData
     setLoading(true);
     setError(null);
 
-    // Fetch both id and data so we can do targeted updates
-    const { data: rows, error: err } = await supabaseRef.current
-      .from(table)
-      .select("id, data")
-      .order("id", { ascending: true });
+    type DbRow = { id: string; sheet_row: number | null; data: Record<string, unknown> };
 
-    if (err) {
-      console.error(`[useTableData] ${table}:`, err.message);
-      setError(err.message);
-      setLoading(false);
-      return;
+    // Supabase caps each request at 1000 rows — page through with .range()
+    const PAGE = 1000;
+    let offset = 0;
+    const all: DbRow[] = [];
+
+    while (true) {
+      const { data: rows, error: err } = await supabaseRef.current
+        .from(table)
+        .select("id, sheet_row, data")
+        .order("sheet_row", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+
+      if (err) {
+        console.error(`[useTableData] ${table}:`, err.message);
+        setError(err.message);
+        setLoading(false);
+        return;
+      }
+      if (!rows || rows.length === 0) break;
+      all.push(...(rows as DbRow[]));
+      if (rows.length < PAGE) break;
+      offset += PAGE;
     }
 
-    if (!rows || rows.length === 0) {
-      setData([]);
-      setLoading(false);
-      return;
-    }
-
-    type DbRow = { id: string; data: Record<string, unknown> };
-    const mapped = (rows as DbRow[]).map((r) => {
+    const mapped = all.map((r) => {
       const rowData = r.data ?? {};
       return {
         ...rowData,
         _supabase_id: r.id,
-        _row_number: rowData.row_number ?? null,
+        _row_number: r.sheet_row ?? rowData.row_number ?? null,
       } as T;
     });
 
@@ -56,15 +62,24 @@ export function useTableData<T>({ table, realtimeEnabled = false }: UseTableData
     if (!realtimeEnabled) return;
 
     const supabase = supabaseRef.current;
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+
     const channel = supabase
       .channel(`realtime:${table}`)
       .on("postgres_changes", { event: "*", schema: "public", table }, () => {
+        // Debounce: a bulk sync fires many events — refetch once after they settle
         setSyncing(true);
-        fetchData().then(() => setTimeout(() => setSyncing(false), 1500));
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          fetchData().then(() => setTimeout(() => setSyncing(false), 800));
+        }, 600);
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      supabase.removeChannel(channel);
+    };
   }, [table, realtimeEnabled, fetchData]);
 
   return { data, loading, error, syncing, refetch: fetchData };

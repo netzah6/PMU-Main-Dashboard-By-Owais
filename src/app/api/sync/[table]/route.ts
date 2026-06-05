@@ -44,15 +44,16 @@ export async function PATCH(
 
   const serviceClient = createServiceClient();
 
-  // Strip internal meta fields before saving to Supabase
-  const { _supabase_id: _s, _row_number: _r, ...cleanData } = rowData;
+  // Strip internal meta fields, but keep row_number inside the data blob
+  const { _supabase_id: _s, _row_number: _r, ...rest } = rowData;
   void _s; void _r;
+  const cleanData = { ...rest, row_number: rowNumber };
 
-  // 1. Update Supabase — look up by row_number stored inside the jsonb data column
+  // 1. Update Supabase by stable sheet_row key
   const { error: updateErr } = await serviceClient
     .from(params.table)
     .update({ data: cleanData, synced_at: new Date().toISOString() })
-    .filter("data->>row_number", "eq", String(rowNumber));
+    .eq("sheet_row", rowNumber);
 
   if (updateErr) {
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
