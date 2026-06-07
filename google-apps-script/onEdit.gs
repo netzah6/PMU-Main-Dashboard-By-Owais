@@ -1,101 +1,80 @@
 /**
- * Google Apps Script — PMU Dashboard onEdit Webhook
+ * PMU Dashboard — Supabase realtime sync
  *
- * INSTALLATION INSTRUCTIONS:
- * 1. Open your Google Sheet (SHEET1: Clients Master, etc.)
- * 2. Go to Extensions > Apps Script
- * 3. Replace the default code with this script
- * 4. Update VERCEL_WEBHOOK_URL below with your actual Vercel domain
- * 5. Save (Ctrl+S)
- * 6. Go to Triggers (clock icon on left sidebar)
- * 7. Click "+ Add Trigger"
- * 8. Choose function: onEdit
- * 9. Event type: From spreadsheet > On edit
- * 10. Click Save
- * 11. Authorize the script when prompted
+ * IMPORTANT: This sheet already has other .gs files that may define onEdit().
+ * Google allows only ONE simple onEdit() per project, so this uses a UNIQUELY
+ * named function (pmuSyncToSupabase) wired as an INSTALLABLE trigger instead.
+ * Installable triggers can coexist with existing onEdit functions.
  *
- * REPEAT for each spreadsheet (SHEET2, SHEET3, SHEET4) by opening each
- * sheet and installing this same script with the same webhook URL.
+ * INSTALL:
+ * 1. In Apps Script, click the + next to "Files" → Script → name it "SupabaseSync"
+ * 2. Paste this entire file into it and Save (Ctrl+S)
+ * 3. Click the Triggers icon (clock, left sidebar) → "+ Add Trigger"
+ * 4. Choose:
+ *      function to run:     pmuSyncToSupabase
+ *      deployment:          Head
+ *      event source:        From spreadsheet
+ *      event type:          On edit
+ * 5. Save → authorize when prompted
+ * 6. Repeat for each of the other 3 spreadsheets (LTV, Tracking, CPL)
  */
 
-var VERCEL_WEBHOOK_URL = "https://YOUR-VERCEL-DOMAIN.vercel.app/api/webhooks/sheets";
+var VERCEL_WEBHOOK_URL = "https://pmu-main-dashboard-by-owais1.vercel.app/api/webhooks/sheets";
 
-function onEdit(e) {
+function pmuSyncToSupabase(e) {
   try {
-    var sheet = e.source.getActiveSheet();
+    if (!e || !e.range) return;
+    var sheet = e.range.getSheet();
     var sheetName = sheet.getName();
-    var range = e.range;
-    var rowNumber = range.getRow();
-    var spreadsheetId = e.source.getId();
+    var rowNumber = e.range.getRow();
 
     // Skip header row
     if (rowNumber <= 1) return;
 
-    // Get all data in the edited row
     var lastCol = sheet.getLastColumn();
-    var rowRange = sheet.getRange(rowNumber, 1, 1, lastCol);
-    var rowValues = rowRange.getValues()[0];
 
-    // Get headers from row 1
-    var headerRange = sheet.getRange(1, 1, 1, lastCol);
-    var headers = headerRange.getValues()[0];
+    // Header row (row 1) → column keys
+    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    // The edited row's values
+    var rowValues = sheet.getRange(rowNumber, 1, 1, lastCol).getValues()[0];
 
-    // Build row data object
     var rowData = {};
     for (var i = 0; i < headers.length; i++) {
-      var header = String(headers[i]).trim();
-      if (header) {
-        rowData[header] = rowValues[i];
-      }
+      var key = String(headers[i]).trim();
+      if (key === "") key = "col_" + (i + 1);
+      var val = rowValues[i];
+      rowData[key] = (val === "" || val === null || val === undefined) ? "" : val;
     }
+    rowData["row_number"] = rowNumber;
 
     var payload = {
       sheetName: sheetName,
       rowNumber: rowNumber,
-      rowData: rowData,
-      spreadsheetId: spreadsheetId,
-      timestamp: new Date().toISOString()
+      rowData: rowData
     };
 
-    var options = {
+    UrlFetchApp.fetch(VERCEL_WEBHOOK_URL, {
       method: "post",
       contentType: "application/json",
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
-    };
-
-    var response = UrlFetchApp.fetch(VERCEL_WEBHOOK_URL, options);
-    var responseCode = response.getResponseCode();
-
-    if (responseCode !== 200) {
-      Logger.log("Webhook error: " + responseCode + " - " + response.getContentText());
-    } else {
-      Logger.log("Webhook sent successfully for row " + rowNumber + " in " + sheetName);
-    }
-  } catch (error) {
-    Logger.log("onEdit error: " + error.toString());
+    });
+  } catch (err) {
+    Logger.log("pmuSyncToSupabase error: " + err);
   }
 }
 
-/**
- * Test function — run this manually to verify the webhook works
- */
-function testWebhook() {
-  var payload = {
-    sheetName: "TEST",
-    rowNumber: 2,
-    rowData: { test: "value", name: "Test Client" },
-    spreadsheetId: SpreadsheetApp.getActiveSpreadsheet().getId(),
-    timestamp: new Date().toISOString()
-  };
-
-  var options = {
+/** Run this once manually to test the webhook connection */
+function pmuTestWebhook() {
+  var res = UrlFetchApp.fetch(VERCEL_WEBHOOK_URL, {
     method: "post",
     contentType: "application/json",
-    payload: JSON.stringify(payload),
+    payload: JSON.stringify({
+      sheetName: "Clients Master",
+      rowNumber: 2,
+      rowData: { "Business Name": "TEST WRITE", row_number: 2 }
+    }),
     muteHttpExceptions: true
-  };
-
-  var response = UrlFetchApp.fetch(VERCEL_WEBHOOK_URL, options);
-  Logger.log("Test response: " + response.getResponseCode() + " - " + response.getContentText());
+  });
+  Logger.log(res.getResponseCode() + " — " + res.getContentText());
 }

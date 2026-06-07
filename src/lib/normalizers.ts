@@ -2,6 +2,25 @@ type Raw = Record<string, unknown>;
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * Pick the GHL contact ID. Real GHL IDs are ~20-char alphanumeric strings
+ * (e.g. "qkgMgY1qoi70oBpvqwQy"). Some sheet columns hold stray integers
+ * (e.g. "1679") or are empty — those must be rejected.
+ */
+function pickGhlId(raw: Raw): string {
+  const candidates = [
+    raw["Contact ID"], raw["contact_id"], raw["GHL Contact ID"], raw["_id2"],
+  ];
+  for (const c of candidates) {
+    const s = String(c ?? "").trim();
+    // Must be alphanumeric, contain at least one letter, and be reasonably long
+    if (s.length >= 15 && /[a-zA-Z]/.test(s) && /^[a-zA-Z0-9_-]+$/.test(s)) {
+      return s;
+    }
+  }
+  return "";
+}
+
 /** Find the "title" key in CPL / Budget tables (the long key with the sheet name) */
 function findTitleKey(raw: Raw): string {
   const key = Object.keys(raw).find(
@@ -49,7 +68,7 @@ export function normalizeClient(raw: Raw): Raw {
     version: raw["Version"] ?? raw.version ?? "",
     p: raw["p"] ?? raw["Monthly Price"] ?? raw.monthly_price ?? "",
     ad_account_name: raw["Ad Account Name"] ?? raw.ad_account_name ?? "",
-    _id2: raw["_id2"] ?? raw["Contact ID"] ?? raw.contact_id ?? "",
+    _id2: pickGhlId(raw),
     lat: raw["lat"] ?? raw.lat ?? "",
     lng: raw["lng"] ?? raw.lng ?? "",
     notes: raw["Notes"] ?? raw.notes ?? "",
