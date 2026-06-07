@@ -13,7 +13,7 @@ export async function GET(
 
   try {
     const res = await fetch(
-      `https://services.leadconnectorhq.com/contacts/${contactId}/notes?limit=5`,
+      `https://services.leadconnectorhq.com/contacts/${contactId}/notes`,
       {
         headers: {
           Authorization: `Bearer ${GHL_API_KEY}`,
