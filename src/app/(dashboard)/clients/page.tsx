@@ -35,7 +35,7 @@ export default function ClientsPage() {
   return (
     <div className="flex h-full">
       {/* Left Panel — 30% */}
-      <div className="w-[30%] min-w-[260px] border-r border-slate-700 flex flex-col h-full">
+      <div className="w-[30%] min-w-[260px] border-r border-[#e4ebf2] flex flex-col h-full">
         {loadingClients ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -74,12 +74,12 @@ export default function ClientsPage() {
           <div className="flex flex-col items-center justify-center h-full text-center px-8">
             <div
               className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
-              style={{ background: "#00B4A620" }}
+              style={{ background: "#15B7AE20" }}
             >
-              <span className="text-3xl" style={{ color: "#00B4A6" }}>P</span>
+              <span className="text-3xl" style={{ color: "#15B7AE" }}>P</span>
             </div>
-            <p className="text-slate-300 font-medium">Select a client</p>
-            <p className="text-slate-500 text-sm mt-1">
+            <p className="text-[#34568a] font-medium">Select a client</p>
+            <p className="text-[#8595a8] text-sm mt-1">
               Choose a client from the list to view their profile
             </p>
           </div>

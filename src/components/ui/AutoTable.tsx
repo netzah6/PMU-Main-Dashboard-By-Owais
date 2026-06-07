@@ -42,7 +42,7 @@ export function AutoTable({ data, loading, error, exportFilename, maxCols = 12 }
           .replace(/\b\w/g, (c) => c.toUpperCase()),
         render: (r: Record<string, unknown>) => {
           const val = r[key];
-          if (val === null || val === undefined || val === "") return <span className="text-slate-600">—</span>;
+          if (val === null || val === undefined || val === "") return <span className="text-[#a6b3c4]">—</span>;
           const s = String(val);
           if (isDateKey(key) && !isCurrencyKey(key)) {
             const fmt = formatDate(s);
@@ -53,7 +53,7 @@ export function AutoTable({ data, loading, error, exportFilename, maxCols = 12 }
           }
           if (typeof val === "boolean") {
             return (
-              <span className={val ? "text-emerald-400 font-medium" : "text-slate-500"}>
+              <span className={val ? "text-[#0e8f88] font-medium" : "text-[#8595a8]"}>
                 {val ? "✓" : "✗"}
               </span>
             );

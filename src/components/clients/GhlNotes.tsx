@@ -35,43 +35,43 @@ export function GhlNotes({ contactId }: GhlNotesProps) {
   }
 
   return (
-    <div className="border border-slate-700 rounded-lg overflow-hidden">
+    <div className="border border-[#e4ebf2] rounded-lg overflow-hidden">
       <button
         onClick={handleToggle}
-        className="w-full flex items-center justify-between px-4 py-3 bg-slate-800 hover:bg-slate-750 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-[#f1f5f9] transition-colors"
       >
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
-          <MessageSquare size={14} className="text-teal-400" />
+        <div className="flex items-center gap-2 text-sm font-medium text-[#1e2a3a]">
+          <MessageSquare size={14} className="text-[#0e8f88]" />
           Notes from GoHighLevel
         </div>
-        <span className="text-slate-400">
+        <span className="text-[#697a91]">
           {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </span>
       </button>
 
       {open && (
-        <div className="bg-slate-900 px-4 py-3 space-y-3">
+        <div className="bg-[#eef2f7] px-4 py-3 space-y-3">
           {loading && (
-            <div className="flex items-center gap-2 text-slate-400 text-sm py-4">
+            <div className="flex items-center gap-2 text-[#697a91] text-sm py-4">
               <Loader2 size={14} className="animate-spin" />
               Fetching notes from GHL…
             </div>
           )}
           {error && (
-            <p className="text-xs text-red-400 py-2">{error}</p>
+            <p className="text-xs text-[#e11d48] py-2">{error}</p>
           )}
           {!loading && !error && notes.length === 0 && (
-            <p className="text-sm text-slate-500 py-3">No notes found for this contact.</p>
+            <p className="text-sm text-[#8595a8] py-3">No notes found for this contact.</p>
           )}
           {notes.map((note) => (
             <div
               key={note.id}
-              className="border border-slate-700 rounded-lg p-3 bg-slate-800/60"
+              className="border border-[#e4ebf2] rounded-lg p-3 bg-white"
             >
-              <p className="text-xs text-slate-400 mb-1.5">
+              <p className="text-xs text-[#697a91] mb-1.5">
                 {formatDate(note.dateAdded)}
               </p>
-              <p className="text-sm text-slate-200 whitespace-pre-line leading-relaxed">
+              <p className="text-sm text-[#1e2a3a] whitespace-pre-line leading-relaxed">
                 {note.body}
               </p>
             </div>

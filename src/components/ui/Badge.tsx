@@ -3,14 +3,15 @@ import { cn } from "@/lib/utils";
 
 type Variant = "green" | "yellow" | "red" | "blue" | "gray" | "teal" | "purple";
 
+// Light status chips per the brand style guide
 const variantClasses: Record<Variant, string> = {
-  green: "bg-emerald-900/50 text-emerald-300 border-emerald-700",
-  yellow: "bg-amber-900/50 text-amber-300 border-amber-700",
-  red: "bg-red-900/50 text-red-300 border-red-700",
-  blue: "bg-blue-900/50 text-blue-300 border-blue-700",
-  gray: "bg-slate-700/50 text-slate-300 border-slate-600",
-  teal: "bg-teal-900/50 text-teal-300 border-teal-700",
-  purple: "bg-purple-900/50 text-purple-300 border-purple-700",
+  green: "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]",
+  yellow: "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]",
+  red: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]",
+  blue: "bg-[#eef2ff] text-[#3a5a8c] border-[#c7d2fe]",
+  gray: "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]",
+  teal: "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]",
+  purple: "bg-[#f3e8ff] text-[#7e22ce] border-[#e3cffb]",
 };
 
 export function statusVariant(status: string | undefined): Variant {

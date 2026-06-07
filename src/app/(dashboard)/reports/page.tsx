@@ -93,22 +93,22 @@ export default function ReportsPage() {
     <div className="p-6 space-y-6 overflow-y-auto h-full">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <TrendingUp size={20} className="text-teal-400" />
+          <h1 className="text-xl font-bold text-[#1f3559] flex items-center gap-2">
+            <TrendingUp size={20} className="text-[#0e8f88]" />
             Monthly Reports
           </h1>
-          <p className="text-sm text-slate-400 mt-0.5">Aggregated metrics across all data</p>
+          <p className="text-sm text-[#697a91] mt-0.5">Aggregated metrics across all data</p>
         </div>
         {monthly.length > 0 && (
           <select value={current?.key ?? ""} onChange={(e) => setSelectedMonth(e.target.value)}
-            className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-teal-500">
+            className="px-4 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]">
             {monthly.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
           </select>
         )}
       </div>
 
       {monthly.length === 0 ? (
-        <div className="text-center text-slate-500 py-20">No dated records found — run a sync first.</div>
+        <div className="text-center text-[#8595a8] py-20">No dated records found — run a sync first.</div>
       ) : (
         <>
           {/* Selected month cards */}
@@ -117,18 +117,18 @@ export default function ReportsPage() {
               <motion.div key={c.label}
                 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.07 }}
-                className="rounded-2xl p-5 bg-slate-800/50 border border-slate-700/50"
+                className="rounded-2xl p-5 bg-white border border-[#e4ebf2]"
               >
                 <c.icon size={18} style={{ color: c.color }} className="mb-3" />
-                <p className="text-2xl font-bold text-white">{c.value}</p>
-                <p className="text-xs text-slate-400 mt-1">{c.label}</p>
+                <p className="text-2xl font-bold text-[#1f3559]">{c.value}</p>
+                <p className="text-xs text-[#697a91] mt-1">{c.label}</p>
               </motion.div>
             ))}
           </div>
 
           {/* Revenue trend bar chart */}
-          <div className="rounded-2xl border border-slate-700/50 bg-slate-800/30 p-6">
-            <h2 className="text-sm font-semibold text-slate-300 mb-5">Revenue Trend (last 12 months)</h2>
+          <div className="rounded-2xl border border-[#e4ebf2] bg-white p-6">
+            <h2 className="text-sm font-semibold text-[#34568a] mb-5">Revenue Trend (last 12 months)</h2>
             <div className="flex items-end gap-2 h-48">
               {monthly.slice(0, 12).reverse().map((m, i) => {
                 const heightPct = (m.revenue / maxRevenue) * 100;
@@ -140,14 +140,14 @@ export default function ReportsPage() {
                         animate={{ height: `${Math.max(heightPct, 2)}%` }}
                         transition={{ delay: i * 0.05, duration: 0.6, ease: "easeOut" }}
                         className="w-full rounded-t-lg relative"
-                        style={{ background: "linear-gradient(180deg, #00B4A6, #00857a)" }}
+                        style={{ background: "linear-gradient(180deg, #15B7AE, #00857a)" }}
                       >
-                        <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs text-teal-300 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs text-[#0e8f88] opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                           {formatCurrency(m.revenue)}
                         </span>
                       </motion.div>
                     </div>
-                    <span className="text-xs text-slate-500 rotate-0 whitespace-nowrap">{m.label.split(" ")[0]}</span>
+                    <span className="text-xs text-[#8595a8] rotate-0 whitespace-nowrap">{m.label.split(" ")[0]}</span>
                   </div>
                 );
               })}
@@ -156,8 +156,8 @@ export default function ReportsPage() {
 
           {/* All-time totals + monthly table */}
           <div className="grid lg:grid-cols-3 gap-6">
-            <div className="rounded-2xl border border-slate-700/50 bg-slate-800/30 p-6 space-y-3">
-              <h2 className="text-sm font-semibold text-slate-300 mb-2">All-Time Totals</h2>
+            <div className="rounded-2xl border border-[#e4ebf2] bg-white p-6 space-y-3">
+              <h2 className="text-sm font-semibold text-[#34568a] mb-2">All-Time Totals</h2>
               {[
                 { label: "Total Revenue", value: formatCurrency(totals.revenue), color: "#10b981" },
                 { label: "Total Leads", value: totals.leads.toLocaleString(), color: "#6366f1" },
@@ -165,35 +165,35 @@ export default function ReportsPage() {
                 { label: "Total Calls", value: totals.calls.toLocaleString(), color: "#8b5cf6" },
                 { label: "Total Agreements", value: totals.agreements.toLocaleString(), color: "#06b6d4" },
               ].map((t) => (
-                <div key={t.label} className="flex items-center justify-between py-2 border-b border-slate-700/40 last:border-0">
-                  <span className="text-sm text-slate-400">{t.label}</span>
+                <div key={t.label} className="flex items-center justify-between py-2 border-b border-[#e4ebf2] last:border-0">
+                  <span className="text-sm text-[#697a91]">{t.label}</span>
                   <span className="text-sm font-semibold" style={{ color: t.color }}>{t.value}</span>
                 </div>
               ))}
             </div>
 
-            <div className="lg:col-span-2 rounded-2xl border border-slate-700/50 bg-slate-800/30 overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-700/50">
-                <h2 className="text-sm font-semibold text-slate-300">Month-by-Month Breakdown</h2>
+            <div className="lg:col-span-2 rounded-2xl border border-[#e4ebf2] bg-white overflow-hidden">
+              <div className="px-6 py-4 border-b border-[#e4ebf2]">
+                <h2 className="text-sm font-semibold text-[#34568a]">Month-by-Month Breakdown</h2>
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-800">
-                    <tr className="border-b border-slate-700">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="border-b border-[#e4ebf2]">
                       {["Month", "Revenue", "Leads", "Bookings", "Calls", "Agreements"].map((h) => (
-                        <th key={h} className="px-4 py-2.5 text-left text-xs text-slate-400 uppercase">{h}</th>
+                        <th key={h} className="px-4 py-2.5 text-left text-xs text-[#697a91] uppercase">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {monthly.map((m, i) => (
-                      <tr key={m.key} className={i % 2 === 0 ? "bg-slate-800/30" : ""}>
-                        <td className="px-4 py-2.5 text-slate-200 font-medium">{m.label}</td>
-                        <td className="px-4 py-2.5 text-emerald-400">{formatCurrency(m.revenue)}</td>
-                        <td className="px-4 py-2.5 text-slate-300">{m.leads}</td>
-                        <td className="px-4 py-2.5 text-slate-300">{m.bookings}</td>
-                        <td className="px-4 py-2.5 text-slate-300">{m.calls}</td>
-                        <td className="px-4 py-2.5 text-slate-300">{m.agreements}</td>
+                      <tr key={m.key} className={i % 2 === 0 ? "bg-white" : ""}>
+                        <td className="px-4 py-2.5 text-[#1e2a3a] font-medium">{m.label}</td>
+                        <td className="px-4 py-2.5 text-[#0e8f88]">{formatCurrency(m.revenue)}</td>
+                        <td className="px-4 py-2.5 text-[#34568a]">{m.leads}</td>
+                        <td className="px-4 py-2.5 text-[#34568a]">{m.bookings}</td>
+                        <td className="px-4 py-2.5 text-[#34568a]">{m.calls}</td>
+                        <td className="px-4 py-2.5 text-[#34568a]">{m.agreements}</td>
                       </tr>
                     ))}
                   </tbody>

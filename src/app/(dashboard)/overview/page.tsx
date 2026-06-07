@@ -44,7 +44,7 @@ const fadeUp: Variants = {
 };
 
 const TABS = [
-  { label: "Clients", href: "/clients", icon: Users, color: "#00B4A6", desc: "Manage your client portfolio" },
+  { label: "Clients", href: "/clients", icon: Users, color: "#15B7AE", desc: "Manage your client portfolio" },
   { label: "Performance", href: "/performance", icon: TrendingUp, color: "#6366f1", desc: "Track call & booking metrics" },
   { label: "Deposits", href: "/deposits", icon: DollarSign, color: "#10b981", desc: "Revenue & payment tracking" },
   { label: "Bookings", href: "/bookings", icon: Calendar, color: "#f59e0b", desc: "Appointment management" },
@@ -83,12 +83,12 @@ export default function OverviewPage() {
   }).length;
 
   const stats = [
-    { label: "Total Clients", value: clients.length, suffix: "", icon: Users, color: "#00B4A6", bg: "from-teal-900/40 to-teal-800/20" },
-    { label: "Live", value: liveClients, suffix: "", icon: Zap, color: "#10b981", bg: "from-emerald-900/40 to-emerald-800/20" },
-    { label: "This Month Leads", value: thisMonthLeads, suffix: "", icon: TrendingUp, color: "#6366f1", bg: "from-indigo-900/40 to-indigo-800/20" },
-    { label: "This Month Revenue", value: Math.round(thisMonthDeposits), prefix: "$", suffix: "", icon: DollarSign, color: "#f59e0b", bg: "from-amber-900/40 to-amber-800/20" },
-    { label: "Total Bookings", value: bookings.length, suffix: "", icon: Calendar, color: "#ec4899", bg: "from-pink-900/40 to-pink-800/20" },
-    { label: "Paused", value: pausedClients, suffix: "", icon: Activity, color: "#f97316", bg: "from-orange-900/40 to-orange-800/20" },
+    { label: "Total Clients", value: clients.length, suffix: "", icon: Users, color: "#15B7AE", bg: "from-[#e6faf8] to-[#f2fbfa]" },
+    { label: "Live", value: liveClients, suffix: "", icon: Zap, color: "#10b981", bg: "from-[#e6f7f0] to-[#f1faf6]" },
+    { label: "This Month Leads", value: thisMonthLeads, suffix: "", icon: TrendingUp, color: "#6366f1", bg: "from-[#eaeeff] to-[#f3f5ff]" },
+    { label: "This Month Revenue", value: Math.round(thisMonthDeposits), prefix: "$", suffix: "", icon: DollarSign, color: "#f59e0b", bg: "from-[#fff5e6] to-[#fffaf1]" },
+    { label: "Total Bookings", value: bookings.length, suffix: "", icon: Calendar, color: "#ec4899", bg: "from-[#fdeaf2] to-[#fdf4f8]" },
+    { label: "Paused", value: pausedClients, suffix: "", icon: Activity, color: "#f97316", bg: "from-[#fff0e6] to-[#fff7f1]" },
   ];
 
   // Status breakdown for donut-like bar
@@ -104,15 +104,15 @@ export default function OverviewPage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6 }}
-        className="relative px-8 pt-10 pb-8 overflow-hidden"
-        style={{ background: "linear-gradient(135deg, #0f172a 0%, #1a2744 50%, #0f172a 100%)" }}
+        className="relative px-8 pt-10 pb-8 overflow-hidden border-b border-[#e4ebf2]"
+        style={{ background: "linear-gradient(135deg, #ffffff 0%, #eef6f5 100%)" }}
       >
         {/* Animated background blobs */}
         <motion.div
           animate={{ scale: [1, 1.2, 1], opacity: [0.15, 0.25, 0.15] }}
           transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
           className="absolute top-0 right-0 w-96 h-96 rounded-full blur-3xl"
-          style={{ background: "#00B4A620" }}
+          style={{ background: "#15B7AE20" }}
         />
         <motion.div
           animate={{ scale: [1.2, 1, 1.2], opacity: [0.1, 0.2, 0.1] }}
@@ -126,7 +126,7 @@ export default function OverviewPage() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-teal-400 text-sm font-medium mb-1 tracking-widest uppercase"
+            className="text-[#0e8f88] text-sm font-medium mb-1 tracking-widest uppercase"
           >
             PMU Bookings On Demand
           </motion.p>
@@ -134,7 +134,7 @@ export default function OverviewPage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="text-4xl font-bold text-white mb-2"
+            className="text-4xl font-bold text-[#1f3559] mb-2"
           >
             Master Dashboard
           </motion.h1>
@@ -142,7 +142,7 @@ export default function OverviewPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.35 }}
-            className="text-slate-400 text-sm"
+            className="text-[#697a91] text-sm"
           >
             {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </motion.p>
@@ -156,7 +156,7 @@ export default function OverviewPage() {
               className="mt-6 max-w-md"
               style={{ transformOrigin: "left" }}
             >
-              <div className="flex justify-between text-xs text-slate-400 mb-1.5">
+              <div className="flex justify-between text-xs text-[#697a91] mb-1.5">
                 <span>Client Status Distribution</span>
                 <span>{clients.length} total</span>
               </div>
@@ -172,9 +172,9 @@ export default function OverviewPage() {
                   transition={{ delay: 1.1, duration: 0.6 }} className="rounded-r-full flex-1" />
               </div>
               <div className="flex gap-4 mt-1.5 text-xs">
-                <span className="text-emerald-400">● Live {liveClients}</span>
-                <span className="text-amber-400">● Paused {pausedClients}</span>
-                <span className="text-red-400">● Other {clients.length - liveClients - pausedClients}</span>
+                <span className="text-[#0e8f88]">● Live {liveClients}</span>
+                <span className="text-[#d97706]">● Paused {pausedClients}</span>
+                <span className="text-[#e11d48]">● Other {clients.length - liveClients - pausedClients}</span>
               </div>
             </motion.div>
           )}
@@ -185,13 +185,13 @@ export default function OverviewPage() {
         {/* Stats grid */}
         <div>
           <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-            className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4">
+            className="text-xs font-semibold text-[#8595a8] uppercase tracking-widest mb-4">
             Key Metrics
           </motion.h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {stats.map((s, i) => (
               <motion.div key={s.label} custom={i} initial="hidden" animate="visible" variants={fadeUp}
-                className={`relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br ${s.bg} border border-slate-700/50`}
+                className={`relative overflow-hidden rounded-2xl p-5 bg-gradient-to-br ${s.bg} border border-[#e4ebf2]`}
                 whileHover={{ scale: 1.03, transition: { duration: 0.2 } }}
               >
                 <motion.div
@@ -201,10 +201,10 @@ export default function OverviewPage() {
                 >
                   <s.icon size={20} style={{ color: s.color }} />
                 </motion.div>
-                <p className="text-2xl font-bold text-white">
+                <p className="text-2xl font-bold text-[#1f3559]">
                   <Counter to={s.value} prefix={s.prefix} suffix={s.suffix} />
                 </p>
-                <p className="text-xs text-slate-400 mt-1">{s.label}</p>
+                <p className="text-xs text-[#697a91] mt-1">{s.label}</p>
                 <div className="absolute -bottom-3 -right-3 w-14 h-14 rounded-full opacity-10"
                   style={{ background: s.color }} />
               </motion.div>
@@ -215,25 +215,25 @@ export default function OverviewPage() {
         {/* Quick access tabs */}
         <div>
           <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
-            className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4">
+            className="text-xs font-semibold text-[#8595a8] uppercase tracking-widest mb-4">
             Quick Access
           </motion.h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {TABS.map((tab, i) => (
               <motion.div key={tab.href} custom={i} initial="hidden" animate="visible" variants={fadeUp}>
                 <Link href={tab.href}
-                  className="flex flex-col gap-3 p-4 rounded-xl border border-slate-700/50 bg-slate-800/40 hover:bg-slate-800/80 hover:border-slate-600 transition-all group block"
+                  className="flex flex-col gap-3 p-4 rounded-xl border border-[#e4ebf2] bg-white hover:bg-white hover:border-[#d7e0ea] transition-all group block"
                 >
                   <div className="flex items-center justify-between">
                     <div className="w-9 h-9 rounded-xl flex items-center justify-center"
                       style={{ background: `${tab.color}20` }}>
                       <tab.icon size={16} style={{ color: tab.color }} />
                     </div>
-                    <ArrowRight size={13} className="text-slate-600 group-hover:text-slate-300 group-hover:translate-x-0.5 transition-all" />
+                    <ArrowRight size={13} className="text-[#a6b3c4] group-hover:text-[#34568a] group-hover:translate-x-0.5 transition-all" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-200">{tab.label}</p>
-                    <p className="text-xs text-slate-500 mt-0.5 leading-snug">{tab.desc}</p>
+                    <p className="text-sm font-semibold text-[#1e2a3a]">{tab.label}</p>
+                    <p className="text-xs text-[#8595a8] mt-0.5 leading-snug">{tab.desc}</p>
                   </div>
                 </Link>
               </motion.div>

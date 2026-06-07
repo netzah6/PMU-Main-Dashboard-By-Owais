@@ -92,8 +92,8 @@ export default function ClientMap({ clients }: ClientMapProps) {
   return (
     <div className="flex flex-col h-full">
       <div ref={mapRef} className="flex-1 rounded-lg" style={{ minHeight: "500px" }} />
-      <div className="flex items-center gap-4 p-3 border-t border-slate-700 text-xs text-slate-400">
-        <span className="font-medium text-slate-300">Status:</span>
+      <div className="flex items-center gap-4 p-3 border-t border-[#e4ebf2] text-xs text-[#697a91]">
+        <span className="font-medium text-[#34568a]">Status:</span>
         {[
           { label: "Live", color: "#10b981" },
           { label: "Paused", color: "#f59e0b" },
@@ -119,7 +119,7 @@ function addMarkers(L: any, map: any, clients: ClientRecord[]) {
   if (valid.length === 0) {
     L.popup()
       .setLatLng([39.5, -98.35])
-      .setContent('<div style="color:#94a3b8;padding:4px">No location data available</div>')
+      .setContent('<div style="color:#697a91;padding:4px">No location data available</div>')
       .openOn(map);
     return;
   }
@@ -137,9 +137,9 @@ function addMarkers(L: any, map: any, clients: ClientRecord[]) {
     });
 
     L.marker([lat, lng], { icon }).addTo(map).bindPopup(
-      `<div style="background:#1e293b;color:#e2e8f0;padding:8px 12px;border-radius:8px;min-width:160px;font-size:13px;">
-        <strong style="color:#00B4A6">${c.business_name || "Unknown"}</strong><br/>
-        <span style="color:#94a3b8">${c.owner_name || ""}</span><br/>
+      `<div style="background:#ffffff;color:#1e2a3a;padding:8px 12px;border-radius:8px;min-width:160px;font-size:13px;">
+        <strong style="color:#15B7AE">${c.business_name || "Unknown"}</strong><br/>
+        <span style="color:#697a91">${c.owner_name || ""}</span><br/>
         <span style="margin-top:4px;display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;background:${color}30;color:${color}">${c.status || "—"}</span>
       </div>`,
       { className: "dark-popup" }

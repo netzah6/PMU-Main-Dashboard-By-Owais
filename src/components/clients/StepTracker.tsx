@@ -31,17 +31,17 @@ export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-slate-200">7-Step Progress</h4>
-        <span className="text-xs font-semibold text-teal-400">{completedCount}/7 complete</span>
+        <h4 className="text-sm font-semibold text-[#1e2a3a]">7-Step Progress</h4>
+        <span className="text-xs font-semibold text-[#0e8f88]">{completedCount}/7 complete</span>
       </div>
 
       {/* Progress bar */}
-      <div className="w-full bg-slate-700 rounded-full h-2">
+      <div className="w-full bg-[#e4ebf2] rounded-full h-2">
         <div
           className="h-2 rounded-full transition-all duration-500"
           style={{
             width: `${(completedCount / 7) * 100}%`,
-            background: "linear-gradient(90deg, #00B4A6, #10b981)",
+            background: "linear-gradient(90deg, #15B7AE, #10b981)",
           }}
         />
       </div>
@@ -56,8 +56,8 @@ export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer select-none transition-colors",
                 done
-                  ? "bg-teal-900/20 border-teal-700/60 hover:bg-teal-900/30"
-                  : "bg-slate-800/40 border-slate-700/50 hover:bg-slate-700/40",
+                  ? "bg-[#e6f7f5] border-[#a7e3df]/60 hover:bg-[#e6f7f5]"
+                  : "bg-white border-[#e4ebf2] hover:bg-[#f1f5f9]",
                 !canEdit && "pointer-events-none"
               )}
             >
@@ -71,12 +71,12 @@ export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
               ) : (
                 <div className={cn(
                   "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0",
-                  done ? "bg-teal-500" : "bg-slate-700 border border-slate-600"
+                  done ? "bg-[#15B7AE]" : "bg-[#e4ebf2] border border-[#d7e0ea]"
                 )}>
-                  {done && <Check size={11} className="text-white" />}
+                  {done && <Check size={11} className="text-[#1f3559]" />}
                 </div>
               )}
-              <span className={cn("text-xs font-medium", done ? "text-teal-200" : "text-slate-400")}>
+              <span className={cn("text-xs font-medium", done ? "text-[#0e8f88]" : "text-[#697a91]")}>
                 Step {i + 1}: {label}
               </span>
             </label>

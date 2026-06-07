@@ -67,7 +67,7 @@ export function DataTable<T extends Record<string, unknown>>({
 
   if (error) {
     return (
-      <div className="px-4 py-3 rounded-lg border border-red-700 bg-red-900/30 text-red-300 text-sm">
+      <div className="px-4 py-3 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-sm">
         <strong>Error loading data:</strong> {error}
       </div>
     );
@@ -79,7 +79,7 @@ export function DataTable<T extends Record<string, unknown>>({
         <div className="flex justify-end">
           <button
             onClick={() => exportToCsv(exportFilename, data as Record<string, unknown>[])}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#e4ebf2] hover:bg-[#dbe5ef] rounded border border-[#d7e0ea] transition-colors"
           >
             <Download size={13} />
             Export CSV
@@ -87,16 +87,16 @@ export function DataTable<T extends Record<string, unknown>>({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-slate-700">
+      <div className="overflow-x-auto rounded-[14px] border border-[#e4ebf2] bg-white" style={{ boxShadow: "var(--shadow-sm)" }}>
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-navy-800 border-b border-slate-700">
+            <tr style={{ background: "linear-gradient(180deg, #34568a, #26416b)" }}>
               {columns.map((col) => (
                 <th
                   key={col.key}
                   className={cn(
-                    "px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap",
-                    col.sortable !== false && "cursor-pointer hover:text-teal-400 select-none",
+                    "px-4 py-2.5 text-left text-[10.5px] font-bold text-white uppercase tracking-wider whitespace-nowrap sticky top-0",
+                    col.sortable !== false && "cursor-pointer select-none",
                     col.className
                   )}
                   onClick={() => col.sortable !== false && handleSort(col.key)}
@@ -104,7 +104,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   <span className="flex items-center gap-1">
                     {col.header}
                     {col.sortable !== false && (
-                      <span className="text-slate-600">
+                      <span className="text-white/60">
                         {sortKey === col.key ? (
                           sortDir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />
                         ) : (
@@ -122,7 +122,7 @@ export function DataTable<T extends Record<string, unknown>>({
               <tr>
                 <td
                   colSpan={columns.length}
-                  className="px-4 py-12 text-center text-slate-500"
+                  className="px-4 py-12 text-center text-[#8595a8]"
                 >
                   {emptyMessage}
                 </td>
@@ -133,18 +133,18 @@ export function DataTable<T extends Record<string, unknown>>({
                   key={i}
                   onClick={() => onRowClick?.(row)}
                   className={cn(
-                    "border-b border-slate-700/50 transition-colors",
+                    "border-b border-[#eef3f8] transition-colors",
                     onRowClick && "cursor-pointer",
-                    i % 2 === 0 ? "bg-slate-800/30" : "bg-slate-800/10",
-                    "hover:bg-slate-700/40",
+                    i % 2 === 0 ? "bg-white" : "bg-[#fafcfe]",
+                    "hover:bg-[#e6faf8]",
                     rowClassName?.(row)
                   )}
                 >
                   {columns.map((col) => (
-                    <td key={col.key} className={cn("px-4 py-3 text-slate-200", col.className)}>
+                    <td key={col.key} className={cn("px-4 py-3 text-[#1e2a3a]", col.className)}>
                       {col.render
                         ? col.render(row)
-                        : (row[col.key] as string) ?? <span className="text-slate-500">—</span>}
+                        : (row[col.key] as string) ?? <span className="text-[#8595a8]">—</span>}
                     </td>
                   ))}
                 </tr>
@@ -156,7 +156,7 @@ export function DataTable<T extends Record<string, unknown>>({
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-400">
+          <span className="text-[#697a91]">
             Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, sorted.length)} of{" "}
             {sorted.length}
           </span>
@@ -164,31 +164,31 @@ export function DataTable<T extends Record<string, unknown>>({
             <button
               onClick={() => setPage(1)}
               disabled={page === 1}
-              className="px-2 py-1 rounded bg-slate-700 disabled:opacity-40 hover:bg-slate-600 transition-colors"
+              className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors"
             >
               «
             </button>
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-2 py-1 rounded bg-slate-700 disabled:opacity-40 hover:bg-slate-600 transition-colors"
+              className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors"
             >
               ‹
             </button>
-            <span className="px-3 py-1 rounded bg-teal-800/50 text-teal-300 border border-teal-700">
+            <span className="px-3 py-1 rounded bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df]">
               {page} / {totalPages}
             </span>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="px-2 py-1 rounded bg-slate-700 disabled:opacity-40 hover:bg-slate-600 transition-colors"
+              className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors"
             >
               ›
             </button>
             <button
               onClick={() => setPage(totalPages)}
               disabled={page === totalPages}
-              className="px-2 py-1 rounded bg-slate-700 disabled:opacity-40 hover:bg-slate-600 transition-colors"
+              className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors"
             >
               »
             </button>

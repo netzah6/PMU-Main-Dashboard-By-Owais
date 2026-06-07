@@ -30,29 +30,29 @@ export default function MapPage() {
   return (
     <div className="p-6 space-y-4 h-full flex flex-col">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-white">Client Map — USA</h1>
+        <h1 className="text-lg font-semibold text-[#1f3559]">Client Map — USA</h1>
         {!loading && (
           <div className="flex gap-3 text-xs">
-            <span className="px-2 py-1 bg-slate-800 rounded border border-slate-700 text-slate-300">
+            <span className="px-2 py-1 bg-white rounded border border-[#e4ebf2] text-[#34568a]">
               Total: <strong>{stats.total}</strong>
             </span>
-            <span className="px-2 py-1 bg-emerald-900/30 rounded border border-emerald-700 text-emerald-300">
+            <span className="px-2 py-1 bg-[#e6f7f5] rounded border border-[#a7e3df] text-[#0e8f88]">
               Live: <strong>{stats.live}</strong>
             </span>
-            <span className="px-2 py-1 bg-amber-900/30 rounded border border-amber-700 text-amber-300">
+            <span className="px-2 py-1 bg-[#fff7ec] rounded border border-[#fcd9a8] text-[#d97706]">
               Paused: <strong>{stats.paused}</strong>
             </span>
-            <span className="px-2 py-1 bg-red-900/30 rounded border border-red-700 text-red-300">
+            <span className="px-2 py-1 bg-[#fde8ee] rounded border border-[#f5c2cf] text-[#e11d48]">
               Lost: <strong>{stats.lost}</strong>
             </span>
-            <span className="px-2 py-1 bg-teal-900/30 rounded border border-teal-700 text-teal-300">
+            <span className="px-2 py-1 bg-[#e6f7f5] rounded border border-[#a7e3df] text-[#0e8f88]">
               Mapped: <strong>{stats.mapped}</strong>
             </span>
           </div>
         )}
       </div>
 
-      <div className="flex-1 border border-slate-700 rounded-xl overflow-hidden">
+      <div className="flex-1 border border-[#e4ebf2] rounded-xl overflow-hidden">
         {loading ? (
           <Skeleton className="w-full h-full" />
         ) : (

@@ -25,7 +25,7 @@ export function TabNav() {
 
   return (
     <nav
-      className="flex overflow-x-auto border-b border-slate-700 bg-slate-900 px-2 gap-0 flex-shrink-0"
+      className="flex overflow-x-auto border-b border-[#e4ebf2] bg-white px-2 gap-0 flex-shrink-0"
       style={{ scrollbarWidth: "none" }}
     >
       {TABS.map((tab) => {
@@ -35,10 +35,10 @@ export function TabNav() {
             key={tab.href}
             href={tab.href}
             className={cn(
-              "px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors",
+              "px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors tracking-tight",
               active
-                ? "border-teal-500 text-teal-400"
-                : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-600"
+                ? "border-[#15B7AE] text-[#0e8f88]"
+                : "border-transparent text-[#34568a] hover:text-[#0e8f88] hover:border-[#d7e0ea]"
             )}
           >
             {tab.label}

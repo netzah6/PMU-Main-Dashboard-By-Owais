@@ -4,7 +4,7 @@ export function Skeleton({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "animate-pulse rounded bg-slate-700/60",
+        "animate-pulse rounded bg-[#e4ebf2]/60",
         className
       )}
     />

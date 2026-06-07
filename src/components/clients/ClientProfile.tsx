@@ -130,37 +130,37 @@ export function ClientProfile({
   return (
     <div className="h-full overflow-y-auto">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-10 px-6 pt-5 pb-4 border-b border-slate-700 bg-slate-900">
+      <div className="sticky top-0 z-10 px-6 pt-5 pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-white truncate">{localClient.business_name || "—"}</h2>
-            <p className="text-sm text-slate-400 mt-0.5 truncate">
+            <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
+            <p className="text-sm text-[#697a91] mt-0.5 truncate">
               {localClient.owner_name || "—"}
-              {localClient.ad_account_name && <> · <span className="text-slate-500">{String(localClient.ad_account_name)}</span></>}
+              {localClient.ad_account_name && <> · <span className="text-[#8595a8]">{String(localClient.ad_account_name)}</span></>}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {ghlUrl && (
               <a href={ghlUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-teal-900/40 text-teal-300 border border-teal-700 hover:bg-teal-800/50 transition-colors">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] hover:bg-[#e6f7f5] transition-colors">
                 <MessageSquare size={12} /> GHL
               </a>
             )}
             {canEdit && !editMode && (
               <button onClick={openEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 transition-colors">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e4ebf2] hover:bg-[#dbe5ef] text-[#1e2a3a] border border-[#d7e0ea] transition-colors">
                 <Edit2 size={12} /> Edit Profile
               </button>
             )}
             {canEdit && editMode && (
               <>
                 <button onClick={saveEdit} disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors disabled:opacity-60"
-                  style={{ background: "#00B4A6" }}>
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#1f3559] transition-colors disabled:opacity-60"
+                  style={{ background: "#15B7AE" }}>
                   <Save size={12} /> {saving ? "Saving…" : "Save All"}
                 </button>
                 <button onClick={() => setEditMode(false)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-300 border border-slate-600 transition-colors">
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e4ebf2] hover:bg-[#dbe5ef] text-[#34568a] border border-[#d7e0ea] transition-colors">
                   <X size={12} /> Cancel
                 </button>
               </>
@@ -173,15 +173,15 @@ export function ClientProfile({
           <div className="mt-4 grid grid-cols-2 gap-3">
             {EDIT_FIELDS.map(({ key, label }) => (
               <div key={key}>
-                <label className="block text-xs text-slate-400 mb-1">{label}</label>
+                <label className="block text-xs text-[#697a91] mb-1">{label}</label>
                 {key === "notes" ? (
                   <textarea rows={2} value={editValues[key] ?? ""}
                     onChange={(e) => setEditValues((v) => ({ ...v, [key]: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white focus:outline-none focus:border-teal-500 resize-none col-span-2" />
+                    className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE] resize-none col-span-2" />
                 ) : (
                   <input type="text" value={editValues[key] ?? ""}
                     onChange={(e) => setEditValues((v) => ({ ...v, [key]: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white focus:outline-none focus:border-teal-500" />
+                    className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
                 )}
               </div>
             ))}
@@ -218,9 +218,9 @@ export function ClientProfile({
                 { label: "14-Day", val: perfRecord.leads_14day },
                 { label: "30-Day", val: perfRecord.leads_30day },
               ].map(({ label, val }) => (
-                <div key={label} className="bg-slate-900/60 rounded-lg px-2 py-2 text-center">
-                  <p className="text-sm font-semibold text-teal-300">{String(val ?? "—")}</p>
-                  <p className="text-xs text-slate-500">{label} Leads</p>
+                <div key={label} className="bg-[#f1f5f9] rounded-lg px-2 py-2 text-center">
+                  <p className="text-sm font-semibold text-[#0e8f88]">{String(val ?? "—")}</p>
+                  <p className="text-xs text-[#8595a8]">{label} Leads</p>
                 </div>
               ))}
             </div>
@@ -242,7 +242,7 @@ export function ClientProfile({
         {/* Notes */}
         {localClient.notes && String(localClient.notes).trim() && (
           <Section icon={null} title="Notes">
-            <p className="text-sm text-slate-300 whitespace-pre-line">{String(localClient.notes)}</p>
+            <p className="text-sm text-[#34568a] whitespace-pre-line">{String(localClient.notes)}</p>
           </Section>
         )}
 
@@ -263,9 +263,9 @@ export function ClientProfile({
 
 function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
-    <div className="border border-slate-700 rounded-xl p-4 bg-slate-800/20">
+    <div className="border border-[#e4ebf2] rounded-xl p-4 bg-white/20">
       {title && (
-        <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-[#34568a] mb-3 flex items-center gap-2">
           {icon}
           {title}
         </h3>
@@ -277,9 +277,9 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-slate-900/70 rounded-lg p-3 text-center">
-      <p className="text-lg font-bold text-white">{value}</p>
-      <p className="text-xs text-slate-400 mt-0.5">{label}</p>
+    <div className="bg-[#f1f5f9] rounded-lg p-3 text-center">
+      <p className="text-lg font-bold text-[#1f3559]">{value}</p>
+      <p className="text-xs text-[#697a91] mt-0.5">{label}</p>
     </div>
   );
 }

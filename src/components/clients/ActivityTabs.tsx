@@ -44,7 +44,7 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: A
   return (
     <div>
       {/* Tab headers */}
-      <div className="flex gap-1 border-b border-slate-700 mb-3">
+      <div className="flex gap-1 border-b border-[#e4ebf2] mb-3">
         {TABS.map((tab) => (
           <button
             key={tab}
@@ -52,12 +52,12 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: A
             className={cn(
               "px-3 py-2 text-xs font-medium rounded-t transition-colors",
               activeTab === tab
-                ? "text-teal-400 border-b-2 border-teal-500 -mb-px"
-                : "text-slate-400 hover:text-slate-200"
+                ? "text-[#0e8f88] border-b-2 border-[#15B7AE] -mb-px"
+                : "text-[#697a91] hover:text-[#1e2a3a]"
             )}
           >
             {tab}
-            <span className="ml-1.5 text-xs text-slate-500">
+            <span className="ml-1.5 text-xs text-[#8595a8]">
               ({datasets[tab].length})
             </span>
           </button>
@@ -67,40 +67,40 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: A
       {/* Content */}
       <div className="max-h-52 overflow-y-auto space-y-2 pr-1">
         {current.length === 0 ? (
-          <p className="text-xs text-slate-500 py-4 text-center">No {activeTab.toLowerCase()} found</p>
+          <p className="text-xs text-[#8595a8] py-4 text-center">No {activeTab.toLowerCase()} found</p>
         ) : (
           current.slice(0, 20).map((row, i) => (
             <div
               key={i}
-              className="flex items-center justify-between px-3 py-2 bg-slate-800/50 rounded border border-slate-700/50 text-xs"
+              className="flex items-center justify-between px-3 py-2 bg-white rounded border border-[#e4ebf2] text-xs"
             >
               {activeTab === "Deposits" && (
                 <>
-                  <span className="text-slate-300">{formatDate(String(row.date ?? ""))}</span>
-                  <span className="text-emerald-400 font-medium">
+                  <span className="text-[#34568a]">{formatDate(String(row.date ?? ""))}</span>
+                  <span className="text-[#0e8f88] font-medium">
                     {formatCurrency(String(row.amount ?? ""))}
                   </span>
-                  <span className="text-slate-400">{String(row.status ?? "—")}</span>
+                  <span className="text-[#697a91]">{String(row.status ?? "—")}</span>
                 </>
               )}
               {activeTab === "Bookings" && (
                 <>
-                  <span className="text-slate-300">{formatDate(String(row.date ?? ""))}</span>
-                  <span className="text-slate-200">{String(row.type ?? row.service ?? "—")}</span>
-                  <span className="text-slate-400">{String(row.status ?? "—")}</span>
+                  <span className="text-[#34568a]">{formatDate(String(row.date ?? ""))}</span>
+                  <span className="text-[#1e2a3a]">{String(row.type ?? row.service ?? "—")}</span>
+                  <span className="text-[#697a91]">{String(row.status ?? "—")}</span>
                 </>
               )}
               {activeTab === "Leads" && (
                 <>
-                  <span className="text-slate-300">{String(row.name ?? "—")}</span>
-                  <span className="text-slate-400">{formatDate(String(row.date ?? ""))}</span>
-                  <span className="text-slate-400">{String(row.source ?? "—")}</span>
+                  <span className="text-[#34568a]">{String(row.name ?? "—")}</span>
+                  <span className="text-[#697a91]">{formatDate(String(row.date ?? ""))}</span>
+                  <span className="text-[#697a91]">{String(row.source ?? "—")}</span>
                 </>
               )}
               {activeTab === "Calls" && (
                 <>
-                  <span className="text-slate-300">{formatDate(String(row.date ?? ""))}</span>
-                  <span className="text-slate-400">{String(row.outcome ?? row.notes ?? "—")}</span>
+                  <span className="text-[#34568a]">{formatDate(String(row.date ?? ""))}</span>
+                  <span className="text-[#697a91]">{String(row.outcome ?? row.notes ?? "—")}</span>
                 </>
               )}
             </div>

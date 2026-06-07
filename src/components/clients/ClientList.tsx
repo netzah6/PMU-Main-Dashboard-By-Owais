@@ -57,26 +57,26 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Stats bar */}
-      <div className="px-3 py-2 bg-slate-800/60 border-b border-slate-700 flex gap-3 text-xs">
-        <span className="text-emerald-400 font-medium">{statusCounts.live} Live</span>
-        <span className="text-amber-400">{statusCounts.paused} Paused</span>
-        <span className="text-red-400">{statusCounts.lost} Lost</span>
-        <span className="text-slate-500 ml-auto">{clients.length} total</span>
+      <div className="px-3 py-2 bg-white border-b border-[#e4ebf2] flex gap-3 text-xs">
+        <span className="text-[#0e8f88] font-medium">{statusCounts.live} Live</span>
+        <span className="text-[#d97706]">{statusCounts.paused} Paused</span>
+        <span className="text-[#e11d48]">{statusCounts.lost} Lost</span>
+        <span className="text-[#8595a8] ml-auto">{clients.length} total</span>
       </div>
 
       {/* Search */}
-      <div className="p-3 border-b border-slate-700 space-y-2">
+      <div className="p-3 border-b border-[#e4ebf2] space-y-2">
         <div className="relative">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
           <input
             type="text"
             placeholder="Search clients…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-8 pr-8 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+            className="w-full pl-8 pr-8 py-2 bg-[#eef2f7] border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE] transition-colors"
           />
           {search && (
-            <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+            <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#697a91] hover:text-[#1f3559]">
               <X size={13} />
             </button>
           )}
@@ -85,20 +85,20 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
         {/* Filters */}
         <div className="grid grid-cols-3 gap-1.5">
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs text-slate-300 focus:outline-none focus:border-teal-500">
+            className="px-2 py-1.5 bg-[#eef2f7] border border-[#e4ebf2] rounded text-xs text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
             <option value="All">All Status</option>
             {["Live", "Paused", "Lost", "Offboarded"].map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
           <select value={assignedFilter} onChange={(e) => setAssignedFilter(e.target.value)}
-            className="px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs text-slate-300 focus:outline-none focus:border-teal-500">
+            className="px-2 py-1.5 bg-[#eef2f7] border border-[#e4ebf2] rounded text-xs text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
             {assignedOptions.map((o) => (
               <option key={o} value={o}>{o === "All" ? "All Assigned" : o}</option>
             ))}
           </select>
           <select value={mediaBuyerFilter} onChange={(e) => setMediaBuyerFilter(e.target.value)}
-            className="px-2 py-1.5 bg-slate-900 border border-slate-700 rounded text-xs text-slate-300 focus:outline-none focus:border-teal-500">
+            className="px-2 py-1.5 bg-[#eef2f7] border border-[#e4ebf2] rounded text-xs text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
             {mediaBuyerOptions.map((o) => (
               <option key={o} value={o}>{o === "All" ? "All Buyers" : o}</option>
             ))}
@@ -107,7 +107,7 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
 
         {hasFilters && (
           <button onClick={() => { setSearch(""); setStatusFilter("All"); setAssignedFilter("All"); setMediaBuyerFilter("All"); }}
-            className="text-xs text-teal-400 hover:text-teal-300 flex items-center gap-1">
+            className="text-xs text-[#0e8f88] hover:text-[#0e8f88] flex items-center gap-1">
             <X size={11} /> Clear filters ({filtered.length} showing)
           </button>
         )}
@@ -116,7 +116,7 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
       {/* List */}
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
-          <div className="p-6 text-center text-slate-500 text-sm">No clients match filters</div>
+          <div className="p-6 text-center text-[#8595a8] text-sm">No clients match filters</div>
         ) : (
           filtered.map((c, i) => {
             const id = String(c._id ?? c.row_number ?? i);
@@ -127,20 +127,20 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
                 key={id}
                 onClick={() => onSelect(c)}
                 className={cn(
-                  "w-full text-left px-3 py-3 border-b border-slate-700/40 hover:bg-slate-700/30 transition-colors",
-                  selected && "bg-teal-900/20 border-l-[3px] border-l-teal-500"
+                  "w-full text-left px-3 py-3 border-b border-[#e4ebf2] hover:bg-[#e4ebf2]/30 transition-colors",
+                  selected && "bg-[#e6f7f5] border-l-[3px] border-l-[#15B7AE]"
                 )}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-white truncate leading-tight">
+                    <p className="text-sm font-medium text-[#1f3559] truncate leading-tight">
                       {c.business_name || "Unnamed"}
                     </p>
-                    <p className="text-xs text-slate-400 truncate mt-0.5">
+                    <p className="text-xs text-[#697a91] truncate mt-0.5">
                       {c.owner_name || ""}
                     </p>
                     {(c.assigned || c.version) && (
-                      <p className="text-xs text-slate-600 mt-0.5 truncate">
+                      <p className="text-xs text-[#a6b3c4] mt-0.5 truncate">
                         {[c.assigned, c.version].filter(Boolean).join(" · ")}
                       </p>
                     )}
