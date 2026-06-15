@@ -42,7 +42,8 @@ export default function ReportsPage() {
     const ensure = (k: string) => (map[k] ??= { revenue: 0, leads: 0, bookings: 0, calls: 0, agreements: 0 });
 
     deposits.forEach((d) => {
-      const k = monthKey(String(d["Date"] ?? d.date ?? ""));
+      // The deposits sheet's date column header came through as "f"
+      const k = monthKey(String(d["Date"] ?? d["f"] ?? d.date ?? ""));
       if (k) ensure(k).revenue += num(d["Amount"] ?? d.amount);
     });
     leads.forEach((l) => {

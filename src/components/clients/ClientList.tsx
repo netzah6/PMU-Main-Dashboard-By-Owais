@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react";
 import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
-import { cn } from "@/lib/utils";
+import { cn, userColor } from "@/lib/utils";
 import type { ClientRecord } from "@/lib/types";
 
 interface ClientListProps {
@@ -65,7 +65,7 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
       </div>
 
       {/* Search */}
-      <div className="p-3 border-b border-[#e4ebf2] space-y-2">
+      <div className="p-2 border-b border-[#e4ebf2] space-y-1.5">
         <div className="relative">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
           <input
@@ -127,7 +127,7 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
                 key={id}
                 onClick={() => onSelect(c)}
                 className={cn(
-                  "w-full text-left px-3 py-3 border-b border-[#e4ebf2] hover:bg-[#e4ebf2]/30 transition-colors",
+                  "w-full text-left px-2.5 py-1.5 border-b border-[#eef3f8] hover:bg-[#e4ebf2]/30 transition-colors",
                   selected && "bg-[#e6f7f5] border-l-[3px] border-l-[#15B7AE]"
                 )}
               >
@@ -140,8 +140,17 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
                       {c.owner_name || ""}
                     </p>
                     {(c.assigned || c.version) && (
-                      <p className="text-xs text-[#a6b3c4] mt-0.5 truncate">
-                        {[c.assigned, c.version].filter(Boolean).join(" · ")}
+                      <p className="text-xs mt-0.5 truncate">
+                        {c.assigned && (
+                          <span
+                            className="font-medium"
+                            style={{ color: userColor(String(c.assigned))?.text ?? "#a6b3c4" }}
+                          >
+                            {String(c.assigned)}
+                          </span>
+                        )}
+                        {c.assigned && c.version && <span className="text-[#a6b3c4]"> · </span>}
+                        {c.version && <span className="text-[#a6b3c4]">{String(c.version)}</span>}
                       </p>
                     )}
                   </div>

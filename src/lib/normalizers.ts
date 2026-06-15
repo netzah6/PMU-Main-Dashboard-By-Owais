@@ -3,6 +3,21 @@ type Raw = Record<string, unknown>;
 // ─── helpers ───────────────────────────────────────────────────────────────
 
 /**
+ * Normalize a person's name into a stable join key.
+ * Lowercases, drops parentheticals ("Ashleigh Jones (Anthony Claggett)" → "ashleigh jones"),
+ * strips punctuation, and collapses whitespace. Used to match the financing
+ * sheet's CLIENT NAME against a client's Owner Full Name.
+ */
+export function normalizeOwnerKey(name: unknown): string {
+  return String(name ?? "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
  * Pick the GHL contact ID. Real GHL IDs are ~20-char alphanumeric strings
  * (e.g. "qkgMgY1qoi70oBpvqwQy"). Some sheet columns hold stray integers
  * (e.g. "1679") or are empty — those must be rejected.
@@ -67,7 +82,7 @@ export function normalizeClient(raw: Raw): Raw {
     media_buyer: raw["Media Buyer"] ?? raw.media_buyer ?? "",
     version: raw["Version"] ?? raw.version ?? "",
     p: raw["p"] ?? raw["Monthly Price"] ?? raw.monthly_price ?? "",
-    ad_account_name: raw["Ad Account Name"] ?? raw.ad_account_name ?? "",
+    ad_account_name: raw["Ad account Name"] ?? raw["Ad Account Name"] ?? raw.ad_account_name ?? "",
     _id2: pickGhlId(raw),
     lat: raw["lat"] ?? raw.lat ?? "",
     lng: raw["lng"] ?? raw.lng ?? "",
@@ -126,7 +141,8 @@ export function normalizeDeposit(raw: Raw): Raw {
   return {
     ...raw,
     client_name: raw["Business Name"] ?? raw.client_name ?? "",
-    date: raw["Date"] ?? raw.date ?? "",
+    // The deposits sheet's date column header came through as "f"
+    date: raw["Date"] ?? raw["f"] ?? raw.date ?? "",
     amount: raw["Amount"] ?? raw.amount ?? "",
     status: raw["Status"] ?? raw.status ?? "",
     notes: raw["Notes"] ?? raw.notes ?? "",

@@ -2,6 +2,7 @@
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { AutoTable } from "@/components/ui/AutoTable";
+import { sortNewestFirst } from "@/lib/utils";
 import { Search } from "lucide-react";
 
 export default function BookingsPage() {
@@ -11,14 +12,14 @@ export default function BookingsPage() {
   const [dateTo, setDateTo] = useState("");
 
   const filtered = useMemo(() => {
-    return data.filter((r) => {
+    return sortNewestFirst(data.filter((r) => {
       const text = `${r["Business Name"] ?? ""} ${r["Full Name"] ?? ""}`.toLowerCase();
       const date = String(r["Date"] ?? r.date ?? "");
       if (search && !text.includes(search.toLowerCase())) return false;
       if (dateFrom && date && date < dateFrom) return false;
       if (dateTo && date && date > dateTo) return false;
       return true;
-    });
+    }));
   }, [data, search, dateFrom, dateTo]);
 
   return (

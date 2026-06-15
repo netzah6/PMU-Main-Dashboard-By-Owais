@@ -184,7 +184,8 @@ export const SHEET_MAP: Array<{
   { spreadsheetId: process.env.SHEET3_ID!, sheetName: "Add Data - Tracking",      table: "performance_tracking", fallbackIndex: 0 },
   { spreadsheetId: process.env.SHEET4_ID!, sheetName: "7 Days CPL",               table: "cpl_7days",            fallbackIndex: 0 },
   { spreadsheetId: process.env.SHEET4_ID!, sheetName: "14 Days CPL",              table: "cpl_14days",           fallbackIndex: 1 },
-  { spreadsheetId: process.env.SHEET4_ID!, sheetName: "All Time Campaign Budget", table: "campaign_spent",       fallbackIndex: 2 },
+  { spreadsheetId: process.env.SHEET4_ID!, sheetName: "30 Days CPL",              table: "cpl_30days",           fallbackIndex: 2 },
+  { spreadsheetId: process.env.SHEET4_ID!, sheetName: "All Time Campaign Budget", table: "campaign_spent",       fallbackIndex: 3 },
 ];
 
 export function getSheetEntryForTable(table: string) {

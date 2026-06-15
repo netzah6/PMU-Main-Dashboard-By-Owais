@@ -8,6 +8,23 @@ interface GhlNotesProps {
   contactId: string;
 }
 
+// GHL note bodies arrive as HTML (e.g. <p style="...">). Strip tags/entities
+// so notes read clean and simple.
+function cleanNote(raw: string): string {
+  return String(raw ?? "")
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function GhlNotes({ contactId }: GhlNotesProps) {
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState<GhlNote[]>([]);
@@ -72,7 +89,7 @@ export function GhlNotes({ contactId }: GhlNotesProps) {
                 {formatDate(note.dateAdded)}
               </p>
               <p className="text-sm text-[#1e2a3a] whitespace-pre-line leading-relaxed">
-                {note.body}
+                {cleanNote(note.body)}
               </p>
             </div>
           ))}

@@ -1,7 +1,8 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
-import { AutoTable } from "@/components/ui/AutoTable";
+import { DataTable, Column } from "@/components/ui/DataTable";
+import { formatDate, sortNewestFirst } from "@/lib/utils";
 import { Search } from "lucide-react";
 
 export default function AgreementsPage() {
@@ -9,11 +10,39 @@ export default function AgreementsPage() {
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
-    if (!search) return data;
-    return data.filter((r) =>
-      `${r["Full Name"] ?? ""} ${r["Email"] ?? ""}`.toLowerCase().includes(search.toLowerCase())
-    );
+    const rows = search
+      ? data.filter((r) =>
+          `${r["Full Name"] ?? ""} ${r["Email"] ?? ""}`.toLowerCase().includes(search.toLowerCase())
+        )
+      : data;
+    return sortNewestFirst(rows);
   }, [data, search]);
+
+  const columns = useMemo<Column<Record<string, unknown>>[]>(
+    () => [
+      {
+        key: "Signed Date",
+        header: "Sign Date",
+        render: (r) => {
+          const raw = String(r["Signed Date"] ?? r["Date"] ?? r.date ?? "");
+          return raw ? formatDate(raw) : <span className="text-[#a6b3c4]">—</span>;
+        },
+      },
+      {
+        key: "Full Name",
+        header: "Full Name",
+        render: (r) => {
+          const name = String(r["Full Name"] ?? r.name ?? "");
+          return name ? (
+            <span className="font-medium text-[#1f3559]">{name}</span>
+          ) : (
+            <span className="text-[#a6b3c4]">—</span>
+          );
+        },
+      },
+    ],
+    []
+  );
 
   return (
     <div className="p-6 space-y-4">
@@ -27,7 +56,14 @@ export default function AgreementsPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-8 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE]" />
       </div>
-      <AutoTable data={filtered} loading={loading} error={error} exportFilename="agreements.csv" />
+      <DataTable
+        columns={columns}
+        data={filtered}
+        loading={loading}
+        error={error}
+        exportFilename="agreements.csv"
+        emptyMessage="No agreements — run a sync from the Sync page"
+      />
     </div>
   );
 }

@@ -12,9 +12,7 @@ const TABS = [
   { label: "Leads", href: "/leads" },
   { label: "Calls", href: "/calls" },
   { label: "Agreements", href: "/agreements" },
-  { label: "CPL 7 Days", href: "/cpl-7days" },
-  { label: "CPL 14 Days", href: "/cpl-14days" },
-  { label: "Budget", href: "/budget" },
+  // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "LTV", href: "/ltv" },
   { label: "Map", href: "/map" },
   { label: "Reports", href: "/reports" },

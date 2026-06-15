@@ -1,13 +1,13 @@
 "use client";
-import { useState, useCallback } from "react";
-import { Edit2, Save, X, MessageSquare, TrendingUp } from "lucide-react";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { GhlNotes } from "./GhlNotes";
 import { StepTracker } from "./StepTracker";
 import { ActivityTabs } from "./ActivityTabs";
-import { formatCurrency, formatPercent } from "@/lib/utils";
-import type { ClientRecord, UserRole } from "@/lib/types";
+import { formatCurrency, formatPercent, userColor } from "@/lib/utils";
+import type { ClientRecord, PaymentRecord, UserRole } from "@/lib/types";
 
 interface ClientProfileProps {
   client: ClientRecord;
@@ -17,6 +17,7 @@ interface ClientProfileProps {
   leads: Record<string, unknown>[];
   calls: Record<string, unknown>[];
   performance: Record<string, unknown>[];
+  payment?: PaymentRecord | null;
   onUpdate?: (updated: ClientRecord) => void;
 }
 
@@ -34,12 +35,24 @@ const EDIT_FIELDS = [
 const GHL_LOCATION = process.env.NEXT_PUBLIC_GHL_LOCATION_ID ?? "SfpNMJ5YU9lBkxss47lK";
 
 export function ClientProfile({
-  client, role, deposits, bookings, leads, calls, performance, onUpdate,
+  client, role, deposits, bookings, leads, calls, performance, payment, onUpdate,
 }: ClientProfileProps) {
   const [localClient, setLocalClient] = useState<ClientRecord>(client);
   const [editMode, setEditMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const payRef = useRef<HTMLDivElement>(null);
+
+  // Close the payment popover on outside click
+  useEffect(() => {
+    if (!showPayment) return;
+    function onClick(e: MouseEvent) {
+      if (payRef.current && !payRef.current.contains(e.target as Node)) setShowPayment(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [showPayment]);
 
   const canEdit = role === "admin" || role === "editor";
   const ghlContactId = String(localClient._id2 ?? "");
@@ -52,6 +65,13 @@ export function ClientProfile({
   const perfRecord = performance.find(
     (p) => String(p.client_name ?? "").toLowerCase() === String(localClient.business_name ?? "").toLowerCase()
   ) as Record<string, unknown> | undefined;
+
+  // Price comes from the financing sheet's latest month (client_payments).
+  // Fall back to the clients sheet "p" column if there's no payment record.
+  const hasPayment = payment?.usd != null;
+  const priceDisplay = hasPayment
+    ? formatCurrency(String(payment!.usd))
+    : formatCurrency(String(localClient.p ?? ""));
 
   // ── Edit panel ──────────────────────────────────────────────────────────
   function openEdit() {
@@ -102,7 +122,7 @@ export function ClientProfile({
   }, [rowNumber, localClient, editValues, client, onUpdate]);
 
   // ── Step tracker save ────────────────────────────────────────────────────
-  const saveStep = useCallback(async (stepIndex: number, key: string, value: boolean) => {
+  const saveStep = useCallback(async (stepIndex: number, key: string, value: boolean | string) => {
     if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
     // key is the actual field name e.g. "Launch Call", "A2P Verified" etc.
     const updated: ClientRecord = {
@@ -118,7 +138,10 @@ export function ClientProfile({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
-      toast.success(`Step ${stepIndex + 1} ${value ? "checked" : "unchecked"}`);
+      const msg = typeof value === "boolean"
+        ? `${key} ${value ? "checked" : "unchecked"}`
+        : `${key} updated`;
+      toast.success(msg);
       onUpdate?.(updated);
     } catch (e) {
       toast.error(`Failed: ${e}`);
@@ -143,7 +166,7 @@ export function ClientProfile({
             {ghlUrl && (
               <a href={ghlUrl} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] hover:bg-[#e6f7f5] transition-colors">
-                <MessageSquare size={12} /> GHL
+                <MessageSquare size={12} /> Click To Chat
               </a>
             )}
             {canEdit && !editMode && (
@@ -192,16 +215,79 @@ export function ClientProfile({
               Status: <strong className="ml-1">{localClient.status || "—"}</strong>
             </Badge>
             <Badge variant="gray">Campaign: <strong className="ml-1">{localClient.campaign_status || "—"}</strong></Badge>
-            <Badge variant="teal">Price: <strong className="ml-1">{formatCurrency(String(localClient.p ?? ""))}</strong></Badge>
-            <Badge variant="blue">Assigned: <strong className="ml-1">{localClient.assigned || "—"}</strong></Badge>
-            <Badge variant="gray">Media Buyer: <strong className="ml-1">{localClient.media_buyer || "—"}</strong></Badge>
-            <Badge variant="gray">v: <strong className="ml-1">{localClient.version || "—"}</strong></Badge>
+            {payment ? (
+              <div className="relative" ref={payRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowPayment((s) => !s)}
+                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d4f1ee] transition-colors cursor-pointer"
+                >
+                  Price: <strong className="ml-1">{priceDisplay}</strong>
+                  {payment.month && <span className="ml-1 font-normal opacity-70">({payment.month})</span>}
+                  <ChevronDown size={12} className={`ml-1 transition-transform ${showPayment ? "rotate-180" : ""}`} />
+                </button>
+
+                {showPayment && (
+                  <div className="absolute left-0 top-full mt-2 z-30 w-72 bg-white border border-[#e4ebf2] rounded-xl p-3 text-left"
+                    style={{ boxShadow: "var(--shadow-md)" }}>
+                    <p className="text-xs font-semibold text-[#34568a] mb-2">
+                      Payment{payment.month ? ` — ${payment.month}` : ""}
+                    </p>
+                    <div className="space-y-1.5 text-xs">
+                      <PayRow label="Status">
+                        <span className={`font-semibold ${paymentStatusColor(payment.payment_status)}`}>
+                          {payment.payment_status || "—"}
+                        </span>
+                      </PayRow>
+                      <PayRow label="Date of Payment">{payment.pay_day || "—"}</PayRow>
+                      <PayRow label="Billing">{payment.billing_status || "—"}</PayRow>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-[#eef3f8]">
+                      <p className="text-xs text-[#697a91] mb-1">Notes</p>
+                      <p className="text-xs text-[#34568a] whitespace-pre-line">
+                        {payment.notes && payment.notes.trim()
+                          ? payment.notes
+                          : <span className="text-[#a6b3c4]">No payment notes</span>}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Badge variant="teal">Price: <strong className="ml-1">{priceDisplay}</strong></Badge>
+            )}
+            <UserChip label="Assigned" name={String(localClient.assigned ?? "")} />
+            <UserChip label="Media Buyer" name={String(localClient.media_buyer ?? "")} />
+            {(() => {
+              const v = String(localClient.version ?? "");
+              const vs = versionStyle(v);
+              return (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border"
+                  style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>
+                  Version: <strong className="ml-1">{v || "—"}</strong>
+                </span>
+              );
+            })()}
           </div>
         )}
       </div>
 
       {/* ── Body ── */}
       <div className="px-6 py-4 space-y-5">
+
+        {/* GHL Notes (top) */}
+        {ghlContactId && <GhlNotes contactId={ghlContactId} />}
+
+        {/* Activity */}
+        <Section icon={null} title="Activity — Deposits, Bookings, Leads & Calls">
+          <ActivityTabs
+            clientName={String(localClient.business_name ?? "")}
+            deposits={deposits}
+            bookings={bookings}
+            leads={leads}
+            calls={calls}
+          />
+        </Section>
 
         {/* Performance stats */}
         {perfRecord && (
@@ -227,9 +313,6 @@ export function ClientProfile({
           </Section>
         )}
 
-        {/* GHL Notes */}
-        {ghlContactId && <GhlNotes contactId={ghlContactId} />}
-
         {/* 7-Step tracker */}
         <Section icon={null} title="">
           <StepTracker
@@ -239,6 +322,9 @@ export function ClientProfile({
           />
         </Section>
 
+        {/* All business & client details from the Master Sheet */}
+        <ClientDetails client={localClient} />
+
         {/* Notes */}
         {localClient.notes && String(localClient.notes).trim() && (
           <Section icon={null} title="Notes">
@@ -246,16 +332,6 @@ export function ClientProfile({
           </Section>
         )}
 
-        {/* Activity */}
-        <Section icon={null} title="Activity">
-          <ActivityTabs
-            clientName={String(localClient.business_name ?? "")}
-            deposits={deposits}
-            bookings={bookings}
-            leads={leads}
-            calls={calls}
-          />
-        </Section>
       </div>
     </div>
   );
@@ -263,7 +339,7 @@ export function ClientProfile({
 
 function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
-    <div className="border border-[#e4ebf2] rounded-xl p-4 bg-white/20">
+    <div className="border border-[#e4ebf2] rounded-xl p-4 bg-white">
       {title && (
         <h3 className="text-sm font-semibold text-[#34568a] mb-3 flex items-center gap-2">
           {icon}
@@ -273,6 +349,111 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
       {children}
     </div>
   );
+}
+
+function UserChip({ label, name }: { label: string; name: string }) {
+  const c = userColor(name);
+  const style = c
+    ? { background: c.bg, color: c.text, borderColor: c.border }
+    : { background: "#f1f5f9", color: "#64748b", borderColor: "#d7e0ea" };
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border"
+      style={style}
+    >
+      {label}: <strong className="ml-1">{name || "—"}</strong>
+    </span>
+  );
+}
+
+function PayRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-[#697a91]">{label}</span>
+      <span className="text-[#1f3559] text-right">{children}</span>
+    </div>
+  );
+}
+
+// Keys hidden from the details grid: internal/meta, normalized aliases, header
+// fields, and onboarding-step fields (already shown in the tracker).
+const DETAIL_EXCLUDE = new Set<string>([
+  "_id", "_id2", "_row_number", "_supabase_id", "row_number", "lat", "lng",
+  "business_name", "owner_name", "status", "campaign_status", "assigned",
+  "media_buyer", "version", "p", "ad_account_name", "notes",
+  // Original sheet keys already shown in the header badges
+  "Business Name", "Owner Full Name", "Assigned", "Media Buyer", "Version",
+  "Campaign Status", "Monthly Price",
+  "Launch Call", "A2P Verified", "FB Group", "Group Call", "Sync Schedule",
+  "UNSUBSCRIBE Removed", "Agreement", "AI Agent Access", "Instagram Widget",
+]);
+
+function isEmptyVal(v: unknown): boolean {
+  return v === null || v === undefined || String(v).trim() === "";
+}
+
+function DetailValue({ value }: { value: unknown }) {
+  const s = String(value).trim();
+  if (value === true || s === "true" || s === "TRUE") return <p className="text-sm text-[#0e8f88] font-medium">Yes</p>;
+  if (value === false || s === "false" || s === "FALSE") return <p className="text-sm text-[#697a91]">No</p>;
+  if (/^https?:\/\//i.test(s)) {
+    return (
+      <a href={s} target="_blank" rel="noopener noreferrer" className="text-sm text-[#0e8f88] underline break-all">
+        {s}
+      </a>
+    );
+  }
+  return <p className="text-sm text-[#1f3559] break-words whitespace-pre-line">{s}</p>;
+}
+
+function ClientDetails({ client }: { client: ClientRecord }) {
+  const [open, setOpen] = useState(true);
+  const entries = Object.entries(client).filter(
+    ([k, v]) => !DETAIL_EXCLUDE.has(k) && !/^col_\d+$/.test(k) && !isEmptyVal(v)
+  );
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="border border-[#e4ebf2] rounded-xl bg-white">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-3"
+      >
+        <h3 className="text-sm font-semibold text-[#34568a]">
+          Business &amp; Client Details
+          <span className="ml-2 text-xs font-normal text-[#8595a8]">({entries.length})</span>
+        </h3>
+        <ChevronDown size={16} className={`text-[#697a91] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
+          {entries.map(([k, v]) => (
+            <div key={k} className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{k}</p>
+              <DetailValue value={v} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function versionStyle(v: string): { bg: string; text: string; border: string } {
+  const u = v.toLowerCase();
+  if (u.includes("not interested")) return { bg: "#fde8ee", text: "#e11d48", border: "#f5c2cf" };
+  if (u.includes("v2.3") || u.includes("v2.2")) return { bg: "#f3e8ff", text: "#7e22ce", border: "#e3cffb" }; // purple
+  if (u.includes("v3")) return { bg: "#1d4ed8", text: "#ffffff", border: "#1d4ed8" }; // blue
+  if (u.includes("v2")) return { bg: "#dcf5e0", text: "#15803d", border: "#bce6c8" }; // green
+  return { bg: "#f1f5f9", text: "#64748b", border: "#d7e0ea" }; // V1 / other / empty
+}
+
+function paymentStatusColor(status: string | undefined): string {
+  const s = (status ?? "").toLowerCase();
+  if (s.includes("paid")) return "text-[#0e8f88]";
+  if (s.includes("pending") || s.includes("grace")) return "text-[#d97706]";
+  if (s.includes("attention") || s.includes("overdue") || s.includes("late")) return "text-[#e11d48]";
+  return "text-[#1f3559]";
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {

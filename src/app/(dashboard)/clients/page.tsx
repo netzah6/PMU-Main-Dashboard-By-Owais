@@ -1,15 +1,33 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { useUser } from "@/lib/hooks/useUser";
+import { createClient } from "@/lib/supabase/client";
 import { ClientList } from "@/components/clients/ClientList";
 import { ClientProfile } from "@/components/clients/ClientProfile";
 import { Skeleton } from "@/components/ui/Skeleton";
 import {
   normalizeClient, normalizeDeposit, normalizeBooking,
-  normalizeLead, normalizeCall, normalizePerformance,
+  normalizeLead, normalizeCall, normalizePerformance, normalizeOwnerKey,
 } from "@/lib/normalizers";
-import type { ClientRecord } from "@/lib/types";
+import type { ClientRecord, PaymentRecord } from "@/lib/types";
+
+// Load the latest-month payments (keyed by normalized owner name) from the
+// financing sheet snapshot in client_payments.
+function usePayments() {
+  const [map, setMap] = useState<Map<string, PaymentRecord>>(new Map());
+  useEffect(() => {
+    const supabase = createClient();
+    (async () => {
+      const { data } = await supabase
+        .from("client_payments")
+        .select("owner_key, client_name, usd, payment_status, billing_status, pay_day, notes, month");
+      if (!data) return;
+      setMap(new Map((data as PaymentRecord[]).map((p) => [p.owner_key, p])));
+    })();
+  }, []);
+  return map;
+}
 
 export default function ClientsPage() {
   const { role } = useUser();
@@ -30,12 +48,18 @@ export default function ClientsPage() {
   const calls = useMemo(() => rawCalls.map(normalizeCall), [rawCalls]);
   const performance = useMemo(() => rawPerformance.map(normalizePerformance), [rawPerformance]);
 
+  const payments = usePayments();
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
+
+  const selectedPayment = useMemo(
+    () => (selectedClient ? payments.get(normalizeOwnerKey(selectedClient.owner_name)) ?? null : null),
+    [selectedClient, payments]
+  );
 
   return (
     <div className="flex h-full">
-      {/* Left Panel — 30% */}
-      <div className="w-[30%] min-w-[260px] border-r border-[#e4ebf2] flex flex-col h-full">
+      {/* Left Panel */}
+      <div className="w-[22%] min-w-[200px] max-w-[300px] border-r border-[#e4ebf2] flex flex-col h-full">
         {loadingClients ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -68,6 +92,7 @@ export default function ClientsPage() {
             leads={leads}
             calls={calls}
             performance={performance}
+            payment={selectedPayment}
             onUpdate={(updated) => setSelectedClient(updated)}
           />
         ) : (

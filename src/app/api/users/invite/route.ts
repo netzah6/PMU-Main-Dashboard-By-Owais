@@ -35,14 +35,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: inviteError.message }, { status: 500 });
   }
 
-  // Create role record
+  // Create role record — conflict on user_id (the unique key) so re-invites
+  // update instead of failing on the default primary-key target.
   const { error: roleError } = await adminClient
     .from("user_roles")
-    .upsert({
-      user_id: inviteData.user.id,
-      email,
-      role,
-    });
+    .upsert(
+      {
+        user_id: inviteData.user.id,
+        email,
+        role,
+      },
+      { onConflict: "user_id" }
+    );
 
   if (roleError) {
     return NextResponse.json({ error: roleError.message }, { status: 500 });

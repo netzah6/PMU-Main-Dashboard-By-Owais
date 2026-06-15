@@ -42,9 +42,20 @@ export function DataTable<T extends Record<string, unknown>>({
   const sorted = useMemo(() => {
     if (!sortKey) return data;
     return [...data].sort((a, b) => {
-      const av = String(a[sortKey] ?? "");
-      const bv = String(b[sortKey] ?? "");
-      return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+      const av = a[sortKey];
+      const bv = b[sortKey];
+      const as = String(av ?? "").trim();
+      const bs = String(bv ?? "").trim();
+      // Numeric sort when both values are numbers (ignoring $, commas, %)
+      const an = parseFloat(as.replace(/[$,%\s]/g, ""));
+      const bn = parseFloat(bs.replace(/[$,%\s]/g, ""));
+      const bothNumeric = as !== "" && bs !== "" && !isNaN(an) && !isNaN(bn);
+      let cmp: number;
+      if (bothNumeric) cmp = an - bn;
+      else if (as === "" && bs !== "") cmp = 1;   // empties last
+      else if (as !== "" && bs === "") cmp = -1;
+      else cmp = as.localeCompare(bs);
+      return sortDir === "asc" ? cmp : -cmp;
     });
   }, [data, sortKey, sortDir]);
 

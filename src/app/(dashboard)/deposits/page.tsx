@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { AutoTable } from "@/components/ui/AutoTable";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, sortNewestFirst } from "@/lib/utils";
 import { Search } from "lucide-react";
 
 export default function DepositsPage() {
@@ -12,14 +12,14 @@ export default function DepositsPage() {
   const [dateTo, setDateTo] = useState("");
 
   const filtered = useMemo(() => {
-    return data.filter((r) => {
+    return sortNewestFirst(data.filter((r) => {
       const name = String(r["Business Name"] ?? r.client_name ?? "").toLowerCase();
       const date = String(r["Date"] ?? r.date ?? "");
       if (search && !name.includes(search.toLowerCase())) return false;
       if (dateFrom && date && date < dateFrom) return false;
       if (dateTo && date && date > dateTo) return false;
       return true;
-    });
+    }));
   }, [data, search, dateFrom, dateTo]);
 
   const total = useMemo(() => filtered.reduce((s, r) => {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncAllSheets } from "@/lib/sync";
+import { syncPayments } from "@/lib/payments";
 
 export const maxDuration = 300; // Vercel: allow up to 5 min for full sync
 
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
   }
 
   const results = await syncAllSheets();
+  const payments = await syncPayments();
 
   const errors = results.filter((r) => r.status === "error");
   const totalSynced = results.reduce((s, r) => s + r.supabaseRowsAfter, 0);
@@ -22,6 +24,7 @@ export async function GET(req: NextRequest) {
     timestamp: new Date().toISOString(),
     totalSynced,
     results,
+    payments,
     errors: errors.length,
   });
 }
@@ -53,9 +56,11 @@ export async function POST(req: NextRequest) {
 
   // Sync all
   const results = await syncAllSheets();
+  const payments = await syncPayments();
   return NextResponse.json({
     timestamp: new Date().toISOString(),
     results,
+    payments,
     errors: results.filter((r) => r.status === "error").length,
   });
 }

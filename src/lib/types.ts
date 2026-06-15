@@ -148,6 +148,17 @@ export interface LtvSheet2Record {
   [key: string]: unknown;
 }
 
+export interface PaymentRecord {
+  owner_key: string;
+  client_name?: string;
+  usd?: number | null;
+  payment_status?: string;
+  billing_status?: string;
+  pay_day?: string;
+  notes?: string;
+  month?: string;
+}
+
 export interface GhlNote {
   id: string;
   body: string;

@@ -2,6 +2,7 @@
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { AutoTable } from "@/components/ui/AutoTable";
+import { sortNewestFirst } from "@/lib/utils";
 import { Search } from "lucide-react";
 
 export default function CallsPage() {
@@ -9,10 +10,12 @@ export default function CallsPage() {
   const [search, setSearch] = useState("");
 
   const filtered = useMemo(() => {
-    if (!search) return data;
-    return data.filter((r) =>
-      `${r["Business Name"] ?? ""} ${r["Full Name"] ?? ""}`.toLowerCase().includes(search.toLowerCase())
-    );
+    const rows = search
+      ? data.filter((r) =>
+          `${r["Business Name"] ?? ""} ${r["Full Name"] ?? ""}`.toLowerCase().includes(search.toLowerCase())
+        )
+      : data;
+    return sortNewestFirst(rows);
   }, [data, search]);
 
   return (

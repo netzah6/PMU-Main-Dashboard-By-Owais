@@ -2,6 +2,7 @@
 import { useState, useMemo } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { AutoTable } from "@/components/ui/AutoTable";
+import { sortNewestFirst } from "@/lib/utils";
 import { Search } from "lucide-react";
 
 type DateRange = "7" | "14" | "30" | "all";
@@ -13,7 +14,7 @@ export default function LeadsPage() {
 
   const filtered = useMemo(() => {
     const now = new Date();
-    return data.filter((r) => {
+    return sortNewestFirst(data.filter((r) => {
       const text = `${r["Full Name"] ?? ""} ${r["Email"] ?? ""} ${r["Business Name"] ?? ""}`.toLowerCase();
       if (search && !text.includes(search.toLowerCase())) return false;
       if (dateRange !== "all") {
@@ -22,7 +23,7 @@ export default function LeadsPage() {
         if (isNaN(diff) || diff > parseInt(dateRange)) return false;
       }
       return true;
-    });
+    }));
   }, [data, search, dateRange]);
 
   return (
