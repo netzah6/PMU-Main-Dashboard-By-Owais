@@ -38,3 +38,6 @@ next-env.d.ts
 # Secret env files (contain real keys — never commit)
 env.download
 .env
+
+# GHL sub-account keys mapping (secrets — never commit)
+ghl-subaccounts.json

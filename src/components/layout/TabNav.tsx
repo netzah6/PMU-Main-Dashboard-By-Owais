@@ -7,6 +7,7 @@ const TABS = [
   { label: "Overview", href: "/overview" },
   { label: "Clients", href: "/clients" },
   { label: "Performance", href: "/performance" },
+  { label: "Cost / Deposit", href: "/cost-per-deposit" },
   { label: "Deposits", href: "/deposits" },
   { label: "Bookings", href: "/bookings" },
   { label: "Leads", href: "/leads" },
