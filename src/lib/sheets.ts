@@ -174,6 +174,7 @@ export const SHEET_MAP: Array<{
   fallbackIndex: number;
 }> = [
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Clients Master",           table: "clients_master",       fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "V3",                       table: "v3_pricing",           fallbackIndex: 2 },
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Leads Master",             table: "leads_master",         fallbackIndex: 1 },
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Deposits",                 table: "deposits",             fallbackIndex: 2 },
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Outgoing Call Master",     table: "outgoing_calls",       fallbackIndex: 3 },

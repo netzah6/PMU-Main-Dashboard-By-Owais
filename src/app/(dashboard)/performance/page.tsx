@@ -213,6 +213,8 @@ export default function PerformancePage() {
       const ss = shortStatus(r.campaign_status);
       if (statusFilter === UNSETTLED_EMPTY) {
         if (!(ss === "UNSETTLED" || ss === "—")) return false;
+        // Unsettled/no-status should surface active clients only, not paused ones.
+        if (String(r.client_status ?? "").toLowerCase() === "paused") return false;
       } else if (statusFilter !== "All" && ss !== statusFilter) {
         return false;
       }
