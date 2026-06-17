@@ -41,10 +41,14 @@ for (const row of rows.slice(1)) {
     const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, { headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" } });
     if (!r.ok) { failed++; console.log("  fetch fail", ownerKey, r.status); continue; }
     const j = await r.json();
-    const match = (j.customValues || []).find((v) => { const n = String(v.name ?? "").toLowerCase().replace(/[^a-z]/g, ""); return n === "ccoffer" || n.includes("ccoffer"); });
-    const offer = match ? String(match.value ?? "") : "";
-    await sb.from("client_offers").upsert({ owner_key: ownerKey, offer, updated_at: new Date().toISOString() }, { onConflict: "owner_key" });
-    kept.push(ownerKey); ok++; console.log("  OK", ownerKey, "->", offer.slice(0, 45));
+    const cvs = j.customValues || [];
+    const cv = (needle) => { const hit = cvs.find((v) => String(v.name ?? "").toLowerCase().replace(/[^a-z]/g, "").includes(needle)); return hit ? String(hit.value ?? "") : ""; };
+    const offer = cv("ccoffer");
+    const depositAmount = cv("ccdepositamount");
+    const originalPrice = cv("ccoriginalprice");
+    const discountedPrice = cv("ccdiscountedprice");
+    await sb.from("client_offers").upsert({ owner_key: ownerKey, offer, deposit_amount: depositAmount, original_price: originalPrice || null, discounted_price: discountedPrice || null, updated_at: new Date().toISOString() }, { onConflict: "owner_key" });
+    kept.push(ownerKey); ok++; console.log("  OK", ownerKey, "| orig", originalPrice || "—", "| disc", discountedPrice || "—", "| dep", depositAmount || "—");
   } catch (e) { failed++; console.log("  ERR", ownerKey, String(e)); }
 }
 const { data: existing } = await sb.from("client_offers").select("owner_key");

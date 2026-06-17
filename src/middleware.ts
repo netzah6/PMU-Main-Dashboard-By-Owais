@@ -31,8 +31,11 @@ export async function middleware(request: NextRequest) {
 
   const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
   const isApiRoute = request.nextUrl.pathname.startsWith("/api");
+  // The invite/recovery callback must run while the user is still unauthenticated
+  // (it's what creates the session), so it can't be gated behind the login redirect.
+  const isAuthCallback = request.nextUrl.pathname.startsWith("/auth");
 
-  if (!user && !isAuthRoute && !isApiRoute) {
+  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

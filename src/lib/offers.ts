@@ -76,13 +76,24 @@ export async function refreshOffers(): Promise<OfferRefreshResult> {
         if (!r.ok) { failed++; continue; }
         const j = await r.json();
         const cvs: { name?: string; value?: string }[] = j.customValues ?? [];
-        const match = cvs.find((v) => {
-          const n = String(v.name ?? "").toLowerCase().replace(/[^a-z]/g, "");
-          return n === "ccoffer" || n.includes("ccoffer");
-        });
-        const offer = match ? String(match.value ?? "") : "";
+        // Find a custom value by normalized-name substring (strips "CC - ", spaces, emoji).
+        const cv = (needle: string) => {
+          const hit = cvs.find((v) => String(v.name ?? "").toLowerCase().replace(/[^a-z]/g, "").includes(needle));
+          return hit ? String(hit.value ?? "") : "";
+        };
+        const offer = cv("ccoffer");
+        const depositAmount = cv("ccdepositamount");
+        const originalPrice = cv("ccoriginalprice");
+        const discountedPrice = cv("ccdiscountedprice");
         await supabase.from("client_offers").upsert(
-          { owner_key: ownerKey, offer, updated_at: new Date().toISOString() },
+          {
+            owner_key: ownerKey,
+            offer,
+            deposit_amount: depositAmount,
+            original_price: originalPrice || null,
+            discounted_price: discountedPrice || null,
+            updated_at: new Date().toISOString(),
+          },
           { onConflict: "owner_key" }
         );
         ok++;
