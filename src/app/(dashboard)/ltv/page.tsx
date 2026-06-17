@@ -1,6 +1,8 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTableData } from "@/lib/hooks/useTableData";
+import { useUser } from "@/lib/hooks/useUser";
 import { DataTable, Column } from "@/components/ui/DataTable";
 import { cn, formatCurrency, formatDate, formatPercent, sortNewestFirst } from "@/lib/utils";
 import { Search } from "lucide-react";
@@ -33,6 +35,12 @@ interface ClientLtv { name: string; signed: string; ltv: number }
 
 export default function LtvPage() {
   const [activeTab, setActiveTab] = useState<"payments" | "summary">("payments");
+  // LTV is admin-only — bounce anyone else who reaches this URL directly.
+  const { role, loading: roleLoading } = useUser();
+  const router = useRouter();
+  useEffect(() => {
+    if (!roleLoading && role !== "admin") router.replace("/overview");
+  }, [roleLoading, role, router]);
   const { data: payments, loading: lp, error: ep } = useTableData<Record<string, unknown>>({ table: "ltv_sheet1" });
   const { data: summary, loading: ls, error: es } = useTableData<Record<string, unknown>>({ table: "ltv_sheet2" });
   const [search, setSearch] = useState("");
@@ -120,6 +128,9 @@ export default function LtvPage() {
     { key: "signed", header: "Name (Signed Up)", render: (r) => (r.signed ? String(r.signed) : <span className="text-[#a6b3c4]">—</span>) },
     { key: "ltv", header: "Lifetime Value", render: (r) => <span className="font-semibold text-[#0e8f88]">{formatCurrency(Number(r.ltv))}</span> },
   ], []);
+
+  // Hold rendering until the role resolves; non-admins are redirected above.
+  if (roleLoading || role !== "admin") return null;
 
   return (
     <div className="p-6 space-y-4">
