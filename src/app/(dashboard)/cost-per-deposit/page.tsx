@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, userColor, cn } from "@/lib/utils";
-import { Search } from "lucide-react";
+import { Search, ChevronRight } from "lucide-react";
+import { ActivityLog } from "@/components/activity/ActivityLog";
 
 interface Row {
   sheet_row: number;
@@ -67,6 +68,7 @@ export default function CostPerDepositPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("All");
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -139,10 +141,17 @@ export default function CostPerDepositPage() {
                 const ratio = r.deposits_all && r.deposits_all > 0 ? Math.round((r.leads_all ?? 0) / r.deposits_all) : null;
                 const convPct = r.leads_all && r.leads_all > 0 && r.deposits_all != null ? (r.deposits_all / r.leads_all) * 100 : null;
                 const rowBgClass = i % 2 ? "bg-[#fafcfe]" : "bg-white";
+                const rowId = String(r.sheet_row ?? i);
+                const isOpen = openRow === rowId;
                 return (
-                  <tr key={r.sheet_row ?? i} className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
-                    <td className={cn("sticky left-0 z-10 px-3 py-2 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
-                      style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title={r.owner_name ?? ""}>{r.owner_name || "—"}</td>
+                  <Fragment key={rowId}>
+                  <tr className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
+                    <td className={cn("sticky left-0 z-10 px-3 py-2 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
+                      style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
+                      onClick={() => setOpenRow(isOpen ? null : rowId)}>
+                      <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 text-[#94a3b8] transition-transform align-[-2px]", isOpen && "rotate-90")} />
+                      {r.owner_name || "—"}
+                    </td>
                     <td className={cn("sticky z-10 px-3 py-2 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
                       style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name ?? ""}>{r.ad_account_name || "—"}</td>
                     <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
@@ -165,6 +174,16 @@ export default function CostPerDepositPage() {
                     <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{num(r.spent14) != null ? formatCurrency(num(r.spent14)) : "—"}</td>
                     <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{num(r.spent7) != null ? formatCurrency(num(r.spent7)) : "—"}</td>
                   </tr>
+                  {isOpen && (
+                    <tr className="bg-[#f3f7fb]">
+                      <td colSpan={HEADERS.length} className="p-0 border-b border-[#e4ebf2]">
+                        <div className="sticky left-0 p-3" style={{ width: "min(960px, 100vw - 2rem)" }}>
+                          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
               {filtered.length === 0 && (

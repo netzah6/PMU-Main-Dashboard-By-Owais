@@ -1,8 +1,9 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, formatDate, userColor, cn } from "@/lib/utils";
-import { Search, ChevronDown } from "lucide-react";
+import { Search, ChevronDown, ChevronRight } from "lucide-react";
+import { ActivityLog } from "@/components/activity/ActivityLog";
 
 interface PerfRow {
   sheet_row: number;
@@ -56,15 +57,20 @@ const leadCellTone = (v: number, g: number, a: number, paused: boolean): Vivid =
 const cplVivid = (v: number | null): Vivid =>
   v == null || v <= 0 ? V.gray : v < 6 ? V.green : v < 8 ? V.yellow : v < 10 ? V.orange : V.red;
 
-// Spend vs budget: expected = dailyBudget * days. Off-budget (flag purple) when
-// actual is outside 0.6x–1.8x of expected. Returns false when no budget to judge.
-function offBudget(spent: unknown, dailyBudget: unknown, days: number): boolean {
+// Spend vs expected (dailyBudget × days): too low → blue, too high → purple,
+// in-range → no color. Needs a daily budget to judge; otherwise no color.
+// e.g. $10/day over 7d = $70 expected: <$42 (0.6×) blue, >$105 (1.5×) purple.
+const SPEND_BLUE: Vivid = { bg: "#3b82f6", fg: "#ffffff" };
+const SPEND_PURPLE: Vivid = { bg: "#a855f7", fg: "#ffffff" };
+function spendTone(spent: unknown, dailyBudget: unknown, days: number): Vivid | null {
   const s = num(spent), b = num(dailyBudget);
-  if (s == null || b == null || b <= 0) return false;
+  if (s == null || b == null || b <= 0) return null;
   const expected = b * days;
-  if (expected <= 0) return false;
+  if (expected <= 0) return null;
   const ratio = s / expected;
-  return ratio < 0.6 || ratio > 1.8;
+  if (ratio < 0.6) return SPEND_BLUE; // too low
+  if (ratio > 1.5) return SPEND_PURPLE; // too high
+  return null; // in range — no color
 }
 
 // Booking %: green intensity scale (higher % = darker green), like the sheet
@@ -187,6 +193,7 @@ export default function PerformancePage() {
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -293,14 +300,19 @@ export default function PerformancePage() {
                 const booking = num(r.booking_pct);
                 const bookingPctVal = booking == null ? null : (booking < 1 ? booking * 100 : booking);
                 const cpl30 = num(r.cpl30), cpl14 = num(r.cpl14), cpl7 = num(r.cpl7);
-                const off14 = num(r.spent14) != null && offBudget(r.spent14, r.daily_budget, 14);
-                const off7 = num(r.spent7) != null && offBudget(r.spent7, r.daily_budget, 7);
+                const sp14 = spendTone(r.spent14, r.daily_budget, 14);
+                const sp7 = spendTone(r.spent7, r.daily_budget, 7);
                 const paused = String(r.client_status ?? "").toLowerCase() === "paused";
                 const rowBgClass = paused ? "bg-[#e2e5ea] text-[#7c8794]" : i % 2 ? "bg-[#fafcfe]" : "bg-white";
+                const rowId = String(r.sheet_row ?? i);
+                const isOpen = openRow === rowId;
                 return (
-                  <tr key={r.sheet_row ?? i} className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
-                    <td className={cn("sticky left-0 z-10 px-3 py-2 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
-                      style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title={r.owner_name ?? ""}>
+                  <Fragment key={rowId}>
+                  <tr className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
+                    <td className={cn("sticky left-0 z-10 px-3 py-2 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
+                      style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
+                      onClick={() => setOpenRow(isOpen ? null : rowId)}>
+                      <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 text-[#94a3b8] transition-transform align-[-2px]", isOpen && "rotate-90")} />
                       {r.owner_name || "—"}
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
                     </td>
@@ -327,13 +339,13 @@ export default function PerformancePage() {
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl14).bg, color: cplVivid(cpl14).fg }}>{cpl14 == null ? "$0.00" : formatCurrency(cpl14)}</td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cplVivid(cpl7).bg, color: cplVivid(cpl7).fg }}>{cpl7 == null ? "$0.00" : formatCurrency(cpl7)}</td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap"
-                      style={off14 ? { background: "#a855f7", color: "#ffffff" } : undefined}
-                      title={off14 ? "Off budget (vs daily budget × 14)" : undefined}>
+                      style={sp14 ? { background: sp14.bg, color: sp14.fg } : undefined}
+                      title={sp14 === SPEND_BLUE ? "Spend too low vs daily budget × 14" : sp14 === SPEND_PURPLE ? "Spend too high vs daily budget × 14" : undefined}>
                       {num(r.spent14) == null ? <span className="text-[#a6b3c4]">—</span> : formatCurrency(num(r.spent14))}
                     </td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap"
-                      style={off7 ? { background: "#a855f7", color: "#ffffff" } : undefined}
-                      title={off7 ? "Off budget (vs daily budget × 7)" : undefined}>
+                      style={sp7 ? { background: sp7.bg, color: sp7.fg } : undefined}
+                      title={sp7 === SPEND_BLUE ? "Spend too low vs daily budget × 7" : sp7 === SPEND_PURPLE ? "Spend too high vs daily budget × 7" : undefined}>
                       {num(r.spent7) == null ? <span className="text-[#a6b3c4]">—</span> : formatCurrency(num(r.spent7))}
                     </td>
                     <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—"}</td>
@@ -341,6 +353,16 @@ export default function PerformancePage() {
                     <td className="px-3 py-2 text-[#34568a] whitespace-nowrap">{r.last_strategy ? formatDate(r.last_strategy) : <span className="text-[#a6b3c4]">—</span>}</td>
                     <td className="px-3 py-2 align-top"><CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={load} /></td>
                   </tr>
+                  {isOpen && (
+                    <tr className="bg-[#f3f7fb]">
+                      <td colSpan={HEADERS.length} className="p-0 border-b border-[#e4ebf2]">
+                        <div className="sticky left-0 p-3" style={{ width: "min(960px, 100vw - 2rem)" }}>
+                          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
               {filtered.length === 0 && (
