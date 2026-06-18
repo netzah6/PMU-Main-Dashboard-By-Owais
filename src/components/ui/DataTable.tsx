@@ -38,6 +38,7 @@ export function DataTable<T extends Record<string, unknown>>({
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
+  const [size, setSize] = useState(pageSize);
 
   const sorted = useMemo(() => {
     if (!sortKey) return data;
@@ -59,8 +60,9 @@ export function DataTable<T extends Record<string, unknown>>({
     });
   }, [data, sortKey, sortDir]);
 
-  const totalPages = Math.ceil(sorted.length / pageSize);
-  const pageData = sorted.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / size));
+  const safePage = Math.min(page, totalPages);
+  const pageData = sorted.slice((safePage - 1) * size, safePage * size);
 
   function handleSort(key: string) {
     if (sortKey === key) {
@@ -165,45 +167,37 @@ export function DataTable<T extends Record<string, unknown>>({
         </table>
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-[#697a91]">
-            Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, sorted.length)} of{" "}
-            {sorted.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage(1)}
-              disabled={page === 1}
-              className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors"
-            >
-              «
-            </button>
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors"
-            >
-              ‹
-            </button>
-            <span className="px-3 py-1 rounded bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df]">
-              {page} / {totalPages}
+      {sorted.length > 0 && (
+        <div className="flex items-center justify-between text-sm gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <span className="text-[#697a91]">
+              Showing {(safePage - 1) * size + 1}–{Math.min(safePage * size, sorted.length)} of {sorted.length}
             </span>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors"
-            >
-              ›
-            </button>
-            <button
-              onClick={() => setPage(totalPages)}
-              disabled={page === totalPages}
-              className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors"
-            >
-              »
-            </button>
+            <label className="flex items-center gap-1.5 text-[#697a91]">
+              Rows:
+              <select
+                value={size}
+                onChange={(e) => { setSize(Number(e.target.value)); setPage(1); }}
+                className="px-2 py-1 bg-white border border-[#e4ebf2] rounded text-[#34568a] focus:outline-none focus:border-[#15B7AE]"
+              >
+                {[50, 100, 200, 500].map((n) => <option key={n} value={n}>{n}</option>)}
+                <option value={999999}>All</option>
+              </select>
+            </label>
           </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(1)} disabled={safePage === 1}
+                className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors">«</button>
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1}
+                className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors">‹</button>
+              <span className="px-3 py-1 rounded bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df]">{safePage} / {totalPages}</span>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
+                className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors">›</button>
+              <button onClick={() => setPage(totalPages)} disabled={safePage === totalPages}
+                className="px-2 py-1 rounded bg-[#e4ebf2] disabled:opacity-40 hover:bg-[#dbe5ef] transition-colors">»</button>
+            </div>
+          )}
         </div>
       )}
     </div>

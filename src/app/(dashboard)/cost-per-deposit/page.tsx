@@ -100,6 +100,7 @@ export default function CostPerDepositPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("All");
+  const [versionFilter, setVersionFilter] = useState("All");
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [dups, setDups] = useState<Dup[]>([]);
   const [dupOpen, setDupOpen] = useState(false);
@@ -121,20 +122,25 @@ export default function CostPerDepositPage() {
   const filtered = useMemo(() => {
     const list = rows.filter((r) => {
       if (assignee !== "All" && r.assigned !== assignee) return false;
+      if (versionFilter !== "All") {
+        const ver = (r.version ?? "").toLowerCase();
+        if (versionFilter === "V3" && !ver.includes("v3")) return false;
+        if (versionFilter === "V2.3" && !ver.includes("v2.3")) return false;
+      }
       if (search && !`${r.owner_name ?? ""} ${r.ad_account_name ?? ""}`.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
     // Live clients first (by 30-day deposits), Paused sink to the bottom.
     const rank = (s: string | null) => (String(s ?? "").toLowerCase() === "paused" ? 1 : 0);
     return list.sort((a, b) => rank(a.client_status) - rank(b.client_status) || b.d30 - a.d30);
-  }, [rows, search, assignee]);
+  }, [rows, search, assignee, versionFilter]);
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold text-[#1f3559]">Cost Per Deposit</h1>
-          <p className="text-xs text-[#697a91]">V3 clients · deposits & cost-per-deposit</p>
+          <p className="text-xs text-[#697a91]">V3 &amp; V2.3 clients · deposits &amp; cost-per-deposit</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -145,6 +151,12 @@ export default function CostPerDepositPage() {
           <select value={assignee} onChange={(e) => setAssignee(e.target.value)}
             className="px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
             {assignees.map((a) => <option key={a} value={a}>{a === "All" ? "All assigned" : a}</option>)}
+          </select>
+          <select value={versionFilter} onChange={(e) => setVersionFilter(e.target.value)}
+            className="px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+            <option value="All">All versions</option>
+            <option value="V3">V3</option>
+            <option value="V2.3">V2.3</option>
           </select>
 
           {/* Duplicate-deposit tracker */}
@@ -183,7 +195,7 @@ export default function CostPerDepositPage() {
             )}
           </div>
 
-          <span className="text-xs text-[#697a91]">{filtered.length} V3 clients</span>
+          <span className="text-xs text-[#697a91]">{filtered.length} clients</span>
         </div>
       </div>
 
