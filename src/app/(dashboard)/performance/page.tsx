@@ -209,10 +209,7 @@ export default function PerformancePage() {
     [rows]
   );
   const UNSETTLED_EMPTY = "Unsettled / No status";
-  const statuses = useMemo(
-    () => ["All", UNSETTLED_EMPTY, ...Array.from(new Set(rows.map((r) => shortStatus(r.campaign_status)).filter((s) => s && s !== "—"))).sort()],
-    [rows]
-  );
+  const statuses = ["All", "Active", UNSETTLED_EMPTY];
 
   const filtered = useMemo(() => {
     const list = rows.filter((r) => {
@@ -222,8 +219,8 @@ export default function PerformancePage() {
         if (!(ss === "UNSETTLED" || ss === "—")) return false;
         // Unsettled/no-status should surface active clients only, not paused ones.
         if (String(r.client_status ?? "").toLowerCase() === "paused") return false;
-      } else if (statusFilter !== "All" && ss !== statusFilter) {
-        return false;
+      } else if (statusFilter === "Active") {
+        if (ss !== "ACTIVE") return false;
       }
       if (search) {
         const q = search.toLowerCase();
