@@ -21,6 +21,16 @@ interface ClientProfileProps {
   onUpdate?: (updated: ClientRecord) => void;
 }
 
+// Selectable client statuses (written back to the sheet's col_1).
+const STATUS_OPTIONS = ["Live", "Paused", "Offboarded", "Lost"];
+function statusColors(s: string): { bg: string; color: string; border: string } {
+  const u = s.toLowerCase();
+  if (u === "live") return { bg: "#e6f7ee", color: "#15803d", border: "#86efac" };
+  if (u === "paused") return { bg: "#fff7ec", color: "#d97706", border: "#fcd9a8" };
+  if (u === "lost") return { bg: "#fde8ee", color: "#e11d48", border: "#f5c2cf" };
+  return { bg: "#f1f5f9", color: "#64748b", border: "#d7e0ea" }; // offboarded / other
+}
+
 // Fields editable in the edit panel
 const EDIT_FIELDS = [
   { key: "status",          label: "Status",           sheetKey: "col_1" },
@@ -182,6 +192,32 @@ export function ClientProfile({
     }
   }, [rowNumber, localClient, client, onUpdate]);
 
+  // ── Quick status change (writes col_1 back to the sheet) ──────────────────
+  const [statusSaving, setStatusSaving] = useState(false);
+  const saveStatus = useCallback(async (newStatus: string) => {
+    if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
+    if (newStatus === String(localClient.status ?? "")) return;
+    const updated: ClientRecord = { ...localClient, status: newStatus, col_1: newStatus };
+    setLocalClient(updated);
+    setStatusSaving(true);
+    try {
+      const res = await fetch("/api/sync/clients_master", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowNumber, rowData: updated }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Save failed");
+      toast.success(json.sheetsUpdated ? `Status → ${newStatus} — Sheet updated ✓` : `Status → ${newStatus}`);
+      onUpdate?.(updated);
+    } catch (e) {
+      toast.error(`Status save failed: ${e}`);
+      setLocalClient(client);
+    } finally {
+      setStatusSaving(false);
+    }
+  }, [rowNumber, localClient, client, onUpdate]);
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="h-full overflow-y-auto">
@@ -252,10 +288,31 @@ export function ClientProfile({
             ))}
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2 mt-3">
-            <Badge variant={statusVariant(String(localClient.status ?? ""))}>
-              Status: <strong className="ml-1">{localClient.status || "—"}</strong>
-            </Badge>
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            {canEdit ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-xs text-[#697a91]">Status:</span>
+                {(() => { const c = statusColors(String(localClient.status ?? "")); return (
+                  <select
+                    value={STATUS_OPTIONS.includes(String(localClient.status ?? "")) ? String(localClient.status ?? "") : ""}
+                    onChange={(e) => saveStatus(e.target.value)}
+                    disabled={statusSaving}
+                    title="Change status — writes back to the Google Sheet"
+                    className="px-2 py-1 rounded-md text-xs font-bold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                    style={{ background: c.bg, color: c.color, borderColor: c.border }}
+                  >
+                    {!STATUS_OPTIONS.includes(String(localClient.status ?? "")) && (
+                      <option value="">{localClient.status || "—"}</option>
+                    )}
+                    {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ); })()}
+              </span>
+            ) : (
+              <Badge variant={statusVariant(String(localClient.status ?? ""))}>
+                Status: <strong className="ml-1">{localClient.status || "—"}</strong>
+              </Badge>
+            )}
             <Badge variant="gray">Campaign: <strong className="ml-1">{localClient.campaign_status || "—"}</strong></Badge>
             {payment ? (
               <div className="relative" ref={payRef}>
