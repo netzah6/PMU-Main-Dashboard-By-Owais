@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown } from "lucide-react";
+import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { GhlNotes } from "./GhlNotes";
@@ -34,6 +34,22 @@ const EDIT_FIELDS = [
 
 const GHL_LOCATION = process.env.NEXT_PUBLIC_GHL_LOCATION_ID ?? "SfpNMJ5YU9lBkxss47lK";
 
+// Current GMT offset for a time zone, e.g. "GMT-5" (DST-aware for today's date).
+function gmtOffset(tz: string): string | null {
+  try {
+    const name = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" })
+      .formatToParts(new Date())
+      .find((p) => p.type === "timeZoneName")?.value ?? "";
+    const m = name.match(/GMT([+-]\d{1,2})(?::?(\d{2}))?/);
+    if (!m) return name || null;
+    const h = parseInt(m[1], 10);
+    const min = m[2] && m[2] !== "00" ? `:${m[2]}` : "";
+    return `GMT${h >= 0 ? "+" : ""}${h}${min}`;
+  } catch {
+    return null;
+  }
+}
+
 export function ClientProfile({
   client, role, deposits, bookings, leads, calls, performance, payment, onUpdate,
 }: ClientProfileProps) {
@@ -59,6 +75,23 @@ export function ClientProfile({
   const ghlUrl = ghlContactId
     ? `https://app.gohighlevel.com/v2/location/${GHL_LOCATION}/contacts/detail/${ghlContactId}`
     : null;
+
+  // Client's time zone (from GoHighLevel) + their current local time.
+  const [tz, setTz] = useState<string | null>(null);
+  useEffect(() => {
+    setTz(null);
+    if (!ghlContactId) return;
+    let cancelled = false;
+    fetch(`/api/ghl/contact/${ghlContactId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.timezone) setTz(d.timezone); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [ghlContactId]);
+  const tzTime = tz
+    ? (() => { try { return new Date().toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }); } catch { return null; } })()
+    : null;
+  const tzOffset = tz ? gmtOffset(tz) : null;
 
   const rowNumber = Number(localClient._row_number ?? localClient.row_number ?? 0);
 
@@ -156,7 +189,16 @@ export function ClientProfile({
       <div className="sticky top-0 z-10 px-6 pt-5 pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
+              {tz && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap"
+                  title={`Client time zone (from GoHighLevel): ${tz}`}>
+                  <Clock size={11} />
+                  {tz.split("/").pop()?.replace(/_/g, " ")}{tzOffset ? ` (${tzOffset})` : ""}{tzTime ? ` · ${tzTime} local` : ""}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-[#697a91] mt-0.5 truncate">
               {localClient.owner_name || "—"}
               {localClient.ad_account_name && <> · <span className="text-[#8595a8]">{String(localClient.ad_account_name)}</span></>}
@@ -419,9 +461,10 @@ function ClientDetails({ client }: { client: ClientRecord }) {
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between px-4 py-3"
       >
-        <h3 className="text-sm font-semibold text-[#34568a]">
-          Business &amp; Client Details
+        <h3 className="text-sm font-semibold text-[#34568a] text-left">
+          Business &amp; client details — captured at onboarding signup
           <span className="ml-2 text-xs font-normal text-[#8595a8]">({entries.length})</span>
+          <span className="block text-[11px] font-normal text-[#8595a8]">These are the original sign-up details; the offer may change later.</span>
         </h3>
         <ChevronDown size={16} className={`text-[#697a91] transition-transform ${open ? "rotate-180" : ""}`} />
       </button>

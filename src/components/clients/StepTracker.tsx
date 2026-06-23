@@ -2,15 +2,16 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Boolean onboarding steps — each with its own "done" color (per the sheet).
-const TOGGLE_STEPS: { key: string; label: string; color: string; bg: string; border: string }[] = [
-  { key: "Launch Call",          label: "Launch Call",         color: "#1f2937", bg: "#eef0f3", border: "#d4d8de" }, // black
-  { key: "A2P Verified",         label: "A2P",                 color: "#1d4ed8", bg: "#e7edff", border: "#c2d2ff" }, // blue
-  { key: "FB Group",             label: "FB Group",            color: "#7e22ce", bg: "#f3e8ff", border: "#e3cffb" }, // purple
-  { key: "Sync Schedule",        label: "Sync Schedule",       color: "#0e8f88", bg: "#e6f7f5", border: "#a7e3df" }, // teal
-  { key: "UNSUBSCRIBE Removed",  label: "Unsubscribe Removed", color: "#1d4ed8", bg: "#e7edff", border: "#c2d2ff" }, // blue
-  { key: "Agreement",            label: "Agreement Signed",    color: "#1f2937", bg: "#eef0f3", border: "#d4d8de" }, // black
-  { key: "AI Agent Access",      label: "AI Access",           color: "#d97706", bg: "#fff7ec", border: "#fcd9a8" }, // amber
+// Boolean onboarding steps. Marked/done = green for all of them; unmarked = white.
+const DONE = { color: "#15803d", bg: "#dcfce7", border: "#86efac", dot: "#16a34a" };
+const TOGGLE_STEPS: { key: string; label: string }[] = [
+  { key: "Launch Call",          label: "Launch Call" },
+  { key: "A2P Verified",         label: "A2P" },
+  { key: "FB Group",             label: "FB Group" },
+  { key: "Sync Schedule",        label: "Sync Schedule" },
+  { key: "UNSUBSCRIBE Removed",  label: "Unsubscribe Removed" },
+  { key: "Agreement",            label: "Agreement Signed" },
+  { key: "AI Agent Access",      label: "AI Access" },
 ];
 
 const IG_KEY = "Instagram Widget";
@@ -71,14 +72,14 @@ export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
                 !done && "bg-white border-[#e4ebf2] text-[#697a91] hover:bg-[#f1f5f9]",
                 canEdit ? "cursor-pointer" : "cursor-default"
               )}
-              style={done ? { background: step.bg, borderColor: step.border, color: step.color } : undefined}
+              style={done ? { background: DONE.bg, borderColor: DONE.border, color: DONE.color } : undefined}
             >
               <span
                 className={cn(
                   "w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0",
                   !done && "bg-[#e4ebf2] border border-[#d7e0ea]"
                 )}
-                style={done ? { background: step.color } : undefined}
+                style={done ? { background: DONE.dot } : undefined}
               >
                 {done && <Check size={10} className="text-white" />}
               </span>
@@ -91,7 +92,7 @@ export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
         <div
           className="flex flex-col gap-0.5 px-2 py-1 rounded-lg border"
           style={
-            ig === "On" ? { background: "#fce7f3", borderColor: "#f9a8d4", color: "#be185d" }
+            ig === "On" ? { background: DONE.bg, borderColor: DONE.border, color: DONE.color }
               : ig === "Not good enough" ? { background: "#fff7ec", borderColor: "#fcd9a8", color: "#d97706" }
               : { background: "#ffffff", borderColor: "#e4ebf2", color: "#697a91" }
           }

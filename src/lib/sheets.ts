@@ -172,9 +172,13 @@ export const SHEET_MAP: Array<{
   sheetName: string;
   table: string;
   fallbackIndex: number;
+  // Skipped by the scheduled cron (still syncable manually). The V3 tab has ~1000
+  // rows of formulas Google recalculates on every read (~3 min for 40 rows), which
+  // alone blows the serverless time limit and starves later tables.
+  cronSkip?: boolean;
 }> = [
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Clients Master",           table: "clients_master",       fallbackIndex: 0 },
-  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "V3",                       table: "v3_pricing",           fallbackIndex: 2 },
+  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "V3",                       table: "v3_pricing",           fallbackIndex: 2, cronSkip: true },
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Leads Master",             table: "leads_master",         fallbackIndex: 1 },
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Deposits",                 table: "deposits",             fallbackIndex: 2 },
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Outgoing Call Master",     table: "outgoing_calls",       fallbackIndex: 3 },

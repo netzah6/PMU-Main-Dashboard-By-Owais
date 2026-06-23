@@ -107,7 +107,8 @@ export async function syncOneSheet(
  */
 export async function syncAllSheets(): Promise<SyncResult[]> {
   const results: SyncResult[] = [];
-  for (const { spreadsheetId, sheetName, table, fallbackIndex } of SHEET_MAP) {
+  for (const { spreadsheetId, sheetName, table, fallbackIndex, cronSkip } of SHEET_MAP) {
+    if (cronSkip) continue; // pathologically slow sheets — sync these manually
     const result = await syncOneSheet(spreadsheetId, sheetName, table, fallbackIndex);
     results.push(result);
   }
