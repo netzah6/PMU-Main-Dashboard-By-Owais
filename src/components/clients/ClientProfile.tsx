@@ -23,6 +23,7 @@ interface ClientProfileProps {
 
 // Selectable client statuses (written back to the sheet's col_1).
 const STATUS_OPTIONS = ["Live", "Paused", "Offboarded", "Lost"];
+const VERSION_OPTIONS = ["(V3)", "(V2.3)", "(V1)", "Not Interested"];
 function statusColors(s: string): { bg: string; color: string; border: string } {
   const u = s.toLowerCase();
   if (u === "live") return { bg: "#e6f7ee", color: "#15803d", border: "#86efac" };
@@ -218,6 +219,32 @@ export function ClientProfile({
     }
   }, [rowNumber, localClient, client, onUpdate]);
 
+  // ── Quick version change (writes "Version" back to the sheet) ─────────────
+  const [versionSaving, setVersionSaving] = useState(false);
+  const saveVersion = useCallback(async (newVersion: string) => {
+    if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
+    if (newVersion === String(localClient.version ?? "")) return;
+    const updated: ClientRecord = { ...localClient, version: newVersion, Version: newVersion };
+    setLocalClient(updated);
+    setVersionSaving(true);
+    try {
+      const res = await fetch("/api/sync/clients_master", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowNumber, rowData: updated }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Save failed");
+      toast.success(json.sheetsUpdated ? `Version → ${newVersion} — Sheet updated ✓` : `Version → ${newVersion}`);
+      onUpdate?.(updated);
+    } catch (e) {
+      toast.error(`Version save failed: ${e}`);
+      setLocalClient(client);
+    } finally {
+      setVersionSaving(false);
+    }
+  }, [rowNumber, localClient, client, onUpdate]);
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="h-full overflow-y-auto">
@@ -312,6 +339,25 @@ export function ClientProfile({
               <Badge variant={statusVariant(String(localClient.status ?? ""))}>
                 Status: <strong className="ml-1">{localClient.status || "—"}</strong>
               </Badge>
+            )}
+            {canEdit ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="text-xs text-[#697a91]">Version:</span>
+                <select
+                  value={VERSION_OPTIONS.includes(String(localClient.version ?? "")) ? String(localClient.version ?? "") : ""}
+                  onChange={(e) => saveVersion(e.target.value)}
+                  disabled={versionSaving}
+                  title="Change version — writes back to the Google Sheet"
+                  className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                >
+                  {!VERSION_OPTIONS.includes(String(localClient.version ?? "")) && (
+                    <option value="" disabled>{localClient.version || "—"}</option>
+                  )}
+                  {VERSION_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </span>
+            ) : (
+              <Badge variant="gray">Version: <strong className="ml-1">{localClient.version || "—"}</strong></Badge>
             )}
             <Badge variant="gray">Campaign: <strong className="ml-1">{localClient.campaign_status || "—"}</strong></Badge>
             {payment ? (
