@@ -14,6 +14,7 @@ interface PerfRow {
   media_buyer: string | null;
   pmu_services: string | null;
   campaign_status: string | null;
+  campaign_paused: boolean | null;
   daily_budget: number | string | null;
   booking_pct: number | string | null;
   l3: number; l7: number; l14: number; l30: number;
@@ -209,7 +210,8 @@ export default function PerformancePage() {
     [rows]
   );
   const UNSETTLED_EMPTY = "Unsettled / No status";
-  const statuses = ["All", "Active", UNSETTLED_EMPTY];
+  const PAUSED_CAMPAIGNS = "Paused campaigns";
+  const statuses = ["All", "Active", PAUSED_CAMPAIGNS, UNSETTLED_EMPTY];
 
   const filtered = useMemo(() => {
     const list = rows.filter((r) => {
@@ -221,6 +223,8 @@ export default function PerformancePage() {
         if (String(r.client_status ?? "").toLowerCase() === "paused") return false;
       } else if (statusFilter === "Active") {
         if (ss !== "ACTIVE") return false;
+      } else if (statusFilter === PAUSED_CAMPAIGNS) {
+        if (!r.campaign_paused) return false;
       }
       if (search) {
         const q = search.toLowerCase();
@@ -323,6 +327,12 @@ export default function PerformancePage() {
                       <span className={cn("inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border", statusTone(r.campaign_status))}>
                         {shortStatus(r.campaign_status)}
                       </span>
+                      {r.campaign_paused && (
+                        <span className="ml-1 inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
+                          title="All tracked campaigns for this account are paused">
+                          Paused
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]"
                       style={bookingPctVal == null ? undefined : { background: bookingFill(bookingPctVal).bg, color: bookingFill(bookingPctVal).fg }}>
