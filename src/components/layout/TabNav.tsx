@@ -20,6 +20,7 @@ const TABS: Tab[] = [
   { label: "LTV", href: "/ltv", adminOnly: true }, // admins only
   { label: "Map", href: "/map" },
   { label: "Reports", href: "/reports" },
+  { label: "Insights", href: "/insights" },
 ];
 
 export function TabNav() {
