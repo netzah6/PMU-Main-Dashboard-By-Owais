@@ -40,8 +40,8 @@ export default function DepositsPage() {
 
   const filtered = useMemo(() => {
     return sortNewestFirst(data.filter((r) => {
-      const name = String(r["Business Name"] ?? r.client_name ?? "").toLowerCase();
-      if (search && !name.includes(search.toLowerCase())) return false;
+      const hay = `${r["Business Name"] ?? r.client_name ?? ""} ${r["Full Name"] ?? ""} ${r["Email"] ?? ""}`.toLowerCase();
+      if (search && !hay.includes(search.toLowerCase())) return false;
       if (month !== "All") { const d = depDate(r); if (!d || monthKey(d) !== month) return false; }
       return true;
     }));
@@ -77,7 +77,7 @@ export default function DepositsPage() {
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
-          <input type="text" placeholder="Search client…" value={search} onChange={(e) => setSearch(e.target.value)}
+          <input type="text" placeholder="Search client, name, or email…" value={search} onChange={(e) => setSearch(e.target.value)}
             className="pl-8 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE]" />
         </div>
         <select value={month} onChange={(e) => setMonth(e.target.value)}
