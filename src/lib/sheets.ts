@@ -177,13 +177,16 @@ export const SHEET_MAP: Array<{
   // alone blows the serverless time limit and starves later tables.
   cronSkip?: boolean;
 }> = [
+  // Clients Master + V3 stay in the original master sheet (Clients Master is
+  // written back to and referenced by the report tabs). The heavy data tabs were
+  // split into a separate clean sheet (SHEET_DATA_ID) so they aren't dragged down.
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Clients Master",           table: "clients_master",       fallbackIndex: 0 },
   { spreadsheetId: process.env.SHEET1_ID!, sheetName: "V3",                       table: "v3_pricing",           fallbackIndex: 2, cronSkip: true },
-  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Leads Master",             table: "leads_master",         fallbackIndex: 1 },
-  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Deposits",                 table: "deposits",             fallbackIndex: 2 },
-  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Outgoing Call Master",     table: "outgoing_calls",       fallbackIndex: 3 },
-  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Bookings Master",          table: "bookings",             fallbackIndex: 4 },
-  { spreadsheetId: process.env.SHEET1_ID!, sheetName: "Signed Agreements",        table: "signed_agreements",    fallbackIndex: 5 },
+  { spreadsheetId: process.env.SHEET_DATA_ID!, sheetName: "Leads Master",         table: "leads_master",         fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET_DATA_ID!, sheetName: "Deposits",             table: "deposits",             fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET_DATA_ID!, sheetName: "Outgoing Call Master", table: "outgoing_calls",       fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET_DATA_ID!, sheetName: "Bookings Master",      table: "bookings",             fallbackIndex: 0 },
+  { spreadsheetId: process.env.SHEET_DATA_ID!, sheetName: "Signed Agreements",    table: "signed_agreements",    fallbackIndex: 0 },
   { spreadsheetId: process.env.SHEET2_ID!, sheetName: "Sheet1",                   table: "ltv_sheet1",           fallbackIndex: 0 },
   { spreadsheetId: process.env.SHEET2_ID!, sheetName: "Sheet2",                   table: "ltv_sheet2",           fallbackIndex: 1 },
   { spreadsheetId: process.env.SHEET3_ID!, sheetName: "Add Data - Tracking",      table: "performance_tracking", fallbackIndex: 0 },
