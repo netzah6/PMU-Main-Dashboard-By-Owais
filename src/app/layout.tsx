@@ -1,10 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  applicationName: "PMU Dashboard",
   title: "Master Dashboard — PMU Bookings On Demand",
   description: "PMU Bookings On Demand Master Dashboard",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "PMU Dashboard" },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#15B7AE",
 };
 
 export default function RootLayout({

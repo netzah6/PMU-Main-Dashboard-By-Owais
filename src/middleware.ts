@@ -34,8 +34,12 @@ export async function middleware(request: NextRequest) {
   // The invite/recovery callback must run while the user is still unauthenticated
   // (it's what creates the session), so it can't be gated behind the login redirect.
   const isAuthCallback = request.nextUrl.pathname.startsWith("/auth");
+  // PWA metadata (manifest + generated icons) must be reachable before login,
+  // so the phone can install the app and show its icon.
+  const p = request.nextUrl.pathname;
+  const isPublicMeta = p === "/manifest.webmanifest" || p.startsWith("/icon") || p.startsWith("/apple-icon");
 
-  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback) {
+  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
