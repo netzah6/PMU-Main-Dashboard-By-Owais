@@ -145,7 +145,7 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: EDIT_FIELDS.map((f) => f.sheetKey) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
@@ -178,7 +178,7 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: [key] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -205,7 +205,7 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: ["col_1"] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
@@ -231,7 +231,7 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: ["Version"] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");

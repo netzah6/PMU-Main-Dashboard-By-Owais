@@ -194,7 +194,7 @@ export default function ReportsPage() {
     const res = await fetch("/api/sync/performance_tracking", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rowNumber, rowData: { ...rest, Action: value } }),
+      body: JSON.stringify({ rowNumber, rowData: { ...rest, Action: value }, columns: ["Action"] }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.success) throw new Error(json.error || "save failed");

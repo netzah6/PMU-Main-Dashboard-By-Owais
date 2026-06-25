@@ -140,16 +140,20 @@ function colLetter(n: number): string {
 }
 
 /**
- * Write a single row back to Google Sheets.
+ * Write a row back to Google Sheets.
  * - rowNumber is 1-based (matches data.row_number from the sheet).
- * - data is the full row object; columns are mapped from the sheet's header row.
+ * - onlyColumns: when given, ONLY those columns are updated (each as its own
+ *   cell) and every other cell is left untouched — so e.g. a step-toggle edit
+ *   can never overwrite the status column. When omitted, the whole row is
+ *   rewritten from `data` (legacy behaviour).
  */
 export async function writeRowToSheet(
   spreadsheetId: string,
   sheetName: string,
   rowNumber: number,
   data: Record<string, unknown>,
-  fallbackIndex = 0
+  fallbackIndex = 0,
+  onlyColumns?: string[]
 ): Promise<void> {
   const sheets = await getSheetsClient();
   const resolvedName = await resolveTabName(spreadsheetId, sheetName, fallbackIndex);
@@ -177,6 +181,28 @@ export async function writeRowToSheet(
   }
   const headers = buildHeaderNames(scan[headerRowIdx] ?? []);
   if (headers.length === 0) throw new Error(`No headers found in ${resolvedName}`);
+
+  // Field-scoped write: only touch the named columns; leave every other cell
+  // (e.g. the status column) exactly as it is.
+  if (onlyColumns && onlyColumns.length) {
+    const requests: { range: string; values: (string | number | boolean)[][] }[] = [];
+    for (const key of onlyColumns) {
+      const idx = headers.indexOf(key);
+      if (idx < 0) continue;
+      const v = data[key];
+      requests.push({
+        range: `'${resolvedName}'!${colLetter(idx + 1)}${rowNumber}`,
+        values: [[(v === undefined || v === null ? "" : v) as string | number | boolean]],
+      });
+    }
+    if (requests.length) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: { valueInputOption: "USER_ENTERED", data: requests },
+      });
+    }
+    return;
+  }
 
   // Build the values array in column order (keys match buildHeaderNames so two
   // columns sharing a title each get their own value back, not the same one).
