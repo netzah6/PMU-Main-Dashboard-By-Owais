@@ -62,6 +62,7 @@ const ACTION_OPTIONS = [
 ];
 const ACTION_INCREASE_BUDGET = "Increase Budget 💰";
 const ACTION_GMB = "GMB ⭐️";
+const ACTION_STRATEGY_CALL = "Strategy call 🧠";
 
 // "Nice" axis scale → a round max with ~5 even ticks
 function niceScale(max: number): { max: number; step: number } {
@@ -264,6 +265,25 @@ export default function ReportsPage() {
         accent: "#eab308",
         body: "Google My Business isn't active yet. Turning it on early (by the 2nd report) adds a strong local-trust and review source.",
       });
+    }
+    // Rule 3: early on (first 3 reports), touch base monthly — suggest a strategy
+    // call if there hasn't been one in the last 30 days.
+    if (rr.length <= 3) {
+      let lastStrategyMs = 0;
+      rr.forEach((r) => {
+        const d = String(r.raw["Last Strategy?"] ?? "").trim();
+        if (d) { const ms = parseMs(d); if (ms > lastStrategyMs) lastStrategyMs = ms; }
+      });
+      const daysSince = lastStrategyMs ? Math.round((Date.now() - lastStrategyMs) / 86400000) : null;
+      if (daysSince == null || daysSince > 30) {
+        out.push({
+          option: ACTION_STRATEGY_CALL,
+          accent: "#7c3aed",
+          body: daysSince == null
+            ? "No strategy call logged yet. In the first 3 months, touch base at least once a month — book a strategy call."
+            : `Last strategy call was ${daysSince} days ago. In the first 3 months, touch base at least monthly — book a strategy call.`,
+        });
+      }
     }
     return out;
   }, [current, gmbActive]);
