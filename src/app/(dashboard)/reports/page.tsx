@@ -4,7 +4,7 @@ import { useTableData } from "@/lib/hooks/useTableData";
 import { createClient } from "@/lib/supabase/client";
 import { GhlNotes } from "@/components/clients/GhlNotes";
 import { formatDate, cn } from "@/lib/utils";
-import { Search, Sparkles, TrendingUp, MapPin, Pencil, Loader2 } from "lucide-react";
+import { Search, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -46,6 +46,22 @@ interface Report {
   date: string; ms: number; raw: Record<string, unknown>;
   leads: number | null; booking: number | null; sessions: number | null; declining: number | null;
 }
+
+// Canonical "Action" options (mirrors the dropdown on the "Add Data - Tracking"
+// sheet). AI suggestions reuse the same strings so the emoji matches exactly.
+const ACTION_OPTIONS = [
+  "Strategy call 🧠",
+  "Check In 🤩",
+  "Give a Call ☎️",
+  "Increase Budget 💰",
+  "GMB ⭐️",
+  "Fantastic Path 🎉",
+  "Text Blast 💬",
+  "Roleplay 🗣️",
+  "No Action ⛔️",
+];
+const ACTION_INCREASE_BUDGET = "Increase Budget 💰";
+const ACTION_GMB = "GMB ⭐️";
 
 // "Nice" axis scale → a round max with ~5 even ticks
 function niceScale(max: number): { max: number; step: number } {
@@ -225,28 +241,28 @@ export default function ReportsPage() {
   const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
   const ghlContactId = current ? contactIdMap.get(current.name.toLowerCase()) ?? "" : "";
 
-  // ── AI suggestions (rule-based, derived from this client's report trend) ──────
+  // ── AI suggestions (rule-based) — each is one of the canonical Action options ──
   const suggestions = useMemo(() => {
-    const out: { icon: "up" | "gmb"; title: string; body: string }[] = [];
+    const out: { option: string; accent: string; body: string }[] = [];
     if (!current) return out;
     const rr = current.reports;
-    // Rule 1: booking rate up across 3 consecutive reports → scale the budget
+    // Rule 1: booking rate up across 3 consecutive reports → Increase Budget 💰
     if (rr.length >= 3) {
       const [a, b, c] = rr.slice(-3).map((r) => r.booking);
       if (a != null && b != null && c != null && b > a && c > b) {
         out.push({
-          icon: "up",
-          title: "Increase the ad budget",
-          body: `Booking rate climbed three reports in a row (${(a * 100).toFixed(1)}% → ${(b * 100).toFixed(1)}% → ${(c * 100).toFixed(1)}%). Momentum is building — scale the budget while conversion is rising.`,
+          option: ACTION_INCREASE_BUDGET,
+          accent: "#16a34a",
+          body: `Booking rate climbed three reports in a row (${(a * 100).toFixed(1)}% → ${(b * 100).toFixed(1)}% → ${(c * 100).toFixed(1)}%). Scale the budget while conversion is rising.`,
         });
       }
     }
-    // Rule 2: from the 2nd report onward, suggest GMB if it isn't active yet
+    // Rule 2: from the 2nd report onward, suggest GMB ⭐️ if it isn't active yet
     if (rr.length >= 2 && !gmbActive) {
       out.push({
-        icon: "gmb",
-        title: "Set up Google My Business",
-        body: "Google My Business isn't active for this client yet. Turning it on early (by the 2nd report) adds a strong local-trust signal and lead source — recommend enabling it.",
+        option: ACTION_GMB,
+        accent: "#eab308",
+        body: "Google My Business isn't active yet. Turning it on early (by the 2nd report) adds a strong local-trust and review source.",
       });
     }
     return out;
@@ -318,12 +334,11 @@ export default function ReportsPage() {
                     <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#eef2ff] text-[#3a5a8c] border border-[#c7d2fe]">Channel: {String(r["Call or Chat?"] ?? "—")}</span>
                     {dailyBudget != null && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#f0fdf4] text-[#15803d] border border-[#bbf7d0]">
-                        Daily Budget: ${Math.round(dailyBudget).toLocaleString()}/d
+                        Budget: ${Math.round(dailyBudget).toLocaleString()}/d
                       </span>
                     )}
-                    <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold border",
-                      gmbActive ? "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]" : "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]")}>
-                      Google My Business: {gmbActive ? "Yes" : "No"}
+                    <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fef9c3] text-[#a16207] border border-[#fde68a]">
+                      GMB: {gmbActive ? "Yes" : "No"}
                     </span>
                     {(() => {
                       const ver = versionMap.get(current.name.toLowerCase()) ?? "";
@@ -352,17 +367,9 @@ export default function ReportsPage() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {suggestions.map((s, i) => (
-                    <div key={i} className="flex items-start gap-2.5 rounded-xl bg-white/80 border border-[#e4ebf2] p-3">
-                      <div className="mt-0.5 shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
-                        style={{ background: s.icon === "up" ? "#dcfce7" : "#dbeafe" }}>
-                        {s.icon === "up"
-                          ? <TrendingUp size={15} className="text-[#16a34a]" />
-                          : <MapPin size={15} className="text-[#2563eb]" />}
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-[#1f3559]">{s.title}</p>
-                        <p className="text-xs text-[#56678a] leading-snug mt-0.5">{s.body}</p>
-                      </div>
+                    <div key={i} className="rounded-xl bg-white/80 border border-[#e4ebf2] border-l-4 p-3" style={{ borderLeftColor: s.accent }}>
+                      <p className="text-sm font-semibold text-[#1f3559]">{s.option}</p>
+                      <p className="text-xs text-[#56678a] leading-snug mt-0.5">{s.body}</p>
                     </div>
                   ))}
                 </div>
@@ -516,19 +523,15 @@ function ActionCell({ report, edits, onSave }: {
   onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
 }) {
   const rowNumber = Number(report.raw["_row_number"] ?? report.raw["row_number"]) || 0;
-  const value = edits[rowNumber] ?? String(report.raw["Action"] ?? "");
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  const value = edits[rowNumber] ?? String(report.raw["Action"] ?? "").trim();
   const [saving, setSaving] = useState(false);
 
-  const start = () => { setDraft(value); setEditing(true); };
-  const save = async () => {
+  const change = async (next: string) => {
     if (!rowNumber) { toast.error("No sheet row found for this report"); return; }
-    if (draft === value) { setEditing(false); return; }
+    if (next === value) return;
     setSaving(true);
     try {
-      await onSave(rowNumber, report.raw, draft);
-      setEditing(false);
+      await onSave(rowNumber, report.raw, next);
     } catch {
       toast.error("Couldn't save the action");
     } finally {
@@ -536,29 +539,19 @@ function ActionCell({ report, edits, onSave }: {
     }
   };
 
+  // Keep any legacy free-text value selectable so an edit never loses it.
+  const options = value && !ACTION_OPTIONS.includes(value) ? [value, ...ACTION_OPTIONS] : ACTION_OPTIONS;
+
   return (
-    <td className="px-3 py-2 align-top text-center min-w-[160px]">
-      {editing ? (
-        <div className="flex flex-col gap-1">
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} autoFocus
-            placeholder="What action are we taking?"
-            className="w-full min-w-[150px] text-xs text-left rounded border border-[#15B7AE] px-2 py-1 text-[#1f3559] focus:outline-none" />
-          <div className="flex gap-1 justify-end">
-            <button onClick={() => setEditing(false)} disabled={saving}
-              className="text-[10px] px-2 py-0.5 rounded text-[#697a91] hover:bg-[#f1f5f9]">Cancel</button>
-            <button onClick={save} disabled={saving}
-              className="text-[10px] px-2 py-0.5 rounded bg-[#15B7AE] text-white hover:bg-[#0e9c94] flex items-center gap-1 disabled:opacity-60">
-              {saving && <Loader2 size={10} className="animate-spin" />}Save
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={start} title="Click to edit action"
-          className="group inline-flex items-start gap-1 text-left text-xs text-[#34568a] hover:text-[#0e8f88] max-w-[220px]">
-          <span className={cn("whitespace-pre-wrap break-words", !value && "text-[#a6b3c4] italic")}>{value || "+ Add action"}</span>
-          <Pencil size={10} className="opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 text-[#94a3b8]" />
-        </button>
-      )}
+    <td className="px-3 py-2 text-center min-w-[150px]">
+      <div className="inline-flex items-center gap-1">
+        <select value={value} onChange={(e) => change(e.target.value)} disabled={saving} title="Set the action (synced to the sheet)"
+          className="max-w-[170px] text-xs rounded border border-[#d7e0ea] bg-white px-2 py-1 text-[#34568a] cursor-pointer focus:outline-none focus:border-[#15B7AE] disabled:opacity-60">
+          <option value="">—</option>
+          {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+        {saving && <Loader2 size={11} className="animate-spin text-[#94a3b8]" />}
+      </div>
     </td>
   );
 }
