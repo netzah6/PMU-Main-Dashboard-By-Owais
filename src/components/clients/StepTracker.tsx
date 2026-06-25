@@ -12,6 +12,7 @@ const TOGGLE_STEPS: { key: string; label: string }[] = [
   { key: "UNSUBSCRIBE Removed",  label: "Unsubscribe Removed" },
   { key: "Agreement",            label: "Agreement Signed" },
   { key: "AI Agent Access",      label: "AI Access" },
+  { key: "GMB",                  label: "GMB" },
 ];
 
 const IG_KEY = "Instagram Widget";
@@ -38,7 +39,7 @@ function igState(val: unknown): "On" | "Not good enough" | "" {
 export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
   const ig = igState(data[IG_KEY]);
   const completed = TOGGLE_STEPS.filter(({ key }) => isComplete(data[key])).length + (ig === "On" ? 1 : 0);
-  const total = TOGGLE_STEPS.length + 1; // 8
+  const total = TOGGLE_STEPS.length + 1; // toggle steps + Instagram Widget
 
   return (
     <div className="space-y-2.5">
