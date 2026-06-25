@@ -19,12 +19,32 @@ export async function getV3Accounts(): Promise<V3Account[]> {
   const sheetId = process.env.GHL_KEYS_SHEET_ID;
   if (!sheetId) throw new Error("GHL_KEYS_SHEET_ID not set");
   const supabase = createServiceClient();
-  const { data: v3Rows } = await supabase.from("v3_pricing").select("data");
-  const v3List = (v3Rows ?? [])
-    .map((r) => String((r.data as Record<string, unknown>)?.["OWNER/BUSINESS"] ?? "").trim())
-    .filter(Boolean)
-    .map((name) => ({ key: name.toLowerCase(), tokens: nameTokens(name) }));
-  const matchV3 = (tokens: Set<string>) => v3List.find((v) => sameClient(tokens, v.tokens))?.key ?? null;
+
+  // Roster = live/paused V3 clients from Clients Master. ownerKey = Owner Full
+  // Name (lowercased) so it matches what the dashboard queries the box by.
+  const bizNorm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const { data: cmRows } = await supabase.from("clients_master").select("data");
+  const roster = (cmRows ?? [])
+    .map((r) => r.data as Record<string, unknown>)
+    .filter((d) => {
+      const ver = String(d?.["Version"] ?? "").toLowerCase();
+      const st = String(d?.["col_1"] ?? "").toLowerCase();
+      return (ver.includes("v3") || ver.includes("v2.3")) && (st === "live" || st === "paused");
+    })
+    .map((d) => ({
+      key: String(d["Owner Full Name"] ?? "").trim().toLowerCase(),
+      tokens: nameTokens(String(d["Owner Full Name"] ?? "")),
+      biz: bizNorm(String(d["Business Name"] ?? "")),
+    }))
+    .filter((c) => c.key);
+
+  // Match a keys-sheet row to a client by name tokens, else by exact business name.
+  const matchClient = (name: string, biz: string) => {
+    const byName = roster.find((c) => sameClient(nameTokens(name), c.tokens));
+    if (byName) return byName.key;
+    const bn = bizNorm(biz);
+    return bn ? roster.find((c) => c.biz && c.biz === bn)?.key ?? null : null;
+  };
 
   const sheets = await getSheetsClient();
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: "Sheet1" });
@@ -32,17 +52,20 @@ export async function getV3Accounts(): Promise<V3Account[]> {
   if (rows.length < 2) return [];
   const header = rows[0].map((h) => String(h ?? "").toLowerCase());
   const nameIdx = header.findIndex((h) => /^name/.test(h.trim()));
+  const bizIdx = header.findIndex((h) => /business/.test(h));
   const locIdx = header.findIndex((h) => /location/.test(h));
   const tokIdx = header.findIndex((h) => /integration|private|key|token/.test(h));
 
   const out: V3Account[] = [];
+  const seen = new Set<string>();
   for (const row of rows.slice(1)) {
     const name = String(row[nameIdx] ?? "").trim();
+    const biz = bizIdx >= 0 ? String(row[bizIdx] ?? "").trim() : "";
     const locationId = String(row[locIdx] ?? "").trim();
     const token = String(row[tokIdx] ?? "").trim();
-    if (!name || !locationId || !token) continue;
-    const ownerKey = matchV3(nameTokens(name));
-    if (ownerKey) out.push({ ownerKey, locationId, token });
+    if (!locationId || !token) continue;
+    const ownerKey = matchClient(name, biz);
+    if (ownerKey && !seen.has(ownerKey)) { seen.add(ownerKey); out.push({ ownerKey, locationId, token }); }
   }
   return out;
 }
