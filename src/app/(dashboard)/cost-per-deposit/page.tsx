@@ -105,6 +105,7 @@ export default function CostPerDepositPage() {
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [dups, setDups] = useState<Dup[]>([]);
   const [dupOpen, setDupOpen] = useState(false);
+  const [ghlKeys, setGhlKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const supabase = createClient();
@@ -115,6 +116,9 @@ export default function CostPerDepositPage() {
       setLoading(false);
       const { data: dup } = await supabase.from("deposit_duplicates").select("*");
       setDups(((dup as Dup[]) ?? []).sort((a, b) => b.deposit_count - a.deposit_count));
+      // owner_keys that have GHL conversation data — to flag clients without it
+      const { data: gk } = await supabase.from("ghl_lead_status").select("owner_key");
+      setGhlKeys(new Set((gk ?? []).map((x) => String((x as { owner_key: string }).owner_key))));
     })();
   }, []);
 
@@ -234,14 +238,16 @@ export default function CostPerDepositPage() {
                 const rowBgClass = paused ? "bg-[#e2e5ea] text-[#7c8794]" : i % 2 ? "bg-[#fafcfe]" : "bg-white";
                 const rowId = String(r.sheet_row ?? i);
                 const isOpen = openRow === rowId;
+                const hasGhl = ghlKeys.has((r.owner_name ?? "").toLowerCase().trim());
                 return (
                   <Fragment key={rowId}>
                   <tr className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
                     <td className={cn("sticky left-0 z-10 px-3 py-2 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
                       style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
                       onClick={() => setOpenRow(isOpen ? null : rowId)}>
-                      <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 text-[#94a3b8] transition-transform align-[-2px]", isOpen && "rotate-90")} />
-                      {r.owner_name || "—"}
+                      <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 transition-transform align-[-2px]", isOpen && "rotate-90", hasGhl ? "text-[#94a3b8]" : "text-[#ea580c]")} />
+                      <span className={cn(!hasGhl && "text-[#ea580c]")} title={hasGhl ? undefined : "No GHL conversation data — key missing or not ingested yet"}>{r.owner_name || "—"}</span>
+                      {!hasGhl && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]" title="No GHL conversation data yet">No GHL</span>}
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
                     </td>
                     <td className={cn("sticky z-10 px-3 py-2 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
