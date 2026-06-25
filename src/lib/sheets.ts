@@ -79,6 +79,22 @@ export async function readSheetValues(
   return (res.data.values ?? []) as string[][];
 }
 
+/**
+ * Build column keys from a sheet's header row. Empty header cells become
+ * `col_<n>`; duplicate header names get a numeric suffix so the FIRST occurrence
+ * keeps the clean name (e.g. two "GMB" columns → "GMB" + "GMB_2"). Used by both
+ * the reader and the writer so the round-trip stays consistent.
+ */
+export function buildHeaderNames(rawRow: unknown[]): string[] {
+  const seen = new Map<string, number>();
+  return rawRow.map((h, i) => {
+    const base = String(h ?? "").trim() !== "" ? String(h).trim() : `col_${i + 1}`;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}_${n}`;
+  });
+}
+
 export function rowsToObjects(rows: string[][]): Record<string, unknown>[] {
   if (rows.length === 0) return [];
 
@@ -96,9 +112,7 @@ export function rowsToObjects(rows: string[][]): Record<string, unknown>[] {
     }
   }
 
-  const headers = rows[headerRowIdx].map((h, i) =>
-    String(h ?? "").trim() !== "" ? String(h).trim() : `col_${i + 1}`
-  );
+  const headers = buildHeaderNames(rows[headerRowIdx]);
 
   // Store rows AFTER the header row (skip the header row itself).
   // row_number = actual 1-based sheet row index so write-back works correctly.
@@ -161,13 +175,13 @@ export async function writeRowToSheet(
       if (count >= 3) break;
     }
   }
-  const headers = (scan[headerRowIdx] ?? []) as string[];
+  const headers = buildHeaderNames(scan[headerRowIdx] ?? []);
   if (headers.length === 0) throw new Error(`No headers found in ${resolvedName}`);
 
-  // Build the values array in column order
+  // Build the values array in column order (keys match buildHeaderNames so two
+  // columns sharing a title each get their own value back, not the same one).
   const values = headers.map((h) => {
-    if (!h || h.trim() === "") return "";
-    const v = data[h.trim()];
+    const v = data[h];
     return v === undefined || v === null ? "" : v;
   });
 
