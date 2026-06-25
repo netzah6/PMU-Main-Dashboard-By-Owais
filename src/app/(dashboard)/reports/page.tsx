@@ -47,18 +47,22 @@ interface Report {
   leads: number | null; booking: number | null; sessions: number | null; declining: number | null;
 }
 
-// Canonical "Action" options (mirrors the dropdown on the "Add Data - Tracking"
-// sheet). AI suggestions reuse the same strings so the emoji matches exactly.
+// Canonical "Action" options — mirrors the "Dropdown" tab column C on the sheet
+// (the Action data-validation source). Keep these EXACT, including the trailing
+// space on "Give a Call ☎️ ", so saved values match the sheet's dropdown.
+// AI suggestions reuse the same strings so the emoji matches exactly.
 const ACTION_OPTIONS = [
-  "Strategy call 🧠",
-  "Check In 🤩",
-  "Give a Call ☎️",
-  "Increase Budget 💰",
   "GMB ⭐️",
+  "Check In 🤩",
+  "Strategy call 🧠",
   "Fantastic Path 🎉",
   "Text Blast 💬",
   "Roleplay 🗣️",
+  "Give a Call ☎️ ",
+  "Increase Budget 💰",
   "No Action ⛔️",
+  "Send Video 📹",
+  "Power PMU Arrtist 🙋🏻‍♀️",
 ];
 const ACTION_INCREASE_BUDGET = "Increase Budget 💰";
 const ACTION_GMB = "GMB ⭐️";
@@ -543,7 +547,7 @@ function ActionCell({ report, edits, onSave }: {
   onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
 }) {
   const rowNumber = Number(report.raw["_row_number"] ?? report.raw["row_number"]) || 0;
-  const value = edits[rowNumber] ?? String(report.raw["Action"] ?? "").trim();
+  const value = edits[rowNumber] ?? String(report.raw["Action"] ?? "");
   const [saving, setSaving] = useState(false);
 
   const change = async (next: string) => {
