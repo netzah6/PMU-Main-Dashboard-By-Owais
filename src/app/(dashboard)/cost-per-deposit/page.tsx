@@ -209,7 +209,17 @@ export default function CostPerDepositPage() {
       ) : loading ? (
         <div className="text-sm text-[#697a91] py-12 text-center">Loading…</div>
       ) : (
-        <div className="rounded-[14px] border border-[#e4ebf2] bg-white overflow-auto max-h-[calc(100vh-180px)]" style={{ boxShadow: "var(--shadow-sm)" }}>
+        <>
+        {/* Mobile: cards */}
+        <div className="md:hidden space-y-2">
+          {filtered.map((r, i) => {
+            const id = String(r.sheet_row ?? i);
+            return <DepositCard key={id} r={r} open={openRow === id} hasGhl={ghlKeys.has((r.owner_name ?? "").toLowerCase().trim())} onToggle={() => setOpenRow(openRow === id ? null : id)} />;
+          })}
+          {filtered.length === 0 && <div className="px-4 py-12 text-center text-[#8595a8]">No clients match.</div>}
+        </div>
+        {/* Desktop: table */}
+        <div className="hidden md:block rounded-[14px] border border-[#e4ebf2] bg-white overflow-auto max-h-[calc(100vh-180px)]" style={{ boxShadow: "var(--shadow-sm)" }}>
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
@@ -295,6 +305,54 @@ export default function CostPerDepositPage() {
               )}
             </tbody>
           </table>
+        </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Mobile card for one Cost/Deposit row (deposits + conversion, tap to expand).
+function DepositCard({ r, open, hasGhl, onToggle }: { r: Row; open: boolean; hasGhl: boolean; onToggle: () => void }) {
+  const cpd30 = num(r.cpd30);
+  const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
+  const paused = String(r.client_status ?? "").toLowerCase() === "paused";
+  const chip = (label: string, val: string | number, tone?: { bg: string; fg: string }) => (
+    <div className="rounded-lg px-2 py-1.5 text-center" style={tone ? { background: tone.bg, color: tone.fg } : { background: "#f1f5f9", color: "#1f3559" }}>
+      <div className="text-[9px] font-bold uppercase tracking-wide opacity-70">{label}</div>
+      <div className="text-sm font-bold">{val}</div>
+    </div>
+  );
+  return (
+    <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-hidden">
+      <button onClick={onToggle} className="w-full flex items-start gap-2 p-3 text-left">
+        <ChevronRight size={15} className={cn("mt-0.5 shrink-0 transition-transform", open && "rotate-90", hasGhl ? "text-[#94a3b8]" : "text-[#ea580c]")} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={cn("font-bold", hasGhl ? "text-[#1f3559]" : "text-[#ea580c]")}>{r.owner_name || "—"}</span>
+            {!hasGhl && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]">No GHL</span>}
+            {paused && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
+          </div>
+          <div className="text-xs text-[#697a91] truncate">{r.ad_account_name || "—"}</div>
+        </div>
+      </button>
+      <div className="px-3 pb-3 grid grid-cols-4 gap-1.5">
+        {chip("D 30", r.d30, depCellTone(r.d30, 8, 3, paused))}
+        {chip("D 14", r.d14, depCellTone(r.d14, 5, 2, paused))}
+        {chip("D 7", r.d7, depCellTone(r.d7, 3, 1, paused))}
+        {chip("D 3", r.d3, depCellTone(r.d3, 2, 1, paused))}
+        {chip("Conv 30", conv30 == null ? "—" : `${conv30.toFixed(0)}%`, convTone(conv30))}
+        {chip("CPD 30", cpd30 == null ? "—" : formatCurrency(cpd30), cpdVivid(cpd30))}
+        {chip("Spent", num(r.spent30) != null ? formatCurrency(num(r.spent30)) : "—")}
+        {chip("Budget", money0(r.daily_budget))}
+      </div>
+      {open && (
+        <div className="px-3 pb-3 space-y-3 border-t border-[#eef3f8] pt-3">
+          <div className="rounded-xl border border-[#e4ebf2] bg-white p-3">
+            <h3 className="text-sm font-semibold text-[#1f3559] mb-2">V3 Leads &amp; Conversations</h3>
+            <LeadBreakdown ownerKey={(r.owner_name ?? "").toLowerCase().trim()} />
+          </div>
+          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
         </div>
       )}
     </div>

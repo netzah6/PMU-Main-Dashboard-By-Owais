@@ -270,7 +270,17 @@ export default function PerformancePage() {
       ) : loading ? (
         <div className="text-sm text-[#697a91] py-12 text-center">Loading performance data…</div>
       ) : (
-        <div className="rounded-[14px] border border-[#e4ebf2] bg-white overflow-auto max-h-[calc(100vh-180px)]" style={{ boxShadow: "var(--shadow-sm)" }}>
+        <>
+        {/* Mobile: cards */}
+        <div className="md:hidden space-y-2">
+          {filtered.map((r, i) => {
+            const id = String(r.sheet_row ?? i);
+            return <PerfCard key={id} r={r} open={openRow === id} onToggle={() => setOpenRow(openRow === id ? null : id)} onChanged={load} />;
+          })}
+          {filtered.length === 0 && <div className="px-4 py-12 text-center text-[#8595a8]">No live clients match.</div>}
+        </div>
+        {/* Desktop: table */}
+        <div className="hidden md:block rounded-[14px] border border-[#e4ebf2] bg-white overflow-auto max-h-[calc(100vh-180px)]" style={{ boxShadow: "var(--shadow-sm)" }}>
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
@@ -377,6 +387,53 @@ export default function PerformancePage() {
               )}
             </tbody>
           </table>
+        </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Mobile card for one performance row (key metrics + tap to expand activity).
+function PerfCard({ r, open, onToggle, onChanged }: { r: PerfRow; open: boolean; onToggle: () => void; onChanged: () => void }) {
+  const booking = num(r.booking_pct);
+  const bookingPctVal = booking == null ? null : booking < 1 ? booking * 100 : booking;
+  const cpl30 = num(r.cpl30);
+  const paused = String(r.client_status ?? "").toLowerCase() === "paused";
+  const chip = (label: string, val: string | number, tone?: { bg: string; fg: string }) => (
+    <div className="rounded-lg px-2 py-1.5 text-center" style={tone ? { background: tone.bg, color: tone.fg } : { background: "#f1f5f9", color: "#1f3559" }}>
+      <div className="text-[9px] font-bold uppercase tracking-wide opacity-70">{label}</div>
+      <div className="text-sm font-bold">{val}</div>
+    </div>
+  );
+  return (
+    <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-hidden">
+      <button onClick={onToggle} className="w-full flex items-start gap-2 p-3 text-left">
+        <ChevronRight size={15} className={cn("mt-0.5 shrink-0 text-[#94a3b8] transition-transform", open && "rotate-90")} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-bold text-[#1f3559]">{r.owner_name || "—"}</span>
+            {paused && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
+          </div>
+          <div className="text-xs text-[#697a91] truncate">{r.ad_account_name || "—"}</div>
+        </div>
+      </button>
+      <div className="px-3 pb-3 grid grid-cols-3 gap-1.5">
+        {chip("Book %", bookingPctVal == null ? "—" : `${bookingPctVal.toFixed(0)}%`, bookingPctVal == null ? undefined : bookingFill(bookingPctVal))}
+        {chip("L 30", r.l30, leadCellTone(r.l30, 86, 65, paused))}
+        {chip("L 7", r.l7, leadCellTone(r.l7, 22, 17, paused))}
+        {chip("CPL 30", cpl30 == null ? "—" : formatCurrency(cpl30), cplVivid(cpl30))}
+        {chip("Spent", num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—")}
+        {chip("Budget", money0(r.daily_budget))}
+      </div>
+      {open && (
+        <div className="px-3 pb-3 space-y-3 border-t border-[#eef3f8] pt-3">
+          <div className="flex items-center gap-2 text-xs flex-wrap">
+            <span className="text-[#697a91]">Assigned:</span><UserCell name={r.assigned} />
+            <span className="text-[#697a91] ml-2">Buyer:</span><UserCell name={r.media_buyer} />
+          </div>
+          <CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={onChanged} />
+          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
         </div>
       )}
     </div>

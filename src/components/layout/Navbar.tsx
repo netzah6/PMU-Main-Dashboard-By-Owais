@@ -25,7 +25,7 @@ export function Navbar({ userEmail, syncing }: NavbarProps) {
 
   return (
     <header
-      className="h-14 flex items-center px-6 gap-4 sticky top-0 z-40 relative border-b border-[#e4ebf2]"
+      className="h-14 flex items-center px-3 sm:px-6 gap-2 sm:gap-4 sticky top-0 z-40 relative border-b border-[#e4ebf2]"
       style={{
         background: "rgba(255,255,255,0.86)",
         backdropFilter: "saturate(140%) blur(10px)",
@@ -47,11 +47,11 @@ export function Navbar({ userEmail, syncing }: NavbarProps) {
         >
           <span className="text-white font-bold text-sm">P</span>
         </div>
-        <div>
-          <p className="text-[11px] font-extrabold tracking-[0.12em] uppercase text-[#0e8f88] leading-none">
+        <div className="min-w-0">
+          <p className="hidden sm:block text-[11px] font-extrabold tracking-[0.12em] uppercase text-[#0e8f88] leading-none">
             PMU Bookings On Demand
           </p>
-          <p className="text-sm font-bold text-[#34568a] leading-tight tracking-tight">Master Dashboard</p>
+          <p className="text-sm font-bold text-[#34568a] leading-tight tracking-tight whitespace-nowrap">Master Dashboard</p>
         </div>
       </div>
 
@@ -72,14 +72,14 @@ export function Navbar({ userEmail, syncing }: NavbarProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] hover:text-[#0e8f88] transition-colors border border-[#e4ebf2]"
             >
               <Database size={12} />
-              Sync
+              <span className="hidden sm:inline">Sync</span>
             </Link>
             <Link
               href="/settings"
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e4ebf2] text-[#34568a] transition-colors border border-[#e4ebf2]"
             >
               <Settings size={12} />
-              Settings
+              <span className="hidden sm:inline">Settings</span>
             </Link>
           </>
         )}
@@ -97,7 +97,7 @@ export function Navbar({ userEmail, syncing }: NavbarProps) {
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e4ebf2] text-[#34568a] transition-colors border border-[#e4ebf2]"
         >
           <LogOut size={12} />
-          Logout
+          <span className="hidden sm:inline">Logout</span>
         </button>
       </div>
     </header>
