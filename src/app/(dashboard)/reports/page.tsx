@@ -1,8 +1,11 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
+import { createClient } from "@/lib/supabase/client";
+import { GhlNotes } from "@/components/clients/GhlNotes";
 import { formatDate, cn } from "@/lib/utils";
-import { Search } from "lucide-react";
+import { Search, Sparkles, TrendingUp, MapPin, Pencil, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const num = (v: unknown): number | null => {
@@ -105,11 +108,13 @@ const BEHAVIOURS: { label: string; key: string }[] = [
 ];
 
 export default function ReportsPage() {
-  const { data, loading } = useTableData<Record<string, unknown>>({ table: "performance_tracking" });
+  const { data, loading, refetch } = useTableData<Record<string, unknown>>({ table: "performance_tracking" });
   const { data: rawClients } = useTableData<Record<string, unknown>>({ table: "clients_master" });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"az" | "leads" | "growth">("az");
   const [selected, setSelected] = useState<string | null>(null);
+  // local optimistic overrides for the editable Action column, keyed by sheet row
+  const [actionEdits, setActionEdits] = useState<Record<number, string>>({});
 
   // client name → Version (from clients_master, matched on Owner Full Name)
   const versionMap = useMemo(() => {
@@ -121,6 +126,61 @@ export default function ReportsPage() {
     });
     return m;
   }, [rawClients]);
+
+  // client name → Google My Business active? (clients_master "GMB" = "true"/"false")
+  const gmbMap = useMemo(() => {
+    const m = new Map<string, boolean>();
+    rawClients.forEach((c) => {
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      if (owner) m.set(owner, String(c["GMB"] ?? "").trim().toLowerCase() === "true");
+    });
+    return m;
+  }, [rawClients]);
+
+  // client name → daily budget $ (from performance_overview, one row per owner)
+  const [budgetMap, setBudgetMap] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from("performance_overview").select("owner_name, daily_budget").then(({ data }) => {
+      const m = new Map<string, number>();
+      (data ?? []).forEach((r) => {
+        const k = String((r as { owner_name?: string }).owner_name ?? "").trim().toLowerCase();
+        const b = Number((r as { daily_budget?: unknown }).daily_budget);
+        if (k && !isNaN(b)) m.set(k, b);
+      });
+      setBudgetMap(m);
+    });
+  }, []);
+
+  // client name → GHL contact ID (same picker rule as the Clients tab) for GHL notes
+  const contactIdMap = useMemo(() => {
+    const m = new Map<string, string>();
+    rawClients.forEach((c) => {
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      if (!owner) return;
+      for (const cand of [c["Contact ID"], c["contact_id"], c["GHL Contact ID"], c["_id2"]]) {
+        const s = String(cand ?? "").trim();
+        if (s.length >= 15 && /[a-zA-Z]/.test(s) && /^[a-zA-Z0-9_-]+$/.test(s)) { m.set(owner, s); break; }
+      }
+    });
+    return m;
+  }, [rawClients]);
+
+  // Write an edited Action (col T) back to Supabase + the "Add Data - Tracking" sheet.
+  const saveAction = useCallback(async (rowNumber: number, raw: Record<string, unknown>, value: string) => {
+    const { _supabase_id, _row_number, ...rest } = raw;
+    void _supabase_id; void _row_number;
+    const res = await fetch("/api/sync/performance_tracking", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rowNumber, rowData: { ...rest, Action: value } }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success) throw new Error(json.error || "save failed");
+    setActionEdits((m) => ({ ...m, [rowNumber]: value }));
+    toast.success(json.sheetsUpdated ? "Action saved & synced to the sheet" : "Action saved");
+    refetch();
+  }, [refetch]);
 
   // group reports by client
   const clients = useMemo(() => {
@@ -161,6 +221,36 @@ export default function ReportsPage() {
 
   const current = useMemo(() => clients.find((c) => c.name === selected) ?? listed[0], [clients, listed, selected]);
   const reps = current?.reports ?? [];
+  const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
+  const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
+  const ghlContactId = current ? contactIdMap.get(current.name.toLowerCase()) ?? "" : "";
+
+  // ── AI suggestions (rule-based, derived from this client's report trend) ──────
+  const suggestions = useMemo(() => {
+    const out: { icon: "up" | "gmb"; title: string; body: string }[] = [];
+    if (!current) return out;
+    const rr = current.reports;
+    // Rule 1: booking rate up across 3 consecutive reports → scale the budget
+    if (rr.length >= 3) {
+      const [a, b, c] = rr.slice(-3).map((r) => r.booking);
+      if (a != null && b != null && c != null && b > a && c > b) {
+        out.push({
+          icon: "up",
+          title: "Increase the ad budget",
+          body: `Booking rate climbed three reports in a row (${(a * 100).toFixed(1)}% → ${(b * 100).toFixed(1)}% → ${(c * 100).toFixed(1)}%). Momentum is building — scale the budget while conversion is rising.`,
+        });
+      }
+    }
+    // Rule 2: from the 2nd report onward, suggest GMB if it isn't active yet
+    if (rr.length >= 2 && !gmbActive) {
+      out.push({
+        icon: "gmb",
+        title: "Set up Google My Business",
+        body: "Google My Business isn't active for this client yet. Turning it on early (by the 2nd report) adds a strong local-trust signal and lead source — recommend enabling it.",
+      });
+    }
+    return out;
+  }, [current, gmbActive]);
 
   return (
     <div className="flex h-full">
@@ -226,6 +316,15 @@ export default function ReportsPage() {
                     {badge(`Happy: ${String(r["Happy?"] ?? "—")}`, onState(r["Happy?"]))}
                     {badge(`Deposits: ${String(r["Deposits?"] ?? "—")}`, onState(r["Deposits?"]))}
                     <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#eef2ff] text-[#3a5a8c] border border-[#c7d2fe]">Channel: {String(r["Call or Chat?"] ?? "—")}</span>
+                    {dailyBudget != null && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#f0fdf4] text-[#15803d] border border-[#bbf7d0]">
+                        Daily Budget: ${Math.round(dailyBudget).toLocaleString()}/d
+                      </span>
+                    )}
+                    <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold border",
+                      gmbActive ? "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]" : "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]")}>
+                      Google My Business: {gmbActive ? "Yes" : "No"}
+                    </span>
                     {(() => {
                       const ver = versionMap.get(current.name.toLowerCase()) ?? "";
                       if (!ver) return null;
@@ -242,6 +341,33 @@ export default function ReportsPage() {
                 );
               })()}
             </div>
+
+            {/* AI suggestions */}
+            {suggestions.length > 0 && (
+              <div className="rounded-2xl border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-4 space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={15} className="text-[#0e8f88]" />
+                  <h2 className="text-sm font-bold text-[#0e8f88]">AI Suggestions</h2>
+                  <span className="text-[10px] text-[#697a91]">based on this client&apos;s report trend</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {suggestions.map((s, i) => (
+                    <div key={i} className="flex items-start gap-2.5 rounded-xl bg-white/80 border border-[#e4ebf2] p-3">
+                      <div className="mt-0.5 shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
+                        style={{ background: s.icon === "up" ? "#dcfce7" : "#dbeafe" }}>
+                        {s.icon === "up"
+                          ? <TrendingUp size={15} className="text-[#16a34a]" />
+                          : <MapPin size={15} className="text-[#2563eb]" />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-[#1f3559]">{s.title}</p>
+                        <p className="text-xs text-[#56678a] leading-snug mt-0.5">{s.body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -271,7 +397,7 @@ export default function ReportsPage() {
                     <SectionRow label="Context" span={reps.length} />
                     <ContextRow label="Call or Chat" reps={reps} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
                     <ContextRow label="Last Strategy" reps={reps} get={(r) => { const d = String(r.raw["Last Strategy?"] ?? ""); return d ? formatDate(d) : "—"; }} />
-                    <ContextRow label="Action" reps={reps} get={(r) => String(r.raw["Action"] ?? "") || "—"} />
+                    <ActionRow reps={reps} edits={actionEdits} onSave={saveAction} />
 
                     <SectionRow label="Metric" span={reps.length} />
                     <NumRow label="Total Leads" reps={reps} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
@@ -286,6 +412,9 @@ export default function ReportsPage() {
               </div>
             </div>
             <p className="text-xs text-[#8595a8]">Green = on track, red = off track. Numeric cells show the change vs the previous date (▲/▼).</p>
+
+            {/* Notes from GoHighLevel — same as the Clients tab */}
+            {ghlContactId && <GhlNotes contactId={ghlContactId} />}
           </div>
         )}
       </div>
@@ -364,5 +493,72 @@ function ContextRow({ label, reps, get }: { label: string; reps: Report[]; get: 
       <td className="px-3 py-2 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
       {reps.map((r, i) => <td key={i} className="px-3 py-2 text-center whitespace-nowrap text-[#34568a]">{get(r)}</td>)}
     </tr>
+  );
+}
+
+// Editable "Action" row (col T of "Add Data - Tracking") — writes back to the sheet.
+function ActionRow({ reps, edits, onSave }: {
+  reps: Report[];
+  edits: Record<number, string>;
+  onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
+}) {
+  return (
+    <tr className="border-b border-[#eef3f8]">
+      <td className="px-3 py-2 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">Action</td>
+      {reps.map((r, i) => <ActionCell key={i} report={r} edits={edits} onSave={onSave} />)}
+    </tr>
+  );
+}
+
+function ActionCell({ report, edits, onSave }: {
+  report: Report;
+  edits: Record<number, string>;
+  onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
+}) {
+  const rowNumber = Number(report.raw["_row_number"] ?? report.raw["row_number"]) || 0;
+  const value = edits[rowNumber] ?? String(report.raw["Action"] ?? "");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const start = () => { setDraft(value); setEditing(true); };
+  const save = async () => {
+    if (!rowNumber) { toast.error("No sheet row found for this report"); return; }
+    if (draft === value) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await onSave(rowNumber, report.raw, draft);
+      setEditing(false);
+    } catch {
+      toast.error("Couldn't save the action");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <td className="px-3 py-2 align-top text-center min-w-[160px]">
+      {editing ? (
+        <div className="flex flex-col gap-1">
+          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} autoFocus
+            placeholder="What action are we taking?"
+            className="w-full min-w-[150px] text-xs text-left rounded border border-[#15B7AE] px-2 py-1 text-[#1f3559] focus:outline-none" />
+          <div className="flex gap-1 justify-end">
+            <button onClick={() => setEditing(false)} disabled={saving}
+              className="text-[10px] px-2 py-0.5 rounded text-[#697a91] hover:bg-[#f1f5f9]">Cancel</button>
+            <button onClick={save} disabled={saving}
+              className="text-[10px] px-2 py-0.5 rounded bg-[#15B7AE] text-white hover:bg-[#0e9c94] flex items-center gap-1 disabled:opacity-60">
+              {saving && <Loader2 size={10} className="animate-spin" />}Save
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={start} title="Click to edit action"
+          className="group inline-flex items-start gap-1 text-left text-xs text-[#34568a] hover:text-[#0e8f88] max-w-[220px]">
+          <span className={cn("whitespace-pre-wrap break-words", !value && "text-[#a6b3c4] italic")}>{value || "+ Add action"}</span>
+          <Pencil size={10} className="opacity-0 group-hover:opacity-100 shrink-0 mt-0.5 text-[#94a3b8]" />
+        </button>
+      )}
+    </td>
   );
 }

@@ -140,13 +140,28 @@ export async function writeRowToSheet(
   const sheets = await getSheetsClient();
   const resolvedName = await resolveTabName(spreadsheetId, sheetName, fallbackIndex);
 
-  // Fetch the header row to know column order
-  const headerRes = await sheets.spreadsheets.values.get({
+  // Find the header row — it is NOT always row 1 (some tabs, e.g. "Add Data -
+  // Tracking", have title/note rows above the headers). Use the same detection
+  // as rowsToObjects: the first row (within the top 10) with >=3 non-empty cells.
+  const headerScan = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `'${resolvedName}'!1:1`,
+    range: `'${resolvedName}'!1:10`,
     valueRenderOption: "FORMATTED_VALUE",
   });
-  const headers = (headerRes.data.values?.[0] ?? []) as string[];
+  const scan = (headerScan.data.values ?? []) as string[][];
+  if (scan.length === 0) throw new Error(`No data found in ${resolvedName}`);
+  let headerRowIdx = 0;
+  let maxNonEmpty = 0;
+  const scanLimit = Math.min(10, scan.length);
+  for (let i = 0; i < scanLimit; i++) {
+    const count = (scan[i] ?? []).filter((c) => c != null && String(c).trim() !== "").length;
+    if (count > maxNonEmpty) {
+      maxNonEmpty = count;
+      headerRowIdx = i;
+      if (count >= 3) break;
+    }
+  }
+  const headers = (scan[headerRowIdx] ?? []) as string[];
   if (headers.length === 0) throw new Error(`No headers found in ${resolvedName}`);
 
   // Build the values array in column order
