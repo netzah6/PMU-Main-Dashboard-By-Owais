@@ -1,8 +1,11 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
+import { createClient } from "@/lib/supabase/client";
+import { GhlNotes } from "@/components/clients/GhlNotes";
 import { formatDate, cn } from "@/lib/utils";
-import { Search } from "lucide-react";
+import { Search, Sparkles, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 const num = (v: unknown): number | null => {
@@ -43,6 +46,27 @@ interface Report {
   date: string; ms: number; raw: Record<string, unknown>;
   leads: number | null; booking: number | null; sessions: number | null; declining: number | null;
 }
+
+// Canonical "Action" options — mirrors the "Dropdown" tab column C on the sheet
+// (the Action data-validation source). Keep these EXACT, including the trailing
+// space on "Give a Call ☎️ ", so saved values match the sheet's dropdown.
+// AI suggestions reuse the same strings so the emoji matches exactly.
+const ACTION_OPTIONS = [
+  "GMB ⭐️",
+  "Check In 🤩",
+  "Strategy call 🧠",
+  "Fantastic Path 🎉",
+  "Text Blast 💬",
+  "Roleplay 🗣️",
+  "Give a Call ☎️ ",
+  "Increase Budget 💰",
+  "No Action ⛔️",
+  "Send Video 📹",
+  "Power PMU Arrtist 🙋🏻‍♀️",
+];
+const ACTION_INCREASE_BUDGET = "Increase Budget 💰";
+const ACTION_GMB = "GMB ⭐️";
+const ACTION_STRATEGY_CALL = "Strategy call 🧠";
 
 // "Nice" axis scale → a round max with ~5 even ticks
 function niceScale(max: number): { max: number; step: number } {
@@ -105,11 +129,13 @@ const BEHAVIOURS: { label: string; key: string }[] = [
 ];
 
 export default function ReportsPage() {
-  const { data, loading } = useTableData<Record<string, unknown>>({ table: "performance_tracking" });
+  const { data, loading, refetch } = useTableData<Record<string, unknown>>({ table: "performance_tracking" });
   const { data: rawClients } = useTableData<Record<string, unknown>>({ table: "clients_master" });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"az" | "leads" | "growth">("az");
   const [selected, setSelected] = useState<string | null>(null);
+  // local optimistic overrides for the editable Action column, keyed by sheet row
+  const [actionEdits, setActionEdits] = useState<Record<number, string>>({});
 
   // client name → Version (from clients_master, matched on Owner Full Name)
   const versionMap = useMemo(() => {
@@ -121,6 +147,61 @@ export default function ReportsPage() {
     });
     return m;
   }, [rawClients]);
+
+  // client name → Google My Business active? (clients_master "GMB" = "true"/"false")
+  const gmbMap = useMemo(() => {
+    const m = new Map<string, boolean>();
+    rawClients.forEach((c) => {
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      if (owner) m.set(owner, String(c["GMB"] ?? "").trim().toLowerCase() === "true");
+    });
+    return m;
+  }, [rawClients]);
+
+  // client name → daily budget $ (from performance_overview, one row per owner)
+  const [budgetMap, setBudgetMap] = useState<Map<string, number>>(new Map());
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from("performance_overview").select("owner_name, daily_budget").then(({ data }) => {
+      const m = new Map<string, number>();
+      (data ?? []).forEach((r) => {
+        const k = String((r as { owner_name?: string }).owner_name ?? "").trim().toLowerCase();
+        const b = Number((r as { daily_budget?: unknown }).daily_budget);
+        if (k && !isNaN(b)) m.set(k, b);
+      });
+      setBudgetMap(m);
+    });
+  }, []);
+
+  // client name → GHL contact ID (same picker rule as the Clients tab) for GHL notes
+  const contactIdMap = useMemo(() => {
+    const m = new Map<string, string>();
+    rawClients.forEach((c) => {
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      if (!owner) return;
+      for (const cand of [c["Contact ID"], c["contact_id"], c["GHL Contact ID"], c["_id2"]]) {
+        const s = String(cand ?? "").trim();
+        if (s.length >= 15 && /[a-zA-Z]/.test(s) && /^[a-zA-Z0-9_-]+$/.test(s)) { m.set(owner, s); break; }
+      }
+    });
+    return m;
+  }, [rawClients]);
+
+  // Write an edited Action (col T) back to Supabase + the "Add Data - Tracking" sheet.
+  const saveAction = useCallback(async (rowNumber: number, raw: Record<string, unknown>, value: string) => {
+    const { _supabase_id, _row_number, ...rest } = raw;
+    void _supabase_id; void _row_number;
+    const res = await fetch("/api/sync/performance_tracking", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rowNumber, rowData: { ...rest, Action: value }, columns: ["Action"] }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success) throw new Error(json.error || "save failed");
+    setActionEdits((m) => ({ ...m, [rowNumber]: value }));
+    toast.success(json.sheetsUpdated ? "Action saved & synced to the sheet" : "Action saved");
+    refetch();
+  }, [refetch]);
 
   // group reports by client
   const clients = useMemo(() => {
@@ -161,6 +242,55 @@ export default function ReportsPage() {
 
   const current = useMemo(() => clients.find((c) => c.name === selected) ?? listed[0], [clients, listed, selected]);
   const reps = current?.reports ?? [];
+  const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
+  const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
+  const ghlContactId = current ? contactIdMap.get(current.name.toLowerCase()) ?? "" : "";
+
+  // ── AI suggestions (rule-based) — each is one of the canonical Action options ──
+  const suggestions = useMemo(() => {
+    const out: { option: string; accent: string; body: string }[] = [];
+    if (!current) return out;
+    const rr = current.reports;
+    // Rule 1: booking rate up across 3 consecutive reports → Increase Budget 💰
+    if (rr.length >= 3) {
+      const [a, b, c] = rr.slice(-3).map((r) => r.booking);
+      if (a != null && b != null && c != null && b > a && c > b) {
+        out.push({
+          option: ACTION_INCREASE_BUDGET,
+          accent: "#16a34a",
+          body: `Booking rate climbed three reports in a row (${(a * 100).toFixed(1)}% → ${(b * 100).toFixed(1)}% → ${(c * 100).toFixed(1)}%). Scale the budget while conversion is rising.`,
+        });
+      }
+    }
+    // Rule 2: from the 2nd report onward, suggest GMB ⭐️ if it isn't active yet
+    if (rr.length >= 2 && !gmbActive) {
+      out.push({
+        option: ACTION_GMB,
+        accent: "#eab308",
+        body: "Google My Business isn't active yet. Turning it on early (by the 2nd report) adds a strong local-trust and review source.",
+      });
+    }
+    // Rule 3: early on (first 3 reports), touch base monthly — suggest a strategy
+    // call if there hasn't been one in the last 30 days.
+    if (rr.length <= 3) {
+      let lastStrategyMs = 0;
+      rr.forEach((r) => {
+        const d = String(r.raw["Last Strategy?"] ?? "").trim();
+        if (d) { const ms = parseMs(d); if (ms > lastStrategyMs) lastStrategyMs = ms; }
+      });
+      const daysSince = lastStrategyMs ? Math.round((Date.now() - lastStrategyMs) / 86400000) : null;
+      if (daysSince == null || daysSince > 30) {
+        out.push({
+          option: ACTION_STRATEGY_CALL,
+          accent: "#7c3aed",
+          body: daysSince == null
+            ? "No strategy call logged yet. In the first 3 months, touch base at least once a month — book a strategy call."
+            : `Last strategy call was ${daysSince} days ago. In the first 3 months, touch base at least monthly — book a strategy call.`,
+        });
+      }
+    }
+    return out;
+  }, [current, gmbActive]);
 
   return (
     <div className="flex h-full">
@@ -226,6 +356,14 @@ export default function ReportsPage() {
                     {badge(`Happy: ${String(r["Happy?"] ?? "—")}`, onState(r["Happy?"]))}
                     {badge(`Deposits: ${String(r["Deposits?"] ?? "—")}`, onState(r["Deposits?"]))}
                     <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#eef2ff] text-[#3a5a8c] border border-[#c7d2fe]">Channel: {String(r["Call or Chat?"] ?? "—")}</span>
+                    {dailyBudget != null && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#f0fdf4] text-[#15803d] border border-[#bbf7d0]">
+                        Budget: ${Math.round(dailyBudget).toLocaleString()}/d
+                      </span>
+                    )}
+                    <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fef9c3] text-[#a16207] border border-[#fde68a]">
+                      GMB: {gmbActive ? "Yes" : "No"}
+                    </span>
                     {(() => {
                       const ver = versionMap.get(current.name.toLowerCase()) ?? "";
                       if (!ver) return null;
@@ -242,6 +380,25 @@ export default function ReportsPage() {
                 );
               })()}
             </div>
+
+            {/* AI suggestions */}
+            {suggestions.length > 0 && (
+              <div className="rounded-2xl border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-4 space-y-2.5">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={15} className="text-[#0e8f88]" />
+                  <h2 className="text-sm font-bold text-[#0e8f88]">AI Suggestions</h2>
+                  <span className="text-[10px] text-[#697a91]">based on this client&apos;s report trend</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {suggestions.map((s, i) => (
+                    <div key={i} className="rounded-xl bg-white/80 border border-[#e4ebf2] border-l-4 p-3" style={{ borderLeftColor: s.accent }}>
+                      <p className="text-sm font-semibold text-[#1f3559]">{s.option}</p>
+                      <p className="text-xs text-[#56678a] leading-snug mt-0.5">{s.body}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -271,7 +428,7 @@ export default function ReportsPage() {
                     <SectionRow label="Context" span={reps.length} />
                     <ContextRow label="Call or Chat" reps={reps} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
                     <ContextRow label="Last Strategy" reps={reps} get={(r) => { const d = String(r.raw["Last Strategy?"] ?? ""); return d ? formatDate(d) : "—"; }} />
-                    <ContextRow label="Action" reps={reps} get={(r) => String(r.raw["Action"] ?? "") || "—"} />
+                    <ActionRow reps={reps} edits={actionEdits} onSave={saveAction} />
 
                     <SectionRow label="Metric" span={reps.length} />
                     <NumRow label="Total Leads" reps={reps} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
@@ -286,6 +443,9 @@ export default function ReportsPage() {
               </div>
             </div>
             <p className="text-xs text-[#8595a8]">Green = on track, red = off track. Numeric cells show the change vs the previous date (▲/▼).</p>
+
+            {/* Notes from GoHighLevel — same as the Clients tab */}
+            {ghlContactId && <GhlNotes contactId={ghlContactId} />}
           </div>
         )}
       </div>
@@ -364,5 +524,58 @@ function ContextRow({ label, reps, get }: { label: string; reps: Report[]; get: 
       <td className="px-3 py-2 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
       {reps.map((r, i) => <td key={i} className="px-3 py-2 text-center whitespace-nowrap text-[#34568a]">{get(r)}</td>)}
     </tr>
+  );
+}
+
+// Editable "Action" row (col T of "Add Data - Tracking") — writes back to the sheet.
+function ActionRow({ reps, edits, onSave }: {
+  reps: Report[];
+  edits: Record<number, string>;
+  onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
+}) {
+  return (
+    <tr className="border-b border-[#eef3f8]">
+      <td className="px-3 py-2 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">Action</td>
+      {reps.map((r, i) => <ActionCell key={i} report={r} edits={edits} onSave={onSave} />)}
+    </tr>
+  );
+}
+
+function ActionCell({ report, edits, onSave }: {
+  report: Report;
+  edits: Record<number, string>;
+  onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
+}) {
+  const rowNumber = Number(report.raw["_row_number"] ?? report.raw["row_number"]) || 0;
+  const value = edits[rowNumber] ?? String(report.raw["Action"] ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const change = async (next: string) => {
+    if (!rowNumber) { toast.error("No sheet row found for this report"); return; }
+    if (next === value) return;
+    setSaving(true);
+    try {
+      await onSave(rowNumber, report.raw, next);
+    } catch {
+      toast.error("Couldn't save the action");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Keep any legacy free-text value selectable so an edit never loses it.
+  const options = value && !ACTION_OPTIONS.includes(value) ? [value, ...ACTION_OPTIONS] : ACTION_OPTIONS;
+
+  return (
+    <td className="px-3 py-2 text-center min-w-[150px]">
+      <div className="inline-flex items-center gap-1">
+        <select value={value} onChange={(e) => change(e.target.value)} disabled={saving} title="Set the action (synced to the sheet)"
+          className="max-w-[170px] text-xs rounded border border-[#d7e0ea] bg-white px-2 py-1 text-[#34568a] cursor-pointer focus:outline-none focus:border-[#15B7AE] disabled:opacity-60">
+          <option value="">—</option>
+          {options.map((o) => <option key={o} value={o}>{o}</option>)}
+        </select>
+        {saving && <Loader2 size={11} className="animate-spin text-[#94a3b8]" />}
+      </div>
+    </td>
   );
 }

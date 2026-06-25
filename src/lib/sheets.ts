@@ -79,6 +79,22 @@ export async function readSheetValues(
   return (res.data.values ?? []) as string[][];
 }
 
+/**
+ * Build column keys from a sheet's header row. Empty header cells become
+ * `col_<n>`; duplicate header names get a numeric suffix so the FIRST occurrence
+ * keeps the clean name (e.g. two "GMB" columns → "GMB" + "GMB_2"). Used by both
+ * the reader and the writer so the round-trip stays consistent.
+ */
+export function buildHeaderNames(rawRow: unknown[]): string[] {
+  const seen = new Map<string, number>();
+  return rawRow.map((h, i) => {
+    const base = String(h ?? "").trim() !== "" ? String(h).trim() : `col_${i + 1}`;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}_${n}`;
+  });
+}
+
 export function rowsToObjects(rows: string[][]): Record<string, unknown>[] {
   if (rows.length === 0) return [];
 
@@ -96,9 +112,7 @@ export function rowsToObjects(rows: string[][]): Record<string, unknown>[] {
     }
   }
 
-  const headers = rows[headerRowIdx].map((h, i) =>
-    String(h ?? "").trim() !== "" ? String(h).trim() : `col_${i + 1}`
-  );
+  const headers = buildHeaderNames(rows[headerRowIdx]);
 
   // Store rows AFTER the header row (skip the header row itself).
   // row_number = actual 1-based sheet row index so write-back works correctly.
@@ -126,33 +140,74 @@ function colLetter(n: number): string {
 }
 
 /**
- * Write a single row back to Google Sheets.
+ * Write a row back to Google Sheets.
  * - rowNumber is 1-based (matches data.row_number from the sheet).
- * - data is the full row object; columns are mapped from the sheet's header row.
+ * - onlyColumns: when given, ONLY those columns are updated (each as its own
+ *   cell) and every other cell is left untouched — so e.g. a step-toggle edit
+ *   can never overwrite the status column. When omitted, the whole row is
+ *   rewritten from `data` (legacy behaviour).
  */
 export async function writeRowToSheet(
   spreadsheetId: string,
   sheetName: string,
   rowNumber: number,
   data: Record<string, unknown>,
-  fallbackIndex = 0
+  fallbackIndex = 0,
+  onlyColumns?: string[]
 ): Promise<void> {
   const sheets = await getSheetsClient();
   const resolvedName = await resolveTabName(spreadsheetId, sheetName, fallbackIndex);
 
-  // Fetch the header row to know column order
-  const headerRes = await sheets.spreadsheets.values.get({
+  // Find the header row — it is NOT always row 1 (some tabs, e.g. "Add Data -
+  // Tracking", have title/note rows above the headers). Use the same detection
+  // as rowsToObjects: the first row (within the top 10) with >=3 non-empty cells.
+  const headerScan = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `'${resolvedName}'!1:1`,
+    range: `'${resolvedName}'!1:10`,
     valueRenderOption: "FORMATTED_VALUE",
   });
-  const headers = (headerRes.data.values?.[0] ?? []) as string[];
+  const scan = (headerScan.data.values ?? []) as string[][];
+  if (scan.length === 0) throw new Error(`No data found in ${resolvedName}`);
+  let headerRowIdx = 0;
+  let maxNonEmpty = 0;
+  const scanLimit = Math.min(10, scan.length);
+  for (let i = 0; i < scanLimit; i++) {
+    const count = (scan[i] ?? []).filter((c) => c != null && String(c).trim() !== "").length;
+    if (count > maxNonEmpty) {
+      maxNonEmpty = count;
+      headerRowIdx = i;
+      if (count >= 3) break;
+    }
+  }
+  const headers = buildHeaderNames(scan[headerRowIdx] ?? []);
   if (headers.length === 0) throw new Error(`No headers found in ${resolvedName}`);
 
-  // Build the values array in column order
+  // Field-scoped write: only touch the named columns; leave every other cell
+  // (e.g. the status column) exactly as it is.
+  if (onlyColumns && onlyColumns.length) {
+    const requests: { range: string; values: (string | number | boolean)[][] }[] = [];
+    for (const key of onlyColumns) {
+      const idx = headers.indexOf(key);
+      if (idx < 0) continue;
+      const v = data[key];
+      requests.push({
+        range: `'${resolvedName}'!${colLetter(idx + 1)}${rowNumber}`,
+        values: [[(v === undefined || v === null ? "" : v) as string | number | boolean]],
+      });
+    }
+    if (requests.length) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: { valueInputOption: "USER_ENTERED", data: requests },
+      });
+    }
+    return;
+  }
+
+  // Build the values array in column order (keys match buildHeaderNames so two
+  // columns sharing a title each get their own value back, not the same one).
   const values = headers.map((h) => {
-    if (!h || h.trim() === "") return "";
-    const v = data[h.trim()];
+    const v = data[h];
     return v === undefined || v === null ? "" : v;
   });
 

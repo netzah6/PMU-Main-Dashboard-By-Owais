@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock } from "lucide-react";
+import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { GhlNotes } from "./GhlNotes";
@@ -145,7 +145,7 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: EDIT_FIELDS.map((f) => f.sheetKey) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
@@ -178,7 +178,7 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: [key] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -205,7 +205,7 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: ["col_1"] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
@@ -231,7 +231,7 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: ["Version"] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
@@ -254,6 +254,7 @@ export function ClientProfile({
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
+              {localClient.business_name && <CopyButton value={String(localClient.business_name)} title="Copy business name" />}
               {tz && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap"
                   title={`Client time zone (from GoHighLevel): ${tz}`}>
@@ -262,9 +263,10 @@ export function ClientProfile({
                 </span>
               )}
             </div>
-            <p className="text-sm text-[#697a91] mt-0.5 truncate">
-              {localClient.owner_name || "—"}
-              {localClient.ad_account_name && <> · <span className="text-[#8595a8]">{String(localClient.ad_account_name)}</span></>}
+            <p className="text-sm text-[#697a91] mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span className="truncate">{localClient.owner_name || "—"}</span>
+              {localClient.owner_name && <CopyButton value={String(localClient.owner_name)} title="Copy client full name" />}
+              {localClient.ad_account_name && <span className="text-[#8595a8] truncate">· {String(localClient.ad_account_name)}</span>}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -608,5 +610,26 @@ function StatCard({ label, value }: { label: string; value: string }) {
       <p className="text-lg font-bold text-[#1f3559]">{value}</p>
       <p className="text-xs text-[#697a91] mt-0.5">{label}</p>
     </div>
+  );
+}
+
+// Small inline "copy to clipboard" button with a brief check confirmation.
+function CopyButton({ value, title }: { value: string; title: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      toast.success("Copied");
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      toast.error("Couldn't copy");
+    }
+  };
+  return (
+    <button type="button" onClick={copy} title={title}
+      className="inline-flex items-center justify-center w-5 h-5 rounded text-[#94a3b8] hover:text-[#0e8f88] hover:bg-[#e6f7f5] transition-colors flex-shrink-0">
+      {copied ? <Check size={12} className="text-[#0e8f88]" /> : <Copy size={12} />}
+    </button>
   );
 }
