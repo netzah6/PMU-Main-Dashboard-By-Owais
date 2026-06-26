@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, ChevronRight } from "lucide-react";
+import { Loader2, ChevronRight, Sparkles } from "lucide-react";
 
 interface Lead {
   id: string;
@@ -69,6 +69,36 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     return m;
   }, [leads, days]);
 
+  // ── AI recommendation, from the last-14-day status mix ────────────────────────
+  const recommendations = useMemo(() => {
+    const c: Record<string, number> = {};
+    let total = 0;
+    byDay.forEach((arr) => arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; total++; }));
+    const out: { emoji: string; title: string; body: string }[] = [];
+    if (total === 0) {
+      out.push({ emoji: "📉", title: "No new leads in 14 days", body: "Check the campaign is live, then consider increasing budget or broadening the audience." });
+      return out;
+    }
+    const pct = (n: number) => Math.round((n / total) * 100);
+    const v3 = c.v3_only ?? 0;
+    const aiOff = c.ai_off_stalled ?? 0;
+    const bookedNoDep = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0);
+    const offerNoBook = c.offer_not_booked ?? 0;
+    const activeNoOffer = c.ai_active_no_offer ?? 0;
+    const confirmed = c.confirmed ?? 0;
+
+    if (pct(v3) >= 35) out.push({ emoji: "⚪", title: "Lots of leads aren't engaging", body: `${pct(v3)}% never started a conversation. Tighten the follow-up cadence and refresh the audience/creative — these signups are going cold.` });
+    if (pct(bookedNoDep) >= 25) out.push({ emoji: "📋", title: "Booking but not depositing", body: `${pct(bookedNoDep)}% picked a date/time but didn't pay the deposit. Add trust factors to the funnel (reviews, guarantee) and make the deposit step clearer.` });
+    if (pct(offerNoBook) >= 25) out.push({ emoji: "🔥", title: "Offers aren't converting to bookings", body: `${pct(offerNoBook)}% got an offer but didn't book. Test the offer/price or add urgency, and check audience quality.` });
+    if (pct(aiOff) >= 20) out.push({ emoji: "🔴", title: "AI off and stalled", body: `${pct(aiOff)}% have AI off and went quiet. Re-enable AI or have the team follow up manually.` });
+    if (pct(activeNoOffer) >= 30) out.push({ emoji: "🟡", title: "Conversations stall before the offer", body: `${pct(activeNoOffer)}% are active but no offer yet — the AI may need to present the offer sooner.` });
+    if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 14 days. Consider increasing budget or broadening the audience.` });
+    if (pct(confirmed) >= 15) out.push({ emoji: "✅", title: "Healthy deposit rate", body: `${pct(confirmed)}% confirmed deposits — momentum is good. Consider scaling budget while it converts.` });
+
+    if (!out.length) out.push({ emoji: "👍", title: "Balanced funnel", body: "No single drop-off stands out in the last 14 days — keep the current follow-up and audience." });
+    return out.slice(0, 3);
+  }, [byDay]);
+
   const emojiSummary = (arr: Lead[]) => {
     const c: Record<string, number> = {};
     arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; });
@@ -80,6 +110,24 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
 
   return (
     <div className="space-y-2">
+      {/* AI recommendation */}
+      {recommendations.length > 0 && (
+        <div className="rounded-lg border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-2.5 space-y-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#0e8f88]">
+            <Sparkles size={12} /> AI Recommendation <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 14 days</span>
+          </div>
+          {recommendations.map((r, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <span className="text-sm leading-none mt-0.5">{r.emoji}</span>
+              <div>
+                <p className="text-xs font-semibold text-[#1f3559]">{r.title}</p>
+                <p className="text-[11px] text-[#56678a] leading-snug">{r.body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Legend toggle */}
       <button onClick={() => setShowLegend((s) => !s)} className="text-[11px] font-medium text-[#0e8f88] hover:underline">
         {showLegend ? "Hide legend" : "Show legend"}
