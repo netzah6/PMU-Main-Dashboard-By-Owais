@@ -37,10 +37,18 @@ export async function GET(
     let openSlots = 0;
     let openMinutes = 0;
     let capacitySlots = 0;
+    let lookBusyOn = false;
+    let lookBusyPct = 0;
 
     for (const cal of cals) {
       const cfg = (((await (await fetch(`${BASE}/calendars/${cal.id}`, { headers: H })).json()).calendar) ?? {}) as Record<string, unknown>;
       const slotDur = Number(cfg.slotDuration) || 30;
+      // "Look Busy" hides a % of real openings from the free-slots API — scale back up.
+      const lb = (cfg.lookBusyConfig ?? {}) as { enabled?: boolean; lookBusyPercentage?: number };
+      const lbPct = Math.min(99, Math.max(0, Number(lb.lookBusyPercentage) || 0));
+      const lbOn = !!lb.enabled && lbPct > 0;
+      if (lbOn) { lookBusyOn = true; lookBusyPct = Math.max(lookBusyPct, lbPct); }
+      const factor = lbOn ? 1 / (1 - lbPct / 100) : 1;
       const slotInterval = Number(cfg.slotInterval) || 1;
       const slotIntervalMin = String(cfg.slotIntervalUnit ?? "").startsWith("hour") ? slotInterval * 60 : slotInterval;
 
@@ -64,7 +72,7 @@ export async function GET(
         const fj = (await fr.json()) as Record<string, { slots?: string[] }>;
         for (const k of Object.keys(fj)) {
           if (/^\d{4}-\d{2}-\d{2}$/.test(k)) {
-            const n = (fj[k].slots ?? []).length;
+            const n = (fj[k].slots ?? []).length * factor;
             openSlots += n;
             openMinutes += n * slotDur;
           }
@@ -72,11 +80,13 @@ export async function GET(
       }
     }
 
+    openSlots = Math.round(openSlots);
     return NextResponse.json({
       available: true,
       openSlots,
       openHours: Math.round((openMinutes / 60) * 10) / 10,
       pctFree: capacitySlots > 0 ? Math.round((openSlots / capacitySlots) * 100) : null,
+      lookBusy: { on: lookBusyOn, percentage: lookBusyPct },
     });
   } catch (e) {
     return NextResponse.json({ available: false, reason: String(e) });

@@ -37,7 +37,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   const [loading, setLoading] = useState(true);
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(false);
-  const [avail, setAvail] = useState<{ openSlots: number; openHours: number; pctFree: number | null } | null>(null);
+  const [avail, setAvail] = useState<{ openSlots: number; openHours: number; pctFree: number | null; lookBusy?: { on: boolean; percentage: number } } | null>(null);
 
   // Calendar availability for the next 2 weeks (open slots, hours, % free).
   useEffect(() => {
@@ -45,7 +45,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     setAvail(null);
     fetch(`/api/ghl/availability/${encodeURIComponent(ownerKey)}`)
       .then((r) => r.json())
-      .then((j) => { if (!cancelled && j?.available) setAvail({ openSlots: j.openSlots, openHours: j.openHours, pctFree: j.pctFree }); })
+      .then((j) => { if (!cancelled && j?.available) setAvail({ openSlots: j.openSlots, openHours: j.openHours, pctFree: j.pctFree, lookBusy: j.lookBusy }); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [ownerKey]);
@@ -149,8 +149,15 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
             <Sparkles size={12} /> AI Recommendation <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 14 days</span>
           </div>
           {avail && (
-            <div className="text-[11px] text-[#34568a]">
-              📅 <span className="font-semibold">Next 2 weeks:</span> {avail.openSlots} open slots · ~{avail.openHours}h{avail.pctFree != null ? ` · ${avail.pctFree}% free` : ""}
+            <div className="text-[11px] text-[#34568a] space-y-0.5">
+              <div>📅 <span className="font-semibold">Next 2 weeks:</span> {avail.openSlots} open slots · ~{avail.openHours}h{avail.pctFree != null ? ` · ${avail.pctFree}% free` : ""}</div>
+              {avail.lookBusy && (
+                avail.lookBusy.on ? (
+                  <div className="text-[#d97706]">⚠️ &ldquo;Look Busy&rdquo; is ON ({avail.lookBusy.percentage}%) — leads only see ~{100 - avail.lookBusy.percentage}% of this. Turn it off if availability is tight.</div>
+                ) : (
+                  <div className="text-[#0e8f88]">✅ &ldquo;Look Busy&rdquo; is off — leads see all open times.</div>
+                )
+              )}
             </div>
           )}
           {recommendations.map((r, i) => (
