@@ -74,7 +74,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     const c: Record<string, number> = {};
     let total = 0;
     byDay.forEach((arr) => arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; total++; }));
-    const out: { emoji: string; title: string; body: string }[] = [];
+    const out: { emoji: string; title: string; body: string; steps?: string[] }[] = [];
     if (total === 0) {
       out.push({ emoji: "📉", title: "No new leads in 14 days", body: "Check the campaign is live, then consider increasing budget or broadening the audience." });
       return out;
@@ -88,8 +88,19 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     const confirmed = c.confirmed ?? 0;
 
     if (pct(v3) >= 35) out.push({ emoji: "⚪", title: "Lots of leads aren't engaging", body: `${pct(v3)}% never started a conversation. Tighten the follow-up cadence and refresh the audience/creative — these signups are going cold.` });
-    if (pct(bookedNoDep) >= 25) out.push({ emoji: "📋", title: "Booking but not depositing", body: `${pct(bookedNoDep)}% picked a date/time but didn't pay the deposit. Add trust factors to the funnel (reviews, guarantee) and make the deposit step clearer.` });
-    if (pct(offerNoBook) >= 25) out.push({ emoji: "🔥", title: "Offers aren't converting to bookings", body: `${pct(offerNoBook)}% got an offer but didn't book. Test the offer/price or add urgency, and check audience quality.` });
+    if (pct(bookedNoDep) >= 25) out.push({ emoji: "📋", title: "Booking but not depositing", body: `${pct(bookedNoDep)}% picked a date/time but didn't pay the deposit — interested, not committing. Try:`, steps: [
+      "Improve the audience (tighter buyer-intent targeting)",
+      "Add trust factors — reviews, guarantee, credentials",
+      "Test the Instagram widget (add it, or remove if it distracts)",
+      "Refresh before/after photos and posted hours on the funnel",
+      "Try a different deposit amount",
+      "Update the offer and add urgency to claim it now",
+    ] });
+    if (pct(offerNoBook) >= 25) out.push({ emoji: "🔥", title: "Offers aren't converting to bookings", body: `${pct(offerNoBook)}% got an offer but didn't book. Try:`, steps: [
+      "Update the offer or price",
+      "Add urgency / a deadline on the special offer",
+      "Check audience quality",
+    ] });
     if (pct(aiOff) >= 20) out.push({ emoji: "🔴", title: "AI off and stalled", body: `${pct(aiOff)}% have AI off and went quiet. Re-enable AI or have the team follow up manually.` });
     if (pct(activeNoOffer) >= 30) out.push({ emoji: "🟡", title: "Conversations stall before the offer", body: `${pct(activeNoOffer)}% are active but no offer yet — the AI may need to present the offer sooner.` });
     if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 14 days. Consider increasing budget or broadening the audience.` });
@@ -122,6 +133,15 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
               <div>
                 <p className="text-xs font-semibold text-[#1f3559]">{r.title}</p>
                 <p className="text-[11px] text-[#56678a] leading-snug">{r.body}</p>
+                {r.steps && (
+                  <ul className="mt-1 space-y-0.5">
+                    {r.steps.map((s, j) => (
+                      <li key={j} className="flex gap-1.5 text-[11px] text-[#56678a] leading-snug">
+                        <span className="text-[#0e8f88]">•</span>{s}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           ))}
