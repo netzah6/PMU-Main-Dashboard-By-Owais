@@ -37,6 +37,18 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   const [loading, setLoading] = useState(true);
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(false);
+  const [avail, setAvail] = useState<{ openSlots: number; openHours: number; pctFree: number | null } | null>(null);
+
+  // Calendar availability for the next 2 weeks (open slots, hours, % free).
+  useEffect(() => {
+    let cancelled = false;
+    setAvail(null);
+    fetch(`/api/ghl/availability/${encodeURIComponent(ownerKey)}`)
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled && j?.available) setAvail({ openSlots: j.openSlots, openHours: j.openHours, pctFree: j.pctFree }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [ownerKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,9 +118,17 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 14 days. Consider increasing budget or broadening the audience.` });
     if (pct(confirmed) >= 15) out.push({ emoji: "✅", title: "Healthy deposit rate", body: `${pct(confirmed)}% confirmed deposits — momentum is good. Consider scaling budget while it converts.` });
 
+    // Lots of availability but few people picking a time → it's the funnel, not the calendar.
+    if (avail && avail.pctFree != null && avail.pctFree >= 50) {
+      const bookingish = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0) + (c.confirmed ?? 0);
+      if (pct(bookingish) < 15) {
+        out.unshift({ emoji: "📅", title: "Calendar is wide open", body: `~${avail.openHours}h free (${avail.pctFree}% of capacity) over the next 2 weeks, but few leads are picking a time. Availability isn't the blocker — fix the funnel/offer so they choose a date.` });
+      }
+    }
+
     if (!out.length) out.push({ emoji: "👍", title: "Balanced funnel", body: "No single drop-off stands out in the last 14 days — keep the current follow-up and audience." });
     return out.slice(0, 3);
-  }, [byDay]);
+  }, [byDay, avail]);
 
   const emojiSummary = (arr: Lead[]) => {
     const c: Record<string, number> = {};
@@ -127,6 +147,11 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
           <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#0e8f88]">
             <Sparkles size={12} /> AI Recommendation <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 14 days</span>
           </div>
+          {avail && (
+            <div className="text-[11px] text-[#34568a]">
+              📅 <span className="font-semibold">Next 2 weeks:</span> {avail.openSlots} open slots · ~{avail.openHours}h{avail.pctFree != null ? ` · ${avail.pctFree}% free` : ""}
+            </div>
+          )}
           {recommendations.map((r, i) => (
             <div key={i} className="flex items-start gap-2">
               <span className="text-sm leading-none mt-0.5">{r.emoji}</span>
