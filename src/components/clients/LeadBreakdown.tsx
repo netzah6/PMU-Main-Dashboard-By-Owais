@@ -140,8 +140,9 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   if (!leads.length) return <div className="text-xs text-[#8595a8] py-3">No V3 lead data ingested for this client yet.</div>;
 
   return (
-    <div className="space-y-2">
-      {/* AI recommendation */}
+    <div className="grid gap-3 md:grid-cols-2 md:items-start">
+      {/* Left: AI recommendation */}
+      <div className="space-y-2 min-w-0">
       {recommendations.length > 0 && (
         <div className="rounded-lg border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-2.5 space-y-2">
           <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#0e8f88]">
@@ -172,8 +173,10 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
           ))}
         </div>
       )}
+      </div>
 
-      {/* Legend toggle */}
+      {/* Right: legend + 14-day list */}
+      <div className="space-y-2 min-w-0">
       <button onClick={() => setShowLegend((s) => !s)} className="text-[11px] font-medium text-[#0e8f88] hover:underline">
         {showLegend ? "Hide legend" : "Show legend"}
       </button>
@@ -223,6 +226,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
           );
         })}
       </ul>
+      </div>
     </div>
   );
 }
