@@ -11,6 +11,7 @@ interface Lead {
   status: string;
   priority: number;
   ai_off: boolean;
+  price_signal: string | null;
 }
 
 // Status config — emojis/labels match the briefing legend.
@@ -54,7 +55,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     let cancelled = false;
     setLoading(true); setOpenDay(null);
     (async () => {
-      const { data } = await supabase.from("ghl_lead_status").select("id,contact_name,email,date_added,status,priority,ai_off")
+      const { data } = await supabase.from("ghl_lead_status").select("id,contact_name,email,date_added,status,priority,ai_off,price_signal")
         .eq("owner_key", ownerKey).order("priority").order("date_added", { ascending: false });
       if (!cancelled) { setLeads((data as Lead[]) ?? []); setLoading(false); }
     })();
@@ -85,7 +86,8 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   const recommendations = useMemo(() => {
     const c: Record<string, number> = {};
     let total = 0;
-    byDay.forEach((arr) => arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; total++; }));
+    let priceSignals = 0;
+    byDay.forEach((arr) => arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; total++; if (l.price_signal) priceSignals++; }));
     const out: { emoji: string; title: string; body: string; steps?: string[] }[] = [];
     if (total === 0) {
       out.push({ emoji: "📉", title: "No new leads in 14 days", body: "Check the campaign is live, then consider increasing budget or broadening the audience." });
@@ -113,6 +115,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       "Add urgency / a deadline on the special offer",
       "Check audience quality",
     ] });
+    if (priceSignals >= 3) out.push({ emoji: "💸", title: "Price may be too high", body: `${priceSignals} leads got the offer, then went quiet or pushed back on price (last 14 days). Test a lower deposit/price, or build more value before showing the price.` });
     if (pct(aiOff) >= 20) out.push({ emoji: "🔴", title: "AI off and stalled", body: `${pct(aiOff)}% have AI off and went quiet. Re-enable AI or have the team follow up manually.` });
     if (pct(activeNoOffer) >= 30) out.push({ emoji: "🟡", title: "Conversations stall before the offer", body: `${pct(activeNoOffer)}% are active but no offer yet — the AI may need to present the offer sooner.` });
     if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 14 days. Consider increasing budget or broadening the audience.` });
@@ -127,7 +130,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     }
 
     if (!out.length) out.push({ emoji: "👍", title: "Balanced funnel", body: "No single drop-off stands out in the last 14 days — keep the current follow-up and audience." });
-    return out.slice(0, 3);
+    return out.slice(0, 4);
   }, [byDay, avail]);
 
   const emojiSummary = (arr: Lead[]) => {
@@ -218,10 +221,16 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                       {arr.map((l) => {
                         const cfg = STATUS[l.status];
                         return (
-                          <li key={l.id} className="flex items-center gap-2 text-sm">
+                          <li key={l.id} className="flex items-center gap-2 text-sm flex-wrap">
                             <span title={cfg.legend}>{cfg.emoji}</span>
                             <span className="font-medium text-[#1f3559]">{l.contact_name || l.email || "—"}</span>
                             <span className="text-[#697a91]">— {cfg.short(l.ai_off)}</span>
+                            {l.price_signal === "silent" && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]" title="Got the offer (knows the price), then stopped replying — possible price pushback">🔇 silent after offer</span>
+                            )}
+                            {l.price_signal === "objection" && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#fde8ee] text-[#e11d48] border border-[#f5c2cf]" title="Mentioned cost/price concern after the offer">💸 too expensive</span>
+                            )}
                           </li>
                         );
                       })}
