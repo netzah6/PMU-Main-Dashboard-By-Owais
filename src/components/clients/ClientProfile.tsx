@@ -35,6 +35,8 @@ function statusColors(s: string): { bg: string; color: string; border: string } 
 
 // Fields editable in the edit panel
 const EDIT_FIELDS = [
+  { key: "business_name",   label: "Business Name",     sheetKey: "Business Name" },
+  { key: "owner_name",      label: "Owner Full Name",   sheetKey: "Owner Full Name" },
   { key: "status",          label: "Status",           sheetKey: "col_1" },
   { key: "campaign_status", label: "Campaign Status",   sheetKey: "Campaign Status" },
   { key: "p",               label: "Monthly Price",     sheetKey: "p" },
