@@ -24,6 +24,7 @@ interface ClientProfileProps {
 // Selectable client statuses (written back to the sheet's col_1).
 const STATUS_OPTIONS = ["Live", "Paused", "Offboarded", "Lost"];
 const VERSION_OPTIONS = ["(V3)", "(V2.3)", "(V1)", "Not Interested"];
+const TEAM_OPTIONS = ["Francisco", "Stephanie", "Nicolas", "Dana", "Marie"];
 function statusColors(s: string): { bg: string; color: string; border: string } {
   const u = s.toLowerCase();
   if (u === "live") return { bg: "#e6f7ee", color: "#15803d", border: "#86efac" };
@@ -33,14 +34,11 @@ function statusColors(s: string): { bg: string; color: string; border: string } 
 }
 
 // Fields editable in the edit panel
+// Edit Profile only changes the two name fields; everything else is changed via
+// the inline dropdowns in the header.
 const EDIT_FIELDS = [
-  { key: "status",          label: "Status",           sheetKey: "col_1" },
-  { key: "campaign_status", label: "Campaign Status",   sheetKey: "Campaign Status" },
-  { key: "p",               label: "Monthly Price",     sheetKey: "p" },
-  { key: "assigned",        label: "Assigned To",       sheetKey: "Assigned" },
-  { key: "media_buyer",     label: "Media Buyer",       sheetKey: "Media Buyer" },
-  { key: "version",         label: "Version",           sheetKey: "Version" },
-  { key: "notes",           label: "Notes",             sheetKey: "Notes" },
+  { key: "business_name",   label: "Business Name",     sheetKey: "Business Name" },
+  { key: "owner_name",      label: "Owner Full Name",   sheetKey: "Owner Full Name" },
 ];
 
 const GHL_LOCATION = process.env.NEXT_PUBLIC_GHL_LOCATION_ID ?? "SfpNMJ5YU9lBkxss47lK";
@@ -245,6 +243,32 @@ export function ClientProfile({
     }
   }, [rowNumber, localClient, client, onUpdate]);
 
+  // ── Quick assign change (Assigned / Media Buyer) — writes that one column ──────
+  const [assignSaving, setAssignSaving] = useState<string | null>(null);
+  const saveTeam = useCallback(async (normKey: "assigned" | "media_buyer", sheetKey: string, value: string) => {
+    if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
+    if (value === String(localClient[normKey] ?? "")) return;
+    const updated: ClientRecord = { ...localClient, [normKey]: value, [sheetKey]: value };
+    setLocalClient(updated);
+    setAssignSaving(sheetKey);
+    try {
+      const res = await fetch("/api/sync/clients_master", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: [sheetKey] }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Save failed");
+      toast.success(json.sheetsUpdated ? `${sheetKey} → ${value || "—"} — Sheet updated ✓` : `${sheetKey} → ${value || "—"}`);
+      onUpdate?.(updated);
+    } catch (e) {
+      toast.error(`${sheetKey} save failed: ${e}`);
+      setLocalClient(client);
+    } finally {
+      setAssignSaving(null);
+    }
+  }, [rowNumber, localClient, client, onUpdate]);
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="h-full overflow-y-auto">
@@ -360,6 +384,43 @@ export function ClientProfile({
               </span>
             ) : (
               <Badge variant="gray">Version: <strong className="ml-1">{localClient.version || "—"}</strong></Badge>
+            )}
+            {canEdit ? (
+              <>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-xs text-[#697a91]">Assigned:</span>
+                  <select
+                    value={String(localClient.assigned ?? "")}
+                    onChange={(e) => saveTeam("assigned", "Assigned", e.target.value)}
+                    disabled={assignSaving === "Assigned"}
+                    title="Assign a user — writes back to the Google Sheet"
+                    className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                  >
+                    <option value="">—</option>
+                    {localClient.assigned && !TEAM_OPTIONS.includes(String(localClient.assigned)) && <option value={String(localClient.assigned)}>{String(localClient.assigned)}</option>}
+                    {TEAM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-xs text-[#697a91]">Media Buyer:</span>
+                  <select
+                    value={String(localClient.media_buyer ?? "")}
+                    onChange={(e) => saveTeam("media_buyer", "Media Buyer", e.target.value)}
+                    disabled={assignSaving === "Media Buyer"}
+                    title="Assign a media buyer — writes back to the Google Sheet"
+                    className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                  >
+                    <option value="">—</option>
+                    {localClient.media_buyer && !TEAM_OPTIONS.includes(String(localClient.media_buyer)) && <option value={String(localClient.media_buyer)}>{String(localClient.media_buyer)}</option>}
+                    {TEAM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </span>
+              </>
+            ) : (
+              <>
+                <Badge variant="gray">Assigned: <strong className="ml-1">{localClient.assigned || "—"}</strong></Badge>
+                <Badge variant="gray">Media Buyer: <strong className="ml-1">{localClient.media_buyer || "—"}</strong></Badge>
+              </>
             )}
             <Badge variant="gray">Campaign: <strong className="ml-1">{localClient.campaign_status || "—"}</strong></Badge>
             {payment ? (
@@ -522,18 +583,28 @@ function PayRow({ label, children }: { label: string; children: React.ReactNode 
   );
 }
 
-// Keys hidden from the details grid: internal/meta, normalized aliases, header
-// fields, and onboarding-step fields (already shown in the tracker).
-const DETAIL_EXCLUDE = new Set<string>([
-  "_id", "_id2", "_row_number", "_supabase_id", "row_number", "lat", "lng",
-  "business_name", "owner_name", "status", "campaign_status", "assigned",
-  "media_buyer", "version", "p", "ad_account_name", "notes",
-  // Original sheet keys already shown in the header badges
-  "Business Name", "Owner Full Name", "Assigned", "Media Buyer", "Version",
-  "Campaign Status", "Monthly Price",
-  "Launch Call", "A2P Verified", "FB Group", "Group Call", "Sync Schedule",
-  "UNSUBSCRIBE Removed", "Agreement", "AI Agent Access", "Instagram Widget",
-]);
+// The exact sheet columns shown in the details box, in order.
+const DETAIL_FIELDS: { key: string; label: string }[] = [
+  { key: "Owner Full Name", label: "Owner Full Name" },
+  { key: "Ad account Name", label: "Ad Account Name" },
+  { key: "Business Name", label: "Business Name" },
+  { key: "Original Price", label: "Original Price" },
+  { key: "Discounted Price", label: "Discounted Price" },
+  { key: "PMU Services", label: "PMU Services" },
+  { key: "Campaign Type", label: "Campaign Type" },
+  { key: "Offer", label: "Offer" },
+  { key: "Email", label: "Email" },
+  { key: "Phone", label: "Phone" },
+  { key: "Generate New Business Number?", label: "Generate New Business Number?" },
+  { key: "Location (Full adress)", label: "Location (Full Address)" },
+  { key: "FB Page link", label: "FB Page Link" },
+  { key: "Content Source", label: "Content Source" },
+  { key: "Languages", label: "Languages" },
+  { key: "Ad Spent", label: "Ad Spent" },
+  { key: "IG Page link", label: "IG Page Link" },
+  { key: "IG Followers", label: "IG Followers" },
+  { key: "Notes", label: "Notes" },
+];
 
 function isEmptyVal(v: unknown): boolean {
   return v === null || v === undefined || String(v).trim() === "";
@@ -555,9 +626,10 @@ function DetailValue({ value }: { value: unknown }) {
 
 function ClientDetails({ client }: { client: ClientRecord }) {
   const [open, setOpen] = useState(true);
-  const entries = Object.entries(client).filter(
-    ([k, v]) => !DETAIL_EXCLUDE.has(k) && !/^col_\d+$/.test(k) && !isEmptyVal(v)
-  );
+  const data = client as Record<string, unknown>;
+  const entries = DETAIL_FIELDS
+    .map((f) => ({ key: f.key, label: f.label, value: data[f.key] }))
+    .filter((f) => !isEmptyVal(f.value));
   if (entries.length === 0) return null;
 
   return (
@@ -575,10 +647,10 @@ function ClientDetails({ client }: { client: ClientRecord }) {
       </button>
       {open && (
         <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
-          {entries.map(([k, v]) => (
-            <div key={k} className="min-w-0">
-              <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{k}</p>
-              <DetailValue value={v} />
+          {entries.map((f) => (
+            <div key={f.key} className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{f.label}</p>
+              <DetailValue value={f.value} />
             </div>
           ))}
         </div>
