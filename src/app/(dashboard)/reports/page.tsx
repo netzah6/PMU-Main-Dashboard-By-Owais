@@ -158,6 +158,17 @@ export default function ReportsPage() {
     return m;
   }, [rawClients]);
 
+  // client name → Business Name (from clients_master, matched on Owner Full Name)
+  const businessMap = useMemo(() => {
+    const m = new Map<string, string>();
+    rawClients.forEach((c) => {
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      const biz = String(c["Business Name"] ?? "").trim();
+      if (owner && biz) m.set(owner, biz);
+    });
+    return m;
+  }, [rawClients]);
+
   // client name → daily budget $ (from performance_overview, one row per owner)
   const [budgetMap, setBudgetMap] = useState<Map<string, number>>(new Map());
   useEffect(() => {
@@ -343,6 +354,10 @@ export default function ReportsPage() {
             {/* Header */}
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl font-bold text-[#1f3559]">{current.name}</h1>
+              {(() => {
+                const biz = businessMap.get(current.name.toLowerCase());
+                return biz ? <span className="text-sm font-medium text-[#697a91]">· {biz}</span> : null;
+              })()}
               {(() => {
                 const r = current.last.raw;
                 const badge = (label: string, on: boolean | null) => (
