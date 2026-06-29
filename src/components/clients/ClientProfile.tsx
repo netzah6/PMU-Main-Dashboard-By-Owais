@@ -34,16 +34,11 @@ function statusColors(s: string): { bg: string; color: string; border: string } 
 }
 
 // Fields editable in the edit panel
+// Edit Profile only changes the two name fields; everything else is changed via
+// the inline dropdowns in the header.
 const EDIT_FIELDS = [
   { key: "business_name",   label: "Business Name",     sheetKey: "Business Name" },
   { key: "owner_name",      label: "Owner Full Name",   sheetKey: "Owner Full Name" },
-  { key: "status",          label: "Status",           sheetKey: "col_1" },
-  { key: "campaign_status", label: "Campaign Status",   sheetKey: "Campaign Status" },
-  { key: "p",               label: "Monthly Price",     sheetKey: "p" },
-  { key: "assigned",        label: "Assigned To",       sheetKey: "Assigned" },
-  { key: "media_buyer",     label: "Media Buyer",       sheetKey: "Media Buyer" },
-  { key: "version",         label: "Version",           sheetKey: "Version" },
-  { key: "notes",           label: "Notes",             sheetKey: "Notes" },
 ];
 
 const GHL_LOCATION = process.env.NEXT_PUBLIC_GHL_LOCATION_ID ?? "SfpNMJ5YU9lBkxss47lK";
@@ -588,18 +583,28 @@ function PayRow({ label, children }: { label: string; children: React.ReactNode 
   );
 }
 
-// Keys hidden from the details grid: internal/meta, normalized aliases, header
-// fields, and onboarding-step fields (already shown in the tracker).
-const DETAIL_EXCLUDE = new Set<string>([
-  "_id", "_id2", "_row_number", "_supabase_id", "row_number", "lat", "lng",
-  "business_name", "owner_name", "status", "campaign_status", "assigned",
-  "media_buyer", "version", "p", "ad_account_name", "notes",
-  // Original sheet keys already shown in the header badges
-  "Business Name", "Owner Full Name", "Assigned", "Media Buyer", "Version",
-  "Campaign Status", "Monthly Price",
-  "Launch Call", "A2P Verified", "FB Group", "Group Call", "Sync Schedule",
-  "UNSUBSCRIBE Removed", "Agreement", "AI Agent Access", "Instagram Widget",
-]);
+// The exact sheet columns shown in the details box, in order.
+const DETAIL_FIELDS: { key: string; label: string }[] = [
+  { key: "Owner Full Name", label: "Owner Full Name" },
+  { key: "Ad account Name", label: "Ad Account Name" },
+  { key: "Business Name", label: "Business Name" },
+  { key: "Original Price", label: "Original Price" },
+  { key: "Discounted Price", label: "Discounted Price" },
+  { key: "PMU Services", label: "PMU Services" },
+  { key: "Campaign Type", label: "Campaign Type" },
+  { key: "Offer", label: "Offer" },
+  { key: "Email", label: "Email" },
+  { key: "Phone", label: "Phone" },
+  { key: "Generate New Business Number?", label: "Generate New Business Number?" },
+  { key: "Location (Full adress)", label: "Location (Full Address)" },
+  { key: "FB Page link", label: "FB Page Link" },
+  { key: "Content Source", label: "Content Source" },
+  { key: "Languages", label: "Languages" },
+  { key: "Ad Spent", label: "Ad Spent" },
+  { key: "IG Page link", label: "IG Page Link" },
+  { key: "IG Followers", label: "IG Followers" },
+  { key: "Notes", label: "Notes" },
+];
 
 function isEmptyVal(v: unknown): boolean {
   return v === null || v === undefined || String(v).trim() === "";
@@ -621,9 +626,10 @@ function DetailValue({ value }: { value: unknown }) {
 
 function ClientDetails({ client }: { client: ClientRecord }) {
   const [open, setOpen] = useState(true);
-  const entries = Object.entries(client).filter(
-    ([k, v]) => !DETAIL_EXCLUDE.has(k) && !/^col_\d+$/.test(k) && !isEmptyVal(v)
-  );
+  const data = client as Record<string, unknown>;
+  const entries = DETAIL_FIELDS
+    .map((f) => ({ key: f.key, label: f.label, value: data[f.key] }))
+    .filter((f) => !isEmptyVal(f.value));
   if (entries.length === 0) return null;
 
   return (
@@ -641,10 +647,10 @@ function ClientDetails({ client }: { client: ClientRecord }) {
       </button>
       {open && (
         <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
-          {entries.map(([k, v]) => (
-            <div key={k} className="min-w-0">
-              <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{k}</p>
-              <DetailValue value={v} />
+          {entries.map((f) => (
+            <div key={f.key} className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{f.label}</p>
+              <DetailValue value={f.value} />
             </div>
           ))}
         </div>
