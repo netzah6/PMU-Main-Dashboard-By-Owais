@@ -24,6 +24,7 @@ interface ClientProfileProps {
 // Selectable client statuses (written back to the sheet's col_1).
 const STATUS_OPTIONS = ["Live", "Paused", "Offboarded", "Lost"];
 const VERSION_OPTIONS = ["(V3)", "(V2.3)", "(V1)", "Not Interested"];
+const TEAM_OPTIONS = ["Francisco", "Stephanie", "Nicolas", "Dana", "Marie"];
 function statusColors(s: string): { bg: string; color: string; border: string } {
   const u = s.toLowerCase();
   if (u === "live") return { bg: "#e6f7ee", color: "#15803d", border: "#86efac" };
@@ -245,6 +246,32 @@ export function ClientProfile({
     }
   }, [rowNumber, localClient, client, onUpdate]);
 
+  // ── Quick assign change (Assigned / Media Buyer) — writes that one column ──────
+  const [assignSaving, setAssignSaving] = useState<string | null>(null);
+  const saveTeam = useCallback(async (normKey: "assigned" | "media_buyer", sheetKey: string, value: string) => {
+    if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
+    if (value === String(localClient[normKey] ?? "")) return;
+    const updated: ClientRecord = { ...localClient, [normKey]: value, [sheetKey]: value };
+    setLocalClient(updated);
+    setAssignSaving(sheetKey);
+    try {
+      const res = await fetch("/api/sync/clients_master", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: [sheetKey] }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Save failed");
+      toast.success(json.sheetsUpdated ? `${sheetKey} → ${value || "—"} — Sheet updated ✓` : `${sheetKey} → ${value || "—"}`);
+      onUpdate?.(updated);
+    } catch (e) {
+      toast.error(`${sheetKey} save failed: ${e}`);
+      setLocalClient(client);
+    } finally {
+      setAssignSaving(null);
+    }
+  }, [rowNumber, localClient, client, onUpdate]);
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="h-full overflow-y-auto">
@@ -360,6 +387,43 @@ export function ClientProfile({
               </span>
             ) : (
               <Badge variant="gray">Version: <strong className="ml-1">{localClient.version || "—"}</strong></Badge>
+            )}
+            {canEdit ? (
+              <>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-xs text-[#697a91]">Assigned:</span>
+                  <select
+                    value={String(localClient.assigned ?? "")}
+                    onChange={(e) => saveTeam("assigned", "Assigned", e.target.value)}
+                    disabled={assignSaving === "Assigned"}
+                    title="Assign a user — writes back to the Google Sheet"
+                    className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                  >
+                    <option value="">—</option>
+                    {localClient.assigned && !TEAM_OPTIONS.includes(String(localClient.assigned)) && <option value={String(localClient.assigned)}>{String(localClient.assigned)}</option>}
+                    {TEAM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-xs text-[#697a91]">Media Buyer:</span>
+                  <select
+                    value={String(localClient.media_buyer ?? "")}
+                    onChange={(e) => saveTeam("media_buyer", "Media Buyer", e.target.value)}
+                    disabled={assignSaving === "Media Buyer"}
+                    title="Assign a media buyer — writes back to the Google Sheet"
+                    className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                  >
+                    <option value="">—</option>
+                    {localClient.media_buyer && !TEAM_OPTIONS.includes(String(localClient.media_buyer)) && <option value={String(localClient.media_buyer)}>{String(localClient.media_buyer)}</option>}
+                    {TEAM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </span>
+              </>
+            ) : (
+              <>
+                <Badge variant="gray">Assigned: <strong className="ml-1">{localClient.assigned || "—"}</strong></Badge>
+                <Badge variant="gray">Media Buyer: <strong className="ml-1">{localClient.media_buyer || "—"}</strong></Badge>
+              </>
             )}
             <Badge variant="gray">Campaign: <strong className="ml-1">{localClient.campaign_status || "—"}</strong></Badge>
             {payment ? (
