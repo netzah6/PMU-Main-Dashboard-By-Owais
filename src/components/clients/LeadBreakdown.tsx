@@ -12,6 +12,7 @@ interface Lead {
   priority: number;
   ai_off: boolean;
   price_signal: string | null;
+  activity_date: string | null;
 }
 
 // Status config — emojis/labels match the briefing legend.
@@ -55,7 +56,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     let cancelled = false;
     setLoading(true); setOpenDay(null);
     (async () => {
-      const { data } = await supabase.from("ghl_lead_status").select("id,contact_name,email,date_added,status,priority,ai_off,price_signal")
+      const { data } = await supabase.from("ghl_lead_status").select("id,contact_name,email,date_added,status,priority,ai_off,price_signal,activity_date")
         .eq("owner_key", ownerKey).order("priority").order("date_added", { ascending: false });
       if (!cancelled) { setLeads((data as Lead[]) ?? []); setLoading(false); }
     })();
@@ -73,7 +74,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     const m = new Map<string, Lead[]>();
     days.forEach((d) => m.set(d, []));
     leads.forEach((l) => {
-      const day = (l.date_added ?? "").slice(0, 10);
+      const day = (l.activity_date ?? l.date_added ?? "").slice(0, 10);
       const arr = m.get(day);
       if (arr) arr.push(l);
     });
