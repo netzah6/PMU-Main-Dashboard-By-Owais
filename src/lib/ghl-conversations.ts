@@ -20,6 +20,20 @@ function authHeaders(token: string, version: string) {
   };
 }
 
+// Friendly channel label from a GHL message-type string (e.g. "TYPE_SMS").
+export function channelFromType(t?: string | null): string {
+  const s = String(t ?? "").toUpperCase();
+  if (s.includes("EMAIL")) return "Email";
+  if (s.includes("SMS")) return "SMS";
+  if (s.includes("CALL") || s.includes("VOICEMAIL")) return "Call";
+  if (s.includes("WHATSAPP")) return "WhatsApp";
+  if (s.includes("FACEBOOK") || s === "TYPE_FB") return "FB";
+  if (s.includes("INSTAGRAM") || s === "TYPE_IG") return "IG";
+  if (s.includes("GMB")) return "GMB";
+  if (s.includes("CHAT")) return "Chat";
+  return "Msg";
+}
+
 export type ConvSummary = {
   id: string;
   contactId: string | null;
@@ -28,18 +42,22 @@ export type ConvSummary = {
   lastMessageDirection: string | null;
   lastMessageDate: string | null;
   unreadCount: number;
+  channel: string;
 };
 
-// Most recent conversations for the PMU Bookings On Demand account.
+// Recent conversations for the PMU Bookings On Demand account.
+// Pass { unreadOnly: true } to mirror GHL's "Unread" tab.
 export async function getRecentConversations(
   acct: PmuAccount,
-  limit = 40
+  limit = 40,
+  opts: { unreadOnly?: boolean } = {}
 ): Promise<ConvSummary[]> {
-  const url = `${GHL_BASE}/conversations/search?locationId=${acct.locationId}&limit=${limit}&sortBy=last_message_date&sort=desc`;
+  const statusParam = opts.unreadOnly ? "&status=unread" : "";
+  const url = `${GHL_BASE}/conversations/search?locationId=${acct.locationId}&limit=${limit}&sortBy=last_message_date&sort=desc${statusParam}`;
   const r = await fetch(url, { headers: authHeaders(acct.token, CONV_VERSION) });
   if (!r.ok) return [];
   const j = (await r.json()) as { conversations?: Array<Record<string, unknown>> };
-  return (j.conversations ?? []).map((c) => ({
+  let list: ConvSummary[] = (j.conversations ?? []).map((c) => ({
     id: String(c.id),
     contactId: (c.contactId as string) ?? null,
     contactName:
@@ -50,7 +68,11 @@ export async function getRecentConversations(
     lastMessageDate:
       c.lastMessageDate != null ? new Date(Number(c.lastMessageDate)).toISOString() : null,
     unreadCount: typeof c.unreadCount === "number" ? (c.unreadCount as number) : 0,
+    channel: channelFromType(c.lastMessageType as string | undefined),
   }));
+  // Guard: only keep conversations that actually have unread messages.
+  if (opts.unreadOnly) list = list.filter((c) => c.unreadCount > 0);
+  return list;
 }
 
 export type ThreadMessage = {
@@ -59,9 +81,10 @@ export type ThreadMessage = {
   body: string;
   dateAdded: string | null;
   userId: string | null;
+  channel: string;
 };
 
-// Full message history for one conversation, oldest → newest, SMS/text only.
+// Full message history for one conversation, oldest → newest (SMS + email).
 export async function getThread(acct: PmuAccount, conversationId: string): Promise<ThreadMessage[]> {
   const url = `${GHL_BASE}/conversations/${conversationId}/messages?limit=100`;
   const r = await fetch(url, { headers: authHeaders(acct.token, CONV_VERSION) });
@@ -77,6 +100,7 @@ export async function getThread(acct: PmuAccount, conversationId: string): Promi
       body: String(m.body ?? "").trim(),
       dateAdded: m.dateAdded ? new Date(String(m.dateAdded)).toISOString() : null,
       userId: (m.userId as string) ?? null,
+      channel: channelFromType((m.messageType ?? m.type) as string | undefined),
     }))
     .filter((m) => m.body.length > 0);
   // GHL returns newest-first; we want chronological for reading + prompting.

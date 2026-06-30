@@ -12,12 +12,34 @@ interface ConvSummary {
   lastMessageDirection: string | null;
   lastMessageDate: string | null;
   unreadCount: number;
+  channel: string;
 }
 interface ThreadMessage {
   id: string;
   direction: "inbound" | "outbound";
   body: string;
   dateAdded: string | null;
+  channel: string;
+}
+
+function channelStyle(ch: string): { bg: string; color: string } {
+  switch (ch) {
+    case "Email": return { bg: "#eef2ff", color: "#4f46e5" };
+    case "SMS": return { bg: "#e6f7f5", color: "#0e8f88" };
+    case "WhatsApp": return { bg: "#e7f8ec", color: "#15803d" };
+    case "FB": return { bg: "#eaf1ff", color: "#1d4ed8" };
+    case "IG": return { bg: "#fdeef5", color: "#be185d" };
+    default: return { bg: "#f1f5f9", color: "#64748b" };
+  }
+}
+function ChannelBadge({ channel }: { channel: string }) {
+  const c = channelStyle(channel);
+  return (
+    <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold leading-none"
+      style={{ background: c.bg, color: c.color }}>
+      {channel}
+    </span>
+  );
 }
 interface Me { matched: boolean; ghlUserId: string | null; name: string }
 
@@ -141,9 +163,9 @@ export default function ReplyPage() {
     <div className="p-4 sm:p-6 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-[#1f3559]">Reply</h1>
+          <h1 className="text-xl font-bold text-[#1f3559]">AI Replies</h1>
           <p className="text-sm text-[#697a91]">
-            AI-drafted replies for PMU Bookings On Demand
+            Unread conversations · PMU Bookings On Demand
             {me ? <> · writing as <strong className="text-[#34568a]">{me.name}</strong></> : null}
             {" "}· you copy &amp; paste, nothing auto-sends
           </p>
@@ -176,13 +198,18 @@ export default function ReplyPage() {
             </div>
             <div className="rounded-xl border border-[#e4ebf2] bg-white divide-y divide-[#eef3f8] overflow-hidden max-h-[70vh] overflow-y-auto">
               {filtered.length === 0 ? (
-                <div className="py-10 text-center text-[#8595a8] text-sm">No conversations.</div>
+                <div className="py-10 text-center text-[#8595a8] text-sm">
+                  {search ? "No matches." : "No unread conversations 🎉"}
+                </div>
               ) : filtered.map((c) => (
                 <button key={c.id} onClick={() => openConversation(c)}
                   className={cn("w-full text-left px-3 py-2.5 hover:bg-[#f1f5f9] transition-colors",
                     selected?.id === c.id && "bg-[#e6f7f5]")}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-[#1f3559] truncate">{c.contactName}</span>
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <ChannelBadge channel={c.channel} />
+                      <span className="text-sm font-semibold text-[#1f3559] truncate">{c.contactName}</span>
+                    </span>
                     <span className="text-[10px] text-[#8595a8] shrink-0">{timeAgo(c.lastMessageDate)}</span>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
@@ -207,6 +234,7 @@ export default function ReplyPage() {
                 <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#eef3f8] bg-[#f8fafc]">
                   <button onClick={() => setSelected(null)} className="md:hidden text-[#34568a]"><ChevronLeft size={18} /></button>
                   <span className="text-sm font-bold text-[#1f3559] truncate">{selected.contactName}</span>
+                  <ChannelBadge channel={selected.channel} />
                 </div>
 
                 {/* Messages */}
@@ -216,7 +244,10 @@ export default function ReplyPage() {
                   ) : thread.length === 0 ? (
                     <div className="text-center text-[#8595a8] text-sm py-8">No messages in this conversation.</div>
                   ) : thread.map((m) => (
-                    <div key={m.id} className={cn("flex", m.direction === "outbound" ? "justify-end" : "justify-start")}>
+                    <div key={m.id} className={cn("flex flex-col", m.direction === "outbound" ? "items-end" : "items-start")}>
+                      {m.channel !== "SMS" && (
+                        <span className="mb-0.5 px-1"><ChannelBadge channel={m.channel} /></span>
+                      )}
                       <div className={cn("max-w-[78%] px-3 py-1.5 rounded-2xl text-sm whitespace-pre-wrap break-words",
                         m.direction === "outbound"
                           ? "bg-[#15B7AE] text-white rounded-br-sm"

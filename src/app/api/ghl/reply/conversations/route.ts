@@ -20,9 +20,10 @@ export async function GET() {
   }
 
   const email = (user.email ?? "").toLowerCase();
+  // Only show conversations that are unread in GHL (mirrors GHL's "Unread" tab).
   const [roster, conversations] = await Promise.all([
     getRoster(acct),
-    getRecentConversations(acct, 40),
+    getRecentConversations(acct, 100, { unreadOnly: true }),
   ]);
 
   const meUser = roster.find((u) => u.email && u.email === email) ?? null;
