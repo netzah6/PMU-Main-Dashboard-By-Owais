@@ -1,12 +1,12 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check } from "lucide-react";
+import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { GhlNotes } from "./GhlNotes";
 import { StepTracker } from "./StepTracker";
 import { ActivityTabs } from "./ActivityTabs";
-import { formatCurrency, formatPercent, userColor } from "@/lib/utils";
+import { formatCurrency, formatPercent, userColor, cn } from "@/lib/utils";
 import type { ClientRecord, PaymentRecord, UserRole } from "@/lib/types";
 
 interface ClientProfileProps {
@@ -266,6 +266,35 @@ export function ClientProfile({
       setLocalClient(client);
     } finally {
       setAssignSaving(null);
+    }
+  }, [rowNumber, localClient, client, onUpdate]);
+
+  // ── Detail box save (one column at a time, field-scoped write-back) ────────
+  const [detailSaving, setDetailSaving] = useState<string | null>(null);
+  const saveDetail = useCallback(async (sheetKey: string, value: string) => {
+    if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
+    if (value === String((localClient as Record<string, unknown>)[sheetKey] ?? "")) return;
+    const updated: ClientRecord = { ...localClient, [sheetKey]: value };
+    // Keep the normalized keys used elsewhere (header, notes) in sync.
+    const alias = DETAIL_ALIAS[sheetKey];
+    if (alias) updated[alias] = value;
+    setLocalClient(updated);
+    setDetailSaving(sheetKey);
+    try {
+      const res = await fetch("/api/sync/clients_master", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: [sheetKey] }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Save failed");
+      toast.success(json.sheetsUpdated ? `${sheetKey} updated — Sheet ✓` : `${sheetKey} updated`);
+      onUpdate?.(updated);
+    } catch (e) {
+      toast.error(`${sheetKey} save failed: ${e}`);
+      setLocalClient(client);
+    } finally {
+      setDetailSaving(null);
     }
   }, [rowNumber, localClient, client, onUpdate]);
 
@@ -531,7 +560,7 @@ export function ClientProfile({
         </Section>
 
         {/* All business & client details from the Master Sheet */}
-        <ClientDetails client={localClient} />
+        <ClientDetails client={localClient} canEdit={canEdit} onSave={saveDetail} savingKey={detailSaving} />
 
         {/* Notes */}
         {localClient.notes && String(localClient.notes).trim() && (
@@ -606,6 +635,29 @@ const DETAIL_FIELDS: { key: string; label: string }[] = [
   { key: "Notes", label: "Notes" },
 ];
 
+// Detail-box sheet keys that also have a normalized alias used elsewhere in the
+// profile (header, notes), so an edit keeps both in sync.
+const DETAIL_ALIAS: Record<string, string> = {
+  "Business Name": "business_name",
+  "Owner Full Name": "owner_name",
+  "Ad account Name": "ad_account_name",
+  "Email": "email",
+  "Phone": "phone",
+  "Notes": "notes",
+};
+
+// Fields that get a multi-line textarea (full width) when editing.
+const DETAIL_LONG_KEYS = new Set(["Notes", "Offer", "PMU Services", "Location (Full adress)"]);
+// Fields edited as a Yes/No toggle (stored as TRUE/FALSE in the sheet).
+const DETAIL_BOOL_KEYS = new Set(["Generate New Business Number?"]);
+
+function boolToSelect(v: unknown): "Yes" | "No" | "" {
+  const s = String(v).toLowerCase();
+  if (v === true || s === "true" || s === "yes") return "Yes";
+  if (v === false || s === "false" || s === "no") return "No";
+  return "";
+}
+
 function isEmptyVal(v: unknown): boolean {
   return v === null || v === undefined || String(v).trim() === "";
 }
@@ -624,36 +676,110 @@ function DetailValue({ value }: { value: unknown }) {
   return <p className="text-sm text-[#1f3559] break-words whitespace-pre-line">{s}</p>;
 }
 
-function ClientDetails({ client }: { client: ClientRecord }) {
+function ClientDetails({
+  client, canEdit, onSave, savingKey,
+}: {
+  client: ClientRecord;
+  canEdit: boolean;
+  onSave: (sheetKey: string, value: string) => void;
+  savingKey: string | null;
+}) {
   const [open, setOpen] = useState(true);
+  const [editing, setEditing] = useState(false);
   const data = client as Record<string, unknown>;
-  const entries = DETAIL_FIELDS
+
+  // Read mode: only non-empty fields. Edit mode: all fields, so blanks (e.g. a
+  // missing address) can be filled in.
+  const readEntries = DETAIL_FIELDS
     .map((f) => ({ key: f.key, label: f.label, value: data[f.key] }))
     .filter((f) => !isEmptyVal(f.value));
-  if (entries.length === 0) return null;
+  if (!editing && readEntries.length === 0 && !canEdit) return null;
 
   return (
     <div className="border border-[#e4ebf2] rounded-xl bg-white">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-4 py-3"
-      >
-        <h3 className="text-sm font-semibold text-[#34568a] text-left">
-          Business &amp; client details — captured at onboarding signup
-          <span className="ml-2 text-xs font-normal text-[#8595a8]">({entries.length})</span>
-          <span className="block text-[11px] font-normal text-[#8595a8]">These are the original sign-up details; the offer may change later.</span>
-        </h3>
-        <ChevronDown size={16} className={`text-[#697a91] transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
+      <div className="w-full flex items-center justify-between px-4 py-3 gap-2">
+        <button onClick={() => setOpen((o) => !o)} className="flex-1 min-w-0 text-left">
+          <h3 className="text-sm font-semibold text-[#34568a]">
+            Business &amp; client details — captured at onboarding signup
+            <span className="ml-2 text-xs font-normal text-[#8595a8]">({editing ? DETAIL_FIELDS.length : readEntries.length})</span>
+            <span className="block text-[11px] font-normal text-[#8595a8]">
+              {editing ? "Editing — changes save automatically to the Google Sheet." : "These are the original sign-up details; the offer may change later."}
+            </span>
+          </h3>
+        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {canEdit && open && (
+            <button onClick={() => setEditing((e) => !e)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#e4ebf2] hover:bg-[#dbe5ef] text-[#1e2a3a] border border-[#d7e0ea] transition-colors">
+              {editing ? <><Check size={12} /> Done</> : <><Edit2 size={12} /> Edit</>}
+            </button>
+          )}
+          <button onClick={() => setOpen((o) => !o)} aria-label="Toggle details">
+            <ChevronDown size={16} className={`text-[#697a91] transition-transform ${open ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+      </div>
+      {open && (editing ? (
         <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
-          {entries.map((f) => (
+          {DETAIL_FIELDS.map((f) => (
+            <DetailEditField key={f.key} fieldKey={f.key} label={f.label}
+              value={String(data[f.key] ?? "")}
+              saving={savingKey === f.key} onSave={(v) => onSave(f.key, v)} />
+          ))}
+        </div>
+      ) : readEntries.length === 0 ? (
+        <div className="px-4 pb-4 text-sm text-[#8595a8]">No details captured yet — click <strong>Edit</strong> to add them.</div>
+      ) : (
+        <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
+          {readEntries.map((f) => (
             <div key={f.key} className="min-w-0">
               <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{f.label}</p>
               <DetailValue value={f.value} />
             </div>
           ))}
         </div>
+      ))}
+    </div>
+  );
+}
+
+function DetailEditField({
+  fieldKey, label, value, saving, onSave,
+}: {
+  fieldKey: string;
+  label: string;
+  value: string;
+  saving: boolean;
+  onSave: (value: string) => void;
+}) {
+  const [v, setV] = useState(value);
+  useEffect(() => { setV(value); }, [value]);
+
+  const isLong = DETAIL_LONG_KEYS.has(fieldKey);
+  const isBool = DETAIL_BOOL_KEYS.has(fieldKey);
+  const commit = () => { if (v !== value) onSave(v); };
+  const inputCls = "w-full px-2.5 py-1.5 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]";
+
+  return (
+    <div className={cn("min-w-0", isLong && "col-span-2")}>
+      <label className="text-[11px] uppercase tracking-wide text-[#8595a8] flex items-center gap-1.5 mb-0.5">
+        {label}
+        {saving && <Loader2 size={11} className="animate-spin text-[#94a3b8]" />}
+      </label>
+      {isBool ? (
+        <select value={boolToSelect(v)}
+          onChange={(e) => { const sel = e.target.value; const out = sel === "Yes" ? "TRUE" : sel === "No" ? "FALSE" : ""; setV(out); onSave(out); }}
+          className={inputCls}>
+          <option value="">—</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      ) : isLong ? (
+        <textarea rows={2} value={v} onChange={(e) => setV(e.target.value)} onBlur={commit}
+          className={cn(inputCls, "resize-y")} />
+      ) : (
+        <input type="text" value={v} onChange={(e) => setV(e.target.value)} onBlur={commit}
+          className={inputCls} />
       )}
     </div>
   );
