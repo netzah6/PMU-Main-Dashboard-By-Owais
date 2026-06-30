@@ -33,6 +33,15 @@ function statusColors(s: string): { bg: string; color: string; border: string } 
   return { bg: "#f1f5f9", color: "#64748b", border: "#d7e0ea" }; // offboarded / other
 }
 
+// Per-user color for the Assigned / Media Buyer controls — consistent with the
+// userColor() palette used everywhere else; empty = plain white.
+function teamColorStyle(name: unknown): React.CSSProperties {
+  const c = userColor(typeof name === "string" ? name : String(name ?? ""));
+  return c
+    ? { background: c.bg, color: c.text, borderColor: c.border }
+    : { background: "#ffffff", color: "#34568a", borderColor: "#d7e0ea" };
+}
+
 // Fields editable in the edit panel
 // Edit Profile only changes the two name fields; everything else is changed via
 // the inline dropdowns in the header.
@@ -423,7 +432,8 @@ export function ClientProfile({
                     onChange={(e) => saveTeam("assigned", "Assigned", e.target.value)}
                     disabled={assignSaving === "Assigned"}
                     title="Assign a user — writes back to the Google Sheet"
-                    className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                    style={teamColorStyle(localClient.assigned)}
+                    className="px-2 py-1 rounded-md text-xs font-bold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
                   >
                     <option value="">—</option>
                     {localClient.assigned && !TEAM_OPTIONS.includes(String(localClient.assigned)) && <option value={String(localClient.assigned)}>{String(localClient.assigned)}</option>}
@@ -437,7 +447,8 @@ export function ClientProfile({
                     onChange={(e) => saveTeam("media_buyer", "Media Buyer", e.target.value)}
                     disabled={assignSaving === "Media Buyer"}
                     title="Assign a media buyer — writes back to the Google Sheet"
-                    className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                    style={teamColorStyle(localClient.media_buyer)}
+                    className="px-2 py-1 rounded-md text-xs font-bold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
                   >
                     <option value="">—</option>
                     {localClient.media_buyer && !TEAM_OPTIONS.includes(String(localClient.media_buyer)) && <option value={String(localClient.media_buyer)}>{String(localClient.media_buyer)}</option>}
@@ -447,8 +458,8 @@ export function ClientProfile({
               </>
             ) : (
               <>
-                <Badge variant="gray">Assigned: <strong className="ml-1">{localClient.assigned || "—"}</strong></Badge>
-                <Badge variant="gray">Media Buyer: <strong className="ml-1">{localClient.media_buyer || "—"}</strong></Badge>
+                <UserChip label="Assigned" name={String(localClient.assigned ?? "")} />
+                <UserChip label="Media Buyer" name={String(localClient.media_buyer ?? "")} />
               </>
             )}
             <Badge variant="gray">Campaign: <strong className="ml-1">{localClient.campaign_status || "—"}</strong></Badge>
@@ -493,8 +504,6 @@ export function ClientProfile({
             ) : (
               <Badge variant="teal">Price: <strong className="ml-1">{priceDisplay}</strong></Badge>
             )}
-            <UserChip label="Assigned" name={String(localClient.assigned ?? "")} />
-            <UserChip label="Media Buyer" name={String(localClient.media_buyer ?? "")} />
             {(() => {
               const v = String(localClient.version ?? "");
               const vs = versionStyle(v);
@@ -592,7 +601,7 @@ function UserChip({ label, name }: { label: string; name: string }) {
   const c = userColor(name);
   const style = c
     ? { background: c.bg, color: c.text, borderColor: c.border }
-    : { background: "#f1f5f9", color: "#64748b", borderColor: "#d7e0ea" };
+    : { background: "#ffffff", color: "#64748b", borderColor: "#d7e0ea" }; // empty = white
   return (
     <span
       className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border"
@@ -684,61 +693,41 @@ function ClientDetails({
   onSave: (sheetKey: string, value: string) => void;
   savingKey: string | null;
 }) {
-  const [open, setOpen] = useState(true);
-  const [editing, setEditing] = useState(false);
   const data = client as Record<string, unknown>;
 
-  // Read mode: only non-empty fields. Edit mode: all fields, so blanks (e.g. a
-  // missing address) can be filled in.
-  const readEntries = DETAIL_FIELDS
-    .map((f) => ({ key: f.key, label: f.label, value: data[f.key] }))
-    .filter((f) => !isEmptyVal(f.value));
-  if (!editing && readEntries.length === 0 && !canEdit) return null;
+  // Editors get every field as an always-on inline-editable input (incl. blanks,
+  // so a missing address can be filled). Viewers see only non-empty fields, read-only.
+  const fields = canEdit
+    ? DETAIL_FIELDS
+    : DETAIL_FIELDS.filter((f) => !isEmptyVal(data[f.key]));
+  if (fields.length === 0) return null;
 
   return (
     <div className="border border-[#e4ebf2] rounded-xl bg-white">
-      <div className="w-full flex items-center justify-between px-4 py-3 gap-2">
-        <button onClick={() => setOpen((o) => !o)} className="flex-1 min-w-0 text-left">
-          <h3 className="text-sm font-semibold text-[#34568a]">
-            Business &amp; client details — captured at onboarding signup
-            <span className="ml-2 text-xs font-normal text-[#8595a8]">({editing ? DETAIL_FIELDS.length : readEntries.length})</span>
-            <span className="block text-[11px] font-normal text-[#8595a8]">
-              {editing ? "Editing — changes save automatically to the Google Sheet." : "These are the original sign-up details; the offer may change later."}
-            </span>
-          </h3>
-        </button>
-        <div className="flex items-center gap-2 shrink-0">
-          {canEdit && open && (
-            <button onClick={() => setEditing((e) => !e)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#e4ebf2] hover:bg-[#dbe5ef] text-[#1e2a3a] border border-[#d7e0ea] transition-colors">
-              {editing ? <><Check size={12} /> Done</> : <><Edit2 size={12} /> Edit</>}
-            </button>
-          )}
-          <button onClick={() => setOpen((o) => !o)} aria-label="Toggle details">
-            <ChevronDown size={16} className={`text-[#697a91] transition-transform ${open ? "rotate-180" : ""}`} />
-          </button>
-        </div>
+      <div className="px-4 py-3">
+        <h3 className="text-sm font-semibold text-[#34568a]">
+          Business &amp; client details — captured at onboarding signup
+          <span className="block text-[11px] font-normal text-[#8595a8]">
+            {canEdit
+              ? "Click any field to edit — changes save automatically to the Google Sheet."
+              : "These are the original sign-up details; the offer may change later."}
+          </span>
+        </h3>
       </div>
-      {open && (editing ? (
-        <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
-          {DETAIL_FIELDS.map((f) => (
+      <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
+        {fields.map((f) =>
+          canEdit ? (
             <DetailEditField key={f.key} fieldKey={f.key} label={f.label}
               value={String(data[f.key] ?? "")}
               saving={savingKey === f.key} onSave={(v) => onSave(f.key, v)} />
-          ))}
-        </div>
-      ) : readEntries.length === 0 ? (
-        <div className="px-4 pb-4 text-sm text-[#8595a8]">No details captured yet — click <strong>Edit</strong> to add them.</div>
-      ) : (
-        <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
-          {readEntries.map((f) => (
+          ) : (
             <div key={f.key} className="min-w-0">
               <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{f.label}</p>
-              <DetailValue value={f.value} />
+              <DetailValue value={data[f.key]} />
             </div>
-          ))}
-        </div>
-      ))}
+          )
+        )}
+      </div>
     </div>
   );
 }
