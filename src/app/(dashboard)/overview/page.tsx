@@ -8,6 +8,7 @@ import {
   Phone, FileText, BarChart2, Map, ArrowRight,
   Activity, Target, Zap,
 } from "lucide-react";
+import { ClientHealthList } from "@/components/overview/ClientHealthList";
 
 // Animated counter
 function Counter({ to, prefix = "", suffix = "", duration = 1.5 }: {
@@ -182,6 +183,9 @@ export default function OverviewPage() {
       </motion.div>
 
       <div className="px-8 pb-10 space-y-8 mt-6">
+        {/* Client health scores */}
+        <ClientHealthList />
+
         {/* Stats grid */}
         <div>
           <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
