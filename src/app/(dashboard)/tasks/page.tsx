@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Search, RefreshCw, Check } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, userColor } from "@/lib/utils";
 
 interface Task {
   id: string;
@@ -18,6 +18,14 @@ interface Task {
 interface UserRow { id: string; name: string }
 
 const UNASSIGNED = "Unassigned";
+
+// Per-user color, consistent with the rest of the dashboard. Unassigned/empty = white.
+function teamColorStyle(name: string) {
+  const c = name && name !== UNASSIGNED ? userColor(name) : null;
+  return c
+    ? { background: c.bg, color: c.text, borderColor: c.border }
+    : { background: "#ffffff", color: "#34568a", borderColor: "#d7e0ea" };
+}
 
 function dateInputValue(iso: string | null): string {
   if (!iso) return "";
@@ -175,7 +183,7 @@ export default function TasksPage() {
           {groups.map(([person, list]) => (
             <div key={person}>
               <div className="flex items-center gap-2 mb-1.5">
-                <h2 className="text-sm font-bold text-[#34568a]">{person}</h2>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-sm font-bold border" style={teamColorStyle(person)}>{person}</span>
                 <span className="text-xs text-[#8595a8]">{list.length}</span>
               </div>
               <div className="rounded-xl border border-[#e4ebf2] bg-white divide-y divide-[#eef3f8] overflow-hidden">
@@ -199,7 +207,8 @@ export default function TasksPage() {
                           due.overdue ? "border-[#f5c2cf] text-[#e11d48] bg-[#fff5f7]" : "border-[#d7e0ea] text-[#34568a] bg-white")}
                         title={due.overdue ? "Overdue" : due.text} />
                       <select value={t.assignedTo ?? ""} onChange={(e) => save(t, { assignedTo: e.target.value || null, assignedToName: users.find((u) => u.id === e.target.value)?.name ?? "" })}
-                        className="shrink-0 max-w-[130px] text-xs rounded border border-[#d7e0ea] bg-white px-1.5 py-1 text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+                        style={teamColorStyle(t.assignedToName)}
+                        className="shrink-0 max-w-[130px] text-xs font-semibold rounded border px-1.5 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30">
                         <option value="">Unassigned</option>
                         {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
                       </select>
