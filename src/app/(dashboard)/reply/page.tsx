@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, RefreshCw, Sparkles, Copy, Check, ChevronLeft } from "lucide-react";
+import { Loader2, Search, RefreshCw, Sparkles, Copy, Check, ChevronLeft, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +60,7 @@ function timeAgo(iso: string | null): string {
 export default function ReplyPage() {
   const [conversations, setConversations] = useState<ConvSummary[]>([]);
   const [me, setMe] = useState<Me | null>(null);
+  const [locationId, setLocationId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -82,6 +83,7 @@ export default function ReplyPage() {
       if (!res.ok) throw new Error(json.error || "Failed to load conversations");
       setConversations(json.conversations ?? []);
       setMe(json.me ?? null);
+      setLocationId(json.locationId ?? "");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -150,6 +152,26 @@ export default function ReplyPage() {
       toast.error("Couldn't copy to clipboard");
     }
   }, [draft]);
+
+  // Copy the draft AND open the client's GHL conversation in a new tab, so you
+  // land in the chat with the reply on your clipboard — paste (⌘V) and send.
+  const copyAndOpenChat = useCallback(async () => {
+    if (!draft || !selected) return;
+    try { await navigator.clipboard.writeText(draft); } catch { /* clipboard best-effort */ }
+    const contactId = selected.contactId;
+    if (contactId && locationId) {
+      window.open(
+        `https://app.gohighlevel.com/v2/location/${locationId}/contacts/detail/${contactId}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast.success("Copied — paste into the chat (⌘V) and hit send");
+    } else {
+      toast.error("No GHL contact link available for this conversation");
+    }
+  }, [draft, selected, locationId]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -276,12 +298,19 @@ export default function ReplyPage() {
                     <>
                       <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={4}
                         className="w-full px-3 py-2 border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE] resize-y" />
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-[#8595a8]">Edit if needed, then copy.</span>
-                        <button onClick={copy}
-                          className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-[#1f3559] hover:bg-[#13233d] text-white">
-                          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? "Copied" : "Copy Response"}
-                        </button>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[11px] text-[#8595a8]">Edit if needed — nothing sends automatically.</span>
+                        <div className="flex items-center gap-2">
+                          <button onClick={copy}
+                            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-[#eef2f7] hover:bg-[#e2e8f0] text-[#34568a] border border-[#d7e0ea]">
+                            {copied ? <Check size={13} /> : <Copy size={13} />} Copy
+                          </button>
+                          <button onClick={copyAndOpenChat} disabled={!selected?.contactId}
+                            title={selected?.contactId ? "Copy the reply and open this chat in GHL" : "No linked contact for this conversation"}
+                            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white disabled:opacity-50">
+                            <MessageSquare size={13} /> Copy &amp; Open Chat
+                          </button>
+                        </div>
                       </div>
                     </>
                   )}
