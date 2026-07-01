@@ -33,5 +33,12 @@ export async function GET() {
     name: meUser?.name ?? (email ? email.split("@")[0] : "You"),
   };
 
-  return NextResponse.json({ me, conversations, locationId: acct.locationId });
+  // Resolve each conversation's assigned GHL user id to a name (for the filter).
+  const nameById = new Map(roster.map((u) => [u.id, u.name]));
+  const enriched = conversations.map((c) => ({
+    ...c,
+    assignedToName: c.assignedTo ? (nameById.get(c.assignedTo) ?? "") : "",
+  }));
+
+  return NextResponse.json({ me, conversations: enriched, locationId: acct.locationId });
 }

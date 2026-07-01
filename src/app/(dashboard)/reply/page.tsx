@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Search, RefreshCw, Sparkles, Copy, Check, ChevronLeft, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, userColor } from "@/lib/utils";
 
 interface ConvSummary {
   id: string;
@@ -13,6 +13,8 @@ interface ConvSummary {
   lastMessageDate: string | null;
   unreadCount: number;
   channel: string;
+  assignedTo: string | null;
+  assignedToName: string;
 }
 interface ThreadMessage {
   id: string;
@@ -64,6 +66,7 @@ export default function ReplyPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("All");
 
   const [selected, setSelected] = useState<ConvSummary | null>(null);
   const [thread, setThread] = useState<ThreadMessage[]>([]);
@@ -173,13 +176,21 @@ export default function ReplyPage() {
     }
   }, [draft, selected, locationId]);
 
+  const UNASSIGNED = "Unassigned";
+  const assigneeOptions = useMemo(() => {
+    const names = new Set(conversations.map((c) => c.assignedToName || UNASSIGNED));
+    return ["All", ...Array.from(names).sort((a, b) =>
+      a === UNASSIGNED ? 1 : b === UNASSIGNED ? -1 : a.localeCompare(b))];
+  }, [conversations]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    if (!q) return conversations;
-    return conversations.filter((c) =>
-      `${c.contactName} ${c.lastMessageBody}`.toLowerCase().includes(q)
-    );
-  }, [conversations, search]);
+    return conversations.filter((c) => {
+      if (assigneeFilter !== "All" && (c.assignedToName || UNASSIGNED) !== assigneeFilter) return false;
+      if (q && !`${c.contactName} ${c.lastMessageBody}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [conversations, search, assigneeFilter]);
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -218,6 +229,11 @@ export default function ReplyPage() {
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or message…"
                 className="w-full pl-8 pr-3 py-2 bg-[#eef2f7] border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
             </div>
+            <select value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}
+              title="Filter by the team member the conversation is assigned to"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+              {assigneeOptions.map((o) => <option key={o} value={o}>{o === "All" ? "All assignees" : o}</option>)}
+            </select>
             <div className="rounded-xl border border-[#e4ebf2] bg-white divide-y divide-[#eef3f8] overflow-hidden max-h-[70vh] overflow-y-auto">
               {filtered.length === 0 ? (
                 <div className="py-10 text-center text-[#8595a8] text-sm">
@@ -238,7 +254,13 @@ export default function ReplyPage() {
                     {c.lastMessageDirection === "inbound" && (
                       <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-[#15B7AE]" title="They replied last" />
                     )}
-                    <span className="text-xs text-[#697a91] truncate">{c.lastMessageBody || "—"}</span>
+                    <span className="text-xs text-[#697a91] truncate flex-1 min-w-0">{c.lastMessageBody || "—"}</span>
+                    {c.assignedToName && (
+                      <span className="shrink-0 text-[10px] font-semibold" title={`Assigned to ${c.assignedToName}`}
+                        style={{ color: userColor(c.assignedToName)?.text ?? "#8595a8" }}>
+                        {c.assignedToName.split(" ")[0]}
+                      </span>
+                    )}
                   </div>
                 </button>
               ))}
