@@ -43,6 +43,8 @@ export type ConvSummary = {
   lastMessageDate: string | null;
   unreadCount: number;
   channel: string;
+  assignedTo: string | null;   // GHL user id the conversation is assigned to
+  assignedToName: string;      // resolved to a name by the route (via the roster)
 };
 
 // Recent conversations for the PMU Bookings On Demand account.
@@ -69,6 +71,8 @@ export async function getRecentConversations(
       c.lastMessageDate != null ? new Date(Number(c.lastMessageDate)).toISOString() : null,
     unreadCount: typeof c.unreadCount === "number" ? (c.unreadCount as number) : 0,
     channel: channelFromType(c.lastMessageType as string | undefined),
+    assignedTo: (c.assignedTo as string) ?? null,
+    assignedToName: "",
   }));
   // Guard: only keep conversations that actually have unread messages.
   if (opts.unreadOnly) list = list.filter((c) => c.unreadCount > 0);
