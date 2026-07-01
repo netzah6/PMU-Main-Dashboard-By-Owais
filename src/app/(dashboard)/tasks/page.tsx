@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, RefreshCw, Check } from "lucide-react";
+import { Loader2, Search, RefreshCw, Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, userColor } from "@/lib/utils";
 
 interface Task {
   id: string;
@@ -18,6 +18,14 @@ interface Task {
 interface UserRow { id: string; name: string }
 
 const UNASSIGNED = "Unassigned";
+
+// Per-user color, consistent with the rest of the dashboard. Unassigned/empty = white.
+function teamColorStyle(name: string) {
+  const c = name && name !== UNASSIGNED ? userColor(name) : null;
+  return c
+    ? { background: c.bg, color: c.text, borderColor: c.border }
+    : { background: "#ffffff", color: "#34568a", borderColor: "#d7e0ea" };
+}
 
 function dateInputValue(iso: string | null): string {
   if (!iso) return "";
@@ -40,6 +48,14 @@ export default function TasksPage() {
   const [search, setSearch] = useState("");
   const [userFilter, setUserFilter] = useState("All");
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -71,7 +87,7 @@ export default function TasksPage() {
         body: JSON.stringify({
           contactId: t.contactId,
           title: changes.title ?? t.title,
-          body: t.body,
+          body: changes.body ?? t.body,
           dueDate: changes.dueDate !== undefined ? changes.dueDate : t.dueDate,
           completed: changes.completed ?? t.completed,
           assignedTo: changes.assignedTo !== undefined ? changes.assignedTo : t.assignedTo,
@@ -175,34 +191,53 @@ export default function TasksPage() {
           {groups.map(([person, list]) => (
             <div key={person}>
               <div className="flex items-center gap-2 mb-1.5">
-                <h2 className="text-sm font-bold text-[#34568a]">{person}</h2>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-sm font-bold border" style={teamColorStyle(person)}>{person}</span>
                 <span className="text-xs text-[#8595a8]">{list.length}</span>
               </div>
               <div className="rounded-xl border border-[#e4ebf2] bg-white divide-y divide-[#eef3f8] overflow-hidden">
                 {list.map((t) => {
                   const due = dueLabel(t.dueDate);
                   const saving = savingId === t.id;
+                  const isOpen = expanded.has(t.id);
                   return (
-                    <div key={t.id} className="flex items-center gap-3 px-3 py-2.5">
-                      <button onClick={() => complete(t)} disabled={saving} title="Mark done — syncs to GHL"
-                        className="shrink-0 w-5 h-5 rounded-md border border-[#cbd5e1] hover:border-[#15B7AE] hover:bg-[#e6f7f5] flex items-center justify-center text-transparent hover:text-[#0e8f88]">
-                        {saving ? <Loader2 size={12} className="animate-spin text-[#94a3b8]" /> : <Check size={12} />}
-                      </button>
-                      <input
-                        defaultValue={t.title}
-                        onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== t.title) save(t, { title: v }); }}
-                        className="flex-1 min-w-0 bg-transparent text-sm text-[#1f3559] px-1 py-0.5 rounded hover:bg-[#f1f5f9] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#15B7AE]" />
-                      {t.contactName && <span className="hidden sm:inline text-xs text-[#697a91] truncate max-w-[140px]" title={t.contactName}>{t.contactName}</span>}
-                      <input type="date" value={dateInputValue(t.dueDate)}
-                        onChange={(e) => save(t, { dueDate: e.target.value ? new Date(e.target.value + "T12:00:00").toISOString() : null })}
-                        className={cn("shrink-0 text-xs rounded border px-1.5 py-1 focus:outline-none focus:border-[#15B7AE]",
-                          due.overdue ? "border-[#f5c2cf] text-[#e11d48] bg-[#fff5f7]" : "border-[#d7e0ea] text-[#34568a] bg-white")}
-                        title={due.overdue ? "Overdue" : due.text} />
-                      <select value={t.assignedTo ?? ""} onChange={(e) => save(t, { assignedTo: e.target.value || null, assignedToName: users.find((u) => u.id === e.target.value)?.name ?? "" })}
-                        className="shrink-0 max-w-[130px] text-xs rounded border border-[#d7e0ea] bg-white px-1.5 py-1 text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
-                        <option value="">Unassigned</option>
-                        {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-                      </select>
+                    <div key={t.id} className="px-3 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => complete(t)} disabled={saving} title="Mark done — syncs to GHL"
+                          className="shrink-0 w-5 h-5 rounded-md border border-[#cbd5e1] hover:border-[#15B7AE] hover:bg-[#e6f7f5] flex items-center justify-center text-transparent hover:text-[#0e8f88]">
+                          {saving ? <Loader2 size={12} className="animate-spin text-[#94a3b8]" /> : <Check size={12} />}
+                        </button>
+                        <input
+                          defaultValue={t.title}
+                          onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== t.title) save(t, { title: v }); }}
+                          className="flex-1 min-w-0 bg-transparent text-sm text-[#1f3559] px-1 py-0.5 rounded hover:bg-[#f1f5f9] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#15B7AE]" />
+                        {t.contactName && <span className="hidden sm:inline text-xs text-[#697a91] truncate max-w-[140px]" title={t.contactName}>{t.contactName}</span>}
+                        <input type="date" value={dateInputValue(t.dueDate)}
+                          onChange={(e) => save(t, { dueDate: e.target.value ? new Date(e.target.value + "T12:00:00").toISOString() : null })}
+                          className={cn("shrink-0 text-xs rounded border px-1.5 py-1 focus:outline-none focus:border-[#15B7AE]",
+                            due.overdue ? "border-[#f5c2cf] text-[#e11d48] bg-[#fff5f7]" : "border-[#d7e0ea] text-[#34568a] bg-white")}
+                          title={due.overdue ? "Overdue" : due.text} />
+                        <select value={t.assignedTo ?? ""} onChange={(e) => save(t, { assignedTo: e.target.value || null, assignedToName: users.find((u) => u.id === e.target.value)?.name ?? "" })}
+                          style={teamColorStyle(t.assignedToName)}
+                          className="shrink-0 max-w-[130px] text-xs font-semibold rounded border px-1.5 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30">
+                          <option value="">Unassigned</option>
+                          {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                        <button onClick={() => toggleExpand(t.id)} title={isOpen ? "Hide description" : "Show description"}
+                          className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-[#697a91] hover:bg-[#f1f5f9] hover:text-[#0e8f88]">
+                          <ChevronDown size={16} className={cn("transition-transform", isOpen && "rotate-180")} />
+                        </button>
+                      </div>
+                      {isOpen && (
+                        <div className="mt-2 pl-8 pr-1">
+                          <label className="block text-[11px] uppercase tracking-wide text-[#8595a8] mb-1">Description</label>
+                          <textarea
+                            defaultValue={t.body}
+                            placeholder="No description — add one…"
+                            rows={3}
+                            onBlur={(e) => { const v = e.target.value; if (v !== (t.body ?? "")) save(t, { body: v }); }}
+                            className="w-full text-sm text-[#1f3559] bg-white border border-[#d7e0ea] rounded-lg px-2.5 py-2 resize-y focus:outline-none focus:border-[#15B7AE]" />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
