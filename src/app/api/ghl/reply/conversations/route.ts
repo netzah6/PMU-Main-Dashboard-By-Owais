@@ -33,5 +33,5 @@ export async function GET() {
     name: meUser?.name ?? (email ? email.split("@")[0] : "You"),
   };
 
-  return NextResponse.json({ me, conversations });
+  return NextResponse.json({ me, conversations, locationId: acct.locationId });
 }
