@@ -90,8 +90,10 @@ export function userColor(name: string | undefined | null): ColorTrio | null {
   const first = key.split(/\s+/)[0];
   if (key in KNOWN_USERS) return USER_PALETTE[KNOWN_USERS[key]];
   if (first in KNOWN_USERS) return USER_PALETTE[KNOWN_USERS[first]];
+  // Hash on the FIRST name only, so the same person gets the same color whether
+  // a tab shows "Dana" or "Dana Figueroa" (consistent across the dashboard).
   let hash = 0;
-  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < first.length; i++) hash = (hash * 31 + first.charCodeAt(i)) >>> 0;
   return USER_PALETTE[hash % USER_PALETTE.length];
 }
 
