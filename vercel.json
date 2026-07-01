@@ -5,6 +5,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/sync-deposits",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/ghl-ingest",
       "schedule": "0 */6 * * *"
     }
