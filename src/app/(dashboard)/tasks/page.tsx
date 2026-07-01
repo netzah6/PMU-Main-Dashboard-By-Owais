@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, RefreshCw, Check, ChevronDown } from "lucide-react";
+import { Loader2, Search, RefreshCw, Check, ChevronDown, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { cn, userColor } from "@/lib/utils";
 
@@ -43,6 +43,7 @@ function dueLabel(iso: string | null): { text: string; overdue: boolean } {
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [locationId, setLocationId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -65,6 +66,7 @@ export default function TasksPage() {
       if (!res.ok) throw new Error(json.error || "Failed to load tasks");
       setTasks(json.tasks ?? []);
       setUsers(json.users ?? []);
+      setLocationId(json.locationId ?? "");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -211,6 +213,14 @@ export default function TasksPage() {
                           onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== t.title) save(t, { title: v }); }}
                           className="flex-1 min-w-0 bg-transparent text-sm text-[#1f3559] px-1 py-0.5 rounded hover:bg-[#f1f5f9] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#15B7AE]" />
                         {t.contactName && <span className="hidden sm:inline text-xs text-[#697a91] truncate max-w-[140px]" title={t.contactName}>{t.contactName}</span>}
+                        {t.contactId && locationId && (
+                          <a href={`https://app.gohighlevel.com/v2/location/${locationId}/contacts/detail/${t.contactId}`}
+                            target="_blank" rel="noopener noreferrer"
+                            title={`Open chat with ${t.contactName || "contact"}`}
+                            className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-[#94a3b8] hover:text-[#0e8f88] hover:bg-[#e6f7f5]">
+                            <MessageSquare size={14} />
+                          </a>
+                        )}
                         <input type="date" value={dateInputValue(t.dueDate)}
                           onChange={(e) => save(t, { dueDate: e.target.value ? new Date(e.target.value + "T12:00:00").toISOString() : null })}
                           className={cn("shrink-0 text-xs rounded border px-1.5 py-1 focus:outline-none focus:border-[#15B7AE]",

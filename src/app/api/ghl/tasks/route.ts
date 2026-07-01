@@ -71,5 +71,5 @@ export async function GET() {
     contactName: t.contactDetails ? `${t.contactDetails.firstName ?? ""} ${t.contactDetails.lastName ?? ""}`.trim() : "",
   }));
 
-  return NextResponse.json({ users, tasks });
+  return NextResponse.json({ users, tasks, locationId: acct.locationId });
 }
