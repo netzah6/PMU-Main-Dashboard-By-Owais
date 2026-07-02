@@ -96,7 +96,7 @@ export default function DepositsPage() {
             {dups.length > 0 && <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#ea580c] text-white">{dups.length}</span>}
           </button>
           {dupOpen && (
-            <div className="absolute left-0 mt-1.5 z-40 w-[440px] max-h-[440px] overflow-auto rounded-xl border border-[#e4ebf2] bg-white p-3 space-y-2" style={{ boxShadow: "0 10px 30px -8px rgba(0,0,0,0.25)" }}>
+            <div className="absolute left-0 mt-1.5 z-40 w-[calc(100vw-3rem)] sm:w-[440px] max-h-[440px] overflow-auto rounded-xl border border-[#e4ebf2] bg-white p-3 space-y-2" style={{ boxShadow: "0 10px 30px -8px rgba(0,0,0,0.25)" }}>
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-[#1f3559]">Duplicate deposits ({dups.length})</h3>
                 <button onClick={() => setDupOpen(false)} className="text-[#94a3b8] hover:text-[#1e2a3a]"><X size={15} /></button>

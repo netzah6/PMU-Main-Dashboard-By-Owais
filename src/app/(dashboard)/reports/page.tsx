@@ -134,6 +134,8 @@ export default function ReportsPage() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"az" | "leads" | "growth">("az");
   const [selected, setSelected] = useState<string | null>(null);
+  // Mobile-only: whether the user has tapped into a report (list → detail flow).
+  const [mobilePicked, setMobilePicked] = useState(false);
   // local optimistic overrides for the editable Action column, keyed by sheet row
   const [actionEdits, setActionEdits] = useState<Record<number, string>>({});
 
@@ -305,8 +307,8 @@ export default function ReportsPage() {
 
   return (
     <div className="flex h-full">
-      {/* ── Sidebar ── */}
-      <div className="w-[20%] min-w-[210px] max-w-[300px] border-r border-[#e4ebf2] flex flex-col h-full bg-white">
+      {/* ── Sidebar — full-width list on mobile; hidden there once a report is open ── */}
+      <div className={`w-full md:w-[20%] md:min-w-[210px] md:max-w-[300px] border-r border-[#e4ebf2] flex-col h-full bg-white ${mobilePicked ? "hidden md:flex" : "flex"}`}>
         <div className="p-2.5 border-b border-[#e4ebf2] space-y-2">
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
@@ -327,7 +329,7 @@ export default function ReportsPage() {
           {listed.map((c) => {
             const active = current?.name === c.name;
             return (
-              <button key={c.name} onClick={() => setSelected(c.name)}
+              <button key={c.name} onClick={() => { setSelected(c.name); setMobilePicked(true); }}
                 className={cn("w-full text-left px-3 py-2 border-b border-[#eef3f8] flex items-center justify-between gap-2 hover:bg-[#f1f5f9] transition-colors",
                   active && "bg-[#e6f7f5] border-l-[3px] border-l-[#15B7AE]")}>
                 <div className="min-w-0">
@@ -343,14 +345,19 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* ── Main ── */}
-      <div className="flex-1 h-full overflow-auto">
+      {/* ── Main — full-screen report on mobile with a back button ── */}
+      <div className={`flex-1 h-full overflow-auto ${!mobilePicked ? "hidden md:block" : ""}`}>
+        <div className="md:hidden sticky top-0 z-20 flex items-center px-3 py-2 border-b border-[#e4ebf2] bg-white">
+          <button onClick={() => setMobilePicked(false)} className="flex items-center gap-1 text-sm font-semibold text-[#0e8f88]">
+            ‹ All clients
+          </button>
+        </div>
         {loading ? (
           <div className="p-10 text-center text-[#697a91]">Loading reports…</div>
         ) : !current ? (
           <div className="p-10 text-center text-[#8595a8]">No tracking data found.</div>
         ) : (
-          <div className="p-6 space-y-5 min-w-[900px]">
+          <div className="p-4 sm:p-6 space-y-5 md:min-w-[900px]">
             {/* Header */}
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl font-bold text-[#1f3559]">{current.name}</h1>

@@ -297,7 +297,7 @@ export function ClientProfile({
   return (
     <div className="h-full overflow-y-auto">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-10 px-6 pt-5 pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
+      <div className="sticky top-0 z-10 px-4 sm:px-6 pt-5 pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -348,7 +348,7 @@ export function ClientProfile({
 
         {/* Status badges row — or edit panel */}
         {editMode ? (
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
             {EDIT_FIELDS.map(({ sheetKey, label }) => (
               <div key={sheetKey}>
                 <label className="block text-xs text-[#697a91] mb-1">{label}</label>
@@ -357,7 +357,7 @@ export function ClientProfile({
                   className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
               </div>
             ))}
-            <p className="col-span-2 text-[11px] text-[#8595a8] -mt-1">Scroll down to edit the rest of the details, then click <strong>Save All</strong>.</p>
+            <p className="sm:col-span-2 text-[11px] text-[#8595a8] -mt-1">Scroll down to edit the rest of the details, then click <strong>Save All</strong>.</p>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -500,7 +500,7 @@ export function ClientProfile({
       </div>
 
       {/* ── Body ── */}
-      <div className="px-6 py-4 space-y-5">
+      <div className="px-4 sm:px-6 py-4 space-y-5">
 
         {/* GHL Notes (top) */}
         {ghlContactId && <GhlNotes contactId={ghlContactId} />}
@@ -695,7 +695,7 @@ function ClientDetails({
             </span>
           </h3>
         </div>
-        <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
+        <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
           {fields.map((f) => (
             <DetailEditField key={f.key} fieldKey={f.key} label={f.label}
               value={editValues[f.key] ?? ""} onChange={(v) => onEditChange(f.key, v)} />
@@ -721,7 +721,7 @@ function ClientDetails({
           </span>
         </h3>
       </div>
-      <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
+      <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
         {readEntries.map((f) => (
           <div key={f.key} className="min-w-0">
             <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{f.label}</p>
@@ -746,7 +746,7 @@ function DetailEditField({
   const inputCls = "w-full px-2.5 py-1.5 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]";
 
   return (
-    <div className={cn("min-w-0", isLong && "col-span-2")}>
+    <div className={cn("min-w-0", isLong && "sm:col-span-2")}>
       <label className="block text-[11px] uppercase tracking-wide text-[#8595a8] mb-0.5">{label}</label>
       {isBool ? (
         <select value={boolToSelect(value)}

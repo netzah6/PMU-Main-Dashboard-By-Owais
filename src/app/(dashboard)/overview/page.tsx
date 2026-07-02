@@ -104,7 +104,7 @@ export default function OverviewPage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.6 }}
-        className="relative px-8 pt-10 pb-8 overflow-hidden border-b border-[#e4ebf2]"
+        className="relative px-4 sm:px-8 pt-10 pb-8 overflow-hidden border-b border-[#e4ebf2]"
         style={{ background: "linear-gradient(135deg, #ffffff 0%, #eef6f5 100%)" }}
       >
         {/* Animated background blobs */}
@@ -181,7 +181,7 @@ export default function OverviewPage() {
         </div>
       </motion.div>
 
-      <div className="px-8 pb-10 space-y-8 mt-6">
+      <div className="px-4 sm:px-8 pb-10 space-y-8 mt-6">
         {/* Stats grid */}
         <div>
           <motion.h2 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}

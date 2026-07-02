@@ -93,8 +93,8 @@ export default function MapPage() {
   }, [clients, filter]);
 
   return (
-    <div className="p-6 space-y-4 h-full flex flex-col">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4 h-full flex flex-col">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="text-lg font-semibold text-[#1f3559]">Client Map — USA</h1>
         {!loading && (
           <div className="flex gap-2 text-xs">
