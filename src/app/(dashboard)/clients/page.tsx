@@ -58,8 +58,8 @@ export default function ClientsPage() {
 
   return (
     <div className="flex h-full">
-      {/* Left Panel */}
-      <div className="w-[22%] min-w-[200px] max-w-[300px] border-r border-[#e4ebf2] flex flex-col h-full">
+      {/* Left Panel — full-width list on mobile; hidden there once a client is open */}
+      <div className={`w-full md:w-[22%] md:min-w-[200px] md:max-w-[300px] border-r border-[#e4ebf2] flex-col h-full ${selectedClient ? "hidden md:flex" : "flex"}`}>
         {loadingClients ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -80,21 +80,33 @@ export default function ClientsPage() {
         )}
       </div>
 
-      {/* Right Panel — 70% */}
-      <div className="flex-1 h-full overflow-hidden">
+      {/* Right Panel — full-screen profile on mobile with a back button */}
+      <div className={`flex-1 h-full overflow-hidden ${!selectedClient ? "hidden md:block" : ""}`}>
         {selectedClient ? (
-          <ClientProfile
-            key={String(selectedClient._id ?? selectedClient.business_name ?? Math.random())}
-            client={selectedClient}
-            role={role}
-            deposits={deposits}
-            bookings={bookings}
-            leads={leads}
-            calls={calls}
-            performance={performance}
-            payment={selectedPayment}
-            onUpdate={(updated) => setSelectedClient(updated)}
-          />
+          <div className="h-full flex flex-col">
+            <div className="md:hidden flex items-center px-3 py-2 border-b border-[#e4ebf2] bg-white">
+              <button
+                onClick={() => setSelectedClient(null)}
+                className="flex items-center gap-1 text-sm font-semibold text-[#0e8f88]"
+              >
+                ‹ All clients
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <ClientProfile
+                key={String(selectedClient._id ?? selectedClient.business_name ?? Math.random())}
+                client={selectedClient}
+                role={role}
+                deposits={deposits}
+                bookings={bookings}
+                leads={leads}
+                calls={calls}
+                performance={performance}
+                payment={selectedPayment}
+                onUpdate={(updated) => setSelectedClient(updated)}
+              />
+            </div>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center px-8">
             <div

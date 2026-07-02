@@ -203,7 +203,8 @@ export default function TasksPage() {
                   const isOpen = expanded.has(t.id);
                   return (
                     <div key={t.id} className="px-3 py-2.5">
-                      <div className="flex items-center gap-3">
+                      {/* On phones the meta controls wrap onto their own line (w-full) */}
+                      <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
                         <button onClick={() => complete(t)} disabled={saving} title="Mark done — syncs to GHL"
                           className="shrink-0 w-5 h-5 rounded-md border border-[#cbd5e1] hover:border-[#15B7AE] hover:bg-[#e6f7f5] flex items-center justify-center text-transparent hover:text-[#0e8f88]">
                           {saving ? <Loader2 size={12} className="animate-spin text-[#94a3b8]" /> : <Check size={12} />}
@@ -211,8 +212,9 @@ export default function TasksPage() {
                         <input
                           defaultValue={t.title}
                           onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== t.title) save(t, { title: v }); }}
-                          className="flex-1 min-w-0 bg-transparent text-sm text-[#1f3559] px-1 py-0.5 rounded hover:bg-[#f1f5f9] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#15B7AE]" />
-                        {t.contactName && <span className="hidden sm:inline text-xs text-[#697a91] truncate max-w-[140px]" title={t.contactName}>{t.contactName}</span>}
+                          className="flex-1 min-w-[180px] bg-transparent text-sm text-[#1f3559] px-1 py-0.5 rounded hover:bg-[#f1f5f9] focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#15B7AE]" />
+                        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto sm:flex-nowrap min-w-0">
+                        {t.contactName && <span className="text-xs text-[#697a91] truncate max-w-[140px]" title={t.contactName}>{t.contactName}</span>}
                         {t.contactId && locationId && (
                           <a href={`https://app.gohighlevel.com/v2/location/${locationId}/contacts/detail/${t.contactId}`}
                             target="_blank" rel="noopener noreferrer"
@@ -236,6 +238,7 @@ export default function TasksPage() {
                           className="shrink-0 w-6 h-6 flex items-center justify-center rounded text-[#697a91] hover:bg-[#f1f5f9] hover:text-[#0e8f88]">
                           <ChevronDown size={16} className={cn("transition-transform", isOpen && "rotate-180")} />
                         </button>
+                        </div>
                       </div>
                       {isOpen && (
                         <div className="mt-2 pl-8 pr-1">

@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check, Loader2 } from "lucide-react";
+import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { GhlNotes } from "./GhlNotes";
@@ -33,6 +33,15 @@ function statusColors(s: string): { bg: string; color: string; border: string } 
   return { bg: "#f1f5f9", color: "#64748b", border: "#d7e0ea" }; // offboarded / other
 }
 
+// Per-user color for the Assigned / Media Buyer controls — consistent with the
+// userColor() palette used everywhere else; empty = plain white.
+function teamColorStyle(name: unknown): React.CSSProperties {
+  const c = userColor(typeof name === "string" ? name : String(name ?? ""));
+  return c
+    ? { background: c.bg, color: c.text, borderColor: c.border }
+    : { background: "#ffffff", color: "#34568a", borderColor: "#d7e0ea" };
+}
+
 // Fields editable in the edit panel
 // Edit Profile only changes the two name fields; everything else is changed via
 // the inline dropdowns in the header.
@@ -40,6 +49,9 @@ const EDIT_FIELDS = [
   { key: "business_name",   label: "Business Name",     sheetKey: "Business Name" },
   { key: "owner_name",      label: "Owner Full Name",   sheetKey: "Owner Full Name" },
 ];
+// Name fields are edited at the top of the panel, so they're excluded from the
+// editable detail grid at the bottom (which covers everything else).
+const NAME_SHEET_KEYS = new Set(EDIT_FIELDS.map((f) => f.sheetKey));
 
 const GHL_LOCATION = process.env.NEXT_PUBLIC_GHL_LOCATION_ID ?? "SfpNMJ5YU9lBkxss47lK";
 
@@ -65,6 +77,7 @@ export function ClientProfile({
   const [localClient, setLocalClient] = useState<ClientRecord>(client);
   const [editMode, setEditMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const editOriginalRef = useRef<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const payRef = useRef<HTMLDivElement>(null);
@@ -116,26 +129,36 @@ export function ClientProfile({
     : formatCurrency(String(localClient.p ?? ""));
 
   // ── Edit panel ──────────────────────────────────────────────────────────
+  // Edit Profile opens one edit mode covering the names (top) + every detail
+  // field (bottom box). Values are keyed by their Google Sheet column name.
   function openEdit() {
     const vals: Record<string, string> = {};
-    EDIT_FIELDS.forEach(({ key }) => { vals[key] = String(localClient[key] ?? ""); });
+    EDIT_FIELDS.forEach(({ sheetKey, key }) => {
+      vals[sheetKey] = String(localClient[sheetKey] ?? localClient[key] ?? "");
+    });
+    DETAIL_FIELDS.forEach(({ key }) => {
+      if (!(key in vals)) vals[key] = String(localClient[key] ?? "");
+    });
+    editOriginalRef.current = { ...vals };
     setEditValues(vals);
     setEditMode(true);
   }
 
   const saveEdit = useCallback(async () => {
     if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
+    const original = editOriginalRef.current;
+    // Only write the columns that actually changed (field-scoped) so untouched
+    // columns — like the status column — are never overwritten.
+    const changed = Object.keys(editValues).filter((k) => editValues[k] !== (original[k] ?? ""));
+    if (changed.length === 0) { setEditMode(false); return; }
+
     setSaving(true);
-
-    // Build updated record merging both normalized keys and original sheet keys
     const updated: ClientRecord = { ...localClient };
-    EDIT_FIELDS.forEach(({ key, sheetKey }) => {
-      updated[key] = editValues[key];
-      updated[sheetKey] = editValues[key];
+    changed.forEach((sheetKey) => {
+      updated[sheetKey] = editValues[sheetKey];
+      const alias = DETAIL_ALIAS[sheetKey];
+      if (alias) updated[alias] = editValues[sheetKey];
     });
-    // Keep col_1 in sync with status
-    updated["col_1"] = editValues["status"] ?? updated["col_1"];
-
     setLocalClient(updated);
     setEditMode(false);
 
@@ -143,12 +166,13 @@ export function ClientProfile({
       const res = await fetch("/api/sync/clients_master", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated, columns: EDIT_FIELDS.map((f) => f.sheetKey) }),
+        body: JSON.stringify({ rowNumber, rowData: updated, columns: changed }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
+      const n = changed.length;
       if (json.sheetsUpdated) {
-        toast.success("Saved — Supabase + Google Sheet updated ✓");
+        toast.success(`Saved ${n} field${n > 1 ? "s" : ""} — Supabase + Google Sheet updated ✓`);
       } else if (json.sheetsError) {
         toast.success("Saved to dashboard (Sheets: " + json.sheetsError + ")");
       } else {
@@ -269,40 +293,11 @@ export function ClientProfile({
     }
   }, [rowNumber, localClient, client, onUpdate]);
 
-  // ── Detail box save (one column at a time, field-scoped write-back) ────────
-  const [detailSaving, setDetailSaving] = useState<string | null>(null);
-  const saveDetail = useCallback(async (sheetKey: string, value: string) => {
-    if (!rowNumber) { toast.error("Row number missing — re-sync first"); return; }
-    if (value === String((localClient as Record<string, unknown>)[sheetKey] ?? "")) return;
-    const updated: ClientRecord = { ...localClient, [sheetKey]: value };
-    // Keep the normalized keys used elsewhere (header, notes) in sync.
-    const alias = DETAIL_ALIAS[sheetKey];
-    if (alias) updated[alias] = value;
-    setLocalClient(updated);
-    setDetailSaving(sheetKey);
-    try {
-      const res = await fetch("/api/sync/clients_master", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rowNumber, rowData: updated, columns: [sheetKey] }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Save failed");
-      toast.success(json.sheetsUpdated ? `${sheetKey} updated — Sheet ✓` : `${sheetKey} updated`);
-      onUpdate?.(updated);
-    } catch (e) {
-      toast.error(`${sheetKey} save failed: ${e}`);
-      setLocalClient(client);
-    } finally {
-      setDetailSaving(null);
-    }
-  }, [rowNumber, localClient, client, onUpdate]);
-
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="h-full overflow-y-auto">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-10 px-6 pt-5 pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
+      <div className="sticky top-0 z-10 px-4 sm:px-6 pt-5 pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -353,21 +348,16 @@ export function ClientProfile({
 
         {/* Status badges row — or edit panel */}
         {editMode ? (
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {EDIT_FIELDS.map(({ key, label }) => (
-              <div key={key}>
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {EDIT_FIELDS.map(({ sheetKey, label }) => (
+              <div key={sheetKey}>
                 <label className="block text-xs text-[#697a91] mb-1">{label}</label>
-                {key === "notes" ? (
-                  <textarea rows={2} value={editValues[key] ?? ""}
-                    onChange={(e) => setEditValues((v) => ({ ...v, [key]: e.target.value }))}
-                    className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE] resize-none col-span-2" />
-                ) : (
-                  <input type="text" value={editValues[key] ?? ""}
-                    onChange={(e) => setEditValues((v) => ({ ...v, [key]: e.target.value }))}
-                    className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
-                )}
+                <input type="text" value={editValues[sheetKey] ?? ""}
+                  onChange={(e) => setEditValues((v) => ({ ...v, [sheetKey]: e.target.value }))}
+                  className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
               </div>
             ))}
+            <p className="sm:col-span-2 text-[11px] text-[#8595a8] -mt-1">Scroll down to edit the rest of the details, then click <strong>Save All</strong>.</p>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -423,7 +413,8 @@ export function ClientProfile({
                     onChange={(e) => saveTeam("assigned", "Assigned", e.target.value)}
                     disabled={assignSaving === "Assigned"}
                     title="Assign a user — writes back to the Google Sheet"
-                    className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                    style={teamColorStyle(localClient.assigned)}
+                    className="px-2 py-1 rounded-md text-xs font-bold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
                   >
                     <option value="">—</option>
                     {localClient.assigned && !TEAM_OPTIONS.includes(String(localClient.assigned)) && <option value={String(localClient.assigned)}>{String(localClient.assigned)}</option>}
@@ -437,7 +428,8 @@ export function ClientProfile({
                     onChange={(e) => saveTeam("media_buyer", "Media Buyer", e.target.value)}
                     disabled={assignSaving === "Media Buyer"}
                     title="Assign a media buyer — writes back to the Google Sheet"
-                    className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                    style={teamColorStyle(localClient.media_buyer)}
+                    className="px-2 py-1 rounded-md text-xs font-bold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
                   >
                     <option value="">—</option>
                     {localClient.media_buyer && !TEAM_OPTIONS.includes(String(localClient.media_buyer)) && <option value={String(localClient.media_buyer)}>{String(localClient.media_buyer)}</option>}
@@ -447,8 +439,8 @@ export function ClientProfile({
               </>
             ) : (
               <>
-                <Badge variant="gray">Assigned: <strong className="ml-1">{localClient.assigned || "—"}</strong></Badge>
-                <Badge variant="gray">Media Buyer: <strong className="ml-1">{localClient.media_buyer || "—"}</strong></Badge>
+                <UserChip label="Assigned" name={String(localClient.assigned ?? "")} />
+                <UserChip label="Media Buyer" name={String(localClient.media_buyer ?? "")} />
               </>
             )}
             <Badge variant="gray">Campaign: <strong className="ml-1">{localClient.campaign_status || "—"}</strong></Badge>
@@ -493,8 +485,6 @@ export function ClientProfile({
             ) : (
               <Badge variant="teal">Price: <strong className="ml-1">{priceDisplay}</strong></Badge>
             )}
-            <UserChip label="Assigned" name={String(localClient.assigned ?? "")} />
-            <UserChip label="Media Buyer" name={String(localClient.media_buyer ?? "")} />
             {(() => {
               const v = String(localClient.version ?? "");
               const vs = versionStyle(v);
@@ -510,7 +500,7 @@ export function ClientProfile({
       </div>
 
       {/* ── Body ── */}
-      <div className="px-6 py-4 space-y-5">
+      <div className="px-4 sm:px-6 py-4 space-y-5">
 
         {/* GHL Notes (top) */}
         {ghlContactId && <GhlNotes contactId={ghlContactId} />}
@@ -560,7 +550,12 @@ export function ClientProfile({
         </Section>
 
         {/* All business & client details from the Master Sheet */}
-        <ClientDetails client={localClient} canEdit={canEdit} onSave={saveDetail} savingKey={detailSaving} />
+        <ClientDetails
+          client={localClient}
+          editing={editMode}
+          editValues={editValues}
+          onEditChange={(sheetKey, value) => setEditValues((v) => ({ ...v, [sheetKey]: value }))}
+        />
 
         {/* Notes */}
         {localClient.notes && String(localClient.notes).trim() && (
@@ -592,7 +587,7 @@ function UserChip({ label, name }: { label: string; name: string }) {
   const c = userColor(name);
   const style = c
     ? { background: c.bg, color: c.text, borderColor: c.border }
-    : { background: "#f1f5f9", color: "#64748b", borderColor: "#d7e0ea" };
+    : { background: "#ffffff", color: "#64748b", borderColor: "#d7e0ea" }; // empty = white
   return (
     <span
       className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border"
@@ -677,108 +672,95 @@ function DetailValue({ value }: { value: unknown }) {
 }
 
 function ClientDetails({
-  client, canEdit, onSave, savingKey,
+  client, editing, editValues, onEditChange,
 }: {
   client: ClientRecord;
-  canEdit: boolean;
-  onSave: (sheetKey: string, value: string) => void;
-  savingKey: string | null;
+  editing: boolean;
+  editValues: Record<string, string>;
+  onEditChange: (sheetKey: string, value: string) => void;
 }) {
-  const [open, setOpen] = useState(true);
-  const [editing, setEditing] = useState(false);
   const data = client as Record<string, unknown>;
 
-  // Read mode: only non-empty fields. Edit mode: all fields, so blanks (e.g. a
-  // missing address) can be filled in.
+  // Edit mode (entered via "Edit Profile"): every detail field becomes an input,
+  // except the two name fields, which are edited at the top of the panel.
+  if (editing) {
+    const fields = DETAIL_FIELDS.filter((f) => !NAME_SHEET_KEYS.has(f.key));
+    return (
+      <div className="border border-[#e4ebf2] rounded-xl bg-white">
+        <div className="px-4 py-3">
+          <h3 className="text-sm font-semibold text-[#34568a]">
+            Business &amp; client details
+            <span className="block text-[11px] font-normal text-[#8595a8]">
+              Change any field, then click <strong>Save All</strong> at the top.
+            </span>
+          </h3>
+        </div>
+        <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+          {fields.map((f) => (
+            <DetailEditField key={f.key} fieldKey={f.key} label={f.label}
+              value={editValues[f.key] ?? ""} onChange={(v) => onEditChange(f.key, v)} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Read mode: only non-empty fields, read-only.
   const readEntries = DETAIL_FIELDS
     .map((f) => ({ key: f.key, label: f.label, value: data[f.key] }))
     .filter((f) => !isEmptyVal(f.value));
-  if (!editing && readEntries.length === 0 && !canEdit) return null;
+  if (readEntries.length === 0) return null;
 
   return (
     <div className="border border-[#e4ebf2] rounded-xl bg-white">
-      <div className="w-full flex items-center justify-between px-4 py-3 gap-2">
-        <button onClick={() => setOpen((o) => !o)} className="flex-1 min-w-0 text-left">
-          <h3 className="text-sm font-semibold text-[#34568a]">
-            Business &amp; client details — captured at onboarding signup
-            <span className="ml-2 text-xs font-normal text-[#8595a8]">({editing ? DETAIL_FIELDS.length : readEntries.length})</span>
-            <span className="block text-[11px] font-normal text-[#8595a8]">
-              {editing ? "Editing — changes save automatically to the Google Sheet." : "These are the original sign-up details; the offer may change later."}
-            </span>
-          </h3>
-        </button>
-        <div className="flex items-center gap-2 shrink-0">
-          {canEdit && open && (
-            <button onClick={() => setEditing((e) => !e)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#e4ebf2] hover:bg-[#dbe5ef] text-[#1e2a3a] border border-[#d7e0ea] transition-colors">
-              {editing ? <><Check size={12} /> Done</> : <><Edit2 size={12} /> Edit</>}
-            </button>
-          )}
-          <button onClick={() => setOpen((o) => !o)} aria-label="Toggle details">
-            <ChevronDown size={16} className={`text-[#697a91] transition-transform ${open ? "rotate-180" : ""}`} />
-          </button>
-        </div>
+      <div className="px-4 py-3">
+        <h3 className="text-sm font-semibold text-[#34568a]">
+          Business &amp; client details — captured at onboarding signup
+          <span className="block text-[11px] font-normal text-[#8595a8]">
+            These are the original sign-up details; click <strong>Edit Profile</strong> to change them.
+          </span>
+        </h3>
       </div>
-      {open && (editing ? (
-        <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
-          {DETAIL_FIELDS.map((f) => (
-            <DetailEditField key={f.key} fieldKey={f.key} label={f.label}
-              value={String(data[f.key] ?? "")}
-              saving={savingKey === f.key} onSave={(v) => onSave(f.key, v)} />
-          ))}
-        </div>
-      ) : readEntries.length === 0 ? (
-        <div className="px-4 pb-4 text-sm text-[#8595a8]">No details captured yet — click <strong>Edit</strong> to add them.</div>
-      ) : (
-        <div className="px-4 pb-4 grid grid-cols-2 gap-x-4 gap-y-3">
-          {readEntries.map((f) => (
-            <div key={f.key} className="min-w-0">
-              <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{f.label}</p>
-              <DetailValue value={f.value} />
-            </div>
-          ))}
-        </div>
-      ))}
+      <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        {readEntries.map((f) => (
+          <div key={f.key} className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wide text-[#8595a8]">{f.label}</p>
+            <DetailValue value={f.value} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 function DetailEditField({
-  fieldKey, label, value, saving, onSave,
+  fieldKey, label, value, onChange,
 }: {
   fieldKey: string;
   label: string;
   value: string;
-  saving: boolean;
-  onSave: (value: string) => void;
+  onChange: (value: string) => void;
 }) {
-  const [v, setV] = useState(value);
-  useEffect(() => { setV(value); }, [value]);
-
   const isLong = DETAIL_LONG_KEYS.has(fieldKey);
   const isBool = DETAIL_BOOL_KEYS.has(fieldKey);
-  const commit = () => { if (v !== value) onSave(v); };
   const inputCls = "w-full px-2.5 py-1.5 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]";
 
   return (
-    <div className={cn("min-w-0", isLong && "col-span-2")}>
-      <label className="text-[11px] uppercase tracking-wide text-[#8595a8] flex items-center gap-1.5 mb-0.5">
-        {label}
-        {saving && <Loader2 size={11} className="animate-spin text-[#94a3b8]" />}
-      </label>
+    <div className={cn("min-w-0", isLong && "sm:col-span-2")}>
+      <label className="block text-[11px] uppercase tracking-wide text-[#8595a8] mb-0.5">{label}</label>
       {isBool ? (
-        <select value={boolToSelect(v)}
-          onChange={(e) => { const sel = e.target.value; const out = sel === "Yes" ? "TRUE" : sel === "No" ? "FALSE" : ""; setV(out); onSave(out); }}
+        <select value={boolToSelect(value)}
+          onChange={(e) => { const sel = e.target.value; onChange(sel === "Yes" ? "TRUE" : sel === "No" ? "FALSE" : ""); }}
           className={inputCls}>
           <option value="">—</option>
           <option value="Yes">Yes</option>
           <option value="No">No</option>
         </select>
       ) : isLong ? (
-        <textarea rows={2} value={v} onChange={(e) => setV(e.target.value)} onBlur={commit}
+        <textarea rows={2} value={value} onChange={(e) => onChange(e.target.value)}
           className={cn(inputCls, "resize-y")} />
       ) : (
-        <input type="text" value={v} onChange={(e) => setV(e.target.value)} onBlur={commit}
+        <input type="text" value={value} onChange={(e) => onChange(e.target.value)}
           className={inputCls} />
       )}
     </div>
