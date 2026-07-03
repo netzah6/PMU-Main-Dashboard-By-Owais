@@ -79,7 +79,13 @@ export default function SubscriptionsPage() {
     setLoading(true); setError(null);
     try {
       const res = await fetch("/api/square/subscriptions");
-      const json = await res.json();
+      // The platform can return plain text (e.g. a gateway timeout page), so
+      // never assume JSON — show a readable error instead of a parse crash.
+      const text = await res.text();
+      let json: { subscriptions?: Sub[]; error?: string } = {};
+      try { json = JSON.parse(text); } catch {
+        throw new Error(res.ok ? "Unexpected response from the server" : `Server error (${res.status}) — try Refresh in a moment`);
+      }
       if (!res.ok) throw new Error(json.error || "Failed to load subscriptions");
       setSubs(json.subscriptions ?? []);
     } catch (e) {
