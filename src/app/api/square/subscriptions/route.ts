@@ -19,7 +19,13 @@ export async function GET() {
 
   try {
     const subs = await listSubscriptions();
-    const customerIds = Array.from(new Set(subs.map((s) => s.customerId).filter(Boolean))) as string[];
+    // Resolve customer names only for non-canceled subscriptions — accounts can
+    // have hundreds of canceled ones, and resolving them all caused timeouts.
+    // Canceled rows fall back to the raw customer id.
+    const isEnded = (s: string) => ["CANCELED", "DEACTIVATED"].includes(s.toUpperCase());
+    const customerIds = Array.from(
+      new Set(subs.filter((s) => !isEnded(s.status)).map((s) => s.customerId).filter(Boolean))
+    ) as string[];
     const planIds = Array.from(new Set(subs.map((s) => s.planVariationId).filter(Boolean))) as string[];
     const [customers, plans] = await Promise.all([getCustomers(customerIds), getPlans(planIds)]);
 

@@ -72,31 +72,53 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
 
 export type SquareCustomer = { id: string; name: string; email: string | null };
 
+function customerFromRaw(id: string, c: Record<string, unknown>): SquareCustomer {
+  const name =
+    `${c.given_name ?? ""} ${c.family_name ?? ""}`.trim() ||
+    String(c.company_name ?? "").trim() ||
+    String(c.email_address ?? "").trim() ||
+    id;
+  return { id, name, email: (c.email_address as string) ?? null };
+}
+
+// Bulk customer lookup (100 ids per call) so large accounts stay fast —
+// individual GETs made the route time out on accounts with many customers.
 export async function getCustomers(ids: string[]): Promise<Map<string, SquareCustomer>> {
   const map = new Map<string, SquareCustomer>();
-  // Small accounts: fetch individually with modest concurrency.
-  const chunk = 8;
+  const chunk = 100;
   for (let i = 0; i < ids.length; i += chunk) {
     const slice = ids.slice(i, i + chunk);
-    await Promise.all(
-      slice.map(async (id) => {
-        try {
-          const r = await fetch(`${BASE}/v2/customers/${id}`, { headers: headers() });
-          if (!r.ok) return;
-          const j = (await r.json()) as { customer?: Record<string, unknown> };
-          const c = j.customer;
-          if (!c) return;
-          const name =
-            `${c.given_name ?? ""} ${c.family_name ?? ""}`.trim() ||
-            String(c.company_name ?? "").trim() ||
-            String(c.email_address ?? "").trim() ||
-            id;
-          map.set(id, { id, name, email: (c.email_address as string) ?? null });
-        } catch {
-          /* best-effort; name falls back to id */
+    try {
+      const r = await fetch(`${BASE}/v2/customers/bulk-retrieve`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ customer_ids: slice }),
+      });
+      if (r.ok) {
+        const j = (await r.json()) as { responses?: Record<string, { customer?: Record<string, unknown> }> };
+        for (const [id, resp] of Object.entries(j.responses ?? {})) {
+          if (resp?.customer) map.set(id, customerFromRaw(id, resp.customer));
         }
-      })
-    );
+        continue;
+      }
+    } catch {
+      /* fall through to individual fetches */
+    }
+    // Fallback (bulk endpoint unavailable): individual fetches, concurrency 8.
+    for (let k = 0; k < slice.length; k += 8) {
+      await Promise.all(
+        slice.slice(k, k + 8).map(async (id) => {
+          try {
+            const r = await fetch(`${BASE}/v2/customers/${id}`, { headers: headers() });
+            if (!r.ok) return;
+            const j = (await r.json()) as { customer?: Record<string, unknown> };
+            if (j.customer) map.set(id, customerFromRaw(id, j.customer));
+          } catch {
+            /* best-effort; name falls back to id */
+          }
+        })
+      );
+    }
   }
   return map;
 }
@@ -105,28 +127,33 @@ export type SquarePlan = { id: string; name: string; cadence: string; priceCents
 
 export async function getPlans(ids: string[]): Promise<Map<string, SquarePlan>> {
   const map = new Map<string, SquarePlan>();
-  for (const id of ids) {
-    try {
-      const r = await fetch(`${BASE}/v2/catalog/object/${id}`, { headers: headers() });
-      if (!r.ok) continue;
-      const j = (await r.json()) as { object?: Record<string, unknown> };
-      const obj = j.object;
-      if (!obj) continue;
-      const data = (obj.subscription_plan_variation_data ?? obj.subscription_plan_data) as
-        | { name?: string; phases?: Array<Record<string, unknown>> }
-        | undefined;
-      const phase = data?.phases?.[0] as
-        | { cadence?: string; pricing?: { price_money?: { amount?: number } }; recurring_price_money?: { amount?: number } }
-        | undefined;
-      map.set(id, {
-        id,
-        name: data?.name ?? "Subscription",
-        cadence: phase?.cadence ?? "",
-        priceCents: phase?.pricing?.price_money?.amount ?? phase?.recurring_price_money?.amount ?? null,
-      });
-    } catch {
-      /* best-effort */
-    }
+  const chunk = 8;
+  for (let i = 0; i < ids.length; i += chunk) {
+    await Promise.all(
+      ids.slice(i, i + chunk).map(async (id) => {
+        try {
+          const r = await fetch(`${BASE}/v2/catalog/object/${id}`, { headers: headers() });
+          if (!r.ok) return;
+          const j = (await r.json()) as { object?: Record<string, unknown> };
+          const obj = j.object;
+          if (!obj) return;
+          const data = (obj.subscription_plan_variation_data ?? obj.subscription_plan_data) as
+            | { name?: string; phases?: Array<Record<string, unknown>> }
+            | undefined;
+          const phase = data?.phases?.[0] as
+            | { cadence?: string; pricing?: { price_money?: { amount?: number } }; recurring_price_money?: { amount?: number } }
+            | undefined;
+          map.set(id, {
+            id,
+            name: data?.name ?? "Subscription",
+            cadence: phase?.cadence ?? "",
+            priceCents: phase?.pricing?.price_money?.amount ?? phase?.recurring_price_money?.amount ?? null,
+          });
+        } catch {
+          /* best-effort */
+        }
+      })
+    );
   }
   return map;
 }
