@@ -7,7 +7,7 @@ import { useUser } from "@/lib/hooks/useUser";
 type Tab = { label: string; href: string; adminOnly?: boolean };
 
 const TABS: Tab[] = [
-  { label: "Overview", href: "/overview" },
+  // Hidden from the menu (page still exists at /overview): Overview
   { label: "Clients", href: "/clients" },
   { label: "Performance", href: "/performance" },
   { label: "Cost / Deposit", href: "/cost-per-deposit" },

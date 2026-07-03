@@ -39,7 +39,7 @@ export default function LtvPage() {
   const { role, loading: roleLoading } = useUser();
   const router = useRouter();
   useEffect(() => {
-    if (!roleLoading && role !== "admin") router.replace("/overview");
+    if (!roleLoading && role !== "admin") router.replace("/clients");
   }, [roleLoading, role, router]);
   const { data: payments, loading: lp, error: ep } = useTableData<Record<string, unknown>>({ table: "ltv_sheet1" });
   const { data: summary, loading: ls, error: es } = useTableData<Record<string, unknown>>({ table: "ltv_sheet2" });

@@ -46,7 +46,7 @@ export default function SetPasswordPage() {
       setLoading(false);
       return;
     }
-    router.push("/overview");
+    router.push("/clients");
     router.refresh();
   }
 
