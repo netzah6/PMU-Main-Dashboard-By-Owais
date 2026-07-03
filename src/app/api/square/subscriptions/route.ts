@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { squareConfigured, listSubscriptions, getCustomers, getPlans } from "@/lib/square";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 // All Square subscriptions with customer names, plan info, and charge dates.
 export async function GET() {
@@ -23,11 +23,14 @@ export async function GET() {
     // have hundreds of canceled ones, and resolving them all caused timeouts.
     // Canceled rows fall back to the raw customer id.
     const isEnded = (s: string) => ["CANCELED", "DEACTIVATED"].includes(s.toUpperCase());
-    const customerIds = Array.from(
-      new Set(subs.filter((s) => !isEnded(s.status)).map((s) => s.customerId).filter(Boolean))
-    ) as string[];
-    const planIds = Array.from(new Set(subs.map((s) => s.planVariationId).filter(Boolean))) as string[];
+    const live = subs.filter((s) => !isEnded(s.status));
+    const customerIds = Array.from(new Set(live.map((s) => s.customerId).filter(Boolean))) as string[];
+    // Plans too: only for live subs — canceled ones can reference hundreds of
+    // old plan variations and the catalog lookups were timing out the route.
+    const planIds = Array.from(new Set(live.map((s) => s.planVariationId).filter(Boolean))) as string[];
+    const t0 = Date.now();
     const [customers, plans] = await Promise.all([getCustomers(customerIds), getPlans(planIds)]);
+    console.log(`[square] subs=${subs.length} live=${live.length} customers=${customerIds.length} plans=${planIds.length} lookupMs=${Date.now() - t0}`);
 
     const rows = subs.map((s) => {
       const plan = s.planVariationId ? plans.get(s.planVariationId) : undefined;
