@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { squareConfigured, listSubscriptions, getCustomers, getPlans } from "@/lib/square";
+import { squareConfigured, listSubscriptions, getCustomers, getPlans, getInvoiceAmounts } from "@/lib/square";
 
 export const maxDuration = 120;
 
@@ -28,9 +28,14 @@ export async function GET() {
     // Plans too: only for live subs — canceled ones can reference hundreds of
     // old plan variations and the catalog lookups were timing out the route.
     const planIds = Array.from(new Set(live.map((s) => s.planVariationId).filter(Boolean))) as string[];
+    const invoiceIds = Array.from(new Set(live.map((s) => s.latestInvoiceId).filter(Boolean))) as string[];
     const t0 = Date.now();
-    const [customers, plans] = await Promise.all([getCustomers(customerIds), getPlans(planIds)]);
-    console.log(`[square] subs=${subs.length} live=${live.length} customers=${customerIds.length} plans=${planIds.length} lookupMs=${Date.now() - t0}`);
+    const [customers, plans, invoiceAmounts] = await Promise.all([
+      getCustomers(customerIds),
+      getPlans(planIds),
+      getInvoiceAmounts(invoiceIds),
+    ]);
+    console.log(`[square] subs=${subs.length} live=${live.length} customers=${customerIds.length} plans=${planIds.length} invoices=${invoiceIds.length} lookupMs=${Date.now() - t0}`);
 
     const rows = subs.map((s) => {
       const plan = s.planVariationId ? plans.get(s.planVariationId) : undefined;
@@ -42,7 +47,13 @@ export async function GET() {
         customerEmail: customer?.email ?? null,
         planName: plan?.name ?? "Subscription",
         cadence: plan?.cadence ?? "",
-        amountCents: s.priceOverrideCents ?? plan?.priceCents ?? null,
+        // Latest invoice = what Square actually billed (handles relative-priced
+        // plans and multi-phase plans); overrides and plan price are fallbacks.
+        amountCents:
+          (s.latestInvoiceId ? invoiceAmounts.get(s.latestInvoiceId) : undefined) ??
+          s.priceOverrideCents ??
+          plan?.priceCents ??
+          null,
         currency: s.currency,
         startDate: s.startDate,
         chargedThroughDate: s.chargedThroughDate,

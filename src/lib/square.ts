@@ -30,6 +30,7 @@ export type SquareSubscription = {
   monthlyBillingAnchor: number | null;
   priceOverrideCents: number | null;
   currency: string;
+  latestInvoiceId: string | null;
 };
 
 // All subscriptions in the account (every status), paginated.
@@ -51,6 +52,9 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
     const j = (await r.json()) as { subscriptions?: Array<Record<string, unknown>>; cursor?: string };
     for (const s of j.subscriptions ?? []) {
       const priceOverride = s.price_override_money as { amount?: number; currency?: string } | undefined;
+      // invoice_ids is newest-first; the latest invoice is the ground truth
+      // for what this subscription actually charges.
+      const invoiceIds = (s.invoice_ids as string[] | undefined) ?? [];
       out.push({
         id: String(s.id),
         status: String(s.status ?? ""),
@@ -62,6 +66,7 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
         monthlyBillingAnchor: typeof s.monthly_billing_anchor_date === "number" ? (s.monthly_billing_anchor_date as number) : null,
         priceOverrideCents: priceOverride?.amount ?? null,
         currency: priceOverride?.currency ?? "USD",
+        latestInvoiceId: invoiceIds[0] ?? null,
       });
     }
     cursor = j.cursor;
@@ -78,6 +83,8 @@ const customerCache = new Map<string, { ts: number; c: SquareCustomer }>();
 const CUSTOMER_TTL_MS = 60 * 60 * 1000; // 1h
 const planCache = new Map<string, { ts: number; p: SquarePlan }>();
 const PLAN_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+// Invoice amounts never change once issued — cache for the process lifetime.
+const invoiceCache = new Map<string, number | null>();
 
 function customerFromRaw(id: string, c: Record<string, unknown>): SquareCustomer {
   const name =
@@ -147,6 +154,42 @@ export async function getCustomers(ids: string[]): Promise<Map<string, SquareCus
 
 export type SquarePlan = { id: string; name: string; cadence: string; priceCents: number | null };
 
+// Amount actually billed on each invoice (in cents), keyed by invoice id.
+// This is the reliable price source: plan-phase prices miss relative-priced
+// plans entirely and can reflect an intro phase rather than the ongoing one.
+export async function getInvoiceAmounts(ids: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const missing: string[] = [];
+  for (const id of ids) {
+    const hit = invoiceCache.get(id);
+    if (hit !== undefined) {
+      if (hit != null) map.set(id, hit);
+    } else missing.push(id);
+  }
+  const chunk = 8;
+  for (let i = 0; i < missing.length; i += chunk) {
+    await Promise.all(
+      missing.slice(i, i + chunk).map(async (id) => {
+        try {
+          const r = await fetch(`${BASE}/v2/invoices/${id}`, { headers: headers() });
+          if (!r.ok) { invoiceCache.set(id, null); return; }
+          const j = (await r.json()) as {
+            invoice?: { payment_requests?: Array<{ computed_amount_money?: { amount?: number } }> };
+          };
+          const amount = (j.invoice?.payment_requests ?? [])
+            .map((p) => p.computed_amount_money?.amount ?? 0)
+            .reduce((s, a) => s + a, 0);
+          invoiceCache.set(id, amount > 0 ? amount : null);
+          if (amount > 0) map.set(id, amount);
+        } catch {
+          /* best-effort */
+        }
+      })
+    );
+  }
+  return map;
+}
+
 export async function getPlans(ids: string[]): Promise<Map<string, SquarePlan>> {
   const map = new Map<string, SquarePlan>();
   const now = Date.now();
@@ -169,7 +212,10 @@ export async function getPlans(ids: string[]): Promise<Map<string, SquarePlan>> 
           const data = (obj.subscription_plan_variation_data ?? obj.subscription_plan_data) as
             | { name?: string; phases?: Array<Record<string, unknown>> }
             | undefined;
-          const phase = data?.phases?.[0] as
+          // Use the LAST phase — that's the ongoing price. Phase 0 can be an
+          // intro/trial price, which made some amounts show wrong.
+          const phases = data?.phases ?? [];
+          const phase = phases[phases.length - 1] as
             | { cadence?: string; pricing?: { price_money?: { amount?: number } }; recurring_price_money?: { amount?: number } }
             | undefined;
           const p: SquarePlan = {
