@@ -72,6 +72,13 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
 
 export type SquareCustomer = { id: string; name: string; email: string | null };
 
+// In-process caches (warm serverless instance): customer names and plan
+// details change rarely, so repeat loads skip most Square calls entirely.
+const customerCache = new Map<string, { ts: number; c: SquareCustomer }>();
+const CUSTOMER_TTL_MS = 60 * 60 * 1000; // 1h
+const planCache = new Map<string, { ts: number; p: SquarePlan }>();
+const PLAN_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+
 function customerFromRaw(id: string, c: Record<string, unknown>): SquareCustomer {
   const name =
     `${c.given_name ?? ""} ${c.family_name ?? ""}`.trim() ||
@@ -85,9 +92,16 @@ function customerFromRaw(id: string, c: Record<string, unknown>): SquareCustomer
 // individual GETs made the route time out on accounts with many customers.
 export async function getCustomers(ids: string[]): Promise<Map<string, SquareCustomer>> {
   const map = new Map<string, SquareCustomer>();
+  const now = Date.now();
+  const missing: string[] = [];
+  for (const id of ids) {
+    const hit = customerCache.get(id);
+    if (hit && now - hit.ts < CUSTOMER_TTL_MS) map.set(id, hit.c);
+    else missing.push(id);
+  }
   const chunk = 100;
-  for (let i = 0; i < ids.length; i += chunk) {
-    const slice = ids.slice(i, i + chunk);
+  for (let i = 0; i < missing.length; i += chunk) {
+    const slice = missing.slice(i, i + chunk);
     try {
       const r = await fetch(`${BASE}/v2/customers/bulk-retrieve`, {
         method: "POST",
@@ -97,7 +111,11 @@ export async function getCustomers(ids: string[]): Promise<Map<string, SquareCus
       if (r.ok) {
         const j = (await r.json()) as { responses?: Record<string, { customer?: Record<string, unknown> }> };
         for (const [id, resp] of Object.entries(j.responses ?? {})) {
-          if (resp?.customer) map.set(id, customerFromRaw(id, resp.customer));
+          if (resp?.customer) {
+            const c = customerFromRaw(id, resp.customer);
+            map.set(id, c);
+            customerCache.set(id, { ts: now, c });
+          }
         }
         continue;
       }
@@ -112,7 +130,11 @@ export async function getCustomers(ids: string[]): Promise<Map<string, SquareCus
             const r = await fetch(`${BASE}/v2/customers/${id}`, { headers: headers() });
             if (!r.ok) return;
             const j = (await r.json()) as { customer?: Record<string, unknown> };
-            if (j.customer) map.set(id, customerFromRaw(id, j.customer));
+            if (j.customer) {
+              const c = customerFromRaw(id, j.customer);
+              map.set(id, c);
+              customerCache.set(id, { ts: now, c });
+            }
           } catch {
             /* best-effort; name falls back to id */
           }
@@ -127,10 +149,17 @@ export type SquarePlan = { id: string; name: string; cadence: string; priceCents
 
 export async function getPlans(ids: string[]): Promise<Map<string, SquarePlan>> {
   const map = new Map<string, SquarePlan>();
+  const now = Date.now();
+  const missing: string[] = [];
+  for (const id of ids) {
+    const hit = planCache.get(id);
+    if (hit && now - hit.ts < PLAN_TTL_MS) map.set(id, hit.p);
+    else missing.push(id);
+  }
   const chunk = 8;
-  for (let i = 0; i < ids.length; i += chunk) {
+  for (let i = 0; i < missing.length; i += chunk) {
     await Promise.all(
-      ids.slice(i, i + chunk).map(async (id) => {
+      missing.slice(i, i + chunk).map(async (id) => {
         try {
           const r = await fetch(`${BASE}/v2/catalog/object/${id}`, { headers: headers() });
           if (!r.ok) return;
@@ -143,12 +172,14 @@ export async function getPlans(ids: string[]): Promise<Map<string, SquarePlan>> 
           const phase = data?.phases?.[0] as
             | { cadence?: string; pricing?: { price_money?: { amount?: number } }; recurring_price_money?: { amount?: number } }
             | undefined;
-          map.set(id, {
+          const p: SquarePlan = {
             id,
             name: data?.name ?? "Subscription",
             cadence: phase?.cadence ?? "",
             priceCents: phase?.pricing?.price_money?.amount ?? phase?.recurring_price_money?.amount ?? null,
-          });
+          };
+          map.set(id, p);
+          planCache.set(id, { ts: now, p });
         } catch {
           /* best-effort */
         }
