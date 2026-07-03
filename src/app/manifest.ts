@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "PMU Bookings — Master Dashboard",
     short_name: "PMU Dashboard",
     description: "PMU Bookings On Demand Master Dashboard",
-    start_url: "/overview",
+    start_url: "/clients",
     display: "standalone",
     background_color: "#eef2f7",
     theme_color: "#15B7AE",
