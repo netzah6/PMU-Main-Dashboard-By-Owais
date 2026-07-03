@@ -134,6 +134,18 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     return out.slice(0, 4);
   }, [byDay, avail]);
 
+  // ── Funnel stages, last 14 days (each stage = reached at least this far) ────
+  const funnel = useMemo(() => {
+    const c: Record<string, number> = {};
+    let total = 0;
+    byDay.forEach((arr) => arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; total++; }));
+    const engaged = total - (c.v3_only ?? 0);
+    const booked = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0) + (c.confirmed ?? 0);
+    const deposit = c.confirmed ?? 0;
+    const offerNoBook = c.offer_not_booked ?? 0;
+    return { total, engaged, booked, deposit, offerNoBook };
+  }, [byDay]);
+
   const emojiSummary = (arr: Lead[]) => {
     const c: Record<string, number> = {};
     arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; });
@@ -145,8 +157,58 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
 
   return (
     <div className="grid gap-3 md:grid-cols-2 md:items-start">
-      {/* AI recommendation (right on desktop) */}
+      {/* Funnel + AI recommendation (right on desktop) */}
       <div className="space-y-2 min-w-0 md:order-2">
+      {funnel.total > 0 && (() => {
+        const stages = [
+          { emoji: "🆕", label: "New leads", n: funnel.total, color: "#15B7AE" },
+          { emoji: "💬", label: "Engaged in conversation", n: funnel.engaged, color: "#2d8fa0" },
+          { emoji: "📅", label: "Booked a time", n: funnel.booked, color: "#34568a" },
+          { emoji: "💰", label: "Paid deposit", n: funnel.deposit, color: "#15803d" },
+        ];
+        // Biggest leak = largest number of leads lost between consecutive stages.
+        let leakIdx = -1, leakMax = 0;
+        for (let i = 1; i < stages.length; i++) {
+          const lost = stages[i - 1].n - stages[i].n;
+          if (lost > leakMax) { leakMax = lost; leakIdx = i; }
+        }
+        const pctOf = (n: number) => Math.round((n / funnel.total) * 100);
+        return (
+          <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-2">
+              🪜 Lead funnel <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 14 days</span>
+            </div>
+            <div className="space-y-0.5">
+              {stages.map((s, i) => {
+                const step = i > 0 ? (stages[i - 1].n > 0 ? Math.round((s.n / stages[i - 1].n) * 100) : 0) : null;
+                const lost = i > 0 ? stages[i - 1].n - s.n : 0;
+                return (
+                  <div key={s.label}>
+                    {i > 0 && (
+                      <div className={`flex items-center gap-1.5 pl-1 py-0.5 text-[10px] ${i === leakIdx ? "text-[#e11d48] font-bold" : "text-[#8595a8]"}`}>
+                        <span>↓ {step}% continue{lost > 0 ? ` · ${lost} lost` : ""}</span>
+                        {i === leakIdx && lost > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-[#fde8ee] border border-[#f5c2cf] leading-none">⚠ biggest leak — stuck here</span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-[#1f3559]">
+                      <span className="font-semibold whitespace-nowrap">{s.emoji} {s.label}</span>
+                      <span className="text-[#697a91] whitespace-nowrap">{s.n} · <strong className="text-[#1f3559]">{pctOf(s.n)}%</strong></span>
+                    </div>
+                    <div className="h-3.5 rounded bg-[#f1f5f9] overflow-hidden">
+                      <div className="h-full rounded transition-all" style={{ width: `${Math.max(pctOf(s.n), s.n > 0 ? 4 : 0)}%`, background: s.color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {funnel.offerNoBook > 0 && (
+              <p className="mt-1.5 text-[10px] text-[#8595a8]">🔥 {funnel.offerNoBook} more got an offer in chat but never booked a time.</p>
+            )}
+          </div>
+        );
+      })()}
       {recommendations.length > 0 && (
         <div className="rounded-lg border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-2.5 space-y-2">
           <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#0e8f88]">
