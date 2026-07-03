@@ -66,6 +66,35 @@ const ratioTone = (v: number | null): Vivid =>
 const convTone = (v: number | null): Vivid =>
   v == null ? V.gray : v >= 10 ? V.green : v >= 5.5 ? V.yellow : v >= 3.3 ? V.orange : V.red;
 
+// ── Funnel Health ────────────────────────────────────────────────────────────
+// Score built from the four funnel columns (Leads/Dep 30, Leads/Dep 14,
+// Conv% 30, Conv% 14) using the SAME color bands as the cells:
+// green=3, yellow=2, orange=1, red=0 points per metric, averaged (0–3).
+// Leads but zero deposits counts as red (0) — that's the worst funnel state.
+// No lead data at all → null (sorted to the bottom in both directions).
+function funnelHealth(r: Row): number | null {
+  const ratio30 = r.d30 > 0 ? Math.round((r.l30 ?? 0) / r.d30) : null;
+  const ratio14 = r.d14 > 0 ? Math.round((r.l14 ?? 0) / r.d14) : null;
+  const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
+  const conv14 = r.l14 && r.l14 > 0 ? (r.d14 / r.l14) * 100 : null;
+
+  const ratioPts = (v: number | null, hasLeads: boolean): number | null =>
+    v != null ? (v <= 10 ? 3 : v <= 18 ? 2 : v <= 30 ? 1 : 0) : hasLeads ? 0 : null;
+  const convPts = (v: number | null): number | null =>
+    v == null ? null : v >= 10 ? 3 : v >= 5.5 ? 2 : v >= 3.3 ? 1 : 0;
+
+  const pts = [
+    ratioPts(ratio30, (r.l30 ?? 0) > 0),
+    ratioPts(ratio14, (r.l14 ?? 0) > 0),
+    convPts(conv30),
+    convPts(conv14),
+  ].filter((p): p is number => p != null);
+  if (pts.length === 0) return null;
+  return pts.reduce((s, p) => s + p, 0) / pts.length;
+}
+const healthTone = (s: number | null): Vivid =>
+  s == null ? V.gray : s >= 2.5 ? V.green : s >= 1.5 ? V.yellow : s >= 0.75 ? V.orange : V.red;
+
 function UserCell({ name }: { name: string | null }) {
   if (!name) return <span className="text-[#a6b3c4]">—</span>;
   const c = userColor(name);
@@ -102,6 +131,7 @@ export default function CostPerDepositPage() {
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("All");
   const [versionFilter, setVersionFilter] = useState("All");
+  const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst">("default");
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [dups, setDups] = useState<Dup[]>([]);
   const [dupOpen, setDupOpen] = useState(false);
@@ -135,10 +165,25 @@ export default function CostPerDepositPage() {
       if (search && !`${r.owner_name ?? ""} ${r.ad_account_name ?? ""}`.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-    // Live clients first (by 30-day deposits), Paused sink to the bottom.
+    // Paused clients always sink to the bottom, in every sort mode.
     const rank = (s: string | null) => (String(s ?? "").toLowerCase() === "paused" ? 1 : 0);
-    return list.sort((a, b) => rank(a.client_status) - rank(b.client_status) || b.d30 - a.d30);
-  }, [rows, search, assignee, versionFilter]);
+    if (sortMode === "default") {
+      return list.sort((a, b) => rank(a.client_status) - rank(b.client_status) || b.d30 - a.d30);
+    }
+    // Funnel Health sort: score from Leads/Dep 30+14 and Conv% 30+14.
+    // Clients with no lead data (null score) go last in both directions.
+    const dir = sortMode === "fh-best" ? -1 : 1;
+    return list.sort((a, b) => {
+      const pr = rank(a.client_status) - rank(b.client_status);
+      if (pr !== 0) return pr;
+      const ha = funnelHealth(a), hb = funnelHealth(b);
+      if (ha == null && hb == null) return b.d30 - a.d30;
+      if (ha == null) return 1;
+      if (hb == null) return -1;
+      if (ha !== hb) return dir * (ha - hb);
+      return b.d30 - a.d30; // tie-break: more deposits first
+    });
+  }, [rows, search, assignee, versionFilter, sortMode]);
 
   return (
     <div className="p-6 space-y-4">
@@ -162,6 +207,14 @@ export default function CostPerDepositPage() {
             <option value="All">All versions</option>
             <option value="V3">V3</option>
             <option value="V2.3">V2.3</option>
+          </select>
+          <select value={sortMode} onChange={(e) => setSortMode(e.target.value as typeof sortMode)}
+            title="Funnel Health = combined score of Leads/Dep 30, Leads/Dep 14, Conv% 30, Conv% 14 (same color bands as the cells)"
+            className={cn("px-3 py-2 border rounded-lg text-sm focus:outline-none focus:border-[#15B7AE]",
+              sortMode === "default" ? "bg-white border-[#e4ebf2] text-[#34568a]" : "bg-[#e6f7f5] border-[#a7e3df] text-[#0e8f88] font-semibold")}>
+            <option value="default">Sort: Deposits</option>
+            <option value="fh-best">Funnel Health: best → worst</option>
+            <option value="fh-worst">Funnel Health: worst → best</option>
           </select>
 
           {/* Duplicate-deposit tracker */}
@@ -214,7 +267,7 @@ export default function CostPerDepositPage() {
         <div className="md:hidden space-y-2">
           {filtered.map((r, i) => {
             const id = String(r.sheet_row ?? i);
-            return <DepositCard key={id} r={r} open={openRow === id} hasGhl={ghlKeys.has((r.owner_name ?? "").toLowerCase().trim())} onToggle={() => setOpenRow(openRow === id ? null : id)} />;
+            return <DepositCard key={id} r={r} open={openRow === id} hasGhl={ghlKeys.has((r.owner_name ?? "").toLowerCase().trim())} showHealth={sortMode !== "default"} onToggle={() => setOpenRow(openRow === id ? null : id)} />;
           })}
           {filtered.length === 0 && <div className="px-4 py-12 text-center text-[#8595a8]">No clients match.</div>}
         </div>
@@ -256,6 +309,11 @@ export default function CostPerDepositPage() {
                       style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
                       onClick={() => setOpenRow(isOpen ? null : rowId)}>
                       <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 transition-transform align-[-2px]", isOpen && "rotate-90", hasGhl ? "text-[#94a3b8]" : "text-[#ea580c]")} />
+                      {sortMode !== "default" && (() => { const h = funnelHealth(r); const t = healthTone(h); return (
+                        <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-[-1px] border border-black/10"
+                          style={{ background: t.bg }}
+                          title={h == null ? "Funnel Health: no lead data" : `Funnel Health score: ${h.toFixed(1)} / 3`} />
+                      ); })()}
                       <span className={cn(!hasGhl && "text-[#ea580c]")} title={hasGhl ? undefined : "No GHL conversation data — key missing or not ingested yet"}>{r.owner_name || "—"}</span>
                       {!hasGhl && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]" title="No GHL conversation data yet">No GHL</span>}
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
@@ -313,10 +371,11 @@ export default function CostPerDepositPage() {
 }
 
 // Mobile card for one Cost/Deposit row (deposits + conversion, tap to expand).
-function DepositCard({ r, open, hasGhl, onToggle }: { r: Row; open: boolean; hasGhl: boolean; onToggle: () => void }) {
+function DepositCard({ r, open, hasGhl, showHealth, onToggle }: { r: Row; open: boolean; hasGhl: boolean; showHealth?: boolean; onToggle: () => void }) {
   const cpd30 = num(r.cpd30);
   const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
   const paused = String(r.client_status ?? "").toLowerCase() === "paused";
+  const health = showHealth ? funnelHealth(r) : null;
   const chip = (label: string, val: string | number, tone?: { bg: string; fg: string }) => (
     <div className="rounded-lg px-2 py-1.5 text-center" style={tone ? { background: tone.bg, color: tone.fg } : { background: "#f1f5f9", color: "#1f3559" }}>
       <div className="text-[9px] font-bold uppercase tracking-wide opacity-70">{label}</div>
@@ -329,6 +388,11 @@ function DepositCard({ r, open, hasGhl, onToggle }: { r: Row; open: boolean; has
         <ChevronRight size={15} className={cn("mt-0.5 shrink-0 transition-transform", open && "rotate-90", hasGhl ? "text-[#94a3b8]" : "text-[#ea580c]")} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
+            {showHealth && (
+              <span className="inline-block w-2.5 h-2.5 rounded-full border border-black/10 shrink-0"
+                style={{ background: healthTone(health).bg }}
+                title={health == null ? "Funnel Health: no lead data" : `Funnel Health score: ${health.toFixed(1)} / 3`} />
+            )}
             <span className={cn("font-bold", hasGhl ? "text-[#1f3559]" : "text-[#ea580c]")}>{r.owner_name || "—"}</span>
             {!hasGhl && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]">No GHL</span>}
             {paused && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
