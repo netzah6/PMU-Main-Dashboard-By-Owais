@@ -20,6 +20,7 @@ const TABS: Tab[] = [
   { label: "Agreements", href: "/agreements" },
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "LTV", href: "/ltv", adminOnly: true }, // admins only
+  { label: "Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
   { label: "Map", href: "/map" },
   { label: "Reports", href: "/reports" },
 ];
