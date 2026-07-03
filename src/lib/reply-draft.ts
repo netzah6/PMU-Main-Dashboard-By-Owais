@@ -11,6 +11,7 @@ export type DraftInput = {
   agentName: string; // the team member the reply should sound like
   voiceSamples: string[]; // that person's real past replies
   instructions?: string; // optional extra guidance from the user for this reply
+  standingNotes?: string; // team-wide notes considered on EVERY draft (from the Notes panel)
 };
 
 function buildSystemPrompt(input: DraftInput): string {
@@ -32,6 +33,13 @@ function buildSystemPrompt(input: DraftInput): string {
     "=== KNOWLEDGE BASE (source of truth for all facts) ===",
     getReplyKb(),
     "",
+    ...(input.standingNotes?.trim()
+      ? [
+          "=== TEAM'S CURRENT IMPORTANT NOTES (follow these — they override the knowledge base when they conflict) ===",
+          input.standingNotes.trim(),
+          "",
+        ]
+      : []),
     "OUTPUT RULES:",
     "- Return ONLY the message text to send. No preamble, no quotes, no notes, no signature unless the past replies show one.",
     "- Keep it SMS-appropriate length unless the conversation clearly calls for more.",

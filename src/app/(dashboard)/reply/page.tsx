@@ -78,6 +78,40 @@ export default function ReplyPage() {
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Standing notes the AI considers on every draft (shared by the whole team).
+  const [notes, setNotes] = useState("");
+  const [savedNotes, setSavedNotes] = useState("");
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesSaving, setNotesSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/ghl/reply/notes")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) { setNotes(d.content ?? ""); setSavedNotes(d.content ?? ""); if ((d.content ?? "").trim()) setNotesOpen(true); }
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveNotes = useCallback(async () => {
+    setNotesSaving(true);
+    try {
+      const res = await fetch("/api/ghl/reply/notes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: notes }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Save failed");
+      setSavedNotes(notes);
+      toast.success("Notes saved — every new draft will consider them");
+    } catch (e) {
+      toast.error(`Couldn't save notes: ${e}`);
+    } finally {
+      setNotesSaving(false);
+    }
+  }, [notes]);
+
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -215,6 +249,33 @@ export default function ReplyPage() {
           To get replies in your own voice, make sure your GHL user email matches your dashboard login.
         </div>
       )}
+
+      {/* Standing notes — considered by the AI on every generated reply */}
+      <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-hidden">
+        <button onClick={() => setNotesOpen((o) => !o)} className="w-full flex items-center justify-between px-4 py-2.5 text-left">
+          <span className="text-sm font-semibold text-[#1f3559]">
+            📌 Important notes for the AI
+            {savedNotes.trim() && !notesOpen && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e6f7f5] text-[#0e8f88]">ON</span>}
+            <span className="block text-[11px] font-normal text-[#8595a8]">Applied to every generated reply — promos, pricing rules, things to avoid…</span>
+          </span>
+          <ChevronLeft size={15} className={cn("text-[#697a91] transition-transform", notesOpen ? "-rotate-90" : "rotate-180")} />
+        </button>
+        {notesOpen && (
+          <div className="px-4 pb-3 space-y-2">
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+              placeholder={"One note per line, e.g.:\n• July promo: mention the $200-off voucher expires July 15\n• Never offer below $597/mo without a strategy call"}
+              className="w-full px-3 py-2 border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE] resize-y" />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-[#8595a8]">Shared with the whole team · saved for every future reply until you change it.</span>
+              <button onClick={saveNotes} disabled={notesSaving || notes === savedNotes}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white disabled:opacity-50">
+                {notesSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                {notes === savedNotes ? "Saved" : "Save Notes"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {error ? (
         <div className="px-4 py-3 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-sm"><strong>Error:</strong> {error}</div>

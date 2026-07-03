@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   getReplyAccount,
   getRoster,
@@ -39,10 +39,13 @@ export async function POST(req: Request) {
   const meUser = roster.find((u) => u.email && u.email === email) ?? null;
   const agentName = meUser?.name || (email ? email.split("@")[0] : "our team");
 
-  const [thread, voiceSamples] = await Promise.all([
+  const svc = createServiceClient();
+  const [thread, voiceSamples, notesRow] = await Promise.all([
     getThread(acct, body.conversationId),
     meUser ? getVoiceSamples(acct, meUser.id) : Promise.resolve<string[]>([]),
+    svc.from("reply_ai_notes").select("content").eq("id", 1).single(),
   ]);
+  const standingNotes = notesRow.data?.content ?? "";
 
   try {
     const { draft, model } = await generateDraft({
@@ -51,6 +54,7 @@ export async function POST(req: Request) {
       agentName,
       voiceSamples,
       instructions: body.instructions,
+      standingNotes,
     });
     return NextResponse.json({
       draft,
