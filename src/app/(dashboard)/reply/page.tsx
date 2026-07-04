@@ -88,7 +88,7 @@ export default function ReplyPage() {
     fetch("/api/ghl/reply/notes")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d) { setNotes(d.content ?? ""); setSavedNotes(d.content ?? ""); if ((d.content ?? "").trim()) setNotesOpen(true); }
+        if (d) { setNotes(d.content ?? ""); setSavedNotes(d.content ?? ""); }
       })
       .catch(() => {});
   }, []);
@@ -250,32 +250,6 @@ export default function ReplyPage() {
         </div>
       )}
 
-      {/* Standing notes — considered by the AI on every generated reply */}
-      <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-hidden">
-        <button onClick={() => setNotesOpen((o) => !o)} className="w-full flex items-center justify-between px-4 py-2.5 text-left">
-          <span className="text-sm font-semibold text-[#1f3559]">
-            📌 Important notes for the AI
-            {savedNotes.trim() && !notesOpen && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#e6f7f5] text-[#0e8f88]">ON</span>}
-            <span className="block text-[11px] font-normal text-[#8595a8]">Applied to every generated reply — promos, pricing rules, things to avoid…</span>
-          </span>
-          <ChevronLeft size={15} className={cn("text-[#697a91] transition-transform", notesOpen ? "-rotate-90" : "rotate-180")} />
-        </button>
-        {notesOpen && (
-          <div className="px-4 pb-3 space-y-2">
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
-              placeholder={"One note per line, e.g.:\n• July promo: mention the $200-off voucher expires July 15\n• Never offer below $597/mo without a strategy call"}
-              className="w-full px-3 py-2 border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE] resize-y" />
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] text-[#8595a8]">Shared with the whole team · saved for every future reply until you change it.</span>
-              <button onClick={saveNotes} disabled={notesSaving || notes === savedNotes}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white disabled:opacity-50">
-                {notesSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                {notes === savedNotes ? "Saved" : "Save Notes"}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
 
       {error ? (
         <div className="px-4 py-3 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-sm"><strong>Error:</strong> {error}</div>
@@ -368,14 +342,38 @@ export default function ReplyPage() {
                   <input value={instructions} onChange={(e) => setInstructions(e.target.value)}
                     placeholder="Optional: steer this reply (e.g. offer the $497 deal, book a call)…"
                     className="w-full px-3 py-1.5 bg-[#eef2f7] border border-[#e4ebf2] rounded-lg text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button onClick={generate} disabled={drafting || threadLoading}
                       className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white disabled:opacity-60">
                       {drafting ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
                       {draft ? "Regenerate" : "Generate reply"}
                     </button>
+                    <button onClick={() => setNotesOpen((o) => !o)}
+                      title="Standing notes the AI considers on every reply — promos, pricing rules, things to avoid"
+                      className={cn("flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border",
+                        notesOpen ? "bg-[#e6f7f5] border-[#a7e3df] text-[#0e8f88]" : "bg-[#f1f5f9] border-[#e4ebf2] text-[#34568a] hover:bg-[#e6f7f5]")}>
+                      📌 Notes
+                      {savedNotes.trim() && <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#0e8f88] text-white leading-none">ON</span>}
+                    </button>
                     {voiceNote && <span className="text-[11px] text-[#8595a8]">{voiceNote}</span>}
                   </div>
+
+                  {notesOpen && (
+                    <div className="rounded-lg border border-[#a7e3df] bg-[#f7fdfc] p-2.5 space-y-2">
+                      <p className="text-[11px] font-semibold text-[#0e8f88]">📌 Important notes for the AI — applied to every generated reply, for the whole team</p>
+                      <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+                        placeholder={"One note per line, e.g.:\n• July promo: mention the $200-off voucher expires July 15\n• Never offer below $597/mo without a strategy call"}
+                        className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE] resize-y" />
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-[#8595a8]">Saved for every future reply until you change it.</span>
+                        <button onClick={saveNotes} disabled={notesSaving || notes === savedNotes}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white disabled:opacity-50">
+                          {notesSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                          {notes === savedNotes ? "Saved" : "Save Notes"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {draft && (
                     <>
