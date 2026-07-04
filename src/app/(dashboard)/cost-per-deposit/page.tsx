@@ -23,6 +23,15 @@ interface Row {
   deposits_all: number | null;
   l14: number | null;
   l30: number | null;
+  l3: number | null;
+  l7: number | null;
+  // GHL booking funnel stats (null when the client has no GHL data)
+  b14: number | null;
+  b30: number | null;
+  bnd14: number | null;
+  bnd30: number | null;
+  gl14: number | null;
+  gl30: number | null;
   daily_budget: number | string | null;
   d3: number; d7: number; d14: number; d30: number;
   spent7: number | string | null; spent14: number | string | null; spent30: number | string | null;
@@ -59,9 +68,15 @@ const depCellTone = (v: number, g: number, a: number, paused: boolean): Vivid =>
 // Cost per deposit: lower is better; $0 / none = gray
 const cpdVivid = (v: number | null): Vivid =>
   v == null || v <= 0 ? V.gray : v < 75 ? V.green : v < 150 ? V.yellow : v < 250 ? V.orange : V.red;
-// Leads per deposit (1/N): fewer leads per deposit is better; no deposits = gray
-const ratioTone = (v: number | null): Vivid =>
-  v == null ? V.gray : v <= 10 ? V.green : v <= 18 ? V.yellow : v <= 30 ? V.orange : V.red;
+// Book rate (leads → picked a date/time), % of GHL leads: higher is better
+const bookTone = (v: number | null): Vivid =>
+  v == null ? V.gray : v >= 30 ? V.green : v >= 18 ? V.yellow : v >= 10 ? V.orange : V.red;
+// Booked-but-no-deposit share (of booked): lower is better
+const noDepTone = (booked: number | null, noDep: number | null): Vivid => {
+  if (booked == null || noDep == null || booked <= 0) return V.gray;
+  const r = noDep / booked;
+  return r <= 0.5 ? V.green : r <= 0.75 ? V.yellow : r <= 0.9 ? V.orange : V.red;
+};
 // Lead→deposit conversion %: higher is better; no leads = gray (mirrors ratioTone bands)
 const convTone = (v: number | null): Vivid =>
   v == null ? V.gray : v >= 10 ? V.green : v >= 5.5 ? V.yellow : v >= 3.3 ? V.orange : V.red;
@@ -122,7 +137,7 @@ function ExpandText({ value }: { value: string | null }) {
   );
 }
 
-const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Leads/Dep 30", "Leads/Dep 14", "Conv% 30", "Conv% 14", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
+const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "L 30", "L 14", "L 7", "L 3", "Book% 30", "Book% 14", "No-Dep 30", "No-Dep 14", "Conv% 30", "Conv% 14", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
 
 export default function CostPerDepositPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -277,7 +292,7 @@ export default function CostPerDepositPage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 8 || idx === 12 || idx === 14 || idx === 16 || idx === 19; // after Deposit $, D 3, Leads/Dep 14, Conv% 14, CPD 7
+                  const divider = idx === 8 || idx === 12 || idx === 16 || idx === 20 || idx === 22 || idx === 25; // after Deposit $, D 3, L 3, No-Dep 14, Conv% 14, CPD 7
                   return (
                     <th key={h} className={cn("sticky top-0 px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
                       idx === 0 || idx === 1 ? "z-30" : "z-20", divider && "border-r-2 border-[#9fb0c4]")}
@@ -293,10 +308,11 @@ export default function CostPerDepositPage() {
             <tbody>
               {filtered.map((r, i) => {
                 const cpd30 = num(r.cpd30), cpd14 = num(r.cpd14), cpd7 = num(r.cpd7);
-                const ratio30 = r.d30 > 0 ? Math.round((r.l30 ?? 0) / r.d30) : null;
-                const ratio14 = r.d14 > 0 ? Math.round((r.l14 ?? 0) / r.d14) : null;
                 const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
                 const conv14 = r.l14 && r.l14 > 0 ? (r.d14 / r.l14) * 100 : null;
+                // Book rate: booked / GHL leads (same data source for both sides)
+                const book30 = r.gl30 && r.gl30 > 0 && r.b30 != null ? (r.b30 / r.gl30) * 100 : null;
+                const book14 = r.gl14 && r.gl14 > 0 && r.b14 != null ? (r.b14 / r.gl14) * 100 : null;
                 const paused = String(r.client_status ?? "").toLowerCase() === "paused";
                 const rowBgClass = paused ? "bg-[#e2e5ea] text-[#7c8794]" : i % 2 ? "bg-[#fafcfe]" : "bg-white";
                 const rowId = String(r.sheet_row ?? i);
@@ -331,8 +347,14 @@ export default function CostPerDepositPage() {
                     <td className="px-3 py-2 text-center font-bold" style={{ background: depCellTone(r.d14, 5, 2, paused).bg, color: depCellTone(r.d14, 5, 2, paused).fg }}>{r.d14}</td>
                     <td className="px-3 py-2 text-center font-bold" style={{ background: depCellTone(r.d7, 3, 1, paused).bg, color: depCellTone(r.d7, 3, 1, paused).fg }}>{r.d7}</td>
                     <td className="px-3 py-2 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: depCellTone(r.d3, 2, 1, paused).bg, color: depCellTone(r.d3, 2, 1, paused).fg }}>{r.d3}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: ratioTone(ratio30).bg, color: ratioTone(ratio30).fg }} title={r.d30 > 0 ? `${r.l30 ?? 0} leads / ${r.d30} deposits (30d)` : "No deposits in 30d"}>{ratio30 == null ? "—" : `1/${ratio30}`}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: ratioTone(ratio14).bg, color: ratioTone(ratio14).fg }} title={r.d14 > 0 ? `${r.l14 ?? 0} leads / ${r.d14} deposits (14d)` : "No deposits in 14d"}>{ratio14 == null ? "—" : `1/${ratio14}`}</td>
+                    <td className="px-3 py-2 text-center font-semibold text-[#1e2a3a] whitespace-nowrap">{r.l30 ?? 0}</td>
+                    <td className="px-3 py-2 text-center font-semibold text-[#1e2a3a] whitespace-nowrap">{r.l14 ?? 0}</td>
+                    <td className="px-3 py-2 text-center font-semibold text-[#1e2a3a] whitespace-nowrap">{r.l7 ?? 0}</td>
+                    <td className="px-3 py-2 text-center font-semibold text-[#1e2a3a] whitespace-nowrap border-r-2 border-[#cbd5e1]">{r.l3 ?? 0}</td>
+                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: bookTone(book30).bg, color: bookTone(book30).fg }} title={book30 == null ? "No GHL lead data" : `${r.b30} of ${r.gl30} leads picked a date/time (30d)`}>{book30 == null ? "—" : `${Math.round(book30)}%`}</td>
+                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: bookTone(book14).bg, color: bookTone(book14).fg }} title={book14 == null ? "No GHL lead data" : `${r.b14} of ${r.gl14} leads picked a date/time (14d)`}>{book14 == null ? "—" : `${Math.round(book14)}%`}</td>
+                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: noDepTone(r.b30, r.bnd30).bg, color: noDepTone(r.b30, r.bnd30).fg }} title={r.b30 == null ? "No GHL lead data" : `${r.bnd30} of ${r.b30} booked never paid the deposit (30d)`}>{r.bnd30 == null ? "—" : r.bnd30}</td>
+                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: noDepTone(r.b14, r.bnd14).bg, color: noDepTone(r.b14, r.bnd14).fg }} title={r.b14 == null ? "No GHL lead data" : `${r.bnd14} of ${r.b14} booked never paid the deposit (14d)`}>{r.bnd14 == null ? "—" : r.bnd14}</td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: convTone(conv30).bg, color: convTone(conv30).fg }} title={conv30 == null ? "No leads in 30d" : `${r.d30} deposits / ${r.l30} leads (30d)`}>{conv30 == null ? "—" : conv30.toFixed(1) + "%"}</td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: convTone(conv14).bg, color: convTone(conv14).fg }} title={conv14 == null ? "No leads in 14d" : `${r.d14} deposits / ${r.l14} leads (14d)`}>{conv14 == null ? "—" : conv14.toFixed(1) + "%"}</td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd30).bg, color: cpdVivid(cpd30).fg }}>{cpd30 == null ? "—" : formatCurrency(cpd30)}</td>
@@ -359,7 +381,7 @@ export default function CostPerDepositPage() {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={23} className="px-4 py-12 text-center text-[#8595a8]">No V3 clients match.</td></tr>
+                <tr><td colSpan={HEADERS.length} className="px-4 py-12 text-center text-[#8595a8]">No V3 clients match.</td></tr>
               )}
             </tbody>
           </table>
@@ -374,6 +396,7 @@ export default function CostPerDepositPage() {
 function DepositCard({ r, open, hasGhl, showHealth, onToggle }: { r: Row; open: boolean; hasGhl: boolean; showHealth?: boolean; onToggle: () => void }) {
   const cpd30 = num(r.cpd30);
   const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
+  const book30 = r.gl30 && r.gl30 > 0 && r.b30 != null ? (r.b30 / r.gl30) * 100 : null;
   const paused = String(r.client_status ?? "").toLowerCase() === "paused";
   const health = showHealth ? funnelHealth(r) : null;
   const chip = (label: string, val: string | number, tone?: { bg: string; fg: string }) => (
@@ -405,6 +428,10 @@ function DepositCard({ r, open, hasGhl, showHealth, onToggle }: { r: Row; open: 
         {chip("D 14", r.d14, depCellTone(r.d14, 5, 2, paused))}
         {chip("D 7", r.d7, depCellTone(r.d7, 3, 1, paused))}
         {chip("D 3", r.d3, depCellTone(r.d3, 2, 1, paused))}
+        {chip("L 30", r.l30 ?? 0)}
+        {chip("L 7", r.l7 ?? 0)}
+        {chip("Book% 30", book30 == null ? "—" : `${Math.round(book30)}%`, bookTone(book30))}
+        {chip("No-Dep 30", r.bnd30 == null ? "—" : r.bnd30, noDepTone(r.b30, r.bnd30))}
         {chip("Conv 30", conv30 == null ? "—" : `${conv30.toFixed(0)}%`, convTone(conv30))}
         {chip("CPD 30", cpd30 == null ? "—" : formatCurrency(cpd30), cpdVivid(cpd30))}
         {chip("Spent", num(r.spent30) != null ? formatCurrency(num(r.spent30)) : "—")}
