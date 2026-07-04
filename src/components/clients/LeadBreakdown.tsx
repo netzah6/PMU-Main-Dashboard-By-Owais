@@ -146,6 +146,39 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     return { total, engaged, booked, deposit, offerNoBook };
   }, [byDay]);
 
+  // ── Conversion trend, last 30 days ──────────────────────────────────────────
+  // Rolling 7-day booking% / deposit% per day (cohorted by lead creation date),
+  // plus last-14-days vs the 14 before for a clean "are we improving" readout.
+  const trend = useMemo(() => {
+    const BOOKED = new Set(["funnel_drop", "ai_booked_pending", "confirmed"]);
+    const dayISO = (offset: number) => { const d = new Date(); d.setDate(d.getDate() - offset); return d.toISOString().slice(0, 10); };
+    const byDate = new Map<string, { n: number; booked: number; dep: number }>();
+    leads.forEach((l) => {
+      const d = (l.date_added ?? "").slice(0, 10);
+      if (!d) return;
+      const b = byDate.get(d) ?? { n: 0, booked: 0, dep: 0 };
+      b.n++;
+      if (BOOKED.has(l.status)) b.booked++;
+      if (l.status === "confirmed") b.dep++;
+      byDate.set(d, b);
+    });
+    const points: { date: string; n: number; book: number | null; dep: number | null }[] = [];
+    for (let i = 29; i >= 0; i--) {
+      let n = 0, bk = 0, dp = 0;
+      for (let w = 0; w < 7; w++) {
+        const d = byDate.get(dayISO(i + w));
+        if (d) { n += d.n; bk += d.booked; dp += d.dep; }
+      }
+      points.push({ date: dayISO(i), n, book: n > 0 ? (bk / n) * 100 : null, dep: n > 0 ? (dp / n) * 100 : null });
+    }
+    const agg = (from: number, to: number) => {
+      let n = 0, bk = 0, dp = 0;
+      for (let i = from; i <= to; i++) { const d = byDate.get(dayISO(i)); if (d) { n += d.n; bk += d.booked; dp += d.dep; } }
+      return { n, book: n > 0 ? (bk / n) * 100 : null, dep: n > 0 ? (dp / n) * 100 : null };
+    };
+    return { points, cur: agg(0, 13), prev: agg(14, 27) };
+  }, [leads]);
+
   const emojiSummary = (arr: Lead[]) => {
     const c: Record<string, number> = {};
     arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; });
@@ -246,6 +279,66 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
           ))}
         </div>
       )}
+
+      {/* Conversion trend — rolling 7-day rates over the last 30 days */}
+      {trend.points.some((p) => p.n > 0) && (() => {
+        const W = 292, H = 62, X0 = 4, Y0 = 6;
+        const vals = trend.points.flatMap((p) => [p.book, p.dep]).filter((v): v is number => v != null);
+        const yMax = Math.max(10, Math.ceil(Math.max(...vals, 0) / 10) * 10);
+        const px = (i: number) => X0 + (i * W) / (trend.points.length - 1);
+        const py = (v: number) => Y0 + H - (v / yMax) * H;
+        const path = (key: "book" | "dep") => {
+          let d = "", pen = false;
+          trend.points.forEach((p, i) => {
+            const v = p[key];
+            if (v == null) { pen = false; return; }
+            d += `${pen ? "L" : "M"}${px(i).toFixed(1)},${py(v).toFixed(1)}`;
+            pen = true;
+          });
+          return d;
+        };
+        const lastVal = (key: "book" | "dep") => {
+          for (let i = trend.points.length - 1; i >= 0; i--) { const v = trend.points[i][key]; if (v != null) return v; }
+          return null;
+        };
+        const fmtD = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        const Delta = ({ cur, prev }: { cur: number | null; prev: number | null }) => {
+          if (cur == null || prev == null) return <span className="text-[#a6b3c4]">—</span>;
+          const pp = Math.round(cur - prev);
+          if (pp === 0) return <span className="text-[#8595a8]">→ flat</span>;
+          return <span className={pp > 0 ? "text-[#15803d] font-bold" : "text-[#e11d48] font-bold"}>{pp > 0 ? "▲" : "▼"} {pp > 0 ? "+" : ""}{pp}pp</span>;
+        };
+        const bookNow = lastVal("book"), depNow = lastVal("dep");
+        return (
+          <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">
+              📈 Conversion trend <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 30 days · rolling 7-day rate</span>
+            </div>
+            <div className="mt-1 flex items-center gap-3 flex-wrap text-[11px]">
+              <span><span className="inline-block w-2.5 h-[3px] rounded align-middle mr-1" style={{ background: "#34568a" }} />📅 Booked {bookNow == null ? "—" : `${Math.round(bookNow)}%`}</span>
+              <span><span className="inline-block w-2.5 h-[3px] rounded align-middle mr-1" style={{ background: "#15803d" }} />💰 Deposit {depNow == null ? "—" : `${Math.round(depNow)}%`}</span>
+            </div>
+            <svg viewBox="0 0 300 84" className="w-full mt-1" role="img" aria-label="Booking and deposit conversion trend, last 30 days">
+              {[0, 0.5, 1].map((f) => (
+                <g key={f}>
+                  <line x1={X0} x2={X0 + W} y1={Y0 + H - f * H} y2={Y0 + H - f * H} stroke="#eef3f8" strokeWidth={1} />
+                  <text x={X0 + W} y={Y0 + H - f * H - 2} fontSize={7} fill="#a6b3c4" textAnchor="end">{Math.round(f * yMax)}%</text>
+                </g>
+              ))}
+              <path d={path("book")} fill="none" stroke="#34568a" strokeWidth={1.8} strokeLinecap="round" />
+              <path d={path("dep")} fill="none" stroke="#15803d" strokeWidth={1.8} strokeLinecap="round" />
+              <text x={X0} y={80} fontSize={7.5} fill="#8595a8">{fmtD(trend.points[0].date)}</text>
+              <text x={X0 + W} y={80} fontSize={7.5} fill="#8595a8" textAnchor="end">{fmtD(trend.points[trend.points.length - 1].date)}</text>
+            </svg>
+            <div className="mt-1 rounded bg-[#f7fafc] border border-[#eef3f8] px-2 py-1.5 text-[11px] text-[#34568a] space-y-0.5">
+              <div className="font-semibold text-[#1f3559]">Last 14 days vs the 14 before:</div>
+              <div>📅 Booked: {trend.cur.book == null ? "—" : `${Math.round(trend.cur.book)}%`} vs {trend.prev.book == null ? "—" : `${Math.round(trend.prev.book)}%`} <Delta cur={trend.cur.book} prev={trend.prev.book} /></div>
+              <div>💰 Deposit: {trend.cur.dep == null ? "—" : `${Math.round(trend.cur.dep)}%`} vs {trend.prev.dep == null ? "—" : `${Math.round(trend.prev.dep)}%`} <Delta cur={trend.cur.dep} prev={trend.prev.dep} /></div>
+              <div className="text-[#697a91]">Leads: {trend.cur.n} vs {trend.prev.n}</div>
+            </div>
+          </div>
+        );
+      })()}
       </div>
 
       {/* Legend + 14-day list (left on desktop) */}
