@@ -138,7 +138,9 @@ export default function CostPerDepositPage() {
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [dups, setDups] = useState<Dup[]>([]);
   const [dupOpen, setDupOpen] = useState(false);
-  const [ghlKeys, setGhlKeys] = useState<Set<string>>(new Set());
+  // null = unknown (query failed) → show NO orange flags rather than flagging
+  // everyone; a Set means we know exactly who has GHL data.
+  const [ghlKeys, setGhlKeys] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -151,8 +153,13 @@ export default function CostPerDepositPage() {
       ]);
       if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
       setRows(((ovRes.data as Row[]) ?? []));
-      // owners with GHL conversation data = owners present in booking_stats
-      setGhlKeys(new Set(((bkRes.data as { owner_key: string }[]) ?? []).map((b) => String(b.owner_key))));
+      // owners with GHL conversation data = owners present in booking_stats.
+      // On error keep null (unknown) so we never flag everyone orange.
+      if (!bkRes.error && bkRes.data) {
+        setGhlKeys(new Set((bkRes.data as { owner_key: string }[]).map((b) => String(b.owner_key))));
+      } else if (bkRes.error) {
+        console.warn("booking_stats query failed:", bkRes.error.message);
+      }
       setLoading(false);
       const { data: dup } = await supabase.from("deposit_duplicates").select("*");
       setDups(((dup as Dup[]) ?? []).sort((a, b) => b.deposit_count - a.deposit_count));
@@ -274,7 +281,7 @@ export default function CostPerDepositPage() {
         <div className="md:hidden space-y-2">
           {filtered.map((r, i) => {
             const id = String(r.sheet_row ?? i);
-            return <DepositCard key={id} r={r} open={openRow === id} hasGhl={ghlKeys.has((r.owner_name ?? "").toLowerCase().trim())} showHealth={sortMode !== "default"} onToggle={() => setOpenRow(openRow === id ? null : id)} />;
+            return <DepositCard key={id} r={r} open={openRow === id} hasGhl={ghlKeys == null ? true : ghlKeys.has((r.owner_name ?? "").toLowerCase().trim())} showHealth={sortMode !== "default"} onToggle={() => setOpenRow(openRow === id ? null : id)} />;
           })}
           {filtered.length === 0 && <div className="px-4 py-12 text-center text-[#8595a8]">No clients match.</div>}
         </div>
@@ -306,7 +313,7 @@ export default function CostPerDepositPage() {
                 const rowBgClass = paused ? "bg-[#e2e5ea] text-[#7c8794]" : i % 2 ? "bg-[#fafcfe]" : "bg-white";
                 const rowId = String(r.sheet_row ?? i);
                 const isOpen = openRow === rowId;
-                const hasGhl = ghlKeys.has((r.owner_name ?? "").toLowerCase().trim());
+                const hasGhl = ghlKeys == null ? true : ghlKeys.has((r.owner_name ?? "").toLowerCase().trim());
                 return (
                   <Fragment key={rowId}>
                   <tr className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
@@ -319,8 +326,8 @@ export default function CostPerDepositPage() {
                           style={{ background: t.bg }}
                           title={h == null ? "Funnel Health: no lead data" : `Funnel Health score: ${h.toFixed(1)} / 3`} />
                       ); })()}
-                      <span className={cn(!hasGhl && "text-[#ea580c]")} title={hasGhl ? undefined : "No GHL conversation data — key missing or not ingested yet"}>{r.owner_name || "—"}</span>
-                      {!hasGhl && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]" title="No GHL conversation data yet">No GHL</span>}
+                      {!hasGhl && <span className="mr-1" title="No GHL lead data — private integration key missing from the keys sheet (or leads not tagged (v3))">🔑</span>}
+                      <span className={cn(!hasGhl && "text-[#ea580c] font-bold")} title={hasGhl ? undefined : "No GHL lead data — private integration key missing from the keys sheet (or leads not tagged (v3))"}>{r.owner_name || "—"}</span>
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
                     </td>
                     <td className={cn("sticky z-10 px-3 py-2 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
@@ -400,8 +407,8 @@ function DepositCard({ r, open, hasGhl, showHealth, onToggle }: { r: Row; open: 
                 style={{ background: healthTone(health).bg }}
                 title={health == null ? "Funnel Health: no lead data" : `Funnel Health score: ${health.toFixed(1)} / 3`} />
             )}
+            {!hasGhl && <span title="No GHL lead data — key missing from the keys sheet (or leads not tagged (v3))">🔑</span>}
             <span className={cn("font-bold", hasGhl ? "text-[#1f3559]" : "text-[#ea580c]")}>{r.owner_name || "—"}</span>
-            {!hasGhl && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]">No GHL</span>}
             {paused && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
           </div>
           <div className="text-xs text-[#697a91] truncate">{r.ad_account_name || "—"}</div>
