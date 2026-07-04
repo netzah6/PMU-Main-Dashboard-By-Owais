@@ -67,6 +67,32 @@ export async function getV3Accounts(): Promise<V3Account[]> {
     const ownerKey = matchClient(name, biz);
     if (ownerKey && !seen.has(ownerKey)) { seen.add(ownerKey); out.push({ ownerKey, locationId, token }); }
   }
+
+  // Agency-token fallback: clients with no keys-sheet row are still reachable
+  // through the agency-level token — match their location by name so nobody
+  // needs a per-client private integration key anymore.
+  const agencyToken = process.env.GHL_AGENCY_TOKEN;
+  if (agencyToken) {
+    try {
+      const r = await fetch("https://services.leadconnectorhq.com/locations/search?limit=500", {
+        headers: { Authorization: `Bearer ${agencyToken}`, Version: "2021-07-28", Accept: "application/json" },
+      });
+      if (r.ok) {
+        const j = (await r.json()) as { locations?: Array<Record<string, unknown>> };
+        const usedLoc = new Set(out.map((a) => a.locationId));
+        for (const loc of j.locations ?? []) {
+          const locId = String(loc.id ?? loc._id ?? "");
+          const locName = String(loc.name ?? "").trim();
+          if (!locId || !locName || usedLoc.has(locId) || /clean new account/i.test(locName)) continue;
+          const ownerKey = matchClient(locName, locName);
+          if (ownerKey && !seen.has(ownerKey)) {
+            seen.add(ownerKey);
+            out.push({ ownerKey, locationId: locId, token: agencyToken });
+          }
+        }
+      }
+    } catch { /* best-effort — keys-sheet accounts still ingest */ }
+  }
   return out;
 }
 
