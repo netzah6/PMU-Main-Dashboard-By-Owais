@@ -55,6 +55,10 @@ const V = {
 };
 // Deposits: higher is better
 const depVivid = (v: number, g: number, a: number): Vivid => (v >= g ? V.green : v >= a ? V.yellow : V.red);
+// Leads: higher is better — same thresholds as the Performance tab
+// (L30 86/65, L14 43/33, L7 22/17, L3 11/8); paused = orange/gray.
+const leadCellTone = (v: number, g: number, a: number, paused: boolean): Vivid =>
+  paused ? (v !== 0 ? V.orange : V.gray) : v >= g ? V.green : v >= a ? V.yellow : V.red;
 // Paused clients: gray when 0, orange when deposits still come in (matches Performance).
 const depCellTone = (v: number, g: number, a: number, paused: boolean): Vivid =>
   paused ? (v !== 0 ? V.orange : V.gray) : depVivid(v, g, a);
@@ -332,10 +336,10 @@ export default function CostPerDepositPage() {
                     <td className="px-3 py-2 text-center font-bold" style={{ background: depCellTone(r.d14, 5, 2, paused).bg, color: depCellTone(r.d14, 5, 2, paused).fg }}>{r.d14}</td>
                     <td className="px-3 py-2 text-center font-bold" style={{ background: depCellTone(r.d7, 3, 1, paused).bg, color: depCellTone(r.d7, 3, 1, paused).fg }}>{r.d7}</td>
                     <td className="px-3 py-2 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: depCellTone(r.d3, 2, 1, paused).bg, color: depCellTone(r.d3, 2, 1, paused).fg }}>{r.d3}</td>
-                    <td className="px-3 py-2 text-center font-semibold text-[#1e2a3a] whitespace-nowrap">{r.l30 ?? 0}</td>
-                    <td className="px-3 py-2 text-center font-semibold text-[#1e2a3a] whitespace-nowrap">{r.l14 ?? 0}</td>
-                    <td className="px-3 py-2 text-center font-semibold text-[#1e2a3a] whitespace-nowrap">{r.l7 ?? 0}</td>
-                    <td className="px-3 py-2 text-center font-semibold text-[#1e2a3a] whitespace-nowrap border-r-2 border-[#cbd5e1]">{r.l3 ?? 0}</td>
+                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l30 ?? 0, 86, 65, paused).bg, color: leadCellTone(r.l30 ?? 0, 86, 65, paused).fg }}>{r.l30 ?? 0}</td>
+                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l14 ?? 0, 43, 33, paused).bg, color: leadCellTone(r.l14 ?? 0, 43, 33, paused).fg }}>{r.l14 ?? 0}</td>
+                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l7 ?? 0, 22, 17, paused).bg, color: leadCellTone(r.l7 ?? 0, 22, 17, paused).fg }}>{r.l7 ?? 0}</td>
+                    <td className="px-3 py-2 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3 ?? 0, 11, 8, paused).bg, color: leadCellTone(r.l3 ?? 0, 11, 8, paused).fg }}>{r.l3 ?? 0}</td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: convTone(conv30).bg, color: convTone(conv30).fg }} title={conv30 == null ? "No leads in 30d" : `${r.d30} deposits / ${r.l30} leads (30d)`}>{conv30 == null ? "—" : conv30.toFixed(1) + "%"}</td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: convTone(conv14).bg, color: convTone(conv14).fg }} title={conv14 == null ? "No leads in 14d" : `${r.d14} deposits / ${r.l14} leads (14d)`}>{conv14 == null ? "—" : conv14.toFixed(1) + "%"}</td>
                     <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd30).bg, color: cpdVivid(cpd30).fg }}>{cpd30 == null ? "—" : formatCurrency(cpd30)}</td>
@@ -408,8 +412,8 @@ function DepositCard({ r, open, hasGhl, showHealth, onToggle }: { r: Row; open: 
         {chip("D 14", r.d14, depCellTone(r.d14, 5, 2, paused))}
         {chip("D 7", r.d7, depCellTone(r.d7, 3, 1, paused))}
         {chip("D 3", r.d3, depCellTone(r.d3, 2, 1, paused))}
-        {chip("L 30", r.l30 ?? 0)}
-        {chip("L 7", r.l7 ?? 0)}
+        {chip("L 30", r.l30 ?? 0, leadCellTone(r.l30 ?? 0, 86, 65, paused))}
+        {chip("L 7", r.l7 ?? 0, leadCellTone(r.l7 ?? 0, 22, 17, paused))}
         {chip("Conv 30", conv30 == null ? "—" : `${conv30.toFixed(0)}%`, convTone(conv30))}
         {chip("CPD 30", cpd30 == null ? "—" : formatCurrency(cpd30), cpdVivid(cpd30))}
         {chip("Spent", num(r.spent30) != null ? formatCurrency(num(r.spent30)) : "—")}
