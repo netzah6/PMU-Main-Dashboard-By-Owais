@@ -155,15 +155,26 @@ export default function CostPerDepositPage() {
   useEffect(() => {
     const supabase = createClient();
     (async () => {
-      const { data, error } = await supabase.from("deposit_overview").select("*");
-      if (error) { setError(error.message); setLoading(false); return; }
-      setRows((data as Row[]) ?? []);
+      // Booking stats live in their own small view (booking_stats) and are
+      // merged client-side — folding them into deposit_overview made that
+      // query exceed the browser's statement timeout.
+      type Bk = { owner_key: string; b14: number | null; b30: number | null; bnd14: number | null; bnd30: number | null; gl14: number | null; gl30: number | null };
+      const [ovRes, bkRes] = await Promise.all([
+        supabase.from("deposit_overview").select("*"),
+        supabase.from("booking_stats").select("*"),
+      ]);
+      if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
+      const bkMap = new Map(((bkRes.data as Bk[]) ?? []).map((b) => [String(b.owner_key), b]));
+      const merged = (((ovRes.data as Row[]) ?? [])).map((r) => {
+        const b = bkMap.get(String(r.owner_name ?? "").toLowerCase().trim());
+        return { ...r, b14: b?.b14 ?? null, b30: b?.b30 ?? null, bnd14: b?.bnd14 ?? null, bnd30: b?.bnd30 ?? null, gl14: b?.gl14 ?? null, gl30: b?.gl30 ?? null };
+      });
+      setRows(merged);
+      // owners with GHL conversation data = owners present in booking_stats
+      setGhlKeys(new Set(bkMap.keys()));
       setLoading(false);
       const { data: dup } = await supabase.from("deposit_duplicates").select("*");
       setDups(((dup as Dup[]) ?? []).sort((a, b) => b.deposit_count - a.deposit_count));
-      // owner_keys that have GHL conversation data — to flag clients without it
-      const { data: gk } = await supabase.from("ghl_lead_status").select("owner_key");
-      setGhlKeys(new Set((gk ?? []).map((x) => String((x as { owner_key: string }).owner_key))));
     })();
   }, []);
 
