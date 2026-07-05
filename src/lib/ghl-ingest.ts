@@ -11,7 +11,15 @@ function sameClient(a: Set<string>, b: Set<string>): boolean {
   return shared >= 2 || (shared >= 1 && (a.size === 1 || b.size === 1));
 }
 
-export interface V3Account { ownerKey: string; locationId: string; token: string }
+export interface V3Account {
+  ownerKey: string;
+  locationId: string;
+  token: string;
+  // Set when the account is reached via the agency token (no keys-sheet row):
+  // location-scoped APIs then require exchanging it for a location token.
+  viaAgency?: boolean;
+  companyId?: string;
+}
 
 // Resolve the V3 sub-accounts from the keys sheet, keyed by the canonical
 // v3_pricing OWNER/BUSINESS name so they line up with the rest of the dashboard.
@@ -87,7 +95,13 @@ export async function getV3Accounts(): Promise<V3Account[]> {
           const ownerKey = matchClient(locName, locName);
           if (ownerKey && !seen.has(ownerKey)) {
             seen.add(ownerKey);
-            out.push({ ownerKey, locationId: locId, token: agencyToken });
+            out.push({
+              ownerKey,
+              locationId: locId,
+              token: agencyToken,
+              viaAgency: true,
+              companyId: String(loc.companyId ?? ""),
+            });
           }
         }
       }
@@ -108,10 +122,47 @@ function toISO(v: unknown): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-async function ghlGet(url: string, token: string, version: string): Promise<Record<string, unknown> | null> {
+async function ghlGet(url: string, token: string, version: string, stat?: IngestStat): Promise<Record<string, unknown> | null> {
   const r = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Version: version, Accept: "application/json" } });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    // Record the first failure so ingest problems are visible in the response
+    // instead of silently producing zero rows.
+    if (stat && !stat.error) {
+      const text = await r.text().catch(() => "");
+      const path = url.replace(BASE, "").split("?")[0];
+      stat.error = `HTTP ${r.status} on ${path}: ${text.slice(0, 150)}`;
+    }
+    return null;
+  }
   return (await r.json()) as Record<string, unknown>;
+}
+
+// Agency tokens can't call location-scoped APIs directly — exchange for a
+// short-lived location token first (cached ~1h per location).
+const locTokenCache = new Map<string, { ts: number; token: string }>();
+async function getLocationToken(acct: V3Account): Promise<{ token?: string; error?: string }> {
+  const cached = locTokenCache.get(acct.locationId);
+  if (cached && Date.now() - cached.ts < 60 * 60 * 1000) return { token: cached.token };
+  try {
+    const r = await fetch(`${BASE}/oauth/locationToken`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${acct.token}`,
+        Version: "2021-07-28",
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: new URLSearchParams({ companyId: acct.companyId ?? "", locationId: acct.locationId }).toString(),
+    });
+    const text = await r.text();
+    if (!r.ok) return { error: `locationToken HTTP ${r.status}: ${text.slice(0, 150)}` };
+    const j = JSON.parse(text) as { access_token?: string };
+    if (!j.access_token) return { error: "locationToken: no access_token in response" };
+    locTokenCache.set(acct.locationId, { ts: Date.now(), token: j.access_token });
+    return { token: j.access_token };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "locationToken exchange failed" };
+  }
 }
 
 const MAX_PAGES = 30; // safety cap per resource per account (~3000 records)
@@ -121,8 +172,14 @@ export interface IngestOpts { sinceMs?: number; maxPages?: number; skipOpps?: bo
 
 export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Promise<IngestStat> {
   const supabase = createServiceClient();
-  const { ownerKey, locationId, token } = acct;
+  const { ownerKey, locationId } = acct;
   const stat: IngestStat = { ownerKey, contacts: 0, conversations: 0, opportunities: 0 };
+  let token = acct.token;
+  if (acct.viaAgency) {
+    const lt = await getLocationToken(acct);
+    if (!lt.token) { stat.error = lt.error ?? "location token exchange failed"; return stat; }
+    token = lt.token;
+  }
   const now = new Date().toISOString();
   const maxPages = opts.maxPages ?? MAX_PAGES;
   const since = opts.sinceMs;
@@ -131,7 +188,7 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
     // ── Contacts (paginate via meta.nextPageUrl; incremental via startDate) ──
     let url: string | null = `${BASE}/contacts/?locationId=${locationId}&limit=100${since ? `&startDate=${since}&endDate=${Date.now()}` : ""}`;
     for (let p = 0; p < maxPages && url; p++) {
-      const j = await ghlGet(url, token, "2021-07-28");
+      const j = await ghlGet(url, token, "2021-07-28", stat);
       if (!j) break;
       const contacts = (j.contacts as Record<string, unknown>[]) ?? [];
       if (contacts.length) {
@@ -158,7 +215,7 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
     let startAfter: number | null = null;
     for (let p = 0; p < maxPages; p++) {
       const u = `${BASE}/conversations/search?locationId=${locationId}&limit=100&sortBy=last_message_date&sort=desc${startAfter ? `&startAfterDate=${startAfter}` : ""}`;
-      const j = await ghlGet(u, token, "2021-04-15");
+      const j = await ghlGet(u, token, "2021-04-15", stat);
       if (!j) break;
       const convos = (j.conversations as Record<string, unknown>[]) ?? [];
       if (!convos.length) break;
@@ -186,7 +243,7 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
     // ── Opportunities (paginate via meta.nextPageUrl) ──
     let ourl: string | null = opts.skipOpps ? null : `${BASE}/opportunities/search?location_id=${locationId}&limit=100`;
     for (let p = 0; p < maxPages && ourl; p++) {
-      const j = await ghlGet(ourl, token, "2021-07-28");
+      const j = await ghlGet(ourl, token, "2021-07-28", stat);
       if (!j) break;
       const opps = (j.opportunities as Record<string, unknown>[]) ?? [];
       if (opps.length) {
