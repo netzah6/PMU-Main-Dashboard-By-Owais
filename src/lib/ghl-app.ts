@@ -77,14 +77,30 @@ async function storeTokens(j: Record<string, unknown>): Promise<void> {
   if (error) throw new Error(`storing tokens failed: ${error.message}`);
 }
 
-// OAuth callback: exchange the authorization code for agency-level tokens.
+// OAuth callback: exchange the authorization code. Handles both install
+// styles — Company (agency-level) and Location (sub-account app installs,
+// incl. bulk installs) — storing tokens in the right place.
 export async function exchangeCode(code: string, redirectUri: string): Promise<void> {
-  const j = await tokenRequest({
-    grant_type: "authorization_code",
-    code,
-    user_type: "Company",
-    redirect_uri: redirectUri,
-  });
+  let j: Record<string, unknown>;
+  try {
+    j = await tokenRequest({ grant_type: "authorization_code", code, user_type: "Company", redirect_uri: redirectUri });
+  } catch {
+    j = await tokenRequest({ grant_type: "authorization_code", code, user_type: "Location", redirect_uri: redirectUri });
+  }
+  if (String(j.userType ?? "").toLowerCase() === "location" || j.locationId) {
+    const svc = createServiceClient();
+    const expiresIn = Number(j.expires_in ?? 86400);
+    const { error } = await svc.from("ghl_oauth_locations").upsert({
+      location_id: String(j.locationId ?? ""),
+      access_token: String(j.access_token ?? ""),
+      refresh_token: String(j.refresh_token ?? ""),
+      expires_at: new Date(Date.now() + (expiresIn - 300) * 1000).toISOString(),
+      company_id: (j.companyId as string) ?? null,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(`storing location tokens failed: ${error.message}`);
+    return;
+  }
   await storeTokens(j);
 }
 
@@ -103,10 +119,35 @@ export async function getAppAgencyToken(): Promise<{ token: string; companyId: s
 }
 
 // Mint a location-scoped token for any sub-account (cached ~50 min in-process).
+// Sources, in order: stored per-location install token (refreshing as needed),
+// then minting from the agency-level token.
 const locCache = new Map<string, { ts: number; token: string }>();
 export async function getAppLocationToken(locationId: string): Promise<{ token?: string; error?: string }> {
   const hit = locCache.get(locationId);
   if (hit && Date.now() - hit.ts < 50 * 60 * 1000) return { token: hit.token };
+  // Per-location install token?
+  try {
+    const svc = createServiceClient();
+    const { data } = await svc.from("ghl_oauth_locations").select("*").eq("location_id", locationId).single();
+    if (data?.access_token) {
+      if (new Date(data.expires_at as string).getTime() > Date.now()) {
+        locCache.set(locationId, { ts: Date.now(), token: data.access_token as string });
+        return { token: data.access_token as string };
+      }
+      const j = await tokenRequest({ grant_type: "refresh_token", refresh_token: String(data.refresh_token), user_type: "Location" });
+      const expiresIn = Number(j.expires_in ?? 86400);
+      await svc.from("ghl_oauth_locations").upsert({
+        location_id: locationId,
+        access_token: String(j.access_token ?? ""),
+        refresh_token: String(j.refresh_token ?? data.refresh_token),
+        expires_at: new Date(Date.now() + (expiresIn - 300) * 1000).toISOString(),
+        company_id: (j.companyId as string) ?? (data.company_id as string) ?? null,
+        updated_at: new Date().toISOString(),
+      });
+      const tok = String(j.access_token ?? "");
+      if (tok) { locCache.set(locationId, { ts: Date.now(), token: tok }); return { token: tok }; }
+    }
+  } catch { /* fall through to agency minting */ }
   try {
     const agency = await getAppAgencyToken();
     if (!agency) return { error: "marketplace app not connected yet" };
