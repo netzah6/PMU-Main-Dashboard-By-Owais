@@ -64,17 +64,17 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   }, [supabase, ownerKey]);
 
   // Changes from the Activity & Changes Log — pinned on the conversion timeline.
-  const [changes, setChanges] = useState<{ action_date: string; note: string }[]>([]);
+  const [changes, setChanges] = useState<{ action_date: string; note: string; created_by_email: string | null }[]>([]);
   useEffect(() => {
     let cancelled = false;
     setChanges([]);
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 29);
-    supabase.from("client_activity").select("action_date,note")
+    supabase.from("client_activity").select("action_date,note,created_by_email")
       .eq("client_key", ownerKey)
       .gte("action_date", cutoff.toISOString().slice(0, 10))
       .order("action_date", { ascending: true })
-      .then(({ data }) => { if (!cancelled) setChanges((data as { action_date: string; note: string }[]) ?? []); });
+      .then(({ data }) => { if (!cancelled) setChanges((data as { action_date: string; note: string; created_by_email: string | null }[]) ?? []); });
     return () => { cancelled = true; };
   }, [supabase, ownerKey]);
 
@@ -305,9 +305,12 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         for (const c of changes) {
           const idx = dateIdx.get(c.action_date);
           if (idx == null) continue;
+          // Include the author so it's clear who made each change.
+          const who = c.created_by_email ? c.created_by_email.split("@")[0] : "";
+          const label = who ? `${c.note} (${who.charAt(0).toUpperCase() + who.slice(1)})` : c.note;
           const g = pinGroups.find((p) => p.date === c.action_date);
-          if (g) g.notes.push(c.note);
-          else pinGroups.push({ date: c.action_date, idx, notes: [c.note], num: pinGroups.length + 1 });
+          if (g) g.notes.push(label);
+          else pinGroups.push({ date: c.action_date, idx, notes: [label], num: pinGroups.length + 1 });
         }
         const vals = trend.points.flatMap((p) => [p.book, p.dep]).filter((v): v is number => v != null);
         const yMax = Math.max(10, Math.ceil(Math.max(...vals, 0) / 10) * 10);

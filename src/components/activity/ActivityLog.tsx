@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { userColor } from "@/lib/utils";
 import { Loader2, Plus, Trash2, CalendarClock } from "lucide-react";
 
 interface Entry {
@@ -9,6 +10,22 @@ interface Entry {
   action_date: string; // YYYY-MM-DD
   note: string;
   created_at: string;
+  created_by_email: string | null;
+}
+
+// "nicolas@pmu-bookings.com" → "Nicolas", shown in the user's dashboard color.
+function AuthorChip({ email }: { email: string | null }) {
+  if (!email) return null;
+  const name = email.split("@")[0];
+  const label = name.charAt(0).toUpperCase() + name.slice(1);
+  const c = userColor(label);
+  return (
+    <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap"
+      style={c ? { background: c.bg, color: c.text, borderColor: c.border } : { background: "#f1f5f9", color: "#64748b", borderColor: "#d7e0ea" }}
+      title={`Added by ${email}`}>
+      {label}
+    </span>
+  );
 }
 
 // Local YYYY-MM-DD for the date input default (avoids UTC off-by-one).
@@ -57,6 +74,7 @@ export function ActivityLog({ clientKey, clientLabel }: { clientKey: string; cli
       action_date: date,
       note: note.trim(),
       created_by: user?.id ?? null,
+      created_by_email: user?.email ?? null,
     });
     setSaving(false);
     if (!error) { setNote(""); setDate(todayISO()); load(); }
@@ -109,6 +127,7 @@ export function ActivityLog({ clientKey, clientLabel }: { clientKey: string; cli
                 {prettyDate(en.action_date)}
               </span>
               <span className="flex-1 text-sm text-[#1f3559] whitespace-pre-wrap break-words">{en.note}</span>
+              <AuthorChip email={en.created_by_email} />
               <button onClick={() => remove(en.id)} title="Delete entry"
                 className="shrink-0 text-[#b6c0cd] hover:text-[#e11d48] transition-colors">
                 <Trash2 size={14} />
