@@ -139,8 +139,9 @@ export default function CostPerDepositPage() {
   const [dups, setDups] = useState<Dup[]>([]);
   const [dupOpen, setDupOpen] = useState(false);
   // null = unknown (query failed) → show NO orange flags rather than flagging
-  // everyone; a Set means we know exactly who has GHL data.
-  const [ghlKeys, setGhlKeys] = useState<Set<string> | null>(null);
+  // everyone; a Map means we know exactly who has GHL data and whether their
+  // leads carry the (v3) tag.
+  const [ghlStatus, setGhlStatus] = useState<Map<string, "ok" | "untagged"> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -149,14 +150,20 @@ export default function CostPerDepositPage() {
       // much cheaper than scanning ghl_lead_status for the "No GHL" flags.
       const [ovRes, bkRes] = await Promise.all([
         supabase.from("deposit_overview").select("*"),
-        supabase.from("booking_stats").select("owner_key"),
+        supabase.from("booking_stats").select("owner_key, leads_total, contacts_total"),
       ]);
       if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
       setRows(((ovRes.data as Row[]) ?? []));
-      // owners with GHL conversation data = owners present in booking_stats.
+      // leads_total > 0 → (v3)-tagged leads flowing ("ok"); contacts but zero
+      // tagged leads → the (v3) tag workflow is broken in that sub-account
+      // ("untagged"). Absent from the map entirely → no GHL data at all.
       // On error keep null (unknown) so we never flag everyone orange.
       if (!bkRes.error && bkRes.data) {
-        setGhlKeys(new Set((bkRes.data as { owner_key: string }[]).map((b) => String(b.owner_key))));
+        const m = new Map<string, "ok" | "untagged">();
+        for (const b of bkRes.data as { owner_key: string; leads_total: number; contacts_total: number }[]) {
+          m.set(String(b.owner_key), (b.leads_total ?? 0) > 0 ? "ok" : "untagged");
+        }
+        setGhlStatus(m);
       } else if (bkRes.error) {
         console.warn("booking_stats query failed:", bkRes.error.message);
       }
@@ -281,7 +288,7 @@ export default function CostPerDepositPage() {
         <div className="md:hidden space-y-2">
           {filtered.map((r, i) => {
             const id = String(r.sheet_row ?? i);
-            return <DepositCard key={id} r={r} open={openRow === id} hasGhl={ghlKeys == null ? true : ghlKeys.has((r.owner_name ?? "").toLowerCase().trim())} showHealth={sortMode !== "default"} onToggle={() => setOpenRow(openRow === id ? null : id)} />;
+            return <DepositCard key={id} r={r} open={openRow === id} ghl={ghlStatus == null ? "ok" : ghlStatus.get((r.owner_name ?? "").toLowerCase().trim()) ?? "none"} showHealth={sortMode !== "default"} onToggle={() => setOpenRow(openRow === id ? null : id)} />;
           })}
           {filtered.length === 0 && <div className="px-4 py-12 text-center text-[#8595a8]">No clients match.</div>}
         </div>
@@ -313,21 +320,21 @@ export default function CostPerDepositPage() {
                 const rowBgClass = paused ? "bg-[#e2e5ea] text-[#7c8794]" : i % 2 ? "bg-[#fafcfe]" : "bg-white";
                 const rowId = String(r.sheet_row ?? i);
                 const isOpen = openRow === rowId;
-                const hasGhl = ghlKeys == null ? true : ghlKeys.has((r.owner_name ?? "").toLowerCase().trim());
+                const ghl = ghlStatus == null ? "ok" : ghlStatus.get((r.owner_name ?? "").toLowerCase().trim()) ?? "none";
                 return (
                   <Fragment key={rowId}>
                   <tr className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
                     <td className={cn("sticky left-0 z-10 px-3 py-2 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
                       style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
                       onClick={() => setOpenRow(isOpen ? null : rowId)}>
-                      <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 transition-transform align-[-2px]", isOpen && "rotate-90", hasGhl ? "text-[#94a3b8]" : "text-[#ea580c]")} />
+                      <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 transition-transform align-[-2px]", isOpen && "rotate-90", ghl === "ok" ? "text-[#94a3b8]" : "text-[#ea580c]")} />
                       {sortMode !== "default" && (() => { const h = funnelHealth(r); const t = healthTone(h); return (
                         <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-[-1px] border border-black/10"
                           style={{ background: t.bg }}
                           title={h == null ? "Funnel Health: no lead data" : `Funnel Health score: ${h.toFixed(1)} / 3`} />
                       ); })()}
-                      {!hasGhl && <span className="mr-1" title="No GHL lead data — private integration key missing from the keys sheet (or leads not tagged (v3))">🔑</span>}
-                      <span className={cn(!hasGhl && "text-[#ea580c] font-bold")} title={hasGhl ? undefined : "No GHL lead data — private integration key missing from the keys sheet (or leads not tagged (v3))"}>{r.owner_name || "—"}</span>
+                      {ghl !== "ok" && <span className="mr-1" title={GHL_FLAG[ghl].title}>{GHL_FLAG[ghl].icon}</span>}
+                      <span className={cn(ghl !== "ok" && "text-[#ea580c] font-bold")} title={ghl === "ok" ? undefined : GHL_FLAG[ghl].title}>{r.owner_name || "—"}</span>
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
                     </td>
                     <td className={cn("sticky z-10 px-3 py-2 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
@@ -385,7 +392,12 @@ export default function CostPerDepositPage() {
 }
 
 // Mobile card for one Cost/Deposit row (deposits + conversion, tap to expand).
-function DepositCard({ r, open, hasGhl, showHealth, onToggle }: { r: Row; open: boolean; hasGhl: boolean; showHealth?: boolean; onToggle: () => void }) {
+const GHL_FLAG: Record<"untagged" | "none", { icon: string; title: string }> = {
+  untagged: { icon: "🏷️", title: "GHL is connected but the leads are missing the (v3) tag — fix the (v3) tag workflow in this sub-account" },
+  none: { icon: "📡", title: "No GHL data ingested for this client yet" },
+};
+
+function DepositCard({ r, open, ghl, showHealth, onToggle }: { r: Row; open: boolean; ghl: "ok" | "untagged" | "none"; showHealth?: boolean; onToggle: () => void }) {
   const cpd30 = num(r.cpd30);
   const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
   const paused = String(r.client_status ?? "").toLowerCase() === "paused";
@@ -399,7 +411,7 @@ function DepositCard({ r, open, hasGhl, showHealth, onToggle }: { r: Row; open: 
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-hidden">
       <button onClick={onToggle} className="w-full flex items-start gap-2 p-3 text-left">
-        <ChevronRight size={15} className={cn("mt-0.5 shrink-0 transition-transform", open && "rotate-90", hasGhl ? "text-[#94a3b8]" : "text-[#ea580c]")} />
+        <ChevronRight size={15} className={cn("mt-0.5 shrink-0 transition-transform", open && "rotate-90", ghl === "ok" ? "text-[#94a3b8]" : "text-[#ea580c]")} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             {showHealth && (
@@ -407,8 +419,8 @@ function DepositCard({ r, open, hasGhl, showHealth, onToggle }: { r: Row; open: 
                 style={{ background: healthTone(health).bg }}
                 title={health == null ? "Funnel Health: no lead data" : `Funnel Health score: ${health.toFixed(1)} / 3`} />
             )}
-            {!hasGhl && <span title="No GHL lead data — key missing from the keys sheet (or leads not tagged (v3))">🔑</span>}
-            <span className={cn("font-bold", hasGhl ? "text-[#1f3559]" : "text-[#ea580c]")}>{r.owner_name || "—"}</span>
+            {ghl !== "ok" && <span title={GHL_FLAG[ghl].title}>{GHL_FLAG[ghl].icon}</span>}
+            <span className={cn("font-bold", ghl === "ok" ? "text-[#1f3559]" : "text-[#ea580c]")}>{r.owner_name || "—"}</span>
             {paused && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
           </div>
           <div className="text-xs text-[#697a91] truncate">{r.ad_account_name || "—"}</div>
