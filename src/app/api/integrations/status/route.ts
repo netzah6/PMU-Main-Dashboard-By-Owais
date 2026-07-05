@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { appConfigured, getAppAgencyToken, getAppLocationToken } from "@/lib/ghl-app";
 
 export const maxDuration = 60;
 
@@ -92,9 +93,30 @@ export async function GET(req: NextRequest) {
     checkClosebot(),
   ]);
 
+  // Marketplace app: configured? installed? can it mint a location token?
+  let ghlApp: CheckResult = { ok: false, detail: "GHL_APP_CLIENT_ID/SECRET not set" };
+  if (appConfigured()) {
+    try {
+      const agency = await getAppAgencyToken();
+      if (!agency) {
+        ghlApp = { ok: false, detail: "configured but not installed yet — visit /api/ghl/oauth/start" };
+      } else {
+        const probe = ghlAgency.pool?.[0]
+          ? await getAppLocationToken(ghlAgency.pool[0].id)
+          : { error: "no pool account to probe" };
+        ghlApp = probe.token
+          ? { ok: true, detail: `installed · location tokens working (probed ${ghlAgency.pool?.[0]?.name})` }
+          : { ok: false, detail: `installed but location token failed: ${probe.error}` };
+      }
+    } catch (e) {
+      ghlApp = { ok: false, detail: e instanceof Error ? e.message : "check failed" };
+    }
+  }
+
   return NextResponse.json({
     timestamp: new Date().toISOString(),
     ghlAgency: { ok: ghlAgency.ok, detail: ghlAgency.detail, pool: ghlAgency.pool ?? [] },
+    ghlApp,
     fanbasis,
     closebot,
   });
