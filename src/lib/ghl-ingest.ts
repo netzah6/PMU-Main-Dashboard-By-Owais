@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSheetsClient } from "@/lib/sheets";
+import { getAppLocationToken } from "@/lib/ghl-app";
 
 // ── V3 roster resolution (mirrors offers.ts) ─────────────────────────────────
 function nameTokens(s: string): Set<string> {
@@ -176,13 +177,16 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
   const stat: IngestStat = { ownerKey, contacts: 0, conversations: 0, opportunities: 0 };
   let token = acct.token;
   if (acct.viaAgency) {
-    const lt = await getLocationToken(acct);
-    if (lt.token) {
-      token = lt.token;
+    // Preferred: Marketplace-app location token (full location scopes —
+    // contacts/conversations/opportunities). Fallbacks: PIT exchange, then
+    // the agency token directly; ghlGet surfaces the error if all fail.
+    const app = await getAppLocationToken(acct.locationId);
+    if (app.token) {
+      token = app.token;
+    } else {
+      const lt = await getLocationToken(acct);
+      if (lt.token) token = lt.token;
     }
-    // else: fall through with the agency token directly — agency keys with
-    // sub-account scopes can call location-scoped APIs themselves, and ghlGet
-    // now surfaces the exact error if they can't.
   }
   const now = new Date().toISOString();
   const maxPages = opts.maxPages ?? MAX_PAGES;
