@@ -359,7 +359,7 @@ export default function CostPerDepositPage() {
                   {isOpen && (
                     <tr className="bg-[#f3f7fb]">
                       <td colSpan={HEADERS.length} className="p-0 border-b border-[#e4ebf2]">
-                        <div className="sticky left-0 p-3 space-y-3" style={{ width: "min(1000px, 100vw - 2rem)" }}>
+                        <div className="sticky left-0 p-3 space-y-3" style={{ width: "min(1720px, 100vw - 2rem)" }}>
                           <div className="rounded-xl border border-[#e4ebf2] bg-white p-4 shadow-sm">
                             <h3 className="text-sm font-semibold text-[#1f3559] mb-2">V3 Leads &amp; Conversations</h3>
                             <LeadBreakdown ownerKey={(r.owner_name ?? "").toLowerCase().trim()} />

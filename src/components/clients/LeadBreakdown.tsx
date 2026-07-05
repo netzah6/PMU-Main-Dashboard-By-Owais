@@ -204,9 +204,10 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   if (!leads.length) return <div className="text-xs text-[#8595a8] py-3">No V3 lead data ingested for this client yet.</div>;
 
   return (
-    <div className="grid gap-3 md:grid-cols-2 md:items-start">
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 md:items-start">
       {/* Funnel + AI recommendation (right on desktop) */}
-      <div className="space-y-2 min-w-0 md:order-2">
+      {/* On wide screens the three analysis boxes sit side by side */}
+      <div className="min-w-0 md:order-2 space-y-2 xl:col-span-3 xl:grid xl:grid-cols-3 xl:gap-3 xl:items-start xl:space-y-0">
       {funnel.total > 0 && (() => {
         const stages = [
           { emoji: "🆕", label: "New leads", n: funnel.total, color: "#15B7AE" },

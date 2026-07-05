@@ -134,6 +134,24 @@ export async function refreshOffers(): Promise<OfferRefreshResult> {
     }
 
     if (toAppend.length) {
+      // Guard against duplicates: the v3_pricing TABLE can be stale (it's
+      // cron-skipped), so re-check against the LIVE sheet right before
+      // appending — a name already in the tab must never be added again.
+      const live = await sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SHEET1_ID!,
+        range: "'V3'!A1:A500",
+      });
+      const existing = new Set(
+        ((live.data.values ?? []) as string[][])
+          .map((r) => String(r?.[0] ?? "").trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const fresh = toAppend.filter((r) => !existing.has(r[0].trim().toLowerCase()));
+      toAppend.length = 0;
+      toAppend.push(...fresh);
+    }
+
+    if (toAppend.length) {
       // Header lives on row 4 of the V3 tab; append adds after the table.
       await sheets.spreadsheets.values.append({
         spreadsheetId: process.env.SHEET1_ID!,
