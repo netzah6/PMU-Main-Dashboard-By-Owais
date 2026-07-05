@@ -86,6 +86,26 @@ async function listClosebotBots(): Promise<unknown> {
   }
 }
 
+// Read-only usage history — used to pinpoint WHEN agent activity stopped
+// (bots deleted ⇒ processing usage drops to zero from that moment).
+async function listClosebotUsage(days: number): Promise<unknown> {
+  const key = process.env.CLOSEBOT_API_KEY;
+  if (!key) return { error: "CLOSEBOT_API_KEY not set" };
+  const end = Date.now();
+  const start = end - days * 24 * 60 * 60 * 1000;
+  try {
+    const r = await fetch(
+      `https://api.closebot.com/agency/billing/usages?startTime=${start}&endTime=${end}`,
+      { headers: { "X-CB-KEY": key, Accept: "application/json" } },
+    );
+    const text = await r.text();
+    if (!r.ok) return { error: `HTTP ${r.status}: ${text.slice(0, 200)}` };
+    return JSON.parse(text);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "request failed" };
+  }
+}
+
 async function checkClosebot(): Promise<CheckResult> {
   const key = process.env.CLOSEBOT_API_KEY;
   if (!key) return { ok: false, detail: "CLOSEBOT_API_KEY not set" };
@@ -157,6 +177,9 @@ export async function GET(req: NextRequest) {
     closebot,
     ...(wantSources
       ? { closebotSources: await listClosebotSources(), closebotBots: await listClosebotBots() }
+      : {}),
+    ...(req.nextUrl.searchParams.get("closebotUsage")
+      ? { closebotUsage: await listClosebotUsage(Number(req.nextUrl.searchParams.get("closebotUsage")) || 7) }
       : {}),
   });
 }
