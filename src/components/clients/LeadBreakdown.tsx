@@ -63,6 +63,21 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     return () => { cancelled = true; };
   }, [supabase, ownerKey]);
 
+  // Changes from the Activity & Changes Log — pinned on the conversion timeline.
+  const [changes, setChanges] = useState<{ action_date: string; note: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    setChanges([]);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 29);
+    supabase.from("client_activity").select("action_date,note")
+      .eq("client_key", ownerKey)
+      .gte("action_date", cutoff.toISOString().slice(0, 10))
+      .order("action_date", { ascending: true })
+      .then(({ data }) => { if (!cancelled) setChanges((data as { action_date: string; note: string }[]) ?? []); });
+    return () => { cancelled = true; };
+  }, [supabase, ownerKey]);
+
   // Last 14 days (newest first), each with its leads (sorted by priority).
   const days = useMemo(() => {
     const out: string[] = [];
@@ -280,9 +295,20 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         </div>
       )}
 
-      {/* Conversion trend — rolling 7-day rates over the last 30 days */}
+      {/* Conversion timeline — rolling 7-day rates over the last 30 days,
+          with the Activity & Changes Log entries pinned at their dates. */}
       {trend.points.some((p) => p.n > 0) && (() => {
-        const W = 292, H = 62, X0 = 4, Y0 = 6;
+        const W = 292, H = 52, X0 = 4, Y0 = 16;
+        // Group logged changes by date and map onto timeline positions.
+        const dateIdx = new Map(trend.points.map((p, i) => [p.date, i]));
+        const pinGroups: { date: string; idx: number; notes: string[]; num: number }[] = [];
+        for (const c of changes) {
+          const idx = dateIdx.get(c.action_date);
+          if (idx == null) continue;
+          const g = pinGroups.find((p) => p.date === c.action_date);
+          if (g) g.notes.push(c.note);
+          else pinGroups.push({ date: c.action_date, idx, notes: [c.note], num: pinGroups.length + 1 });
+        }
         const vals = trend.points.flatMap((p) => [p.book, p.dep]).filter((v): v is number => v != null);
         const yMax = Math.max(10, Math.ceil(Math.max(...vals, 0) / 10) * 10);
         const px = (i: number) => X0 + (i * W) / (trend.points.length - 1);
@@ -312,7 +338,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         return (
           <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">
-              📈 Conversion trend <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 30 days · rolling 7-day rate</span>
+              📈 Conversion timeline <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 30 days · 📌 = logged change</span>
             </div>
             <div className="mt-1 flex items-center gap-3 flex-wrap text-[11px]">
               <span><span className="inline-block w-2.5 h-[3px] rounded align-middle mr-1" style={{ background: "#34568a" }} />📅 Booked {bookNow == null ? "—" : `${Math.round(bookNow)}%`}</span>
@@ -327,9 +353,29 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
               ))}
               <path d={path("book")} fill="none" stroke="#34568a" strokeWidth={1.8} strokeLinecap="round" />
               <path d={path("dep")} fill="none" stroke="#15803d" strokeWidth={1.8} strokeLinecap="round" />
+              {pinGroups.map((g) => (
+                <g key={g.date}>
+                  <title>{`${fmtD(g.date)} — ${g.notes.join(" · ")}`}</title>
+                  <line x1={px(g.idx)} x2={px(g.idx)} y1={Y0 - 2} y2={Y0 + H} stroke="#ea580c" strokeWidth={1} strokeDasharray="2 2" />
+                  <circle cx={px(g.idx)} cy={8} r={5.5} fill="#ea580c" />
+                  <text x={px(g.idx)} y={10.5} fontSize={7} fill="#ffffff" textAnchor="middle" fontWeight="bold">{g.num}</text>
+                </g>
+              ))}
               <text x={X0} y={80} fontSize={7.5} fill="#8595a8">{fmtD(trend.points[0].date)}</text>
               <text x={X0 + W} y={80} fontSize={7.5} fill="#8595a8" textAnchor="end">{fmtD(trend.points[trend.points.length - 1].date)}</text>
             </svg>
+            {pinGroups.length > 0 ? (
+              <ul className="mt-1 space-y-0.5">
+                {pinGroups.map((g) => (
+                  <li key={g.date} className="flex items-start gap-1.5 text-[11px] leading-snug">
+                    <span className="shrink-0 mt-[1px] w-4 h-4 rounded-full bg-[#ea580c] text-white text-[9px] font-bold flex items-center justify-center">{g.num}</span>
+                    <span className="text-[#34568a]"><strong className="text-[#1f3559]">{fmtD(g.date)}</strong> — {g.notes.join(" · ")}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-[10px] text-[#8595a8]">No changes logged in this window — add them in the <strong>Activity &amp; Changes Log</strong> below and they&apos;ll show as 📌 pins on the timeline.</p>
+            )}
             <div className="mt-1 rounded bg-[#f7fafc] border border-[#eef3f8] px-2 py-1.5 text-[11px] text-[#34568a] space-y-0.5">
               <div className="font-semibold text-[#1f3559]">Last 14 days vs the 14 before:</div>
               <div>📅 Booked: {trend.cur.book == null ? "—" : `${Math.round(trend.cur.book)}%`} vs {trend.prev.book == null ? "—" : `${Math.round(trend.prev.book)}%`} <Delta cur={trend.cur.book} prev={trend.prev.book} /></div>
