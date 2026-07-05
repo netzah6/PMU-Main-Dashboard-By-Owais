@@ -91,11 +91,11 @@ async function listClosebotBots(): Promise<unknown> {
 async function listClosebotUsage(days: number): Promise<unknown> {
   const key = process.env.CLOSEBOT_API_KEY;
   if (!key) return { error: "CLOSEBOT_API_KEY not set" };
-  const end = Date.now();
-  const start = end - days * 24 * 60 * 60 * 1000;
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
   try {
     const r = await fetch(
-      `https://api.closebot.com/agency/billing/usages?startTime=${start}&endTime=${end}`,
+      `https://api.closebot.com/agency/billing/usages?startTime=${encodeURIComponent(start.toISOString())}&endTime=${encodeURIComponent(end.toISOString())}`,
       { headers: { "X-CB-KEY": key, Accept: "application/json" } },
     );
     const text = await r.text();
