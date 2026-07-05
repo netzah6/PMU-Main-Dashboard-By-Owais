@@ -53,6 +53,23 @@ async function checkFanbasis(): Promise<CheckResult> {
   }
 }
 
+// Read-only listing of CloseBot sources (id + name + status), for auditing
+// what exists on the CloseBot side — e.g. after sources/agents go missing.
+async function listClosebotSources(): Promise<unknown> {
+  const key = process.env.CLOSEBOT_API_KEY;
+  if (!key) return { error: "CLOSEBOT_API_KEY not set" };
+  try {
+    const r = await fetch("https://api.closebot.com/agency/source?pageSize=200", {
+      headers: { "X-CB-KEY": key, Accept: "application/json" },
+    });
+    const text = await r.text();
+    if (!r.ok) return { error: `HTTP ${r.status}: ${text.slice(0, 200)}` };
+    return JSON.parse(text);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "request failed" };
+  }
+}
+
 async function checkClosebot(): Promise<CheckResult> {
   const key = process.env.CLOSEBOT_API_KEY;
   if (!key) return { ok: false, detail: "CLOSEBOT_API_KEY not set" };
@@ -87,6 +104,9 @@ export async function GET(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // ?closebotSources=1 → include the full CloseBot source list (read-only audit)
+  const wantSources = req.nextUrl.searchParams.get("closebotSources") === "1";
+
   const [ghlAgency, fanbasis, closebot] = await Promise.all([
     checkGhlAgency(),
     checkFanbasis(),
@@ -119,5 +139,6 @@ export async function GET(req: NextRequest) {
     ghlApp,
     fanbasis,
     closebot,
+    ...(wantSources ? { closebotSources: await listClosebotSources() } : {}),
   });
 }
