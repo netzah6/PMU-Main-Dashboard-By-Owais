@@ -70,6 +70,22 @@ async function listClosebotSources(): Promise<unknown> {
   }
 }
 
+// Read-only listing of CloseBot bots ("Agents" in the UI), same purpose.
+async function listClosebotBots(): Promise<unknown> {
+  const key = process.env.CLOSEBOT_API_KEY;
+  if (!key) return { error: "CLOSEBOT_API_KEY not set" };
+  try {
+    const r = await fetch("https://api.closebot.com/bot", {
+      headers: { "X-CB-KEY": key, Accept: "application/json" },
+    });
+    const text = await r.text();
+    if (!r.ok) return { error: `HTTP ${r.status}: ${text.slice(0, 200)}` };
+    return JSON.parse(text);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "request failed" };
+  }
+}
+
 async function checkClosebot(): Promise<CheckResult> {
   const key = process.env.CLOSEBOT_API_KEY;
   if (!key) return { ok: false, detail: "CLOSEBOT_API_KEY not set" };
@@ -139,6 +155,8 @@ export async function GET(req: NextRequest) {
     ghlApp,
     fanbasis,
     closebot,
-    ...(wantSources ? { closebotSources: await listClosebotSources() } : {}),
+    ...(wantSources
+      ? { closebotSources: await listClosebotSources(), closebotBots: await listClosebotBots() }
+      : {}),
   });
 }
