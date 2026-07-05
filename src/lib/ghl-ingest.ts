@@ -177,8 +177,12 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
   let token = acct.token;
   if (acct.viaAgency) {
     const lt = await getLocationToken(acct);
-    if (!lt.token) { stat.error = lt.error ?? "location token exchange failed"; return stat; }
-    token = lt.token;
+    if (lt.token) {
+      token = lt.token;
+    }
+    // else: fall through with the agency token directly — agency keys with
+    // sub-account scopes can call location-scoped APIs themselves, and ghlGet
+    // now surfaces the exact error if they can't.
   }
   const now = new Date().toISOString();
   const maxPages = opts.maxPages ?? MAX_PAGES;
