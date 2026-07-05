@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const redirectUri = `${req.nextUrl.origin}/api/ghl/oauth/callback`;
+  const redirectUri = `${req.nextUrl.origin}/api/oauth/callback`;
   const state = crypto.randomUUID();
   const res = NextResponse.redirect(`${authorizeUrl(redirectUri)}&state=${state}`);
   res.cookies.set("ghl_oauth_state", state, { httpOnly: true, secure: true, sameSite: "lax", maxAge: 600, path: "/" });

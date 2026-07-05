@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
     try {
       const agency = await getAppAgencyToken();
       if (!agency) {
-        ghlApp = { ok: false, detail: "configured but not installed yet — visit /api/ghl/oauth/start" };
+        ghlApp = { ok: false, detail: "configured but not installed yet — visit /api/oauth/start" };
       } else {
         const probe = ghlAgency.pool?.[0]
           ? await getAppLocationToken(ghlAgency.pool[0].id)

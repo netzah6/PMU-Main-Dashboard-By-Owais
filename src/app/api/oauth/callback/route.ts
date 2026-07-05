@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    await exchangeCode(code, `${req.nextUrl.origin}/api/ghl/oauth/callback`);
+    await exchangeCode(code, `${req.nextUrl.origin}/api/oauth/callback`);
     const res = NextResponse.redirect(new URL("/onboarding?ghl=connected", req.url));
     res.cookies.delete("ghl_oauth_state");
     return res;
