@@ -5,6 +5,15 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, type OnboardingStep } from "@/lib/onboarding-steps";
 
+interface ClaimAction { action: string; ok: boolean; detail?: string }
+interface Claim {
+  location_id: string;
+  original_name: string;
+  business_name: string;
+  claimed_at: string;
+  claimed_by: string;
+  actions: ClaimAction[];
+}
 interface Onboarding {
   id: string;
   created_at: string;
@@ -12,6 +21,7 @@ interface Onboarding {
   status: string;
   form: Record<string, string>;
   checklist: Record<string, { done: boolean; by: string; at: string }>;
+  claim?: Claim | null;
 }
 
 function stepsFor(o: Onboarding): OnboardingStep[] {
@@ -122,6 +132,39 @@ export default function OnboardingPage() {
 
   const open = useMemo(() => list.find((o) => o.id === openId) ?? null, [list, openId]);
 
+  const [claiming, setClaiming] = useState(false);
+  const claim = useCallback(async (o: Onboarding) => {
+    if (!window.confirm(`Claim a "Clean New Account" from the pool and rename it to "${o.form.business_name}"?\n\nThis renames the sub-account in GHL and fills its custom values from the form.`)) return;
+    setClaiming(true);
+    try {
+      const res = await fetch(`/api/onboarding/${o.id}/claim`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Claim failed");
+      setList((l) => l.map((x) => (x.id === o.id ? json.onboarding : x)));
+      toast.success(`Claimed ${json.claim.original_name} → ${json.claim.business_name} 🎉`);
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally {
+      setClaiming(false);
+    }
+  }, []);
+  const unclaim = useCallback(async (o: Onboarding) => {
+    if (!o.claim) return;
+    if (!window.confirm(`Un-claim: rename "${o.claim.business_name}" back to "${o.claim.original_name}"?`)) return;
+    setClaiming(true);
+    try {
+      const res = await fetch(`/api/onboarding/${o.id}/claim`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Un-claim failed");
+      setList((l) => l.map((x) => (x.id === o.id ? json.onboarding : x)));
+      toast.success("Account returned to the pool");
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally {
+      setClaiming(false);
+    }
+  }, []);
+
   // ── Detail view ──────────────────────────────────────────────────────────
   if (open) {
     const steps = stepsFor(open);
@@ -159,6 +202,46 @@ export default function OnboardingPage() {
           <div className="h-2.5 rounded-full bg-[#f1f5f9] overflow-hidden">
             <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: pct === 100 ? "#15803d" : "#15B7AE" }} />
           </div>
+        </div>
+
+        {/* GHL account (pool claim) */}
+        <div className="rounded-xl border border-[#e4ebf2] bg-white p-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold text-[#1f3559]">GHL Account</h2>
+              {open.claim ? (
+                <p className="text-xs text-[#697a91] mt-0.5">
+                  <span className="font-semibold text-[#15803d]">✓ Claimed</span> — {open.claim.original_name} → <strong>{open.claim.business_name}</strong>
+                  {" · "}{new Date(open.claim.claimed_at).toLocaleString()} by {open.claim.claimed_by.split("@")[0]}
+                  {" · "}
+                  <a href={`https://app.gohighlevel.com/location/${open.claim.location_id}`} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">open in GHL ↗</a>
+                </p>
+              ) : (
+                <p className="text-xs text-[#697a91] mt-0.5">Take a pre-approved &quot;Clean New Account&quot; from the pool: rename it + fill custom values from the form. Data access is automatic (app pre-installed).</p>
+              )}
+            </div>
+            {open.claim ? (
+              <button onClick={() => unclaim(open)} disabled={claiming}
+                className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#f5c2cf] text-[#e11d48] hover:bg-[#fde8ee] disabled:opacity-50">
+                {claiming ? <Loader2 size={13} className="animate-spin inline" /> : "Un-claim (return to pool)"}
+              </button>
+            ) : (
+              <button onClick={() => claim(open)} disabled={claiming}
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
+                {claiming ? <Loader2 size={13} className="animate-spin" /> : "🚀"} Claim GHL Account
+              </button>
+            )}
+          </div>
+          {open.claim && open.claim.actions?.length > 0 && (
+            <ul className="mt-2 space-y-1 border-t border-[#f1f5f9] pt-2">
+              {open.claim.actions.map((a, i) => (
+                <li key={i} className="text-xs flex items-start gap-1.5">
+                  <span className={a.ok ? "text-[#15803d]" : "text-[#e11d48]"}>{a.ok ? "✓" : "✗"}</span>
+                  <span className="text-[#34568a]">{a.action}{a.detail ? <span className="text-[#8595a8]"> — {a.detail}</span> : null}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* Client details */}
