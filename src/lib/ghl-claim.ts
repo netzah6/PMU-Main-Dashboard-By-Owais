@@ -88,18 +88,40 @@ async function setCustomValue(locationId: string, token: string, cv: CustomValue
 // Map onboarding-form fields → custom-value name matchers (normalized:
 // lowercase, alphanumeric only). First matching custom value wins.
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+// URLs/links are never a value target for form amounts — the first test wrote
+// the deposit amount into "CC - Deposit Funnel URL" without this exclusion.
+const isUrlCv = (n: string) => n.includes("url") || n.includes("link");
 const CV_MAP: Array<{ formKey: string; match: (n: string) => boolean; label: string }> = [
-  { formKey: "offer", match: (n) => n === "ccoffer" || n.endsWith("offer"), label: "Offer" },
-  { formKey: "deposit_amount", match: (n) => n.includes("deposit"), label: "Deposit amount" },
-  { formKey: "original_price", match: (n) => n.includes("originalprice"), label: "Original price" },
-  { formKey: "discounted_price", match: (n) => n.includes("discountedprice"), label: "Discounted price" },
-  { formKey: "product_id", match: (n) => n.includes("product") && n.includes("id"), label: "Fanbasis product ID" },
-  { formKey: "area", match: (n) => n === "area" || n.endsWith("area"), label: "AREA" },
-  { formKey: "address", match: (n) => n.includes("mapaddress") || n === "address" || n.includes("fulladdress"), label: "Map address" },
+  { formKey: "offer", match: (n) => !isUrlCv(n) && (n === "ccoffer" || n.endsWith("offer")), label: "Offer" },
+  { formKey: "deposit_amount", match: (n) => !isUrlCv(n) && n.includes("deposit"), label: "Deposit amount" },
+  { formKey: "original_price", match: (n) => !isUrlCv(n) && n.includes("originalprice"), label: "Original price" },
+  { formKey: "discounted_price", match: (n) => !isUrlCv(n) && n.includes("discountedprice"), label: "Discounted price" },
+  { formKey: "product_id", match: (n) => !isUrlCv(n) && n.includes("product") && n.includes("id"), label: "Fanbasis product ID" },
+  { formKey: "area", match: (n) => !isUrlCv(n) && (n === "area" || n.endsWith("area")), label: "AREA" },
+  { formKey: "address", match: (n) => !isUrlCv(n) && (n.includes("mapaddress") || n === "address" || n.includes("fulladdress")), label: "Map address" },
 ];
 
+// Read-only listing for diagnostics / exact name mapping.
+export async function listLocationCustomValues(locationId: string): Promise<Array<{ name: string; value?: string }>> {
+  const tok = await getAppLocationToken(locationId);
+  if (!tok.token) throw new Error(`no app token: ${tok.error}`);
+  const cvs = await listCustomValues(locationId, tok.token);
+  return cvs.map((c) => ({ name: c.name, value: c.value }));
+}
+
+// Targeted repair: set one custom value by exact name on a claimed location.
+export async function repairCustomValue(locationId: string, name: string, value: string): Promise<void> {
+  assertNotProtected(locationId);
+  const tok = await getAppLocationToken(locationId);
+  if (!tok.token) throw new Error(`no app token: ${tok.error}`);
+  const cvs = await listCustomValues(locationId, tok.token);
+  const cv = cvs.find((c) => c.name === name);
+  if (!cv) throw new Error(`custom value "${name}" not found`);
+  await setCustomValue(locationId, tok.token, cv, value);
+}
+
 // ── The claim ───────────────────────────────────────────────────────────────
-export type ClaimAction = { action: string; ok: boolean; detail?: string };
+export type ClaimAction = { action: string; ok: boolean; detail?: string; cvId?: string; cvName?: string; prevValue?: string };
 export type ClaimResult = {
   location_id: string;
   original_name: string;
@@ -151,7 +173,10 @@ export async function claimPoolAccount(
       }
       try {
         await setCustomValue(poolLocationId, tok.token, cv, value);
-        actions.push({ action: `${m.label} → "${value}" (custom value "${cv.name}")`, ok: true });
+        actions.push({
+          action: `${m.label} → "${value}" (custom value "${cv.name}")`, ok: true,
+          cvId: cv.id, cvName: cv.name, prevValue: cv.value ?? "",
+        });
       } catch (e) {
         actions.push({ action: m.label, ok: false, detail: e instanceof Error ? e.message : "failed" });
       }
@@ -162,8 +187,9 @@ export async function claimPoolAccount(
 }
 
 // Un-claim (testing / mistakes): rename the account back to its recorded pool
-// name. Only allowed when the claim's own record identifies the location.
-export async function unclaimPoolAccount(claim: ClaimResult): Promise<void> {
+// name and restore any custom values the claim overwrote (recorded prevValue).
+// Only allowed when the claim's own record identifies the location.
+export async function unclaimPoolAccount(claim: ClaimResult): Promise<ClaimAction[]> {
   assertNotProtected(claim.location_id);
   if (!POOL_NAME_RE.test(claim.original_name)) {
     throw new Error(`Recorded original name "${claim.original_name}" is not a pool name — refusing`);
@@ -172,5 +198,20 @@ export async function unclaimPoolAccount(claim: ClaimResult): Promise<void> {
   if (norm(currentName) !== norm(claim.business_name)) {
     throw new Error(`Location is now "${currentName}", not "${claim.business_name}" — refusing to rename`);
   }
+  const restored: ClaimAction[] = [];
+  const cvWrites = (claim.actions ?? []).filter((a) => a.ok && a.cvId);
+  if (cvWrites.length) {
+    const tok = await getAppLocationToken(claim.location_id);
+    for (const a of cvWrites) {
+      try {
+        if (!tok.token) throw new Error(`no app token: ${tok.error}`);
+        await setCustomValue(claim.location_id, tok.token, { id: a.cvId!, name: a.cvName! }, a.prevValue ?? "");
+        restored.push({ action: `Restored "${a.cvName}"`, ok: true });
+      } catch (e) {
+        restored.push({ action: `Restore "${a.cvName}"`, ok: false, detail: e instanceof Error ? e.message : "failed" });
+      }
+    }
+  }
   await renameLocation(claim.location_id, { name: claim.original_name });
+  return restored;
 }
