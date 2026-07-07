@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { claimPoolAccount, unclaimPoolAccount, discoverPool, type ClaimResult } from "@/lib/ghl-claim";
+import { claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, type ClaimResult } from "@/lib/ghl-claim";
 
 export const maxDuration = 60;
 
@@ -21,6 +21,9 @@ async function authed(req: NextRequest): Promise<string | null> {
 export async function GET(req: NextRequest) {
   if (!(await authed(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
+    // ?cvs=<locationId> → list that location's custom values (diagnostics).
+    const cvsLoc = req.nextUrl.searchParams.get("cvs");
+    if (cvsLoc) return NextResponse.json({ customValues: await listLocationCustomValues(cvsLoc) });
     return NextResponse.json({ pool: await discoverPool() });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "pool discovery failed" }, { status: 500 });
@@ -34,9 +37,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const svc = createServiceClient();
   const { data: row, error: fetchErr } = await svc.from("onboardings").select("*").eq("id", params.id).single();
   if (fetchErr || !row) return NextResponse.json({ error: fetchErr?.message ?? "Not found" }, { status: 404 });
-  if (row.claim) return NextResponse.json({ error: "Already claimed — un-claim first" }, { status: 409 });
 
-  const body = (await req.json().catch(() => ({}))) as { poolLocationId?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    poolLocationId?: string;
+    repairCv?: { name: string; value: string };
+  };
+
+  // Targeted repair of one custom value on this onboarding's claimed location.
+  if (body.repairCv) {
+    if (!row.claim) return NextResponse.json({ error: "No claim to repair" }, { status: 409 });
+    try {
+      await repairCustomValue((row.claim as ClaimResult).location_id, body.repairCv.name, body.repairCv.value);
+      return NextResponse.json({ repaired: body.repairCv.name });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "repair failed" }, { status: 500 });
+    }
+  }
+
+  if (row.claim) return NextResponse.json({ error: "Already claimed — un-claim first" }, { status: 409 });
   try {
     let poolId = String(body.poolLocationId ?? "").trim();
     if (!poolId) {
