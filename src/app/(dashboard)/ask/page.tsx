@@ -5,13 +5,6 @@ import { cn } from "@/lib/utils";
 
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[] };
 
-const SUGGESTIONS = [
-  "How many leads did each live client get in the last 30 days?",
-  "Which clients aren't calling their leads?",
-  "Who booked the most appointments this month?",
-  "Which live clients have leads but no deposits in the last 14 days?",
-];
-
 export default function AskPage() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -56,16 +49,8 @@ export default function AskPage() {
 
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
         {msgs.length === 0 && (
-          <div className="pt-8">
-            <p className="text-xs font-semibold text-[#8595a8] uppercase tracking-wide mb-2">Try asking</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {SUGGESTIONS.map((s) => (
-                <button key={s} onClick={() => send(s)}
-                  className="text-left text-sm px-3.5 py-3 rounded-xl border border-[#e4ebf2] bg-white text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88] transition-colors">
-                  {s}
-                </button>
-              ))}
-            </div>
+          <div className="pt-16 text-center text-sm text-[#8595a8]">
+            Ask anything — or type a client&apos;s name to get their full report.
           </div>
         )}
         {msgs.map((m, i) => (

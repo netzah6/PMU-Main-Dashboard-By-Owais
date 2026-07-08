@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
+import { buildClientReport } from "@/lib/ghl-report";
 
 // "Ask AI" — chat over the dashboard's client/lead data. The model writes
 // SELECT queries; they run through the ask_ai_query() RPC, which forces a
@@ -72,7 +73,60 @@ RULES:
 - Answer in plain text: short paragraphs, "-" bullets, no markdown tables or
   headers. Round percentages to whole numbers. Always state the time window.
 - Today's date is {TODAY}.
+
+CLIENT REPORT:
+When the user gives a client's name or business name (alone, or asks for a
+"report"), call the client_report tool with that name, then present EXACTLY
+this scorecard (one line per item, plain text). Use the tool's pipeline stage
+names to identify stages like "Deposit Collected", "Session Done" /
+"Sessions Done", "Google Review" / "5 Star", "Declining" / "Dead" — match by
+meaning, and if a stage doesn't exist say NO DATA.
+
+Report for {Business Name} ({Owner}) — {status}, {version}
+
+- Last Strategy Call: date of the most recent past strategyAppointments entry
+  (+ the next upcoming one if any). If none: NO DATA.
+- Deposits: YES if leads sit in a deposit-collected-type stage or
+  ghl_lead_status.deposit_collected is true for some leads; NO if the pipeline
+  has the stage but 0 leads ever reached it; NO DATA if not determinable.
+- Sessions Done: count of leads in deposit-collected + session-done +
+  google-review stages combined.
+- Call or Chat: from behavior.outboundCalls vs behavior.outboundMessages —
+  "Calls & chats", "Mostly chats", "Mostly calls", or NO DATA.
+- Total Leads: pipeline.total (all opportunities in the pipeline).
+- Booking %: (Sessions Done count as defined above) / Total Leads.
+- Total Declining: leads in the declining-type stage.
+- Declining %: declining / Total Leads.
+- Dashboard Organized?: YES if leads are spread across stages; NO if ≥80% sit
+  in the first one or two stages. Mention the distribution briefly.
+- Call 2X In a Row?: behavior.doubleCallRatePct (calls within 20 min of each
+  other to the same lead). YES if ≥30%, SOMETIMES 10–29%, NO <10%, NO DATA if
+  no calls.
+- Call In 24/H?: behavior.firstCallWithin24hPct (weekend leads excluded).
+  YES ≥60%, SOMETIMES 25–59%, NO <25%.
+- 5-7 PM?: behavior.callsBetween5and7pmPct of calls in the client's local
+  timezone; if most calls are at other hours, say when they usually call.
+- 3X Follow Ups?: behavior.followedUp3PlusDaysPct — of leads who never
+  replied in their first week, how many got outreach on 3+ different days.
+  YES ≥50%, SOMETIMES 20–49%, NO <20%.
+- What's the price?: No data for now.
+- Follow Script?: No data for now.
+
+End with one short "Bottom line" sentence and list the tool's caveats
+(sample size, live-fetch limits) in one line. Percentages: whole numbers.
+If the tool returns an error (client not ingested), say so and show what you
+CAN get from SQL (clients_master status, payments) instead.
 `;
+
+const reportTool: Anthropic.Tool = {
+  name: "client_report",
+  description: "Build the per-client report dataset: pipeline stage distribution (with live stage names), call/chat behavior analytics from live message history, and strategy-call appointments. Use when the user asks about a specific client by name.",
+  input_schema: {
+    type: "object" as const,
+    properties: { client_name: { type: "string" as const, description: "The client's full name or business name (partial is fine)." } },
+    required: ["client_name"],
+  },
+};
 
 const queryTool: Anthropic.Tool = {
   name: "query",
@@ -101,7 +155,7 @@ export async function askAi(history: AskMessage[]): Promise<AskResult> {
       max_tokens: 2000,
       system,
       messages,
-      tools: [queryTool],
+      tools: [queryTool, reportTool],
     });
 
     if (msg.stop_reason !== "tool_use") {
@@ -113,6 +167,20 @@ export async function askAi(history: AskMessage[]): Promise<AskResult> {
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const block of msg.content) {
       if (block.type !== "tool_use") continue;
+      if (block.name === "client_report") {
+        const name = String((block.input as { client_name?: string }).client_name ?? "");
+        queries.push(`[client report: ${name}]`);
+        let content: string;
+        let isError = false;
+        try {
+          content = JSON.stringify(await buildClientReport(name)).slice(0, 40000);
+        } catch (e) {
+          content = `report error: ${e instanceof Error ? e.message : "failed"}`;
+          isError = true;
+        }
+        results.push({ type: "tool_result", tool_use_id: block.id, content, is_error: isError });
+        continue;
+      }
       const sql = String((block.input as { sql?: string }).sql ?? "");
       queries.push(sql);
       const { data, error } = await svc.rpc("ask_ai_query", { q: sql });
