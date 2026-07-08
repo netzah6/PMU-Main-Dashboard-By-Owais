@@ -91,14 +91,23 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 // URLs/links are never a value target for form amounts — the first test wrote
 // the deposit amount into "CC - Deposit Funnel URL" without this exclusion.
 const isUrlCv = (n: string) => n.includes("url") || n.includes("link");
+// Matchers verified against the live snapshot's custom-value names
+// (e.g. "CC - Deposit Amount 🔵", "CC - Original Price for Brows - (V3)🔵",
+//  "CC - Full Business Address", "CC - Owner's Name (V3)🔵", "Business Name").
 const CV_MAP: Array<{ formKey: string; match: (n: string) => boolean; label: string }> = [
+  { formKey: "business_name", match: (n) => n === "businessname", label: "Business name" },
+  { formKey: "owner_name", match: (n) => n.includes("ownersname") || n.includes("ownername"), label: "Owner name" },
+  { formKey: "phone", match: (n) => n.includes("businessphone"), label: "Business phone" },
   { formKey: "offer", match: (n) => !isUrlCv(n) && (n === "ccoffer" || n.endsWith("offer")), label: "Offer" },
-  { formKey: "deposit_amount", match: (n) => !isUrlCv(n) && n.includes("deposit"), label: "Deposit amount" },
+  { formKey: "deposit_amount", match: (n) => !isUrlCv(n) && n.includes("depositamount"), label: "Deposit amount" },
   { formKey: "original_price", match: (n) => !isUrlCv(n) && n.includes("originalprice"), label: "Original price" },
   { formKey: "discounted_price", match: (n) => !isUrlCv(n) && n.includes("discountedprice"), label: "Discounted price" },
   { formKey: "product_id", match: (n) => !isUrlCv(n) && n.includes("product") && n.includes("id"), label: "Fanbasis product ID" },
   { formKey: "area", match: (n) => !isUrlCv(n) && (n === "area" || n.endsWith("area")), label: "AREA" },
-  { formKey: "address", match: (n) => !isUrlCv(n) && (n.includes("mapaddress") || n === "address" || n.includes("fulladdress")), label: "Map address" },
+  { formKey: "address", match: (n) => !isUrlCv(n) && n.includes("address"), label: "Business address" },
+  { formKey: "services", match: (n) => n.includes("permanentmakeupservices") || n.includes("pmuservices"), label: "PMU services" },
+  { formKey: "ig_link", match: (n) => n.includes("igbusinesspagelink") || n.includes("igpagelink"), label: "IG page link" },
+  { formKey: "fb_link", match: (n) => n.includes("fbbusinesspagelink") || n.includes("fbpagelink"), label: "FB page link" },
 ];
 
 // Read-only listing for diagnostics / exact name mapping.
