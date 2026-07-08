@@ -5,6 +5,16 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, type OnboardingStep } from "@/lib/onboarding-steps";
 
+// Mirrors src/lib/ghl-claim.ts (server) — funnel URL convention.
+const FUNNEL_DOMAIN = "https://pmu-care.com";
+const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+const FUNNEL_STEPS: { label: string; suffix: string }[] = [
+  { label: "📝 Survey", suffix: "-survey" },
+  { label: "📅 Booking", suffix: "-booking" },
+  { label: "💰 Deposit", suffix: "-last-step" },
+  { label: "🎉 Thank You", suffix: "-thank-you" },
+];
+
 interface ClaimAction { action: string; ok: boolean; detail?: string }
 interface Claim {
   location_id: string;
@@ -243,6 +253,31 @@ export default function OnboardingPage() {
             </ul>
           )}
         </div>
+
+        {/* Funnel paths (generated from the business name) */}
+        {String(open.form.business_name ?? "").trim() && (
+          <div className="rounded-xl border border-[#e4ebf2] bg-white p-4">
+            <h2 className="text-sm font-bold text-[#1f3559]">Funnel paths</h2>
+            <p className="text-xs text-[#697a91] mt-0.5 mb-2">Paste each path into the matching step of &quot;CC - PMU Survey + Auto Booking (V2 / V3)&quot; (domain: pmu-care.com)</p>
+            <ul className="space-y-1.5">
+              {FUNNEL_STEPS.map((s) => {
+                const path = `${slugify(open.form.business_name)}${s.suffix}`;
+                return (
+                  <li key={s.suffix} className="flex items-center gap-2 text-xs">
+                    <span className="w-24 shrink-0 text-[#697a91]">{s.label}</span>
+                    <code className="px-2 py-1 rounded bg-[#f8fafc] border border-[#eef3f8] text-[#1f3559] truncate">/{path}</code>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(path); toast.success(`Copied: ${path}`); }}
+                      className="shrink-0 px-2 py-1 rounded-md text-[10px] font-semibold text-[#0e8f88] border border-[#a7e3df] hover:bg-[#f7fdfc]">
+                      Copy
+                    </button>
+                    <a href={`${FUNNEL_DOMAIN}/${path}`} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[10px] text-[#8595a8] hover:text-[#0e8f88] hover:underline">open ↗</a>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         {/* Client details */}
         <details className="rounded-xl border border-[#e4ebf2] bg-white">
