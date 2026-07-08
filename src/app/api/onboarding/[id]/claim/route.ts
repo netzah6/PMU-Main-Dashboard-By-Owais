@@ -145,6 +145,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (!a.ok) continue;
       const stepKey = Object.entries(AUTO_STEPS).find(([label]) => a.action.startsWith(label))?.[1];
       if (stepKey) checklist[stepKey] = { done: true, by: "automation", at: new Date().toISOString() };
+      if (a.action.startsWith("Employee user")) {
+        for (const k of ["user_add", "user_password", "user_permissions"]) {
+          checklist[k] = { done: true, by: "automation", at: new Date().toISOString() };
+        }
+      }
     }
     if (fanbasisDone) checklist.fanbasis_product = { done: true, by: "automation", at: new Date().toISOString() };
 
