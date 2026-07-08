@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, type ClaimResult, type ClaimAction } from "@/lib/ghl-claim";
+import { claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, setOrCreateCustomValue, type ClaimResult, type ClaimAction } from "@/lib/ghl-claim";
 import { createDepositProduct, parseAmountCents } from "@/lib/fanbasis";
 
 export const maxDuration = 60;
@@ -73,7 +73,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (String(form.product_id ?? "").trim()) return NextResponse.json({ error: "Form already has a product ID" }, { status: 409 });
     const res = await runFanbasis(form);
     if (!res.action.ok) return NextResponse.json({ error: res.action.detail ?? "Fanbasis failed" }, { status: 500 });
-    const claim = { ...(row.claim as ClaimResult), actions: [...((row.claim as ClaimResult).actions ?? []), res.action] };
+    const extra: ClaimAction[] = [res.action];
+    if (res.productId) {
+      try {
+        await setOrCreateCustomValue((row.claim as ClaimResult).location_id, "CC - Fanbasis Product ID", res.productId);
+        extra.push({ action: `Product ID → custom value "CC - Fanbasis Product ID"`, ok: true });
+      } catch (e) {
+        extra.push({ action: "Product ID → custom value", ok: false, detail: e instanceof Error ? e.message : "failed" });
+      }
+    }
+    const claim = { ...(row.claim as ClaimResult), actions: [...((row.claim as ClaimResult).actions ?? []), ...extra] };
     const checklist = { ...(row.checklist as Record<string, unknown>), fanbasis_product: { done: true, by: "automation", at: new Date().toISOString() } };
     const newForm = { ...form, product_id: res.productId ?? form.product_id ?? "" };
     const { data, error } = await svc.from("onboardings").update({ claim, checklist, form: newForm }).eq("id", params.id).select("*").single();
@@ -111,7 +120,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       result.actions.push(fb.action);
       if (fb.action.ok) {
         fanbasisDone = true;
-        if (fb.productId) form.product_id = fb.productId;
+        if (fb.productId) {
+          form.product_id = fb.productId;
+          try {
+            await setOrCreateCustomValue(result.location_id, "CC - Fanbasis Product ID", fb.productId);
+            result.actions.push({ action: `Product ID → custom value "CC - Fanbasis Product ID"`, ok: true });
+          } catch (e) {
+            result.actions.push({ action: "Product ID → custom value", ok: false, detail: e instanceof Error ? e.message : "failed" });
+          }
+        }
       }
     }
 
