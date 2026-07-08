@@ -1,4 +1,4 @@
-import { getAppLocationToken } from "@/lib/ghl-app";
+import { getAppLocationToken, getAppAgencyToken } from "@/lib/ghl-app";
 
 // Claim automation: turn a pre-provisioned "Clean New Account N" pool
 // sub-account into a new client's account — rename it and fill its custom
@@ -168,8 +168,69 @@ export async function repairCustomValue(locationId: string, name: string, value:
   await setCustomValue(locationId, tok.token, cv, value);
 }
 
+// ── Employee user ───────────────────────────────────────────────────────────
+// The client's own login for their sub-account. Permissions are copied live
+// from the team's template user so GHL-side changes propagate automatically.
+const TEMPLATE_USER_EMAIL = "mzrhynzh@gmail.com"; // "Demo Lastdemo"
+
+// Password convention: FirstnameLastname1212! (e.g. "IvanAndrosov1212!")
+export function employeePassword(ownerName: string): string {
+  const compact = ownerName.trim().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("").replace(/[^a-zA-Z0-9]/g, "");
+  return `${compact}1212!`;
+}
+
+export async function createEmployeeUser(locationId: string, ownerName: string, email: string): Promise<ClaimAction> {
+  assertNotProtected(locationId);
+  try {
+    const agency = await getAppAgencyToken();
+    if (!agency?.companyId) throw new Error("marketplace app not connected (no companyId)");
+
+    // Template user → permissions to copy.
+    const sr = await fetch(`${GHL}/users/search?companyId=${encodeURIComponent(agency.companyId)}&query=${encodeURIComponent(TEMPLATE_USER_EMAIL)}`, {
+      headers: agencyHeaders(),
+    });
+    const stext = await sr.text();
+    if (!sr.ok) throw new Error(`users/search HTTP ${sr.status}: ${stext.slice(0, 150)}`);
+    const sj = JSON.parse(stext) as { users?: Array<{ email?: string; permissions?: Record<string, boolean>; roles?: { role?: string } }> };
+    const template = (sj.users ?? []).find((u) => (u.email ?? "").toLowerCase() === TEMPLATE_USER_EMAIL);
+    if (!template?.permissions) throw new Error(`template user ${TEMPLATE_USER_EMAIL} not found (or has no permissions)`);
+
+    const parts = ownerName.trim().split(/\s+/);
+    const firstName = parts[0] ?? ownerName.trim();
+    const lastName = parts.slice(1).join(" ") || "-";
+    const password = employeePassword(ownerName);
+
+    const r = await fetch(`${GHL}/users/`, {
+      method: "POST",
+      headers: { ...agencyHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyId: agency.companyId,
+        firstName,
+        lastName,
+        email: email.trim(),
+        password,
+        type: "account",
+        role: template.roles?.role === "admin" ? "admin" : "user",
+        locationIds: [locationId],
+        permissions: template.permissions,
+      }),
+    });
+    const text = await r.text();
+    if (!r.ok) throw new Error(`users create HTTP ${r.status}: ${text.slice(0, 200)}`);
+    const j = JSON.parse(text) as { id?: string; _id?: string };
+    const userId = String(j.id ?? j._id ?? "");
+    return {
+      action: `Employee user ${email.trim()} · password ${password} (permissions copied from ${TEMPLATE_USER_EMAIL})`,
+      ok: true,
+      userId: userId || undefined,
+    };
+  } catch (e) {
+    return { action: "Employee user", ok: false, detail: e instanceof Error ? e.message : "failed" };
+  }
+}
+
 // ── The claim ───────────────────────────────────────────────────────────────
-export type ClaimAction = { action: string; ok: boolean; detail?: string; cvId?: string; cvName?: string; prevValue?: string };
+export type ClaimAction = { action: string; ok: boolean; detail?: string; cvId?: string; cvName?: string; prevValue?: string; userId?: string };
 export type ClaimResult = {
   location_id: string;
   original_name: string;
@@ -248,6 +309,11 @@ export async function claimPoolAccount(
     }
   }
 
+  // 3. Employee user (the client's login) when the form has an email.
+  if (String(form.email ?? "").trim() && String(form.owner_name ?? "").trim()) {
+    actions.push(await createEmployeeUser(poolLocationId, form.owner_name, form.email));
+  }
+
   return { location_id: poolLocationId, original_name: currentName, business_name: businessName, actions };
 }
 
@@ -264,6 +330,16 @@ export async function unclaimPoolAccount(claim: ClaimResult): Promise<ClaimActio
     throw new Error(`Location is now "${currentName}", not "${claim.business_name}" — refusing to rename`);
   }
   const restored: ClaimAction[] = [];
+  // Remove the employee user the claim created (test resets).
+  for (const a of (claim.actions ?? []).filter((x) => x.ok && x.userId)) {
+    try {
+      const r = await fetch(`${GHL}/users/${a.userId}`, { method: "DELETE", headers: agencyHeaders() });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      restored.push({ action: "Removed employee user", ok: true });
+    } catch (e) {
+      restored.push({ action: "Remove employee user", ok: false, detail: e instanceof Error ? e.message : "failed" });
+    }
+  }
   const cvWrites = (claim.actions ?? []).filter((a) => a.ok && a.cvId);
   if (cvWrites.length) {
     const tok = await getAppLocationToken(claim.location_id);
