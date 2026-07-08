@@ -50,7 +50,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const runFanbasis = async (form: Record<string, string>): Promise<{ action: ClaimAction; productId?: string; checkoutUrl?: string }> => {
     const cents = parseAmountCents(form.deposit_amount ?? "");
     if (!cents) return { action: { action: "Fanbasis product", ok: false, detail: "no valid deposit amount on the form" } };
-    const title = [form.owner_name, form.business_name].filter(Boolean).join(" ").trim();
+    // Team convention: "FULL NAME - BUSINESS NAME" (e.g. "Ivan Androsov - PMU by Ivan")
+    const title = [form.owner_name?.trim(), form.business_name?.trim()].filter(Boolean).join(" - ");
     try {
       const p = await createDepositProduct(title, cents);
       return {
