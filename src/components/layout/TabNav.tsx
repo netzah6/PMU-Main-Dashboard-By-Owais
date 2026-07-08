@@ -17,6 +17,7 @@ const TABS: Tab[] = [
   { label: "Calls", href: "/calls" },
   { label: "Tasks", href: "/tasks" },
   { label: "AI Replies", href: "/reply" },
+  { label: "Ask AI", href: "/ask" },
   { label: "Agreements", href: "/agreements" },
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "LTV", href: "/ltv", adminOnly: true }, // admins only
