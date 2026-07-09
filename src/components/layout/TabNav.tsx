@@ -17,13 +17,13 @@ const TABS: Tab[] = [
   { label: "Calls", href: "/calls" },
   { label: "Tasks", href: "/tasks" },
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
-  { label: "AI", href: "/ask" },
   { label: "Agreements", href: "/agreements" },
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "LTV", href: "/ltv", adminOnly: true }, // admins only
   { label: "Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
   { label: "Onboarding", href: "/onboarding", adminOnly: true }, // new-client setup checklist
   { label: "Map", href: "/map" },
+  { label: "AI", href: "/ask" },
   { label: "Reports", href: "/reports" },
 ];
 
