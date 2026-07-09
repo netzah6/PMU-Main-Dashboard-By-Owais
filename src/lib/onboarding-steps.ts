@@ -87,14 +87,13 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
 
 export const SECTION_ORDER = Array.from(new Set(ONBOARDING_STEPS.map((s) => s.section)));
 
-// Offer options: label shown in the dropdown, value = the funnel's standard
-// custom-value format.
+// Offer options — stored EXACTLY as selected (the funnel adds its own copy).
 export const OFFER_OPTIONS: { label: string; value: string }[] = [
-  { label: "$200 OFF", value: "[ $200 OFF ] for NEW clients!" },
-  { label: "$150 OFF", value: "[ $150 OFF ] for NEW clients!" },
-  { label: "$100 OFF", value: "[ $100 OFF ] for NEW clients!" },
-  { label: "Free Consultation", value: "[ Free Consultation ] for NEW clients!" },
-  { label: "Free Consultation + Aftercare Kit", value: "[ Free Consultation + Aftercare Kit ] for NEW clients!" },
+  { label: "$200 OFF", value: "$200 OFF" },
+  { label: "$150 OFF", value: "$150 OFF" },
+  { label: "$100 OFF", value: "$100 OFF" },
+  { label: "Free Consultation", value: "Free Consultation" },
+  { label: "Free Consultation + Aftercare Kit", value: "Free Consultation + Aftercare Kit" },
 ];
 
 // PMU services (multi-select) — the real services from the client roster.
