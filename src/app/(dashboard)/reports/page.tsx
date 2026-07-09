@@ -139,15 +139,33 @@ export default function ReportsPage() {
   // local optimistic overrides for the editable Action column, keyed by sheet row
   const [actionEdits, setActionEdits] = useState<Record<number, string>>({});
 
-  // client name → Version (from clients_master, matched on Owner Full Name)
+  // client name → Version (from clients_master). Report names don't always
+  // equal "Owner Full Name" exactly, so resolve by owner name, then business
+  // name, then name-token overlap.
   const versionMap = useMemo(() => {
     const m = new Map<string, string>();
+    const entries: { tokens: string[]; version: string }[] = [];
     rawClients.forEach((c) => {
-      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
       const v = String(c["Version"] ?? "").trim();
+      if (!v) return;
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      const biz = String(c["Business Name"] ?? "").trim().toLowerCase();
       if (owner) m.set(owner, v);
+      if (biz && !m.has(biz)) m.set(biz, v);
+      if (owner) entries.push({ tokens: owner.split(/\s+/).filter((t) => t.length > 1), version: v });
     });
-    return m;
+    return {
+      get(name: string): string {
+        const k = name.trim().toLowerCase();
+        const exact = m.get(k);
+        if (exact) return exact;
+        const tokens = k.split(/\s+/).filter((t) => t.length > 1);
+        if (!tokens.length) return "";
+        const hit = entries.find((e) =>
+          tokens.every((t) => e.tokens.includes(t)) || e.tokens.every((t) => tokens.includes(t)));
+        return hit?.version ?? "";
+      },
+    };
   }, [rawClients]);
 
   // client name → Google My Business active? (clients_master "GMB" = "true"/"false")
@@ -387,8 +405,10 @@ export default function ReportsPage() {
                       GMB: {gmbActive ? "Yes" : "No"}
                     </span>
                     {(() => {
-                      const ver = versionMap.get(current.name.toLowerCase()) ?? "";
-                      if (!ver) return null;
+                      const ver = versionMap.get(current.name);
+                      if (!ver) {
+                        return <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]">Version: —</span>;
+                      }
                       const vs = versionStyle(ver);
                       return <span className="px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>Version: {ver}</span>;
                     })()}
