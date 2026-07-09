@@ -87,8 +87,19 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
 
 export const SECTION_ORDER = Array.from(new Set(ONBOARDING_STEPS.map((s) => s.section)));
 
-// Form fields captured when creating a new onboarding.
-export const FORM_FIELDS: { key: string; label: string; required?: boolean; long?: boolean; image?: boolean }[] = [
+// Offer options: label shown in the dropdown, value = the funnel's standard
+// custom-value format.
+export const OFFER_OPTIONS: { label: string; value: string }[] = [
+  { label: "$200 OFF", value: "[ $200 OFF ] for NEW clients!" },
+  { label: "$150 OFF", value: "[ $150 OFF ] for NEW clients!" },
+  { label: "$100 OFF", value: "[ $100 OFF ] for NEW clients!" },
+  { label: "Free Consultation", value: "[ Free Consultation ] for NEW clients!" },
+  { label: "Free Consultation + Aftercare Kit", value: "[ Free Consultation + Aftercare Kit ] for NEW clients!" },
+];
+
+// Form fields captured when creating a new onboarding. `heading` renders a
+// sub-headline above the field (used to group the picture uploads).
+export const FORM_FIELDS: { key: string; label: string; required?: boolean; long?: boolean; image?: boolean; heading?: string }[] = [
   { key: "business_name", label: "Business Name", required: true },
   { key: "owner_name", label: "Owner Full Name", required: true },
   { key: "version", label: "Version (V3 / V2.3)", required: true },
@@ -100,25 +111,24 @@ export const FORM_FIELDS: { key: string; label: string; required?: boolean; long
   { key: "deposit_amount", label: "Deposit Amount" },
   { key: "offer", label: "Offer", long: true },
   { key: "services", label: "PMU Services", long: true },
-  { key: "product_id", label: "Fanbasis Product ID (leave empty — auto-created)" },
   { key: "gmb_link", label: "Google My Business Link" },
   { key: "years_in_business", label: "Years in Business (V3)" },
   { key: "business_hours", label: "Business Hours (V3)" },
   { key: "first_touchup", label: "When is the first touch-up? (V3)" },
   { key: "other_locations", label: "Other Locations (V3)" },
-  { key: "logo_url", label: "Funnel Logo" , image: true },
-  { key: "studio_pic_1", label: "Picture of Studio 1" , image: true },
-  { key: "studio_pic_2", label: "Picture of Studio 2" , image: true },
-  { key: "studio_pic_3", label: "Picture of Studio 3" , image: true },
-  { key: "eyebrows_ba_1", label: "Eyebrows Before & After 1" , image: true },
-  { key: "eyebrows_ba_2", label: "Eyebrows Before & After 2" , image: true },
-  { key: "eyebrows_ba_3", label: "Eyebrows Before & After 3" , image: true },
-  { key: "lipblush_ba_1", label: "Lip Blush Before & After 1" , image: true },
-  { key: "lipblush_ba_2", label: "Lip Blush Before & After 2" , image: true },
-  { key: "lipblush_ba_3", label: "Lip Blush Before & After 3" , image: true },
-  { key: "eyeliner_ba_1", label: "Eyeliner Before & After 1" , image: true },
-  { key: "eyeliner_ba_2", label: "Eyeliner Before & After 2" , image: true },
-  { key: "eyeliner_ba_3", label: "Eyeliner Before & After 3" , image: true },
+  { key: "logo_url", label: "Funnel Logo", image: true },
+  { key: "studio_pic_1", label: "Picture 1", image: true, heading: "Picture of Studio" },
+  { key: "studio_pic_2", label: "Picture 2", image: true },
+  { key: "studio_pic_3", label: "Picture 3", image: true },
+  { key: "eyebrows_ba_1", label: "Photo 1", image: true, heading: "Eyebrows Before & After" },
+  { key: "eyebrows_ba_2", label: "Photo 2", image: true },
+  { key: "eyebrows_ba_3", label: "Photo 3", image: true },
+  { key: "lipblush_ba_1", label: "Photo 1", image: true, heading: "Lips" },
+  { key: "lipblush_ba_2", label: "Photo 2", image: true },
+  { key: "lipblush_ba_3", label: "Photo 3", image: true },
+  { key: "eyeliner_ba_1", label: "Photo 1", image: true, heading: "Eyeliner" },
+  { key: "eyeliner_ba_2", label: "Photo 2", image: true },
+  { key: "eyeliner_ba_3", label: "Photo 3", image: true },
   { key: "ig_link", label: "IG Page Link" },
   { key: "fb_link", label: "FB Page Link" },
   { key: "area", label: "AREA (custom value)" },
