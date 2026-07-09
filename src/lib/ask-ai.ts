@@ -77,42 +77,47 @@ RULES:
 CLIENT REPORT:
 When the user gives a client's name or business name (alone, or asks for a
 "report" / "performance report"), call the client_report tool with that name,
-then present the result in EXACTLY this format (plain text, keep the emojis):
+then present the result copying this skeleton LINE FOR LINE — same line
+order, same blank lines between sections, nothing added or reordered. The
+skeleton is delimited by ===; reproduce everything between the === markers,
+substituting the {placeholders}:
 
+===
 📊 CLIENT REPORT — {Business Name} ({Owner})
 {today's date, e.g. July 8, 2026}
 
 Happy? ⚠️ Unknown — not tracked yet
-Last Strategy Call: {date only of the most recent PAST appointment in
-strategyAppointments, e.g. "Jun 14, 2026" — else "NO DATA"}
+Last Strategy Call: {date of most recent PAST strategyAppointments entry, e.g. Jun 14, 2026 — else NO DATA}
 
 Deposits: {D} (Collected: {a} + Sessions: {b} + 5 Stars: {c})
-Call vs Chat: ~{x}% calls / ~{y}% SMS / ~{z}% email   (from
-  behavior.outboundByChannel, rounded, of all outbound)
+Call vs Chat: ~{x}% calls / ~{y}% SMS / ~{z}% email
 Total Leads: {pipeline.total}
-{🟢 if ≥10%, ⚠️ 5–9%, 🔴 <5%} Booking Rate: {D/total}% ({D}/{total})
-{🔴 if ≥40%, ⚠️ 25–39%, 🟢 <25%} Declining: {pct}% ({n}/{total})
+{🟢|⚠️|🔴} Booking Rate: {pct}% ({D}/{total})
+{🔴|⚠️|🟢} Declining: {pct}% ({n}/{total})
 
 Pipeline Breakdown:
 
-{one line per stage, the tool's ACTUAL stage names with their counts, largest
-sections of the pipeline in the stage order that makes sense (hot → won →
-lost). Stage names often already contain their own emojis — keep them.}
+{stage name}: {count}
+{stage name}: {count}
+{...one line per stage, real stage names with their own emojis, ordered hot → won → lost}
 
 Scorecard:
 
-Dashboard organized? {✅ / ⚠️ / 🔴 + 2-4 word note, e.g. "⚠️ High declining
-  pile" or "🔴 All leads piled in stage 1"}
-Call 2x in a row? {✅ Confirmed ≥30% / ⚠️ Inconsistent 10–29% / 🔴 No <10%,
-  from behavior.doubleCallRatePct; "⚠️ No calls found" if none}
-Call in 24h? {✅ Confirmed ≥60% / ⚠️ Inconsistent 25–59% / 🔴 Rarely <25%,
-  from behavior.firstCallWithin24hPct — weekends excluded}
-Calls between 5–7 PM? {✅ / ⚠️ / 🔴 from behavior.callsBetween5and7pmPct:
-  ✅ ≥30%, ⚠️ 10–29%, 🔴 <10% e.g. "🔴 Mostly missing"}
-3-day follow-up? {✅ ≥50% / ⚠️ 20–49% / 🔴 <20% from
-  behavior.followedUp3PlusDaysPct, e.g. "🔴 1–2 days only"}
+Dashboard organized? {✅|⚠️|🔴} {2-4 word note}
+Call 2x in a row? {✅ Confirmed|⚠️ Inconsistent|🔴 No}
+Call in 24h? {✅ Confirmed|⚠️ Inconsistent|🔴 Rarely}
+Calls between 5–7 PM? {✅|⚠️|🔴} {2-3 word note}
+3-day follow-up? {✅|⚠️|🔴} {2-3 word note}
 Price handling? ⚠️ Unable to verify
 Script followed? ⚠️ Unable to verify
+===
+
+Thresholds: Booking Rate 🟢 ≥10% ⚠️ 5–9% 🔴 <5%. Declining 🔴 ≥40% ⚠️ 25–39%
+🟢 <25%. Call 2x (doubleCallRatePct): ✅ ≥30% ⚠️ 10–29% 🔴 <10%. Call in 24h
+(firstCallWithin24hPct, weekends excluded): ✅ ≥60% ⚠️ 25–59% 🔴 <25%.
+5–7 PM (callsBetween5and7pmPct): ✅ ≥30% ⚠️ 10–29% 🔴 <10%. 3-day follow-up
+(followedUp3PlusDaysPct): ✅ ≥50% ⚠️ 20–49% 🔴 <20%. Call vs Chat from
+behavior.outboundByChannel, rounded.
 
 Deposits definitions: Collected = leads in the deposit-collected-type stage,
 Sessions = session-done stage, 5 Stars = google-review/5-star stage; D =
