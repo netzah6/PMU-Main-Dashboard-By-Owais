@@ -110,39 +110,49 @@ export const SERVICE_OPTIONS: string[] = [
   "Areola Micropigmentation",
 ];
 
-// Form fields captured when creating a new onboarding. `heading` renders a
-// sub-headline above the field (used to group the picture uploads).
+// Form fields captured when creating a new onboarding. `heading` starts a new
+// titled section; fields flow inside their section's grid.
 export const FORM_FIELDS: { key: string; label: string; required?: boolean; long?: boolean; image?: boolean; heading?: string }[] = [
-  { key: "business_name", label: "Business Name", required: true },
+  { key: "business_name", label: "Business Name", required: true, heading: "👤 Client Details" },
   { key: "owner_name", label: "Owner Full Name", required: true },
-  { key: "version", label: "Version (V3 / V2.3)", required: true },
+  { key: "version", label: "Version", required: true },
   { key: "email", label: "Email" },
   { key: "phone", label: "Phone" },
   { key: "address", label: "Location (Full Address)" },
-  { key: "original_price", label: "Original Price" },
+  { key: "original_price", label: "Original Price", heading: "💰 Pricing & Offer" },
   { key: "discounted_price", label: "Discounted Price" },
   { key: "deposit_amount", label: "Deposit Amount" },
-  { key: "offer", label: "Offer", long: true },
-  { key: "services", label: "PMU Services", long: true },
-  { key: "gmb_link", label: "Google My Business Link" },
-  { key: "years_in_business", label: "Years in Business (V3)" },
-  { key: "business_hours", label: "Business Hours (V3)" },
-  { key: "first_touchup", label: "When is the first touch-up? (V3)" },
-  { key: "other_locations", label: "Other Locations (V3)" },
-  { key: "logo_url", label: "Funnel Logo", image: true },
-  { key: "studio_pic_1", label: "Picture 1", image: true, heading: "Picture of Studio" },
+  { key: "offer", label: "Offer" },
+  { key: "services", label: "Choose all that apply", long: true, heading: "💅 PMU Services" },
+  { key: "gmb_link", label: "Google My Business", heading: "🔗 Links" },
+  { key: "ig_link", label: "Instagram Page" },
+  { key: "fb_link", label: "Facebook Page" },
+  { key: "years_in_business", label: "Years in Business", heading: "📘 V3 Details" },
+  { key: "business_hours", label: "Business Hours" },
+  { key: "first_touchup", label: "When is the first touch-up?" },
+  { key: "other_locations", label: "Other Locations" },
+  { key: "area", label: "AREA (custom value)" },
+  { key: "logo_url", label: "Logo image", image: true, heading: "🖼️ Funnel Logo" },
+  { key: "studio_pic_1", label: "Picture 1", image: true, heading: "🏠 Picture of Studio" },
   { key: "studio_pic_2", label: "Picture 2", image: true },
   { key: "studio_pic_3", label: "Picture 3", image: true },
-  { key: "eyebrows_ba_1", label: "Photo 1", image: true, heading: "Eyebrows Before & After" },
+  { key: "eyebrows_ba_1", label: "Photo 1", image: true, heading: "🤨 Eyebrows Before & After" },
   { key: "eyebrows_ba_2", label: "Photo 2", image: true },
   { key: "eyebrows_ba_3", label: "Photo 3", image: true },
-  { key: "lipblush_ba_1", label: "Photo 1", image: true, heading: "Lips" },
+  { key: "lipblush_ba_1", label: "Photo 1", image: true, heading: "💋 Lips Before & After" },
   { key: "lipblush_ba_2", label: "Photo 2", image: true },
   { key: "lipblush_ba_3", label: "Photo 3", image: true },
-  { key: "eyeliner_ba_1", label: "Photo 1", image: true, heading: "Eyeliner" },
+  { key: "eyeliner_ba_1", label: "Photo 1", image: true, heading: "👁️ Eyeliner Before & After" },
   { key: "eyeliner_ba_2", label: "Photo 2", image: true },
   { key: "eyeliner_ba_3", label: "Photo 3", image: true },
-  { key: "ig_link", label: "IG Page Link" },
-  { key: "fb_link", label: "FB Page Link" },
-  { key: "area", label: "AREA (custom value)" },
 ];
+
+// Group FORM_FIELDS into titled sections (a field with `heading` starts one).
+export function formSections(): { heading: string; fields: typeof FORM_FIELDS }[] {
+  const sections: { heading: string; fields: typeof FORM_FIELDS }[] = [];
+  for (const f of FORM_FIELDS) {
+    if (f.heading || sections.length === 0) sections.push({ heading: f.heading ?? "", fields: [] });
+    sections[sections.length - 1].fields.push(f);
+  }
+  return sections;
+}
