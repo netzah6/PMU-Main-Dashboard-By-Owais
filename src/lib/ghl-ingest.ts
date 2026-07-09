@@ -29,16 +29,17 @@ export async function getV3Accounts(): Promise<V3Account[]> {
   if (!sheetId) throw new Error("GHL_KEYS_SHEET_ID not set");
   const supabase = createServiceClient();
 
-  // Roster = live/paused V3 clients from Clients Master. ownerKey = Owner Full
-  // Name (lowercased) so it matches what the dashboard queries the box by.
+  // Roster = ALL live/paused clients from Clients Master (any version — the
+  // marketplace app reaches every sub-account, so V1/V2/no-plan clients get
+  // data too). ownerKey = Owner Full Name (lowercased) so it matches what the
+  // dashboard queries the box by.
   const bizNorm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
   const { data: cmRows } = await supabase.from("clients_master").select("data");
   const roster = (cmRows ?? [])
     .map((r) => r.data as Record<string, unknown>)
     .filter((d) => {
-      const ver = String(d?.["Version"] ?? "").toLowerCase();
       const st = String(d?.["col_1"] ?? "").toLowerCase();
-      return (ver.includes("v3") || ver.includes("v2.3")) && (st === "live" || st === "paused");
+      return st === "live" || st === "paused";
     })
     .map((d) => ({
       key: String(d["Owner Full Name"] ?? "").trim().toLowerCase(),
