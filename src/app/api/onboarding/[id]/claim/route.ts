@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, setOrCreateCustomValue, type ClaimResult, type ClaimAction } from "@/lib/ghl-claim";
+import { claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, setExistingCustomValue, type ClaimResult, type ClaimAction } from "@/lib/ghl-claim";
 import { createDepositProduct, parseAmountCents } from "@/lib/fanbasis";
 
 export const maxDuration = 60;
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const extra: ClaimAction[] = [res.action];
     if (res.productId) {
       try {
-        await setOrCreateCustomValue((row.claim as ClaimResult).location_id, "CC - Fanbasis Product ID", res.productId);
+        await setExistingCustomValue((row.claim as ClaimResult).location_id, "CC - Fanbasis Product ID", res.productId);
         extra.push({ action: `Product ID → custom value "CC - Fanbasis Product ID"`, ok: true });
       } catch (e) {
         extra.push({ action: "Product ID → custom value", ok: false, detail: e instanceof Error ? e.message : "failed" });
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         if (fb.productId) {
           form.product_id = fb.productId;
           try {
-            await setOrCreateCustomValue(result.location_id, "CC - Fanbasis Product ID", fb.productId);
+            await setExistingCustomValue(result.location_id, "CC - Fanbasis Product ID", fb.productId);
             result.actions.push({ action: `Product ID → custom value "CC - Fanbasis Product ID"`, ok: true });
           } catch (e) {
             result.actions.push({ action: "Product ID → custom value", ok: false, detail: e instanceof Error ? e.message : "failed" });

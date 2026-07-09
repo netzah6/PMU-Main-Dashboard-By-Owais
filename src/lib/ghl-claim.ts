@@ -75,25 +75,16 @@ async function listCustomValues(locationId: string, token: string): Promise<Cust
   return j.customValues ?? [];
 }
 
-async function createCustomValue(locationId: string, token: string, name: string, value: string): Promise<void> {
-  assertNotProtected(locationId);
-  const r = await fetch(`${GHL}/locations/${locationId}/customValues`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, Version: VERSION, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ name, value }),
-  });
-  if (!r.ok) throw new Error(`create customValue "${name}" HTTP ${r.status}: ${(await r.text()).slice(0, 150)}`);
-}
-
-// Set a custom value by exact name, creating it when the snapshot lacks it.
-export async function setOrCreateCustomValue(locationId: string, name: string, value: string): Promise<void> {
+// Set a custom value by exact name. NEVER creates custom values — the team
+// manages them manually in GHL; a missing one is reported, not invented.
+export async function setExistingCustomValue(locationId: string, name: string, value: string): Promise<void> {
   assertNotProtected(locationId);
   const tok = await getAppLocationToken(locationId);
   if (!tok.token) throw new Error(`no app token: ${tok.error}`);
   const cvs = await listCustomValues(locationId, tok.token);
   const cv = cvs.find((c) => c.name === name);
-  if (cv) await setCustomValue(locationId, tok.token, cv, value);
-  else await createCustomValue(locationId, tok.token, name, value);
+  if (!cv) throw new Error(`custom value "${name}" is missing — create it manually in GHL`);
+  await setCustomValue(locationId, tok.token, cv, value);
 }
 
 async function setCustomValue(locationId: string, token: string, cv: CustomValue, value: string): Promise<void> {
@@ -132,8 +123,8 @@ const isUrlCv = (n: string) => n.includes("url") || n.includes("link");
 // Matchers verified against the live snapshot's custom-value names
 // (e.g. "CC - Deposit Amount 🔵", "CC - Original Price for Brows - (V3)🔵",
 //  "CC - Full Business Address", "CC - Owner's Name (V3)🔵", "Business Name").
-const CV_MAP: Array<{ formKey: string; match: (n: string) => boolean; label: string; createName?: string }> = [
-  { formKey: "pixel_id", match: (n) => n.includes("pixelid") || n.includes("ccpixel"), label: "FB Pixel ID", createName: "CC - Pixel ID" },
+const CV_MAP: Array<{ formKey: string; match: (n: string) => boolean; label: string }> = [
+  { formKey: "pixel_id", match: (n) => n.includes("pixelid") || n.includes("ccpixel"), label: "FB Pixel ID" },
   { formKey: "business_name", match: (n) => n === "businessname", label: "Business name" },
   { formKey: "owner_name", match: (n) => n.includes("ownersname") || n.includes("ownername"), label: "Owner name" },
   { formKey: "phone", match: (n) => n.includes("businessphone"), label: "Business phone" },
@@ -284,17 +275,7 @@ export async function claimPoolAccount(
       if (!value) continue;
       const cv = cvs.find((c) => m.match(norm(c.name)));
       if (!cv) {
-        const createName = (m as { createName?: string }).createName;
-        if (createName) {
-          try {
-            await createCustomValue(poolLocationId, tok.token, createName, value);
-            actions.push({ action: `${m.label} → "${value}" (created custom value "${createName}")`, ok: true });
-          } catch (e) {
-            actions.push({ action: m.label, ok: false, detail: e instanceof Error ? e.message : "create failed" });
-          }
-        } else {
-          actions.push({ action: `${m.label}`, ok: false, detail: "no matching custom value in the sub-account" });
-        }
+        actions.push({ action: `${m.label}`, ok: false, detail: "custom value missing — create it manually in GHL, then re-run" });
         continue;
       }
       try {
