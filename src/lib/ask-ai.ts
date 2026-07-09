@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { buildClientReport } from "@/lib/ghl-report";
+import { getReplyAccount, getRecentConversations, getThread, getRoster, getVoiceSamples, channelFromType } from "@/lib/ghl-conversations";
+import { generateDraft } from "@/lib/reply-draft";
 
 // "Ask AI" — chat over the dashboard's client/lead data. The model writes
 // SELECT queries; they run through the ask_ai_query() RPC, which forces a
@@ -75,6 +77,15 @@ RULES:
   headers. Round percentages to whole numbers. Always state the time window.
 - Today's date is {TODAY}.
 
+REPLIES (merged from the old AI Replies tab):
+- "what's unread?" / "who's waiting for a reply?" → unread_conversations,
+  list contact + last message + how long ago, newest first.
+- "reply to {name}" / "draft a message for {name}" → draft_reply. Present the
+  draft on its own lines so it's easy to copy, prefixed by one line like:
+  Draft for {contact} ({channel}, sounding like {draftVoice}):
+  NEVER claim the message was sent — the team copies and sends it in GHL.
+  Pass the user's phrasing hints via instructions.
+
 CLIENT REPORT:
 When the user gives a client's name or business name (alone, or asks for a
 "report" / "performance report"), call the client_report tool with that name,
@@ -129,6 +140,25 @@ of caveats (sample size). If the tool errors (client not ingested), say so
 and show what SQL alone can tell (status, payments).
 `;
 
+const unreadTool: Anthropic.Tool = {
+  name: "unread_conversations",
+  description: "List unread (unanswered) conversations in the agency's own PMU Bookings On Demand account — leads/clients waiting for a reply from the team.",
+  input_schema: { type: "object" as const, properties: {} },
+};
+
+const draftReplyTool: Anthropic.Tool = {
+  name: "draft_reply",
+  description: "Draft a reply (voice-matched to the requesting team member) for a conversation in the agency's PMU Bookings On Demand account. Use when the user asks to reply to / draft a message for a lead or contact.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      lead_name: { type: "string" as const, description: "The contact/lead name (or email/phone) to reply to." },
+      instructions: { type: "string" as const, description: "Optional guidance from the user for this reply." },
+    },
+    required: ["lead_name"],
+  },
+};
+
 const reportTool: Anthropic.Tool = {
   name: "client_report",
   description: "Build the per-client report dataset: pipeline stage distribution (with live stage names), call/chat behavior analytics from live message history, and strategy-call appointments. Use when the user asks about a specific client by name.",
@@ -152,7 +182,61 @@ const queryTool: Anthropic.Tool = {
 export type AskMessage = { role: "user" | "assistant"; content: string };
 export type AskResult = { answer: string; queries: string[] };
 
-export async function askAi(history: AskMessage[]): Promise<AskResult> {
+// Find the conversation in the agency account that best matches a lead name.
+async function findConversation(leadName: string) {
+  const acct = await getReplyAccount();
+  if (!acct) return { error: "PMU Bookings On Demand account not configured" as const };
+  const url = `https://services.leadconnectorhq.com/conversations/search?locationId=${acct.locationId}&limit=10&query=${encodeURIComponent(leadName)}`;
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${acct.token}`, Version: "2021-04-15", Accept: "application/json" },
+  });
+  if (!r.ok) return { error: `conversation search failed (HTTP ${r.status})` as const };
+  const j = (await r.json()) as { conversations?: Array<Record<string, unknown>> };
+  const convs = j.conversations ?? [];
+  if (!convs.length) return { error: `no conversation found for "${leadName}"` as const };
+  const norm = (s: string) => s.toLowerCase().trim();
+  const best =
+    convs.find((c) => norm(String(c.fullName ?? c.contactName ?? "")).includes(norm(leadName))) ?? convs[0];
+  return {
+    acct,
+    conversationId: String(best.id),
+    contactName: String(best.fullName ?? best.contactName ?? leadName).trim(),
+    channel: channelFromType(best.lastMessageType as string | undefined),
+  };
+}
+
+async function runDraftReply(leadName: string, instructions: string | undefined, userEmail: string): Promise<Record<string, unknown>> {
+  const found = await findConversation(leadName);
+  if ("error" in found) return { error: found.error };
+  const svc = createServiceClient();
+  const roster = await getRoster(found.acct);
+  const meUser = roster.find((u) => u.email && u.email.toLowerCase() === userEmail.toLowerCase()) ?? null;
+  const agentName = meUser?.name || (userEmail ? userEmail.split("@")[0] : "our team");
+  const [thread, voiceSamples, notesRow] = await Promise.all([
+    getThread(found.acct, found.conversationId),
+    meUser ? getVoiceSamples(found.acct, meUser.id) : Promise.resolve<string[]>([]),
+    svc.from("reply_ai_notes").select("content").eq("id", 1).single(),
+  ]);
+  if (!thread.length) return { error: "conversation has no readable messages" };
+  const { draft } = await generateDraft({
+    thread,
+    contactName: found.contactName,
+    agentName,
+    voiceSamples,
+    instructions,
+    standingNotes: notesRow.data?.content ?? "",
+  });
+  const last = thread[thread.length - 1];
+  return {
+    contactName: found.contactName,
+    channel: found.channel,
+    lastMessage: { direction: last.direction, body: last.body.slice(0, 300), at: last.dateAdded },
+    draft,
+    draftVoice: agentName,
+  };
+}
+
+export async function askAi(history: AskMessage[], userEmail = ""): Promise<AskResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const svc = createServiceClient();
   const queries: string[] = [];
@@ -166,7 +250,7 @@ export async function askAi(history: AskMessage[]): Promise<AskResult> {
       max_tokens: 2000,
       system,
       messages,
-      tools: [queryTool, reportTool],
+      tools: [queryTool, reportTool, unreadTool, draftReplyTool],
     });
 
     if (msg.stop_reason !== "tool_use") {
@@ -178,6 +262,31 @@ export async function askAi(history: AskMessage[]): Promise<AskResult> {
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const block of msg.content) {
       if (block.type !== "tool_use") continue;
+      if (block.name === "unread_conversations") {
+        queries.push("[unread conversations]");
+        let content: string; let isError = false;
+        try {
+          const acct = await getReplyAccount();
+          if (!acct) throw new Error("PMU Bookings On Demand account not configured");
+          const convs = await getRecentConversations(acct, 40, { unreadOnly: true });
+          content = JSON.stringify(convs.map((c) => ({
+            contact: c.contactName, lastMessage: c.lastMessageBody.slice(0, 150),
+            direction: c.lastMessageDirection, at: c.lastMessageDate, channel: c.channel, unread: c.unreadCount,
+          })));
+        } catch (e) { content = `error: ${e instanceof Error ? e.message : "failed"}`; isError = true; }
+        results.push({ type: "tool_result", tool_use_id: block.id, content, is_error: isError });
+        continue;
+      }
+      if (block.name === "draft_reply") {
+        const input = block.input as { lead_name?: string; instructions?: string };
+        queries.push(`[draft reply: ${input.lead_name}]`);
+        let content: string; let isError = false;
+        try {
+          content = JSON.stringify(await runDraftReply(String(input.lead_name ?? ""), input.instructions, userEmail)).slice(0, 30000);
+        } catch (e) { content = `error: ${e instanceof Error ? e.message : "failed"}`; isError = true; }
+        results.push({ type: "tool_result", tool_use_id: block.id, content, is_error: isError });
+        continue;
+      }
       if (block.name === "client_report") {
         const name = String((block.input as { client_name?: string }).client_name ?? "");
         queries.push(`[client report: ${name}]`);
