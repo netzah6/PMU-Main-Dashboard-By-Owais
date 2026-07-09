@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, ChevronLeft, ChevronRight, Trash2, ExternalLink, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, type OnboardingStep } from "@/lib/onboarding-steps";
+import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, SERVICE_OPTIONS, type OnboardingStep } from "@/lib/onboarding-steps";
 
 const VERSION_PILLS: { value: string; label: string; on: string; off: string }[] = [
   { value: "(V3)", label: "V3", on: "bg-[#15B7AE] border-[#15B7AE] text-white", off: "border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc]" },
@@ -437,6 +437,25 @@ export default function OnboardingPage() {
                         {p.label}
                       </button>
                     ))}
+                  </div>
+                ) : f.key === "services" ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {SERVICE_OPTIONS.map((s) => {
+                      const selected = (form.services ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+                      const on = selected.includes(s);
+                      return (
+                        <button key={s} type="button"
+                          onClick={() => setForm((v) => {
+                            const cur = (v.services ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+                            const next = on ? cur.filter((x) => x !== s) : [...cur, s];
+                            return { ...v, services: next.join(", ") };
+                          })}
+                          className={cn("px-2.5 py-1.5 rounded-full text-xs font-semibold border transition-colors",
+                            on ? "bg-[#15B7AE] border-[#15B7AE] text-white" : "border-[#d7e0ea] text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88]")}>
+                          {s}
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : f.key === "offer" ? (
                   <select value={form.offer ?? ""} onChange={(e) => setForm((v) => ({ ...v, offer: e.target.value }))}

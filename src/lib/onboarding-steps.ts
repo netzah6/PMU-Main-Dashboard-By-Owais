@@ -97,6 +97,20 @@ export const OFFER_OPTIONS: { label: string; value: string }[] = [
   { label: "Free Consultation + Aftercare Kit", value: "[ Free Consultation + Aftercare Kit ] for NEW clients!" },
 ];
 
+// PMU services (multi-select) — the real services from the client roster.
+export const SERVICE_OPTIONS: string[] = [
+  "Powder Brows",
+  "Microblading",
+  "Microshading",
+  "Nano Brows",
+  "Lip Blush",
+  "Eyeliner",
+  "Scar Camouflage",
+  "Scalp Micropigmentation",
+  "Tattoo Removal",
+  "Areola Micropigmentation",
+];
+
 // Form fields captured when creating a new onboarding. `heading` renders a
 // sub-headline above the field (used to group the picture uploads).
 export const FORM_FIELDS: { key: string; label: string; required?: boolean; long?: boolean; image?: boolean; heading?: string }[] = [
