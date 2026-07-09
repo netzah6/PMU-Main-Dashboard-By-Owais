@@ -5,10 +5,13 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, SERVICE_OPTIONS, formSections, type OnboardingStep } from "@/lib/onboarding-steps";
 
+// Same version colors as the Clients tab: V3 solid blue, V2.3 light purple.
 const VERSION_PILLS: { value: string; label: string; on: string; off: string }[] = [
-  { value: "(V3)", label: "V3", on: "bg-[#15B7AE] border-[#15B7AE] text-white", off: "border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc]" },
-  { value: "(V2.3)", label: "V2.3", on: "bg-[#4f46e5] border-[#4f46e5] text-white", off: "border-[#c7d2fe] text-[#4f46e5] hover:bg-[#eef2ff]" },
+  { value: "(V3)", label: "V3", on: "bg-[#1d4ed8] border-[#1d4ed8] text-white", off: "border-[#93c5fd] text-[#1d4ed8] hover:bg-[#eff6ff]" },
+  { value: "(V2.3)", label: "V2.3", on: "bg-[#f3e8ff] border-[#e3cffb] text-[#7e22ce]", off: "border-[#e3cffb] text-[#7e22ce] hover:bg-[#faf5ff]" },
 ];
+const verBadge = (v: string) =>
+  v.toLowerCase().includes("v2.3") ? "bg-[#f3e8ff] text-[#7e22ce]" : v.toLowerCase().includes("v3") ? "bg-[#1d4ed8] text-white" : "bg-[#eef2ff] text-[#4f46e5]";
 
 // Mirrors src/lib/ghl-claim.ts (server) — funnel URL convention.
 const FUNNEL_DOMAIN = "https://pmu-care.com";
@@ -506,7 +509,7 @@ export default function OnboardingPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-[#1f3559] truncate">{o.form.business_name}</span>
                       <span className="text-xs text-[#697a91]">{o.form.owner_name}</span>
-                      {o.form.version && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#eef2ff] text-[#4f46e5]">{o.form.version}</span>}
+                      {o.form.version && <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold", verBadge(o.form.version))}>{o.form.version}</span>}
                       {o.status === "done" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#e6f7ee] text-[#15803d]">✓ COMPLETE</span>}
                     </div>
                     <p className="text-[11px] text-[#8595a8] mt-0.5">Started {new Date(o.created_at).toLocaleDateString()}{o.created_by ? ` by ${o.created_by.split("@")[0]}` : ""}</p>
