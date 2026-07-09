@@ -3,7 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, ChevronLeft, ChevronRight, Trash2, ExternalLink, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, type OnboardingStep } from "@/lib/onboarding-steps";
+import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, type OnboardingStep } from "@/lib/onboarding-steps";
+
+const VERSION_PILLS: { value: string; label: string; on: string; off: string }[] = [
+  { value: "(V3)", label: "V3", on: "bg-[#15B7AE] border-[#15B7AE] text-white", off: "border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc]" },
+  { value: "(V2.3)", label: "V2.3", on: "bg-[#4f46e5] border-[#4f46e5] text-white", off: "border-[#c7d2fe] text-[#4f46e5] hover:bg-[#eef2ff]" },
+];
 
 // Mirrors src/lib/ghl-claim.ts (server) — funnel URL convention.
 const FUNNEL_DOMAIN = "https://pmu-care.com";
@@ -419,16 +424,25 @@ export default function OnboardingPage() {
           <h2 className="text-sm font-bold text-[#1f3559]">New client details</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {FORM_FIELDS.map((f) => (
-              <div key={f.key} className={cn(f.long && "sm:col-span-2")}>
+              <div key={f.key} className={cn(f.long && "sm:col-span-2", f.heading && "sm:col-start-1")}>
+                {f.heading && <p className="text-xs font-bold text-[#34568a] uppercase tracking-wide mb-1.5 mt-2">{f.heading}</p>}
                 <label className="block text-[11px] font-medium text-[#697a91] mb-0.5">{f.label}{f.required && <span className="text-[#e11d48]"> *</span>}</label>
                 {f.image ? (
                   <ImageField value={form[f.key] ?? ""} onChange={(url) => setForm((v) => ({ ...v, [f.key]: url }))} />
                 ) : f.key === "version" ? (
-                  <select value={form.version ?? ""} onChange={(e) => setForm((v) => ({ ...v, version: e.target.value }))}
+                  <div className="flex gap-2">
+                    {VERSION_PILLS.map((p) => (
+                      <button key={p.value} type="button" onClick={() => setForm((v) => ({ ...v, version: p.value }))}
+                        className={cn("px-4 py-2 rounded-lg text-sm font-bold border transition-colors", form.version === p.value ? p.on : p.off)}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : f.key === "offer" ? (
+                  <select value={form.offer ?? ""} onChange={(e) => setForm((v) => ({ ...v, offer: e.target.value }))}
                     className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]">
                     <option value="">Select…</option>
-                    <option value="(V3)">(V3)</option>
-                    <option value="(V2.3)">(V2.3)</option>
+                    {OFFER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 ) : f.long ? (
                   <textarea rows={2} value={form[f.key] ?? ""} onChange={(e) => setForm((v) => ({ ...v, [f.key]: e.target.value }))}
