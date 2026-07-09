@@ -84,8 +84,9 @@ meaning, and if a stage doesn't exist say NO DATA.
 
 Report for {Business Name} ({Owner}) — {status}, {version}
 
-- Last Strategy Call: date of the most recent past strategyAppointments entry
-  (+ the next upcoming one if any). If none: NO DATA.
+- Last Strategy Call: ONLY the date of the most recent past appointment in
+  strategyAppointments (e.g. "Jun 14, 2026"). No titles, no upcoming ones.
+  If none: NO DATA.
 - Deposits: YES if leads sit in a deposit-collected-type stage or
   ghl_lead_status.deposit_collected is true for some leads; NO if the pipeline
   has the stage but 0 leads ever reached it; NO DATA if not determinable.
