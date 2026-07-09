@@ -67,9 +67,10 @@ RULES:
   never pull raw rows to count them yourself.
 - "Sessions done" is NOT tracked directly; closest signals: booked=true and
   deposit_collected=true in ghl_lead_status. Say what you're using as proxy.
-- GHL data exists mainly for live V3/V2.3 clients (the tracked roster). If a
-  client has no ghl_* rows, say their sub-account isn't being ingested — not
-  that they have zero leads.
+- GHL data covers all live/paused clients whose sub-account name matches the
+  master sheet. If a client has no ghl_* rows, say their sub-account isn't
+  being ingested yet (first sync may still be running) — not that they have
+  zero leads.
 - Answer in plain text: short paragraphs, "-" bullets, no markdown tables or
   headers. Round percentages to whole numbers. Always state the time window.
 - Today's date is {TODAY}.
