@@ -247,11 +247,34 @@ export default function OnboardingPage() {
               {open.claim.actions.map((a, i) => (
                 <li key={i} className="text-xs flex items-start gap-1.5">
                   <span className={a.ok ? "text-[#15803d]" : "text-[#e11d48]"}>{a.ok ? "✓" : "✗"}</span>
-                  <span className="text-[#34568a]">{a.action}{a.detail ? <span className="text-[#8595a8]"> — {a.detail}</span> : null}</span>
+                  <span className={a.ok ? "text-[#34568a]" : "text-[#e11d48] font-semibold"}>{a.action}{a.detail ? <span className={a.ok ? "text-[#8595a8]" : "text-[#e11d48]"}> — {a.detail}</span> : null}</span>
                 </li>
               ))}
             </ul>
           )}
+          {open.claim && (() => {
+            const MANUAL: { key: string; label: string }[] = [
+              { key: "ghl_domain", label: "Connect pmu-care.com to the sub-account" },
+              { key: "funnel_path", label: "Set the 4 funnel paths (copy them from the Funnel paths box below)" },
+              { key: "ghl_pixel", label: "Add the FB pixel to the funnel's Head Tracking Code" },
+              { key: "user_add", label: "Create the employee user (API blocked by GHL plan)" },
+            ];
+            const left = MANUAL.filter((s) => !open.checklist[s.key]?.done);
+            if (!left.length) return null;
+            return (
+              <div className="mt-2 border-t border-[#f1f5f9] pt-2">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-[#e11d48] mb-1">🔴 Still manual — do these in GHL:</p>
+                <ul className="space-y-0.5">
+                  {left.map((s) => (
+                    <li key={s.key} className="text-xs text-[#e11d48] flex items-start gap-1.5">
+                      <span>•</span><span>{s.label}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-[10px] text-[#8595a8] mt-1">Each disappears when its checklist step below is checked off.</p>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Funnel paths (generated from the business name) */}
