@@ -101,7 +101,6 @@ export const FORM_FIELDS: { key: string; label: string; required?: boolean; long
   { key: "offer", label: "Offer", long: true },
   { key: "services", label: "PMU Services", long: true },
   { key: "product_id", label: "Fanbasis Product ID (leave empty — auto-created)" },
-  { key: "pixel_id", label: "FB Pixel ID" },
   { key: "gmb_link", label: "Google My Business Link" },
   { key: "years_in_business", label: "Years in Business (V3)" },
   { key: "business_hours", label: "Business Hours (V3)" },
@@ -120,10 +119,7 @@ export const FORM_FIELDS: { key: string; label: string; required?: boolean; long
   { key: "eyeliner_ba_1", label: "Eyeliner Before & After 1" , image: true },
   { key: "eyeliner_ba_2", label: "Eyeliner Before & After 2" , image: true },
   { key: "eyeliner_ba_3", label: "Eyeliner Before & After 3" , image: true },
-  { key: "domain", label: "Domain" },
   { key: "ig_link", label: "IG Page Link" },
   { key: "fb_link", label: "FB Page Link" },
   { key: "area", label: "AREA (custom value)" },
-  { key: "assigned", label: "Assigned To" },
-  { key: "notes", label: "Notes", long: true },
 ];

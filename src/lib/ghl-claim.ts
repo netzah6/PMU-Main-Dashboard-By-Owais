@@ -124,7 +124,6 @@ const isUrlCv = (n: string) => n.includes("url") || n.includes("link");
 // (e.g. "CC - Deposit Amount 🔵", "CC - Original Price for Brows - (V3)🔵",
 //  "CC - Full Business Address", "CC - Owner's Name (V3)🔵", "Business Name").
 const CV_MAP: Array<{ formKey: string; match: (n: string) => boolean; label: string }> = [
-  { formKey: "pixel_id", match: (n) => n.includes("pixelid") || n.includes("ccpixel"), label: "FB Pixel ID" },
   { formKey: "business_name", match: (n) => n === "businessname", label: "Business name" },
   { formKey: "owner_name", match: (n) => n.includes("ownersname") || n.includes("ownername"), label: "Owner name" },
   { formKey: "phone", match: (n) => n.includes("businessphone"), label: "Business phone" },
