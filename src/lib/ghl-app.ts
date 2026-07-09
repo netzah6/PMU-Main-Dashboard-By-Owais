@@ -19,6 +19,8 @@ export const APP_SCOPES = [
   "locations.readonly",
   "locations/customValues.readonly",
   "locations/customValues.write",
+  "locations/customFields.readonly",
+  "locations/customFields.write",
   "users.write",
   "snapshots.readonly",
   "oauth.readonly",

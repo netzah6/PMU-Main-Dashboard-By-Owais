@@ -131,7 +131,6 @@ export const FORM_FIELDS: { key: string; label: string; required?: boolean; long
   { key: "business_hours", label: "Business Hours" },
   { key: "first_touchup", label: "When is the first touch-up?" },
   { key: "other_locations", label: "Other Locations" },
-  { key: "area", label: "AREA (custom value)" },
   { key: "logo_url", label: "Logo image", image: true, heading: "🖼️ Funnel Logo" },
   { key: "studio_pic_1", label: "Picture 1", image: true, heading: "🏠 Picture of Studio" },
   { key: "studio_pic_2", label: "Picture 2", image: true },
