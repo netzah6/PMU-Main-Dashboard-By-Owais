@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await askAi(messages);
+    const result = await askAi(messages, user.email ?? "");
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "AI request failed" }, { status: 500 });

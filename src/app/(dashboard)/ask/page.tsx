@@ -43,14 +43,14 @@ export default function AskPage() {
   return (
     <div className="flex flex-col h-full max-w-3xl mx-auto w-full p-4 sm:p-6">
       <div className="mb-3">
-        <h1 className="text-xl font-bold text-[#1f3559] flex items-center gap-2"><Sparkles size={18} className="text-[#15B7AE]" /> Ask AI</h1>
-        <p className="text-sm text-[#697a91]">Ask anything about your clients, leads, calls, bookings and payments — answers come live from the dashboard&apos;s data.</p>
+        <h1 className="text-xl font-bold text-[#1f3559] flex items-center gap-2"><Sparkles size={18} className="text-[#15B7AE]" /> AI</h1>
+        <p className="text-sm text-[#697a91]">Ask about clients, leads and payments · get client reports · check unread messages · draft replies in your voice.</p>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
         {msgs.length === 0 && (
           <div className="pt-16 text-center text-sm text-[#8595a8]">
-            Ask anything — or type a client&apos;s name to get their full report.
+            Ask anything, type a client&apos;s name for their report, ask &quot;what&apos;s unread?&quot;, or &quot;draft a reply to …&quot;.
           </div>
         )}
         {msgs.map((m, i) => (
