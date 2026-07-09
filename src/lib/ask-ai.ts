@@ -76,47 +76,56 @@ RULES:
 
 CLIENT REPORT:
 When the user gives a client's name or business name (alone, or asks for a
-"report"), call the client_report tool with that name, then present EXACTLY
-this scorecard (one line per item, plain text). Use the tool's pipeline stage
-names to identify stages like "Deposit Collected", "Session Done" /
-"Sessions Done", "Google Review" / "5 Star", "Declining" / "Dead" — match by
-meaning, and if a stage doesn't exist say NO DATA.
+"report" / "performance report"), call the client_report tool with that name,
+then present the result copying this skeleton LINE FOR LINE — same line
+order, same blank lines between sections, nothing added or reordered. The
+skeleton is delimited by ===; reproduce everything between the === markers,
+substituting the {placeholders}:
 
-Report for {Business Name} ({Owner}) — {status}, {version}
+===
+📊 CLIENT REPORT — {Business Name} ({Owner})
+{today's date, e.g. July 8, 2026}
 
-- Last Strategy Call: ONLY the date of the most recent past appointment in
-  strategyAppointments (e.g. "Jun 14, 2026"). No titles, no upcoming ones.
-  If none: NO DATA.
-- Deposits: YES if leads sit in a deposit-collected-type stage or
-  ghl_lead_status.deposit_collected is true for some leads; NO if the pipeline
-  has the stage but 0 leads ever reached it; NO DATA if not determinable.
-- Sessions Done: count of leads in deposit-collected + session-done +
-  google-review stages combined.
-- Call or Chat: from behavior.outboundCalls vs behavior.outboundMessages —
-  "Calls & chats", "Mostly chats", "Mostly calls", or NO DATA.
-- Total Leads: pipeline.total (all opportunities in the pipeline).
-- Booking %: (Sessions Done count as defined above) / Total Leads.
-- Total Declining: leads in the declining-type stage.
-- Declining %: declining / Total Leads.
-- Dashboard Organized?: YES if leads are spread across stages; NO if ≥80% sit
-  in the first one or two stages. Mention the distribution briefly.
-- Call 2X In a Row?: behavior.doubleCallRatePct (calls within 20 min of each
-  other to the same lead). YES if ≥30%, SOMETIMES 10–29%, NO <10%, NO DATA if
-  no calls.
-- Call In 24/H?: behavior.firstCallWithin24hPct (weekend leads excluded).
-  YES ≥60%, SOMETIMES 25–59%, NO <25%.
-- 5-7 PM?: behavior.callsBetween5and7pmPct of calls in the client's local
-  timezone; if most calls are at other hours, say when they usually call.
-- 3X Follow Ups?: behavior.followedUp3PlusDaysPct — of leads who never
-  replied in their first week, how many got outreach on 3+ different days.
-  YES ≥50%, SOMETIMES 20–49%, NO <20%.
-- What's the price?: No data for now.
-- Follow Script?: No data for now.
+Happy? ⚠️ Unknown — not tracked yet
+Last Strategy Call: {date of most recent PAST strategyAppointments entry, e.g. Jun 14, 2026 — else NO DATA}
 
-End with one short "Bottom line" sentence and list the tool's caveats
-(sample size, live-fetch limits) in one line. Percentages: whole numbers.
-If the tool returns an error (client not ingested), say so and show what you
-CAN get from SQL (clients_master status, payments) instead.
+Deposits: {D} (Collected: {a} + Sessions: {b} + 5 Stars: {c})
+Call vs Chat: ~{x}% calls / ~{y}% SMS / ~{z}% email
+Total Leads: {pipeline.total}
+{🟢|⚠️|🔴} Booking Rate: {pct}% ({D}/{total})
+{🔴|⚠️|🟢} Declining: {pct}% ({n}/{total})
+
+Pipeline Breakdown:
+
+{stage name}: {count}
+{stage name}: {count}
+{...one line per stage, real stage names with their own emojis, ordered hot → won → lost}
+
+Scorecard:
+
+Dashboard organized? {✅|⚠️|🔴} {2-4 word note}
+Call 2x in a row? {✅ Confirmed|⚠️ Inconsistent|🔴 No}
+Call in 24h? {✅ Confirmed|⚠️ Inconsistent|🔴 Rarely}
+Calls between 5–7 PM? {✅|⚠️|🔴} {2-3 word note}
+3-day follow-up? {✅|⚠️|🔴} {2-3 word note}
+Price handling? ⚠️ Unable to verify
+Script followed? ⚠️ Unable to verify
+===
+
+Thresholds: Booking Rate 🟢 ≥10% ⚠️ 5–9% 🔴 <5%. Declining 🔴 ≥40% ⚠️ 25–39%
+🟢 <25%. Call 2x (doubleCallRatePct): ✅ ≥30% ⚠️ 10–29% 🔴 <10%. Call in 24h
+(firstCallWithin24hPct, weekends excluded): ✅ ≥60% ⚠️ 25–59% 🔴 <25%.
+5–7 PM (callsBetween5and7pmPct): ✅ ≥30% ⚠️ 10–29% 🔴 <10%. 3-day follow-up
+(followedUp3PlusDaysPct): ✅ ≥50% ⚠️ 20–49% 🔴 <20%. Call vs Chat from
+behavior.outboundByChannel, rounded.
+
+Deposits definitions: Collected = leads in the deposit-collected-type stage,
+Sessions = session-done stage, 5 Stars = google-review/5-star stage; D =
+their sum. Declining = the declining/dead stage. Match stage names by
+meaning. If a piece of data is unavailable, write "Unable to verify — {short
+reason}" on that line instead of inventing numbers. End with ONE short line
+of caveats (sample size). If the tool errors (client not ingested), say so
+and show what SQL alone can tell (status, payments).
 `;
 
 const reportTool: Anthropic.Tool = {
