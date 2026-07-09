@@ -1,9 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send, Sparkles, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type Msg = { role: "user" | "assistant"; content: string; queries?: string[] };
+type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string };
+type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[] };
 
 export default function AskPage() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -30,7 +32,7 @@ export default function AskPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Request failed");
-      setMsgs((m) => [...m, { role: "assistant", content: json.answer, queries: json.queries }]);
+      setMsgs((m) => [...m, { role: "assistant", content: json.answer, queries: json.queries, drafts: json.drafts }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
       setMsgs((m) => m.slice(0, -1));
@@ -62,6 +64,7 @@ export default function AskPage() {
                 : "bg-white border border-[#e4ebf2] text-[#1f3559] rounded-bl-md",
             )}>
               {m.content}
+              {m.role === "assistant" && (m.drafts ?? []).map((d, j) => <DraftCard key={j} d={d} />)}
               {m.role === "assistant" && (m.queries?.length ?? 0) > 0 && <QueryDetails queries={m.queries!} />}
             </div>
           </div>
@@ -91,6 +94,35 @@ export default function AskPage() {
           {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
         </button>
       </form>
+    </div>
+  );
+}
+
+function DraftCard({ d }: { d: Draft }) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(d.draft);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }, [d.draft]);
+  return (
+    <div className="mt-2.5 rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-3">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-[#0e8f88] mb-1.5">
+        Draft for {d.contactName}{d.channel ? ` · ${d.channel}` : ""}{d.voice ? ` · in ${d.voice}'s style` : ""}
+      </p>
+      <p className="text-sm text-[#1f3559] whitespace-pre-wrap">{d.draft}</p>
+      <div className="flex items-center gap-2 mt-2.5">
+        <button
+          onClick={() => { copy(); window.open(d.conversationUrl, "_blank", "noopener"); toast.success("Draft copied — paste it in the chat"); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold">
+          <ExternalLink size={12} /> Copy &amp; open chat
+        </button>
+        <button onClick={() => { copy(); toast.success("Draft copied"); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-white text-xs font-semibold">
+          {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
+        </button>
+        <span className="text-[10px] text-[#8595a8]">draft only — you send it</span>
+      </div>
     </div>
   );
 }
