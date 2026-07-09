@@ -80,7 +80,9 @@ RULES:
 REPLIES (merged from the old AI Replies tab):
 - "what's unread?" / "who's waiting for a reply?" → unread_conversations,
   list contact + last message + how long ago, newest first.
-- "reply to {name}" / "draft a message for {name}" → draft_reply. The draft
+- "reply to {name}" / "draft a message for {name}" → draft_reply. If the
+  user's message contains "conversation {id}" (from clicking a chat in the
+  sidebar), pass it as conversation_id. The draft
   is shown to the user in a special card with copy/open buttons — do NOT
   repeat the draft text in your answer. Reply with ONE short line, e.g.
   'Here's a draft for {contact} in {draftVoice}'s style — use the buttons
@@ -155,6 +157,7 @@ const draftReplyTool: Anthropic.Tool = {
     type: "object" as const,
     properties: {
       lead_name: { type: "string" as const, description: "The contact/lead name (or email/phone) to reply to." },
+      conversation_id: { type: "string" as const, description: "Exact GHL conversation id, when the user's message includes one (e.g. from clicking a chat in the sidebar). Takes precedence over name search." },
       instructions: { type: "string" as const, description: "Optional guidance from the user for this reply." },
     },
     required: ["lead_name"],
@@ -185,10 +188,26 @@ export type AskMessage = { role: "user" | "assistant"; content: string };
 export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string };
 export type AskResult = { answer: string; queries: string[]; drafts?: AskDraft[] };
 
-// Find the conversation in the agency account that best matches a lead name.
-async function findConversation(leadName: string) {
+// Find the conversation in the agency account that best matches a lead name
+// (or fetch it directly when an exact conversation id is given).
+async function findConversation(leadName: string, conversationId?: string) {
   const acct = await getReplyAccount();
   if (!acct) return { error: "PMU Bookings On Demand account not configured" as const };
+  if (conversationId) {
+    const r = await fetch(`https://services.leadconnectorhq.com/conversations/${conversationId}`, {
+      headers: { Authorization: `Bearer ${acct.token}`, Version: "2021-04-15", Accept: "application/json" },
+    });
+    if (r.ok) {
+      const c = (await r.json()) as Record<string, unknown>;
+      return {
+        acct,
+        conversationId,
+        contactName: String(c.fullName ?? c.contactName ?? c.email ?? c.phone ?? leadName ?? "Unknown").trim(),
+        channel: channelFromType((c.lastMessageType ?? (c.conversation as Record<string, unknown>)?.lastMessageType) as string | undefined),
+      };
+    }
+    // fall through to name search if the direct fetch failed
+  }
   const url = `https://services.leadconnectorhq.com/conversations/search?locationId=${acct.locationId}&limit=10&query=${encodeURIComponent(leadName)}`;
   const r = await fetch(url, {
     headers: { Authorization: `Bearer ${acct.token}`, Version: "2021-04-15", Accept: "application/json" },
@@ -208,8 +227,8 @@ async function findConversation(leadName: string) {
   };
 }
 
-async function runDraftReply(leadName: string, instructions: string | undefined, userEmail: string): Promise<Record<string, unknown>> {
-  const found = await findConversation(leadName);
+async function runDraftReply(leadName: string, instructions: string | undefined, userEmail: string, conversationId?: string): Promise<Record<string, unknown>> {
+  const found = await findConversation(leadName, conversationId);
   if ("error" in found) return { error: found.error };
   const svc = createServiceClient();
   const roster = await getRoster(found.acct);
@@ -283,11 +302,11 @@ export async function askAi(history: AskMessage[], userEmail = ""): Promise<AskR
         continue;
       }
       if (block.name === "draft_reply") {
-        const input = block.input as { lead_name?: string; instructions?: string };
+        const input = block.input as { lead_name?: string; conversation_id?: string; instructions?: string };
         queries.push(`[draft reply: ${input.lead_name}]`);
         let content: string; let isError = false;
         try {
-          const r = await runDraftReply(String(input.lead_name ?? ""), input.instructions, userEmail);
+          const r = await runDraftReply(String(input.lead_name ?? ""), input.instructions, userEmail, input.conversation_id || undefined);
           if (typeof r.draft === "string" && typeof r.conversationUrl === "string") {
             drafts.push({
               contactName: String(r.contactName ?? ""), channel: String(r.channel ?? ""),

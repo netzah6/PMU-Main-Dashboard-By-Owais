@@ -1,11 +1,28 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check } from "lucide-react";
+import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check, MessageCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string };
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[] };
+type Conv = {
+  id: string;
+  contactName: string;
+  lastMessageBody: string;
+  lastMessageDate: string | null;
+  unreadCount: number;
+  channel: string;
+  assignedToName: string;
+};
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "";
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (mins < 60) return `${mins}m`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h`;
+  return `${Math.round(mins / 1440)}d`;
+}
 
 export default function AskPage() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -13,6 +30,26 @@ export default function AskPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const [convs, setConvs] = useState<Conv[]>([]);
+  const [convsLoading, setConvsLoading] = useState(true);
+  const [convsError, setConvsError] = useState<string | null>(null);
+  const [showChats, setShowChats] = useState(false); // mobile toggle
+
+  const loadConvs = useCallback(async () => {
+    setConvsLoading(true); setConvsError(null);
+    try {
+      const res = await fetch("/api/ghl/reply/conversations");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to load chats");
+      setConvs(json.conversations ?? []);
+    } catch (e) {
+      setConvsError(`${e}`.replace("Error: ", ""));
+    } finally {
+      setConvsLoading(false);
+    }
+  }, []);
+  useEffect(() => { loadConvs(); }, [loadConvs]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
 
@@ -42,11 +79,70 @@ export default function AskPage() {
     }
   }, [busy, msgs]);
 
+  const clickConv = useCallback((c: Conv) => {
+    setShowChats(false);
+    send(`Draft a reply to ${c.contactName} — conversation ${c.id}`);
+  }, [send]);
+
+  const chatList = (
+    <>
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#eef3f8]">
+        <span className="text-xs font-bold text-[#1f3559] flex items-center gap-1.5"><MessageCircle size={13} className="text-[#15B7AE]" /> Unread chats {convs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{convs.length}</span>}</span>
+        <button onClick={loadConvs} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading ? "animate-spin" : ""} /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {convsError ? (
+          <p className="p-3 text-xs text-[#e11d48]">{convsError}</p>
+        ) : convsLoading && convs.length === 0 ? (
+          <p className="p-3 text-xs text-[#8595a8] flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Loading chats…</p>
+        ) : convs.length === 0 ? (
+          <p className="p-3 text-xs text-[#8595a8]">Inbox zero — no unread chats 🎉</p>
+        ) : (
+          convs.map((c) => (
+            <button key={c.id} onClick={() => clickConv(c)} disabled={busy}
+              className="w-full text-left px-3 py-2.5 border-b border-[#f1f5f9] hover:bg-[#f7fdfc] disabled:opacity-50 transition-colors">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#1f3559] truncate">{c.contactName}</span>
+                <span className="shrink-0 text-[10px] text-[#8595a8]">{timeAgo(c.lastMessageDate)}</span>
+              </div>
+              <p className="text-[11px] text-[#697a91] truncate mt-0.5">{c.lastMessageBody || "(no text)"}</p>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="text-[9px] font-semibold uppercase text-[#0e8f88]">{c.channel}</span>
+                {c.unreadCount > 0 && <span className="px-1 rounded-full bg-[#e11d48] text-white text-[9px] font-bold">{c.unreadCount}</span>}
+                {c.assignedToName && <span className="text-[9px] text-[#8595a8]">· {c.assignedToName}</span>}
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+      <p className="px-3 py-2 border-t border-[#eef3f8] text-[9px] text-[#a6b3c4]">Click a chat → the AI drafts a reply in your voice</p>
+    </>
+  );
+
   return (
-    <div className="flex flex-col h-full max-w-3xl mx-auto w-full p-4 sm:p-6">
-      <div className="mb-3">
-        <h1 className="text-xl font-bold text-[#1f3559] flex items-center gap-2"><Sparkles size={18} className="text-[#15B7AE]" /> AI</h1>
-        <p className="text-sm text-[#697a91]">Ask about clients, leads and payments · get client reports · check unread messages · draft replies in your voice.</p>
+    <div className="flex h-full w-full">
+      {/* Chats sidebar — desktop */}
+      <aside className="hidden md:flex flex-col w-72 shrink-0 border-r border-[#e4ebf2] bg-white">
+        {chatList}
+      </aside>
+      {/* Chats drawer — mobile */}
+      {showChats && (
+        <div className="md:hidden fixed inset-0 z-40 flex">
+          <div className="w-80 max-w-[85vw] flex flex-col bg-white shadow-xl">{chatList}</div>
+          <div className="flex-1 bg-black/30" onClick={() => setShowChats(false)} />
+        </div>
+      )}
+
+    <div className="flex flex-col h-full flex-1 min-w-0 max-w-3xl mx-auto w-full p-4 sm:p-6">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold text-[#1f3559] flex items-center gap-2"><Sparkles size={18} className="text-[#15B7AE]" /> AI</h1>
+          <p className="text-sm text-[#697a91]">Ask about clients, leads and payments · get client reports · draft replies in your voice.</p>
+        </div>
+        <button onClick={() => setShowChats(true)}
+          className="md:hidden shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#d7e0ea] text-xs font-semibold text-[#34568a]">
+          <MessageCircle size={13} /> Chats{convs.length > 0 ? ` (${convs.length})` : ""}
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
@@ -94,6 +190,7 @@ export default function AskPage() {
           {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
         </button>
       </form>
+    </div>
     </div>
   );
 }
