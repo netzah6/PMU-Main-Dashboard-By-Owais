@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, ChevronLeft, ChevronRight, Trash2, ExternalLink, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, SERVICE_OPTIONS, type OnboardingStep } from "@/lib/onboarding-steps";
+import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, SERVICE_OPTIONS, formSections, type OnboardingStep } from "@/lib/onboarding-steps";
 
 const VERSION_PILLS: { value: string; label: string; on: string; off: string }[] = [
   { value: "(V3)", label: "V3", on: "bg-[#15B7AE] border-[#15B7AE] text-white", off: "border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc]" },
@@ -422,10 +422,12 @@ export default function OnboardingPage() {
       {showForm && (
         <div className="rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-4 space-y-3">
           <h2 className="text-sm font-bold text-[#1f3559]">New client details</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {FORM_FIELDS.map((f) => (
-              <div key={f.key} className={cn(f.long && "sm:col-span-2", f.heading && "sm:col-start-1")}>
-                {f.heading && <p className="text-xs font-bold text-[#34568a] uppercase tracking-wide mb-1.5 mt-2">{f.heading}</p>}
+          {formSections().map((sec, si) => (
+          <div key={si} className={cn("pt-3", si > 0 && "border-t border-[#dcefed]")}>
+            {sec.heading && <p className="text-xs font-bold text-[#34568a] uppercase tracking-wide mb-2">{sec.heading}</p>}
+            <div className={cn("grid grid-cols-1 gap-3", sec.fields.every((x) => x.image) && sec.fields.length > 1 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+            {sec.fields.map((f) => (
+              <div key={f.key} className={cn(f.long && "sm:col-span-2")}>
                 <label className="block text-[11px] font-medium text-[#697a91] mb-0.5">{f.label}{f.required && <span className="text-[#e11d48]"> *</span>}</label>
                 {f.image ? (
                   <ImageField value={form[f.key] ?? ""} onChange={(url) => setForm((v) => ({ ...v, [f.key]: url }))} />
@@ -472,7 +474,9 @@ export default function OnboardingPage() {
                 )}
               </div>
             ))}
+            </div>
           </div>
+          ))}
           <div className="flex items-center gap-2">
             <button onClick={create} disabled={creating || !String(form.business_name ?? "").trim() || !String(form.owner_name ?? "").trim() || !String(form.version ?? "").trim()}
               className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white disabled:opacity-50">
