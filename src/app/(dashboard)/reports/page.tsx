@@ -392,10 +392,10 @@ export default function ReportsPage() {
                       const vs = versionStyle(ver);
                       return <span className="px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>Version: {ver}</span>;
                     })()}
-                    <span className="text-xs text-[#697a91]">{current.count} reports · {formatDate(reps[0].date)} – {formatDate(current.last.date)}</span>
+                    <span className="text-xs text-[#697a91]">{current.count} reports · {formatDate(reps[0].date, true)} – {formatDate(current.last.date, true)}</span>
                     {String(r["Last Strategy?"] ?? "").trim() && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">
-                        Last Strategy Call: {formatDate(String(r["Last Strategy?"]))}
+                        Last Strategy Call: {formatDate(String(r["Last Strategy?"]), true)}
                       </span>
                     )}
                   </>
@@ -449,7 +449,7 @@ export default function ReportsPage() {
                   <tbody>
                     <SectionRow label="Context" span={reps.length} />
                     <ContextRow label="Call or Chat" reps={reps} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
-                    <ContextRow label="Last Strategy" reps={reps} get={(r) => { const d = String(r.raw["Last Strategy?"] ?? ""); return d ? formatDate(d) : "—"; }} />
+                    <ContextRow label="Last Strategy" reps={reps} get={(r) => { const d = String(r.raw["Last Strategy?"] ?? ""); return d ? formatDate(d, true) : "—"; }} />
                     <ActionRow reps={reps} edits={actionEdits} onSave={saveAction} />
 
                     <SectionRow label="Metric" span={reps.length} />
