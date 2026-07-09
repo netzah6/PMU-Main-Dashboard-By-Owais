@@ -132,7 +132,6 @@ const CV_MAP: Array<{ formKey: string; match: (n: string) => boolean; label: str
   { formKey: "original_price", match: (n) => !isUrlCv(n) && n.includes("originalprice"), label: "Original price" },
   { formKey: "discounted_price", match: (n) => !isUrlCv(n) && n.includes("discountedprice"), label: "Discounted price" },
   { formKey: "product_id", match: (n) => !isUrlCv(n) && n.includes("product") && n.includes("id"), label: "Fanbasis product ID" },
-  { formKey: "area", match: (n) => !isUrlCv(n) && (n === "area" || n.endsWith("area")), label: "AREA" },
   { formKey: "address", match: (n) => !isUrlCv(n) && n.includes("address"), label: "Business address" },
   { formKey: "services", match: (n) => n.includes("permanentmakeupservices") || n.includes("pmuservices"), label: "PMU services" },
   { formKey: "ig_link", match: (n) => n.includes("igbusinesspagelink") || n.includes("igpagelink"), label: "IG page link" },
@@ -237,6 +236,55 @@ export async function createEmployeeUser(locationId: string, ownerName: string, 
   }
 }
 
+// ── Treated-areas custom field ──────────────────────────────────────────────
+// The funnel survey asks "Which Area(s) Would You Like Treated?" — its answer
+// options are derived from the services chosen on the onboarding form:
+// brow services collapse to "Eyebrows", Lip Blush → "Lips", everything else
+// keeps its own name.
+const BROW_SERVICES = new Set(["powder brows", "microblading", "microshading", "nano brows"]);
+export function areasFromServices(services: string): string[] {
+  const out: string[] = [];
+  for (const raw of services.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const area = BROW_SERVICES.has(raw.toLowerCase()) ? "Eyebrows" : raw.toLowerCase() === "lip blush" ? "Lips" : raw;
+    if (!out.includes(area)) out.push(area);
+  }
+  // Eyebrows first, Lips second, the rest in selection order.
+  return out.sort((a, b) => (a === "Eyebrows" ? -1 : b === "Eyebrows" ? 1 : a === "Lips" ? -1 : b === "Lips" ? 1 : 0));
+}
+
+async function updateAreaFieldOptions(locationId: string, token: string, areas: string[]): Promise<ClaimAction> {
+  try {
+    const r = await fetch(`${GHL}/locations/${locationId}/customFields`, {
+      headers: { Authorization: `Bearer ${token}`, Version: VERSION, Accept: "application/json" },
+    });
+    const text = await r.text();
+    if (!r.ok) throw new Error(`customFields HTTP ${r.status}: ${text.slice(0, 150)}`);
+    const j = JSON.parse(text) as { customFields?: Array<Record<string, unknown>> };
+    const field = (j.customFields ?? []).find((f) => /which\s*area/i.test(String(f.name ?? "")));
+    if (!field) return { action: "Treated areas", ok: false, detail: `custom field "CC - Which Area(s) Would You Like Treated?" not found in the sub-account` };
+
+    // Mirror whichever options shape the field already uses.
+    const body: Record<string, unknown> = { name: field.name };
+    if (Array.isArray(field.picklistOptions)) body.picklistOptions = areas;
+    else if (Array.isArray(field.options)) {
+      const first = (field.options as unknown[])[0];
+      body.options = typeof first === "object" && first !== null
+        ? areas.map((a) => ({ ...(first as object), name: a, label: a, value: a }))
+        : areas;
+    } else body.picklistOptions = areas;
+
+    const ur = await fetch(`${GHL}/locations/${locationId}/customFields/${field.id}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, Version: VERSION, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!ur.ok) throw new Error(`update HTTP ${ur.status}: ${(await ur.text()).slice(0, 200)}`);
+    return { action: `Treated areas → ${areas.join(", ")} (field "${field.name}")`, ok: true };
+  } catch (e) {
+    return { action: "Treated areas", ok: false, detail: e instanceof Error ? e.message : "failed" };
+  }
+}
+
 // ── The claim ───────────────────────────────────────────────────────────────
 export type ClaimAction = { action: string; ok: boolean; detail?: string; cvId?: string; cvName?: string; prevValue?: string; userId?: string };
 export type ClaimResult = {
@@ -307,7 +355,13 @@ export async function claimPoolAccount(
     }
   }
 
-  // 3. Transformation calendar ID: discovered from the claimed account's own
+  // 3. Treated-areas survey options, derived from the chosen services.
+  if (tok.token && String(form.services ?? "").trim()) {
+    const areas = areasFromServices(form.services);
+    if (areas.length) actions.push(await updateAreaFieldOptions(poolLocationId, tok.token, areas));
+  }
+
+  // 4. Transformation calendar ID: discovered from the claimed account's own
   //    calendars and filled into the existing custom value (never created).
   if (tok.token) {
     try {

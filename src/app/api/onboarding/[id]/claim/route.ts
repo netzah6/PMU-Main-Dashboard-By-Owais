@@ -138,7 +138,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const checklist = { ...(row.checklist as Record<string, unknown>) };
     const AUTO_STEPS: Record<string, string> = {
       "Fanbasis product ID": "funnel_product_id",
-      "AREA": "wf_area",
+      "Treated areas": "wf_area",
       "Map address": "funnel_map",
     };
     for (const a of result.actions) {
