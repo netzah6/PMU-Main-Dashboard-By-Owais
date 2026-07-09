@@ -138,6 +138,24 @@ const CV_MAP: Array<{ formKey: string; match: (n: string) => boolean; label: str
   { formKey: "services", match: (n) => n.includes("permanentmakeupservices") || n.includes("pmuservices"), label: "PMU services" },
   { formKey: "ig_link", match: (n) => n.includes("igbusinesspagelink") || n.includes("igpagelink"), label: "IG page link" },
   { formKey: "fb_link", match: (n) => n.includes("fbbusinesspagelink") || n.includes("fbpagelink"), label: "FB page link" },
+  { formKey: "gmb_link", match: (n) => n.includes("googlemybusiness"), label: "Google My Business link" },
+  { formKey: "years_in_business", match: (n) => n.includes("yearsinbusiness"), label: "Years in business" },
+  { formKey: "business_hours", match: (n) => n.includes("businesshours"), label: "Business hours" },
+  { formKey: "first_touchup", match: (n) => n.includes("firsttouchup"), label: "First touch-up timing" },
+  { formKey: "other_locations", match: (n) => n.includes("otherlocations"), label: "Other locations" },
+  { formKey: "logo_url", match: (n) => n.includes("funnellogo"), label: "Funnel logo" },
+  { formKey: "studio_pic_1", match: (n) => n.includes("pictureofstudio1"), label: "Studio picture 1" },
+  { formKey: "studio_pic_2", match: (n) => n.includes("pictureofstudio2"), label: "Studio picture 2" },
+  { formKey: "studio_pic_3", match: (n) => n.includes("pictureofstudio3"), label: "Studio picture 3" },
+  { formKey: "eyebrows_ba_1", match: (n) => n.includes("eyebrowsbeforeafter1"), label: "Eyebrows B&A 1" },
+  { formKey: "eyebrows_ba_2", match: (n) => n.includes("eyebrowsbeforeafter2"), label: "Eyebrows B&A 2" },
+  { formKey: "eyebrows_ba_3", match: (n) => n.includes("eyebrowsbeforeafter3"), label: "Eyebrows B&A 3" },
+  { formKey: "lipblush_ba_1", match: (n) => n.includes("lipblushbeforeafter1"), label: "Lip blush B&A 1" },
+  { formKey: "lipblush_ba_2", match: (n) => n.includes("lipblushbeforeafter2"), label: "Lip blush B&A 2" },
+  { formKey: "lipblush_ba_3", match: (n) => n.includes("lipblushbeforeafter3"), label: "Lip blush B&A 3" },
+  { formKey: "eyeliner_ba_1", match: (n) => n.includes("eyelinerbeforeafter1"), label: "Eyeliner B&A 1" },
+  { formKey: "eyeliner_ba_2", match: (n) => n.includes("eyelinerbeforeafter2"), label: "Eyeliner B&A 2" },
+  { formKey: "eyeliner_ba_3", match: (n) => n.includes("eyelinerbeforeafter3"), label: "Eyeliner B&A 3" },
 ];
 
 // Read-only listing for diagnostics / exact name mapping.
@@ -290,7 +308,33 @@ export async function claimPoolAccount(
     }
   }
 
-  // 3. Employee user (the client's login) when the form has an email.
+  // 3. Transformation calendar ID: discovered from the claimed account's own
+  //    calendars and filled into the existing custom value (never created).
+  if (tok.token) {
+    try {
+      const cr = await fetch(`${GHL}/calendars/?locationId=${poolLocationId}`, {
+        headers: { Authorization: `Bearer ${tok.token}`, Version: VERSION, Accept: "application/json" },
+      });
+      if (cr.ok) {
+        const cj = (await cr.json()) as { calendars?: Array<{ id?: string; name?: string }> };
+        const cal = (cj.calendars ?? []).find((c) => /transformation/i.test(String(c.name ?? ""))) ?? (cj.calendars ?? [])[0];
+        const cvs2 = await listCustomValues(poolLocationId, tok.token);
+        const cv = cvs2.find((c) => norm(c.name).includes("transformationcalendarid"));
+        if (cal?.id && cv) {
+          await setCustomValue(poolLocationId, tok.token, cv, String(cal.id));
+          actions.push({ action: `Calendar ID → "${cal.id}" (calendar "${cal.name}", custom value "${cv.name}")`, ok: true, cvId: cv.id, cvName: cv.name, prevValue: cv.value ?? "" });
+        } else if (!cal?.id) {
+          actions.push({ action: "Calendar ID", ok: false, detail: "no calendar found in the sub-account" });
+        } else {
+          actions.push({ action: "Calendar ID", ok: false, detail: "custom value missing — create it manually in GHL, then re-run" });
+        }
+      }
+    } catch (e) {
+      actions.push({ action: "Calendar ID", ok: false, detail: e instanceof Error ? e.message : "failed" });
+    }
+  }
+
+  // 4. Employee user (the client's login) when the form has an email.
   if (String(form.email ?? "").trim() && String(form.owner_name ?? "").trim()) {
     actions.push(await createEmployeeUser(poolLocationId, form.owner_name, form.email));
   }
