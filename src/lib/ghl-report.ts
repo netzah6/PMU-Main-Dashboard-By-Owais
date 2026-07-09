@@ -47,7 +47,7 @@ function isWeekend(iso: string, tz: string | null): boolean {
   } catch { return false; }
 }
 
-type Ev = { contactId: string; t: number; iso: string; call: boolean; outbound: boolean };
+type Ev = { contactId: string; t: number; iso: string; call: boolean; outbound: boolean; channel: "call" | "sms" | "email" | "other" };
 
 export async function buildClientReport(nameQuery: string): Promise<Record<string, unknown>> {
   const svc = createServiceClient();
@@ -134,11 +134,13 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
         const iso = String(m.dateAdded ?? m.date_added ?? "");
         if (!iso || !c.contact_id) continue;
         const mt = String(m.messageType ?? m.type ?? "");
+        const isCall = /CALL|VOICEMAIL/i.test(mt);
         events.push({
           contactId: c.contact_id,
           t: Date.parse(iso), iso,
-          call: /CALL|VOICEMAIL/i.test(mt),
+          call: isCall,
           outbound: String(m.direction ?? "").toLowerCase() === "outbound",
+          channel: isCall ? "call" : /SMS|WHATSAPP|GMB|FB|IG|LIVE_CHAT/i.test(mt) ? "sms" : /EMAIL/i.test(mt) ? "email" : "other",
         });
       }
       return null;
@@ -219,6 +221,10 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
       sampledConversations: convList.length,
       outboundCalls: outCalls,
       outboundMessages: outMsgs,
+      outboundByChannel: events.filter((e) => e.outbound).reduce<Record<string, number>>((acc, e) => {
+        acc[e.channel] = (acc[e.channel] ?? 0) + 1;
+        return acc;
+      }, {}),
       contactsWithAnyCall: calledContacts,
       contactsSampled: byContact.size,
       doubleCallRatePct: pct(doubleCallContacts, calledContacts),
