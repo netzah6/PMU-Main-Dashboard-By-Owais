@@ -43,6 +43,46 @@ function progress(o: Onboarding): { done: number; total: number } {
   return { done: steps.filter((s) => o.checklist[s.key]?.done).length, total: steps.length };
 }
 
+// Image field: upload to the dashboard (public URL) or paste a URL — either
+// way the claim writes the URL into the GHL custom value the funnel renders.
+function ImageField({ value, onChange }: { value: string; onChange: (url: string) => void }) {
+  const [uploading, setUploading] = useState(false);
+  const pick = useCallback(async (file: File | null) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/onboarding/upload", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Upload failed");
+      onChange(json.url);
+      toast.success("Image uploaded");
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally {
+      setUploading(false);
+    }
+  }, [onChange]);
+  return (
+    <div className="flex items-center gap-2">
+      {value ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={value} alt="" className="w-9 h-9 rounded-lg object-cover border border-[#d7e0ea] shrink-0" />
+      ) : null}
+      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder="Upload or paste an image URL"
+        className="flex-1 min-w-0 px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
+      <label className={cn("shrink-0 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer border", uploading ? "opacity-50 pointer-events-none border-[#d7e0ea] text-[#8595a8]" : "border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc]")}>
+        {uploading ? <Loader2 size={13} className="animate-spin inline" /> : "Upload"}
+        <input type="file" accept="image/*" className="hidden" onChange={(e) => pick(e.target.files?.[0] ?? null)} />
+      </label>
+      {value && (
+        <button type="button" onClick={() => onChange("")} title="Remove" className="shrink-0 p-1.5 rounded text-[#94a3b8] hover:text-[#e11d48]"><Trash2 size={13} /></button>
+      )}
+    </div>
+  );
+}
+
 export default function OnboardingPage() {
   const [list, setList] = useState<Onboarding[]>([]);
   const [loading, setLoading] = useState(true);
@@ -381,7 +421,9 @@ export default function OnboardingPage() {
             {FORM_FIELDS.map((f) => (
               <div key={f.key} className={cn(f.long && "sm:col-span-2")}>
                 <label className="block text-[11px] font-medium text-[#697a91] mb-0.5">{f.label}{f.required && <span className="text-[#e11d48]"> *</span>}</label>
-                {f.key === "version" ? (
+                {f.image ? (
+                  <ImageField value={form[f.key] ?? ""} onChange={(url) => setForm((v) => ({ ...v, [f.key]: url }))} />
+                ) : f.key === "version" ? (
                   <select value={form.version ?? ""} onChange={(e) => setForm((v) => ({ ...v, version: e.target.value }))}
                     className="w-full px-3 py-2 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]">
                     <option value="">Select…</option>
