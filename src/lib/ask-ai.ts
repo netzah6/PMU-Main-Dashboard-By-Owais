@@ -80,11 +80,13 @@ RULES:
 REPLIES (merged from the old AI Replies tab):
 - "what's unread?" / "who's waiting for a reply?" → unread_conversations,
   list contact + last message + how long ago, newest first.
-- "reply to {name}" / "draft a message for {name}" → draft_reply. Present the
-  draft on its own lines so it's easy to copy, prefixed by one line like:
-  Draft for {contact} ({channel}, sounding like {draftVoice}):
-  NEVER claim the message was sent — the team copies and sends it in GHL.
-  Pass the user's phrasing hints via instructions.
+- "reply to {name}" / "draft a message for {name}" → draft_reply. The draft
+  is shown to the user in a special card with copy/open buttons — do NOT
+  repeat the draft text in your answer. Reply with ONE short line, e.g.
+  'Here's a draft for {contact} in {draftVoice}'s style — use the buttons
+  below to copy it and open the chat.' Mention the lead's last message
+  briefly if helpful. NEVER claim the message was sent — the team copies and
+  sends it in GHL. Pass the user's phrasing hints via instructions.
 
 CLIENT REPORT:
 When the user gives a client's name or business name (alone, or asks for a
@@ -180,7 +182,8 @@ const queryTool: Anthropic.Tool = {
 };
 
 export type AskMessage = { role: "user" | "assistant"; content: string };
-export type AskResult = { answer: string; queries: string[] };
+export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string };
+export type AskResult = { answer: string; queries: string[]; drafts?: AskDraft[] };
 
 // Find the conversation in the agency account that best matches a lead name.
 async function findConversation(leadName: string) {
@@ -233,6 +236,7 @@ async function runDraftReply(leadName: string, instructions: string | undefined,
     lastMessage: { direction: last.direction, body: last.body.slice(0, 300), at: last.dateAdded },
     draft,
     draftVoice: agentName,
+    conversationUrl: `https://app.gohighlevel.com/v2/location/${found.acct.locationId}/conversations/conversations/${found.conversationId}`,
   };
 }
 
@@ -240,6 +244,7 @@ export async function askAi(history: AskMessage[], userEmail = ""): Promise<AskR
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const svc = createServiceClient();
   const queries: string[] = [];
+  const drafts: AskDraft[] = [];
 
   const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
   const system = SCHEMA_DOC.replace("{TODAY}", new Date().toISOString().slice(0, 10));
@@ -255,7 +260,7 @@ export async function askAi(history: AskMessage[], userEmail = ""): Promise<AskR
 
     if (msg.stop_reason !== "tool_use") {
       const text = msg.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("\n").trim();
-      return { answer: text || "(no answer)", queries };
+      return { answer: text || "(no answer)", queries, drafts: drafts.length ? drafts : undefined };
     }
 
     messages.push({ role: "assistant", content: msg.content });
@@ -282,7 +287,14 @@ export async function askAi(history: AskMessage[], userEmail = ""): Promise<AskR
         queries.push(`[draft reply: ${input.lead_name}]`);
         let content: string; let isError = false;
         try {
-          content = JSON.stringify(await runDraftReply(String(input.lead_name ?? ""), input.instructions, userEmail)).slice(0, 30000);
+          const r = await runDraftReply(String(input.lead_name ?? ""), input.instructions, userEmail);
+          if (typeof r.draft === "string" && typeof r.conversationUrl === "string") {
+            drafts.push({
+              contactName: String(r.contactName ?? ""), channel: String(r.channel ?? ""),
+              draft: r.draft, voice: String(r.draftVoice ?? ""), conversationUrl: r.conversationUrl,
+            });
+          }
+          content = JSON.stringify(r).slice(0, 30000);
         } catch (e) { content = `error: ${e instanceof Error ? e.message : "failed"}`; isError = true; }
         results.push({ type: "tool_result", tool_use_id: block.id, content, is_error: isError });
         continue;
@@ -313,5 +325,5 @@ export async function askAi(history: AskMessage[], userEmail = ""): Promise<AskR
     }
     messages.push({ role: "user", content: results });
   }
-  return { answer: "I ran out of query rounds before finishing — try a more specific question.", queries };
+  return { answer: "I ran out of query rounds before finishing — try a more specific question.", queries, drafts: drafts.length ? drafts : undefined };
 }
