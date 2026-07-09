@@ -8,23 +8,37 @@ export function cn(...inputs: ClassValue[]) {
 /**
  * Parse a date string from Google Sheets (DD/MM/YYYY, MM/DD/YYYY, ISO, etc.)
  * and return a human-readable string.
+ *
+ * monthFirst: how to read ambiguous X/Y/YYYY dates (both parts ≤ 12).
+ * The master sheet writes day-first ("25/7/2025" = Jul 25 — the default);
+ * the tracking sheet writes US month-first ("07/14/2025" = Jul 14) — pass
+ * monthFirst=true there. Unambiguous dates resolve themselves either way.
  */
-export function formatDate(dateStr: string | undefined | null): string {
+export function formatDate(dateStr: string | undefined | null, monthFirst = false): string {
   if (!dateStr || dateStr === "") return "—";
   const s = String(dateStr).trim();
 
-  // DD/MM/YYYY  or  D/M/YYYY
-  const dmY = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  // D/M/YYYY or M/D/YYYY, with an optional trailing note (e.g. " (Launch)")
+  const dmY = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/.exec(s);
   if (dmY) {
-    const d = parseInt(dmY[1], 10);
-    const m = parseInt(dmY[2], 10);
+    const a = parseInt(dmY[1], 10);
+    const b = parseInt(dmY[2], 10);
     const y = parseInt(dmY[3], 10);
-    // If day > 12 it must be DD/MM; otherwise assume DD/MM (Sheets default)
+    const suffix = (dmY[4] ?? "").trim();
+    let d: number, m: number;
+    if (a > 12) { d = a; m = b; }        // 25/7 → day-first, unambiguous
+    else if (b > 12) { m = a; d = b; }   // 7/30 → month-first, unambiguous
+    else if (monthFirst) { m = a; d = b; }
+    else { d = a; m = b; }
     const date = new Date(y, m - 1, d);
     if (!isNaN(date.getTime())) {
-      return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const out = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      return suffix ? `${out} ${suffix}` : out;
     }
   }
+
+  // M/D without a year (e.g. "10/23") — don't let JS invent year 2001.
+  if (/^\d{1,2}\/\d{1,2}$/.test(s)) return s;
 
   // ISO or any JS-parseable format
   try {
