@@ -84,7 +84,14 @@ export async function POST(req: NextRequest) {
             companyId: agency.companyId,
             name,
             snapshotId: snapshot.id,
-            snapshot: { id: snapshot.id, override: true },
+            // Placeholder location details (overwritten on claim). GHL's
+            // create-location endpoint requires the address block + timezone.
+            address: "1603 Capitol Ave",
+            city: "Cheyenne",
+            state: "WY",
+            country: "US",
+            postalCode: "82001",
+            timezone: "America/Denver",
           }),
         });
         const text = await r.text();
