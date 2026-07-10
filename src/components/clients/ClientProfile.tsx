@@ -616,6 +616,7 @@ const DETAIL_FIELDS: { key: string; label: string }[] = [
   { key: "Discounted Price", label: "Discounted Price" },
   { key: "PMU Services", label: "PMU Services" },
   { key: "Campaign Type", label: "Campaign Type" },
+  { key: "Want V2.3?", label: "Want V2.3?" },
   { key: "Offer", label: "Offer" },
   { key: "Email", label: "Email" },
   { key: "Phone", label: "Phone" },
