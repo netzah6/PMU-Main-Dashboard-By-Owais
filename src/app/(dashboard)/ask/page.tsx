@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check, MessageCircle, RefreshCw } from "lucide-react";
+import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check, MessageCircle, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -8,6 +8,7 @@ type Draft = { contactName: string; channel: string; draft: string; voice: strin
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[] };
 type Conv = {
   id: string;
+  contactId: string | null;
   contactName: string;
   lastMessageBody: string;
   lastMessageDate: string | null;
@@ -35,6 +36,9 @@ export default function AskPage() {
   const [convsLoading, setConvsLoading] = useState(true);
   const [convsError, setConvsError] = useState<string | null>(null);
   const [showChats, setShowChats] = useState(false); // mobile toggle
+  const [locationId, setLocationId] = useState<string>("");
+  const [pending, setPending] = useState<Conv | null>(null); // chat awaiting a draft
+  const [note, setNote] = useState("");                       // optional steer for the AI
 
   const loadConvs = useCallback(async () => {
     setConvsLoading(true); setConvsError(null);
@@ -43,12 +47,20 @@ export default function AskPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load chats");
       setConvs(json.conversations ?? []);
+      setLocationId(json.locationId ?? "");
     } catch (e) {
       setConvsError(`${e}`.replace("Error: ", ""));
     } finally {
       setConvsLoading(false);
     }
   }, []);
+
+  // Build the GHL deep-link that reliably opens this contact's chat.
+  const chatUrl = useCallback((c: Conv) =>
+    c.contactId && locationId
+      ? `https://app.gohighlevel.com/v2/location/${locationId}/contacts/detail/${c.contactId}`
+      : locationId ? `https://app.gohighlevel.com/v2/location/${locationId}/conversations/conversations/${c.id}` : "",
+  [locationId]);
   useEffect(() => { loadConvs(); }, [loadConvs]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
@@ -79,10 +91,41 @@ export default function AskPage() {
     }
   }, [busy, msgs]);
 
+  // Clicking a chat opens the composer (with an optional note) rather than
+  // firing off a draft immediately — so you can steer the reply first.
   const clickConv = useCallback((c: Conv) => {
     setShowChats(false);
-    send(`Draft a reply to ${c.contactName} — conversation ${c.id}`);
-  }, [send]);
+    setNote("");
+    setPending(c);
+  }, []);
+
+  // Draft deterministically off the exact conversation id (no LLM name-guessing),
+  // passing the optional note as instructions. Fixes wrong-chat + adds the note.
+  const generateDraft = useCallback(async (c: Conv, steer: string) => {
+    if (busy) return;
+    setPending(null);
+    const trimmed = steer.trim();
+    const label = `Draft a reply to ${c.contactName}${trimmed ? ` — note: ${trimmed}` : ""}`;
+    setMsgs((m) => [...m, { role: "user", content: label }]);
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch("/api/ghl/reply/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: c.id, contactName: c.contactName, instructions: trimmed || undefined }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to draft a reply");
+      const voice = json.voice?.name ?? "";
+      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, conversationUrl: chatUrl(c) };
+      setMsgs((m) => [...m, { role: "assistant", content: `Here's a draft for ${c.contactName}${voice ? ` in ${voice}'s style` : ""} — use the buttons below to copy it and open the chat.`, drafts: [draft] }]);
+    } catch (e) {
+      setError(`${e}`.replace("Error: ", ""));
+      setMsgs((m) => m.slice(0, -1));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, chatUrl]);
 
   const chatList = (
     <>
@@ -115,7 +158,7 @@ export default function AskPage() {
           ))
         )}
       </div>
-      <p className="px-3 py-2 border-t border-[#eef3f8] text-[9px] text-[#a6b3c4]">Click a chat → the AI drafts a reply in your voice</p>
+      <p className="px-3 py-2 border-t border-[#eef3f8] text-[9px] text-[#a6b3c4]">Click a chat → add an optional note → the AI drafts a reply in your voice</p>
     </>
   );
 
@@ -176,6 +219,34 @@ export default function AskPage() {
       </div>
 
       {error && <div className="mb-2 px-3 py-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-xs">{error}</div>}
+
+      {/* Reply composer — appears when a chat is clicked. Optional note steers the draft. */}
+      {pending && (
+        <div className="mb-2 rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-[#0e8f88] flex items-center gap-1.5">
+              <MessageCircle size={13} /> Draft a reply to {pending.contactName}
+            </span>
+            <button onClick={() => setPending(null)} title="Cancel" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
+          </div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generateDraft(pending, note); } }}
+            rows={2}
+            autoFocus
+            placeholder="Optional note for the AI — e.g. 'let her know Tue 2pm is open' or 'gently ask for the $50 deposit'. Leave blank for a standard draft."
+            className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#d7e0ea] rounded-lg focus:outline-none focus:border-[#15B7AE] resize-none"
+          />
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={() => generateDraft(pending, note)} disabled={busy}
+              className="px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+              {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Generate draft
+            </button>
+            <span className="text-[10px] text-[#8595a8]">⌘/Ctrl+Enter to generate</span>
+          </div>
+        </div>
+      )}
 
       <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex gap-2">
         <input
