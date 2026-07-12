@@ -101,3 +101,126 @@ SELECT
   data->>'Source'        AS source
 FROM deposits
 WHERE coalesce(data->>'Business Name','') <> '';
+
+-- Resolve each deposit to ITS lead's current pipeline stage (deposit-linked),
+-- so "served" means "this deposit's lead reached Session Done / 5-Star" rather
+-- than a pipeline-wide count of unrelated opportunities. Match path:
+-- deposit -> client (business name) -> contact (email, else name) ->
+-- opportunity (contact_id) -> stage. Furthest-along stage wins per deposit.
+CREATE OR REPLACE VIEW ppa_deposit_stage AS
+SELECT DISTINCT ON (r.appt_id)
+  r.appt_id, r.biz_norm, cm.owner_key, m.stage_name, m.position,
+  (m.stage_name ~* 'session[[:space:]]*(done|complete)')               AS is_session_done,
+  (m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review') AS is_five_star
+FROM ppa_deposit_rows r
+JOIN (
+  SELECT lower(regexp_replace(coalesce(data->>'Business Name',''), '[^a-zA-Z0-9]', '', 'g')) AS biz_norm,
+         lower(trim(data->>'Owner Full Name')) AS owner_key
+  FROM clients_master WHERE coalesce(data->>'Business Name','') <> ''
+) cm ON cm.biz_norm = r.biz_norm
+LEFT JOIN ghl_contacts c ON c.owner_key = cm.owner_key AND (
+  (nullif(lower(trim(r.email)),'') IS NOT NULL AND lower(c.email) = lower(trim(r.email)))
+  OR (nullif(lower(trim(r.email)),'') IS NULL AND c.contact_name IS NOT NULL
+      AND lower(trim(c.contact_name)) = lower(trim(coalesce(r.contact_name,''))))
+)
+LEFT JOIN ghl_opportunities o ON o.owner_key = cm.owner_key AND o.contact_id = c.id
+LEFT JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+ORDER BY r.appt_id, m.position DESC NULLS LAST;
+
+-- Per-client deposit-linked stage counts.
+CREATE OR REPLACE VIEW ppa_deposit_stage_counts AS
+SELECT owner_key,
+  count(*)                                                AS deposits_matched,
+  count(*) FILTER (WHERE stage_name IS NOT NULL)          AS deposits_in_pipeline,
+  count(*) FILTER (WHERE is_session_done)                 AS dep_session_done,
+  count(*) FILTER (WHERE is_five_star)                    AS dep_five_star,
+  count(*) FILTER (WHERE is_session_done OR is_five_star) AS dep_served,
+  count(*) FILTER (WHERE position = 0)                    AS dep_first_stage
+FROM ppa_deposit_stage
+GROUP BY owner_key;
+
+-- ── Appointment / time-awareness (migrations v3_ppa_appointments + _status) ──
+-- GHL calendar appointments for deposit leads (via /contacts/{id}/appointments).
+CREATE TABLE IF NOT EXISTS ghl_appointments (
+  id          TEXT PRIMARY KEY,
+  location_id TEXT, owner_key TEXT, contact_id TEXT, calendar_id TEXT,
+  start_time  TIMESTAMPTZ, end_time TIMESTAMPTZ, status TEXT, title TEXT,
+  raw         JSONB, synced_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ghl_appointments_contact_idx ON ghl_appointments (contact_id);
+CREATE INDEX IF NOT EXISTS ghl_appointments_owner_idx ON ghl_appointments (owner_key);
+ALTER TABLE ghl_appointments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Appointments read" ON ghl_appointments FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Appointments admin write" ON ghl_appointments FOR ALL TO authenticated
+  USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+
+-- Deposit leads' contact ids (the set of contacts to pull appointments for).
+CREATE OR REPLACE VIEW ppa_deposit_contacts AS
+SELECT DISTINCT c.id AS contact_id, c.location_id, cm.owner_key
+FROM ppa_deposit_rows r
+JOIN (
+  SELECT lower(regexp_replace(coalesce(data->>'Business Name',''), '[^a-zA-Z0-9]', '', 'g')) AS biz_norm,
+         lower(trim(data->>'Owner Full Name')) AS owner_key
+  FROM clients_master WHERE coalesce(data->>'Business Name','') <> ''
+) cm ON cm.biz_norm = r.biz_norm
+JOIN ghl_contacts c ON c.owner_key = cm.owner_key AND (
+  (nullif(lower(trim(r.email)),'') IS NOT NULL AND lower(c.email) = lower(trim(r.email)))
+  OR (nullif(lower(trim(r.email)),'') IS NULL AND c.contact_name IS NOT NULL
+      AND lower(trim(c.contact_name)) = lower(trim(coalesce(r.contact_name,''))))
+);
+
+-- Each deposit -> its lead's latest appointment.
+CREATE OR REPLACE VIEW ppa_deposit_appointment AS
+SELECT DISTINCT ON (r.appt_id)
+  r.appt_id, cm.owner_key, a.start_time, a.status AS appt_status, a.title
+FROM ppa_deposit_rows r
+JOIN (
+  SELECT lower(regexp_replace(coalesce(data->>'Business Name',''), '[^a-zA-Z0-9]', '', 'g')) AS biz_norm,
+         lower(trim(data->>'Owner Full Name')) AS owner_key
+  FROM clients_master WHERE coalesce(data->>'Business Name','') <> ''
+) cm ON cm.biz_norm = r.biz_norm
+JOIN ghl_contacts c ON c.owner_key = cm.owner_key AND (
+  (nullif(lower(trim(r.email)),'') IS NOT NULL AND lower(c.email) = lower(trim(r.email)))
+  OR (nullif(lower(trim(r.email)),'') IS NULL AND c.contact_name IS NOT NULL
+      AND lower(trim(c.contact_name)) = lower(trim(coalesce(r.contact_name,''))))
+)
+JOIN ghl_appointments a ON a.contact_id = c.id
+ORDER BY r.appt_id, a.start_time DESC NULLS LAST;
+
+-- Per-deposit billing view with a computed charge status.
+CREATE OR REPLACE VIEW ppa_deposit_billing AS
+SELECT DISTINCT ON (r.appt_id)
+  r.appt_id, cm.owner_key, s.stage_name,
+  coalesce(s.is_session_done, false) AS is_session_done,
+  coalesce(s.is_five_star, false)    AS is_five_star,
+  s.position, ap.start_time, ap.appt_status,
+  CASE
+    WHEN coalesce(s.is_session_done,false) OR coalesce(s.is_five_star,false) THEN 'served'
+    WHEN ap.start_time IS NOT NULL AND lower(coalesce(ap.appt_status,'')) ~ 'cancel|noshow|no-show|invalid' THEN 'noshow'
+    WHEN ap.start_time IS NOT NULL AND ap.start_time > now() THEN 'upcoming'
+    WHEN ap.start_time IS NOT NULL AND ap.start_time <= now() THEN 'past_due'
+    ELSE 'no_appt'
+  END AS charge_status
+FROM ppa_deposit_rows r
+JOIN (
+  SELECT lower(regexp_replace(coalesce(data->>'Business Name',''), '[^a-zA-Z0-9]', '', 'g')) AS biz_norm,
+         lower(trim(data->>'Owner Full Name')) AS owner_key
+  FROM clients_master WHERE coalesce(data->>'Business Name','') <> ''
+) cm ON cm.biz_norm = r.biz_norm
+LEFT JOIN ppa_deposit_stage s ON s.appt_id = r.appt_id
+LEFT JOIN ppa_deposit_appointment ap ON ap.appt_id = r.appt_id
+ORDER BY r.appt_id, ap.start_time DESC NULLS LAST;
+
+-- Per-client billing summary — drives the "who to charge this week" worklist.
+CREATE OR REPLACE VIEW ppa_billing_summary AS
+SELECT b.owner_key,
+  count(*) FILTER (WHERE b.charge_status='served')   AS served,
+  count(*) FILTER (WHERE b.charge_status='past_due') AS past_due,
+  count(*) FILTER (WHERE b.charge_status='upcoming') AS upcoming,
+  count(*) FILTER (WHERE b.charge_status='noshow')   AS noshow,
+  count(*) FILTER (WHERE b.charge_status='no_appt')  AS no_appt,
+  count(*) FILTER (WHERE b.charge_status IN ('served','past_due') AND coalesce(ch.charged,false)=false) AS ready_to_charge,
+  count(*) FILTER (WHERE coalesce(ch.charged,false)) AS charged_count
+FROM ppa_deposit_billing b
+LEFT JOIN ppa_charges ch ON ch.appt_id = b.appt_id
+GROUP BY b.owner_key;

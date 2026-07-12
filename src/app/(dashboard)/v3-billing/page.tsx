@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign } from "lucide-react";
+import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
@@ -8,29 +8,36 @@ interface ClientRow {
   ownerKey: string; ownerName: string; business: string; status: string; version: string;
   isPpa: boolean; fee: number; note: string | null;
   deposits: number; depositTotal: number;
-  served: number; sessionDone: number; fiveStar: number; firstStage: number;
-  totalOpps: number; unmapped: number; organized: boolean;
-  chargedCount: number; chargedAmount: number;
-  suggestedOwed: number; outstandingCount: number;
+  served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number;
+  readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number;
 }
 interface Appt {
   apptId: string; contactName: string | null; email: string | null; depositDate: string | null;
   amount: string | null; status: string | null; notes: string | null; source: string | null;
-  charged: boolean; chargedAmount: number | null; chargedAt: string | null;
+  currentStage: string | null; appointmentDate: string | null; appointmentStatus: string | null;
+  chargeStatus: string; charged: boolean; chargedAmount: number | null; chargedAt: string | null;
   chargedBy: string | null; chargeNote: string | null;
 }
 interface Drill {
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
-  stageSummary: { totalOpps: number; sessionDone: number; fiveStar: number; served: number; depositStage: number; firstStage: number; unmapped: number };
+  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; readyToCharge: number };
   appointments: Appt[];
 }
+
+const CS: Record<string, { label: string; cls: string }> = {
+  served:   { label: "Served",       cls: "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]" },
+  past_due: { label: "Past due",     cls: "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]" },
+  upcoming: { label: "Upcoming",     cls: "bg-[#eef4ff] text-[#3b6fd4] border-[#c9dbfb]" },
+  noshow:   { label: "No-show",      cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]" },
+  no_appt:  { label: "No appt",      cls: "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]" },
+};
+const isReady = (a: Appt) => !a.charged && (a.chargeStatus === "served" || a.chargeStatus === "past_due");
 
 function money(n: number): string {
   return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });
 }
 function fmtDate(d: string | null): string {
   if (!d) return "—";
-  // Deposit dates are mixed ISO / DD-MM-YYYY text — show as-is if unparseable.
   const dt = new Date(d);
   return isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
@@ -57,7 +64,6 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   const toggleCharge = async (a: Appt, charged: boolean) => {
     if (!drill) return;
     setBusy((b) => new Set(b).add(a.apptId));
-    // optimistic
     setDrill({ ...drill, appointments: drill.appointments.map((x) => x.apptId === a.apptId ? { ...x, charged, chargedAmount: charged ? client.fee : null } : x) });
     try {
       const res = await fetch("/api/ppa/charge", {
@@ -73,37 +79,36 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
     }
   };
 
-  const chargeAllUncharged = async () => {
+  const chargeAllReady = async () => {
     if (!drill) return;
-    const targets = drill.appointments.filter((a) => !a.charged);
-    for (const a of targets) await toggleCharge(a, true);
+    for (const a of drill.appointments.filter(isReady)) await toggleCharge(a, true);
   };
 
   if (loading) return <div className="flex items-center gap-2 text-xs text-[#697a91] py-6 justify-center"><Loader2 size={13} className="animate-spin" /> Loading appointments…</div>;
   if (error) return <div className="text-xs text-[#e11d48] py-4 text-center">{error}</div>;
   if (!drill) return null;
 
-  const s = drill.stageSummary;
-  const uncharged = drill.appointments.filter((a) => !a.charged).length;
+  const s = drill.summary;
+  const readyCount = drill.appointments.filter(isReady).length;
 
   return (
     <div className="space-y-3 pt-1">
-      {/* Pipeline snapshot — did they organize their dashboard? */}
+      {/* Deposit-linked snapshot */}
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-        <span className="text-[#8595a8]">Pipeline:</span>
-        <Pill label="Session Done" value={s.sessionDone} tone="green" />
-        <Pill label="5-Star" value={s.fiveStar} tone="green" />
-        <Pill label="Stuck in first stage" value={s.firstStage} tone={s.firstStage > s.served ? "amber" : "gray"} />
-        <Pill label="Total leads" value={s.totalOpps} tone="gray" />
-        {s.unmapped > 0 && <span className="text-[10px] text-[#b9c3d0]">({s.unmapped} stage names pending sync)</span>}
+        <span className="text-[#8595a8]">These deposits:</span>
+        <Pill label="Served" value={s.served} tone="green" />
+        <Pill label="Past due" value={s.pastDue} tone={s.pastDue > 0 ? "amber" : "gray"} />
+        <Pill label="Upcoming" value={s.upcoming} tone="gray" />
+        {s.noshow > 0 && <Pill label="No-show" value={s.noshow} tone="gray" />}
+        {s.noAppt > 0 && <Pill label="No appt booked" value={s.noAppt} tone="gray" />}
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-[#697a91]">{drill.appointments.length} deposit{drill.appointments.length === 1 ? "" : "s"} (appointments) · {uncharged} not charged</span>
-        {uncharged > 0 && (
-          <button onClick={chargeAllUncharged}
+        <span className="text-[11px] text-[#697a91]">{drill.appointments.length} deposit{drill.appointments.length === 1 ? "" : "s"} · <strong className="text-[#0e8f88]">{readyCount} ready to charge</strong></span>
+        {readyCount > 0 && (
+          <button onClick={chargeAllReady}
             className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#e6f7f5] hover:bg-[#d6f0ed] text-[#0e8f88] border border-[#a7e3df]">
-            <Check size={11} /> Charge all uncharged ({money(uncharged * client.fee)})
+            <Check size={11} /> Charge all ready ({money(readyCount * client.fee)})
           </button>
         )}
       </div>
@@ -117,32 +122,46 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-[#e4ebf2] bg-[#f8fafc]">
-                {["Contact", "Deposit date", "Deposit", "Status", "Charged?"].map((h) => (
+                {["Contact", "Deposit", "Appt date", "Stage", "Status", "Charged?"].map((h) => (
                   <th key={h} className="px-2.5 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {drill.appointments.map((a, i) => (
-                <tr key={a.apptId} className={cn("border-b border-[#eef3f8]", a.charged ? "bg-[#f2fbf9]" : i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
-                  <td className="px-2.5 py-1.5">
-                    <div className="font-medium text-[#1f3559]">{a.contactName || "—"}</div>
-                    {a.email && <div className="text-[10px] text-[#8595a8]">{a.email}</div>}
-                  </td>
-                  <td className="px-2.5 py-1.5 text-[#697a91] whitespace-nowrap">{fmtDate(a.depositDate)}</td>
-                  <td className="px-2.5 py-1.5 text-[#0e8f88] font-semibold whitespace-nowrap">{a.amount ? (a.amount.startsWith("$") ? a.amount : "$" + a.amount) : "—"}</td>
-                  <td className="px-2.5 py-1.5 text-[#697a91]">{a.status || "—"}</td>
-                  <td className="px-2.5 py-1.5">
-                    <button onClick={() => toggleCharge(a, !a.charged)} disabled={busy.has(a.apptId)}
-                      className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors",
-                        a.charged ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]" : "bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]")}>
-                      {busy.has(a.apptId) ? <Loader2 size={11} className="animate-spin" /> : a.charged ? <Check size={11} /> : <DollarSign size={11} />}
-                      {a.charged ? `Charged ${a.chargedAmount != null ? money(a.chargedAmount) : ""}` : "Mark charged"}
-                    </button>
-                    {a.charged && a.chargedBy && <div className="text-[9px] text-[#a6b3c4] mt-0.5">by {a.chargedBy}</div>}
-                  </td>
-                </tr>
-              ))}
+              {drill.appointments.map((a, i) => {
+                const ready = isReady(a);
+                const cs = CS[a.chargeStatus] ?? CS.no_appt;
+                return (
+                  <tr key={a.apptId} className={cn("border-b border-[#eef3f8]", a.charged ? "bg-[#f2fbf9]" : ready ? "bg-[#fffdf5]" : i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
+                    <td className="px-2.5 py-1.5">
+                      <div className="font-medium text-[#1f3559]">{a.contactName || "—"}</div>
+                      {a.email && <div className="text-[10px] text-[#8595a8]">{a.email}</div>}
+                    </td>
+                    <td className="px-2.5 py-1.5 whitespace-nowrap">
+                      <span className="text-[#0e8f88] font-semibold">{a.amount ? (a.amount.startsWith("$") ? a.amount : "$" + a.amount) : "—"}</span>
+                      <div className="text-[10px] text-[#a6b3c4]">{fmtDate(a.depositDate)}</div>
+                    </td>
+                    <td className="px-2.5 py-1.5 text-[#697a91] whitespace-nowrap">{fmtDate(a.appointmentDate)}</td>
+                    <td className="px-2.5 py-1.5 whitespace-nowrap">
+                      {a.currentStage ? <span className="text-[#697a91]">{a.currentStage}</span> : <span className="text-[10px] text-[#b9c3d0]">no lead match</span>}
+                    </td>
+                    <td className="px-2.5 py-1.5">
+                      <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap", cs.cls)}>{cs.label}</span>
+                    </td>
+                    <td className="px-2.5 py-1.5">
+                      <button onClick={() => toggleCharge(a, !a.charged)} disabled={busy.has(a.apptId)}
+                        className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors",
+                          a.charged ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]"
+                            : ready ? "bg-white text-[#0e8f88] border-[#a7e3df] hover:bg-[#e6f7f5]"
+                            : "bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]")}>
+                        {busy.has(a.apptId) ? <Loader2 size={11} className="animate-spin" /> : a.charged ? <Check size={11} /> : <DollarSign size={11} />}
+                        {a.charged ? `Charged ${a.chargedAmount != null ? money(a.chargedAmount) : ""}` : "Mark charged"}
+                      </button>
+                      {a.charged && a.chargedBy && <div className="text-[9px] text-[#a6b3c4] mt-0.5">by {a.chargedBy}</div>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -151,7 +170,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   );
 }
 
-function Pill({ label, value, tone }: { label: string; value: number; tone: "green" | "amber" | "gray" }) {
+function Pill({ label, value, tone }: { label: string; value: number | string; tone: "green" | "amber" | "gray" }) {
   const c = tone === "green" ? "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]"
     : tone === "amber" ? "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
     : "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]";
@@ -159,26 +178,22 @@ function Pill({ label, value, tone }: { label: string; value: number; tone: "gre
 }
 
 // ── Client card ──────────────────────────────────────────────────────────────
-function ClientCard({ c, onChange }: { c: ClientRow; onChange: () => void }) {
-  const [open, setOpen] = useState(false);
+function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () => void; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(!!defaultOpen);
   const [fee, setFee] = useState(String(c.fee));
   const [savingCfg, setSavingCfg] = useState(false);
-
   useEffect(() => { setFee(String(c.fee)); }, [c.fee]);
 
   const saveConfig = async (patch: { is_ppa?: boolean; fee?: number }) => {
     setSavingCfg(true);
     try {
-      await fetch("/api/ppa/config", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner_key: c.ownerKey, ...patch }),
-      });
+      await fetch("/api/ppa/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_key: c.ownerKey, ...patch }) });
       onChange();
     } finally { setSavingCfg(false); }
   };
 
   return (
-    <div className={cn("rounded-xl border bg-white", c.isPpa ? "border-[#a7e3df]" : "border-[#e4ebf2]")}>
+    <div className={cn("rounded-xl border bg-white", c.readyToCharge > 0 && c.isPpa ? "border-[#fcd9a8]" : c.isPpa ? "border-[#a7e3df]" : "border-[#e4ebf2]")}>
       <div className="flex items-center gap-3 p-3 flex-wrap">
         <button onClick={() => setOpen((o) => !o)} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
           {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -190,15 +205,11 @@ function ClientCard({ c, onChange }: { c: ClientRow; onChange: () => void }) {
           </div>
         </div>
 
-        {/* Pay-per-appointment toggle */}
         <label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
-          <input type="checkbox" checked={c.isPpa} disabled={savingCfg}
-            onChange={(e) => saveConfig({ is_ppa: e.target.checked })}
-            className="w-4 h-4 accent-[#15B7AE]" />
+          <input type="checkbox" checked={c.isPpa} disabled={savingCfg} onChange={(e) => saveConfig({ is_ppa: e.target.checked })} className="w-4 h-4 accent-[#15B7AE]" />
           <span className={cn("text-[11px] font-semibold", c.isPpa ? "text-[#0e8f88]" : "text-[#8595a8]")}>Pay-per-appt</span>
         </label>
 
-        {/* Fee */}
         <div className="flex items-center gap-1 shrink-0">
           <span className="text-[11px] text-[#8595a8]">Fee</span>
           <div className="relative">
@@ -209,12 +220,12 @@ function ClientCard({ c, onChange }: { c: ClientRow; onChange: () => void }) {
           </div>
         </div>
 
-        {/* Metrics */}
         <div className="flex items-center gap-3 text-center shrink-0">
           <Metric label="Deposits" value={c.deposits} sub="potential" />
-          <Metric label="Served" value={c.served} sub={c.organized ? "organized" : "not org."} tone={c.organized ? "green" : "amber"} />
-          <Metric label="Charged" value={`${c.chargedCount}`} sub={money(c.chargedAmount)} tone="teal" />
-          {c.isPpa && <Metric label="Outstanding" value={c.outstandingCount} sub={money(c.outstandingCount * c.fee)} tone={c.outstandingCount > 0 ? "amber" : "gray"} />}
+          <Metric label="Served" value={c.served} tone={c.served > 0 ? "green" : "gray"} />
+          <Metric label="Upcoming" value={c.upcoming} sub="future" tone="gray" />
+          <Metric label="Ready" value={c.readyToCharge} sub={c.isPpa ? money(c.readyOwed) : ""} tone={c.readyToCharge > 0 ? "amber" : "gray"} />
+          <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
         </div>
       </div>
 
@@ -235,7 +246,7 @@ function Metric({ label, value, sub, tone }: { label: string; value: string | nu
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
-type Filter = "all" | "ppa" | "unset";
+type Filter = "all" | "ppa" | "ready" | "unset";
 export default function V3BillingPage() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -258,18 +269,24 @@ export default function V3BillingPage() {
   useEffect(() => { load(); }, [load]);
 
   const totals = useMemo(() => {
-    const t = { v3: clients.length, ppa: 0, outstanding: 0, outstandingUsd: 0, chargedUsd: 0 };
+    const t = { v3: clients.length, ppa: 0, ready: 0, readyUsd: 0, chargedUsd: 0 };
     for (const c of clients) {
-      if (c.isPpa) { t.ppa++; t.outstanding += c.outstandingCount; t.outstandingUsd += c.outstandingCount * c.fee; }
+      if (c.isPpa) { t.ppa++; t.ready += c.readyToCharge; t.readyUsd += c.readyOwed; }
       t.chargedUsd += c.chargedAmount;
     }
     return t;
   }, [clients]);
 
+  // The Monday worklist — pay-per-appt clients with appointments ready to charge.
+  const worklist = useMemo(() =>
+    clients.filter((c) => c.isPpa && c.readyToCharge > 0).sort((a, b) => b.readyOwed - a.readyOwed),
+  [clients]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return clients.filter((c) => {
       if (filter === "ppa" && !c.isPpa) return false;
+      if (filter === "ready" && !(c.isPpa && c.readyToCharge > 0)) return false;
       if (filter === "unset" && c.isPpa) return false;
       if (q && !`${c.ownerName} ${c.business}`.toLowerCase().includes(q)) return false;
       return true;
@@ -281,18 +298,40 @@ export default function V3BillingPage() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">V3 Billing</h1>
-          <p className="text-sm text-[#697a91]">Pay-per-appointment tracking · deposits, served appointments &amp; what to charge each artist</p>
+          <p className="text-sm text-[#697a91]">Pay-per-appointment tracking · who to charge, and how much</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.v3} V3</span>
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df]">{totals.ppa} pay-per-appt</span>
-          {totals.outstanding > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">{totals.outstanding} to charge · {money(totals.outstandingUsd)}</span>}
           {totals.chargedUsd > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{money(totals.chargedUsd)} charged</span>}
           <button onClick={() => load(true)} disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh stages
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
           </button>
         </div>
+      </div>
+
+      {/* Monday worklist — who to charge this week */}
+      <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <CalendarClock size={15} className="text-[#d97706]" />
+          <h2 className="text-sm font-bold text-[#1f3559]">To charge</h2>
+          {totals.ready > 0
+            ? <span className="text-xs font-semibold text-[#d97706]">{totals.ready} appointment{totals.ready === 1 ? "" : "s"} · {money(totals.readyUsd)} across {worklist.length} client{worklist.length === 1 ? "" : "s"}</span>
+            : <span className="text-xs text-[#15803d] font-semibold">All caught up 🎉</span>}
+        </div>
+        {worklist.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {worklist.map((c) => (
+              <button key={c.ownerKey} onClick={() => { setFilter("ready"); setSearch(c.ownerName); }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-white border border-[#fcd9a8] hover:border-[#d97706]">
+                <span className="font-semibold text-[#1f3559]">{c.ownerName}</span>
+                <span className="text-[#d97706] font-bold">{c.readyToCharge}</span>
+                <span className="text-[#8595a8]">· {money(c.readyOwed)}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -304,6 +343,7 @@ export default function V3BillingPage() {
         <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}
           className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
           <option value="all">All V3 clients</option>
+          <option value="ready">Ready to charge</option>
           <option value="ppa">Pay-per-appt only</option>
           <option value="unset">Not pay-per-appt</option>
         </select>
@@ -312,12 +352,12 @@ export default function V3BillingPage() {
       {error ? (
         <div className="px-4 py-6 rounded-xl border border-[#e4ebf2] bg-white text-center text-sm text-[#e11d48]">{error}</div>
       ) : loading && clients.length === 0 ? (
-        <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center"><Loader2 size={15} className="animate-spin" /> Loading V3 clients &amp; resolving pipeline stages…</div>
+        <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center"><Loader2 size={15} className="animate-spin" /> Loading V3 clients, stages &amp; appointments…</div>
       ) : filtered.length === 0 ? (
         <div className="py-12 text-center text-[#8595a8]">No clients match.</div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((c) => <ClientCard key={c.ownerKey} c={c} onChange={() => load()} />)}
+          {filtered.map((c) => <ClientCard key={c.ownerKey} c={c} onChange={() => load()} defaultOpen={filter === "ready"} />)}
         </div>
       )}
     </div>
