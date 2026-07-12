@@ -339,26 +339,39 @@ async function mapWithConcurrency<I, O>(items: I[], limit: number, worker: (item
 export async function ingestAllV3(opts: IngestOpts = {}): Promise<{ accounts: number; stats: IngestStat[] }> {
   const accts = await getV3Accounts();
 
-  // Anchor each account's incremental window to its own last successful sync so
-  // an account that was down (broken token, app removed) backfills the entire
-  // gap the moment it's reachable again. Fixed-window incremental would silently
-  // lose every lead older than the window. Never synced → 30-day catch-up.
-  const DAY = 86400000;
-  const lastSuccessByOwner = new Map<string, number>();
-  if (opts.anchorToLastSuccess) {
-    const svc = createServiceClient();
-    const { data } = await svc.from("ghl_sync_status").select("owner_key, last_success_at");
-    for (const r of (data ?? []) as Array<{ owner_key: string; last_success_at: string | null }>) {
-      if (r.last_success_at) lastSuccessByOwner.set(r.owner_key, Date.parse(r.last_success_at));
-    }
+  if (!opts.anchorToLastSuccess) {
+    const stats = await mapWithConcurrency(accts, 4, (a) => ingestAccount(a, opts));
+    return { accounts: accts.length, stats };
   }
 
-  const stats = await mapWithConcurrency(accts, 4, (a) => {
-    if (!opts.anchorToLastSuccess) return ingestAccount(a, opts);
-    const last = lastSuccessByOwner.get(a.ownerKey);
-    // 1-day buffer so we re-check the boundary; wider page budget when the gap
-    // is large so a long outage's backlog actually gets pulled in.
-    const sinceMs = last ? last - DAY : Date.now() - 30 * DAY;
+  // Per-account incremental, anchored to each account's own last sync so a
+  // recovered account backfills its whole outage (a fixed window would lose
+  // every lead older than it). Two sources: last CLEAN sync (ghl_sync_status)
+  // and last contact upsert (so an already-current account gets a small window
+  // instead of a heavy catch-up). Never synced at all → 30-day catch-up.
+  const DAY = 86400000;
+  const svc = createServiceClient();
+  const [stRes, csRes] = await Promise.all([
+    svc.from("ghl_sync_status").select("owner_key, last_success_at"),
+    svc.from("ghl_owner_last_sync").select("owner_key, last_contact_sync"),
+  ]);
+  const anchorByOwner = new Map<string, number>();
+  const bump = (k: string, t: number) => { if (t && t > (anchorByOwner.get(k) ?? 0)) anchorByOwner.set(k, t); };
+  for (const r of (stRes.data ?? []) as Array<{ owner_key: string; last_success_at: string | null }>)
+    if (r.last_success_at) bump(r.owner_key, Date.parse(r.last_success_at));
+  for (const r of (csRes.data ?? []) as Array<{ owner_key: string; last_contact_sync: string | null }>)
+    if (r.last_contact_sync) bump(r.owner_key, Date.parse(r.last_contact_sync));
+
+  // STALEST FIRST. A single cron invocation may not finish every account within
+  // the platform's time limit; syncing the most-overdue accounts first means a
+  // timeout only skips the *freshest* accounts (caught next run) — no account
+  // can be perpetually starved, however many V2.3/V3 clients we add.
+  const anchorOf = (a: V3Account) => anchorByOwner.get(a.ownerKey) ?? 0; // 0 = never synced → highest priority
+  const ordered = [...accts].sort((x, y) => anchorOf(x) - anchorOf(y));
+
+  const stats = await mapWithConcurrency(ordered, 4, (a) => {
+    const last = anchorByOwner.get(a.ownerKey);
+    const sinceMs = last ? last - DAY : Date.now() - 30 * DAY; // 1-day boundary buffer
     const gapDays = (Date.now() - sinceMs) / DAY;
     const maxPages = gapDays > 4 ? MAX_PAGES : (opts.maxPages ?? MAX_PAGES);
     return ingestAccount(a, { ...opts, sinceMs, maxPages });
