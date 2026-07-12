@@ -34,10 +34,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ timestamp: new Date().toISOString(), accounts: accts.length, stats, refreshError });
   }
 
-  // Default = incremental "recent only" (fast, fits the daily cron).
+  // Default = incremental, but the window is anchored PER ACCOUNT to its own
+  // last successful sync (ghl_sync_status), so an account that was down
+  // backfills its whole outage the moment it's reachable again — a fixed
+  // look-back would permanently lose every lead older than the window.
   // ?full=1 does the heavy full-history backfill (run manually).
   const full = req.nextUrl.searchParams.get("full") === "1";
-  const opts = full ? {} : { sinceMs: Date.now() - 3 * 86400000, maxPages: 8 };
+  const opts = full ? {} : { anchorToLastSuccess: true, maxPages: 8 };
   const result = await ingestAllV3(opts);
   const refreshError = await refreshBookingStats();
   return NextResponse.json({ timestamp: new Date().toISOString(), mode: full ? "full" : "incremental", refreshError, ...result });

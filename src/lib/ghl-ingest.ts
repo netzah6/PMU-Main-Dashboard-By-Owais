@@ -170,7 +170,15 @@ async function getLocationToken(acct: V3Account): Promise<{ token?: string; erro
 const MAX_PAGES = 30; // safety cap per resource per account (~3000 records)
 
 export interface IngestStat { ownerKey: string; contacts: number; conversations: number; opportunities: number; error?: string }
-export interface IngestOpts { sinceMs?: number; maxPages?: number; skipOpps?: boolean }
+export interface IngestOpts {
+  sinceMs?: number;
+  maxPages?: number;
+  skipOpps?: boolean;
+  // Per-account incremental window anchored to each account's last clean sync
+  // (from ghl_sync_status), so a recovered account backfills its whole outage
+  // instead of only the last few days — no lead is permanently lost.
+  anchorToLastSuccess?: boolean;
+}
 
 export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Promise<IngestStat> {
   const supabase = createServiceClient();
@@ -330,6 +338,30 @@ async function mapWithConcurrency<I, O>(items: I[], limit: number, worker: (item
 
 export async function ingestAllV3(opts: IngestOpts = {}): Promise<{ accounts: number; stats: IngestStat[] }> {
   const accts = await getV3Accounts();
-  const stats = await mapWithConcurrency(accts, 4, (a) => ingestAccount(a, opts));
+
+  // Anchor each account's incremental window to its own last successful sync so
+  // an account that was down (broken token, app removed) backfills the entire
+  // gap the moment it's reachable again. Fixed-window incremental would silently
+  // lose every lead older than the window. Never synced → 30-day catch-up.
+  const DAY = 86400000;
+  const lastSuccessByOwner = new Map<string, number>();
+  if (opts.anchorToLastSuccess) {
+    const svc = createServiceClient();
+    const { data } = await svc.from("ghl_sync_status").select("owner_key, last_success_at");
+    for (const r of (data ?? []) as Array<{ owner_key: string; last_success_at: string | null }>) {
+      if (r.last_success_at) lastSuccessByOwner.set(r.owner_key, Date.parse(r.last_success_at));
+    }
+  }
+
+  const stats = await mapWithConcurrency(accts, 4, (a) => {
+    if (!opts.anchorToLastSuccess) return ingestAccount(a, opts);
+    const last = lastSuccessByOwner.get(a.ownerKey);
+    // 1-day buffer so we re-check the boundary; wider page budget when the gap
+    // is large so a long outage's backlog actually gets pulled in.
+    const sinceMs = last ? last - DAY : Date.now() - 30 * DAY;
+    const gapDays = (Date.now() - sinceMs) / DAY;
+    const maxPages = gapDays > 4 ? MAX_PAGES : (opts.maxPages ?? MAX_PAGES);
+    return ingestAccount(a, { ...opts, sinceMs, maxPages });
+  });
   return { accounts: accts.length, stats };
 }
