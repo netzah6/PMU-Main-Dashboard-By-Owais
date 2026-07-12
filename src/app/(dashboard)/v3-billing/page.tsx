@@ -8,20 +8,21 @@ interface ClientRow {
   ownerKey: string; ownerName: string; business: string; status: string; version: string;
   isPpa: boolean; fee: number; note: string | null;
   deposits: number; depositTotal: number;
-  served: number; sessionDone: number; fiveStar: number; firstStage: number;
-  totalOpps: number; unmapped: number; organized: boolean;
+  served: number; sessionDone: number; fiveStar: number; stuck: number;
+  inPipeline: number; organized: boolean;
   chargedCount: number; chargedAmount: number;
   suggestedOwed: number; outstandingCount: number;
 }
 interface Appt {
   apptId: string; contactName: string | null; email: string | null; depositDate: string | null;
   amount: string | null; status: string | null; notes: string | null; source: string | null;
+  currentStage: string | null; isServed: boolean;
   charged: boolean; chargedAmount: number | null; chargedAt: string | null;
   chargedBy: string | null; chargeNote: string | null;
 }
 interface Drill {
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
-  stageSummary: { totalOpps: number; sessionDone: number; fiveStar: number; served: number; depositStage: number; firstStage: number; unmapped: number };
+  summary: { deposits: number; inPipeline: number; served: number; stuck: number; unmatched: number };
   appointments: Appt[];
 }
 
@@ -83,19 +84,18 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   if (error) return <div className="text-xs text-[#e11d48] py-4 text-center">{error}</div>;
   if (!drill) return null;
 
-  const s = drill.stageSummary;
+  const s = drill.summary;
   const uncharged = drill.appointments.filter((a) => !a.charged).length;
 
   return (
     <div className="space-y-3 pt-1">
-      {/* Pipeline snapshot — did they organize their dashboard? */}
+      {/* Deposit-linked snapshot — how far did THESE deposits' leads get? */}
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-        <span className="text-[#8595a8]">Pipeline:</span>
-        <Pill label="Session Done" value={s.sessionDone} tone="green" />
-        <Pill label="5-Star" value={s.fiveStar} tone="green" />
-        <Pill label="Stuck in first stage" value={s.firstStage} tone={s.firstStage > s.served ? "amber" : "gray"} />
-        <Pill label="Total leads" value={s.totalOpps} tone="gray" />
-        {s.unmapped > 0 && <span className="text-[10px] text-[#b9c3d0]">({s.unmapped} stage names pending sync)</span>}
+        <span className="text-[#8595a8]">These deposits:</span>
+        <Pill label="Served (Session Done / 5★)" value={s.served} tone="green" />
+        <Pill label="Still in first stage" value={s.stuck} tone={s.stuck > 0 ? "amber" : "gray"} />
+        <Pill label="Matched to pipeline" value={`${s.inPipeline}/${s.deposits}`} tone="gray" />
+        {s.unmatched > 0 && <span className="text-[10px] text-[#b9c3d0]">({s.unmatched} not matched to a lead)</span>}
       </div>
 
       <div className="flex items-center justify-between gap-2">
@@ -117,7 +117,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-[#e4ebf2] bg-[#f8fafc]">
-                {["Contact", "Deposit date", "Deposit", "Status", "Charged?"].map((h) => (
+                {["Contact", "Deposit date", "Deposit", "Current stage", "Charged?"].map((h) => (
                   <th key={h} className="px-2.5 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -131,7 +131,11 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                   </td>
                   <td className="px-2.5 py-1.5 text-[#697a91] whitespace-nowrap">{fmtDate(a.depositDate)}</td>
                   <td className="px-2.5 py-1.5 text-[#0e8f88] font-semibold whitespace-nowrap">{a.amount ? (a.amount.startsWith("$") ? a.amount : "$" + a.amount) : "—"}</td>
-                  <td className="px-2.5 py-1.5 text-[#697a91]">{a.status || "—"}</td>
+                  <td className="px-2.5 py-1.5 whitespace-nowrap">
+                    {a.currentStage
+                      ? <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold border", a.isServed ? "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]" : "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]")}>{a.currentStage}</span>
+                      : <span className="text-[10px] text-[#b9c3d0]">no lead match</span>}
+                  </td>
                   <td className="px-2.5 py-1.5">
                     <button onClick={() => toggleCharge(a, !a.charged)} disabled={busy.has(a.apptId)}
                       className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors",
@@ -151,7 +155,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   );
 }
 
-function Pill({ label, value, tone }: { label: string; value: number; tone: "green" | "amber" | "gray" }) {
+function Pill({ label, value, tone }: { label: string; value: number | string; tone: "green" | "amber" | "gray" }) {
   const c = tone === "green" ? "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]"
     : tone === "amber" ? "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
     : "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]";
@@ -209,10 +213,11 @@ function ClientCard({ c, onChange }: { c: ClientRow; onChange: () => void }) {
           </div>
         </div>
 
-        {/* Metrics */}
+        {/* Metrics — all deposit-linked */}
         <div className="flex items-center gap-3 text-center shrink-0">
           <Metric label="Deposits" value={c.deposits} sub="potential" />
-          <Metric label="Served" value={c.served} sub={c.organized ? "organized" : "not org."} tone={c.organized ? "green" : "amber"} />
+          <Metric label="Served" value={c.served} sub={`of ${c.inPipeline} matched`} tone={c.served > 0 ? "green" : "gray"} />
+          <Metric label="Stuck" value={c.stuck} sub="1st stage" tone={c.stuck > 0 ? "amber" : "gray"} />
           <Metric label="Charged" value={`${c.chargedCount}`} sub={money(c.chargedAmount)} tone="teal" />
           {c.isPpa && <Metric label="Outstanding" value={c.outstandingCount} sub={money(c.outstandingCount * c.fee)} tone={c.outstandingCount > 0 ? "amber" : "gray"} />}
         </div>

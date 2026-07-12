@@ -101,3 +101,40 @@ SELECT
   data->>'Source'        AS source
 FROM deposits
 WHERE coalesce(data->>'Business Name','') <> '';
+
+-- Resolve each deposit to ITS lead's current pipeline stage (deposit-linked),
+-- so "served" means "this deposit's lead reached Session Done / 5-Star" rather
+-- than a pipeline-wide count of unrelated opportunities. Match path:
+-- deposit -> client (business name) -> contact (email, else name) ->
+-- opportunity (contact_id) -> stage. Furthest-along stage wins per deposit.
+CREATE OR REPLACE VIEW ppa_deposit_stage AS
+SELECT DISTINCT ON (r.appt_id)
+  r.appt_id, r.biz_norm, cm.owner_key, m.stage_name, m.position,
+  (m.stage_name ~* 'session[[:space:]]*(done|complete)')               AS is_session_done,
+  (m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review') AS is_five_star
+FROM ppa_deposit_rows r
+JOIN (
+  SELECT lower(regexp_replace(coalesce(data->>'Business Name',''), '[^a-zA-Z0-9]', '', 'g')) AS biz_norm,
+         lower(trim(data->>'Owner Full Name')) AS owner_key
+  FROM clients_master WHERE coalesce(data->>'Business Name','') <> ''
+) cm ON cm.biz_norm = r.biz_norm
+LEFT JOIN ghl_contacts c ON c.owner_key = cm.owner_key AND (
+  (nullif(lower(trim(r.email)),'') IS NOT NULL AND lower(c.email) = lower(trim(r.email)))
+  OR (nullif(lower(trim(r.email)),'') IS NULL AND c.contact_name IS NOT NULL
+      AND lower(trim(c.contact_name)) = lower(trim(coalesce(r.contact_name,''))))
+)
+LEFT JOIN ghl_opportunities o ON o.owner_key = cm.owner_key AND o.contact_id = c.id
+LEFT JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+ORDER BY r.appt_id, m.position DESC NULLS LAST;
+
+-- Per-client deposit-linked stage counts.
+CREATE OR REPLACE VIEW ppa_deposit_stage_counts AS
+SELECT owner_key,
+  count(*)                                                AS deposits_matched,
+  count(*) FILTER (WHERE stage_name IS NOT NULL)          AS deposits_in_pipeline,
+  count(*) FILTER (WHERE is_session_done)                 AS dep_session_done,
+  count(*) FILTER (WHERE is_five_star)                    AS dep_five_star,
+  count(*) FILTER (WHERE is_session_done OR is_five_star) AS dep_served,
+  count(*) FILTER (WHERE position = 0)                    AS dep_first_stage
+FROM ppa_deposit_stage
+GROUP BY owner_key;

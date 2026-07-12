@@ -4,14 +4,15 @@ import { getAuth, getV3Roster, warmStageMap } from "@/lib/ppa";
 
 export const maxDuration = 300;
 
-// V3 pay-per-appointment billing overview — one row per V3 client with deposit
-// counts (potential appointments), pipeline stage context (served / organized),
-// their fee config, and how much has been charged so far. Admin only.
+// V3 pay-per-appointment billing overview — one row per V3 client. "Served" and
+// "stuck" are DEPOSIT-LINKED: each deposit is resolved to its own lead's current
+// pipeline stage, so the numbers describe the deposits shown, not unrelated
+// opportunities elsewhere in the pipeline. Admin only.
 
-type StageRow = {
-  owner_key: string; location_id: string | null; total_opps: number;
-  session_done: number; five_star: number; deposit_stage: number;
-  first_stage: number; unmapped: number;
+type LocRow = { owner_key: string; location_id: string | null };
+type DepStageRow = {
+  owner_key: string; deposits_matched: number; deposits_in_pipeline: number;
+  dep_session_done: number; dep_five_star: number; dep_served: number; dep_first_stage: number;
 };
 
 export async function GET(req: NextRequest) {
@@ -24,22 +25,21 @@ export async function GET(req: NextRequest) {
   const ownerKeys = roster.map((c) => c.ownerKey);
   const bizNorms = roster.map((c) => c.bizNorm).filter(Boolean);
 
-  // Stage counts (pass 1) → discover each client's location, then warm the cache.
-  const { data: pre } = await svc.from("ppa_stage_counts").select("*").in("owner_key", ownerKeys);
-  const locations = ((pre ?? []) as StageRow[]).map((r) => r.location_id).filter(Boolean) as string[];
+  // Discover each client's location (to warm the stage-name cache).
+  const { data: locs } = await svc.from("ppa_stage_counts").select("owner_key, location_id").in("owner_key", ownerKeys);
+  const locations = ((locs ?? []) as LocRow[]).map((r) => r.location_id).filter(Boolean) as string[];
   const refresh = req.nextUrl.searchParams.get("refresh") === "1";
   await warmStageMap(locations, refresh);
 
-  // Re-read everything now that stage names are cached.
-  const [stageRes, depRes, cfgRes, chgRes] = await Promise.all([
-    svc.from("ppa_stage_counts").select("*").in("owner_key", ownerKeys),
+  const [depStageRes, depRes, cfgRes, chgRes] = await Promise.all([
+    svc.from("ppa_deposit_stage_counts").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("owner_key, charged, amount").in("owner_key", ownerKeys),
   ]);
 
-  const stageBy = new Map<string, StageRow>();
-  for (const r of (stageRes.data ?? []) as StageRow[]) stageBy.set(r.owner_key, r);
+  const depStageBy = new Map<string, DepStageRow>();
+  for (const r of (depStageRes.data ?? []) as DepStageRow[]) depStageBy.set(r.owner_key, r);
 
   const depBy = new Map<string, { deposits: number; deposit_total: number }>();
   for (const r of (depRes.data ?? []) as Array<{ biz_norm: string; deposits: number; deposit_total: number }>)
@@ -59,19 +59,16 @@ export async function GET(req: NextRequest) {
   }
 
   const clients = roster.map((c) => {
-    const s = stageBy.get(c.ownerKey);
+    const ds = depStageBy.get(c.ownerKey);
     const dep = depBy.get(c.bizNorm) ?? { deposits: 0, deposit_total: 0 };
     const cfg = cfgBy.get(c.ownerKey) ?? { is_ppa: false, fee_per_appt: 30, note: null };
     const chg = chgBy.get(c.ownerKey) ?? { count: 0, amount: 0 };
-    const sessionDone = s?.session_done ?? 0;
-    const fiveStar = s?.five_star ?? 0;
-    const served = sessionDone + fiveStar;
-    const totalOpps = s?.total_opps ?? 0;
-    const firstStage = s?.first_stage ?? 0;
-    const unmapped = s?.unmapped ?? 0;
-    // "Organized" = they actually progress leads (some served) and the intake
-    // stage isn't swallowing nearly everything.
-    const organized = served > 0 && (totalOpps === 0 || firstStage / totalOpps < 0.9);
+    const served = ds?.dep_served ?? 0;                 // deposits whose lead reached Session Done / 5-Star
+    const stuck = ds?.dep_first_stage ?? 0;             // deposits still in the first stage
+    const inPipeline = ds?.deposits_in_pipeline ?? 0;   // deposits matched to a pipeline stage
+    // "Not organized" = deposits present but (almost) none progressed past the
+    // first stage — the case where you charge for every deposit anyway.
+    const organized = inPipeline > 0 && stuck < inPipeline;
     return {
       ownerKey: c.ownerKey,
       ownerName: c.ownerName,
@@ -84,11 +81,10 @@ export async function GET(req: NextRequest) {
       deposits: dep.deposits,
       depositTotal: dep.deposit_total,
       served,
-      sessionDone,
-      fiveStar,
-      firstStage,
-      totalOpps,
-      unmapped,
+      sessionDone: ds?.dep_session_done ?? 0,
+      fiveStar: ds?.dep_five_star ?? 0,
+      stuck,
+      inPipeline,
       organized,
       chargedCount: chg.count,
       chargedAmount: chg.amount,
@@ -97,5 +93,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ clients, stageCacheReady: locations.length > 0 });
+  return NextResponse.json({ clients });
 }
