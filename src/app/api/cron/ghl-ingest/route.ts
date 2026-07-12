@@ -8,7 +8,10 @@ export const maxDuration = 300;
 // in the browser); refresh it whenever fresh GHL data lands.
 async function refreshBookingStats(): Promise<string | null> {
   try {
-    const { error } = await createServiceClient().rpc("refresh_booking_stats");
+    const svc = createServiceClient();
+    const { error } = await svc.rpc("refresh_booking_stats");
+    // Fresh opportunities/stages also feed the V3 billing materialized view.
+    await svc.rpc("refresh_ppa_facts");
     return error ? error.message : null;
   } catch (e) {
     return e instanceof Error ? e.message : "refresh failed";
