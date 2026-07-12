@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getAuth, getV3Roster, ingestAppointments } from "@/lib/ppa";
+import { getAuth, getV3Roster } from "@/lib/ppa";
 
 export const maxDuration = 120;
 
@@ -33,9 +33,6 @@ export async function GET(req: NextRequest) {
   const roster = await getV3Roster();
   const client = roster.find((c) => c.ownerKey === ownerKey);
   if (!client) return NextResponse.json({ error: "not a V3 client" }, { status: 404 });
-
-  // Keep this client's appointments fresh (only its deposit leads — fast).
-  await ingestAppointments([ownerKey]);
 
   const svc = createServiceClient();
   const [depRes, chgRes, billRes, cfgRes] = await Promise.all([

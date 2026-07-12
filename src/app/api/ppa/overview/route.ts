@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   const { data: locs } = await svc.from("ppa_stage_counts").select("owner_key, location_id").in("owner_key", ownerKeys);
   const locations = ((locs ?? []) as LocRow[]).map((r) => r.location_id).filter(Boolean) as string[];
   await warmStageMap(locations, refresh);
-  if (refresh) await ingestAppointments();
+  if (refresh) { await ingestAppointments(); await svc.rpc("refresh_ppa_facts"); }
 
   const [sumRes, depRes, cfgRes, chgRes] = await Promise.all([
     svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),

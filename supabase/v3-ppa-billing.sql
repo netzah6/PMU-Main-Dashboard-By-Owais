@@ -224,3 +224,50 @@ SELECT b.owner_key,
 FROM ppa_deposit_billing b
 LEFT JOIN ppa_charges ch ON ch.appt_id = b.appt_id
 GROUP BY b.owner_key;
+
+-- ── Performance: materialize the heavy join (migration v3_ppa_materialize) ───
+-- The live billing view chains through 82k opportunities + 42k contacts and
+-- took ~14.5s (past the request timeout → empty results, all counts 0). Cache
+-- the per-deposit facts in a materialized view refreshed on cron; the now()-
+-- dependent status is computed cheaply on top. Reads drop to ~7ms.
+CREATE INDEX IF NOT EXISTS ghl_opportunities_contact_idx ON ghl_opportunities (contact_id);
+CREATE INDEX IF NOT EXISTS ghl_contacts_owner_idx ON ghl_contacts (owner_key);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS ppa_deposit_facts AS
+SELECT DISTINCT ON (r.appt_id)
+  r.appt_id, cm.owner_key, s.stage_name,
+  coalesce(s.is_session_done, false) AS is_session_done,
+  coalesce(s.is_five_star, false)    AS is_five_star,
+  s.position, ap.start_time, ap.appt_status
+FROM ppa_deposit_rows r
+JOIN (
+  SELECT lower(regexp_replace(coalesce(data->>'Business Name',''), '[^a-zA-Z0-9]', '', 'g')) AS biz_norm,
+         lower(trim(data->>'Owner Full Name')) AS owner_key
+  FROM clients_master WHERE coalesce(data->>'Business Name','') <> ''
+) cm ON cm.biz_norm = r.biz_norm
+LEFT JOIN ppa_deposit_stage s ON s.appt_id = r.appt_id
+LEFT JOIN ppa_deposit_appointment ap ON ap.appt_id = r.appt_id
+ORDER BY r.appt_id, ap.start_time DESC NULLS LAST;
+CREATE UNIQUE INDEX IF NOT EXISTS ppa_deposit_facts_pk ON ppa_deposit_facts (appt_id);
+CREATE INDEX IF NOT EXISTS ppa_deposit_facts_owner ON ppa_deposit_facts (owner_key);
+
+-- ppa_deposit_billing now reads the tiny MV; charge_status stays live via now().
+CREATE OR REPLACE VIEW ppa_deposit_billing AS
+SELECT
+  f.appt_id, f.owner_key, f.stage_name, f.is_session_done, f.is_five_star,
+  f.position, f.start_time, f.appt_status,
+  CASE
+    WHEN f.is_session_done OR f.is_five_star THEN 'served'
+    WHEN f.start_time IS NOT NULL AND lower(coalesce(f.appt_status,'')) ~ 'cancel|noshow|no-show|invalid' THEN 'noshow'
+    WHEN f.start_time IS NOT NULL AND f.start_time > now() THEN 'upcoming'
+    WHEN f.start_time IS NOT NULL AND f.start_time <= now() THEN 'past_due'
+    ELSE 'no_appt'
+  END AS charge_status
+FROM ppa_deposit_facts f;
+
+-- Refresh helper — called by the GHL ingest + appointment crons and on Refresh.
+CREATE OR REPLACE FUNCTION refresh_ppa_facts() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  REFRESH MATERIALIZED VIEW CONCURRENTLY ppa_deposit_facts;
+END; $$;
