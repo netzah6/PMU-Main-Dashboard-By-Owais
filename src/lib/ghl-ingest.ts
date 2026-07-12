@@ -276,6 +276,24 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
       ourl = (meta.nextPageUrl as string) ?? null;
       if (opps.length < 100) break;
     }
+
+    // ── Pipeline stage names → ghl_stage_map (for V3 billing classification) ──
+    // Opportunities store only stage_id; cache the id→name/position map so the
+    // billing view can tell Session Done / 5-Star / intake apart without a live
+    // pipelines call per page load.
+    if (!opts.skipOpps) {
+      const pj = await ghlGet(`${BASE}/opportunities/pipelines?locationId=${locationId}`, token, "2021-07-28");
+      const stageRows: Array<Record<string, unknown>> = [];
+      for (const p of (pj?.pipelines as Record<string, unknown>[]) ?? []) {
+        const stages = (p.stages as Record<string, unknown>[]) ?? [];
+        stages.forEach((s, idx) => stageRows.push({
+          location_id: locationId, stage_id: String(s.id),
+          pipeline_id: String(p.id ?? ""), stage_name: String(s.name ?? s.id),
+          position: idx, updated_at: now,
+        }));
+      }
+      if (stageRows.length) await supabase.from("ghl_stage_map").upsert(stageRows, { onConflict: "location_id,stage_id" });
+    }
   } catch (err) {
     stat.error = String(err);
   }
