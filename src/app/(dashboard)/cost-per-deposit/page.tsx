@@ -5,6 +5,7 @@ import { formatCurrency, userColor, cn } from "@/lib/utils";
 import { Search, ChevronRight, Copy, X } from "lucide-react";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 import { LeadBreakdown } from "@/components/clients/LeadBreakdown";
+import { SyncHealthBanner } from "@/components/SyncHealthBanner";
 
 interface Row {
   sheet_row: number;
@@ -208,6 +209,7 @@ export default function CostPerDepositPage() {
 
   return (
     <div className="p-6 space-y-4">
+      <SyncHealthBanner />
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold text-[#1f3559]">Cost Per Deposit</h1>

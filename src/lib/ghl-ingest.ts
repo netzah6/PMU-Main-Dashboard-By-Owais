@@ -297,6 +297,25 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
   } catch (err) {
     stat.error = String(err);
   }
+
+  // Record sync health so a stalled account (broken token, app removed from the
+  // sub-account, etc.) surfaces in the dashboard. last_success_at only advances
+  // on a clean run, so it stays put while an account is failing. Omitting it on
+  // failure leaves the prior value untouched (Supabase updates only sent columns).
+  const ok = !stat.error;
+  await supabase.from("ghl_sync_status").upsert({
+    owner_key: ownerKey,
+    location_id: locationId,
+    last_attempt_at: now,
+    ...(ok ? { last_success_at: now } : {}),
+    contacts: stat.contacts,
+    conversations: stat.conversations,
+    opportunities: stat.opportunities,
+    ok,
+    error: stat.error ?? null,
+    updated_at: now,
+  }, { onConflict: "owner_key" });
+
   return stat;
 }
 
