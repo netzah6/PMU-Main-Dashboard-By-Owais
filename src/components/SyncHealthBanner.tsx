@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, X, RefreshCw, Check } from "lucide-react";
 
 type Stalled = { ownerKey: string; business: string; lastSuccessAt: string | null; error: string | null };
+type ResyncState = "idle" | "running" | "done" | "error";
 
 function ago(iso: string | null): string {
   if (!iso) return "never synced";
@@ -20,6 +21,7 @@ export function SyncHealthBanner() {
   const [stalled, setStalled] = useState<Stalled[]>([]);
   const [staleDays, setStaleDays] = useState(2);
   const [dismissed, setDismissed] = useState(false);
+  const [resync, setResync] = useState<Record<string, { state: ResyncState; msg?: string }>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +31,24 @@ export function SyncHealthBanner() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  const doResync = async (ownerKey: string) => {
+    setResync((s) => ({ ...s, [ownerKey]: { state: "running" } }));
+    try {
+      const res = await fetch("/api/ghl/sync-health/resync", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerKey }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Resync failed");
+      const n = j.stat?.contacts ?? 0;
+      setResync((s) => ({ ...s, [ownerKey]: { state: "done", msg: `pulled ${n} lead${n === 1 ? "" : "s"}` } }));
+      // Clear it from the list once it's recovered.
+      setTimeout(() => setStalled((list) => list.filter((x) => x.ownerKey !== ownerKey)), 2500);
+    } catch (e) {
+      setResync((s) => ({ ...s, [ownerKey]: { state: "error", msg: `${e}`.replace("Error: ", "") } }));
+    }
+  };
 
   if (dismissed || stalled.length === 0) return null;
 
@@ -40,16 +60,31 @@ export function SyncHealthBanner() {
           <p className="text-xs font-bold text-[#b45309]">
             {stalled.length} client{stalled.length === 1 ? "" : "s"} haven&apos;t synced from GoHighLevel in over {staleDays} days — new leads won&apos;t appear until reconnected.
           </p>
-          <ul className="mt-1.5 space-y-0.5">
-            {stalled.map((s) => (
-              <li key={s.ownerKey} className="text-[11px] text-[#8a5a12] flex flex-wrap items-baseline gap-x-1.5">
-                <span className="font-semibold text-[#7c4a0b]">{s.business}</span>
-                <span className="text-[#a1783f]">· last synced {ago(s.lastSuccessAt)}</span>
-                {s.error && <span className="text-[#b45309]/70 truncate max-w-full" title={s.error}>· {s.error}</span>}
-              </li>
-            ))}
+          <ul className="mt-1.5 space-y-1">
+            {stalled.map((s) => {
+              const r = resync[s.ownerKey] ?? { state: "idle" as ResyncState };
+              return (
+                <li key={s.ownerKey} className="text-[11px] text-[#8a5a12] flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span className="font-semibold text-[#7c4a0b]">{s.business}</span>
+                  <span className="text-[#a1783f]">· last synced {ago(s.lastSuccessAt)}</span>
+                  {s.error && <span className="text-[#b45309]/70 truncate max-w-[40ch]" title={s.error}>· {s.error}</span>}
+                  {r.state === "done" ? (
+                    <span className="inline-flex items-center gap-1 text-[#15803d] font-semibold"><Check size={11} /> {r.msg}</span>
+                  ) : r.state === "error" ? (
+                    <button onClick={() => doResync(s.ownerKey)} className="inline-flex items-center gap-1 text-[#b91c1c] font-semibold hover:underline" title={r.msg}>
+                      <RefreshCw size={11} /> retry ({r.msg})
+                    </button>
+                  ) : (
+                    <button onClick={() => doResync(s.ownerKey)} disabled={r.state === "running"}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[#e0b877] bg-white text-[#b45309] font-semibold hover:bg-[#fff3e0] disabled:opacity-60">
+                      <RefreshCw size={11} className={r.state === "running" ? "animate-spin" : ""} /> {r.state === "running" ? "Resyncing…" : "Resync now"}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
-          <p className="mt-1.5 text-[10px] text-[#a1783f]">Reconnect the marketplace app on the affected sub-account(s) in GoHighLevel, then the next sync backfills them.</p>
+          <p className="mt-1.5 text-[10px] text-[#a1783f]">Reconnect the marketplace app on the affected sub-account in GoHighLevel, then click <strong>Resync now</strong> to backfill every missed lead (or wait for the next daily sync).</p>
         </div>
         <button onClick={() => setDismissed(true)} title="Dismiss" className="p-0.5 rounded text-[#b98a4a] hover:text-[#7c4a0b] shrink-0"><X size={14} /></button>
       </div>
