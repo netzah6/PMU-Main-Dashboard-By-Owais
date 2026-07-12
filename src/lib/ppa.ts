@@ -66,6 +66,61 @@ async function mapWithConcurrency<I>(items: I[], limit: number, worker: (item: I
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => lane()));
 }
 
+// GHL returns appointment times like "2026-08-07 14:00:00" (no timezone).
+function parseGhlTime(v: unknown): string | null {
+  if (!v) return null;
+  const d = new Date(String(v).replace(" ", "T"));
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+// Pull calendar appointments for deposit leads into ghl_appointments (via the
+// per-contact endpoint — the only calendar endpoint the app token can read).
+// Optionally scope to specific clients (drill-down refresh); otherwise all.
+export async function ingestAppointments(ownerKeys?: string[]): Promise<{ contacts: number; appointments: number }> {
+  const svc = createServiceClient();
+  let q = svc.from("ppa_deposit_contacts").select("contact_id, location_id, owner_key");
+  if (ownerKeys && ownerKeys.length) q = q.in("owner_key", ownerKeys);
+  const { data } = await q;
+  const rows = (data ?? []) as Array<{ contact_id: string; location_id: string; owner_key: string }>;
+  const tokenByLoc = new Map<string, string | null>();
+  const now = new Date().toISOString();
+  let appointments = 0;
+  await mapWithConcurrency(rows, 8, async (row) => {
+    if (!row.contact_id || !row.location_id) return;
+    if (!tokenByLoc.has(row.location_id)) {
+      const t = await getAppLocationToken(row.location_id);
+      tokenByLoc.set(row.location_id, t.token ?? null);
+    }
+    const tok = tokenByLoc.get(row.location_id);
+    if (!tok) return;
+    try {
+      const r = await fetch(`${BASE}/contacts/${row.contact_id}/appointments`, {
+        headers: { Authorization: `Bearer ${tok}`, Version: "2021-07-28", Accept: "application/json" },
+      });
+      if (!r.ok) return;
+      const j = (await r.json()) as { events?: Array<Record<string, unknown>> };
+      const events = j.events ?? [];
+      if (!events.length) return;
+      const appts = events.map((e) => ({
+        id: String(e.id),
+        location_id: String(e.locationId ?? row.location_id),
+        owner_key: row.owner_key,
+        contact_id: String(e.contactId ?? row.contact_id),
+        calendar_id: (e.calendarId ?? null) as string | null,
+        start_time: parseGhlTime(e.startTime),
+        end_time: parseGhlTime(e.endTime),
+        status: (e.appointmentStatus ?? e.appoinmentStatus ?? null) as string | null, // GHL ships both spellings
+        title: (e.title ?? null) as string | null,
+        raw: e,
+        synced_at: now,
+      }));
+      await svc.from("ghl_appointments").upsert(appts, { onConflict: "id" });
+      appointments += appts.length;
+    } catch { /* best-effort */ }
+  });
+  return { contacts: rows.length, appointments };
+}
+
 // Ensure ghl_stage_map has stage names for the given locations. Skips locations
 // already cached (unless force). Best-effort — a location that fails just stays
 // unmapped and its stage counts read as "unmapped" until the next warm/ingest.

@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getAuth, getV3Roster, warmStageMap } from "@/lib/ppa";
+import { getAuth, getV3Roster, warmStageMap, ingestAppointments } from "@/lib/ppa";
 
 export const maxDuration = 300;
 
-// V3 pay-per-appointment billing overview — one row per V3 client. "Served" and
-// "stuck" are DEPOSIT-LINKED: each deposit is resolved to its own lead's current
-// pipeline stage, so the numbers describe the deposits shown, not unrelated
-// opportunities elsewhere in the pipeline. Admin only.
+// V3 pay-per-appointment billing overview — one row per V3 client. All counts
+// are DEPOSIT-LINKED and time-aware: each deposit is resolved to its lead's
+// stage AND scheduled appointment, so "ready to charge" = appointments that
+// actually happened (served or past-due) and aren't charged yet. Admin only.
 
 type LocRow = { owner_key: string; location_id: string | null };
-type DepStageRow = {
-  owner_key: string; deposits_matched: number; deposits_in_pipeline: number;
-  dep_session_done: number; dep_five_star: number; dep_served: number; dep_first_stage: number;
+type SummaryRow = {
+  owner_key: string; served: number; past_due: number; upcoming: number;
+  noshow: number; no_appt: number; ready_to_charge: number; charged_count: number;
 };
 
 export async function GET(req: NextRequest) {
@@ -25,21 +25,23 @@ export async function GET(req: NextRequest) {
   const ownerKeys = roster.map((c) => c.ownerKey);
   const bizNorms = roster.map((c) => c.bizNorm).filter(Boolean);
 
-  // Discover each client's location (to warm the stage-name cache).
+  // On refresh: re-warm stage names AND re-pull calendar appointments for all
+  // deposit leads (~330 contacts, ~30s). Normal loads read the cached tables.
+  const refresh = req.nextUrl.searchParams.get("refresh") === "1";
   const { data: locs } = await svc.from("ppa_stage_counts").select("owner_key, location_id").in("owner_key", ownerKeys);
   const locations = ((locs ?? []) as LocRow[]).map((r) => r.location_id).filter(Boolean) as string[];
-  const refresh = req.nextUrl.searchParams.get("refresh") === "1";
   await warmStageMap(locations, refresh);
+  if (refresh) await ingestAppointments();
 
-  const [depStageRes, depRes, cfgRes, chgRes] = await Promise.all([
-    svc.from("ppa_deposit_stage_counts").select("*").in("owner_key", ownerKeys),
+  const [sumRes, depRes, cfgRes, chgRes] = await Promise.all([
+    svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("owner_key, charged, amount").in("owner_key", ownerKeys),
   ]);
 
-  const depStageBy = new Map<string, DepStageRow>();
-  for (const r of (depStageRes.data ?? []) as DepStageRow[]) depStageBy.set(r.owner_key, r);
+  const sumBy = new Map<string, SummaryRow>();
+  for (const r of (sumRes.data ?? []) as SummaryRow[]) sumBy.set(r.owner_key, r);
 
   const depBy = new Map<string, { deposits: number; deposit_total: number }>();
   for (const r of (depRes.data ?? []) as Array<{ biz_norm: string; deposits: number; deposit_total: number }>)
@@ -49,26 +51,17 @@ export async function GET(req: NextRequest) {
   for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; is_ppa: boolean; fee_per_appt: number; note: string | null }>)
     cfgBy.set(r.owner_key, { is_ppa: !!r.is_ppa, fee_per_appt: Number(r.fee_per_appt), note: r.note });
 
-  const chgBy = new Map<string, { count: number; amount: number }>();
+  const chgAmtBy = new Map<string, number>();
   for (const r of (chgRes.data ?? []) as Array<{ owner_key: string; charged: boolean; amount: number | null }>) {
     if (!r.charged) continue;
-    const cur = chgBy.get(r.owner_key) ?? { count: 0, amount: 0 };
-    cur.count += 1;
-    cur.amount += Number(r.amount) || 0;
-    chgBy.set(r.owner_key, cur);
+    chgAmtBy.set(r.owner_key, (chgAmtBy.get(r.owner_key) ?? 0) + (Number(r.amount) || 0));
   }
 
   const clients = roster.map((c) => {
-    const ds = depStageBy.get(c.ownerKey);
+    const s = sumBy.get(c.ownerKey);
     const dep = depBy.get(c.bizNorm) ?? { deposits: 0, deposit_total: 0 };
     const cfg = cfgBy.get(c.ownerKey) ?? { is_ppa: false, fee_per_appt: 30, note: null };
-    const chg = chgBy.get(c.ownerKey) ?? { count: 0, amount: 0 };
-    const served = ds?.dep_served ?? 0;                 // deposits whose lead reached Session Done / 5-Star
-    const stuck = ds?.dep_first_stage ?? 0;             // deposits still in the first stage
-    const inPipeline = ds?.deposits_in_pipeline ?? 0;   // deposits matched to a pipeline stage
-    // "Not organized" = deposits present but (almost) none progressed past the
-    // first stage — the case where you charge for every deposit anyway.
-    const organized = inPipeline > 0 && stuck < inPipeline;
+    const readyToCharge = s?.ready_to_charge ?? 0;
     return {
       ownerKey: c.ownerKey,
       ownerName: c.ownerName,
@@ -80,16 +73,15 @@ export async function GET(req: NextRequest) {
       note: cfg.note,
       deposits: dep.deposits,
       depositTotal: dep.deposit_total,
-      served,
-      sessionDone: ds?.dep_session_done ?? 0,
-      fiveStar: ds?.dep_five_star ?? 0,
-      stuck,
-      inPipeline,
-      organized,
-      chargedCount: chg.count,
-      chargedAmount: chg.amount,
-      suggestedOwed: cfg.is_ppa ? dep.deposits * cfg.fee_per_appt : 0,
-      outstandingCount: Math.max(0, dep.deposits - chg.count),
+      served: s?.served ?? 0,
+      pastDue: s?.past_due ?? 0,
+      upcoming: s?.upcoming ?? 0,
+      noshow: s?.noshow ?? 0,
+      noAppt: s?.no_appt ?? 0,
+      readyToCharge,
+      chargedCount: s?.charged_count ?? 0,
+      chargedAmount: chgAmtBy.get(c.ownerKey) ?? 0,
+      readyOwed: cfg.is_ppa ? readyToCharge * cfg.fee_per_appt : 0,
     };
   });
 
