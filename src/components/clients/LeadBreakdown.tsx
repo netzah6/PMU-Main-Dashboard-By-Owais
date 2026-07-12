@@ -89,7 +89,9 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     const m = new Map<string, Lead[]>();
     days.forEach((d) => m.set(d, []));
     leads.forEach((l) => {
-      const day = (l.activity_date ?? l.date_added ?? "").slice(0, 10);
+      // Group by SIGNUP date (date_added), not last activity — so each day shows
+      // who actually came in that day. Older leads sit under earlier day rows.
+      const day = (l.date_added ?? "").slice(0, 10);
       const arr = m.get(day);
       if (arr) arr.push(l);
     });
