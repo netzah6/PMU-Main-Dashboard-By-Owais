@@ -202,6 +202,7 @@ async function findConversation(leadName: string, conversationId?: string) {
       return {
         acct,
         conversationId,
+        contactId: (c.contactId as string) ?? null,
         contactName: String(c.fullName ?? c.contactName ?? c.email ?? c.phone ?? leadName ?? "Unknown").trim(),
         channel: channelFromType((c.lastMessageType ?? (c.conversation as Record<string, unknown>)?.lastMessageType) as string | undefined),
       };
@@ -222,6 +223,7 @@ async function findConversation(leadName: string, conversationId?: string) {
   return {
     acct,
     conversationId: String(best.id),
+    contactId: (best.contactId as string) ?? null,
     contactName: String(best.fullName ?? best.contactName ?? leadName).trim(),
     channel: channelFromType(best.lastMessageType as string | undefined),
   };
@@ -255,7 +257,12 @@ async function runDraftReply(leadName: string, instructions: string | undefined,
     lastMessage: { direction: last.direction, body: last.body.slice(0, 300), at: last.dateAdded },
     draft,
     draftVoice: agentName,
-    conversationUrl: `https://app.gohighlevel.com/v2/location/${found.acct.locationId}/conversations/conversations/${found.conversationId}`,
+    // Open the contact's detail page — the reliable deep-link to their chat
+    // (the /conversations/conversations/{id} route often lands on the inbox,
+    // not this thread). Falls back to the conversation URL if no linked contact.
+    conversationUrl: found.contactId
+      ? `https://app.gohighlevel.com/v2/location/${found.acct.locationId}/contacts/detail/${found.contactId}`
+      : `https://app.gohighlevel.com/v2/location/${found.acct.locationId}/conversations/conversations/${found.conversationId}`,
   };
 }
 
