@@ -16,6 +16,7 @@ type Conv = {
   channel: string;
   assignedToName: string;
 };
+type ThreadMsg = { id: string; direction: "inbound" | "outbound"; body: string; dateAdded: string | null; channel: string };
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "";
@@ -39,6 +40,8 @@ export default function AskPage() {
   const [locationId, setLocationId] = useState<string>("");
   const [pending, setPending] = useState<Conv | null>(null); // chat awaiting a draft
   const [note, setNote] = useState("");                       // optional steer for the AI
+  const [thread, setThread] = useState<ThreadMsg[]>([]);      // full conversation shown in the composer
+  const [threadLoading, setThreadLoading] = useState(false);
 
   const loadConvs = useCallback(async () => {
     setConvsLoading(true); setConvsError(null);
@@ -62,6 +65,19 @@ export default function AskPage() {
       : locationId ? `https://app.gohighlevel.com/v2/location/${locationId}/conversations/conversations/${c.id}` : "",
   [locationId]);
   useEffect(() => { loadConvs(); }, [loadConvs]);
+
+  // Load the full conversation whenever the composer opens for a chat.
+  useEffect(() => {
+    if (!pending) { setThread([]); return; }
+    let cancelled = false;
+    setThreadLoading(true); setThread([]);
+    fetch(`/api/ghl/reply/thread?conversationId=${encodeURIComponent(pending.id)}`)
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled) setThread(j.messages ?? []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setThreadLoading(false); });
+    return () => { cancelled = true; };
+  }, [pending]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
 
@@ -220,24 +236,55 @@ export default function AskPage() {
 
       {error && <div className="mb-2 px-3 py-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-xs">{error}</div>}
 
-      {/* Reply composer — appears when a chat is clicked. Optional note steers the draft. */}
+      {/* Reply composer — appears when a chat is clicked. Shows the full
+          conversation, then a clearly-labelled note the AI reads before drafting. */}
       {pending && (
         <div className="mb-2 rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-bold text-[#0e8f88] flex items-center gap-1.5">
-              <MessageCircle size={13} /> Draft a reply to {pending.contactName}
+              <MessageCircle size={13} /> {pending.contactName}{pending.channel ? ` · ${pending.channel}` : ""}
             </span>
             <button onClick={() => setPending(null)} title="Cancel" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
           </div>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generateDraft(pending, note); } }}
-            rows={2}
-            autoFocus
-            placeholder="Optional note for the AI — e.g. 'let her know Tue 2pm is open' or 'gently ask for the $50 deposit'. Leave blank for a standard draft."
-            className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#d7e0ea] rounded-lg focus:outline-none focus:border-[#15B7AE] resize-none"
-          />
+
+          {/* Full conversation thread */}
+          <div className="mb-2.5 max-h-56 overflow-y-auto rounded-lg border border-[#e4ebf2] bg-white p-2 space-y-1.5">
+            {threadLoading ? (
+              <p className="text-[11px] text-[#8595a8] flex items-center gap-1.5 py-1"><Loader2 size={11} className="animate-spin" /> Loading conversation…</p>
+            ) : thread.length === 0 ? (
+              <p className="text-[11px] text-[#8595a8] py-1">No readable messages in this conversation.</p>
+            ) : (
+              thread.map((m) => (
+                <div key={m.id} className={cn("flex", m.direction === "inbound" ? "justify-start" : "justify-end")}>
+                  <div className={cn(
+                    "max-w-[85%] rounded-lg px-2.5 py-1.5 text-[12px] leading-snug whitespace-pre-wrap break-words",
+                    m.direction === "inbound" ? "bg-[#f1f5f9] text-[#1f3559]" : "bg-[#e6f7f5] text-[#0e5f5a]",
+                  )}>
+                    {m.body}
+                    {m.dateAdded && <span className="block mt-0.5 text-[9px] text-[#a6b3c4]">{timeAgo(m.dateAdded)} ago</span>}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Note box — explicitly labelled so it's clear the AI reads it */}
+          <div className="rounded-lg border border-[#ffd8a8] bg-[#fffaf2] p-2">
+            <label htmlFor="ai-note" className="flex items-center gap-1.5 text-[11px] font-bold text-[#c2620a] mb-1">
+              📝 Note for the AI <span className="font-medium text-[#a1783f]">— it reads this before writing the reply (optional)</span>
+            </label>
+            <textarea
+              id="ai-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generateDraft(pending, note); } }}
+              rows={2}
+              autoFocus
+              placeholder="e.g. 'let her know Tue 2pm is open' or 'gently ask for the $50 deposit'. Leave blank for a standard draft."
+              className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#f0d9ae] rounded-lg focus:outline-none focus:border-[#f0a742] resize-none"
+            />
+          </div>
+
           <div className="flex items-center gap-2 mt-2">
             <button onClick={() => generateDraft(pending, note)} disabled={busy}
               className="px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
