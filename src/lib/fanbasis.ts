@@ -90,40 +90,24 @@ export async function listCheckoutTransactions(checkoutSessionId: string): Promi
   return out;
 }
 
-// Refund a single transaction by its id. Endpoint CONFIRMED via live probes
-// (2026-07-13): POST https://www.fanbasis.com/api/seller/v1/transactions/{id}/refund
-// — a GET there returns 405 "Supported methods: POST", while every /public-api
-// refund path 404s. The seller-v1 API rejects x-api-key with 401 "Please check
-// user token or client credentials" — OAuth-style Bearer auth. Try the API key
-// as a Bearer token (alone, then combined with x-api-key, then x-api-key only):
-// a 401 processes nothing, so falling through is safe and money moves at most
-// once. Minimal body (reason only) = full-refund default; a 422 names any
-// missing fields without refunding.
+// Refund a single transaction by its id — per the OFFICIAL docs (extracted from
+// apidocs.fan page source, "Refund a Transaction"):
+//   POST /public-api/checkout-sessions/transactions/:transactionId/refund
+//   x-api-key auth; body {} = FULL refund (amount_cents only for partials).
+// Requires the API key to carry the `refunds` scope (Fanbasis dashboard → API
+// Keys → Edit). The /api/seller/v1 route probed earlier is an internal
+// dashboard route (user-token auth) — not for API keys.
 export async function refundTransaction(
   transactionId: string,
   opts: { reason?: string; amountCents?: number } = {}
 ): Promise<Record<string, unknown>> {
-  const key = process.env.FANBASIS_API_KEY;
-  if (!key) throw new Error("FANBASIS_API_KEY not set");
-  const path = `https://www.fanbasis.com/api/seller/v1/transactions/${encodeURIComponent(transactionId)}/refund`;
-  const body: Record<string, unknown> = {};
-  if (opts.reason) body.reason = opts.reason;
-  const base = { "Content-Type": "application/json", Accept: "application/json" };
-  const authVariants: Array<{ name: string; headers: Record<string, string> }> = [
-    { name: "bearer", headers: { ...base, Authorization: `Bearer ${key}` } },
-    { name: "bearer+x-api-key", headers: { ...base, Authorization: `Bearer ${key}`, "x-api-key": key } },
-    { name: "x-api-key", headers: { ...base, "x-api-key": key } },
-  ];
-  let last = "";
-  for (const v of authVariants) {
-    const r = await fetch(path, { method: "POST", headers: v.headers, body: JSON.stringify(body) });
-    const text = await r.text();
-    if (r.status === 401) { last = text.slice(0, 200); continue; } // auth rejected — nothing processed
-    if (!r.ok) throw new Error(`Fanbasis refund HTTP ${r.status} @ POST /api/seller/v1/transactions/{id}/refund [auth=${v.name}]: ${text.slice(0, 300)}`);
-    const j = (text ? JSON.parse(text) : {}) as Record<string, unknown>;
-    return { ...j, _endpoint: path, _auth: v.name };
-  }
-  throw new Error(`Fanbasis refund: seller-v1 rejected every auth variant (bearer, bearer+x-api-key, x-api-key) with 401 — the account may need seller API credentials from Fanbasis. Last response: ${last}`);
+  void opts; // full refund by design — deposits are refunded in full
+  const path = `${BASE}/checkout-sessions/transactions/${encodeURIComponent(transactionId)}/refund`;
+  const r = await fetch(path, { method: "POST", headers: headers(), body: JSON.stringify({}) });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Fanbasis refund HTTP ${r.status} @ POST /public-api/checkout-sessions/transactions/{id}/refund: ${text.slice(0, 300)}`);
+  const j = (text ? JSON.parse(text) : {}) as Record<string, unknown>;
+  return { ...j, _endpoint: path };
 }
 
 // Read-only diagnostic for the refund flow — NO money moves. Given a deposit's
