@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS ghl_sync_status (
   opportunities   INTEGER,
   ok              BOOLEAN,
   error           TEXT,
+  -- Muted = known-broken on purpose (admin clicked Ignore in the banner, e.g. a
+  -- client we've chosen not to reconnect). The ingest still attempts it daily,
+  -- so a reconnected account resumes flowing; mute only silences the banner.
+  -- (Added via migration ghl_sync_status_muted.)
+  muted           BOOLEAN NOT NULL DEFAULT false,
   updated_at      TIMESTAMPTZ DEFAULT now()
 );
 
