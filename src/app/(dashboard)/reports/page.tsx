@@ -63,6 +63,7 @@ const ACTION_OPTIONS = [
   "No Action ⛔️",
   "Send Video 📹",
   "Power PMU Arrtist 🙋🏻‍♀️",
+  "Offer switch to V3",
 ];
 const ACTION_INCREASE_BUDGET = "Increase Budget 💰";
 const ACTION_GMB = "GMB ⭐️";
@@ -401,9 +402,7 @@ export default function ReportsPage() {
                         Budget: ${Math.round(dailyBudget).toLocaleString()}/d
                       </span>
                     )}
-                    <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fef9c3] text-[#a16207] border border-[#fde68a]">
-                      GMB: {gmbActive ? "Yes" : "No"}
-                    </span>
+                    {badge(`GMB: ${gmbActive ? "Yes" : "No"}`, gmbActive)}
                     {(() => {
                       const ver = versionMap.get(current.name);
                       if (!ver) {
