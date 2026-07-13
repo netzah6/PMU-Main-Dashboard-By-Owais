@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refundDepositByProduct } from "@/lib/fanbasis";
+import { refundDepositByProduct, parseAmountCents } from "@/lib/fanbasis";
 
 export const maxDuration = 60;
 
@@ -41,10 +41,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Cannot approve a ${refund.status} refund.` }, { status: 409 });
   }
 
-  const res = await refundDepositByProduct(refund.product_id ?? "", refund.email ?? "", refund.reason ?? undefined);
+  // Full refund of the collected deposit (amount_cents is a documented field).
+  const amountCents = parseAmountCents(refund.amount ?? "") ?? undefined;
+  const res = await refundDepositByProduct(refund.product_id ?? "", refund.email ?? "", { reason: refund.reason ?? undefined, amountCents });
   const update = res.ok
     ? { status: "refunded", fanbasis_transaction_id: res.transactionId ?? null, fanbasis_result: res.result ?? null, error: null, decided_by: auth.email, decided_at: now, updated_at: now }
-    : { status: "failed", error: res.error ?? "refund failed", decided_by: auth.email, decided_at: now, updated_at: now };
+    // Persist the attempted transaction id + what we looked up so a failed retry is diagnosable.
+    : { status: "failed", fanbasis_transaction_id: res.transactionId ?? null, fanbasis_result: res.diagnostic ?? null, error: res.error ?? "refund failed", decided_by: auth.email, decided_at: now, updated_at: now };
 
   const { data, error } = await svc.from("deposit_refunds").update(update).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
