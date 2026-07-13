@@ -124,6 +124,42 @@ export async function refundTransaction(
   throw new Error(`Fanbasis refund: every endpoint 404'd (tried POST ${tried.join(", POST ")}) for transaction ${transactionId}`);
 }
 
+// Read-only diagnostic for the refund flow — NO money moves. Given a deposit's
+// product id + buyer email, returns the matched transaction's RAW shape (so we
+// can see the real id fields), whether its id resolves at the top-level
+// transactions endpoint, and GET-probe statuses for candidate refund routes
+// (404 = route absent; anything else = route likely exists). Used to determine
+// the correct refund endpoint without live-testing refunds.
+export async function debugRefundLookup(productId: string, email: string): Promise<Record<string, unknown>> {
+  const SELLER = "https://www.fanbasis.com/api/seller/v1";
+  const want = String(email ?? "").trim().toLowerCase();
+  const txns = await listCheckoutTransactions(productId);
+  const match = (want && txns.find((t) => t.email === want)) || (txns.length === 1 ? txns[0] : null);
+  const out: Record<string, unknown> = {
+    productId, want,
+    foundCount: txns.length,
+    found: txns.map((t) => ({ id: t.id, email: t.email })),
+    matchedId: match?.id ?? null,
+    matchedRawKeys: match ? Object.keys(match.raw) : null,
+    matchedRaw: match?.raw ?? null,
+  };
+  if (!match) return out;
+  const id = encodeURIComponent(match.id);
+  const probe = async (url: string) => {
+    try { const r = await fetch(url, { headers: headers() }); return { status: r.status, body: (await r.text()).slice(0, 200) }; }
+    catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+  };
+  out.probes = {
+    [`GET ${BASE}/transactions/${match.id}`]: await probe(`${BASE}/transactions/${id}`),
+    [`GET ${BASE}/transactions/${match.id}/refund`]: await probe(`${BASE}/transactions/${id}/refund`),
+    [`GET ${BASE}/refunds`]: await probe(`${BASE}/refunds`),
+    [`GET ${SELLER}/transactions/${match.id}/refund`]: await probe(`${SELLER}/transactions/${id}/refund`),
+    [`GET ${SELLER}/refunds`]: await probe(`${SELLER}/refunds`),
+    [`GET ${SELLER}/transactions/${match.id}`]: await probe(`${SELLER}/transactions/${id}`),
+  };
+  return out;
+}
+
 export type RefundResult = {
   ok: boolean;
   transactionId?: string;
