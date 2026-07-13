@@ -90,20 +90,21 @@ export async function listCheckoutTransactions(checkoutSessionId: string): Promi
   return out;
 }
 
-// Refund a single transaction by its id — per the OFFICIAL docs (extracted from
-// apidocs.fan page source, "Refund a Transaction"):
+// Refund a single transaction by its id:
 //   POST /public-api/checkout-sessions/transactions/:transactionId/refund
-//   x-api-key auth; body {} = FULL refund (amount_cents only for partials).
-// Requires the API key to carry the `refunds` scope (Fanbasis dashboard → API
-// Keys → Edit). The /api/seller/v1 route probed earlier is an internal
-// dashboard route (user-token auth) — not for API keys.
+//   x-api-key auth; requires the key's `refunds` scope (dashboard → API Keys).
+// The docs claim body {} = full refund, but the LIVE validator requires BOTH
+// `amount_cents` and `reason` (400: "The amount cents field is required. The
+// reason field is required.") — so a full refund = amount_cents equal to the
+// transaction amount, plus a reason string.
 export async function refundTransaction(
   transactionId: string,
   opts: { reason?: string; amountCents?: number } = {}
 ): Promise<Record<string, unknown>> {
-  void opts; // full refund by design — deposits are refunded in full
+  if (!opts.amountCents || opts.amountCents <= 0) throw new Error("refundTransaction: amountCents is required by the Fanbasis validator");
+  const body = { amount_cents: opts.amountCents, reason: opts.reason?.trim() || "Deposit refund approved via PMU dashboard" };
   const path = `${BASE}/checkout-sessions/transactions/${encodeURIComponent(transactionId)}/refund`;
-  const r = await fetch(path, { method: "POST", headers: headers(), body: JSON.stringify({}) });
+  const r = await fetch(path, { method: "POST", headers: headers(), body: JSON.stringify(body) });
   const text = await r.text();
   if (!r.ok) throw new Error(`Fanbasis refund HTTP ${r.status} @ POST /public-api/checkout-sessions/transactions/{id}/refund: ${text.slice(0, 300)}`);
   const j = (text ? JSON.parse(text) : {}) as Record<string, unknown>;
@@ -192,7 +193,13 @@ export async function refundDepositByProduct(
       return { ok: false, diagnostic, error: want ? `no transaction found for ${want} on product ${productId} (${txns.length} on file)` : "no email to match the transaction" };
     }
     try {
-      const result = await refundTransaction(match.id, { reason: opts.reason, amountCents: opts.amountCents });
+      // amount_cents is required by the validator. Prefer the deposit's parsed
+      // amount; fall back to the transaction's own amount (dollars → cents) so
+      // a full refund always has a value.
+      const rawAmount = Number((match.raw as Record<string, unknown>).amount);
+      const fallbackCents = Number.isFinite(rawAmount) && rawAmount > 0 ? Math.round(rawAmount * 100) : undefined;
+      const amountCents = opts.amountCents && opts.amountCents > 0 ? opts.amountCents : fallbackCents;
+      const result = await refundTransaction(match.id, { reason: opts.reason, amountCents });
       return { ok: true, transactionId: match.id, result };
     } catch (e) {
       // Keep the attempted transaction id + what we found, so a failed retry is diagnosable.
