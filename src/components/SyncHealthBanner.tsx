@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { AlertTriangle, X, RefreshCw, Check } from "lucide-react";
+import { AlertTriangle, X, RefreshCw, Check, BellOff } from "lucide-react";
 
 type Stalled = { ownerKey: string; business: string; lastSuccessAt: string | null; error: string | null };
 type ResyncState = "idle" | "running" | "done" | "error";
@@ -31,6 +31,19 @@ export function SyncHealthBanner() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  // Permanently silence an account (e.g. a client we've chosen not to
+  // reconnect). Server-side flag — survives reloads; the daily ingest still
+  // retries it, so a reconnected account resumes flowing automatically.
+  const doIgnore = async (ownerKey: string) => {
+    setStalled((list) => list.filter((x) => x.ownerKey !== ownerKey)); // optimistic
+    try {
+      await fetch("/api/ghl/sync-health/mute", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerKey, muted: true }),
+      });
+    } catch { /* banner reappears next load if it failed */ }
+  };
 
   const doResync = async (ownerKey: string) => {
     setResync((s) => ({ ...s, [ownerKey]: { state: "running" } }));
@@ -78,6 +91,13 @@ export function SyncHealthBanner() {
                     <button onClick={() => doResync(s.ownerKey)} disabled={r.state === "running"}
                       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[#e0b877] bg-white text-[#b45309] font-semibold hover:bg-[#fff3e0] disabled:opacity-60">
                       <RefreshCw size={11} className={r.state === "running" ? "animate-spin" : ""} /> {r.state === "running" ? "Resyncing…" : "Resync now"}
+                    </button>
+                  )}
+                  {r.state === "idle" && (
+                    <button onClick={() => doIgnore(s.ownerKey)}
+                      title="Stop flagging this client (it stays unsynced on purpose). Data resumes automatically if it's ever reconnected."
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[#e3d9c8] bg-white text-[#8a5a12] hover:bg-[#faf5ec]">
+                      <BellOff size={11} /> Ignore
                     </button>
                   )}
                 </li>
