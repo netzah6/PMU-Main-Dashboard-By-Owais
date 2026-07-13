@@ -90,24 +90,38 @@ export async function listCheckoutTransactions(checkoutSessionId: string): Promi
   return out;
 }
 
-// Refund a single transaction by its id. Per the API docs the body takes
-// `transaction_id`, `amount_cents` and `reason` — send the amount for a full
-// refund (omitting it was a likely cause of the 404 on the first live refund).
+// Refund a single transaction by its id. Fanbasis's operation is "Refund a
+// Transaction", so it's transaction-scoped — the top-level POST /refunds returns
+// 404 (route not found) even with a valid transaction id + amount. Try the
+// transaction-scoped routes first and fall through: a 404 means nothing was
+// processed, so it's safe to try the next candidate; stop at the first non-404
+// (a success, or a real error worth surfacing). This moves money at most once.
 export async function refundTransaction(
   transactionId: string,
   opts: { reason?: string; amountCents?: number } = {}
 ): Promise<Record<string, unknown>> {
-  const body: Record<string, unknown> = { transaction_id: transactionId };
-  if (opts.amountCents && opts.amountCents > 0) body.amount_cents = opts.amountCents;
-  if (opts.reason) body.reason = opts.reason;
-  const r = await fetch(`${BASE}/refunds`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify(body),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`Fanbasis refund HTTP ${r.status}: ${text.slice(0, 300)}`);
-  return JSON.parse(text) as Record<string, unknown>;
+  const id = encodeURIComponent(transactionId);
+  const extra = (o: Record<string, unknown>): Record<string, unknown> => {
+    const b = { ...o };
+    if (opts.amountCents && opts.amountCents > 0) b.amount_cents = opts.amountCents;
+    if (opts.reason) b.reason = opts.reason;
+    return b;
+  };
+  const candidates: Array<{ path: string; body: Record<string, unknown> }> = [
+    { path: `/transactions/${id}/refund`, body: extra({}) },
+    { path: `/transactions/${id}/refunds`, body: extra({}) },
+    { path: `/refunds`, body: extra({ transaction_id: transactionId }) },
+  ];
+  const tried: string[] = [];
+  for (const c of candidates) {
+    const r = await fetch(`${BASE}${c.path}`, { method: "POST", headers: headers(), body: JSON.stringify(c.body) });
+    const text = await r.text();
+    if (r.status === 404) { tried.push(c.path); continue; }
+    if (!r.ok) throw new Error(`Fanbasis refund HTTP ${r.status} @ POST ${c.path}: ${text.slice(0, 300)}`);
+    const j = (text ? JSON.parse(text) : {}) as Record<string, unknown>;
+    return { ...j, _endpoint: c.path };
+  }
+  throw new Error(`Fanbasis refund: every endpoint 404'd (tried POST ${tried.join(", POST ")}) for transaction ${transactionId}`);
 }
 
 export type RefundResult = {
