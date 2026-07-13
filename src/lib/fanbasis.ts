@@ -93,22 +93,37 @@ export async function listCheckoutTransactions(checkoutSessionId: string): Promi
 // Refund a single transaction by its id. Endpoint CONFIRMED via live probes
 // (2026-07-13): POST https://www.fanbasis.com/api/seller/v1/transactions/{id}/refund
 // — a GET there returns 405 "Supported methods: POST", while every /public-api
-// refund path 404s. Sent with a minimal body (reason only): the safe default is
-// a FULL refund; if the API requires more fields it responds 422 naming them
-// (validation error — nothing is refunded), which surfaces verbatim on the
-// refund record for the next iteration.
+// refund path 404s. The seller-v1 API rejects x-api-key with 401 "Please check
+// user token or client credentials" — OAuth-style Bearer auth. Try the API key
+// as a Bearer token (alone, then combined with x-api-key, then x-api-key only):
+// a 401 processes nothing, so falling through is safe and money moves at most
+// once. Minimal body (reason only) = full-refund default; a 422 names any
+// missing fields without refunding.
 export async function refundTransaction(
   transactionId: string,
   opts: { reason?: string; amountCents?: number } = {}
 ): Promise<Record<string, unknown>> {
+  const key = process.env.FANBASIS_API_KEY;
+  if (!key) throw new Error("FANBASIS_API_KEY not set");
   const path = `https://www.fanbasis.com/api/seller/v1/transactions/${encodeURIComponent(transactionId)}/refund`;
   const body: Record<string, unknown> = {};
   if (opts.reason) body.reason = opts.reason;
-  const r = await fetch(path, { method: "POST", headers: headers(), body: JSON.stringify(body) });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`Fanbasis refund HTTP ${r.status} @ POST /api/seller/v1/transactions/{id}/refund: ${text.slice(0, 300)}`);
-  const j = (text ? JSON.parse(text) : {}) as Record<string, unknown>;
-  return { ...j, _endpoint: path };
+  const base = { "Content-Type": "application/json", Accept: "application/json" };
+  const authVariants: Array<{ name: string; headers: Record<string, string> }> = [
+    { name: "bearer", headers: { ...base, Authorization: `Bearer ${key}` } },
+    { name: "bearer+x-api-key", headers: { ...base, Authorization: `Bearer ${key}`, "x-api-key": key } },
+    { name: "x-api-key", headers: { ...base, "x-api-key": key } },
+  ];
+  let last = "";
+  for (const v of authVariants) {
+    const r = await fetch(path, { method: "POST", headers: v.headers, body: JSON.stringify(body) });
+    const text = await r.text();
+    if (r.status === 401) { last = text.slice(0, 200); continue; } // auth rejected — nothing processed
+    if (!r.ok) throw new Error(`Fanbasis refund HTTP ${r.status} @ POST /api/seller/v1/transactions/{id}/refund [auth=${v.name}]: ${text.slice(0, 300)}`);
+    const j = (text ? JSON.parse(text) : {}) as Record<string, unknown>;
+    return { ...j, _endpoint: path, _auth: v.name };
+  }
+  throw new Error(`Fanbasis refund: seller-v1 rejected every auth variant (bearer, bearer+x-api-key, x-api-key) with 401 — the account may need seller API credentials from Fanbasis. Last response: ${last}`);
 }
 
 // Read-only diagnostic for the refund flow — NO money moves. Given a deposit's
@@ -143,6 +158,26 @@ export async function debugRefundLookup(productId: string, email: string): Promi
     [`GET ${SELLER}/transactions/${match.id}/refund`]: await probe(`${SELLER}/transactions/${id}/refund`),
     [`GET ${SELLER}/refunds`]: await probe(`${SELLER}/refunds`),
     [`GET ${SELLER}/transactions/${match.id}`]: await probe(`${SELLER}/transactions/${id}`),
+  };
+
+  // Auth probes for the seller-v1 API (which 401s on x-api-key): hit a
+  // documented read-only seller route with each auth style. 401 = credentials
+  // rejected; 403/404/422 = credentials ACCEPTED (request reached the route).
+  // GET on the refund route is method-blocked (405) before auth, so use the
+  // documented subscriptions/upgrades GET with a bogus id — read-only, no side
+  // effects, and a non-401 status proves which header form seller-v1 accepts.
+  const key = process.env.FANBASIS_API_KEY ?? "";
+  const authProbe = async (hdrs: Record<string, string>) => {
+    try {
+      const r = await fetch(`${SELLER}/subscriptions/0/upgrades`, { headers: { Accept: "application/json", ...hdrs } });
+      return { status: r.status, body: (await r.text()).slice(0, 200) };
+    } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+  };
+  out.sellerAuthProbes = {
+    "x-api-key": await authProbe({ "x-api-key": key }),
+    "bearer": await authProbe({ Authorization: `Bearer ${key}` }),
+    "bearer+x-api-key": await authProbe({ Authorization: `Bearer ${key}`, "x-api-key": key }),
+    "none": await authProbe({}),
   };
   return out;
 }
