@@ -90,33 +90,58 @@ export async function listCheckoutTransactions(checkoutSessionId: string): Promi
   return out;
 }
 
-// Refund a single transaction by its id (full refund by default).
-export async function refundTransaction(transactionId: string, reason?: string): Promise<Record<string, unknown>> {
+// Refund a single transaction by its id. Per the API docs the body takes
+// `transaction_id`, `amount_cents` and `reason` — send the amount for a full
+// refund (omitting it was a likely cause of the 404 on the first live refund).
+export async function refundTransaction(
+  transactionId: string,
+  opts: { reason?: string; amountCents?: number } = {}
+): Promise<Record<string, unknown>> {
+  const body: Record<string, unknown> = { transaction_id: transactionId };
+  if (opts.amountCents && opts.amountCents > 0) body.amount_cents = opts.amountCents;
+  if (opts.reason) body.reason = opts.reason;
   const r = await fetch(`${BASE}/refunds`, {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ transaction_id: transactionId, ...(reason ? { reason } : {}) }),
+    body: JSON.stringify(body),
   });
   const text = await r.text();
   if (!r.ok) throw new Error(`Fanbasis refund HTTP ${r.status}: ${text.slice(0, 300)}`);
   return JSON.parse(text) as Record<string, unknown>;
 }
 
-export type RefundResult = { ok: boolean; transactionId?: string; result?: Record<string, unknown>; error?: string };
+export type RefundResult = {
+  ok: boolean;
+  transactionId?: string;
+  result?: Record<string, unknown>;
+  error?: string;
+  // On failure: what we looked up, so the stored record is diagnosable.
+  diagnostic?: Record<string, unknown>;
+};
 
 // Resolve a deposit (product id + buyer email) to its transaction, then refund.
-export async function refundDepositByProduct(productId: string, email: string, reason?: string): Promise<RefundResult> {
+export async function refundDepositByProduct(
+  productId: string,
+  email: string,
+  opts: { reason?: string; amountCents?: number } = {}
+): Promise<RefundResult> {
   try {
     if (!productId) return { ok: false, error: "deposit has no Fanbasis Product ID" };
     const want = String(email ?? "").trim().toLowerCase();
     const txns = await listCheckoutTransactions(productId);
     // Prefer an exact email match; fall back to the only transaction if unambiguous.
     const match = (want && txns.find((t) => t.email === want)) || (txns.length === 1 ? txns[0] : null);
+    const diagnostic = { productId, want, amountCents: opts.amountCents ?? null, found: txns.map((t) => ({ id: t.id, email: t.email })) };
     if (!match) {
-      return { ok: false, error: want ? `no transaction found for ${want} on product ${productId} (${txns.length} on file)` : "no email to match the transaction" };
+      return { ok: false, diagnostic, error: want ? `no transaction found for ${want} on product ${productId} (${txns.length} on file)` : "no email to match the transaction" };
     }
-    const result = await refundTransaction(match.id, reason);
-    return { ok: true, transactionId: match.id, result };
+    try {
+      const result = await refundTransaction(match.id, { reason: opts.reason, amountCents: opts.amountCents });
+      return { ok: true, transactionId: match.id, result };
+    } catch (e) {
+      // Keep the attempted transaction id + what we found, so a failed retry is diagnosable.
+      return { ok: false, transactionId: match.id, diagnostic, error: e instanceof Error ? e.message : "refund failed" };
+    }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "refund failed" };
   }
