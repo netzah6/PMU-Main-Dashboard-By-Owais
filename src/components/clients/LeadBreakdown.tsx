@@ -100,28 +100,6 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     return m;
   }, [leads, days]);
 
-  // ── Older signups still in conversation ──────────────────────────────────────
-  // Grouping by signup date hides leads who signed up 15+ days ago but are STILL
-  // actively in an AI conversation (their status matters but their signup-day row
-  // is off the bottom of the 14-day list). Surface those here so no live
-  // conversation is lost: engaged (not "v3_only") + last activity within 14 days +
-  // signup outside the visible day window.
-  const stillActive = useMemo(() => {
-    const daySet = new Set(days);
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 13);
-    const cutoffISO = cutoff.toISOString().slice(0, 10);
-    return leads
-      .filter((l) => {
-        const signup = (l.date_added ?? "").slice(0, 10);
-        if (!signup || daySet.has(signup)) return false; // already in the day list
-        if (l.status === "v3_only") return false;        // never engaged — skip
-        const act = (l.activity_date ?? "").slice(0, 10);
-        return act >= cutoffISO;                          // active in the last 14 days
-      })
-      .sort((a, b) => (b.activity_date ?? "").localeCompare(a.activity_date ?? ""));
-  }, [leads, days]);
-
   // ── AI recommendation, from the last-14-day status mix ────────────────────────
   const recommendations = useMemo(() => {
     const c: Record<string, number> = {};
@@ -472,37 +450,6 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
           );
         })}
       </ul>
-
-      {/* Older signups still in active conversation — hidden by the signup-date
-          window above, surfaced here so no live conversation gets lost. */}
-      {stillActive.length > 0 && (
-        <div className="rounded-lg border border-[#cdeae0] bg-[#f3fbf7] overflow-hidden">
-          <div className="px-3 py-2 flex items-center gap-2 border-b border-[#dcefe6]">
-            <span className="text-sm">💬</span>
-            <span className="text-[11px] font-bold uppercase tracking-wide text-[#0e8f88]">Older signups still in conversation</span>
-            <span className="ml-auto text-[10px] text-[#697a91] whitespace-nowrap">{stillActive.length} active · signed up 15+ days ago</span>
-          </div>
-          <ul className="divide-y divide-[#e6f3ec]">
-            {stillActive.map((l) => {
-              const cfg = STATUS[l.status];
-              return (
-                <li key={l.id} className="flex items-center gap-2 text-sm flex-wrap px-3 py-1.5">
-                  <span title={cfg.legend}>{cfg.emoji}</span>
-                  <span className="font-medium text-[#1f3559]">{l.contact_name || l.email || "—"}</span>
-                  <span className="text-[#697a91]">— {cfg.short(l.ai_off)}</span>
-                  {l.price_signal === "silent" && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]" title="Got the offer (knows the price), then stopped replying — possible price pushback">🔇 silent after offer</span>
-                  )}
-                  {l.price_signal === "objection" && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#fde8ee] text-[#e11d48] border border-[#f5c2cf]" title="Mentioned cost/price concern after the offer">💸 too expensive</span>
-                  )}
-                  <span className="ml-auto text-[10px] text-[#8595a8] whitespace-nowrap">signed up {dayMeta((l.date_added ?? "").slice(0, 10))} · active {dayMeta((l.activity_date ?? "").slice(0, 10))}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
       </div>
     </div>
   );
