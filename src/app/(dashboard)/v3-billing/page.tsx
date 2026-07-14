@@ -250,6 +250,7 @@ function Metric({ label, value, sub, tone }: { label: string; value: string | nu
 type Filter = "all" | "ppa" | "ready" | "unset";
 export default function V3BillingPage() {
   const [clients, setClients] = useState<ClientRow[]>([]);
+  const [missing, setMissing] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -260,10 +261,11 @@ export default function V3BillingPage() {
     try {
       const res = await fetch(`/api/ppa/overview${refresh ? "?refresh=1" : ""}`);
       const text = await res.text();
-      let json: { clients?: ClientRow[]; error?: string } = {};
+      let json: { clients?: ClientRow[]; missingFromMaster?: string[]; error?: string } = {};
       try { json = JSON.parse(text); } catch { throw new Error(res.ok ? "Unexpected response" : `Server error (${res.status})`); }
       if (!res.ok) throw new Error(json.error || "Failed to load");
       setClients(json.clients ?? []);
+      setMissing(json.missingFromMaster ?? []);
     } catch (e) { setError(`${e}`.replace("Error: ", "")); }
     finally { setLoading(false); }
   }, []);
@@ -299,11 +301,11 @@ export default function V3BillingPage() {
       <SyncHealthBanner />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-[#1f3559]">V3 Billing</h1>
-          <p className="text-sm text-[#697a91]">Pay-per-appointment tracking · who to charge, and how much</p>
+          <h1 className="text-xl font-bold text-[#1f3559]">PPA Billing</h1>
+          <p className="text-sm text-[#697a91]">Pay-per-appointment clients (marked &quot;PPA&quot; in the financing sheet&apos;s current month) · who to charge, and how much</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.v3} V3</span>
+          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.v3} PPA</span>
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df]">{totals.ppa} pay-per-appt</span>
           {totals.chargedUsd > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{money(totals.chargedUsd)} charged</span>}
           <button onClick={() => load(true)} disabled={loading}
@@ -312,6 +314,14 @@ export default function V3BillingPage() {
           </button>
         </div>
       </div>
+
+      {/* PPA names in the financing sheet with no Clients Master row — they
+          can't be tracked until they're added to the Master sheet. */}
+      {missing.length > 0 && (
+        <div className="rounded-xl border border-[#f5c2cf] bg-[#fde8ee] px-3 py-2 text-sm text-[#be123c]">
+          <strong>Not in Clients Master:</strong> {missing.join(", ")} — marked PPA in the financing sheet but missing from the Clients Master sheet, so they can&apos;t be tracked here. Add them to the Master sheet to include them.
+        </div>
+      )}
 
       {/* Monday worklist — who to charge this week */}
       <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] p-3">

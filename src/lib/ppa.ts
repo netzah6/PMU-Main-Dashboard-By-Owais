@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
+import { normalizeOwnerKey } from "@/lib/normalizers";
 
 // ── V3 Pay-Per-Appointment billing helpers ───────────────────────────────────
 // Reads only (clients_master, ghl_opportunities, deposits, stage cache);
@@ -28,17 +29,36 @@ export interface V3Client {
   version: string;
 }
 
-// The V3 roster: live/paused clients whose Version contains "v3".
+// The PPA roster: clients marked "PPA" (pay-per-appointment) in the financing
+// sheet's latest month tab (synced to client_payments by the 15-min cron).
+// The Version column is NOT the signal — some PPA clients are (V2) and some
+// (V3) clients pay monthly. Matched to Clients Master by normalized owner name.
+// missingFromMaster = PPA names in the financing sheet with no Clients Master
+// row — surfaced in the tab so nobody silently drops off billing.
 export async function getV3Roster(): Promise<V3Client[]> {
+  return (await getPpaRoster()).clients;
+}
+
+export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFromMaster: string[] }> {
   const svc = createServiceClient();
-  const { data } = await svc.from("clients_master").select("data");
+  const [{ data }, { data: pay }] = await Promise.all([
+    svc.from("clients_master").select("data"),
+    svc.from("client_payments").select("client_name, owner_key, payment_status"),
+  ]);
+  const ppaByKey = new Map<string, string>(); // normalized owner key → financing-sheet client name
+  for (const p of (pay ?? []) as Array<{ client_name: string; owner_key: string; payment_status: string }>) {
+    if (String(p.payment_status ?? "").toLowerCase().includes("ppa")) ppaByKey.set(p.owner_key, p.client_name);
+  }
+  const matched = new Set<string>();
   const seen = new Set<string>();
   const out: V3Client[] = [];
   for (const r of data ?? []) {
     const d = (r as { data: Record<string, unknown> }).data ?? {};
     const version = String(d["Version"] ?? "");
     const status = String(d["col_1"] ?? "").toLowerCase();
-    if (!version.toLowerCase().includes("v3")) continue;
+    const normKey = normalizeOwnerKey(d["Owner Full Name"]);
+    if (!normKey || !ppaByKey.has(normKey)) continue;
+    matched.add(normKey);
     if (status !== "live" && status !== "paused") continue;
     const ownerName = String(d["Owner Full Name"] ?? "").trim();
     if (!ownerName) continue;
@@ -56,7 +76,11 @@ export async function getV3Roster(): Promise<V3Client[]> {
     });
   }
   out.sort((a, b) => a.ownerName.localeCompare(b.ownerName));
-  return out;
+  const missingFromMaster = [...ppaByKey.entries()]
+    .filter(([k]) => !matched.has(k))
+    .map(([, name]) => name)
+    .sort();
+  return { clients: out, missingFromMaster };
 }
 
 // Run an async worker over items with a bounded number running at once.
