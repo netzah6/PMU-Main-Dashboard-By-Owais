@@ -68,7 +68,9 @@ export async function GET(req: NextRequest) {
       business: c.business,
       status: c.status,
       version: c.version,
-      isPpa: cfg.is_ppa,
+      // The roster only contains PPA-marked clients now, so everyone bills
+      // per appointment — the old per-client toggle is meaningless.
+      isPpa: true,
       fee: cfg.fee_per_appt,
       note: cfg.note,
       deposits: dep.deposits,
@@ -81,7 +83,7 @@ export async function GET(req: NextRequest) {
       readyToCharge,
       chargedCount: s?.charged_count ?? 0,
       chargedAmount: chgAmtBy.get(c.ownerKey) ?? 0,
-      readyOwed: cfg.is_ppa ? readyToCharge * cfg.fee_per_appt : 0,
+      readyOwed: readyToCharge * cfg.fee_per_appt,
     };
   });
 
