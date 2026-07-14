@@ -197,7 +197,7 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
         <button onClick={() => setOpen((o) => !o)} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
           {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </button>
-        <div className="w-[190px] shrink-0">
+        <div className="w-[190px] shrink-0 mr-5">
           <div className="font-bold text-[#1f3559] leading-tight truncate" title={c.ownerName}>{c.ownerName}</div>
           <div className="text-[11px] text-[#8595a8] truncate" title={c.business || undefined}>{c.business || "—"}
             {c.status === "paused" && <span className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706]">PAUSED</span>}
