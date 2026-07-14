@@ -30,23 +30,26 @@ export async function GET() {
     .or(`last_success_at.is.null,last_success_at.lt.${cutoff}`);
   const rows = ((data ?? []) as Row[]).filter((r) => !r.muted);
 
-  // Resolve owner_key → business name + client status. Only LIVE clients are
-  // flagged: paused clients (e.g. disconnected sub-accounts) aren't expected to
-  // sync, and their missing data doesn't matter to the team.
-  const bizByOwner = new Map<string, { business: string; live: boolean }>();
+  // Resolve owner_key → business name + client status. Only LIVE V3/V2.3
+  // clients are flagged: paused clients (e.g. disconnected sub-accounts)
+  // aren't expected to sync, and clients outside V3/V2.3 tracking (the ingest
+  // covers every live account, any version) don't belong on this banner.
+  const bizByOwner = new Map<string, { business: string; live: boolean; v3: boolean }>();
   if (rows.length) {
     const { data: cm } = await svc.from("clients_master").select("data");
     for (const r of (cm ?? []) as Array<{ data: Record<string, unknown> }>) {
       const owner = String(r.data?.["Owner Full Name"] ?? "").trim().toLowerCase();
       const biz = String(r.data?.["Business Name"] ?? "").trim();
       const live = String(r.data?.["col_1"] ?? "").trim().toLowerCase() === "live";
-      if (owner && !bizByOwner.has(owner)) bizByOwner.set(owner, { business: biz || owner, live });
+      const ver = String(r.data?.["Version"] ?? "").toLowerCase();
+      const v3 = ver.includes("v3") || ver.includes("v2.3");
+      if (owner && !bizByOwner.has(owner)) bizByOwner.set(owner, { business: biz || owner, live, v3 });
     }
   }
 
   const ms = (s: string | null) => (s ? Date.parse(s) : 0);
   const stalled = rows
-    .filter((r) => bizByOwner.get(r.owner_key)?.live === true)
+    .filter((r) => { const c = bizByOwner.get(r.owner_key); return c?.live === true && c.v3 === true; })
     .map((r) => ({
       ownerKey: r.owner_key,
       business: bizByOwner.get(r.owner_key)?.business ?? r.owner_key,
