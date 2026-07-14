@@ -182,34 +182,27 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
 function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () => void; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(!!defaultOpen);
   const [fee, setFee] = useState(String(c.fee));
-  const [savingCfg, setSavingCfg] = useState(false);
   useEffect(() => { setFee(String(c.fee)); }, [c.fee]);
 
-  const saveConfig = async (patch: { is_ppa?: boolean; fee?: number }) => {
-    setSavingCfg(true);
+  const saveConfig = async (patch: { fee?: number }) => {
     try {
       await fetch("/api/ppa/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_key: c.ownerKey, ...patch }) });
       onChange();
-    } finally { setSavingCfg(false); }
+    } catch { /* refresh on next load */ }
   };
 
   return (
-    <div className={cn("rounded-xl border bg-white", c.readyToCharge > 0 && c.isPpa ? "border-[#fcd9a8]" : c.isPpa ? "border-[#a7e3df]" : "border-[#e4ebf2]")}>
+    <div className={cn("rounded-xl border bg-white", c.readyToCharge > 0 ? "border-[#fcd9a8]" : "border-[#a7e3df]")}>
       <div className="flex items-center gap-3 p-3 flex-wrap">
         <button onClick={() => setOpen((o) => !o)} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
           {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </button>
-        <div className="min-w-[160px] flex-1">
-          <div className="font-bold text-[#1f3559] leading-tight">{c.ownerName}</div>
-          <div className="text-[11px] text-[#8595a8] truncate">{c.business || "—"}
+        <div className="w-[230px] shrink-0">
+          <div className="font-bold text-[#1f3559] leading-tight truncate" title={c.ownerName}>{c.ownerName}</div>
+          <div className="text-[11px] text-[#8595a8] truncate" title={c.business || undefined}>{c.business || "—"}
             {c.status === "paused" && <span className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706]">PAUSED</span>}
           </div>
         </div>
-
-        <label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
-          <input type="checkbox" checked={c.isPpa} disabled={savingCfg} onChange={(e) => saveConfig({ is_ppa: e.target.checked })} className="w-4 h-4 accent-[#15B7AE]" />
-          <span className={cn("text-[11px] font-semibold", c.isPpa ? "text-[#0e8f88]" : "text-[#8595a8]")}>Pay-per-appt</span>
-        </label>
 
         <div className="flex items-center gap-1 shrink-0">
           <span className="text-[11px] text-[#8595a8]">Fee</span>
@@ -223,9 +216,8 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
 
         <div className="flex items-center gap-3 text-center shrink-0">
           <Metric label="Deposits" value={c.deposits} sub="potential" />
-          <Metric label="Served" value={c.served} tone={c.served > 0 ? "green" : "gray"} />
           <Metric label="Upcoming" value={c.upcoming} sub="future" tone="gray" />
-          <Metric label="Ready" value={c.readyToCharge} sub={c.isPpa ? money(c.readyOwed) : ""} tone={c.readyToCharge > 0 ? "amber" : "gray"} />
+          <Metric label="Ready" value={c.readyToCharge} sub={money(c.readyOwed)} tone={c.readyToCharge > 0 ? "amber" : "gray"} />
           <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
         </div>
       </div>
@@ -247,7 +239,7 @@ function Metric({ label, value, sub, tone }: { label: string; value: string | nu
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
-type Filter = "all" | "ppa" | "ready" | "unset";
+type Filter = "all" | "ready";
 export default function V3BillingPage() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
@@ -272,25 +264,23 @@ export default function V3BillingPage() {
   useEffect(() => { load(); }, [load]);
 
   const totals = useMemo(() => {
-    const t = { v3: clients.length, ppa: 0, ready: 0, readyUsd: 0, chargedUsd: 0 };
+    const t = { count: clients.length, ready: 0, readyUsd: 0, chargedUsd: 0 };
     for (const c of clients) {
-      if (c.isPpa) { t.ppa++; t.ready += c.readyToCharge; t.readyUsd += c.readyOwed; }
+      t.ready += c.readyToCharge; t.readyUsd += c.readyOwed;
       t.chargedUsd += c.chargedAmount;
     }
     return t;
   }, [clients]);
 
-  // The Monday worklist — pay-per-appt clients with appointments ready to charge.
+  // The Monday worklist — clients with appointments ready to charge.
   const worklist = useMemo(() =>
-    clients.filter((c) => c.isPpa && c.readyToCharge > 0).sort((a, b) => b.readyOwed - a.readyOwed),
+    clients.filter((c) => c.readyToCharge > 0).sort((a, b) => b.readyOwed - a.readyOwed),
   [clients]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return clients.filter((c) => {
-      if (filter === "ppa" && !c.isPpa) return false;
-      if (filter === "ready" && !(c.isPpa && c.readyToCharge > 0)) return false;
-      if (filter === "unset" && c.isPpa) return false;
+      if (filter === "ready" && !(c.readyToCharge > 0)) return false;
       if (q && !`${c.ownerName} ${c.business}`.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -305,8 +295,7 @@ export default function V3BillingPage() {
           <p className="text-sm text-[#697a91]">Pay-per-appointment clients (marked &quot;PPA&quot; in the financing sheet&apos;s current month) · who to charge, and how much</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.v3} PPA</span>
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df]">{totals.ppa} pay-per-appt</span>
+          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
           {totals.chargedUsd > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{money(totals.chargedUsd)} charged</span>}
           <button onClick={() => load(true)} disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
@@ -354,17 +343,15 @@ export default function V3BillingPage() {
         </div>
         <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}
           className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
-          <option value="all">All V3 clients</option>
+          <option value="all">All PPA clients</option>
           <option value="ready">Ready to charge</option>
-          <option value="ppa">Pay-per-appt only</option>
-          <option value="unset">Not pay-per-appt</option>
         </select>
       </div>
 
       {error ? (
         <div className="px-4 py-6 rounded-xl border border-[#e4ebf2] bg-white text-center text-sm text-[#e11d48]">{error}</div>
       ) : loading && clients.length === 0 ? (
-        <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center"><Loader2 size={15} className="animate-spin" /> Loading V3 clients, stages &amp; appointments…</div>
+        <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center"><Loader2 size={15} className="animate-spin" /> Loading PPA clients, stages &amp; appointments…</div>
       ) : filtered.length === 0 ? (
         <div className="py-12 text-center text-[#8595a8]">No clients match.</div>
       ) : (
