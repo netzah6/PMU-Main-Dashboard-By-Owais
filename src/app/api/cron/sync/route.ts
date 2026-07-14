@@ -15,8 +15,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const results = await syncAllSheets();
+  // Payments first: it's one tab read + one upsert, and running it after the
+  // full sheet sync starved it whenever syncAllSheets ate the 300s budget
+  // (client_payments sat on the June tab for two weeks of July).
   const payments = await syncPayments();
+  const results = await syncAllSheets();
   const offers = await refreshOffers();
 
   const errors = results.filter((r) => r.status === "error");
@@ -57,9 +60,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ results: [result] });
   }
 
-  // Sync all
-  const results = await syncAllSheets();
+  // Sync all (payments first — see GET)
   const payments = await syncPayments();
+  const results = await syncAllSheets();
   return NextResponse.json({
     timestamp: new Date().toISOString(),
     results,

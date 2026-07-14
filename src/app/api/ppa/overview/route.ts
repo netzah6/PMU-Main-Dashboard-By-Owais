@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getAuth, getV3Roster, warmStageMap, ingestAppointments } from "@/lib/ppa";
+import { getAuth, getPpaRoster, warmStageMap, ingestAppointments } from "@/lib/ppa";
 
 export const maxDuration = 300;
 
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const svc = createServiceClient();
-  const roster = await getV3Roster();
+  const { clients: roster, missingFromMaster } = await getPpaRoster();
   const ownerKeys = roster.map((c) => c.ownerKey);
   const bizNorms = roster.map((c) => c.bizNorm).filter(Boolean);
 
@@ -85,5 +85,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ clients });
+  return NextResponse.json({ clients, missingFromMaster });
 }
