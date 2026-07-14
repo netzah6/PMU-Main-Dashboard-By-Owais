@@ -192,12 +192,12 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
   };
 
   return (
-    <div className={cn("rounded-xl border bg-white", c.readyToCharge > 0 ? "border-[#fcd9a8]" : "border-[#a7e3df]")}>
-      <div className="flex items-center gap-3 p-3 flex-wrap">
+    <div className={cn("rounded-xl border bg-white w-fit max-w-full", c.readyToCharge > 0 ? "border-[#fcd9a8]" : "border-[#a7e3df]")}>
+      <div className="flex items-center gap-2.5 px-3 py-2 flex-wrap">
         <button onClick={() => setOpen((o) => !o)} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
           {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </button>
-        <div className="w-[230px] shrink-0">
+        <div className="w-[190px] shrink-0">
           <div className="font-bold text-[#1f3559] leading-tight truncate" title={c.ownerName}>{c.ownerName}</div>
           <div className="text-[11px] text-[#8595a8] truncate" title={c.business || undefined}>{c.business || "—"}
             {c.status === "paused" && <span className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706]">PAUSED</span>}
@@ -210,13 +210,13 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
             <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] text-[#8595a8]">$</span>
             <input value={fee} onChange={(e) => setFee(e.target.value.replace(/[^0-9.]/g, ""))}
               onBlur={() => { const n = Number(fee); if (!isNaN(n) && n !== c.fee) saveConfig({ fee: n }); }}
-              className="w-16 pl-4 pr-1 py-1 text-xs text-right rounded-lg border border-[#e4ebf2] focus:outline-none focus:border-[#15B7AE]" />
+              className="w-14 pl-4 pr-1 py-0.5 text-xs text-right rounded-lg border border-[#e4ebf2] focus:outline-none focus:border-[#15B7AE]" />
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-center shrink-0">
-          <Metric label="Deposits" value={c.deposits} sub="potential" />
-          <Metric label="Upcoming" value={c.upcoming} sub="future" tone="gray" />
+        <div className="flex items-center gap-2.5 text-center shrink-0">
+          <Metric label="Deposits" value={c.deposits} />
+          <Metric label="Upcoming" value={c.upcoming} tone="gray" />
           <Metric label="Ready" value={c.readyToCharge} sub={money(c.readyOwed)} tone={c.readyToCharge > 0 ? "amber" : "gray"} />
           <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
         </div>
