@@ -8,24 +8,24 @@ type Tab = { label: string; href: string; adminOnly?: boolean };
 
 const TABS: Tab[] = [
   // Hidden from the menu (page still exists at /overview): Overview
-  { label: "Clients", href: "/clients" },
-  { label: "Performance", href: "/performance" },
-  { label: "Cost / Deposit", href: "/cost-per-deposit" },
-  { label: "Deposits", href: "/deposits" },
-  { label: "Bookings", href: "/bookings" },
-  { label: "Leads", href: "/leads" },
-  { label: "Calls", href: "/calls" },
-  { label: "Tasks", href: "/tasks" },
+  { label: "👥 Clients", href: "/clients" },
+  { label: "📈 Performance", href: "/performance" },
+  { label: "💰 Cost / Deposit", href: "/cost-per-deposit" },
+  { label: "💵 Deposits", href: "/deposits" },
+  { label: "📅 Bookings", href: "/bookings" },
+  { label: "🧲 Leads", href: "/leads" },
+  { label: "📞 Calls", href: "/calls" },
+  { label: "✅ Tasks", href: "/tasks" },
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
-  { label: "Agreements", href: "/agreements" },
+  { label: "📝 Agreements", href: "/agreements" },
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
-  { label: "LTV", href: "/ltv", adminOnly: true }, // admins only
-  { label: "Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
-  { label: "V3 Billing", href: "/v3-billing", adminOnly: true }, // pay-per-appointment tracking — admins only
-  { label: "Onboarding", href: "/onboarding", adminOnly: true }, // new-client setup checklist
-  { label: "Map", href: "/map" },
-  { label: "AI", href: "/ask" },
-  { label: "Reports", href: "/reports" },
+  { label: "💎 LTV", href: "/ltv", adminOnly: true }, // admins only
+  { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
+  { label: "🧾 V3 Billing", href: "/v3-billing", adminOnly: true }, // pay-per-appointment tracking — admins only
+  { label: "🚀 Onboarding", href: "/onboarding", adminOnly: true }, // new-client setup checklist
+  { label: "🗺️ Map", href: "/map" },
+  { label: "🤖 AI", href: "/ask" },
+  { label: "📊 Reports", href: "/reports" },
 ];
 
 export function TabNav() {
