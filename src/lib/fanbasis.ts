@@ -60,6 +60,50 @@ export async function createDepositProduct(title: string, amountCents: number): 
   return { productId, checkoutUrl, raw: j };
 }
 
+// ── Reconciliation: list ALL transactions across products ──────────────────
+export type FanTxn = {
+  id: string; email: string; name: string; amountDollars: number | null;
+  createdAt: string | null; product: string | null;
+};
+
+// Global transactions feed (all products). Paginated newest-first; stops once
+// we page past `sinceISO`. Used to reconcile Commas payments vs the Deposits sheet.
+export async function listAllTransactions(sinceISO: string): Promise<FanTxn[]> {
+  const since = Date.parse(sinceISO);
+  const out: FanTxn[] = [];
+  for (let page = 1; page <= 60; page++) {
+    const r = await fetch(`${BASE}/checkout-sessions/transactions?page=${page}&per_page=100`, { headers: headers() });
+    const text = await r.text();
+    if (!r.ok) throw new Error(`Fanbasis transactions HTTP ${r.status}: ${text.slice(0, 300)}`);
+    const j = JSON.parse(text) as Record<string, unknown>;
+    const container = (j.data ?? j) as Record<string, unknown>;
+    const list = (container.transactions ?? j.transactions ?? []) as Array<Record<string, unknown>>;
+    if (list.length === 0) break;
+    let allOlder = true;
+    for (const t of list) {
+      const fan = (t.fan ?? {}) as Record<string, unknown>;
+      const prod = (t.product ?? t.checkout_session ?? {}) as Record<string, unknown>;
+      const created = String(t.created_at ?? t.createdAt ?? t.date ?? "") || null;
+      const amt = Number(t.amount ?? t.amount_dollars ?? (t.amount_cents ? Number(t.amount_cents) / 100 : NaN));
+      const nm = String(fan.name ?? [fan.first_name, fan.last_name].filter(Boolean).join(" ") ?? "").trim();
+      const createdMs = created ? Date.parse(created) : NaN;
+      if (Number.isFinite(createdMs) && createdMs >= since) allOlder = false;
+      if (!Number.isFinite(createdMs) || createdMs >= since) {
+        out.push({
+          id: String(t.id ?? t.transaction_id ?? t._id ?? ""),
+          email: String(fan.email ?? t.email ?? "").trim().toLowerCase(),
+          name: nm,
+          amountDollars: Number.isFinite(amt) ? amt : null,
+          createdAt: created,
+          product: (typeof prod.title === "string" ? prod.title : null) ?? (typeof t.product_title === "string" ? t.product_title : null),
+        });
+      }
+    }
+    if (list.length < 100 || allOlder) break;
+  }
+  return out;
+}
+
 // ── Refunds ───────────────────────────────────────────────────────────────
 // Refund flow: a deposit's `Product ID` is its checkout session → list that
 // session's transactions → match the buyer's email → refund that transaction.
