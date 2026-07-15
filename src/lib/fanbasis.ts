@@ -83,7 +83,7 @@ export async function listAllTransactions(sinceISO: string): Promise<FanTxn[]> {
     for (const t of list) {
       const fan = (t.fan ?? {}) as Record<string, unknown>;
       const prod = (t.product ?? t.checkout_session ?? {}) as Record<string, unknown>;
-      const created = String(t.created_at ?? t.createdAt ?? t.date ?? "") || null;
+      const created = String(t.transaction_date ?? t.created_at ?? t.createdAt ?? t.date ?? "") || null;
       const amt = Number(t.amount ?? t.amount_dollars ?? (t.amount_cents ? Number(t.amount_cents) / 100 : NaN));
       const nm = String(fan.name ?? [fan.first_name, fan.last_name].filter(Boolean).join(" ") ?? "").trim();
       const createdMs = created ? Date.parse(created) : NaN;
