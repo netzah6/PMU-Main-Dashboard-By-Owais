@@ -13,6 +13,7 @@ type LocRow = { owner_key: string; location_id: string | null };
 type SummaryRow = {
   owner_key: string; served: number; past_due: number; upcoming: number;
   noshow: number; no_appt: number; ready_to_charge: number; charged_count: number;
+  showed: number; no_show_marked: number; excluded_count: number;
 };
 
 export async function GET(req: NextRequest) {
@@ -62,6 +63,9 @@ export async function GET(req: NextRequest) {
     const dep = depBy.get(c.bizNorm) ?? { deposits: 0, deposit_total: 0 };
     const cfg = cfgBy.get(c.ownerKey) ?? { is_ppa: false, fee_per_appt: 30, note: null };
     const readyToCharge = s?.ready_to_charge ?? 0;
+    const showed = s?.showed ?? 0;
+    const noShowMarked = s?.no_show_marked ?? 0;
+    const reviewed = showed + noShowMarked;
     return {
       ownerKey: c.ownerKey,
       ownerName: c.ownerName,
@@ -84,6 +88,11 @@ export async function GET(req: NextRequest) {
       chargedCount: s?.charged_count ?? 0,
       chargedAmount: chgAmtBy.get(c.ownerKey) ?? 0,
       readyOwed: readyToCharge * cfg.fee_per_appt,
+      // Show rate = showed / (showed + marked no-show), from our review decisions.
+      showed,
+      noShowMarked,
+      excludedCount: s?.excluded_count ?? 0,
+      showRate: reviewed > 0 ? Math.round((showed / reviewed) * 100) : null,
     };
   });
 
