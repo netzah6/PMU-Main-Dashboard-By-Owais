@@ -255,6 +255,9 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
   const [open, setOpen] = useState(!!defaultOpen);
   const [fee, setFee] = useState(String(c.fee));
   useEffect(() => { setFee(String(c.fee)); }, [c.fee]);
+  // "Not organizing" = several past appointments left in "confirmed" (never moved
+  // to session-done/showed). We bill these as shown by default, per agreement.
+  const notOrganizing = c.pastDue >= 3;
 
   const saveConfig = async (patch: { fee?: number }) => {
     try {
@@ -270,7 +273,13 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
           {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </button>
         <div className="w-[190px] shrink-0 mr-5">
-          <div className="font-bold text-[#1f3559] leading-tight truncate" title={c.ownerName}>{c.ownerName}</div>
+          <div className="font-bold text-[#1f3559] leading-tight truncate flex items-center gap-1" title={c.ownerName}>
+            <span className="truncate">{c.ownerName}</span>
+            {notOrganizing && (
+              <span title={`${c.pastDue} past appointments left in "confirmed" — not organizing their dashboard. Billed as shown by default per agreement.`}
+                className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span>
+            )}
+          </div>
           <div className="text-[11px] text-[#8595a8] truncate" title={c.business || undefined}>{c.business || "—"}
             {c.status === "paused" && <span className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706]">PAUSED</span>}
           </div>
@@ -379,6 +388,11 @@ export default function V3BillingPage() {
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
           </button>
         </div>
+      </div>
+
+      {/* Billing policy: unorganized "confirmed" appointments are billed as shown. */}
+      <div className="rounded-xl border border-[#e4ebf2] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#697a91]">
+        Appointments left in <strong className="text-[#34568a]">&quot;confirmed&quot;</strong> past their date are billed as <strong className="text-[#34568a]">shown</strong> by default — per agreement, if the artist doesn&apos;t organize their dashboard we charge anyway. Clients with several of these are flagged <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span> so you can nudge them.
       </div>
 
       {/* PPA names in the financing sheet with no Clients Master row — they
