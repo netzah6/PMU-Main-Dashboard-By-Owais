@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock } from "lucide-react";
+import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
@@ -10,6 +10,7 @@ interface ClientRow {
   deposits: number; depositTotal: number;
   served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number;
   readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number;
+  showed: number; noShowMarked: number; excludedCount: number; showRate: number | null;
 }
 interface Appt {
   apptId: string; contactName: string | null; email: string | null; depositDate: string | null;
@@ -17,12 +18,25 @@ interface Appt {
   currentStage: string | null; appointmentDate: string | null; appointmentStatus: string | null;
   chargeStatus: string; charged: boolean; chargedAmount: number | null; chargedAt: string | null;
   chargedBy: string | null; chargeNote: string | null;
+  excluded: boolean; excludeReason: string | null;
 }
 interface Drill {
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
-  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; readyToCharge: number };
+  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; readyToCharge: number; excluded: number; showed: number; noShowMarked: number; showRate: number | null };
   appointments: Appt[];
 }
+
+// Reasons an appointment is voided (not billed, not pending). "no_show" is the
+// only one that counts against show rate; the rest are neutral voids.
+const EXCLUDE_REASONS: { key: string; label: string }[] = [
+  { key: "no_show", label: "No-show" },
+  { key: "cancelled", label: "Cancelled" },
+  { key: "refunded", label: "Refunded" },
+  { key: "test", label: "Test" },
+  { key: "not_a_fit", label: "Not a fit" },
+  { key: "other", label: "Other" },
+];
+const reasonLabel = (k: string | null) => EXCLUDE_REASONS.find((r) => r.key === k)?.label ?? "Excluded";
 
 const CS: Record<string, { label: string; cls: string }> = {
   served:   { label: "Served",       cls: "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]" },
@@ -31,7 +45,7 @@ const CS: Record<string, { label: string; cls: string }> = {
   noshow:   { label: "No-show",      cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]" },
   no_appt:  { label: "No appt",      cls: "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]" },
 };
-const isReady = (a: Appt) => !a.charged && (a.chargeStatus === "served" || a.chargeStatus === "past_due");
+const isReady = (a: Appt) => !a.charged && !a.excluded && (a.chargeStatus === "served" || a.chargeStatus === "past_due");
 
 function money(n: number): string {
   return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });
@@ -48,6 +62,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [menuFor, setMenuFor] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -84,6 +99,27 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
     for (const a of drill.appointments.filter(isReady)) await toggleCharge(a, true);
   };
 
+  // Void an appointment (or restore it). Excluding clears any charge server-side.
+  const setExclude = async (a: Appt, excluded: boolean, reason?: string) => {
+    if (!drill) return;
+    setMenuFor(null);
+    setBusy((b) => new Set(b).add(a.apptId));
+    setDrill({ ...drill, appointments: drill.appointments.map((x) => x.apptId === a.apptId
+      ? { ...x, excluded, excludeReason: excluded ? (reason ?? "other") : null, charged: excluded ? false : x.charged } : x) });
+    try {
+      const res = await fetch("/api/ppa/charge", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appt_id: a.apptId, owner_key: client.ownerKey, excluded, exclude_reason: reason }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "save failed");
+      onCharged();
+    } catch (e) {
+      setError(`${e}`.replace("Error: ", "")); await load();
+    } finally {
+      setBusy((b) => { const n = new Set(b); n.delete(a.apptId); return n; });
+    }
+  };
+
   if (loading) return <div className="flex items-center gap-2 text-xs text-[#697a91] py-6 justify-center"><Loader2 size={13} className="animate-spin" /> Loading appointments…</div>;
   if (error) return <div className="text-xs text-[#e11d48] py-4 text-center">{error}</div>;
   if (!drill) return null;
@@ -93,6 +129,14 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
 
   return (
     <div className="space-y-3 pt-1">
+      {/* Show rate — from our review decisions (charged = showed, excluded no-show = didn't) */}
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+        <span className="px-2 py-0.5 rounded-md font-bold border bg-[#eef7ff] text-[#1d4ed8] border-[#c9dbfb]">
+          Show rate: {s.showRate == null ? "—" : `${s.showRate}%`}
+          <span className="font-normal text-[#64748b]"> ({s.showed} showed / {s.noShowMarked} no-show)</span>
+        </span>
+        {s.excluded > 0 && <Pill label="Excluded" value={s.excluded} tone="gray" />}
+      </div>
       {/* Deposit-linked snapshot */}
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="text-[#8595a8]">These deposits:</span>
@@ -104,11 +148,11 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-[#697a91]">{drill.appointments.length} deposit{drill.appointments.length === 1 ? "" : "s"} · <strong className="text-[#0e8f88]">{readyCount} ready to charge</strong></span>
+        <span className="text-[11px] text-[#697a91]">{drill.appointments.length} deposit{drill.appointments.length === 1 ? "" : "s"} · <strong className="text-[#0e8f88]">{readyCount} to review</strong></span>
         {readyCount > 0 && (
           <button onClick={chargeAllReady}
             className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#e6f7f5] hover:bg-[#d6f0ed] text-[#0e8f88] border border-[#a7e3df]">
-            <Check size={11} /> Charge all ready ({money(readyCount * client.fee)})
+            <Check size={11} /> Charge all as showed ({money(readyCount * client.fee)})
           </button>
         )}
       </div>
@@ -122,7 +166,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-[#e4ebf2] bg-[#f8fafc]">
-                {["Contact", "Deposit", "Appt date", "Stage", "Status", "Charged?"].map((h) => (
+                {["Contact", "Deposit", "Appt date", "Stage", "Status", "Bill / Void"].map((h) => (
                   <th key={h} className="px-2.5 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -131,14 +175,16 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
               {drill.appointments.map((a, i) => {
                 const ready = isReady(a);
                 const cs = CS[a.chargeStatus] ?? CS.no_appt;
+                const b = busy.has(a.apptId);
                 return (
-                  <tr key={a.apptId} className={cn("border-b border-[#eef3f8]", a.charged ? "bg-[#f2fbf9]" : ready ? "bg-[#fffdf5]" : i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
+                  <tr key={a.apptId} className={cn("border-b border-[#eef3f8]",
+                    a.excluded ? "bg-[#f6f7f9] text-[#94a3b8]" : a.charged ? "bg-[#f2fbf9]" : ready ? "bg-[#fffdf5]" : i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
                     <td className="px-2.5 py-1.5">
-                      <div className="font-medium text-[#1f3559]">{a.contactName || "—"}</div>
+                      <div className={cn("font-medium", a.excluded ? "text-[#94a3b8] line-through" : "text-[#1f3559]")}>{a.contactName || "—"}</div>
                       {a.email && <div className="text-[10px] text-[#8595a8]">{a.email}</div>}
                     </td>
                     <td className="px-2.5 py-1.5 whitespace-nowrap">
-                      <span className="text-[#0e8f88] font-semibold">{a.amount ? (a.amount.startsWith("$") ? a.amount : "$" + a.amount) : "—"}</span>
+                      <span className={cn("font-semibold", a.excluded ? "text-[#94a3b8]" : "text-[#0e8f88]")}>{a.amount ? (a.amount.startsWith("$") ? a.amount : "$" + a.amount) : "—"}</span>
                       <div className="text-[10px] text-[#a6b3c4]">{fmtDate(a.depositDate)}</div>
                     </td>
                     <td className="px-2.5 py-1.5 text-[#697a91] whitespace-nowrap">{fmtDate(a.appointmentDate)}</td>
@@ -149,14 +195,41 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                       <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap", cs.cls)}>{cs.label}</span>
                     </td>
                     <td className="px-2.5 py-1.5">
-                      <button onClick={() => toggleCharge(a, !a.charged)} disabled={busy.has(a.apptId)}
-                        className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors",
-                          a.charged ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]"
-                            : ready ? "bg-white text-[#0e8f88] border-[#a7e3df] hover:bg-[#e6f7f5]"
-                            : "bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]")}>
-                        {busy.has(a.apptId) ? <Loader2 size={11} className="animate-spin" /> : a.charged ? <Check size={11} /> : <DollarSign size={11} />}
-                        {a.charged ? `Charged ${a.chargedAmount != null ? money(a.chargedAmount) : ""}` : "Mark charged"}
-                      </button>
+                      {a.excluded ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0] whitespace-nowrap">Excluded · {reasonLabel(a.excludeReason)}</span>
+                          <button onClick={() => setExclude(a, false)} disabled={b} title="Restore" className="text-[#94a3b8] hover:text-[#0e8f88]">
+                            {b ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={12} />}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => toggleCharge(a, !a.charged)} disabled={b}
+                            className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors",
+                              a.charged ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]"
+                                : ready ? "bg-white text-[#0e8f88] border-[#a7e3df] hover:bg-[#e6f7f5]"
+                                : "bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]")}>
+                            {b ? <Loader2 size={11} className="animate-spin" /> : a.charged ? <Check size={11} /> : <DollarSign size={11} />}
+                            {a.charged ? `Charged ${a.chargedAmount != null ? money(a.chargedAmount) : ""}` : "Showed"}
+                          </button>
+                          {!a.charged && (
+                            <div className="relative">
+                              <button onClick={() => setMenuFor(menuFor === a.apptId ? null : a.apptId)} disabled={b}
+                                title="Don't charge" className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#94a3b8] border-[#e4ebf2] hover:border-[#e11d48] hover:text-[#e11d48]">
+                                <Ban size={11} /> Void
+                              </button>
+                              {menuFor === a.apptId && (
+                                <div className="absolute right-0 z-30 mt-1 w-32 rounded-lg border border-[#e4ebf2] bg-white py-1" style={{ boxShadow: "0 8px 20px -6px rgba(0,0,0,0.25)" }}>
+                                  {EXCLUDE_REASONS.map((r) => (
+                                    <button key={r.key} onClick={() => setExclude(a, true, r.key)}
+                                      className="block w-full text-left px-3 py-1.5 text-[11px] text-[#34568a] hover:bg-[#f1f5f9]">{r.label}</button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {a.charged && a.chargedBy && <div className="text-[9px] text-[#a6b3c4] mt-0.5">by {a.chargedBy}</div>}
                     </td>
                   </tr>
@@ -182,6 +255,9 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
   const [open, setOpen] = useState(!!defaultOpen);
   const [fee, setFee] = useState(String(c.fee));
   useEffect(() => { setFee(String(c.fee)); }, [c.fee]);
+  // "Not organizing" = several past appointments left in "confirmed" (never moved
+  // to session-done/showed). We bill these as shown by default, per agreement.
+  const notOrganizing = c.pastDue >= 3;
 
   const saveConfig = async (patch: { fee?: number }) => {
     try {
@@ -197,7 +273,13 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
           {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </button>
         <div className="w-[190px] shrink-0 mr-5">
-          <div className="font-bold text-[#1f3559] leading-tight truncate" title={c.ownerName}>{c.ownerName}</div>
+          <div className="font-bold text-[#1f3559] leading-tight truncate flex items-center gap-1" title={c.ownerName}>
+            <span className="truncate">{c.ownerName}</span>
+            {notOrganizing && (
+              <span title={`${c.pastDue} past appointments left in "confirmed" — not organizing their dashboard. Billed as shown by default per agreement.`}
+                className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span>
+            )}
+          </div>
           <div className="text-[11px] text-[#8595a8] truncate" title={c.business || undefined}>{c.business || "—"}
             {c.status === "paused" && <span className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706]">PAUSED</span>}
           </div>
@@ -215,6 +297,7 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
 
         <div className="flex items-center gap-2.5 text-center shrink-0">
           <Metric label="Deposits" value={c.deposits} />
+          <Metric label="Show %" value={c.showRate == null ? "—" : `${c.showRate}%`} sub={c.showRate == null ? "no reviews" : `${c.showed}/${c.showed + c.noShowMarked}`} tone={c.showRate == null ? "gray" : c.showRate >= 60 ? "green" : "amber"} />
           <Metric label="Upcoming" value={c.upcoming} tone="gray" />
           <Metric label="Ready" value={c.readyToCharge} sub={money(c.readyOwed)} tone={c.readyToCharge > 0 ? "amber" : "gray"} />
           <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
@@ -263,13 +346,15 @@ export default function V3BillingPage() {
   useEffect(() => { load(); }, [load]);
 
   const totals = useMemo(() => {
-    const t = { count: clients.length, ready: 0, readyUsd: 0, chargedUsd: 0 };
+    const t = { count: clients.length, ready: 0, readyUsd: 0, chargedUsd: 0, showed: 0, noShow: 0 };
     for (const c of clients) {
       t.ready += c.readyToCharge; t.readyUsd += c.readyOwed;
       t.chargedUsd += c.chargedAmount;
+      t.showed += c.showed; t.noShow += c.noShowMarked;
     }
     return t;
   }, [clients]);
+  const programShowRate = totals.showed + totals.noShow > 0 ? Math.round((totals.showed / (totals.showed + totals.noShow)) * 100) : null;
 
   // The Monday worklist — clients with appointments ready to charge.
   const worklist = useMemo(() =>
@@ -289,17 +374,25 @@ export default function V3BillingPage() {
     <div className="p-4 sm:p-6 space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-[#1f3559]">PPA Billing</h1>
-          <p className="text-sm text-[#697a91]">Pay-per-appointment clients (marked &quot;PPA&quot; in the financing sheet&apos;s current month) · who to charge, and how much</p>
+          <h1 className="text-xl font-bold text-[#1f3559]">PPS Billing</h1>
+          <p className="text-sm text-[#697a91]">Pay-per-show clients (marked &quot;PPA&quot; in the financing sheet&apos;s current month) · charge per completed appointment</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
+          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef7ff] text-[#1d4ed8] border border-[#c9dbfb]" title="Showed ÷ (showed + no-shows), from your review decisions">
+            Show rate {programShowRate == null ? "—" : `${programShowRate}%`}
+          </span>
           {totals.chargedUsd > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{money(totals.chargedUsd)} charged</span>}
           <button onClick={() => load(true)} disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
           </button>
         </div>
+      </div>
+
+      {/* Billing policy: unorganized "confirmed" appointments are billed as shown. */}
+      <div className="rounded-xl border border-[#e4ebf2] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#697a91]">
+        Appointments left in <strong className="text-[#34568a]">&quot;confirmed&quot;</strong> past their date are billed as <strong className="text-[#34568a]">shown</strong> by default — per agreement, if the artist doesn&apos;t organize their dashboard we charge anyway. Clients with several of these are flagged <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span> so you can nudge them.
       </div>
 
       {/* PPA names in the financing sheet with no Clients Master row — they
@@ -341,7 +434,7 @@ export default function V3BillingPage() {
         </div>
         <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}
           className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
-          <option value="all">All PPA clients</option>
+          <option value="all">All clients</option>
           <option value="ready">Ready to charge</option>
         </select>
       </div>
@@ -349,7 +442,7 @@ export default function V3BillingPage() {
       {error ? (
         <div className="px-4 py-6 rounded-xl border border-[#e4ebf2] bg-white text-center text-sm text-[#e11d48]">{error}</div>
       ) : loading && clients.length === 0 ? (
-        <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center"><Loader2 size={15} className="animate-spin" /> Loading PPA clients, stages &amp; appointments…</div>
+        <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center"><Loader2 size={15} className="animate-spin" /> Loading PPS clients, stages &amp; appointments…</div>
       ) : filtered.length === 0 ? (
         <div className="py-12 text-center text-[#8595a8]">No clients match.</div>
       ) : (

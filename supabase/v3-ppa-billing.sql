@@ -271,3 +271,34 @@ LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   REFRESH MATERIALIZED VIEW CONCURRENTLY ppa_deposit_facts;
 END; $$;
+-- ── PPS (Pay-Per-Show): exclude/void state + show-rate inputs ────────────────
+-- Added when the model became pay-per-SHOW. An appointment can be charged
+-- (= client showed, bill the fee) or excluded (= don't bill, don't count:
+-- test / cancelled / refunded / no_show / not_a_fit / other). Because artists
+-- don't reliably mark show/no-show in GHL, show rate is derived from these
+-- review decisions: charged = showed, excluded 'no_show' = didn't.
+ALTER TABLE ppa_charges
+  ADD COLUMN IF NOT EXISTS excluded boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS exclude_reason text,
+  ADD COLUMN IF NOT EXISTS excluded_at timestamptz,
+  ADD COLUMN IF NOT EXISTS excluded_by text;
+
+-- ppa_billing_summary now drops excluded rows from ready_to_charge and exposes
+-- showed / no_show_marked / excluded_count for the show-rate KPI.
+CREATE OR REPLACE VIEW ppa_billing_summary AS
+SELECT b.owner_key,
+    count(*) FILTER (WHERE b.charge_status = 'served')   AS served,
+    count(*) FILTER (WHERE b.charge_status = 'past_due') AS past_due,
+    count(*) FILTER (WHERE b.charge_status = 'upcoming') AS upcoming,
+    count(*) FILTER (WHERE b.charge_status = 'noshow')   AS noshow,
+    count(*) FILTER (WHERE b.charge_status = 'no_appt')  AS no_appt,
+    count(*) FILTER (WHERE b.charge_status IN ('served','past_due')
+                     AND COALESCE(ch.charged, false) = false
+                     AND COALESCE(ch.excluded, false) = false) AS ready_to_charge,
+    count(*) FILTER (WHERE COALESCE(ch.charged, false)) AS charged_count,
+    count(*) FILTER (WHERE COALESCE(ch.charged, false)) AS showed,
+    count(*) FILTER (WHERE COALESCE(ch.excluded, false) AND ch.exclude_reason = 'no_show') AS no_show_marked,
+    count(*) FILTER (WHERE COALESCE(ch.excluded, false)) AS excluded_count
+FROM ppa_deposit_billing b
+LEFT JOIN ppa_charges ch ON ch.appt_id = b.appt_id
+GROUP BY b.owner_key;
