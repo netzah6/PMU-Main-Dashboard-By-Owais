@@ -40,7 +40,9 @@ export async function GET(req: NextRequest) {
   // look-back would permanently lose every lead older than the window.
   // ?full=1 does the heavy full-history backfill (run manually).
   const full = req.nextUrl.searchParams.get("full") === "1";
-  const opts = full ? {} : { anchorToLastSuccess: true, maxPages: 8 };
+  // 240s budget: stop starting accounts well before maxDuration (300s) kills
+  // the function, so every run returns clean stats and the view refresh runs.
+  const opts = full ? {} : { anchorToLastSuccess: true, maxPages: 8, timeBudgetMs: 240_000 };
   const result = await ingestAllV3(opts);
   const refreshError = await refreshBookingStats();
   return NextResponse.json({ timestamp: new Date().toISOString(), mode: full ? "full" : "incremental", refreshError, ...result });

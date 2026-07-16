@@ -178,6 +178,10 @@ export interface IngestOpts {
   // (from ghl_sync_status), so a recovered account backfills its whole outage
   // instead of only the last few days — no lead is permanently lost.
   anchorToLastSuccess?: boolean;
+  // Stop starting new accounts this many ms into the run, so the function
+  // returns cleanly instead of being killed by the platform's maxDuration
+  // (a hard kill loses the response and can drop in-flight writes).
+  timeBudgetMs?: number;
 }
 
 export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Promise<IngestStat> {
@@ -327,13 +331,22 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
   return stat;
 }
 
-// Run an async worker over items with a max number running at once.
-async function mapWithConcurrency<I, O>(items: I[], limit: number, worker: (item: I) => Promise<O>): Promise<O[]> {
+// Run an async worker over items with a max number running at once. If
+// stopAfterMs is set, no NEW item starts past that deadline (in-flight items
+// finish and write their sync status) — items never attempted are simply
+// absent from the result, and being stalest they lead the next run's queue.
+async function mapWithConcurrency<I, O>(items: I[], limit: number, worker: (item: I) => Promise<O>, stopAfterMs?: number): Promise<O[]> {
   const results = new Array<O>(items.length);
   let next = 0;
-  async function lane() { while (next < items.length) { const i = next++; results[i] = await worker(items[i]); } }
+  async function lane() {
+    while (next < items.length) {
+      if (stopAfterMs && Date.now() > stopAfterMs) return;
+      const i = next++;
+      results[i] = await worker(items[i]);
+    }
+  }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => lane()));
-  return results;
+  return results.filter((r) => r !== undefined);
 }
 
 export async function ingestAllV3(opts: IngestOpts = {}): Promise<{ accounts: number; stats: IngestStat[] }> {
@@ -369,12 +382,13 @@ export async function ingestAllV3(opts: IngestOpts = {}): Promise<{ accounts: nu
   const anchorOf = (a: V3Account) => anchorByOwner.get(a.ownerKey) ?? 0; // 0 = never synced → highest priority
   const ordered = [...accts].sort((x, y) => anchorOf(x) - anchorOf(y));
 
+  const stopAfterMs = opts.timeBudgetMs ? Date.now() + opts.timeBudgetMs : undefined;
   const stats = await mapWithConcurrency(ordered, 4, (a) => {
     const last = anchorByOwner.get(a.ownerKey);
     const sinceMs = last ? last - DAY : Date.now() - 30 * DAY; // 1-day boundary buffer
     const gapDays = (Date.now() - sinceMs) / DAY;
     const maxPages = gapDays > 4 ? MAX_PAGES : (opts.maxPages ?? MAX_PAGES);
     return ingestAccount(a, { ...opts, sinceMs, maxPages });
-  });
+  }, stopAfterMs);
   return { accounts: accts.length, stats };
 }
