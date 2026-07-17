@@ -99,6 +99,29 @@ export default function OnboardingPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
+  // Auto-verify: per-step {status, detail} keyed by step key, + running state.
+  const [verifying, setVerifying] = useState(false);
+  const [verifyBy, setVerifyBy] = useState<Record<string, { status: string; detail: string }>>({});
+  const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
+
+  const runVerify = useCallback(async (id: string) => {
+    setVerifying(true);
+    try {
+      const res = await fetch(`/api/onboarding/${id}/verify`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Verify failed");
+      const map: Record<string, { status: string; detail: string }> = {};
+      for (const c of (json.checks ?? []) as { key: string; status: string; detail: string }[]) map[c.key] = { status: c.status, detail: c.detail };
+      setVerifyBy(map);
+      setVerifiedAt(json.ranAt ?? new Date().toISOString());
+      const pass = Object.values(map).filter((c) => c.status === "pass").length;
+      const fail = Object.values(map).filter((c) => c.status === "fail").length;
+      toast[fail ? "error" : "success"](`Setup check: ${pass} passed, ${fail} problem${fail === 1 ? "" : "s"}`);
+    } catch (e) { toast.error(`${e}`.replace("Error: ", "")); }
+    finally { setVerifying(false); }
+  }, []);
+  // Clear verify results when switching to a different onboarding.
+  useEffect(() => { setVerifyBy({}); setVerifiedAt(null); }, [openId]);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -239,6 +262,11 @@ export default function OnboardingPage() {
             <p className="text-sm text-[#697a91]">{open.form.owner_name} · {open.form.version || "—"} · started {new Date(open.created_at).toLocaleDateString()}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}</p>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => runVerify(open.id)} disabled={verifying}
+              title="Auto-check the funnel, payment and account setup"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
+              {verifying ? <Loader2 size={13} className="animate-spin" /> : "🤖"} Verify setup
+            </button>
             {open.status !== "done" && pct === 100 && (
               <button onClick={() => setStatus(open, "done")}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white">
@@ -261,6 +289,32 @@ export default function OnboardingPage() {
             <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: pct === 100 ? "#15803d" : "#15B7AE" }} />
           </div>
         </div>
+
+        {/* Auto-verify summary */}
+        {verifiedAt && (() => {
+          const vals = Object.values(verifyBy);
+          const pass = vals.filter((v) => v.status === "pass").length;
+          const fail = vals.filter((v) => v.status === "fail").length;
+          const manual = vals.filter((v) => v.status === "manual").length;
+          const fails = Object.entries(verifyBy).filter(([, v]) => v.status === "fail");
+          return (
+            <div className={cn("rounded-xl border p-3", fail ? "border-[#fcd9a8] bg-[#fffdf7]" : "border-[#86efac] bg-[#f0fdf4]")}>
+              <div className="flex items-center gap-2 text-sm font-bold text-[#1f3559]">
+                🤖 Setup check
+                <span className="text-[#15803d]">{pass} passed</span>
+                {fail > 0 && <span className="text-[#c2410c]">· {fail} problem{fail === 1 ? "" : "s"}</span>}
+                <span className="text-[#8595a8] font-normal">· {manual} manual · {new Date(verifiedAt).toLocaleTimeString()}</span>
+              </div>
+              {fails.length > 0 && (
+                <ul className="mt-1.5 space-y-0.5">
+                  {fails.map(([k, v]) => (
+                    <li key={k} className="text-[11px] text-[#c2410c]">✗ {ONBOARDING_STEPS.find((s) => s.key === k)?.label ?? k} — {v.detail}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })()}
 
         {/* GHL account (pool claim) */}
         <div className="rounded-xl border border-[#e4ebf2] bg-white p-4">
@@ -377,6 +431,7 @@ export default function OnboardingPage() {
               <ul className="divide-y divide-[#f1f5f9]">
                 {secSteps.map((s) => {
                   const state = open.checklist[s.key];
+                  const v = verifyBy[s.key];
                   return (
                     <li key={s.key} className="flex items-start gap-2.5 px-4 py-2">
                       <button onClick={() => toggleStep(open, s.key, !state?.done)}
@@ -387,8 +442,18 @@ export default function OnboardingPage() {
                       <div className="min-w-0 flex-1">
                         <p className={cn("text-sm", state?.done ? "text-[#8595a8] line-through" : "text-[#1f3559]")}>
                           {s.label}
-                          {s.auto && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#eef2ff] text-[#4f46e5]" title="Will be automated once the agency API token is connected">auto soon</span>}
+                          {v && v.status !== "skip" && (
+                            <span title={v.detail}
+                              className={cn("ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase",
+                                v.status === "pass" ? "bg-[#e6f7ee] text-[#15803d]"
+                                  : v.status === "fail" ? "bg-[#fde8ee] text-[#e11d48]"
+                                  : "bg-[#f1f5f9] text-[#64748b]")}>
+                              {v.status === "pass" ? "✓ verified" : v.status === "fail" ? "✗ problem" : "manual"}
+                            </span>
+                          )}
+                          {!v && s.auto && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#eef2ff] text-[#4f46e5]" title="Auto-checked by the Verify setup button">auto</span>}
                         </p>
+                        {v && v.status === "fail" && <p className="text-[10px] text-[#e11d48] mt-0.5">{v.detail}</p>}
                         {state?.done && <p className="text-[10px] text-[#a6b3c4]">✓ {state.by.split("@")[0]} · {new Date(state.at).toLocaleDateString()}</p>}
                       </div>
                       {s.loom && (
