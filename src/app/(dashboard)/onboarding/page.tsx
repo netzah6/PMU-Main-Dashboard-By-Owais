@@ -103,6 +103,23 @@ export default function OnboardingPage() {
   const [verifying, setVerifying] = useState(false);
   const [verifyBy, setVerifyBy] = useState<Record<string, { status: string; detail: string }>>({});
   const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
+  // Sub-tabs + the ad-hoc "Check Setup" by-name flow.
+  const [subtab, setSubtab] = useState<"onboarding" | "check">("onboarding");
+  const [checkName, setCheckName] = useState("");
+  const [checkRunning, setCheckRunning] = useState(false);
+  const [checkResult, setCheckResult] = useState<{ business: string; ranAt: string; depositUrl: string | null; checks: { key: string; status: string; detail: string }[] } | null>(null);
+
+  const runCheck = useCallback(async (business: string) => {
+    if (!business.trim()) return;
+    setCheckRunning(true); setCheckResult(null);
+    try {
+      const res = await fetch("/api/onboarding/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ business }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Check failed");
+      setCheckResult(json);
+    } catch (e) { toast.error(`${e}`.replace("Error: ", "")); }
+    finally { setCheckRunning(false); }
+  }, []);
 
   const runVerify = useCallback(async (id: string) => {
     setVerifying(true);
@@ -476,6 +493,21 @@ export default function OnboardingPage() {
   // ── List + create form ──────────────────────────────────────────────────
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
+      {/* Sub-tabs */}
+      <div className="flex items-center gap-1 border-b border-[#e4ebf2]">
+        {([["onboarding", "🚀 Onboarding"], ["check", "🤖 Check Setup"]] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setSubtab(key)}
+            className={cn("px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors",
+              subtab === key ? "border-[#15B7AE] text-[#0e8f88]" : "border-transparent text-[#697a91] hover:text-[#0e8f88]")}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {subtab === "check" ? (
+        <CheckSetup name={checkName} setName={setCheckName} running={checkRunning} result={checkResult} onRun={runCheck} businesses={list.map((o) => o.form.business_name).filter(Boolean)} />
+      ) : (
+      <>
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Client Onboarding</h1>
@@ -592,6 +624,75 @@ export default function OnboardingPage() {
               </button>
             );
           })}
+        </div>
+      )}
+      </>
+      )}
+    </div>
+  );
+}
+
+// ── Check Setup sub-tab: verify any client by name ───────────────────────────
+function CheckSetup({ name, setName, running, result, onRun, businesses }: {
+  name: string; setName: (s: string) => void; running: boolean;
+  result: { business: string; ranAt: string; depositUrl: string | null; checks: { key: string; status: string; detail: string }[] } | null;
+  onRun: (name: string) => void; businesses: string[];
+}) {
+  const labelFor = (k: string) => ONBOARDING_STEPS.find((s) => s.key === k)?.label ?? k;
+  const shown = (result?.checks ?? []).filter((c) => c.status === "pass" || c.status === "fail");
+  const problems = shown.filter((c) => c.status === "fail");
+  const passes = shown.filter((c) => c.status === "pass");
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-bold text-[#1f3559]">Check a client&apos;s setup</h1>
+        <p className="text-sm text-[#697a91]">Type a client / business name and get a checkmark report of what&apos;s set up right and what needs fixing.</p>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <input list="ob-biz-list" value={name} onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onRun(name)}
+          placeholder="e.g. Cara Bella Brows" className="flex-1 min-w-[240px] px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
+        <datalist id="ob-biz-list">{businesses.map((b) => <option key={b} value={b} />)}</datalist>
+        <button onClick={() => onRun(name)} disabled={running || !name.trim()}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
+          {running ? <Loader2 size={14} className="animate-spin" /> : "🤖"} Run check
+        </button>
+      </div>
+
+      {running && <div className="flex items-center gap-2 text-sm text-[#697a91] py-8 justify-center"><Loader2 size={15} className="animate-spin" /> Checking the live setup…</div>}
+
+      {result && !running && (
+        <div className="space-y-3">
+          <div className={cn("rounded-xl border p-3", problems.length ? "border-[#fcd9a8] bg-[#fffdf7]" : "border-[#86efac] bg-[#f0fdf4]")}>
+            <div className="text-sm font-bold text-[#1f3559]">
+              {result.business} — <span className="text-[#15803d]">{passes.length} OK</span>
+              {problems.length > 0 && <span className="text-[#c2410c]"> · {problems.length} to fix</span>}
+              {problems.length === 0 && shown.length > 0 && <span> · all good 🎉</span>}
+            </div>
+            {result.depositUrl && <a href={result.depositUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-[#0e8f88] hover:underline">{result.depositUrl} ↗</a>}
+          </div>
+
+          {problems.length > 0 && (
+            <div className="rounded-xl border border-[#f5c2cf] bg-white overflow-hidden">
+              <div className="px-4 py-2 bg-[#fef2f4] border-b border-[#fbd5dd] text-sm font-bold text-[#be123c]">Needs fixing</div>
+              <ul className="divide-y divide-[#fbeaee]">
+                {problems.map((c) => (
+                  <li key={c.key} className="px-4 py-2.5"><div className="text-sm font-semibold text-[#1f3559]">✗ {labelFor(c.key)}</div><div className="text-[11px] text-[#c2410c]">{c.detail}</div></li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-hidden">
+            <div className="px-4 py-2 bg-[#f0fdf4] border-b border-[#dcfce7] text-sm font-bold text-[#15803d]">Verified</div>
+            <ul className="divide-y divide-[#f1f5f9]">
+              {passes.map((c) => (
+                <li key={c.key} className="px-4 py-2 flex items-center gap-2"><span className="text-[#15803d]">✓</span><span className="text-sm text-[#34568a]">{labelFor(c.key)}</span><span className="text-[11px] text-[#8595a8] ml-auto truncate max-w-[45%]">{c.detail}</span></li>
+              ))}
+              {passes.length === 0 && <li className="px-4 py-3 text-sm text-[#8595a8]">Nothing verified — the client may not be set up or the name didn&apos;t resolve.</li>}
+            </ul>
+          </div>
+          <p className="text-[11px] text-[#8595a8]">Steps in external tools (Facebook, Make.com, CloseBot, phone/A2P, workflows) aren&apos;t auto-checked — verify those manually.</p>
         </div>
       )}
     </div>

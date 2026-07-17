@@ -92,6 +92,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     }
   }
 
+  let pagePid: string | null = null;
   if (!depositUrl) {
     for (const k of ["ghl_domain", "funnel_domain", "funnel_path", "funnel_product_id", "funnel_redirect", "funnel_map", "ghl_pixel"])
       push(k, "fail", locationId ? "No deposit funnel URL set in the sub-account" : "Couldn't resolve the sub-account");
@@ -119,6 +120,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     push("funnel_path", allPaths ? "pass" : "fail", pathResults.join(" · "));
 
     const pidMatch = html.match(/PRODUCT_ID\s*=\s*['"]([^'"]+)['"]/);
+    if (pidMatch) pagePid = pidMatch[1];
     if (!pidMatch) push("funnel_product_id", "fail", "No PRODUCT_ID found on the deposit page");
     else if (productId && pidMatch[1] !== productId) push("funnel_product_id", "fail", `Page PRODUCT_ID ${pidMatch[1]} ≠ onboarding product ${productId}`);
     else push("funnel_product_id", "pass", `PRODUCT_ID ${pidMatch[1]}${productId ? " matches Fanbasis" : ""}`);
@@ -134,11 +136,13 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     push("ghl_pixel", hasPixel ? "pass" : "fail", hasPixel ? "Facebook pixel present" : "No Facebook pixel on the funnel");
   }
 
-  // Fanbasis product exists?
-  if (!productId) push("fanbasis_product", "manual", "No Fanbasis Product ID on the onboarding form");
+  // Fanbasis product exists? Prefer the onboarding-form id; else the one the
+  // live deposit page is actually using (so a name-only check still works).
+  const checkPid = productId || pagePid;
+  if (!checkPid) push("fanbasis_product", "manual", "No Fanbasis Product ID found (form or page)");
   else {
-    try { await listCheckoutTransactions(productId); push("fanbasis_product", "pass", `Fanbasis product ${productId} exists`); }
-    catch (e) { push("fanbasis_product", "fail", `Fanbasis product ${productId} not reachable: ${e instanceof Error ? e.message.slice(0, 80) : ""}`); }
+    try { await listCheckoutTransactions(checkPid); push("fanbasis_product", "pass", `Fanbasis product ${checkPid} exists`); }
+    catch (e) { push("fanbasis_product", "fail", `Fanbasis product ${checkPid} not reachable: ${e instanceof Error ? e.message.slice(0, 80) : ""}`); }
   }
   push("fin_fanbasis_amount", "manual", "Verify the deposit amount is set back to the correct value");
 
