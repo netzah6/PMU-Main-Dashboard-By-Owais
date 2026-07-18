@@ -114,6 +114,8 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   }
 
   let pagePid: string | null = null;
+  let embedApiKey: string | null = null;
+  let embedCreator: string | null = null;
   let funnelUrls: FunnelUrls | null = null;
   if (!depositUrl) {
     for (const k of ["ghl_domain", "funnel_domain", "funnel_path", "funnel_product_id", "funnel_redirect", "funnel_map", "ghl_pixel"])
@@ -144,6 +146,10 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
 
     const pidMatch = html.match(/PRODUCT_ID\s*=\s*['"]([^'"]+)['"]/);
     if (pidMatch) pagePid = pidMatch[1];
+    // Also grab the embed's public key + creator so we can mint a live
+    // Fanbasis checkout link for this product (shown under the row).
+    embedApiKey = html.match(/API_KEY\s*=\s*['"]([^'"]+)['"]/)?.[1] ?? null;
+    embedCreator = html.match(/CREATOR_ID\s*=\s*['"]([^'"]+)['"]/)?.[1] ?? null;
     if (!pidMatch) push("funnel_product_id", "fail", "No PRODUCT_ID found on the deposit page");
     else if (productId && pidMatch[1] !== productId) push("funnel_product_id", "fail", `Page PRODUCT_ID ${pidMatch[1]} ≠ onboarding product ${productId}`);
     else push("funnel_product_id", "pass", `PRODUCT_ID ${pidMatch[1]}${productId ? " matches Fanbasis" : ""}`);
@@ -192,8 +198,9 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   else {
     try { await listCheckoutTransactions(checkPid); push("fanbasis_product", "pass", `Fanbasis product ${checkPid} exists`); }
     catch (e) { push("fanbasis_product", "fail", `Fanbasis product ${checkPid} not reachable: ${e instanceof Error ? e.message.slice(0, 80) : ""}`); }
-    // The shareable Commas checkout link for this product (shown under the row).
-    checkoutUrl = await getProductCheckoutUrl(checkPid).catch(() => null);
+    // A live, shareable Fanbasis checkout link for this product (built from the
+    // deposit page's own embed config; falls back to null if the page had none).
+    checkoutUrl = await getProductCheckoutUrl({ publicApiKey: embedApiKey, creatorId: embedCreator, productId: pagePid ?? checkPid }).catch(() => null);
   }
   push("fin_fanbasis_amount", "manual", "Verify the deposit amount is set back to the correct value");
 
