@@ -41,10 +41,8 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
 
   // ── Sub-account user ──
   { key: "user_add", section: "Sub-Account User", label: "Add employee", auto: true },
-  { key: "user_password", section: "Sub-Account User", label: "Set up password: NAME1212!", auto: true },
   { key: "user_permissions", section: "Sub-Account User", label: "Permissions", auto: true },
-  { key: "user_voicemail", section: "Sub-Account User", label: "Call & voicemail settings" },
-  { key: "user_phone", section: "Sub-Account User", label: "Purchase local phone + \"Forward Calls To\" all options" },
+  { key: "user_phone", section: "Sub-Account User", label: "Purchase local phone + \"Forward Calls To\" all options", auto: true },
 
   // ── Workflow ──
   { key: "wf_assign", section: "Workflow", label: "Update workflow assign-user in \"CC- Funnel Survey → (V1 / V2 / V3)\"", loom: "https://www.loom.com/share/a3aace3e053a43229e30bf79b46421a4" },
