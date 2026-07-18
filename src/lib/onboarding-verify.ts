@@ -498,5 +498,20 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
   for (const s of ONBOARDING_STEPS) if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
 
+  // Manual steps verified BY HAND (browser-only things like A2P / SMS
+  // compliance) — stored per sub-account in onboarding_check_overrides and
+  // applied as ✓ with a "verified by hand" note. Only upgrades manual rows;
+  // a real auto-fail is never masked.
+  if (locationId) {
+    const { data: ov } = await svc.from("onboarding_check_overrides").select("check_key,note,verified_by,verified_at").eq("location_id", locationId);
+    for (const o of (ov ?? []) as Array<{ check_key: string; note: string | null; verified_by: string | null; verified_at: string }>) {
+      const c = checks.find((x) => x.key === o.check_key);
+      if (c && c.status === "manual") {
+        c.status = "pass";
+        c.detail = `Verified by hand${o.verified_by ? ` by ${o.verified_by.split("@")[0]}` : ""} (${new Date(o.verified_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })})${o.note ? ` — ${o.note}` : ""}`;
+      }
+    }
+  }
+
   return { checks, locationId, depositUrl, funnelUrls, productId: checkPid ?? null, checkoutUrl, usersInfo };
 }
