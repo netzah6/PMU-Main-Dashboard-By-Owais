@@ -491,8 +491,8 @@ export default function OnboardingPage() {
 
   // ── List + create form (left) · Check Setup (right) ──────────────────────
   return (
-    <div className="p-4 sm:p-6 max-w-7xl">
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_520px] gap-5 items-start">
+    <div className="p-4 sm:p-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(360px,540px)_minmax(0,1fr)] gap-5 items-start">
       {/* LEFT — onboarding */}
       <div className="space-y-4 min-w-0">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -669,7 +669,7 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
           {result.funnelUrls && (
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] px-0.5 mb-1">Funnel previews (live)</div>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-1.5">
                 {([["📝 Survey", result.funnelUrls.survey], ["📅 Booking", result.funnelUrls.booking], ["💰 Deposit", result.funnelUrls.lastStep], ["🎉 Thank You", result.funnelUrls.thankYou]] as const).map(([label, url]) => (
                   <div key={label} className="rounded-lg border border-[#e4ebf2] overflow-hidden bg-white">
                     <a href={url} target="_blank" rel="noopener noreferrer" title={url} className="block relative h-[110px] overflow-hidden group">
@@ -687,7 +687,7 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
           )}
 
           {/* Full checklist grouped by section, 2 columns so it fits without scrolling */}
-          <div className="lg:columns-2 gap-x-4">
+          <div className="sm:columns-2 xl:columns-3 2xl:columns-4 gap-x-4">
             {SECTION_ORDER.map((section) => {
               const secSteps = ONBOARDING_STEPS.filter((s) => s.section === section && byKey.has(s.key));
               if (!secSteps.length) return null;
