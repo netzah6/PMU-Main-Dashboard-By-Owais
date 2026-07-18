@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken, getAppAgencyToken } from "@/lib/ghl-app";
-import { listCheckoutTransactions } from "@/lib/fanbasis";
+import { listCheckoutTransactions, getProductCheckoutUrl } from "@/lib/fanbasis";
 import { ONBOARDING_STEPS } from "@/lib/onboarding-steps";
 
 // Auto-verify an onboarding's technical setup. For each checklist step we CAN
@@ -49,7 +49,7 @@ async function resolveLocationId(business: string): Promise<string | null> {
 
 export type FunnelUrls = { survey: string; booking: string; lastStep: string; thankYou: string };
 
-export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null }> {
+export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null; checkoutUrl: string | null }> {
   const business = String(form.business_name ?? "").trim();
   const productId = String(form.product_id ?? "").trim();
   const address = String(form.address ?? "").trim();
@@ -69,18 +69,48 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     : { data: null };
   push("fin_keys", ss ? "pass" : "manual", ss ? "Sub-account is connected (location tracked)" : "Couldn't confirm the keys-sheet/location entry");
 
-  // Pull the live funnel URL from the sub-account's custom values.
+  // Pull the sub-account's custom values once: the live funnel URL AND the
+  // fill-state of the fields the "Funnel + Reactivation Form" populates.
   let depositUrl: string | null = null;
+  const customValues: Array<{ name: string; value: string }> = [];
   if (locationId) {
     const tok = await getAppLocationToken(locationId);
     if (tok.token) {
       const cv = await ghlGet(`${BASE}/locations/${locationId}/customValues`, tok.token);
       for (const v of (cv.json.customValues as Array<Record<string, unknown>> | undefined) ?? []) {
-        const nm = String(v.name ?? "").toLowerCase();
-        const val = String(v.value ?? "");
-        if (nm.includes("deposit funnel url") && val.startsWith("http")) { depositUrl = val.trim(); break; }
+        const nm = String(v.name ?? "");
+        const val = String(v.value ?? "").trim();
+        customValues.push({ name: nm, value: val });
+        // Prefer the V3 deposit funnel url; any "deposit funnel url" works.
+        if (nm.toLowerCase().includes("deposit funnel url") && val.startsWith("http") && (!depositUrl || nm.toLowerCase().includes("v3"))) depositUrl = val;
       }
     }
+  }
+
+  // Custom-values-filled check (the Funnel + Reactivation Form fills these).
+  // We only REQUIRE the core copy/links that break the funnel if blank; extra
+  // image slots (studio pics 2/3, before/after 2/3), the GMB link and the (V2)
+  // url are optional, so they never fail the check — they're just reported.
+  if (customValues.length) {
+    const REQUIRED = [
+      "owner's name", "business hours", "business phone", "full business address",
+      "offer", "deposit amount", "original price", "discounted price",
+      "deposit funnel url (v3)", "booking funnel url", "permanent makeup services",
+      "years in business", "when is the first touch", "fb business page", "ig business page", "funnel logo",
+    ];
+    const missing: string[] = [];
+    for (const need of REQUIRED) {
+      const matches = customValues.filter((v) => v.name.toLowerCase().includes(need));
+      if (!matches.length || !matches.some((v) => v.value)) missing.push(need);
+    }
+    // At least one "Eyebrows Before & After" must be filled (every artist does brows).
+    const browsBA = customValues.filter((v) => /eyebrows before/i.test(v.name));
+    if (browsBA.length && !browsBA.some((v) => v.value)) missing.push("eyebrows before & after");
+    const filled = customValues.filter((v) => v.value).length;
+    if (missing.length) push("form_reactivation", "fail", `${filled}/${customValues.length} custom values filled — missing: ${missing.join(", ")}`);
+    else push("form_reactivation", "pass", `All key custom values filled (${filled}/${customValues.length}; extra image slots optional)`);
+  } else if (locationId) {
+    push("form_reactivation", "manual", "Couldn't read the sub-account's custom values");
   }
 
   let pagePid: string | null = null;
@@ -157,10 +187,13 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // Fanbasis product exists? Prefer the onboarding-form id; else the one the
   // live deposit page is actually using (so a name-only check still works).
   const checkPid = productId || pagePid;
+  let checkoutUrl: string | null = null;
   if (!checkPid) push("fanbasis_product", "manual", "No Fanbasis Product ID found (form or page)");
   else {
     try { await listCheckoutTransactions(checkPid); push("fanbasis_product", "pass", `Fanbasis product ${checkPid} exists`); }
     catch (e) { push("fanbasis_product", "fail", `Fanbasis product ${checkPid} not reachable: ${e instanceof Error ? e.message.slice(0, 80) : ""}`); }
+    // The shareable Commas checkout link for this product (shown under the row).
+    checkoutUrl = await getProductCheckoutUrl(checkPid).catch(() => null);
   }
   push("fin_fanbasis_amount", "manual", "Verify the deposit amount is set back to the correct value");
 
@@ -168,5 +201,5 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
   for (const s of ONBOARDING_STEPS) if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
 
-  return { checks, locationId, depositUrl, funnelUrls, productId: checkPid ?? null };
+  return { checks, locationId, depositUrl, funnelUrls, productId: checkPid ?? null, checkoutUrl };
 }
