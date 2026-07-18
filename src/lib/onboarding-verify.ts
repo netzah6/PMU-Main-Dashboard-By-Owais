@@ -47,7 +47,9 @@ async function resolveLocationId(business: string): Promise<string | null> {
   return null;
 }
 
-export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null }> {
+export type FunnelUrls = { survey: string; booking: string; lastStep: string; thankYou: string };
+
+export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null }> {
   const business = String(form.business_name ?? "").trim();
   const productId = String(form.product_id ?? "").trim();
   const address = String(form.address ?? "").trim();
@@ -82,6 +84,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   }
 
   let pagePid: string | null = null;
+  let funnelUrls: FunnelUrls | null = null;
   if (!depositUrl) {
     for (const k of ["ghl_domain", "funnel_domain", "funnel_path", "funnel_product_id", "funnel_redirect", "funnel_map", "ghl_pixel"])
       push(k, "fail", locationId ? "No deposit funnel URL set in the sub-account" : "Couldn't resolve the sub-account");
@@ -99,6 +102,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
 
     // The 4 funnel paths share a base; swap the last-step suffix to probe the others.
     const base = depositUrl.replace(/-last-step.*$/, "");
+    funnelUrls = { survey: base + "-survey", booking: base + "-booking", lastStep: depositUrl, thankYou: base + "-thank-you" };
     const paths = { "📝 Survey": "-survey", "📅 Booking": "-booking", "🎉 Thank You": "-thank-you" } as Record<string, string>;
     const pathResults: string[] = httpOk ? ["Last-Step ✓"] : ["Last-Step ✗"];
     for (const [label, suffix] of Object.entries(paths)) {
@@ -139,5 +143,5 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
   for (const s of ONBOARDING_STEPS) if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
 
-  return { checks, locationId, depositUrl };
+  return { checks, locationId, depositUrl, funnelUrls };
 }
