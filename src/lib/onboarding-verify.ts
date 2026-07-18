@@ -118,9 +118,19 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     else if (productId && pidMatch[1] !== productId) push("funnel_product_id", "fail", `Page PRODUCT_ID ${pidMatch[1]} ≠ onboarding product ${productId}`);
     else push("funnel_product_id", "pass", `PRODUCT_ID ${pidMatch[1]}${productId ? " matches Fanbasis" : ""}`);
 
+    // REDIRECT_URL must be THIS client's own thank-you page — e.g. deposit
+    // "browology-plus-last-step" ⇒ redirect should be "browology-plus-thank-you",
+    // not a generic "thank-you-873467". So it must contain the client's funnel
+    // slug AND "thank-you".
+    const baseSlug = base.split("/").pop() ?? ""; // e.g. "browology-plus"
     const redir = html.match(/REDIRECT_URL\s*=\s*['"]([^'"]+)['"]/);
-    const redirOk = !!redir && /thank-?you/i.test(redir[1]);
-    push("funnel_redirect", redirOk ? "pass" : "fail", redir ? `REDIRECT_URL = ${redir[1]}${redirOk ? "" : " (not a thank-you path)"}` : "No REDIRECT_URL set");
+    const rv = redir ? redir[1] : "";
+    const hasTY = /thank-?you/i.test(rv);
+    const isClients = !!baseSlug && norm(rv).includes(norm(baseSlug));
+    if (!redir) push("funnel_redirect", "fail", "No REDIRECT_URL set on the deposit page");
+    else if (!hasTY) push("funnel_redirect", "fail", `REDIRECT_URL = ${rv} — not a thank-you page`);
+    else if (baseSlug && !isClients) push("funnel_redirect", "fail", `REDIRECT_URL = ${rv} — points to a generic thank-you, not this client's (${baseSlug}-thank-you)`);
+    else push("funnel_redirect", "pass", `REDIRECT_URL → ${rv}`);
 
     const hasMap = /google\.com\/maps|maps\.googleapis|full_business_address/i.test(html) || (address ? html.includes(address.split(",")[0]) : false);
     push("funnel_map", hasMap ? "pass" : "manual", hasMap ? "Map/address present" : "Couldn't detect the map address");
