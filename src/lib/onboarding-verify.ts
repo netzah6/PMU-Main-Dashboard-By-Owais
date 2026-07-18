@@ -182,6 +182,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // Calendar checks (we have the calendars scope). Grade the calendar's team
   // members, meeting location, Look-Busy, and that the assigned team member
   // is a real sub-account user (My Staff → User Availability → calendar).
+  let activeCalId = "";
   if (locationId && locTok) {
     const cal = await ghlGet(`${BASE}/calendars/?locationId=${locationId}`, locTok);
     const cals = (cal.json.calendars as Array<Record<string, unknown>> | undefined) ?? [];
@@ -190,6 +191,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     } else {
       // Prefer the active calendar; else the first.
       const c = cals.find((x) => x.isActive) ?? cals[0];
+      activeCalId = String(c.id ?? "");
       const team = (c.teamMembers as Array<Record<string, unknown>> | undefined) ?? [];
       const selected = team.filter((t) => t.selected);
       push("cal_team", selected.length ? "pass" : "fail", selected.length ? `${selected.length} team member(s) selected` : "No team members selected on the calendar");
@@ -310,6 +312,68 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     }
   }
 
+  // Make.com: the Fanbasis_Make.com_GHL scenario must have a ROUTE for this
+  // business (each route = filter on name/business/product + an HTTP module
+  // posting to that client's GHL webhook). Needs MAKE_API_TOKEN in the env
+  // (+ optional MAKE_ZONE, MAKE_SCENARIO_ID); without it the steps stay manual.
+  const makeToken = process.env.MAKE_API_TOKEN;
+  if (makeToken && locationId) {
+    try {
+      const zone = process.env.MAKE_ZONE || "us1";
+      const mk = async (path: string) => {
+        const r = await fetch(`https://${zone}.make.com/api/v2${path}`, { headers: { Authorization: `Token ${makeToken}`, Accept: "application/json" } });
+        return { ok: r.ok, status: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
+      };
+      // Find the Fanbasis scenario (org → teams → scenarios) unless pinned by env.
+      let scenarioId = process.env.MAKE_SCENARIO_ID ?? "";
+      if (!scenarioId) {
+        const orgs = await mk(`/organizations`);
+        outer: for (const o of ((orgs.json.organizations as Array<Record<string, unknown>> | undefined) ?? [])) {
+          const teams = await mk(`/teams?organizationId=${o.id}`);
+          for (const t of ((teams.json.teams as Array<Record<string, unknown>> | undefined) ?? [])) {
+            const sc = await mk(`/scenarios?teamId=${t.id}`);
+            for (const s of ((sc.json.scenarios as Array<Record<string, unknown>> | undefined) ?? [])) {
+              if (/fanbasis/i.test(String(s.name ?? ""))) { scenarioId = String(s.id); break outer; }
+            }
+          }
+        }
+      }
+      if (!scenarioId) {
+        for (const k of ["make_http", "make_filter"]) push(k, "manual", "Make API connected but no Fanbasis scenario found — set MAKE_SCENARIO_ID");
+      } else {
+        const bp = await mk(`/scenarios/${scenarioId}/blueprint`);
+        const blueprint = ((bp.json.response as Record<string, unknown> | undefined)?.blueprint ?? bp.json) as unknown;
+        // Collect every router route as a JSON string we can search.
+        const routes: string[] = [];
+        const walk = (node: unknown) => {
+          if (Array.isArray(node)) { node.forEach(walk); return; }
+          if (node && typeof node === "object") {
+            const n = node as Record<string, unknown>;
+            if (Array.isArray(n.routes)) for (const r of n.routes) routes.push(JSON.stringify(r));
+            for (const v of Object.values(n)) walk(v);
+          }
+        };
+        walk(blueprint);
+        const own = norm(String(form.owner_name ?? ""));
+        const route = routes.find((r) => {
+          const rn = norm(r);
+          return (!!bn && rn.includes(bn)) || (!!productId && r.includes(productId)) || (!!own && rn.includes(own));
+        });
+        if (!route) {
+          push("make_filter", "fail", `No route for "${business}" in the Fanbasis_Make scenario (${routes.length} routes checked)`);
+          push("make_http", "fail", "No route → no GHL webhook for this business in Make");
+        } else {
+          push("make_filter", "pass", `Route found in the Fanbasis_Make scenario (${routes.length} routes total)`);
+          if (route.includes(locationId)) push("make_http", "pass", "Route's HTTP module posts to THIS sub-account's GHL webhook");
+          else if (/leadconnectorhq\.com\/hooks|gohighlevel/i.test(route)) push("make_http", "manual", "Route has a GHL webhook but couldn't confirm it targets this sub-account");
+          else push("make_http", "fail", "Route found but no GHL webhook URL inside it");
+        }
+      }
+    } catch {
+      for (const k of ["make_http", "make_filter"]) push(k, "manual", "Make API error — check MAKE_API_TOKEN / MAKE_ZONE");
+    }
+  }
+
   let pagePid: string | null = null;
   let embedApiKey: string | null = null;
   let embedCreator: string | null = null;
@@ -400,6 +464,35 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     checkoutUrl = await getProductCheckoutUrl({ publicApiKey: embedApiKey, creatorId: embedCreator, productId: pagePid ?? checkPid }).catch(() => null);
   }
   push("fin_fanbasis_amount", "manual", "Verify the deposit amount is set back to the correct value");
+
+  // fin_test — automated end-to-end funnel test: every critical component must
+  // pass, the live checkout must mint, AND the calendar must actually have
+  // open booking slots (a lead could book right now).
+  {
+    const CRIT: Record<string, string> = {
+      ghl_domain: "domain", funnel_path: "funnel paths", funnel_product_id: "PRODUCT_ID",
+      funnel_redirect: "redirect", funnel_lead_pixel: "Lead code", ghl_pixel: "pixel",
+      fanbasis_product: "Fanbasis product",
+    };
+    const critFail = checks.filter((c) => c.key in CRIT && c.status === "fail").map((c) => CRIT[c.key]);
+    let slots = -1; // -1 = couldn't check
+    if (activeCalId && locTok) {
+      const now = Date.now();
+      const fs = await ghlGet(`${BASE}/calendars/${activeCalId}/free-slots?startDate=${now}&endDate=${now + 14 * 86400 * 1000}`, locTok, "2021-04-15");
+      if (fs.ok) {
+        slots = 0;
+        for (const [k, v] of Object.entries(fs.json)) {
+          if (k === "traceId") continue;
+          const arr = Array.isArray(v) ? v : (v as Record<string, unknown> | null)?.slots;
+          if (Array.isArray(arr)) slots += arr.length;
+        }
+      }
+    }
+    if (critFail.length) push("fin_test", "fail", `Not ready — failing: ${critFail.join(", ")}${slots === 0 ? " · no open booking slots" : ""}`);
+    else if (slots === 0) push("fin_test", "fail", "Funnel components ✓ but the calendar has NO open booking slots in the next 14 days");
+    else if (checkoutUrl && slots > 0) push("fin_test", "pass", `Funnel pages ✓ · product & live checkout ✓ · ${slots} open booking slots in the next 14 days`);
+    else push("fin_test", "manual", `Components ✓ but couldn't verify ${!checkoutUrl ? "the live checkout" : "booking slots"} — spot-check by hand`);
+  }
 
   // Every remaining checklist step (external tools we can't reach) → manual, so
   // the report is the COMPLETE list from the sheet, not just the auto-checks.

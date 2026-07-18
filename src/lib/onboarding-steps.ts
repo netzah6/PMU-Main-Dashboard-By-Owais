@@ -13,7 +13,6 @@ export type OnboardingStep = {
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
   // ── GHL setup ──
-  { key: "ghl_snapshot", section: "GHL Setup", label: "Load the snapshot (mark all)", loom: "https://www.loom.com/share/ecff02b00865488481a80ab5f026f2e0", auto: true },
   { key: "ghl_domain", section: "GHL Setup", label: "Connect a verified domain (no subdomain)" },
   { key: "ghl_pixel", section: "GHL Setup", label: "Setup funnel pixel", auto: true },
 
@@ -55,8 +54,8 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "cal_lookbusy", section: "Calendar", label: "Booking rules → Look Busy 75%", auto: true },
 
   // ── Make.com ──
-  { key: "make_http", section: "Make.com", label: "Fanbasis_Make.com_GHL scenario → duplicate HTTP + paste the GHL webhook", loom: "https://www.loom.com/share/898c1fece6b64942af27f3de2f7b8187" },
-  { key: "make_filter", section: "Make.com", label: "Setup a filter: full name + business name + product ID" },
+  { key: "make_http", section: "Make.com", label: "Fanbasis_Make.com_GHL scenario → duplicate HTTP + paste the GHL webhook", loom: "https://www.loom.com/share/898c1fece6b64942af27f3de2f7b8187", auto: true },
+  { key: "make_filter", section: "Make.com", label: "Setup a filter: full name + business name + product ID", auto: true },
 
   // ── Facebook ──
   { key: "fb_campaign", section: "Facebook", label: "Create FB campaign with the new funnel link, named properly (e.g. \"Microshading 1 (FU V2)\")", loom: "https://www.loom.com/share/7589cd8a6c02441481737ba0e1edc737" },
@@ -71,7 +70,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
 
   // ── Finish ──
   { key: "fin_keys", section: "Finish", label: "Add private integration key + Location ID to the keys sheet" },
-  { key: "fin_test", section: "Finish", label: "Test the funnel and make sure everything works!", loom: "https://www.loom.com/share/b0008321edf34210ba8e05d803710162" },
+  { key: "fin_test", section: "Finish", label: "Test the funnel and make sure everything works!", loom: "https://www.loom.com/share/b0008321edf34210ba8e05d803710162", auto: true },
   { key: "fin_master", section: "Finish", label: "Mark the Master Sheet", auto: true },
   { key: "fin_fanbasis_amount", section: "Finish", label: "Update the Fanbasis amount back to the right amount" },
 
