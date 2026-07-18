@@ -34,10 +34,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "form_pictures", section: "Forms & Pictures", label: "Fill \"📸 Before & After Pictures Form\" — folder of our pictures" },
 
   // ── Phone setup ──
-  { key: "phone_buy", section: "Phone Setup", label: "Buy phone & verify with Robokiller" },
   { key: "phone_a2p", section: "Phone Setup", label: "Verify A2P" },
-  { key: "phone_cnam", section: "Phone Setup", label: "Verify CNAM — \"PermanentMakeup\"" },
-  { key: "phone_optout", section: "Phone Setup", label: "Uncheck SMS Compliance Opt-Out" },
   { key: "phone_forward", section: "Phone Setup", label: "Forward calls to the client number" },
   { key: "phone_callerid", section: "Phone Setup", label: "Connect client Caller ID (if they asked)" },
   { key: "phone_sms_adv", section: "Phone Setup", label: "Phone → Advanced Settings → SMS Compliance UNCHECK" },

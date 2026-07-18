@@ -60,6 +60,34 @@ export async function createDepositProduct(title: string, amountCents: number): 
   return { productId, checkoutUrl, raw: j };
 }
 
+// Fetch a product's shareable hosted checkout link (the new Commas system:
+// https://commas.com/checkout/{slug}). The public-api returns the checkout
+// session object; the link comes back as checkout_url / url / link — same
+// shape createDepositProduct() returns at creation. Returns null if the
+// endpoint/field isn't present (caller falls back to the deposit-page link).
+export async function getProductCheckoutUrl(productId: string): Promise<string | null> {
+  if (!productId) return null;
+  const dig = (o: unknown, ...keys: string[]): string | null => {
+    for (const k of keys) {
+      const v = (o as Record<string, unknown> | null)?.[k];
+      if (typeof v === "string" && /^https?:\/\//i.test(v)) return v;
+    }
+    return null;
+  };
+  try {
+    const r = await fetch(`${BASE}/checkout-sessions/${encodeURIComponent(productId)}`, { headers: headers() });
+    if (!r.ok) return null;
+    const j = JSON.parse(await r.text()) as Record<string, unknown>;
+    const container = (j.data ?? j) as Record<string, unknown>;
+    const product = (container.product ?? j.product ?? null) as Record<string, unknown> | null;
+    return (
+      dig(container, "checkout_url", "checkoutUrl", "url", "payment_link", "link", "hosted_url") ??
+      dig(product, "checkout_url", "checkoutUrl", "url", "link") ??
+      dig(j, "checkout_url", "url", "link")
+    );
+  } catch { return null; }
+}
+
 // ── Reconciliation: list ALL transactions across products ──────────────────
 export type FanTxn = {
   id: string; email: string; name: string; amountDollars: number | null;
