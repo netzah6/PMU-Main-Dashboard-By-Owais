@@ -127,6 +127,17 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
 
     const hasPixel = /fbq\(|connect\.facebook\.net\/.*fbevents/i.test(html);
     push("ghl_pixel", hasPixel ? "pass" : "fail", hasPixel ? "Facebook pixel present" : "No Facebook pixel on the funnel");
+
+    // Booking page must fire the "Lead" conversion: fbq('track','Lead').
+    if (funnelUrls) {
+      try {
+        const br = await fetch(funnelUrls.booking, { headers: { "User-Agent": "Mozilla/5.0" } });
+        const bhtml = br.ok ? await br.text() : "";
+        const hasLead = /fbq\s*\(\s*['"]track['"]\s*,\s*['"]Lead['"]/i.test(bhtml);
+        push("funnel_lead_pixel", hasLead ? "pass" : "fail",
+          hasLead ? "Booking page fires fbq('track','Lead')" : br.ok ? "Booking page is missing the fbq('track','Lead') code" : "Booking page didn't load");
+      } catch { push("funnel_lead_pixel", "fail", "Couldn't load the booking page to check the Lead code"); }
+    }
   }
 
   // Fanbasis product exists? Prefer the onboarding-form id; else the one the
