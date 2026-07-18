@@ -149,6 +149,73 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     }
   }
 
+  // Sub-account user, Workflow assign-user, and the AREA custom field —
+  // unlocked by the app's v2.0.0 scopes (users/workflows/customFields.readonly).
+  if (locationId && locTok) {
+    // Sub-account user exists?
+    const ur = await ghlGet(`${BASE}/users/?locationId=${locationId}`, locTok);
+    const users = (ur.json.users as Array<Record<string, unknown>> | undefined) ?? [];
+    if (ur.status === 200) {
+      push("user_add", users.length ? "pass" : "fail",
+        users.length ? `${users.length} user(s): ${users.map((u) => String(u.name ?? u.email ?? "?")).join(", ")}` : "No user on the sub-account");
+    }
+
+    // Workflow "CC- Funnel Survey" published + assign-user evidence. The API
+    // doesn't expose a workflow's internal steps, so we look at recent
+    // contacts: the workflow's first action assigns every lead to a user —
+    // assigned contacts prove the step is configured and firing.
+    const wr = await ghlGet(`${BASE}/workflows/?locationId=${locationId}`, locTok);
+    if (wr.status === 200) {
+      const wfs = (wr.json.workflows as Array<Record<string, unknown>> | undefined) ?? [];
+      const surveyWf = wfs.find((w) => /funnel\s*survey/i.test(String(w.name ?? "")));
+      if (!surveyWf) push("wf_assign", "fail", `"CC- Funnel Survey" workflow not found (${wfs.length} workflows on the account)`);
+      else if (String(surveyWf.status) !== "published") push("wf_assign", "fail", `Workflow "${surveyWf.name}" is ${surveyWf.status} — publish it`);
+      else {
+        const cr = await ghlGet(`${BASE}/contacts/?locationId=${locationId}&limit=20`, locTok);
+        const cts = (cr.json.contacts as Array<Record<string, unknown>> | undefined) ?? [];
+        const assignedIds = cts.map((c) => String(c.assignedTo ?? "")).filter(Boolean);
+        const uname = users.find((u) => assignedIds.includes(String(u.id ?? "")))?.name;
+        if (assignedIds.length) push("wf_assign", "pass", `Workflow published · ${assignedIds.length}/${cts.length} recent contacts assigned${uname ? ` to ${uname}` : ""}`);
+        else push("wf_assign", "manual", cts.length ? "Workflow is published but no recent contacts are assigned — check its Assign User step" : "Workflow is published; no contacts yet to confirm the assign step");
+      }
+    }
+
+    // AREA custom field: its options must cover the areas for the services
+    // this client offers (services → treated-area mapping below).
+    const fr = await ghlGet(`${BASE}/locations/${locationId}/customFields?model=contact`, locTok);
+    if (fr.status === 200) {
+      const fields = (fr.json.customFields as Array<Record<string, unknown>> | undefined) ?? [];
+      const areaField = fields.find((f) => /which\s*area/i.test(String(f.name ?? "")));
+      if (!areaField) push("wf_area", "fail", `"CC - Which Area(s) Would You Like Treated?" field not found`);
+      else {
+        const options = ((areaField.picklistOptions ?? areaField.options ?? []) as unknown[]).map(String).filter(Boolean);
+        const AREA_OF: Record<string, string> = {
+          "powder brows": "Eyebrows", "microblading": "Eyebrows", "microshading": "Eyebrows",
+          "nano brows": "Eyebrows", "combo brows": "Eyebrows", "ombre brows": "Eyebrows",
+          "lip blush": "Lips", "eyeliner": "Eyeliner",
+          "scalp micropigmentation": "Scalp Micropigmentation",
+          "areola micropigmentation": "Areola",
+        };
+        let servicesRaw = String(form.services ?? "").trim();
+        if (!servicesRaw) servicesRaw = customValues.find((v) => /permanent makeup services/i.test(v.name))?.value ?? "";
+        const svcList = servicesRaw.split(",").map((s) => s.trim()).filter(Boolean);
+        const expected = new Set<string>();
+        const unmapped: string[] = [];
+        for (const s of svcList) {
+          const a = AREA_OF[s.toLowerCase()];
+          if (a) expected.add(a);
+          else unmapped.push(s);
+        }
+        const optNorm = options.map((o) => o.toLowerCase());
+        const missing = [...expected].filter((a) => !optNorm.some((o) => o.includes(a.toLowerCase())));
+        const breakdown = `Areas: ${options.join(", ") || "—"}${svcList.length ? ` · Services: ${svcList.join(", ")}` : ""}${unmapped.length ? ` · (no area mapping: ${unmapped.join(", ")})` : ""}`;
+        if (!svcList.length) push("wf_area", "manual", `${breakdown} — no services on file to compare`);
+        else if (missing.length) push("wf_area", "fail", `${breakdown} — MISSING area option(s): ${missing.join(", ")}`);
+        else push("wf_area", "pass", breakdown);
+      }
+    }
+  }
+
   let pagePid: string | null = null;
   let embedApiKey: string | null = null;
   let embedCreator: string | null = null;

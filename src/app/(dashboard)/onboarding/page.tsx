@@ -701,12 +701,16 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                       const color = c.status === "pass" ? "text-[#15803d]" : c.status === "fail" ? "text-[#e11d48]" : "text-[#b9c3d0]";
                       // Show the product ID + checkout link right under the "create product" row.
                       const showProduct = s.key === "fanbasis_product" && result.productId;
+                      // Checks whose detail is a useful breakdown even when passing
+                      // (e.g. AREA options vs services, user list, assign evidence).
+                      const showPassDetail = c.status === "pass" && ["wf_area", "user_add", "wf_assign"].includes(s.key);
                       return (
                         <li key={s.key} className="flex items-start gap-1.5">
                           <span className={cn("text-[13px] leading-tight mt-px shrink-0", color)}>{icon}</span>
                           <div className="min-w-0">
                             <span className={cn("text-[12px]", c.status === "manual" ? "text-[#8595a8]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
                             {c.status === "fail" && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
+                            {showPassDetail && <div className="text-[10px] text-[#697a91]">{c.detail}</div>}
                             {showProduct && (
                               <div className="text-[10px] mt-0.5 leading-snug">
                                 <div className="text-[#697a91]">Product ID: <code className="font-semibold text-[#1f3559]">{result.productId}</code></div>
