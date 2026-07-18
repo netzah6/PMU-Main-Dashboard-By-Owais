@@ -71,12 +71,14 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
 
   // Pull the sub-account's custom values once: the live funnel URL AND the
   // fill-state of the fields the "Funnel + Reactivation Form" populates.
+  // Reuse the same location token for the calendar checks below.
   let depositUrl: string | null = null;
   const customValues: Array<{ name: string; value: string }> = [];
+  let locTok: string | undefined;
   if (locationId) {
-    const tok = await getAppLocationToken(locationId);
-    if (tok.token) {
-      const cv = await ghlGet(`${BASE}/locations/${locationId}/customValues`, tok.token);
+    locTok = (await getAppLocationToken(locationId)).token;
+    if (locTok) {
+      const cv = await ghlGet(`${BASE}/locations/${locationId}/customValues`, locTok);
       for (const v of (cv.json.customValues as Array<Record<string, unknown>> | undefined) ?? []) {
         const nm = String(v.name ?? "");
         const val = String(v.value ?? "").trim();
@@ -120,6 +122,31 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     else push("form_reactivation", "pass", `All ${needed.length} ${vLabel} custom values filled`);
   } else if (locationId) {
     push("form_reactivation", "manual", "Couldn't read the sub-account's custom values");
+  }
+
+  // Calendar checks (we have the calendars scope). Grade the calendar's team
+  // members, meeting location, and Look-Busy setting.
+  if (locationId && locTok) {
+    const cal = await ghlGet(`${BASE}/calendars/?locationId=${locationId}`, locTok);
+    const cals = (cal.json.calendars as Array<Record<string, unknown>> | undefined) ?? [];
+    if (!cals.length) {
+      for (const k of ["cal_team", "cal_location", "cal_lookbusy"]) push(k, "fail", "No calendar found on the sub-account");
+    } else {
+      // Prefer the active calendar; else the first.
+      const c = cals.find((x) => x.isActive) ?? cals[0];
+      const team = (c.teamMembers as Array<Record<string, unknown>> | undefined) ?? [];
+      const selected = team.filter((t) => t.selected);
+      push("cal_team", selected.length ? "pass" : "fail", selected.length ? `${selected.length} team member(s) selected` : "No team members selected on the calendar");
+
+      const loc = selected.map((t) => String(t.meetingLocation ?? "")).find((v) => v.trim()) ?? String(team[0]?.meetingLocation ?? "");
+      const hasAddr = /full_address|address/i.test(loc) || (!!address && loc.includes(address.split(",")[0]));
+      push("cal_location", hasAddr ? "pass" : "fail", hasAddr ? `Meeting location set (${loc})` : loc ? `Meeting location = ${loc} — not the full address` : "No meeting location set");
+
+      const lb = (c.lookBusyConfig as Record<string, unknown> | undefined) ?? {};
+      const lbOn = !!lb.enabled;
+      const lbPct = Number(lb.lookBusyPercentage ?? 0);
+      push("cal_lookbusy", lbOn && lbPct === 75 ? "pass" : lbOn ? "fail" : "fail", lbOn ? `Look Busy on at ${lbPct}%${lbPct === 75 ? "" : " (should be 75%)"}` : "Look Busy is off (should be 75%)");
+    }
   }
 
   let pagePid: string | null = null;

@@ -49,7 +49,6 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   // ── Workflow ──
   { key: "wf_assign", section: "Workflow", label: "Update workflow assign-user in \"CC- Funnel Survey → (V1 / V2 / V3)\"", loom: "https://www.loom.com/share/a3aace3e053a43229e30bf79b46421a4" },
   { key: "wf_area", section: "Workflow", label: "Update Custom Values AREA", auto: true },
-  { key: "wf_pictures", section: "Workflow", label: "Update pictures in the CC- Funnel Survey flow" },
 
   // ── Calendar ──
   { key: "cal_team", section: "Calendar", label: "Select team members", loom: "https://www.loom.com/share/7b4f2a1eee3e4bd08cf3b342b3cc0a15", auto: true },
