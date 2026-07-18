@@ -26,6 +26,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "funnel_product_id", section: "Funnel", label: "Deposit page → update PRODUCT ID", auto: true },
   { key: "funnel_redirect", section: "Funnel", label: "Deposit page → update REDIRECT_URL (thank-you page path)", auto: true },
   { key: "funnel_map", section: "Funnel", label: "Update the map address", auto: true },
+  { key: "funnel_lead_pixel", section: "Funnel", label: "Booking page → add the \"Lead\" tracking code (fbq 'Lead')", auto: true },
   { key: "funnel_ig_widget", section: "Funnel", label: "Instagram widget (ONLY if IG looks good)" },
 
   // ── Forms & pictures ──
