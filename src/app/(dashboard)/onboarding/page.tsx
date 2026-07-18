@@ -703,7 +703,7 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                       const showProduct = s.key === "fanbasis_product" && result.productId;
                       // Checks whose detail is a useful breakdown even when passing
                       // (e.g. AREA options vs services, user list, assign evidence).
-                      const showPassDetail = c.status === "pass" && ["wf_area", "user_add", "wf_assign", "user_permissions", "user_phone", "cal_availability"].includes(s.key);
+                      const showPassDetail = c.status === "pass" && ["wf_area", "user_add", "wf_assign", "user_permissions", "user_phone", "cal_availability", "fin_test", "make_filter", "make_http"].includes(s.key);
                       // "Screenshot" equivalents: expandable permissions list and a
                       // live booking-page view (scroll inside it to eyeball the IG widget).
                       const showPerms = s.key === "user_permissions" && (result.usersInfo?.length ?? 0) > 0;
