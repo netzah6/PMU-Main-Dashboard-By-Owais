@@ -126,7 +126,7 @@ export default function OnboardingPage() {
   // Right-side "Check Setup" panel: verify any client by name or sub-account id.
   const [checkQuery, setCheckQuery] = useState("");
   const [checkRunning, setCheckRunning] = useState(false);
-  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; depositUrl: string | null; checks: { key: string; status: string; detail: string }[] } | null>(null);
+  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; checks: { key: string; status: string; detail: string }[] } | null>(null);
   const runCheck = useCallback(async (query: string) => {
     if (!query.trim()) return;
     setCheckRunning(true); setCheckResult(null);
@@ -627,7 +627,7 @@ export default function OnboardingPage() {
 // ── Check Setup panel: verify any client by name or sub-account id ────────────
 function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
   query: string; setQuery: (s: string) => void; running: boolean;
-  result: { business: string; query?: string; ranAt: string; depositUrl: string | null; checks: { key: string; status: string; detail: string }[] } | null;
+  result: { business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; checks: { key: string; status: string; detail: string }[] } | null;
   onRun: (q: string) => void; businesses: string[];
 }) {
   const byKey = new Map((result?.checks ?? []).map((c) => [c.key, c]));
@@ -664,6 +664,27 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
               <span className="text-[#8595a8]"> · {nManual} manual</span>
             </div>
           </div>
+
+          {/* Live funnel previews — visual proof each page renders correctly */}
+          {result.funnelUrls && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] px-0.5 mb-1">Funnel previews (live)</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {([["📝 Survey", result.funnelUrls.survey], ["📅 Booking", result.funnelUrls.booking], ["💰 Deposit", result.funnelUrls.lastStep], ["🎉 Thank You", result.funnelUrls.thankYou]] as const).map(([label, url]) => (
+                  <div key={label} className="rounded-lg border border-[#e4ebf2] overflow-hidden bg-white">
+                    <a href={url} target="_blank" rel="noopener noreferrer" title={url} className="block relative h-[110px] overflow-hidden group">
+                      <iframe src={url} title={label} loading="lazy" tabIndex={-1}
+                        className="absolute top-0 left-0 border-0 pointer-events-none"
+                        style={{ width: "390px", height: "620px", transform: "scale(0.44)", transformOrigin: "top left" }} />
+                      <span className="absolute inset-0 group-hover:bg-black/5" />
+                    </a>
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="block px-1.5 py-1 text-[10px] font-semibold text-[#0e8f88] hover:underline truncate border-t border-[#f1f5f9]">{label} ↗</a>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-[#8595a8] mt-1">Live pages — click any to open full-size and eyeball the layout, pictures, map &amp; checkout.</p>
+            </div>
+          )}
 
           {/* Full checklist grouped by section, mirroring the sheet */}
           <div className="space-y-2 max-h-[62vh] overflow-auto pr-0.5">
