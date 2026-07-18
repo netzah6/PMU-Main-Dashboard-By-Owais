@@ -630,10 +630,11 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
   result: { business: string; query?: string; ranAt: string; depositUrl: string | null; checks: { key: string; status: string; detail: string }[] } | null;
   onRun: (q: string) => void; businesses: string[];
 }) {
-  const labelFor = (k: string) => ONBOARDING_STEPS.find((s) => s.key === k)?.label ?? k;
-  const shown = (result?.checks ?? []).filter((c) => c.status === "pass" || c.status === "fail");
-  const problems = shown.filter((c) => c.status === "fail");
-  const passes = shown.filter((c) => c.status === "pass");
+  const byKey = new Map((result?.checks ?? []).map((c) => [c.key, c]));
+  const all = result?.checks ?? [];
+  const nPass = all.filter((c) => c.status === "pass").length;
+  const nFail = all.filter((c) => c.status === "fail").length;
+  const nManual = all.filter((c) => c.status === "manual").length;
   return (
     <div className="rounded-xl border border-[#c9dbfb] bg-[#f7faff] p-4 space-y-3">
       <div>
@@ -655,41 +656,49 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
 
       {result && !running && (
         <div className="space-y-2.5">
-          <div className={cn("rounded-lg border px-3 py-2", problems.length ? "border-[#fcd9a8] bg-[#fffdf7]" : "border-[#86efac] bg-[#f0fdf4]")}>
-            <div className="text-[13px] font-bold text-[#1f3559]">
-              {result.business || result.query}
-            </div>
+          <div className={cn("rounded-lg border px-3 py-2", nFail ? "border-[#fcd9a8] bg-[#fffdf7]" : "border-[#86efac] bg-[#f0fdf4]")}>
+            <div className="text-[13px] font-bold text-[#1f3559] truncate">{result.business || result.query}</div>
             <div className="text-[11px]">
-              <span className="text-[#15803d] font-semibold">{passes.length} OK</span>
-              {problems.length > 0 ? <span className="text-[#c2410c] font-semibold"> · {problems.length} to fix</span> : shown.length > 0 ? <span className="text-[#15803d]"> · all good 🎉</span> : <span className="text-[#8595a8]"> · nothing to verify</span>}
+              <span className="text-[#15803d] font-semibold">✓ {nPass}</span>
+              {nFail > 0 && <span className="text-[#c2410c] font-semibold"> · ✗ {nFail} to fix</span>}
+              <span className="text-[#8595a8]"> · {nManual} manual</span>
             </div>
           </div>
 
-          {problems.length > 0 && (
-            <ul className="space-y-1.5">
-              {problems.map((c) => (
-                <li key={c.key} className="rounded-lg border border-[#f5c2cf] bg-white px-2.5 py-1.5">
-                  <div className="text-[12px] font-semibold text-[#be123c]">✗ {labelFor(c.key)}</div>
-                  <div className="text-[10px] text-[#c2410c]">{c.detail}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-          {passes.length > 0 && (
-            <ul className="space-y-1 pt-0.5">
-              {passes.map((c) => (
-                <li key={c.key} className="flex items-start gap-1.5 text-[12px] text-[#34568a]">
-                  <span className="text-[#15803d] mt-px">✓</span><span className="truncate" title={c.detail}>{labelFor(c.key)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="text-[10px] text-[#8595a8] pt-1">External-tool steps (Facebook, Make.com, CloseBot, phone/A2P, workflows) aren&apos;t auto-checked.</p>
+          {/* Full checklist grouped by section, mirroring the sheet */}
+          <div className="space-y-2 max-h-[62vh] overflow-auto pr-0.5">
+            {SECTION_ORDER.map((section) => {
+              const secSteps = ONBOARDING_STEPS.filter((s) => s.section === section && byKey.has(s.key));
+              if (!secSteps.length) return null;
+              return (
+                <div key={section}>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] px-0.5 mb-0.5">{section}</div>
+                  <ul className="space-y-0.5">
+                    {secSteps.map((s) => {
+                      const c = byKey.get(s.key)!;
+                      const icon = c.status === "pass" ? "✓" : c.status === "fail" ? "✗" : "○";
+                      const color = c.status === "pass" ? "text-[#15803d]" : c.status === "fail" ? "text-[#e11d48]" : "text-[#b9c3d0]";
+                      return (
+                        <li key={s.key} className="flex items-start gap-1.5">
+                          <span className={cn("text-[13px] leading-tight mt-px shrink-0", color)}>{icon}</span>
+                          <div className="min-w-0">
+                            <span className={cn("text-[12px]", c.status === "manual" ? "text-[#8595a8]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
+                            {c.status === "fail" && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-[#8595a8] pt-0.5">○ = verify manually (external tools — Facebook, Make.com, CloseBot, phone/A2P, forms, calendar).</p>
         </div>
       )}
 
       {!result && !running && (
-        <p className="text-[11px] text-[#8595a8] text-center py-4">Checks: domain live · 4 funnel paths · PRODUCT ID in Fanbasis · redirect → thank-you · map · pixel · sheets.</p>
+        <p className="text-[11px] text-[#8595a8] text-center py-4">Auto-checks the funnel, PRODUCT ID, redirect, map, pixel &amp; sheets; lists every other step to verify by hand.</p>
       )}
     </div>
   );

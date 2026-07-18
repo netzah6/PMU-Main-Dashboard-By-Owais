@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken, getAppAgencyToken } from "@/lib/ghl-app";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
+import { ONBOARDING_STEPS } from "@/lib/onboarding-steps";
 
 // Auto-verify an onboarding's technical setup. For each checklist step we CAN
 // inspect programmatically (funnel pages, Fanbasis product, GHL custom values,
@@ -14,18 +15,6 @@ export type Check = { key: string; status: CheckStatus; detail: string };
 
 const BASE = "https://services.leadconnectorhq.com";
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
-
-// Steps that no API can confirm — always manual.
-const MANUAL_STEPS = new Set([
-  "ghl_snapshot", "form_reactivation", "form_pictures",
-  "phone_buy", "phone_a2p", "phone_cnam", "phone_optout", "phone_forward", "phone_callerid", "phone_sms_adv",
-  "user_add", "user_password", "user_permissions", "user_voicemail", "user_phone",
-  "wf_assign", "wf_area", "wf_pictures",
-  "cal_team", "cal_location", "cal_availability", "cal_lookbusy",
-  "make_http", "make_filter", "fb_campaign",
-  "cb_source", "cb_shutoff", "cb_override", "cb_agent", "cb_tag", "cb_restrictions",
-  "later_calendar", "later_availability", "funnel_ig_widget",
-]);
 
 async function ghlGet(url: string, token: string, version = "2021-07-28") {
   try {
@@ -146,8 +135,9 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   }
   push("fin_fanbasis_amount", "manual", "Verify the deposit amount is set back to the correct value");
 
-  // Everything else lives in external tools — mark manual.
-  for (const key of MANUAL_STEPS) if (!checks.some((c) => c.key === key)) push(key, "manual", "Check manually — no automated verification");
+  // Every remaining checklist step (external tools we can't reach) → manual, so
+  // the report is the COMPLETE list from the sheet, not just the auto-checks.
+  for (const s of ONBOARDING_STEPS) if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
 
   return { checks, locationId, depositUrl };
 }
