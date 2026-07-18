@@ -126,7 +126,7 @@ export default function OnboardingPage() {
   // Right-side "Check Setup" panel: verify any client by name or sub-account id.
   const [checkQuery, setCheckQuery] = useState("");
   const [checkRunning, setCheckRunning] = useState(false);
-  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; checks: { key: string; status: string; detail: string }[] } | null>(null);
+  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checks: { key: string; status: string; detail: string }[] } | null>(null);
   const runCheck = useCallback(async (query: string) => {
     if (!query.trim()) return;
     setCheckRunning(true); setCheckResult(null);
@@ -491,8 +491,8 @@ export default function OnboardingPage() {
 
   // ── List + create form (left) · Check Setup (right) ──────────────────────
   return (
-    <div className="p-4 sm:p-6 max-w-6xl">
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start">
+    <div className="p-4 sm:p-6 max-w-7xl">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_520px] gap-5 items-start">
       {/* LEFT — onboarding */}
       <div className="space-y-4 min-w-0">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -627,7 +627,7 @@ export default function OnboardingPage() {
 // ── Check Setup panel: verify any client by name or sub-account id ────────────
 function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
   query: string; setQuery: (s: string) => void; running: boolean;
-  result: { business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; checks: { key: string; status: string; detail: string }[] } | null;
+  result: { business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checks: { key: string; status: string; detail: string }[] } | null;
   onRun: (q: string) => void; businesses: string[];
 }) {
   const byKey = new Map((result?.checks ?? []).map((c) => [c.key, c]));
@@ -686,25 +686,33 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
             </div>
           )}
 
-          {/* Full checklist grouped by section, mirroring the sheet */}
-          <div className="space-y-2 max-h-[62vh] overflow-auto pr-0.5">
+          {/* Full checklist grouped by section, 2 columns so it fits without scrolling */}
+          <div className="lg:columns-2 gap-x-4">
             {SECTION_ORDER.map((section) => {
               const secSteps = ONBOARDING_STEPS.filter((s) => s.section === section && byKey.has(s.key));
               if (!secSteps.length) return null;
               return (
-                <div key={section}>
+                <div key={section} className="break-inside-avoid mb-2.5">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] px-0.5 mb-0.5">{section}</div>
                   <ul className="space-y-0.5">
                     {secSteps.map((s) => {
                       const c = byKey.get(s.key)!;
                       const icon = c.status === "pass" ? "✓" : c.status === "fail" ? "✗" : "○";
                       const color = c.status === "pass" ? "text-[#15803d]" : c.status === "fail" ? "text-[#e11d48]" : "text-[#b9c3d0]";
+                      // Show the product ID + checkout link right under the "create product" row.
+                      const showProduct = s.key === "fanbasis_product" && result.productId;
                       return (
                         <li key={s.key} className="flex items-start gap-1.5">
                           <span className={cn("text-[13px] leading-tight mt-px shrink-0", color)}>{icon}</span>
                           <div className="min-w-0">
                             <span className={cn("text-[12px]", c.status === "manual" ? "text-[#8595a8]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
                             {c.status === "fail" && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
+                            {showProduct && (
+                              <div className="text-[10px] mt-0.5 leading-snug">
+                                <div className="text-[#697a91]">Product ID: <code className="font-semibold text-[#1f3559]">{result.productId}</code></div>
+                                {result.depositUrl && <a href={result.depositUrl} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline break-all">{result.depositUrl} ↗</a>}
+                              </div>
+                            )}
                           </div>
                         </li>
                       );

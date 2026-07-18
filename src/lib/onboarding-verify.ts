@@ -49,7 +49,7 @@ async function resolveLocationId(business: string): Promise<string | null> {
 
 export type FunnelUrls = { survey: string; booking: string; lastStep: string; thankYou: string };
 
-export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null }> {
+export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null }> {
   const business = String(form.business_name ?? "").trim();
   const productId = String(form.product_id ?? "").trim();
   const address = String(form.address ?? "").trim();
@@ -128,7 +128,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     const hasPixel = /fbq\(|connect\.facebook\.net\/.*fbevents/i.test(html);
     push("ghl_pixel", hasPixel ? "pass" : "fail", hasPixel ? "Facebook pixel present" : "No Facebook pixel on the funnel");
 
-    // Booking page must fire the "Lead" conversion: fbq('track','Lead').
+    // Booking page: check the "Lead" conversion code AND the Instagram widget.
     if (funnelUrls) {
       try {
         const br = await fetch(funnelUrls.booking, { headers: { "User-Agent": "Mozilla/5.0" } });
@@ -136,6 +136,10 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         const hasLead = /fbq\s*\(\s*['"]track['"]\s*,\s*['"]Lead['"]/i.test(bhtml);
         push("funnel_lead_pixel", hasLead ? "pass" : "fail",
           hasLead ? "Booking page fires fbq('track','Lead')" : br.ok ? "Booking page is missing the fbq('track','Lead') code" : "Booking page didn't load");
+        // IG widget is OPTIONAL ("only if IG looks good") — detected = pass, else neutral manual.
+        const hasIg = /instagram\.com\/embed|instagram-media|lightwidget|snapwidget|elfsight|behold\.so|powr\.io/i.test(bhtml);
+        push("funnel_ig_widget", hasIg ? "pass" : "manual",
+          hasIg ? "Instagram widget detected on the booking page" : br.ok ? "No Instagram widget on the booking page (optional — add only if IG looks good)" : "Booking page didn't load");
       } catch { push("funnel_lead_pixel", "fail", "Couldn't load the booking page to check the Lead code"); }
     }
   }
@@ -154,5 +158,5 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
   for (const s of ONBOARDING_STEPS) if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
 
-  return { checks, locationId, depositUrl, funnelUrls };
+  return { checks, locationId, depositUrl, funnelUrls, productId: checkPid ?? null };
 }
