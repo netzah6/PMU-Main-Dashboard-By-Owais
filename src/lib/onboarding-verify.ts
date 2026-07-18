@@ -87,28 +87,37 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     }
   }
 
-  // Custom-values-filled check (the Funnel + Reactivation Form fills these).
-  // We only REQUIRE the core copy/links that break the funnel if blank; extra
-  // image slots (studio pics 2/3, before/after 2/3), the GMB link and the (V2)
-  // url are optional, so they never fail the check — they're just reported.
+  // Custom-values-filled check — the exact fields the "Funnel + Reactivation
+  // Form" populates. 🔵 fields are required only for V3 clients; the rest are
+  // required for every version (V1 / V2.3 / V3). norm() strips spaces, punctuation
+  // and the 🔵/🟢 emoji so the substrings match the live custom-value names.
   if (customValues.length) {
-    const REQUIRED = [
-      "owner's name", "business hours", "business phone", "full business address",
-      "offer", "deposit amount", "original price", "discounted price",
-      "deposit funnel url (v3)", "booking funnel url", "permanent makeup services",
-      "years in business", "when is the first touch", "fb business page", "ig business page", "funnel logo",
+    const ALWAYS = [ // non-🔵 — required for all versions
+      "business phone number", "fb business page", "full business address",
+      "funnel logo", "ig business page", "offer",
     ];
+    const V3_ONLY = [ // 🔵 — required additionally for V3
+      "owners name", "business hours", "deposit amount", "deposit funnel url v3",
+      "discounted price", "original price", "permanent makeup services",
+      "permanent makeup transformation calendar", "when is the first touch", "years in business",
+    ];
+    // Version: prefer the onboarding form; else the Master sheet's "Version"
+    // ("(V3)", "(V2.3)", "(V1)"…). isV3 must exclude "V2.3" → require it start "v3".
+    let masterVersion = "";
+    for (const r of ((cm ?? []) as Array<{ data: Record<string, unknown> }>))
+      if (norm(String(r.data?.["Business Name"] ?? "")) === bn) { masterVersion = String(r.data?.["Version"] ?? "").trim(); break; }
+    const versionRaw = String(form.version ?? "").trim() || masterVersion;
+    const isV3 = norm(versionRaw).startsWith("v3");
+    const needed = isV3 ? [...ALWAYS, ...V3_ONLY] : ALWAYS;
     const missing: string[] = [];
-    for (const need of REQUIRED) {
-      const matches = customValues.filter((v) => v.name.toLowerCase().includes(need));
+    for (const need of needed) {
+      const key = norm(need);
+      const matches = customValues.filter((v) => norm(v.name).includes(key));
       if (!matches.length || !matches.some((v) => v.value)) missing.push(need);
     }
-    // At least one "Eyebrows Before & After" must be filled (every artist does brows).
-    const browsBA = customValues.filter((v) => /eyebrows before/i.test(v.name));
-    if (browsBA.length && !browsBA.some((v) => v.value)) missing.push("eyebrows before & after");
-    const filled = customValues.filter((v) => v.value).length;
-    if (missing.length) push("form_reactivation", "fail", `${filled}/${customValues.length} custom values filled — missing: ${missing.join(", ")}`);
-    else push("form_reactivation", "pass", `All key custom values filled (${filled}/${customValues.length}; extra image slots optional)`);
+    const vLabel = versionRaw || "version unknown";
+    if (missing.length) push("form_reactivation", "fail", `${vLabel}: ${needed.length - missing.length}/${needed.length} required custom values filled — missing: ${missing.join(", ")}`);
+    else push("form_reactivation", "pass", `All ${needed.length} ${vLabel} custom values filled`);
   } else if (locationId) {
     push("form_reactivation", "manual", "Couldn't read the sub-account's custom values");
   }
