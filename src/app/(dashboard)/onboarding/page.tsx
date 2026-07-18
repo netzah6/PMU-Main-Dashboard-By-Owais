@@ -126,7 +126,7 @@ export default function OnboardingPage() {
   // Right-side "Check Setup" panel: verify any client by name or sub-account id.
   const [checkQuery, setCheckQuery] = useState("");
   const [checkRunning, setCheckRunning] = useState(false);
-  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; checks: { key: string; status: string; detail: string }[] } | null>(null);
+  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null>(null);
   const runCheck = useCallback(async (query: string) => {
     if (!query.trim()) return;
     setCheckRunning(true); setCheckResult(null);
@@ -627,7 +627,7 @@ export default function OnboardingPage() {
 // ── Check Setup panel: verify any client by name or sub-account id ────────────
 function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
   query: string; setQuery: (s: string) => void; running: boolean;
-  result: { business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; checks: { key: string; status: string; detail: string }[] } | null;
+  result: { business: string; query?: string; ranAt: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null;
   onRun: (q: string) => void; businesses: string[];
 }) {
   const byKey = new Map((result?.checks ?? []).map((c) => [c.key, c]));
@@ -703,7 +703,11 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                       const showProduct = s.key === "fanbasis_product" && result.productId;
                       // Checks whose detail is a useful breakdown even when passing
                       // (e.g. AREA options vs services, user list, assign evidence).
-                      const showPassDetail = c.status === "pass" && ["wf_area", "user_add", "wf_assign"].includes(s.key);
+                      const showPassDetail = c.status === "pass" && ["wf_area", "user_add", "wf_assign", "user_permissions", "user_phone", "cal_availability"].includes(s.key);
+                      // "Screenshot" equivalents: expandable permissions list and a
+                      // live booking-page view (scroll inside it to eyeball the IG widget).
+                      const showPerms = s.key === "user_permissions" && (result.usersInfo?.length ?? 0) > 0;
+                      const showIgPreview = s.key === "funnel_ig_widget" && !!result.funnelUrls?.booking;
                       return (
                         <li key={s.key} className="flex items-start gap-1.5">
                           <span className={cn("text-[13px] leading-tight mt-px shrink-0", color)}>{icon}</span>
@@ -711,6 +715,29 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                             <span className={cn("text-[12px]", c.status === "manual" ? "text-[#8595a8]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
                             {c.status === "fail" && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
                             {showPassDetail && <div className="text-[10px] text-[#697a91]">{c.detail}</div>}
+                            {showPerms && (
+                              <details className="mt-0.5">
+                                <summary className="text-[10px] text-[#0e8f88] cursor-pointer select-none">🔐 View permissions</summary>
+                                <div className="mt-1 space-y-1.5">
+                                  {result.usersInfo!.map((u) => (
+                                    <div key={u.name}>
+                                      <div className="text-[10px] font-semibold text-[#1f3559]">{u.name} — {u.role} · {u.permissions.length} permissions</div>
+                                      <div className="flex flex-wrap gap-0.5 mt-0.5">
+                                        {u.permissions.map((p) => (
+                                          <code key={p} className="text-[8px] leading-tight px-1 py-px rounded bg-[#eef2f7] text-[#34568a]">{p}</code>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            )}
+                            {showIgPreview && (
+                              <details className="mt-0.5">
+                                <summary className="text-[10px] text-[#0e8f88] cursor-pointer select-none">📸 View booking page (scroll to the IG widget)</summary>
+                                <iframe src={result.funnelUrls!.booking} title="Booking page — Instagram widget" className="mt-1 w-full h-80 rounded-md border border-[#dbe3ec] bg-white" />
+                              </details>
+                            )}
                             {showProduct && (
                               <div className="text-[10px] mt-0.5 leading-snug">
                                 <div className="text-[#697a91]">Product ID: <code className="font-semibold text-[#1f3559]">{result.productId}</code></div>

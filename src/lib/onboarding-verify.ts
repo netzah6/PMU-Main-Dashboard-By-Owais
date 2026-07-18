@@ -48,8 +48,44 @@ async function resolveLocationId(business: string): Promise<string | null> {
 }
 
 export type FunnelUrls = { survey: string; booking: string; lastStep: string; thankYou: string };
+export type UserInfo = { name: string; role: string; permissions: string[] };
 
-export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null; checkoutUrl: string | null }> {
+// US area code → state, for the purchased-phone "local number" check. Grouped
+// by state so it stays readable; expanded into a lookup map below.
+const STATE_CODES: Record<string, number[]> = {
+  AL: [205, 251, 256, 334, 659, 938], AK: [907], AZ: [480, 520, 602, 623, 928],
+  AR: [479, 501, 870],
+  CA: [209, 213, 279, 310, 323, 341, 350, 408, 415, 424, 442, 510, 530, 559, 562, 619, 626, 628, 650, 657, 661, 669, 707, 714, 747, 760, 805, 818, 820, 831, 840, 858, 909, 916, 925, 949, 951],
+  CO: [303, 719, 720, 970, 983], CT: [203, 475, 860, 959], DE: [302], DC: [202, 771],
+  FL: [239, 305, 321, 352, 386, 407, 448, 561, 656, 689, 727, 754, 772, 786, 813, 850, 863, 904, 941, 954],
+  GA: [229, 404, 470, 478, 678, 706, 762, 770, 912, 943], HI: [808], ID: [208, 986],
+  IL: [217, 224, 309, 312, 331, 447, 464, 618, 630, 708, 730, 773, 779, 815, 847, 872],
+  IN: [219, 260, 317, 463, 574, 765, 812, 930], IA: [319, 515, 563, 641, 712],
+  KS: [316, 620, 785, 913], KY: [270, 364, 502, 606, 859], LA: [225, 318, 337, 504, 985],
+  ME: [207], MD: [227, 240, 301, 410, 443, 667], MA: [339, 351, 413, 508, 617, 774, 781, 857, 978],
+  MI: [231, 248, 269, 313, 517, 586, 616, 679, 734, 810, 906, 947, 989],
+  MN: [218, 320, 507, 612, 651, 763, 952], MS: [228, 601, 662, 769],
+  MO: [235, 314, 417, 557, 573, 636, 660, 816, 975], MT: [406], NE: [308, 402, 531],
+  NV: [702, 725, 775], NH: [603], NJ: [201, 551, 609, 640, 732, 848, 856, 862, 908, 973],
+  NM: [505, 575], NY: [212, 315, 329, 332, 347, 363, 516, 518, 585, 607, 624, 631, 646, 680, 716, 718, 838, 845, 914, 917, 929, 934],
+  NC: [252, 336, 472, 704, 743, 828, 910, 919, 980, 984], ND: [701],
+  OH: [216, 220, 234, 326, 330, 380, 419, 440, 513, 567, 614, 740, 937],
+  OK: [405, 539, 572, 580, 918], OR: [458, 503, 541, 971],
+  PA: [215, 223, 267, 272, 412, 445, 484, 570, 582, 610, 717, 724, 814, 835, 878],
+  RI: [401], SC: [803, 821, 839, 843, 854, 864], SD: [605],
+  TN: [423, 615, 629, 731, 865, 901, 931],
+  TX: [210, 214, 254, 281, 325, 346, 361, 409, 430, 432, 469, 512, 682, 713, 726, 737, 806, 817, 830, 903, 915, 936, 940, 945, 956, 972, 979],
+  UT: [385, 435, 801], VT: [802], VA: [276, 434, 540, 571, 686, 703, 757, 804, 826, 948],
+  WA: [206, 253, 360, 425, 509, 564], WV: [304, 681], WI: [262, 274, 414, 534, 608, 715, 920],
+  WY: [307], PR: [787, 939],
+};
+const AREA_STATE: Record<string, string> = {};
+for (const [st, codes] of Object.entries(STATE_CODES)) for (const c of codes) AREA_STATE[String(c)] = st;
+
+const areaCode = (phone: string) => phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").slice(0, 3);
+const fmtPhone = (p: string) => { const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p; };
+
+export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null; checkoutUrl: string | null; usersInfo: UserInfo[] }> {
   const business = String(form.business_name ?? "").trim();
   const productId = String(form.product_id ?? "").trim();
   const address = String(form.address ?? "").trim();
@@ -124,13 +160,33 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     push("form_reactivation", "manual", "Couldn't read the sub-account's custom values");
   }
 
+  // Users are needed by both the user checks AND the calendar-availability
+  // check, so fetch them once up front.
+  let users: Array<Record<string, unknown>> = [];
+  let usersOk = false;
+  const usersInfo: UserInfo[] = [];
+  if (locationId && locTok) {
+    const ur = await ghlGet(`${BASE}/users/?locationId=${locationId}`, locTok);
+    usersOk = ur.status === 200;
+    users = (ur.json.users as Array<Record<string, unknown>> | undefined) ?? [];
+    for (const u of users) {
+      const roles = (u.roles ?? {}) as Record<string, unknown>;
+      usersInfo.push({
+        name: String(u.name ?? u.email ?? "?"),
+        role: String(roles.role ?? "?"),
+        permissions: (Array.isArray(u.scopes) ? u.scopes : []).map(String),
+      });
+    }
+  }
+
   // Calendar checks (we have the calendars scope). Grade the calendar's team
-  // members, meeting location, and Look-Busy setting.
+  // members, meeting location, Look-Busy, and that the assigned team member
+  // is a real sub-account user (My Staff → User Availability → calendar).
   if (locationId && locTok) {
     const cal = await ghlGet(`${BASE}/calendars/?locationId=${locationId}`, locTok);
     const cals = (cal.json.calendars as Array<Record<string, unknown>> | undefined) ?? [];
     if (!cals.length) {
-      for (const k of ["cal_team", "cal_location", "cal_lookbusy"]) push(k, "fail", "No calendar found on the sub-account");
+      for (const k of ["cal_team", "cal_location", "cal_lookbusy", "cal_availability"]) push(k, "fail", "No calendar found on the sub-account");
     } else {
       // Prefer the active calendar; else the first.
       const c = cals.find((x) => x.isActive) ?? cals[0];
@@ -146,18 +202,56 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       const lbOn = !!lb.enabled;
       const lbPct = Number(lb.lookBusyPercentage ?? 0);
       push("cal_lookbusy", lbOn && lbPct === 75 ? "pass" : lbOn ? "fail" : "fail", lbOn ? `Look Busy on at ${lbPct}%${lbPct === 75 ? "" : " (should be 75%)"}` : "Look Busy is off (should be 75%)");
+
+      // Calendar ↔ user connection: every selected team member must be a real
+      // sub-account user (proves the user is wired into the calendar settings).
+      if (usersOk) {
+        const userIds = new Set(users.map((u) => String(u.id ?? "")));
+        const connected = selected.filter((t) => userIds.has(String(t.userId ?? "")));
+        const orphans = selected.filter((t) => !userIds.has(String(t.userId ?? "")));
+        const names = connected.map((t) => String(users.find((u) => String(u.id) === String(t.userId))?.name ?? "?"));
+        if (!selected.length) push("cal_availability", "fail", "No team member on the calendar to connect");
+        else if (orphans.length) push("cal_availability", "fail", `${orphans.length} calendar team member(s) are not sub-account users — reconnect them in My Staff`);
+        else push("cal_availability", "pass", `Calendar connected to user${names.length > 1 ? "s" : ""}: ${names.join(", ")}`);
+      }
     }
   }
 
   // Sub-account user, Workflow assign-user, and the AREA custom field —
   // unlocked by the app's v2.0.0 scopes (users/workflows/customFields.readonly).
   if (locationId && locTok) {
-    // Sub-account user exists?
-    const ur = await ghlGet(`${BASE}/users/?locationId=${locationId}`, locTok);
-    const users = (ur.json.users as Array<Record<string, unknown>> | undefined) ?? [];
-    if (ur.status === 200) {
+    if (usersOk) {
+      // User exists?
       push("user_add", users.length ? "pass" : "fail",
         users.length ? `${users.length} user(s): ${users.map((u) => String(u.name ?? u.email ?? "?")).join(", ")}` : "No user on the sub-account");
+
+      // Permissions: role + granted permission scopes (full list is rendered
+      // expandable in the panel — the live equivalent of a screenshot).
+      if (users.length) {
+        const summary = usersInfo.map((u) => `${u.name}: ${u.role} · ${u.permissions.length} permissions`).join(" | ");
+        push("user_permissions", usersInfo.every((u) => u.permissions.length || u.role === "admin") ? "pass" : "manual", summary);
+      }
+
+      // Purchased (LeadConnector) phone number must be local to the business:
+      // its area code should match the business address state (or the business
+      // phone's area code). lcPhone on the user maps locationId → number.
+      const purchased = users
+        .map((u) => String(((u.lcPhone ?? {}) as Record<string, unknown>)[locationId] ?? ""))
+        .find((v) => v.trim()) ?? "";
+      const bizPhone = customValues.find((v) => /business phone number/i.test(v.name))?.value ?? "";
+      const fullAddr = address || (customValues.find((v) => /full business address/i.test(v.name))?.value ?? "");
+      if (!purchased) push("user_phone", "fail", `No purchased (LeadConnector) number on the sub-account users${fullAddr ? ` · Address: ${fullAddr}` : ""}`);
+      else {
+        const pac = areaCode(purchased);
+        const bac = areaCode(bizPhone);
+        const pState = AREA_STATE[pac];
+        const addrState = (fullAddr.match(/\b([A-Z]{2})\b[ ,]*\d{5}/) ?? [])[1] ?? "";
+        const line = `Purchased: ${fmtPhone(purchased)}${pState ? ` (${pState})` : ""} · Business: ${bizPhone ? fmtPhone(bizPhone) : "—"} · ${fullAddr || "no address on file"}`;
+        const localMatch = (!!bac && pac === bac) || (!!pState && !!addrState && pState === addrState) || (!!pState && !!bac && AREA_STATE[bac] === pState);
+        if (localMatch) push("user_phone", "pass", line);
+        else if (!pState && !addrState && !bac) push("user_phone", "manual", `${line} — couldn't determine the local area code`);
+        else push("user_phone", "fail", `${line} — area code ${pac} doesn't look local to the business`);
+      }
     }
 
     // Workflow "CC- Funnel Survey" published + assign-user evidence. The API
@@ -311,5 +405,5 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
   for (const s of ONBOARDING_STEPS) if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
 
-  return { checks, locationId, depositUrl, funnelUrls, productId: checkPid ?? null, checkoutUrl };
+  return { checks, locationId, depositUrl, funnelUrls, productId: checkPid ?? null, checkoutUrl, usersInfo };
 }
