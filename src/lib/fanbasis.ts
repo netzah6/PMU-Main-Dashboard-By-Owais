@@ -60,31 +60,30 @@ export async function createDepositProduct(title: string, amountCents: number): 
   return { productId, checkoutUrl, raw: j };
 }
 
-// Fetch a product's shareable hosted checkout link (the new Commas system:
-// https://commas.com/checkout/{slug}). The public-api returns the checkout
-// session object; the link comes back as checkout_url / url / link — same
-// shape createDepositProduct() returns at creation. Returns null if the
-// endpoint/field isn't present (caller falls back to the deposit-page link).
-export async function getProductCheckoutUrl(productId: string): Promise<string | null> {
-  if (!productId) return null;
-  const dig = (o: unknown, ...keys: string[]): string | null => {
-    for (const k of keys) {
-      const v = (o as Record<string, unknown> | null)?.[k];
-      if (typeof v === "string" && /^https?:\/\//i.test(v)) return v;
-    }
-    return null;
-  };
+// Build a live, shareable Fanbasis product checkout link. There is no API that
+// returns the hosted commas.com/checkout/{slug} link, so we reproduce exactly
+// what the funnel's deposit page does: POST to the embedded-checkout endpoint
+// with the PAGE's own public x-api-key (scraped from the deposit page) to mint
+// a session secret, then build the hosted session URL:
+//   https://embedded.fanbasis.io/session/{creatorId}/{productId}/{secret}
+// That URL opens the same product checkout the client sees. No server key
+// needed — the public key is per-product and lives on the deposit page.
+export async function getProductCheckoutUrl(
+  opts: { publicApiKey?: string | null; creatorId?: string | null; productId?: string | null }
+): Promise<string | null> {
+  const { publicApiKey, creatorId, productId } = opts;
+  if (!publicApiKey || !creatorId || !productId) return null;
   try {
-    const r = await fetch(`${BASE}/checkout-sessions/${encodeURIComponent(productId)}`, { headers: headers() });
+    const r = await fetch(`${BASE}/checkout-sessions/embedded`, {
+      method: "POST",
+      headers: { "x-api-key": publicApiKey, Accept: "application/json" },
+    });
     if (!r.ok) return null;
     const j = JSON.parse(await r.text()) as Record<string, unknown>;
-    const container = (j.data ?? j) as Record<string, unknown>;
-    const product = (container.product ?? j.product ?? null) as Record<string, unknown> | null;
-    return (
-      dig(container, "checkout_url", "checkoutUrl", "url", "payment_link", "link", "hosted_url") ??
-      dig(product, "checkout_url", "checkoutUrl", "url", "link") ??
-      dig(j, "checkout_url", "url", "link")
-    );
+    const data = (j.data ?? {}) as Record<string, unknown>;
+    const secret = typeof data.checkout_session_secret === "string" ? data.checkout_session_secret : null;
+    if (!secret) return null;
+    return `https://embedded.fanbasis.io/session/${creatorId}/${productId}/${secret}`;
   } catch { return null; }
 }
 
