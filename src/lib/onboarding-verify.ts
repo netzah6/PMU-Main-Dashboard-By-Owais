@@ -752,13 +752,22 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
           "Just $149 for Models", "Just $197 for Models", "Just $249 for Models",
         ];
         const flat = unesc.replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
-        const offNorm = (s: string) => s.toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ").trim();
+        // "!" is optional in both directions ("$200 OFF" == "$200 OFF!"), so
+        // strip it before comparing — but then require a BOUNDARY after the
+        // matched offer (end or punctuation), so "$200 OFF for NEW clients"
+        // still fails as off-script.
+        const offNorm = (s: string) => s.toLowerCase().replace(/[–—]/g, "-").replace(/!/g, "").replace(/\s+/g, " ").trim();
         const om = flat.match(/book your appointment now to claim\s*(.{0,70})/i);
         if (!br.ok) push("funnel_offer", "fail", "Booking page didn't load");
         else if (!om) push("funnel_offer", "fail", `The booking headline "Book Your Appointment NOW to Claim …" wasn't found on the page`);
         else {
           const seg = offNorm(om[1]);
-          const hit = VALID_OFFERS.find((o) => seg.startsWith(offNorm(o)));
+          const hit = [...VALID_OFFERS].sort((a, b) => b.length - a.length).find((o) => {
+            const oN = offNorm(o);
+            if (!seg.startsWith(oN)) return false;
+            const rest = seg.slice(oN.length).trimStart();
+            return rest === "" || !/^[a-z0-9$]/.test(rest); // next word continues the offer → off-script
+          });
           if (hit) push("funnel_offer", "pass", `Offer: ${hit}`);
           else {
             const raw = om[1];
