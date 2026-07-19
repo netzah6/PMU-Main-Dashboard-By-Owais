@@ -143,8 +143,13 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // CloseBot section are V3-only. Unknown version → treat as V3 (show all)
   // rather than silently hiding checks.
   let masterVersion = "";
+  let masterServices = "";
   for (const r of ((cm ?? []) as Array<{ data: Record<string, unknown> }>))
-    if (norm(String(r.data?.["Business Name"] ?? "")) === bn) { masterVersion = String(r.data?.["Version"] ?? "").trim(); break; }
+    if (norm(String(r.data?.["Business Name"] ?? "")) === bn) {
+      masterVersion = String(r.data?.["Version"] ?? "").trim();
+      masterServices = String(r.data?.["PMU Services"] ?? "").trim();
+      break;
+    }
   const versionRaw = String(form.version ?? "").trim() || masterVersion;
   const isV3 = norm(versionRaw).startsWith("v3");
   const knownNotV3 = !!versionRaw && !isV3;
@@ -201,6 +206,31 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     const vLabel = versionRaw || "version unknown";
     if (missing.length) push("form_reactivation", "fail", `${vLabel}: ${needed.length - missing.length}/${needed.length} required custom values filled — missing: ${missing.join(", ")}`);
     else push("form_reactivation", "pass", `All ${needed.length} ${vLabel} custom values filled`);
+
+    // Professional formatting of the contact custom values (these render on
+    // the funnel, so sloppy formatting is client-facing):
+    //   phone   → exactly "(317) 268-5519"
+    //   address → "street, city, ST zip" — no periods ("Rd" not "Rd."),
+    //             clean comma/space usage.
+    const phoneV = customValues.find((v) => /business phone number/i.test(v.name))?.value ?? "";
+    const addrV = customValues.find((v) => /full business address/i.test(v.name))?.value ?? "";
+    const fmtIssues: string[] = [];
+    if (!phoneV) fmtIssues.push("phone is empty");
+    else if (!/^\(\d{3}\) \d{3}-\d{4}$/.test(phoneV)) {
+      const digits = phoneV.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+      fmtIssues.push(`phone "${phoneV}" → should be "${digits.length === 10 ? fmtPhone(phoneV) : "(xxx) xxx-xxxx"}"`);
+    }
+    if (!addrV) fmtIssues.push("address is empty");
+    else {
+      const a: string[] = [];
+      if (/\./.test(addrV)) a.push(`remove periods ("Rd" not "Rd.")`);
+      if (!/^[^,]+, [^,]+, [A-Z]{2} \d{5}(-\d{4})?$/.test(addrV.replace(/\./g, ""))) a.push(`use "street, city, ST zip" (e.g. "10089b Allisonville Rd, Fishers, IN 46038")`);
+      if (/\s{2,}/.test(addrV)) a.push("remove double spaces");
+      if (/\s,/.test(addrV) || /,(?!\s)/.test(addrV)) a.push("comma then one space");
+      if (a.length) fmtIssues.push(`address "${addrV}" → ${a.join("; ")}`);
+    }
+    if (!fmtIssues.length) push("form_contact_format", "pass", `${phoneV} · ${addrV}`);
+    else push("form_contact_format", "fail", fmtIssues.join(" | "));
   } else if (locationId) {
     push("form_reactivation", "manual", "Couldn't read the sub-account's custom values");
   }
@@ -361,9 +391,14 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
           "lip blush": "Lips", "eyeliner": "Eyeliner",
           "scalp micropigmentation": "Scalp Micropigmentation",
           "areola micropigmentation": "Areola",
+          "scar camouflage": "Scar Camouflage", "tattoo removal": "Tattoo Removal",
         };
+        // Services to compare, in order of trust: onboarding form → the V3
+        // custom value → the client's signup "PMU Services" on the dashboard
+        // (clients_master) — so V2.3/V1 clients get compared too.
         let servicesRaw = String(form.services ?? "").trim();
         if (!servicesRaw) servicesRaw = customValues.find((v) => /permanent makeup services/i.test(v.name))?.value ?? "";
+        if (!servicesRaw) servicesRaw = masterServices;
         const svcList = servicesRaw.split(",").map((s) => s.trim()).filter(Boolean);
         const expected = new Set<string>();
         const unmapped: string[] = [];
@@ -389,27 +424,50 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   const makeToken = process.env.MAKE_API_TOKEN;
   if (makeToken && locationId && !knownNotV3) {
     try {
-      const zone = process.env.MAKE_ZONE || "us1";
+      // The token's home zone is unknown, so try each until /organizations
+      // answers 200 with data. Diagnostics are collected so a failure explains
+      // itself in the panel instead of a generic "not found".
+      const zones = process.env.MAKE_ZONE ? [process.env.MAKE_ZONE] : ["us1", "us2", "eu1", "eu2"];
+      let zone = zones[0];
       const mk = async (path: string) => {
         const r = await fetch(`https://${zone}.make.com/api/v2${path}`, { headers: { Authorization: `Token ${makeToken}`, Accept: "application/json" } });
         return { ok: r.ok, status: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
       };
-      // Find the Fanbasis scenario (org → teams → scenarios) unless pinned by env.
+      // Find the Fanbasis scenario (zone → org → teams → scenarios) unless pinned by env.
       let scenarioId = process.env.MAKE_SCENARIO_ID ?? "";
+      let diag = "";
       if (!scenarioId) {
-        const orgs = await mk(`/organizations`);
-        outer: for (const o of ((orgs.json.organizations as Array<Record<string, unknown>> | undefined) ?? [])) {
-          const teams = await mk(`/teams?organizationId=${o.id}`);
-          for (const t of ((teams.json.teams as Array<Record<string, unknown>> | undefined) ?? [])) {
-            const sc = await mk(`/scenarios?teamId=${t.id}`);
-            for (const s of ((sc.json.scenarios as Array<Record<string, unknown>> | undefined) ?? [])) {
-              if (/fanbasis/i.test(String(s.name ?? ""))) { scenarioId = String(s.id); break outer; }
+        const zoneNotes: string[] = [];
+        const seenNames: string[] = [];
+        outer: for (const z of zones) {
+          zone = z;
+          const orgs = await mk(`/organizations`);
+          const orgList = (orgs.json.organizations as Array<Record<string, unknown>> | undefined) ?? [];
+          zoneNotes.push(`${z}:${orgs.status}${orgs.ok ? `/${orgList.length} org` : ""}`);
+          if (!orgs.ok || !orgList.length) continue;
+          for (const o of orgList) {
+            const teams = await mk(`/teams?organizationId=${o.id}`);
+            for (const t of ((teams.json.teams as Array<Record<string, unknown>> | undefined) ?? [])) {
+              const sc = await mk(`/scenarios?teamId=${t.id}`);
+              for (const s of ((sc.json.scenarios as Array<Record<string, unknown>> | undefined) ?? [])) {
+                const nm = String(s.name ?? "");
+                seenNames.push(nm);
+                if (/fanbasis/i.test(nm)) { scenarioId = String(s.id); break outer; }
+              }
             }
           }
         }
+        if (!scenarioId) {
+          const all401 = zoneNotes.every((n) => /:(401|403)/.test(n));
+          diag = all401
+            ? `Make token rejected on every zone (${zoneNotes.join(" · ")}) — the token value in Vercel is wrong or lacks organizations:read + teams:read`
+            : seenNames.length
+              ? `Connected (${zoneNotes.join(" · ")}) but no scenario named *fanbasis* among: ${seenNames.slice(0, 8).join(", ")}${seenNames.length > 8 ? "…" : ""}`
+              : `Connected but found no scenarios (${zoneNotes.join(" · ")}) — token may lack teams/scenarios scopes`;
+        }
       }
       if (!scenarioId) {
-        for (const k of ["make_http", "make_filter"]) push(k, "manual", "Make API connected but no Fanbasis scenario found — set MAKE_SCENARIO_ID");
+        for (const k of ["make_http", "make_filter"]) push(k, "manual", diag || "Make scenario not found");
       } else {
         const bp = await mk(`/scenarios/${scenarioId}/blueprint`);
         const blueprint = ((bp.json.response as Record<string, unknown> | undefined)?.blueprint ?? bp.json) as unknown;
@@ -559,6 +617,18 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         const hasIg = /instagram\.com\/embed|instagram-media|lightwidget|snapwidget|elfsight|behold\.so|powr\.io/i.test(bhtml);
         push("funnel_ig_widget", hasIg ? "pass" : "manual",
           hasIg ? "Instagram widget detected on the booking page" : br.ok ? "No Instagram widget on the booking page (optional — add only if IG looks good)" : "Booking page didn't load");
+
+        // Before & After pictures: the booking/deposit pages must carry the
+        // CLIENT'S OWN pictures (≥3 besides the IG widget). Client uploads
+        // live at assets.cdn.filesafe.space/{locationId}/media/… — the
+        // location prefix separates their pictures from template assets.
+        if (locationId) {
+          const both = (unesc + " " + html).replace(/\\u002F/gi, "/").replace(/\\\//g, "/");
+          const picRe = new RegExp(`assets\\.cdn\\.filesafe\\.space/${locationId}/media/[A-Za-z0-9.]+`, "g");
+          const pics = new Set(both.match(picRe) ?? []);
+          if (pics.size >= 3) push("form_pictures", "pass", `${pics.size} client pictures on the booking/deposit pages${hasIg ? " + Instagram widget" : ""}`);
+          else push("form_pictures", "fail", `Only ${pics.size} client picture${pics.size === 1 ? "" : "s"} on the booking/deposit pages — need at least 3 (before/after & studio pictures)`);
+        }
       } catch { push("funnel_lead_pixel", "fail", "Couldn't load the booking page to check the Lead code"); }
     }
   }
