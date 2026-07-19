@@ -82,6 +82,38 @@ const STATE_CODES: Record<string, number[]> = {
 const AREA_STATE: Record<string, string> = {};
 for (const [st, codes] of Object.entries(STATE_CODES)) for (const c of codes) AREA_STATE[String(c)] = st;
 
+// Sub-account user permission template (from the team's screenshots): ONLY
+// these may be ON — everything else must be OFF. Keys are GHL's classic
+// permission booleans; labels are the plain-English names shown in reports.
+const PERM_LABELS: Record<string, string> = {
+  appointmentsEnabled: "Calendars & appointments", contactsEnabled: "Contacts",
+  conversationsEnabled: "Conversations", dashboardStatsEnabled: "Dashboard (view)",
+  mediaStorageEnabled: "Medias", onlineListingsEnabled: "Listings",
+  opportunitiesEnabled: "Opportunities", reviewsEnabled: "Reviews",
+  leadValueEnabled: "Opportunities lead value", phoneCallEnabled: "Phone call stats",
+  reportingEnabled: "Reporting", adwordsReportingEnabled: "Adwords reporting",
+  facebookAdsReportingEnabled: "Facebook Ads reporting", attributionsReportingEnabled: "Attribution reporting",
+  agentReportingEnabled: "Agent reporting", bulkRequestsEnabled: "Bulk actions (contacts)",
+  opportunitiesBulkActionsEnabled: "Bulk actions (opportunities)", campaignsEnabled: "Campaigns",
+  campaignsReadOnly: "Campaigns (read)", workflowsEnabled: "Workflows", workflowsReadOnly: "Workflows (read)",
+  triggersEnabled: "Triggers", funnelsEnabled: "Funnels", websitesEnabled: "Websites",
+  membershipEnabled: "Memberships", communitiesEnabled: "Communities", certificatesEnabled: "Certificates",
+  paymentsEnabled: "Payments", invoiceEnabled: "Invoices", refundsEnabled: "Refunds",
+  recordPaymentEnabled: "Record payments", cancelSubscriptionEnabled: "Cancel subscriptions",
+  exportPaymentsEnabled: "Export payments", marketingEnabled: "Marketing", socialPlanner: "Social planner",
+  bloggingEnabled: "Blogging", contentAiEnabled: "Content AI", botService: "Bot / Ask AI",
+  adPublishingEnabled: "Ad publishing", adPublishingReadOnly: "Ad publishing (read)",
+  affiliateManagerEnabled: "Affiliate manager", gokollabEnabled: "Gokollab", wordpressEnabled: "WordPress",
+  assignedDataOnly: "Assigned data only", settingsEnabled: "Settings", tagsEnabled: "Tags",
+};
+const permLabel = (k: string) => PERM_LABELS[k] ?? k;
+const EXPECTED_PERMS_ON = new Set([
+  "appointmentsEnabled", "contactsEnabled", "conversationsEnabled", "dashboardStatsEnabled",
+  "mediaStorageEnabled", "onlineListingsEnabled", "opportunitiesEnabled", "reviewsEnabled",
+]);
+// Not visible in the permission screenshots' UI — don't grade these either way.
+const PERM_IGNORE = new Set(["customMenuLinkReadOnly", "customMenuLinkWrite"]);
+
 const areaCode = (phone: string) => phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").slice(0, 3);
 const fmtPhone = (p: string) => { const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p; };
 
@@ -167,20 +199,31 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   }
 
   // Users are needed by both the user checks AND the calendar-availability
-  // check, so fetch them once up front.
+  // check, so fetch them once up front. The location listing doesn't include
+  // the permission map, so each user's detail is fetched with the agency
+  // token; usersInfo carries the plain-English names of the ON permissions.
   let users: Array<Record<string, unknown>> = [];
   let usersOk = false;
   const usersInfo: UserInfo[] = [];
+  const userPerms = new Map<string, Record<string, boolean>>(); // name → permission map
   if (locationId && locTok) {
     const ur = await ghlGet(`${BASE}/users/?locationId=${locationId}`, locTok);
     usersOk = ur.status === 200;
     users = (ur.json.users as Array<Record<string, unknown>> | undefined) ?? [];
+    const agency = users.length ? await getAppAgencyToken() : null;
     for (const u of users) {
       const roles = (u.roles ?? {}) as Record<string, unknown>;
+      const name = String(u.name ?? u.email ?? "?");
+      let perms: Record<string, boolean> = {};
+      if (agency) {
+        const det = await ghlGet(`${BASE}/users/${String(u.id ?? "")}`, agency.token);
+        if (det.ok) perms = (det.json.permissions as Record<string, boolean> | undefined) ?? {};
+      }
+      if (Object.keys(perms).length) userPerms.set(name, perms);
       usersInfo.push({
-        name: String(u.name ?? u.email ?? "?"),
+        name,
         role: String(roles.role ?? "?"),
-        permissions: (Array.isArray(u.scopes) ? u.scopes : []).map(String),
+        permissions: Object.keys(perms).filter((k) => perms[k] && !PERM_IGNORE.has(k)).map(permLabel).sort(),
       });
     }
   }
@@ -233,11 +276,25 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       push("user_add", users.length ? "pass" : "fail",
         users.length ? `${users.length} user(s): ${users.map((u) => String(u.name ?? u.email ?? "?")).join(", ")}` : "No user on the sub-account");
 
-      // Permissions: role + granted permission scopes (full list is rendered
-      // expandable in the panel — the live equivalent of a screenshot).
+      // Permissions: every sub-account user must match the SOP template —
+      // ONLY the EXPECTED_PERMS_ON set on, everything else off. Reported in
+      // plain English (extra ON / missing) instead of raw keys.
       if (users.length) {
-        const summary = usersInfo.map((u) => `${u.name}: ${u.role} · ${u.permissions.length} permissions`).join(" | ");
-        push("user_permissions", usersInfo.every((u) => u.permissions.length || u.role === "admin") ? "pass" : "manual", summary);
+        const verdicts: string[] = [];
+        let anyBad = false;
+        let anyUnknown = false;
+        for (const u of usersInfo) {
+          const perms = userPerms.get(u.name);
+          if (!perms) { anyUnknown = true; verdicts.push(`${u.name}: couldn't read permissions`); continue; }
+          const extras = Object.keys(perms).filter((k) => perms[k] && !EXPECTED_PERMS_ON.has(k) && !PERM_IGNORE.has(k)).map(permLabel).sort();
+          const missing = [...EXPECTED_PERMS_ON].filter((k) => !perms[k]).map(permLabel).sort();
+          if (!extras.length && !missing.length) verdicts.push(`${u.name}: matches the template ✓`);
+          else {
+            anyBad = true;
+            verdicts.push(`${u.name}: ${extras.length ? `should be OFF → ${extras.join(", ")}` : ""}${extras.length && missing.length ? " · " : ""}${missing.length ? `should be ON → ${missing.join(", ")}` : ""}`);
+          }
+        }
+        push("user_permissions", anyBad ? "fail" : anyUnknown ? "manual" : "pass", verdicts.join(" | "));
       }
 
       // Purchased (LeadConnector) phone number must be local to the business:
