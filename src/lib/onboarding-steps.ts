@@ -32,7 +32,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
 
   // ── Forms & pictures ──
   { key: "form_reactivation", section: "Forms & Pictures", label: "Fill \"🎀 Funnel + Reactivation Form (V2 / V3)\"", loom: "https://www.loom.com/share/151c03b04f7645ff898f615106b1a96c", auto: true },
-  { key: "form_pictures", section: "Forms & Pictures", label: "Fill \"📸 Before & After Pictures Form\" — folder of our pictures" },
+  { key: "form_pictures", section: "Forms & Pictures", label: "Fill \"📸 Before & After Pictures Form\" — folder of our pictures", auto: true },
 
   // ── Phone setup ──
   { key: "phone_a2p", section: "Phone Setup", label: "Verify A2P" },

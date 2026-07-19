@@ -143,8 +143,13 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // CloseBot section are V3-only. Unknown version → treat as V3 (show all)
   // rather than silently hiding checks.
   let masterVersion = "";
+  let masterServices = "";
   for (const r of ((cm ?? []) as Array<{ data: Record<string, unknown> }>))
-    if (norm(String(r.data?.["Business Name"] ?? "")) === bn) { masterVersion = String(r.data?.["Version"] ?? "").trim(); break; }
+    if (norm(String(r.data?.["Business Name"] ?? "")) === bn) {
+      masterVersion = String(r.data?.["Version"] ?? "").trim();
+      masterServices = String(r.data?.["PMU Services"] ?? "").trim();
+      break;
+    }
   const versionRaw = String(form.version ?? "").trim() || masterVersion;
   const isV3 = norm(versionRaw).startsWith("v3");
   const knownNotV3 = !!versionRaw && !isV3;
@@ -361,9 +366,14 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
           "lip blush": "Lips", "eyeliner": "Eyeliner",
           "scalp micropigmentation": "Scalp Micropigmentation",
           "areola micropigmentation": "Areola",
+          "scar camouflage": "Scar Camouflage", "tattoo removal": "Tattoo Removal",
         };
+        // Services to compare, in order of trust: onboarding form → the V3
+        // custom value → the client's signup "PMU Services" on the dashboard
+        // (clients_master) — so V2.3/V1 clients get compared too.
         let servicesRaw = String(form.services ?? "").trim();
         if (!servicesRaw) servicesRaw = customValues.find((v) => /permanent makeup services/i.test(v.name))?.value ?? "";
+        if (!servicesRaw) servicesRaw = masterServices;
         const svcList = servicesRaw.split(",").map((s) => s.trim()).filter(Boolean);
         const expected = new Set<string>();
         const unmapped: string[] = [];
@@ -559,6 +569,18 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         const hasIg = /instagram\.com\/embed|instagram-media|lightwidget|snapwidget|elfsight|behold\.so|powr\.io/i.test(bhtml);
         push("funnel_ig_widget", hasIg ? "pass" : "manual",
           hasIg ? "Instagram widget detected on the booking page" : br.ok ? "No Instagram widget on the booking page (optional — add only if IG looks good)" : "Booking page didn't load");
+
+        // Before & After pictures: the booking/deposit pages must carry the
+        // CLIENT'S OWN pictures (≥3 besides the IG widget). Client uploads
+        // live at assets.cdn.filesafe.space/{locationId}/media/… — the
+        // location prefix separates their pictures from template assets.
+        if (locationId) {
+          const both = (unesc + " " + html).replace(/\\u002F/gi, "/").replace(/\\\//g, "/");
+          const picRe = new RegExp(`assets\\.cdn\\.filesafe\\.space/${locationId}/media/[A-Za-z0-9.]+`, "g");
+          const pics = new Set(both.match(picRe) ?? []);
+          if (pics.size >= 3) push("form_pictures", "pass", `${pics.size} client pictures on the booking/deposit pages${hasIg ? " + Instagram widget" : ""}`);
+          else push("form_pictures", "fail", `Only ${pics.size} client picture${pics.size === 1 ? "" : "s"} on the booking/deposit pages — need at least 3 (before/after & studio pictures)`);
+        }
       } catch { push("funnel_lead_pixel", "fail", "Couldn't load the booking page to check the Lead code"); }
     }
   }
