@@ -11,7 +11,9 @@ import { ONBOARDING_STEPS } from "@/lib/onboarding-steps";
 // pretending they passed.
 
 export type CheckStatus = "pass" | "fail" | "manual" | "skip";
-export type Check = { key: string; status: CheckStatus; detail: string };
+// `copy` holds corrected values (e.g. a properly formatted address) that the
+// panel renders as click-to-copy chips next to the failure.
+export type Check = { key: string; status: CheckStatus; detail: string; copy?: string[] };
 
 const BASE = "https://services.leadconnectorhq.com";
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -116,6 +118,33 @@ const EXPECTED_PERMS_ON = new Set([
 // allowed either way per the team.
 const PERM_IGNORE = new Set(["customMenuLinkReadOnly", "customMenuLinkWrite", "leadValueEnabled"]);
 
+// Build the professionally-formatted version of a client's own address:
+// "street, City, ST zip". The city/state come from the ZIP (zippopotam.us —
+// free, keyless) so the street/city split is accurate, then the city text is
+// located inside the client's own wording to keep their street exactly as
+// written. Returns null when it can't be done confidently.
+async function fixAddress(raw: string): Promise<string | null> {
+  let s = raw.replace(/[.,]/g, " ").replace(/\s+/g, " ").trim();
+  s = s.replace(/\b(united states( of america)?|usa|u\.?s\.?)\s*$/i, "").trim();
+  const m = s.match(/^(.*?)\s+([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?$/);
+  if (!m) return null;
+  const body = m[1].trim();
+  const zip = m[3];
+  try {
+    const r = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    if (!r.ok) return null;
+    const j = (await r.json()) as { places?: Array<Record<string, string>> };
+    const place = j.places?.[0];
+    const city = place?.["place name"] ?? "";
+    const st = (place?.["state abbreviation"] ?? m[2]).toUpperCase();
+    if (!city) return null;
+    const idx = body.toLowerCase().lastIndexOf(city.toLowerCase());
+    if (idx > 0) return `${body.slice(0, idx).trim()}, ${city}, ${st} ${zip}`;
+    if (idx === -1) return `${body}, ${city}, ${st} ${zip}`; // city spelled differently — append the ZIP's city
+    return null;
+  } catch { return null; }
+}
+
 const areaCode = (phone: string) => phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").slice(0, 3);
 const fmtPhone = (p: string) => { const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p; };
 
@@ -215,22 +244,25 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     const phoneV = customValues.find((v) => /business phone number/i.test(v.name))?.value ?? "";
     const addrV = customValues.find((v) => /full business address/i.test(v.name))?.value ?? "";
     const fmtIssues: string[] = [];
+    const fmtCopies: string[] = []; // corrected values → click-to-copy chips
     if (!phoneV) fmtIssues.push("phone is empty");
     else if (!/^\(\d{3}\) \d{3}-\d{4}$/.test(phoneV)) {
       const digits = phoneV.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
-      fmtIssues.push(`phone "${phoneV}" → should be "${digits.length === 10 ? fmtPhone(phoneV) : "(xxx) xxx-xxxx"}"`);
+      if (digits.length === 10) { fmtIssues.push(`phone "${phoneV}" should be:`); fmtCopies.push(fmtPhone(phoneV)); }
+      else fmtIssues.push(`phone "${phoneV}" → should be "(xxx) xxx-xxxx"`);
     }
     if (!addrV) fmtIssues.push("address is empty");
     else {
-      const a: string[] = [];
-      if (/\./.test(addrV)) a.push(`remove periods ("Rd" not "Rd.")`);
-      if (!/^[^,]+, [^,]+, [A-Z]{2} \d{5}(-\d{4})?$/.test(addrV.replace(/\./g, ""))) a.push(`use "street, city, ST zip" (e.g. "10089b Allisonville Rd, Fishers, IN 46038")`);
-      if (/\s{2,}/.test(addrV)) a.push("remove double spaces");
-      if (/\s,/.test(addrV) || /,(?!\s)/.test(addrV)) a.push("comma then one space");
-      if (a.length) fmtIssues.push(`address "${addrV}" → ${a.join("; ")}`);
+      const addrOk = !/[.]/.test(addrV) && !/\s{2,}/.test(addrV) && !/\s,|,(?!\s)/.test(addrV)
+        && /^[^,]+, [^,]+, [A-Z]{2} \d{5}(-\d{4})?$/.test(addrV) && !/united states|usa/i.test(addrV);
+      if (!addrOk) {
+        const fixed = await fixAddress(addrV);
+        if (fixed && fixed !== addrV) { fmtIssues.push(`address "${addrV}" should be:`); fmtCopies.push(fixed); }
+        else if (!fixed) fmtIssues.push(`address "${addrV}" → use "street, city, ST zip", no periods, single spaces`);
+      }
     }
     if (!fmtIssues.length) push("form_contact_format", "pass", `${phoneV} · ${addrV}`);
-    else push("form_contact_format", "fail", fmtIssues.join(" | "));
+    else checks.push({ key: "form_contact_format", status: "fail", detail: fmtIssues.join(" | "), copy: fmtCopies });
 
     // Charm pricing (V3): the funnel prices must NOT be round numbers — they
     // should end in 7 or 9 ($397 / $399 / $349 / $299…), never $400 / $350.
