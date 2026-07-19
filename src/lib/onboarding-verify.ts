@@ -742,6 +742,34 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         push("funnel_ig_widget", hasIg ? "pass" : "manual",
           hasIg ? "Instagram widget detected on the booking page" : br.ok ? "No Instagram widget on the booking page (optional — add only if IG looks good)" : "Booking page didn't load");
 
+        // Valid Offer: the booking headline must be EXACTLY
+        // "Book Your Appointment NOW to Claim <OFFER>" with an approved offer —
+        // variants like "$200 OFF for NEW clients!" fail.
+        const VALID_OFFERS = [
+          "$200 OFF!", "$150 OFF!",
+          "Free Consultation - For a Limited Time Only!",
+          "Free Consultation + Free Aftercare Kit!",
+          "Just $149 for Models", "Just $197 for Models", "Just $249 for Models",
+        ];
+        const flat = unesc.replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
+        const offNorm = (s: string) => s.toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ").trim();
+        const om = flat.match(/book your appointment now to claim\s*(.{0,70})/i);
+        if (!br.ok) push("funnel_offer", "fail", "Booking page didn't load");
+        else if (!om) push("funnel_offer", "fail", `The booking headline "Book Your Appointment NOW to Claim …" wasn't found on the page`);
+        else {
+          const seg = offNorm(om[1]);
+          const hit = VALID_OFFERS.find((o) => seg.startsWith(offNorm(o)));
+          if (hit) push("funnel_offer", "pass", `Offer: ${hit}`);
+          else {
+            const raw = om[1];
+            const bang = raw.indexOf("!");
+            const dot = raw.indexOf(".");
+            const cut = bang >= 0 && bang < 55 ? bang + 1 : dot >= 0 && dot < 45 ? dot : 45;
+            const shown = raw.slice(0, cut).trim();
+            push("funnel_offer", "fail", `Offer in the title is "${shown}" — not one of the 7 approved offers ($200 OFF! · $150 OFF! · Free Consultation - For a Limited Time Only! · Free Consultation + Free Aftercare Kit! · Just $149/$197/$249 for Models)`);
+          }
+        }
+
         // Before & After pictures: the booking/deposit pages must carry the
         // CLIENT'S OWN pictures (≥3 besides the IG widget). Client uploads
         // live at assets.cdn.filesafe.space/{locationId}/media/… — the
