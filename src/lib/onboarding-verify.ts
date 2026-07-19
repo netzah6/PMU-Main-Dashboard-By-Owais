@@ -442,6 +442,10 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     } catch {
       for (const k of ["make_http", "make_filter"]) push(k, "manual", "Make API error — check MAKE_API_TOKEN / MAKE_ZONE");
     }
+  } else if (!makeToken && locationId && !knownNotV3) {
+    // V3 client but the Make API isn't connected yet — say so explicitly
+    // instead of the generic "check manually".
+    for (const k of ["make_http", "make_filter"]) push(k, "manual", "Auto-check available — add MAKE_API_TOKEN in Vercel (Make.com → profile → API → token with scenarios:read) to enable it");
   }
 
   let pagePid: string | null = null;
@@ -534,9 +538,23 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       try {
         const br = await fetch(funnelUrls.booking, { headers: { "User-Agent": "Mozilla/5.0" } });
         const bhtml = br.ok ? await br.text() : "";
-        const hasLead = /fbq\s*\(\s*['"]track['"]\s*,\s*['"]Lead['"]/i.test(bhtml);
-        push("funnel_lead_pixel", hasLead ? "pass" : "fail",
-          hasLead ? "Booking page fires fbq('track','Lead')" : br.ok ? "Booking page is missing the fbq('track','Lead') code" : "Booking page didn't load");
+        // The Lead conversion code must exist EXACTLY ONCE — a second copy
+        // (e.g. a bare snippet in the funnel's tracking-code settings PLUS a
+        // custom-code element) fires two Lead events per visitor and doubles
+        // the ad reporting. GHL embeds the page config as escaped JSON, so the
+        // same snippet appears twice in the raw HTML — unescape and dedupe by
+        // the code around each call to count DISTINCT snippets, not copies.
+        const unesc = bhtml.replace(/\\u003C/gi, "<").replace(/\\n/g, "\n").replace(/\\\//g, "/").replace(/\\'/g, "'").replace(/\\"/g, '"');
+        const sigs = new Set<string>();
+        for (const m of unesc.matchAll(/fbq\s*\(\s*['"]track['"]\s*,\s*['"]Lead['"]/gi)) {
+          const at = m.index ?? 0;
+          sigs.add(norm(unesc.slice(Math.max(0, at - 60), at + 30)));
+        }
+        const leadCount = sigs.size;
+        if (!br.ok) push("funnel_lead_pixel", "fail", "Booking page didn't load");
+        else if (leadCount === 1) push("funnel_lead_pixel", "pass", "Booking page fires fbq('track','Lead') once");
+        else if (leadCount === 0) push("funnel_lead_pixel", "fail", "Booking page is missing the fbq('track','Lead') code");
+        else push("funnel_lead_pixel", "fail", `${leadCount} different Lead conversion codes on the booking page — should be ONE (each lead is being counted ${leadCount} times); remove the extra from the page's tracking-code/custom-code settings`);
         // IG widget is OPTIONAL ("only if IG looks good") — detected = pass, else neutral manual.
         const hasIg = /instagram\.com\/embed|instagram-media|lightwidget|snapwidget|elfsight|behold\.so|powr\.io/i.test(bhtml);
         push("funnel_ig_widget", hasIg ? "pass" : "manual",
