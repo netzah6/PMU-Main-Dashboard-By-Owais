@@ -25,21 +25,31 @@ async function ghlGet(url: string, token: string, version = "2021-07-28") {
   } catch { return { ok: false, status: 0, json: {} as Record<string, unknown> }; }
 }
 
-// Resolve a business name to its GHL location id (clients_master/ghl_sync_status
-// first, then a live GHL locations search for brand-new sub-accounts).
-// The owner→location mapping comes from the keys sheet and CAN be wrong (a
-// pasted wrong location id put "PMU by Ivan" on Snow Belles' account), so an
-// owner-resolved location is VERIFIED against its real GHL name — on mismatch
-// we fall through to the exact-name search instead of reporting the wrong client.
+// Resolve a business name to its GHL location id — BY BUSINESS NAME FIRST:
+// the sub-account whose GHL name matches the business exactly is the source
+// of truth. The owner→location mapping (ghl_sync_status, fed by the keys
+// sheet) is only a fallback for name variants, and even then the mapped
+// location's real name is verified so a wrong pasted id (the "PMU by Ivan" →
+// Snow Belles incident) can never surface another client's account.
 async function resolveLocationId(business: string): Promise<string | null> {
-  const svc = createServiceClient();
   const bn = norm(business);
+  const agency = await getAppAgencyToken();
+
+  // 1) Exact name match against the live GHL locations list.
+  if (agency) {
+    const r = await ghlGet(`${BASE}/locations/search?limit=500`, agency.token);
+    for (const loc of (r.json.locations as Array<Record<string, unknown>> | undefined) ?? []) {
+      if (norm(String(loc.name ?? "")) === bn) return String(loc.id ?? loc._id ?? "") || null;
+    }
+  }
+
+  // 2) Fallback: owner mapping — verified against the location's real name.
+  const svc = createServiceClient();
   const { data: cm } = await svc.from("clients_master").select("data");
   let owner: string | null = null;
   for (const r of (cm ?? []) as Array<{ data: Record<string, unknown> }>) {
     if (norm(String(r.data?.["Business Name"] ?? "")) === bn) { owner = String(r.data?.["Owner Full Name"] ?? "").trim().toLowerCase(); break; }
   }
-  const agency = await getAppAgencyToken();
   if (owner) {
     const { data: ss } = await svc.from("ghl_sync_status").select("location_id").eq("owner_key", owner).maybeSingle();
     const mapped = (ss?.location_id as string | undefined) ?? "";
@@ -47,14 +57,10 @@ async function resolveLocationId(business: string): Promise<string | null> {
       if (!agency) return mapped; // can't verify — trust the mapping
       const det = await ghlGet(`${BASE}/locations/${mapped}`, agency.token);
       const realName = String(((det.json.location as Record<string, unknown> | undefined) ?? det.json)?.name ?? "");
-      if (!det.ok || !realName || norm(realName) === bn) return mapped; // verified (or unverifiable)
-      // Mapping points at a DIFFERENT business — fall through to name search.
-    }
-  }
-  if (agency) {
-    const r = await ghlGet(`${BASE}/locations/search?limit=500`, agency.token);
-    for (const loc of (r.json.locations as Array<Record<string, unknown>> | undefined) ?? []) {
-      if (norm(String(loc.name ?? "")) === bn) return String(loc.id ?? loc._id ?? "") || null;
+      const realNorm = norm(realName);
+      // Accept only when the mapped location's name plausibly IS this business
+      // (exact or containment either way) — never another client's account.
+      if (!det.ok || !realName || realNorm === bn || realNorm.includes(bn) || bn.includes(realNorm)) return mapped;
     }
   }
   return null;
@@ -718,8 +724,18 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         // location prefix separates their pictures from template assets.
         if (locationId) {
           const both = (unesc + " " + html).replace(/\\u002F/gi, "/").replace(/\\\//g, "/");
+          // Client pictures come in TWO hosting flavors: their own media
+          // library (filesafe/{locationId}/media) AND per-account document
+          // uploads (documents/download — how the B&A form's pictures render
+          // on some funnels, e.g. Tonni Petty). Count both, minus the funnel
+          // logo (also a document).
           const picRe = new RegExp(`assets\\.cdn\\.filesafe\\.space/${locationId}/media/[A-Za-z0-9.]+`, "g");
-          const pics = new Set(both.match(picRe) ?? []);
+          const docRe = /services\.leadconnectorhq\.com\/documents\/download\/[A-Za-z0-9]+/g;
+          const logoId = (customValues.find((v) => /funnel logo/i.test(v.name))?.value.match(/documents\/download\/([A-Za-z0-9]+)/) ?? [])[1];
+          const pics = new Set([
+            ...(both.match(picRe) ?? []),
+            ...(both.match(docRe) ?? []).filter((u) => !logoId || !u.includes(logoId)),
+          ]);
           if (pics.size >= 3) push("form_pictures", "pass", `${pics.size} client pictures on the booking/deposit pages${hasIg ? " + Instagram widget" : ""}`);
           else push("form_pictures", "fail", `Only ${pics.size} client picture${pics.size === 1 ? "" : "s"} on the booking/deposit pages — need at least 3 (before/after & studio pictures)`);
         }
