@@ -709,7 +709,10 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                       // Checks whose detail is a useful breakdown whatever the status
                       // (e.g. AREA options even when there are no services to compare,
                       // user list, assign evidence). Fail already renders its own line.
-                      const showPassDetail = c.status !== "fail" && !!c.detail && ["wf_area", "user_add", "wf_assign", "user_permissions", "user_phone", "cal_availability", "fin_test", "make_filter", "make_http"].includes(s.key);
+                      const showPassDetail = c.status !== "fail" && !!c.detail && ["wf_area", "user_add", "wf_assign", "user_permissions", "user_phone", "cal_availability", "fin_test", "make_filter", "make_http", "funnel_lead_pixel"].includes(s.key);
+                      // Lead-conversion row links straight to the booking page (funnel
+                      // step 2) so the pixel code can be eyeballed in one click.
+                      const showLeadLink = s.key === "funnel_lead_pixel" && !!result.funnelUrls?.booking;
                       // "Screenshot" equivalents: expandable permissions list and a
                       // live booking-page view (scroll inside it to eyeball the IG widget).
                       const showPerms = s.key === "user_permissions" && (result.usersInfo?.length ?? 0) > 0;
@@ -724,6 +727,9 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                             <span className={cn("text-[12px]", c.status === "manual" ? "text-[#8595a8]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
                             {c.status === "fail" && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
                             {(showPassDetail || handVerified) && <div className="text-[10px] text-[#697a91]">{c.detail}</div>}
+                            {showLeadLink && (
+                              <a href={result.funnelUrls!.booking} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#0e8f88] hover:underline break-all">{result.funnelUrls!.booking} ↗</a>
+                            )}
                             {showPerms && (
                               <details className="mt-0.5">
                                 <summary className="text-[10px] text-[#0e8f88] cursor-pointer select-none">🔐 View permissions</summary>

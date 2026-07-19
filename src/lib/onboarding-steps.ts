@@ -15,6 +15,9 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   // ── GHL setup ──
   { key: "ghl_domain", section: "GHL Setup", label: "Connect a verified domain (no subdomain)" },
   { key: "ghl_pixel", section: "GHL Setup", label: "Setup funnel pixel", auto: true },
+  // Same underlying check that used to sit in Funnel — the FB pixel "Lead"
+  // conversion code on the BOOKING page (funnel step 2); keeps its key.
+  { key: "funnel_lead_pixel", section: "GHL Setup", label: "Lead conversion check — fbq('Lead') on the booking page", auto: true },
 
   // ── Fanbasis ──
   { key: "fanbasis_product", section: "Fanbasis", label: "Create unique product — FULLNAME + BUSINESS NAME", loom: "https://www.loom.com/share/2e8c0dffd58246b89f1032b68a6d7c5a" },
@@ -25,7 +28,6 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "funnel_product_id", section: "Funnel", label: "Deposit page → update PRODUCT ID", auto: true },
   { key: "funnel_redirect", section: "Funnel", label: "Deposit page → update REDIRECT_URL (thank-you page path)", auto: true },
   { key: "funnel_map", section: "Funnel", label: "Update the map address", auto: true },
-  { key: "funnel_lead_pixel", section: "Funnel", label: "Booking page → add the \"Lead\" tracking code (fbq 'Lead')", auto: true },
   { key: "funnel_ig_widget", section: "Funnel", label: "Instagram widget (ONLY if IG looks good)" },
 
   // ── Forms & pictures ──
