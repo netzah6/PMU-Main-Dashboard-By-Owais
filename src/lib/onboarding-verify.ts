@@ -424,27 +424,50 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   const makeToken = process.env.MAKE_API_TOKEN;
   if (makeToken && locationId && !knownNotV3) {
     try {
-      const zone = process.env.MAKE_ZONE || "us1";
+      // The token's home zone is unknown, so try each until /organizations
+      // answers 200 with data. Diagnostics are collected so a failure explains
+      // itself in the panel instead of a generic "not found".
+      const zones = process.env.MAKE_ZONE ? [process.env.MAKE_ZONE] : ["us1", "us2", "eu1", "eu2"];
+      let zone = zones[0];
       const mk = async (path: string) => {
         const r = await fetch(`https://${zone}.make.com/api/v2${path}`, { headers: { Authorization: `Token ${makeToken}`, Accept: "application/json" } });
         return { ok: r.ok, status: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
       };
-      // Find the Fanbasis scenario (org → teams → scenarios) unless pinned by env.
+      // Find the Fanbasis scenario (zone → org → teams → scenarios) unless pinned by env.
       let scenarioId = process.env.MAKE_SCENARIO_ID ?? "";
+      let diag = "";
       if (!scenarioId) {
-        const orgs = await mk(`/organizations`);
-        outer: for (const o of ((orgs.json.organizations as Array<Record<string, unknown>> | undefined) ?? [])) {
-          const teams = await mk(`/teams?organizationId=${o.id}`);
-          for (const t of ((teams.json.teams as Array<Record<string, unknown>> | undefined) ?? [])) {
-            const sc = await mk(`/scenarios?teamId=${t.id}`);
-            for (const s of ((sc.json.scenarios as Array<Record<string, unknown>> | undefined) ?? [])) {
-              if (/fanbasis/i.test(String(s.name ?? ""))) { scenarioId = String(s.id); break outer; }
+        const zoneNotes: string[] = [];
+        const seenNames: string[] = [];
+        outer: for (const z of zones) {
+          zone = z;
+          const orgs = await mk(`/organizations`);
+          const orgList = (orgs.json.organizations as Array<Record<string, unknown>> | undefined) ?? [];
+          zoneNotes.push(`${z}:${orgs.status}${orgs.ok ? `/${orgList.length} org` : ""}`);
+          if (!orgs.ok || !orgList.length) continue;
+          for (const o of orgList) {
+            const teams = await mk(`/teams?organizationId=${o.id}`);
+            for (const t of ((teams.json.teams as Array<Record<string, unknown>> | undefined) ?? [])) {
+              const sc = await mk(`/scenarios?teamId=${t.id}`);
+              for (const s of ((sc.json.scenarios as Array<Record<string, unknown>> | undefined) ?? [])) {
+                const nm = String(s.name ?? "");
+                seenNames.push(nm);
+                if (/fanbasis/i.test(nm)) { scenarioId = String(s.id); break outer; }
+              }
             }
           }
         }
+        if (!scenarioId) {
+          const all401 = zoneNotes.every((n) => /:(401|403)/.test(n));
+          diag = all401
+            ? `Make token rejected on every zone (${zoneNotes.join(" · ")}) — the token value in Vercel is wrong or lacks organizations:read + teams:read`
+            : seenNames.length
+              ? `Connected (${zoneNotes.join(" · ")}) but no scenario named *fanbasis* among: ${seenNames.slice(0, 8).join(", ")}${seenNames.length > 8 ? "…" : ""}`
+              : `Connected but found no scenarios (${zoneNotes.join(" · ")}) — token may lack teams/scenarios scopes`;
+        }
       }
       if (!scenarioId) {
-        for (const k of ["make_http", "make_filter"]) push(k, "manual", "Make API connected but no Fanbasis scenario found — set MAKE_SCENARIO_ID");
+        for (const k of ["make_http", "make_filter"]) push(k, "manual", diag || "Make scenario not found");
       } else {
         const bp = await mk(`/scenarios/${scenarioId}/blueprint`);
         const blueprint = ((bp.json.response as Record<string, unknown> | undefined)?.blueprint ?? bp.json) as unknown;
