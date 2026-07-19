@@ -513,8 +513,16 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     else if (slugCands.length && !isClients) push("funnel_redirect", "fail", `REDIRECT_URL = ${rv} — points to a generic thank-you, not this client's (${slugCands[slugCands.length - 1]}-thank-you)`);
     else push("funnel_redirect", "pass", `REDIRECT_URL → ${rv}`);
 
-    const hasMap = /google\.com\/maps|maps\.googleapis|full_business_address/i.test(html) || (address ? html.includes(address.split(",")[0]) : false);
-    push("funnel_map", hasMap ? "pass" : "manual", hasMap ? "Map/address present" : "Couldn't detect the map address");
+    // Map address: the deposit page must show THIS client's address, not just
+    // any map. Compare the street part of the sub-account's "Full Business
+    // Address" custom value (fallback: the onboarding form) against the HTML.
+    const mapAddr = (customValues.find((v) => /full business address/i.test(v.name))?.value ?? "") || address;
+    const mapStreet = mapAddr.split(",")[0].trim();
+    const hasMapEmbed = /google\.com\/maps|maps\.googleapis/i.test(html);
+    const streetOnPage = !!mapStreet && norm(html).includes(norm(mapStreet));
+    if (streetOnPage) push("funnel_map", "pass", `Address on the page matches: ${mapAddr}${hasMapEmbed ? " · map embedded" : ""}`);
+    else if (!mapAddr) push("funnel_map", "manual", hasMapEmbed ? "Map embedded, but no address on file to compare against" : "No address on file to compare");
+    else push("funnel_map", "fail", `The client's address ("${mapStreet}") is NOT on the deposit page${hasMapEmbed ? " — the map may show the wrong address" : " and no map embed found"}`);
 
     const hasPixel = /fbq\(|connect\.facebook\.net\/.*fbevents/i.test(html);
     push("ghl_pixel", hasPixel ? "pass" : "fail", hasPixel ? "Facebook pixel present" : "No Facebook pixel on the funnel");
