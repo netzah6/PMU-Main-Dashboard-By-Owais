@@ -461,15 +461,31 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     push("ghl_domain", httpOk ? "pass" : "fail", httpOk ? `Domain live: ${depositUrl}` : `Deposit page didn't load (${depositUrl})`);
     push("funnel_domain", httpOk ? "pass" : "fail", httpOk ? "Funnel is on pmu-care.com" : "Funnel domain not resolving");
 
-    // The 4 funnel paths share a base; swap the last-step suffix to probe the others.
+    // The 4 funnel paths share a base derived from the deposit URL — but some
+    // funnels name the deposit page "<slug>-survey-last-step" while the other
+    // pages live at "<slug>-survey" / "<slug>-booking" / "<slug>-thank-you"
+    // (e.g. Ink Beauty FX). So probe BOTH base candidates (with and without a
+    // trailing "-survey") and use whichever URL actually resolves per page.
     const base = depositUrl.replace(/-last-step.*$/, "");
-    funnelUrls = { survey: base + "-survey", booking: base + "-booking", lastStep: depositUrl, thankYou: base + "-thank-you" };
-    const paths = { "📝 Survey": "-survey", "📅 Booking": "-booking", "🎉 Thank You": "-thank-you" } as Record<string, string>;
-    const pathResults: string[] = httpOk ? ["Last-Step ✓"] : ["Last-Step ✗"];
-    for (const [label, suffix] of Object.entries(paths)) {
-      try { const r = await fetch(base + suffix, { method: "HEAD", headers: { "User-Agent": "Mozilla/5.0" } }); pathResults.push(`${label.split(" ")[1]} ${r.ok ? "✓" : "✗"}`); }
-      catch { pathResults.push(`${label.split(" ")[1]} ✗`); }
-    }
+    const bases = [base];
+    if (base.endsWith("-survey")) bases.push(base.slice(0, -"-survey".length));
+    const live = async (url: string): Promise<boolean> => {
+      try { const r = await fetch(url, { method: "HEAD", headers: { "User-Agent": "Mozilla/5.0" } }); return r.ok; }
+      catch { return false; }
+    };
+    const resolvePage = async (suffix: string): Promise<{ url: string; ok: boolean }> => {
+      const cands = [...new Set(bases.map((b) => b + suffix))];
+      for (const u of cands) if (await live(u)) return { url: u, ok: true };
+      return { url: cands[0], ok: false };
+    };
+    const [surveyR, bookingR, tyR] = [await resolvePage("-survey"), await resolvePage("-booking"), await resolvePage("-thank-you")];
+    funnelUrls = { survey: surveyR.url, booking: bookingR.url, lastStep: depositUrl, thankYou: tyR.url };
+    const pathResults = [
+      `Last-Step ${httpOk ? "✓" : "✗"}`,
+      `Survey ${surveyR.ok ? "✓" : "✗"}`,
+      `Booking ${bookingR.ok ? "✓" : "✗"}`,
+      `Thank ${tyR.ok ? "✓" : "✗"}`,
+    ];
     const allPaths = !pathResults.some((p) => p.includes("✗"));
     push("funnel_path", allPaths ? "pass" : "fail", pathResults.join(" · "));
 
@@ -485,16 +501,16 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
 
     // REDIRECT_URL must be THIS client's own thank-you page — e.g. deposit
     // "browology-plus-last-step" ⇒ redirect should be "browology-plus-thank-you",
-    // not a generic "thank-you-873467". So it must contain the client's funnel
-    // slug AND "thank-you".
-    const baseSlug = base.split("/").pop() ?? ""; // e.g. "browology-plus"
+    // not a generic "thank-you-873467". It must contain one of the client's
+    // funnel slug variants (with or without the "-survey" part) AND "thank-you".
+    const slugCands = bases.map((b) => b.split("/").pop() ?? "").filter(Boolean); // e.g. ["ink-beauty-fx-llc-survey", "ink-beauty-fx-llc"]
     const redir = html.match(/REDIRECT_URL\s*=\s*['"]([^'"]+)['"]/);
     const rv = redir ? redir[1] : "";
     const hasTY = /thank-?you/i.test(rv);
-    const isClients = !!baseSlug && norm(rv).includes(norm(baseSlug));
+    const isClients = slugCands.some((s) => norm(rv).includes(norm(s)));
     if (!redir) push("funnel_redirect", "fail", "No REDIRECT_URL set on the deposit page");
     else if (!hasTY) push("funnel_redirect", "fail", `REDIRECT_URL = ${rv} — not a thank-you page`);
-    else if (baseSlug && !isClients) push("funnel_redirect", "fail", `REDIRECT_URL = ${rv} — points to a generic thank-you, not this client's (${baseSlug}-thank-you)`);
+    else if (slugCands.length && !isClients) push("funnel_redirect", "fail", `REDIRECT_URL = ${rv} — points to a generic thank-you, not this client's (${slugCands[slugCands.length - 1]}-thank-you)`);
     else push("funnel_redirect", "pass", `REDIRECT_URL → ${rv}`);
 
     const hasMap = /google\.com\/maps|maps\.googleapis|full_business_address/i.test(html) || (address ? html.includes(address.split(",")[0]) : false);
