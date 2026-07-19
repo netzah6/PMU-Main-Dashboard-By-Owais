@@ -129,7 +129,6 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   const bn = norm(business);
   const { data: cm } = await svc.from("clients_master").select("data");
   const inMaster = ((cm ?? []) as Array<{ data: Record<string, unknown> }>).some((r) => norm(String(r.data?.["Business Name"] ?? "")) === bn);
-  push("fin_master", inMaster ? "pass" : "fail", inMaster ? "Client is in the Master sheet" : "Not found in the Master sheet");
 
   const locationId = (opts.locationId && String(opts.locationId).trim()) || (await resolveLocationId(business));
   const { data: ss } = locationId
@@ -147,6 +146,12 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   const versionRaw = String(form.version ?? "").trim() || masterVersion;
   const isV3 = norm(versionRaw).startsWith("v3");
   const knownNotV3 = !!versionRaw && !isV3;
+
+  // "Update the V status" — the client's status on OUR dashboard (the Master
+  // data's Version column) must be set to a V value (V1 / V2.3 / V3).
+  if (!inMaster) push("fin_master", "fail", "Not found in the Master sheet — add the client and set their V status");
+  else if (/v\s*\d/i.test(masterVersion)) push("fin_master", "pass", `V status: ${masterVersion}`);
+  else push("fin_master", "fail", masterVersion ? `Status is "${masterVersion}" — should be V1 / V2.3 / V3` : "Version is EMPTY in the Master sheet — set the V status");
 
   // Pull the sub-account's custom values once: the live funnel URL AND the
   // fill-state of the fields the "Funnel + Reactivation Form" populates.

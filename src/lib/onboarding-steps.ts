@@ -73,7 +73,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   // ── Finish ──
   { key: "fin_keys", section: "Finish", label: "Add private integration key + Location ID to the keys sheet" },
   { key: "fin_test", section: "Finish", label: "Test the funnel and make sure everything works!", loom: "https://www.loom.com/share/b0008321edf34210ba8e05d803710162", auto: true },
-  { key: "fin_master", section: "Finish", label: "Mark the Master Sheet", auto: true },
+  { key: "fin_master", section: "Finish", label: "Update the V status", auto: true },
   { key: "fin_fanbasis_amount", section: "Finish", label: "Update the Fanbasis amount back to the right amount" },
 
   // ── Later ──
