@@ -126,7 +126,7 @@ export default function OnboardingPage() {
   // Right-side "Check Setup" panel: verify any client by name or sub-account id.
   const [checkQuery, setCheckQuery] = useState("");
   const [checkRunning, setCheckRunning] = useState(false);
-  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null>(null);
+  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string; copy?: string[] }[] } | null>(null);
   const runCheck = useCallback(async (query: string) => {
     if (!query.trim()) return;
     setCheckRunning(true); setCheckResult(null);
@@ -627,7 +627,7 @@ export default function OnboardingPage() {
 // ── Check Setup panel: verify any client by name or sub-account id ────────────
 function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
   query: string; setQuery: (s: string) => void; running: boolean;
-  result: { business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null;
+  result: { business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string; copy?: string[] }[] } | null;
   onRun: (q: string) => void; businesses: string[];
 }) {
   const byKey = new Map((result?.checks ?? []).map((c) => [c.key, c]));
@@ -738,6 +738,17 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                               </div>
                             )}
                             {c.status === "fail" && !isPathDetail && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
+                            {(c.copy?.length ?? 0) > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {c.copy!.map((v) => (
+                                  <button key={v} type="button" title="Click to copy"
+                                    onClick={() => { navigator.clipboard.writeText(v).then(() => toast.success("Copied!")); }}
+                                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-[#a7e3df] text-[#0e8f88] bg-[#f7fdfc] hover:bg-[#e8f9f7] cursor-pointer break-all text-left">
+                                    📋 {v}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                             {(showPassDetail || handVerified) && <div className="text-[10px] text-[#697a91]">{c.detail}</div>}
                             {showLeadLink && (
                               <a href={result.funnelUrls!.booking} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#0e8f88] hover:underline break-all">{result.funnelUrls!.booking} ↗</a>
