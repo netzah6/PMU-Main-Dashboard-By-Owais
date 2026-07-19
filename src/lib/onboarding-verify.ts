@@ -31,7 +31,7 @@ async function ghlGet(url: string, token: string, version = "2021-07-28") {
 // sheet) is only a fallback for name variants, and even then the mapped
 // location's real name is verified so a wrong pasted id (the "PMU by Ivan" →
 // Snow Belles incident) can never surface another client's account.
-async function resolveLocationId(business: string): Promise<string | null> {
+export async function resolveLocationId(business: string): Promise<string | null> {
   const bn = norm(business);
   const agency = await getAppAgencyToken();
 
