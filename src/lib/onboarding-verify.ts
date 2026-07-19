@@ -111,8 +111,10 @@ const EXPECTED_PERMS_ON = new Set([
   "appointmentsEnabled", "contactsEnabled", "conversationsEnabled", "dashboardStatsEnabled",
   "mediaStorageEnabled", "onlineListingsEnabled", "opportunitiesEnabled", "reviewsEnabled",
 ]);
-// Not visible in the permission screenshots' UI — don't grade these either way.
-const PERM_IGNORE = new Set(["customMenuLinkReadOnly", "customMenuLinkWrite"]);
+// Optional — fine ON or OFF, never graded: custom-menu-link keys aren't
+// visible in the permissions UI, and "View opportunities lead value" is
+// allowed either way per the team.
+const PERM_IGNORE = new Set(["customMenuLinkReadOnly", "customMenuLinkWrite", "leadValueEnabled"]);
 
 const areaCode = (phone: string) => phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").slice(0, 3);
 const fmtPhone = (p: string) => { const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p; };
