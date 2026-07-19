@@ -720,12 +720,24 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                       // Hand-verified rows (stored per sub-account after a browser
                       // check) render as a NORMAL ✓ with a plain detail line.
                       const handVerified = c.status === "pass" && c.detail.startsWith("Verified by hand");
+                      // Funnel-path result renders per-page: green ✓ segments, red ✗ ones.
+                      const isPathDetail = s.key === "funnel_path" && c.detail.includes("✓");
                       return (
                         <li key={s.key} className="flex items-start gap-1.5">
                           <span className={cn("text-[13px] leading-tight mt-px shrink-0", color)}>{icon}</span>
                           <div className="min-w-0">
                             <span className={cn("text-[12px]", c.status === "manual" ? "text-[#8595a8]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
-                            {c.status === "fail" && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
+                            {isPathDetail && (
+                              <div className="text-[10px]">
+                                {c.detail.split(" · ").map((seg, i) => (
+                                  <span key={i}>
+                                    {i > 0 && <span className="text-[#b9c3d0]"> · </span>}
+                                    <span className={seg.includes("✗") ? "text-[#e11d48] font-bold" : "text-[#15803d]"}>{seg}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {c.status === "fail" && !isPathDetail && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
                             {(showPassDetail || handVerified) && <div className="text-[10px] text-[#697a91]">{c.detail}</div>}
                             {showLeadLink && (
                               <a href={result.funnelUrls!.booking} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#0e8f88] hover:underline break-all">{result.funnelUrls!.booking} ↗</a>
