@@ -101,6 +101,26 @@ const STATE_CODES: Record<string, number[]> = {
 const AREA_STATE: Record<string, string> = {};
 for (const [st, codes] of Object.entries(STATE_CODES)) for (const c of codes) AREA_STATE[String(c)] = st;
 
+// US state → acceptable IANA timezones for the sub-account's Business Profile.
+// Split states list every zone that crosses them, so a correct setting on
+// either side of the line passes.
+const ET = "America/New_York", CT_ = "America/Chicago", MT = "America/Denver", PT = "America/Los_Angeles";
+const STATE_TZ: Record<string, string[]> = {
+  CT: [ET], ME: [ET], MA: [ET], NH: [ET], NJ: [ET], NY: [ET], RI: [ET], VT: [ET], DE: [ET], MD: [ET], DC: [ET],
+  VA: [ET], WV: [ET], NC: [ET], SC: [ET], GA: [ET], OH: [ET], PA: [ET],
+  MI: [ET, "America/Detroit", CT_, "America/Menominee"],
+  IN: [ET, "America/Indiana/Indianapolis", CT_],
+  KY: [ET, "America/Kentucky/Louisville", CT_],
+  FL: [ET, CT_], TN: [CT_, ET],
+  AL: [CT_], AR: [CT_], IL: [CT_], IA: [CT_], LA: [CT_], MN: [CT_], MS: [CT_], MO: [CT_], OK: [CT_], WI: [CT_],
+  KS: [CT_, MT], NE: [CT_, MT], ND: [CT_, MT], SD: [CT_, MT], TX: [CT_, MT],
+  AZ: ["America/Phoenix", MT], CO: [MT], MT: [MT], NM: [MT], UT: [MT], WY: [MT],
+  ID: [MT, "America/Boise", PT], OR: [PT, "America/Boise", MT], NV: [PT, MT],
+  CA: [PT], WA: [PT],
+  AK: ["America/Anchorage", "America/Nome", "America/Juneau", "America/Sitka", "America/Yakutat", "America/Adak", "America/Metlakatla"],
+  HI: ["Pacific/Honolulu"],
+};
+
 // Sub-account user permission template (from the team's screenshots): ONLY
 // these may be ON — everything else must be OFF. Keys are GHL's classic
 // permission booleans; labels are the plain-English names shown in reports.
@@ -183,10 +203,6 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   const inMaster = ((cm ?? []) as Array<{ data: Record<string, unknown> }>).some((r) => norm(String(r.data?.["Business Name"] ?? "")) === bn);
 
   const locationId = (opts.locationId && String(opts.locationId).trim()) || (await resolveLocationId(business));
-  const { data: ss } = locationId
-    ? await svc.from("ghl_sync_status").select("location_id").eq("location_id", locationId).maybeSingle()
-    : { data: null };
-  push("fin_keys", ss ? "pass" : "manual", ss ? "Sub-account is connected (location tracked)" : "Couldn't confirm the keys-sheet/location entry");
 
   // Client version (V1 / V2.3 / V3): prefer the onboarding form, else the
   // Master sheet's "Version". Drives which checks apply — Make.com and the
@@ -228,6 +244,23 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         if (nm.toLowerCase().includes("deposit funnel url") && val.startsWith("http") && (!depositUrl || nm.toLowerCase().includes("v3"))) depositUrl = val;
       }
     }
+  }
+
+  // Sub-account timezone must match where the client actually is (V3 only) —
+  // GHL defaults some accounts to odd zones (e.g. America/Caracas) and every
+  // SMS/booking time renders in it. Expected state comes from the business
+  // address, falling back to the business phone's area code.
+  if (!knownNotV3 && locationId && locTok) {
+    const lr = await ghlGet(`${BASE}/locations/${locationId}`, locTok);
+    const tz = String((lr.json.location as Record<string, unknown> | undefined)?.timezone ?? lr.json.timezone ?? "").trim();
+    const tzAddr = address || (customValues.find((v) => /full business address/i.test(v.name))?.value ?? "");
+    const tzPhone = customValues.find((v) => /business phone number/i.test(v.name))?.value ?? "";
+    const tzState = ((tzAddr.match(/\b([A-Z]{2})\b[ ,]*\d{5}/) ?? [])[1] ?? "") || (AREA_STATE[areaCode(tzPhone)] ?? "");
+    const allowed = STATE_TZ[tzState] ?? [];
+    if (!tz) push("ghl_timezone", "fail", "No timezone set on the sub-account — set it in Settings → Business Profile");
+    else if (!tzState) push("ghl_timezone", "manual", `Sub-account timezone: ${tz} — couldn't determine the client's state to compare`);
+    else if (allowed.includes(tz)) push("ghl_timezone", "pass", `Timezone: ${tz} — matches ${tzState}`);
+    else checks.push({ key: "ghl_timezone", status: "fail", detail: `Sub-account timezone is ${tz} but the client is in ${tzState} — set it to ${allowed[0]} (Settings → Business Profile)`, copy: [allowed[0]] });
   }
 
   // Custom-values-filled check — the exact fields the "Funnel + Reactivation
@@ -849,9 +882,18 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // Every remaining checklist step (external tools we can't reach) → manual, so
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
   // V1 / V2.3 clients skip the V3-only section (CloseBot); Make.com applies to all.
+  // GHL has NO API for the phone system (A2P, forwarding, SMS compliance), so
+  // those rows say exactly where to look — and ask Claude to browser-verify a
+  // client and the ✓ is stored here permanently (onboarding_check_overrides).
+  const MANUAL_NOTES: Record<string, string> = {
+    phone_a2p: "No GHL API for A2P — check Settings → Phone System for the green \"A2P 10DLC compliant\" banner, or ask Claude to browser-verify (the ✓ sticks)",
+    phone_sms_adv: "No GHL API — Settings → Phone → Advanced/Messaging Compliance: both boxes UNCHECKED, or ask Claude to browser-verify (the ✓ sticks)",
+    phone_forward: "No GHL API for call forwarding — open the purchased number's settings and confirm \"Forward Calls To\" is the client's number",
+    phone_callerid: "Only if the client asked — no API to confirm",
+  };
   for (const s of ONBOARDING_STEPS) {
     if (knownNotV3 && s.v3Only) continue;
-    if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
+    if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", MANUAL_NOTES[s.key] ?? "Check manually — no automated verification");
   }
 
   // Manual steps verified BY HAND (browser-only things like A2P / SMS

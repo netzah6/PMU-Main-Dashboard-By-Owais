@@ -18,6 +18,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   // Same underlying check that used to sit in Funnel — the FB pixel "Lead"
   // conversion code on the BOOKING page (funnel step 2); keeps its key.
   { key: "funnel_lead_pixel", section: "GHL Setup", label: "Lead conversion check — fbq('Lead') on the booking page", auto: true },
+  { key: "ghl_timezone", section: "GHL Setup", label: "Sub-account timezone matches the client location", auto: true, v3Only: true },
 
   // ── Fanbasis ──
   { key: "fanbasis_product", section: "Fanbasis", label: "Create unique product — FULLNAME + BUSINESS NAME", loom: "https://www.loom.com/share/2e8c0dffd58246b89f1032b68a6d7c5a" },
@@ -74,7 +75,6 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "cb_restrictions", section: "CloseBot (V3)", label: "Update follow-up restrictions time", v3Only: true },
 
   // ── Finish ──
-  { key: "fin_keys", section: "Finish", label: "Add private integration key + Location ID to the keys sheet" },
   { key: "fin_test", section: "Finish", label: "Test the funnel and make sure everything works!", loom: "https://www.loom.com/share/b0008321edf34210ba8e05d803710162", auto: true },
   { key: "fin_master", section: "Finish", label: "Update the V status on the PMU dashboard", auto: true },
 
