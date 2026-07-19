@@ -433,13 +433,44 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         const r = await fetch(`https://${zone}.make.com/api/v2${path}`, { headers: { Authorization: `Token ${makeToken}`, Accept: "application/json" } });
         return { ok: r.ok, status: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
       };
-      // Find the Fanbasis scenario (zone → org → teams → scenarios) unless pinned by env.
-      let scenarioId = process.env.MAKE_SCENARIO_ID ?? "";
+      // Route extraction from a scenario blueprint (router modules carry a
+      // `routes` array; each route = filter + modules).
+      const extractRoutes = (blueprint: unknown): string[] => {
+        const routes: string[] = [];
+        const walk = (node: unknown) => {
+          if (Array.isArray(node)) { node.forEach(walk); return; }
+          if (node && typeof node === "object") {
+            const n = node as Record<string, unknown>;
+            if (Array.isArray(n.routes)) for (const r of n.routes) routes.push(JSON.stringify(r));
+            for (const v of Object.values(n)) walk(v);
+          }
+        };
+        walk(blueprint);
+        return routes;
+      };
+      const getRoutes = async (id: string): Promise<{ routes: string[]; status: number }> => {
+        const bp = await mk(`/scenarios/${id}/blueprint`);
+        const blueprint = ((bp.json.response as Record<string, unknown> | undefined)?.blueprint ?? bp.json) as unknown;
+        return { routes: extractRoutes(blueprint), status: bp.status };
+      };
+
+      // Find the Fanbasis scenario(s) (zone → org → teams → scenarios) unless
+      // pinned by env. Several scenarios can carry "fanbasis" in the name
+      // (clones/backups) — use whichever actually has router routes.
+      let routes: string[] = [];
+      let usedName = "";
       let diag = "";
-      if (!scenarioId) {
+      const pinned = process.env.MAKE_SCENARIO_ID ?? "";
+      if (pinned) {
+        const g = await getRoutes(pinned);
+        routes = g.routes;
+        usedName = `scenario ${pinned}`;
+        if (!routes.length) diag = `Pinned scenario ${pinned}: blueprint HTTP ${g.status}, 0 router routes`;
+      } else {
         const zoneNotes: string[] = [];
         const seenNames: string[] = [];
-        outer: for (const z of zones) {
+        const candidates: Array<{ id: string; name: string }> = [];
+        for (const z of zones) {
           zone = z;
           const orgs = await mk(`/organizations`);
           const orgList = (orgs.json.organizations as Array<Record<string, unknown>> | undefined) ?? [];
@@ -452,46 +483,43 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
               for (const s of ((sc.json.scenarios as Array<Record<string, unknown>> | undefined) ?? [])) {
                 const nm = String(s.name ?? "");
                 seenNames.push(nm);
-                if (/fanbasis/i.test(nm)) { scenarioId = String(s.id); break outer; }
+                if (/fanbasis/i.test(nm)) candidates.push({ id: String(s.id), name: nm });
               }
             }
           }
+          break; // the token lives on exactly one zone — stop at the first that answered
         }
-        if (!scenarioId) {
+        if (!candidates.length) {
           const all401 = zoneNotes.every((n) => /:(401|403)/.test(n));
           diag = all401
             ? `Make token rejected on every zone (${zoneNotes.join(" · ")}) — the token value in Vercel is wrong or lacks organizations:read + teams:read`
             : seenNames.length
               ? `Connected (${zoneNotes.join(" · ")}) but no scenario named *fanbasis* among: ${seenNames.slice(0, 8).join(", ")}${seenNames.length > 8 ? "…" : ""}`
               : `Connected but found no scenarios (${zoneNotes.join(" · ")}) — token may lack teams/scenarios scopes`;
+        } else {
+          const notes: string[] = [];
+          for (const c of candidates.slice(0, 5)) {
+            const g = await getRoutes(c.id);
+            notes.push(`"${c.name}": ${g.routes.length} routes${g.status !== 200 ? ` (blueprint HTTP ${g.status})` : ""}`);
+            if (g.routes.length > routes.length) { routes = g.routes; usedName = c.name; }
+          }
+          if (!routes.length) diag = `Found ${candidates.length} Fanbasis scenario(s) but none has router routes — ${notes.join(" · ")}`;
         }
       }
-      if (!scenarioId) {
+
+      if (!routes.length) {
         for (const k of ["make_http", "make_filter"]) push(k, "manual", diag || "Make scenario not found");
       } else {
-        const bp = await mk(`/scenarios/${scenarioId}/blueprint`);
-        const blueprint = ((bp.json.response as Record<string, unknown> | undefined)?.blueprint ?? bp.json) as unknown;
-        // Collect every router route as a JSON string we can search.
-        const routes: string[] = [];
-        const walk = (node: unknown) => {
-          if (Array.isArray(node)) { node.forEach(walk); return; }
-          if (node && typeof node === "object") {
-            const n = node as Record<string, unknown>;
-            if (Array.isArray(n.routes)) for (const r of n.routes) routes.push(JSON.stringify(r));
-            for (const v of Object.values(n)) walk(v);
-          }
-        };
-        walk(blueprint);
         const own = norm(String(form.owner_name ?? ""));
         const route = routes.find((r) => {
           const rn = norm(r);
           return (!!bn && rn.includes(bn)) || (!!productId && r.includes(productId)) || (!!own && rn.includes(own));
         });
         if (!route) {
-          push("make_filter", "fail", `No route for "${business}" in the Fanbasis_Make scenario (${routes.length} routes checked)`);
+          push("make_filter", "fail", `No route for "${business}" in "${usedName}" (${routes.length} routes checked)`);
           push("make_http", "fail", "No route → no GHL webhook for this business in Make");
         } else {
-          push("make_filter", "pass", `Route found in the Fanbasis_Make scenario (${routes.length} routes total)`);
+          push("make_filter", "pass", `Route found in "${usedName}" (${routes.length} routes total)`);
           if (route.includes(locationId)) push("make_http", "pass", "Route's HTTP module posts to THIS sub-account's GHL webhook");
           else if (/leadconnectorhq\.com\/hooks|gohighlevel/i.test(route)) push("make_http", "manual", "Route has a GHL webhook but couldn't confirm it targets this sub-account");
           else push("make_http", "fail", "Route found but no GHL webhook URL inside it");
