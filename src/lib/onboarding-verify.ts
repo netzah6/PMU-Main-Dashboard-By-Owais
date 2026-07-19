@@ -27,6 +27,10 @@ async function ghlGet(url: string, token: string, version = "2021-07-28") {
 
 // Resolve a business name to its GHL location id (clients_master/ghl_sync_status
 // first, then a live GHL locations search for brand-new sub-accounts).
+// The owner→location mapping comes from the keys sheet and CAN be wrong (a
+// pasted wrong location id put "PMU by Ivan" on Snow Belles' account), so an
+// owner-resolved location is VERIFIED against its real GHL name — on mismatch
+// we fall through to the exact-name search instead of reporting the wrong client.
 async function resolveLocationId(business: string): Promise<string | null> {
   const svc = createServiceClient();
   const bn = norm(business);
@@ -35,11 +39,18 @@ async function resolveLocationId(business: string): Promise<string | null> {
   for (const r of (cm ?? []) as Array<{ data: Record<string, unknown> }>) {
     if (norm(String(r.data?.["Business Name"] ?? "")) === bn) { owner = String(r.data?.["Owner Full Name"] ?? "").trim().toLowerCase(); break; }
   }
+  const agency = await getAppAgencyToken();
   if (owner) {
     const { data: ss } = await svc.from("ghl_sync_status").select("location_id").eq("owner_key", owner).maybeSingle();
-    if (ss?.location_id) return ss.location_id as string;
+    const mapped = (ss?.location_id as string | undefined) ?? "";
+    if (mapped) {
+      if (!agency) return mapped; // can't verify — trust the mapping
+      const det = await ghlGet(`${BASE}/locations/${mapped}`, agency.token);
+      const realName = String(((det.json.location as Record<string, unknown> | undefined) ?? det.json)?.name ?? "");
+      if (!det.ok || !realName || norm(realName) === bn) return mapped; // verified (or unverifiable)
+      // Mapping points at a DIFFERENT business — fall through to name search.
+    }
   }
-  const agency = await getAppAgencyToken();
   if (agency) {
     const r = await ghlGet(`${BASE}/locations/search?limit=500`, agency.token);
     for (const loc of (r.json.locations as Array<Record<string, unknown>> | undefined) ?? []) {
