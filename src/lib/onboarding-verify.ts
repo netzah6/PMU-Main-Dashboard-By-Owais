@@ -531,7 +531,6 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     // deposit page's own embed config; falls back to null if the page had none).
     checkoutUrl = await getProductCheckoutUrl({ publicApiKey: embedApiKey, creatorId: embedCreator, productId: pagePid ?? checkPid }).catch(() => null);
   }
-  push("fin_fanbasis_amount", "manual", "Verify the deposit amount is set back to the correct value");
 
   // fin_test — automated end-to-end funnel test: every critical component must
   // pass, the live checkout must mint, AND the calendar must actually have
