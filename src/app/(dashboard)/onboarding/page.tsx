@@ -126,7 +126,7 @@ export default function OnboardingPage() {
   // Right-side "Check Setup" panel: verify any client by name or sub-account id.
   const [checkQuery, setCheckQuery] = useState("");
   const [checkRunning, setCheckRunning] = useState(false);
-  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null>(null);
+  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null>(null);
   const runCheck = useCallback(async (query: string) => {
     if (!query.trim()) return;
     setCheckRunning(true); setCheckResult(null);
@@ -617,14 +617,7 @@ export default function OnboardingPage() {
 
       {/* RIGHT — Check Setup */}
       <div className="lg:sticky lg:top-4">
-        <CheckPanel query={checkQuery} setQuery={setCheckQuery} running={checkRunning} result={checkResult} onRun={runCheck} businesses={list.map((o) => o.form.business_name).filter(Boolean)}
-          onOverride={async (key, on) => {
-            if (!checkResult?.locationId) return;
-            const r = await fetch("/api/onboarding/override", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locationId: checkResult.locationId, key, on }) });
-            const j = (await r.json().catch(() => null)) as { detail?: string } | null;
-            if (!r.ok) return;
-            setCheckResult((prev) => prev ? { ...prev, checks: prev.checks.map((c) => c.key === key ? { ...c, status: on ? "pass" : "manual", detail: on ? (j?.detail ?? "Verified by hand") : "Check manually — no automated verification" } : c) } : prev);
-          }} />
+        <CheckPanel query={checkQuery} setQuery={setCheckQuery} running={checkRunning} result={checkResult} onRun={runCheck} businesses={list.map((o) => o.form.business_name).filter(Boolean)} />
       </div>
       </div>{/* /grid */}
     </div>
@@ -632,11 +625,10 @@ export default function OnboardingPage() {
 }
 
 // ── Check Setup panel: verify any client by name or sub-account id ────────────
-function CheckPanel({ query, setQuery, running, result, onRun, businesses, onOverride }: {
+function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
   query: string; setQuery: (s: string) => void; running: boolean;
-  result: { business: string; query?: string; ranAt: string; locationId?: string | null; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null;
+  result: { business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null;
   onRun: (q: string) => void; businesses: string[];
-  onOverride: (key: string, on: boolean) => void | Promise<void>;
 }) {
   const byKey = new Map((result?.checks ?? []).map((c) => [c.key, c]));
   const all = result?.checks ?? [];
@@ -665,7 +657,12 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses, onOve
       {result && !running && (
         <div className="space-y-2.5">
           <div className={cn("rounded-lg border px-3 py-2", nFail ? "border-[#fcd9a8] bg-[#fffdf7]" : "border-[#86efac] bg-[#f0fdf4]")}>
-            <div className="text-[13px] font-bold text-[#1f3559] truncate">{result.business || result.query}</div>
+            <div className="text-[13px] font-bold text-[#1f3559] truncate">
+              {result.business || result.query}
+              {result.version
+                ? <span className={cn("ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold align-middle", verBadge(result.version))}>{result.version}</span>
+                : <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold align-middle bg-[#eef2f7] text-[#697a91]" title="No Version found in the Master sheet or onboarding form — showing ALL checks incl. V3-only">version unknown</span>}
+            </div>
             <div className="text-[11px]">
               <span className="text-[#15803d] font-semibold">✓ {nPass}</span>
               {nFail > 0 && <span className="text-[#c2410c] font-semibold"> · ✗ {nFail} to fix</span>}
@@ -717,28 +714,16 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses, onOve
                       // live booking-page view (scroll inside it to eyeball the IG widget).
                       const showPerms = s.key === "user_permissions" && (result.usersInfo?.length ?? 0) > 0;
                       const showIgPreview = s.key === "funnel_ig_widget" && !!result.funnelUrls?.booking;
-                      // Hand-verification: manual rows can be marked ✓ (persisted per
-                      // sub-account) after checking them in GHL/external tools by hand.
+                      // Hand-verified rows (stored per sub-account after a browser
+                      // check) render as a NORMAL ✓ with a plain detail line.
                       const handVerified = c.status === "pass" && c.detail.startsWith("Verified by hand");
-                      const canMark = c.status === "manual" && !!result.locationId;
                       return (
                         <li key={s.key} className="flex items-start gap-1.5">
                           <span className={cn("text-[13px] leading-tight mt-px shrink-0", color)}>{icon}</span>
                           <div className="min-w-0">
                             <span className={cn("text-[12px]", c.status === "manual" ? "text-[#8595a8]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
-                            {canMark && (
-                              <button onClick={() => onOverride(s.key, true)} title="I checked this by hand — mark it verified"
-                                className="ml-1 text-[9px] font-semibold text-[#0e8f88] hover:underline align-middle">mark ✓</button>
-                            )}
-                            {handVerified && (
-                              <div className="text-[10px] text-[#697a91]">
-                                {c.detail}
-                                <button onClick={() => onOverride(s.key, false)} title="Remove the hand-verification"
-                                  className="ml-1 text-[9px] text-[#b9c3d0] hover:text-[#e11d48] hover:underline">unmark</button>
-                              </div>
-                            )}
                             {c.status === "fail" && <div className="text-[10px] text-[#c2410c]">{c.detail}</div>}
-                            {showPassDetail && !handVerified && <div className="text-[10px] text-[#697a91]">{c.detail}</div>}
+                            {(showPassDetail || handVerified) && <div className="text-[10px] text-[#697a91]">{c.detail}</div>}
                             {showPerms && (
                               <details className="mt-0.5">
                                 <summary className="text-[10px] text-[#0e8f88] cursor-pointer select-none">🔐 View permissions</summary>
