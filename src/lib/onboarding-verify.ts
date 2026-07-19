@@ -31,7 +31,7 @@ async function ghlGet(url: string, token: string, version = "2021-07-28") {
 // sheet) is only a fallback for name variants, and even then the mapped
 // location's real name is verified so a wrong pasted id (the "PMU by Ivan" →
 // Snow Belles incident) can never surface another client's account.
-async function resolveLocationId(business: string): Promise<string | null> {
+export async function resolveLocationId(business: string): Promise<string | null> {
   const bn = norm(business);
   const agency = await getAppAgencyToken();
 
@@ -499,7 +499,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // posting to that client's GHL webhook). Needs MAKE_API_TOKEN in the env
   // (+ optional MAKE_ZONE, MAKE_SCENARIO_ID); without it the steps stay manual.
   const makeToken = process.env.MAKE_API_TOKEN;
-  if (makeToken && locationId && !knownNotV3) {
+  if (makeToken && locationId) {
     try {
       // The token's home zone is unknown, so try each until /organizations
       // answers 200 with data. Diagnostics are collected so a failure explains
@@ -605,7 +605,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     } catch {
       for (const k of ["make_http", "make_filter"]) push(k, "manual", "Make API error — check MAKE_API_TOKEN / MAKE_ZONE");
     }
-  } else if (!makeToken && locationId && !knownNotV3) {
+  } else if (!makeToken && locationId) {
     // V3 client but the Make API isn't connected yet — say so explicitly
     // instead of the generic "check manually".
     for (const k of ["make_http", "make_filter"]) push(k, "manual", "Auto-check available — add MAKE_API_TOKEN in Vercel (Make.com → profile → API → token with scenarios:read) to enable it");
@@ -742,6 +742,34 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         push("funnel_ig_widget", hasIg ? "pass" : "manual",
           hasIg ? "Instagram widget detected on the booking page" : br.ok ? "No Instagram widget on the booking page (optional — add only if IG looks good)" : "Booking page didn't load");
 
+        // Valid Offer: the booking headline must be EXACTLY
+        // "Book Your Appointment NOW to Claim <OFFER>" with an approved offer —
+        // variants like "$200 OFF for NEW clients!" fail.
+        const VALID_OFFERS = [
+          "$200 OFF!", "$150 OFF!",
+          "Free Consultation - For a Limited Time Only!",
+          "Free Consultation + Free Aftercare Kit!",
+          "Just $149 for Models", "Just $197 for Models", "Just $249 for Models",
+        ];
+        const flat = unesc.replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&nbsp;/g, " ").replace(/\s+/g, " ");
+        const offNorm = (s: string) => s.toLowerCase().replace(/[–—]/g, "-").replace(/\s+/g, " ").trim();
+        const om = flat.match(/book your appointment now to claim\s*(.{0,70})/i);
+        if (!br.ok) push("funnel_offer", "fail", "Booking page didn't load");
+        else if (!om) push("funnel_offer", "fail", `The booking headline "Book Your Appointment NOW to Claim …" wasn't found on the page`);
+        else {
+          const seg = offNorm(om[1]);
+          const hit = VALID_OFFERS.find((o) => seg.startsWith(offNorm(o)));
+          if (hit) push("funnel_offer", "pass", `Offer: ${hit}`);
+          else {
+            const raw = om[1];
+            const bang = raw.indexOf("!");
+            const dot = raw.indexOf(".");
+            const cut = bang >= 0 && bang < 55 ? bang + 1 : dot >= 0 && dot < 45 ? dot : 45;
+            const shown = raw.slice(0, cut).trim();
+            push("funnel_offer", "fail", `Offer in the title is "${shown}" — not one of the 7 approved offers ($200 OFF! · $150 OFF! · Free Consultation - For a Limited Time Only! · Free Consultation + Free Aftercare Kit! · Just $149/$197/$249 for Models)`);
+          }
+        }
+
         // Before & After pictures: the booking/deposit pages must carry the
         // CLIENT'S OWN pictures (≥3 besides the IG widget). Client uploads
         // live at assets.cdn.filesafe.space/{locationId}/media/… — the
@@ -811,9 +839,9 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
 
   // Every remaining checklist step (external tools we can't reach) → manual, so
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
-  // V1 / V2.3 clients skip the V3-only sections entirely (CloseBot, Make.com).
+  // V1 / V2.3 clients skip the V3-only section (CloseBot); Make.com applies to all.
   for (const s of ONBOARDING_STEPS) {
-    if (knownNotV3 && (s.v3Only || s.section === "Make.com")) continue;
+    if (knownNotV3 && s.v3Only) continue;
     if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
   }
 

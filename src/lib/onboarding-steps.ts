@@ -29,6 +29,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "funnel_redirect", section: "Funnel", label: "Deposit page → update REDIRECT_URL (thank-you page path)", auto: true },
   { key: "funnel_map", section: "Funnel", label: "Update the map address", auto: true },
   { key: "funnel_pricing", section: "Funnel", label: "Pricing — no round numbers ($397, not $400)", auto: true },
+  { key: "funnel_offer", section: "Funnel", label: "Valid Offer — title \"Book Your Appointment NOW to Claim OFFER\"", auto: true },
   { key: "funnel_ig_widget", section: "Funnel", label: "Instagram widget (ONLY if IG looks good)" },
 
   // ── Forms & pictures ──

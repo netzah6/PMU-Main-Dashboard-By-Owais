@@ -98,18 +98,32 @@ export function ClientProfile({
     ? `https://app.gohighlevel.com/v2/location/${GHL_LOCATION}/contacts/detail/${ghlContactId}`
     : null;
 
-  // Client's time zone (from GoHighLevel) + their current local time.
+  // Client's time zone + their current local time. Primary source: their own
+  // GHL SUB-ACCOUNT's timezone (every location has one). Fallback: the
+  // agency-side contact's timezone field (rarely set).
   const [tz, setTz] = useState<string | null>(null);
+  const tzBusiness = String(localClient.business_name ?? "").trim();
   useEffect(() => {
     setTz(null);
-    if (!ghlContactId) return;
     let cancelled = false;
-    fetch(`/api/ghl/contact/${ghlContactId}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!cancelled && d?.timezone) setTz(d.timezone); })
-      .catch(() => {});
+    (async () => {
+      if (tzBusiness) {
+        try {
+          const r = await fetch(`/api/ghl/location-tz?business=${encodeURIComponent(tzBusiness)}`);
+          const d = r.ok ? await r.json() : null;
+          if (cancelled) return;
+          if (d?.timezone) { setTz(d.timezone); return; }
+        } catch { /* fall through to contact */ }
+      }
+      if (!ghlContactId || cancelled) return;
+      try {
+        const r = await fetch(`/api/ghl/contact/${ghlContactId}`);
+        const d = r.ok ? await r.json() : null;
+        if (!cancelled && d?.timezone) setTz(d.timezone);
+      } catch { /* leave unset */ }
+    })();
     return () => { cancelled = true; };
-  }, [ghlContactId]);
+  }, [ghlContactId, tzBusiness]);
   const tzTime = tz
     ? (() => { try { return new Date().toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }); } catch { return null; } })()
     : null;
