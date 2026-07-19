@@ -140,6 +140,10 @@ const PERM_IGNORE = new Set(["customMenuLinkReadOnly", "customMenuLinkWrite", "l
 // free, keyless) so the street/city split is accurate, then the city text is
 // located inside the client's own wording to keep their street exactly as
 // written. Returns null when it can't be done confidently.
+// Every word starts with a capital ("21073 Powerline Rd Suite 61"); words
+// starting with a digit ("21073", "10089b") are left alone.
+const titleCase = (s: string) => s.split(" ").map((w) => (/^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w)).join(" ");
+
 async function fixAddress(raw: string): Promise<string | null> {
   let s = raw.replace(/[.,]/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(/\b(united states( of america)?|usa|u\.?s\.?)\s*$/i, "").trim();
@@ -156,8 +160,8 @@ async function fixAddress(raw: string): Promise<string | null> {
     const st = (place?.["state abbreviation"] ?? m[2]).toUpperCase();
     if (!city) return null;
     const idx = body.toLowerCase().lastIndexOf(city.toLowerCase());
-    if (idx > 0) return `${body.slice(0, idx).trim()}, ${city}, ${st} ${zip}`;
-    if (idx === -1) return `${body}, ${city}, ${st} ${zip}`; // city spelled differently — append the ZIP's city
+    if (idx > 0) return `${titleCase(body.slice(0, idx).trim())}, ${city}, ${st} ${zip}`;
+    if (idx === -1) return `${titleCase(body)}, ${city}, ${st} ${zip}`; // city spelled differently — append the ZIP's city
     return null;
   } catch { return null; }
 }
@@ -271,7 +275,8 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     if (!addrV) fmtIssues.push("address is empty");
     else {
       const addrOk = !/[.]/.test(addrV) && !/\s{2,}/.test(addrV) && !/\s,|,(?!\s)/.test(addrV)
-        && /^[^,]+, [^,]+, [A-Z]{2} \d{5}(-\d{4})?$/.test(addrV) && !/united states|usa/i.test(addrV);
+        && /^[^,]+, [^,]+, [A-Z]{2} \d{5}(-\d{4})?$/.test(addrV) && !/united states|usa/i.test(addrV)
+        && !/(^|\s)[a-z]/.test(addrV); // every word capitalized ("Powerline Rd", not "powerline rd")
       if (!addrOk) {
         const fixed = await fixAddress(addrV);
         if (fixed && fixed !== addrV) { fmtIssues.push(`address "${addrV}" should be:`); fmtCopies.push(fixed); }
@@ -614,15 +619,28 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     for (const k of ["ghl_domain", "funnel_domain", "funnel_path", "funnel_product_id", "funnel_redirect", "funnel_map", "ghl_pixel"])
       push(k, "fail", locationId ? "No deposit funnel URL set in the sub-account" : "Couldn't resolve the sub-account");
   } else {
-    // Fetch the deposit page and grade the funnel-side steps.
+    // The stored "Deposit Funnel URL" custom value sometimes points at the
+    // WRONG page (Brows By Kler's pointed at her survey page). Try it plus
+    // derived last-step candidates and grade whichever page is live AND
+    // actually carries the checkout (PRODUCT_ID) — flagging the bad custom
+    // value with the correct URL as a copyable fix.
+    const storedDepositUrl = depositUrl;
+    const slugRoot = depositUrl.replace(/\/+$/, "").replace(/-last-step.*$/, "").replace(/-(survey|booking|thank-you)$/, "");
+    const depCands = [...new Set([depositUrl, slugRoot + "-last-step", slugRoot + "-survey-last-step"])];
     let html = "";
     let httpOk = false;
-    try {
-      const r = await fetch(depositUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
-      httpOk = r.ok; html = await r.text();
-    } catch { /* httpOk stays false */ }
+    for (const cand of depCands) {
+      try {
+        const r = await fetch(cand, { headers: { "User-Agent": "Mozilla/5.0" } });
+        if (!r.ok) continue;
+        const t = await r.text();
+        if (!httpOk) { httpOk = true; html = t; depositUrl = cand; } // first live = fallback
+        if (/PRODUCT_ID\s*=/.test(t)) { httpOk = true; html = t; depositUrl = cand; break; }
+      } catch { /* try next candidate */ }
+    }
+    const depositMismatch = httpOk && depositUrl !== storedDepositUrl;
 
-    push("ghl_domain", httpOk ? "pass" : "fail", httpOk ? `Domain live: ${depositUrl}` : `Deposit page didn't load (${depositUrl})`);
+    push("ghl_domain", httpOk ? "pass" : "fail", httpOk ? `Domain live: ${depositUrl}` : `Deposit page didn't load (${storedDepositUrl})`);
     push("funnel_domain", httpOk ? "pass" : "fail", httpOk ? "Funnel is on pmu-care.com" : "Funnel domain not resolving");
 
     // The 4 funnel paths share a base derived from the deposit URL — but some
@@ -651,7 +669,13 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       `Thank ${tyR.ok ? "✓" : "✗"}`,
     ];
     const allPaths = !pathResults.some((p) => p.includes("✗"));
-    push("funnel_path", allPaths ? "pass" : "fail", pathResults.join(" · "));
+    if (depositMismatch) {
+      checks.push({
+        key: "funnel_path", status: "fail",
+        detail: `${pathResults.join(" · ")} — the "CC - Deposit Funnel URL" custom value points at the wrong page (${storedDepositUrl}); set it to:`,
+        copy: [depositUrl],
+      });
+    } else push("funnel_path", allPaths ? "pass" : "fail", pathResults.join(" · "));
 
     const pidMatch = html.match(/PRODUCT_ID\s*=\s*['"]([^'"]+)['"]/);
     if (pidMatch) pagePid = pidMatch[1];
