@@ -206,6 +206,31 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     const vLabel = versionRaw || "version unknown";
     if (missing.length) push("form_reactivation", "fail", `${vLabel}: ${needed.length - missing.length}/${needed.length} required custom values filled — missing: ${missing.join(", ")}`);
     else push("form_reactivation", "pass", `All ${needed.length} ${vLabel} custom values filled`);
+
+    // Professional formatting of the contact custom values (these render on
+    // the funnel, so sloppy formatting is client-facing):
+    //   phone   → exactly "(317) 268-5519"
+    //   address → "street, city, ST zip" — no periods ("Rd" not "Rd."),
+    //             clean comma/space usage.
+    const phoneV = customValues.find((v) => /business phone number/i.test(v.name))?.value ?? "";
+    const addrV = customValues.find((v) => /full business address/i.test(v.name))?.value ?? "";
+    const fmtIssues: string[] = [];
+    if (!phoneV) fmtIssues.push("phone is empty");
+    else if (!/^\(\d{3}\) \d{3}-\d{4}$/.test(phoneV)) {
+      const digits = phoneV.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+      fmtIssues.push(`phone "${phoneV}" → should be "${digits.length === 10 ? fmtPhone(phoneV) : "(xxx) xxx-xxxx"}"`);
+    }
+    if (!addrV) fmtIssues.push("address is empty");
+    else {
+      const a: string[] = [];
+      if (/\./.test(addrV)) a.push(`remove periods ("Rd" not "Rd.")`);
+      if (!/^[^,]+, [^,]+, [A-Z]{2} \d{5}(-\d{4})?$/.test(addrV.replace(/\./g, ""))) a.push(`use "street, city, ST zip" (e.g. "10089b Allisonville Rd, Fishers, IN 46038")`);
+      if (/\s{2,}/.test(addrV)) a.push("remove double spaces");
+      if (/\s,/.test(addrV) || /,(?!\s)/.test(addrV)) a.push("comma then one space");
+      if (a.length) fmtIssues.push(`address "${addrV}" → ${a.join("; ")}`);
+    }
+    if (!fmtIssues.length) push("form_contact_format", "pass", `${phoneV} · ${addrV}`);
+    else push("form_contact_format", "fail", fmtIssues.join(" | "));
   } else if (locationId) {
     push("form_reactivation", "manual", "Couldn't read the sub-account's custom values");
   }
