@@ -126,7 +126,7 @@ export default function OnboardingPage() {
   // Right-side "Check Setup" panel: verify any client by name or sub-account id.
   const [checkQuery, setCheckQuery] = useState("");
   const [checkRunning, setCheckRunning] = useState(false);
-  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null>(null);
+  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null>(null);
   const runCheck = useCallback(async (query: string) => {
     if (!query.trim()) return;
     setCheckRunning(true); setCheckResult(null);
@@ -627,7 +627,7 @@ export default function OnboardingPage() {
 // ── Check Setup panel: verify any client by name or sub-account id ────────────
 function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
   query: string; setQuery: (s: string) => void; running: boolean;
-  result: { business: string; query?: string; ranAt: string; locationId?: string | null; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null;
+  result: { business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string }[] } | null;
   onRun: (q: string) => void; businesses: string[];
 }) {
   const byKey = new Map((result?.checks ?? []).map((c) => [c.key, c]));
@@ -657,7 +657,12 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
       {result && !running && (
         <div className="space-y-2.5">
           <div className={cn("rounded-lg border px-3 py-2", nFail ? "border-[#fcd9a8] bg-[#fffdf7]" : "border-[#86efac] bg-[#f0fdf4]")}>
-            <div className="text-[13px] font-bold text-[#1f3559] truncate">{result.business || result.query}</div>
+            <div className="text-[13px] font-bold text-[#1f3559] truncate">
+              {result.business || result.query}
+              {result.version
+                ? <span className={cn("ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold align-middle", verBadge(result.version))}>{result.version}</span>
+                : <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold align-middle bg-[#eef2f7] text-[#697a91]" title="No Version found in the Master sheet or onboarding form — showing ALL checks incl. V3-only">version unknown</span>}
+            </div>
             <div className="text-[11px]">
               <span className="text-[#15803d] font-semibold">✓ {nPass}</span>
               {nFail > 0 && <span className="text-[#c2410c] font-semibold"> · ✗ {nFail} to fix</span>}

@@ -85,7 +85,7 @@ for (const [st, codes] of Object.entries(STATE_CODES)) for (const c of codes) AR
 const areaCode = (phone: string) => phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").slice(0, 3);
 const fmtPhone = (p: string) => { const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p; };
 
-export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null; checkoutUrl: string | null; usersInfo: UserInfo[] }> {
+export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null; checkoutUrl: string | null; usersInfo: UserInfo[]; version: string }> {
   const business = String(form.business_name ?? "").trim();
   const productId = String(form.product_id ?? "").trim();
   const address = String(form.address ?? "").trim();
@@ -104,6 +104,17 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     ? await svc.from("ghl_sync_status").select("location_id").eq("location_id", locationId).maybeSingle()
     : { data: null };
   push("fin_keys", ss ? "pass" : "manual", ss ? "Sub-account is connected (location tracked)" : "Couldn't confirm the keys-sheet/location entry");
+
+  // Client version (V1 / V2.3 / V3): prefer the onboarding form, else the
+  // Master sheet's "Version". Drives which checks apply — Make.com and the
+  // CloseBot section are V3-only. Unknown version → treat as V3 (show all)
+  // rather than silently hiding checks.
+  let masterVersion = "";
+  for (const r of ((cm ?? []) as Array<{ data: Record<string, unknown> }>))
+    if (norm(String(r.data?.["Business Name"] ?? "")) === bn) { masterVersion = String(r.data?.["Version"] ?? "").trim(); break; }
+  const versionRaw = String(form.version ?? "").trim() || masterVersion;
+  const isV3 = norm(versionRaw).startsWith("v3");
+  const knownNotV3 = !!versionRaw && !isV3;
 
   // Pull the sub-account's custom values once: the live funnel URL AND the
   // fill-state of the fields the "Funnel + Reactivation Form" populates.
@@ -140,12 +151,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       "permanent makeup transformation calendar", "when is the first touch", "years in business",
     ];
     // Version: prefer the onboarding form; else the Master sheet's "Version"
-    // ("(V3)", "(V2.3)", "(V1)"…). isV3 must exclude "V2.3" → require it start "v3".
-    let masterVersion = "";
-    for (const r of ((cm ?? []) as Array<{ data: Record<string, unknown> }>))
-      if (norm(String(r.data?.["Business Name"] ?? "")) === bn) { masterVersion = String(r.data?.["Version"] ?? "").trim(); break; }
-    const versionRaw = String(form.version ?? "").trim() || masterVersion;
-    const isV3 = norm(versionRaw).startsWith("v3");
+    // ("(V3)", "(V2.3)", "(V1)"…) — resolved once above.
     const needed = isV3 ? [...ALWAYS, ...V3_ONLY] : ALWAYS;
     const missing: string[] = [];
     for (const need of needed) {
@@ -317,7 +323,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // posting to that client's GHL webhook). Needs MAKE_API_TOKEN in the env
   // (+ optional MAKE_ZONE, MAKE_SCENARIO_ID); without it the steps stay manual.
   const makeToken = process.env.MAKE_API_TOKEN;
-  if (makeToken && locationId) {
+  if (makeToken && locationId && !knownNotV3) {
     try {
       const zone = process.env.MAKE_ZONE || "us1";
       const mk = async (path: string) => {
@@ -496,7 +502,11 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
 
   // Every remaining checklist step (external tools we can't reach) → manual, so
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
-  for (const s of ONBOARDING_STEPS) if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
+  // V1 / V2.3 clients skip the V3-only sections entirely (CloseBot, Make.com).
+  for (const s of ONBOARDING_STEPS) {
+    if (knownNotV3 && (s.v3Only || s.section === "Make.com")) continue;
+    if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
+  }
 
   // Manual steps verified BY HAND (browser-only things like A2P / SMS
   // compliance) — stored per sub-account in onboarding_check_overrides and
@@ -513,5 +523,5 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     }
   }
 
-  return { checks, locationId, depositUrl, funnelUrls, productId: checkPid ?? null, checkoutUrl, usersInfo };
+  return { checks, locationId, depositUrl, funnelUrls, productId: checkPid ?? null, checkoutUrl, usersInfo, version: versionRaw };
 }
