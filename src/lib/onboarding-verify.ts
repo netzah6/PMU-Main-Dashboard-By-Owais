@@ -499,7 +499,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // posting to that client's GHL webhook). Needs MAKE_API_TOKEN in the env
   // (+ optional MAKE_ZONE, MAKE_SCENARIO_ID); without it the steps stay manual.
   const makeToken = process.env.MAKE_API_TOKEN;
-  if (makeToken && locationId && !knownNotV3) {
+  if (makeToken && locationId) {
     try {
       // The token's home zone is unknown, so try each until /organizations
       // answers 200 with data. Diagnostics are collected so a failure explains
@@ -605,7 +605,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     } catch {
       for (const k of ["make_http", "make_filter"]) push(k, "manual", "Make API error — check MAKE_API_TOKEN / MAKE_ZONE");
     }
-  } else if (!makeToken && locationId && !knownNotV3) {
+  } else if (!makeToken && locationId) {
     // V3 client but the Make API isn't connected yet — say so explicitly
     // instead of the generic "check manually".
     for (const k of ["make_http", "make_filter"]) push(k, "manual", "Auto-check available — add MAKE_API_TOKEN in Vercel (Make.com → profile → API → token with scenarios:read) to enable it");
@@ -811,9 +811,9 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
 
   // Every remaining checklist step (external tools we can't reach) → manual, so
   // the report is the COMPLETE list from the sheet, not just the auto-checks.
-  // V1 / V2.3 clients skip the V3-only sections entirely (CloseBot, Make.com).
+  // V1 / V2.3 clients skip the V3-only section (CloseBot); Make.com applies to all.
   for (const s of ONBOARDING_STEPS) {
-    if (knownNotV3 && (s.v3Only || s.section === "Make.com")) continue;
+    if (knownNotV3 && s.v3Only) continue;
     if (!checks.some((c) => c.key === s.key)) push(s.key, "manual", "Check manually — no automated verification");
   }
 
