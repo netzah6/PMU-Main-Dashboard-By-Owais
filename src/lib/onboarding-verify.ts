@@ -231,6 +231,29 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     }
     if (!fmtIssues.length) push("form_contact_format", "pass", `${phoneV} · ${addrV}`);
     else push("form_contact_format", "fail", fmtIssues.join(" | "));
+
+    // Charm pricing (V3): the funnel prices must NOT be round numbers — they
+    // should end in 7 or 9 ($397 / $399 / $349 / $299…), never $400 / $350.
+    if (isV3) {
+      const priceOf = (re: RegExp) => customValues.find((v) => re.test(v.name))?.value ?? "";
+      const origV = priceOf(/original price for brows/i);
+      const discV = priceOf(/discounted price for brows/i);
+      const priceIssue = (label: string, raw: string): string | null => {
+        if (!raw.trim()) return `${label} is empty`;
+        const m = raw.replace(/,/g, "").match(/(\d+)(?:\.\d+)?/);
+        if (!m) return `${label} "${raw}" has no number in it`;
+        const num = parseInt(m[1], 10);
+        const last = num % 10;
+        if (last === 7 || last === 9) return null;
+        // Suggest same-decade charm prices; a fully round number ($400, $350)
+        // drops to the decade below ($397/$399, $347/$349).
+        const decade = last === 0 ? num - 10 : num - last;
+        return `${label} "${raw}" is a round number — use charm pricing like $${decade + 7} or $${decade + 9}`;
+      };
+      const pIssues = [priceIssue("Original price", origV), priceIssue("Discounted price", discV)].filter(Boolean) as string[];
+      if (!pIssues.length) push("funnel_pricing", "pass", `Original ${origV} · Discounted ${discV}`);
+      else push("funnel_pricing", "fail", pIssues.join(" | "));
+    }
   } else if (locationId) {
     push("form_reactivation", "manual", "Couldn't read the sub-account's custom values");
   }

@@ -709,7 +709,7 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                       // Checks whose detail is a useful breakdown whatever the status
                       // (e.g. AREA options even when there are no services to compare,
                       // user list, assign evidence). Fail already renders its own line.
-                      const showPassDetail = c.status !== "fail" && !!c.detail && ["wf_area", "user_add", "wf_assign", "user_permissions", "user_phone", "cal_availability", "fin_test", "make_filter", "make_http", "funnel_lead_pixel", "fin_master", "funnel_map", "form_pictures", "form_contact_format"].includes(s.key);
+                      const showPassDetail = c.status !== "fail" && !!c.detail && ["wf_area", "user_add", "wf_assign", "user_permissions", "user_phone", "cal_availability", "fin_test", "make_filter", "make_http", "funnel_lead_pixel", "fin_master", "funnel_map", "form_pictures", "form_contact_format", "funnel_pricing"].includes(s.key);
                       // Lead-conversion row links straight to the booking page (funnel
                       // step 2) so the pixel code can be eyeballed in one click.
                       const showLeadLink = s.key === "funnel_lead_pixel" && !!result.funnelUrls?.booking;
