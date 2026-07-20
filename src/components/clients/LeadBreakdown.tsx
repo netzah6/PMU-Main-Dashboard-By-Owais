@@ -229,19 +229,25 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       {/* On wide screens the three analysis boxes sit side by side */}
       <div className="min-w-0 md:order-2 space-y-2 xl:col-span-3 xl:grid xl:grid-cols-3 xl:gap-3 xl:items-start xl:space-y-0">
       {funnel.total > 0 && (() => {
-        const stages = [
-          { emoji: "🆕", label: "New leads", n: funnel.total, color: "#15B7AE" },
-          { emoji: "💬", label: "Engaged in conversation", n: funnel.engaged, color: "#2d8fa0" },
-          { emoji: "📅", label: "Booked a time", n: funnel.booked, color: "#34568a" },
-          { emoji: "💰", label: "Paid deposit", n: funnel.deposit, color: "#15803d" },
+        // Ordered the way the client journey actually runs: everyone signs up
+        // as a lead, some book a time right away, the rest we chase in chat
+        // (so "engaged" counts booked AND not-booked), and finally deposits.
+        // Steps aren't nested (more leads engage than book) — each connector
+        // carries its own comparison instead of a blind "% continue".
+        const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
+        const stages: { emoji: string; label: string; n: number; color: string; conn: { pct: number; text: string; lost: number; lostText: string } | null }[] = [
+          { emoji: "🆕", label: "New leads", n: funnel.total, color: "#15B7AE", conn: null },
+          { emoji: "📅", label: "Booked a time", n: funnel.booked, color: "#34568a",
+            conn: { pct: pct(funnel.booked, funnel.total), text: "booked a time", lost: funnel.total - funnel.booked, lostText: "didn't book" } },
+          { emoji: "💬", label: "Engaged in conversation", n: funnel.engaged, color: "#2d8fa0",
+            conn: { pct: pct(funnel.engaged, funnel.total), text: "of all leads engaged (booked or not)", lost: funnel.total - funnel.engaged, lostText: "never engaged" } },
+          { emoji: "💰", label: "Paid deposit", n: funnel.deposit, color: "#15803d",
+            conn: { pct: pct(funnel.deposit, funnel.engaged), text: "of engaged paid", lost: funnel.engaged - funnel.deposit, lostText: "engaged but never paid" } },
         ];
-        // Biggest leak = largest number of leads lost between consecutive stages.
+        // Biggest leak = the connector losing the most leads.
         let leakIdx = -1, leakMax = 0;
-        for (let i = 1; i < stages.length; i++) {
-          const lost = stages[i - 1].n - stages[i].n;
-          if (lost > leakMax) { leakMax = lost; leakIdx = i; }
-        }
-        const pctOf = (n: number) => Math.round((n / funnel.total) * 100);
+        stages.forEach((s, i) => { if (s.conn && s.conn.lost > leakMax) { leakMax = s.conn.lost; leakIdx = i; } });
+        const pctOf = (n: number) => pct(n, funnel.total);
         return (
           <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-2">
@@ -249,14 +255,12 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
             </div>
             <div className="space-y-0.5">
               {stages.map((s, i) => {
-                const step = i > 0 ? (stages[i - 1].n > 0 ? Math.round((s.n / stages[i - 1].n) * 100) : 0) : null;
-                const lost = i > 0 ? stages[i - 1].n - s.n : 0;
                 return (
                   <div key={s.label}>
-                    {i > 0 && (
+                    {s.conn && (
                       <div className={`flex items-center gap-1.5 pl-1 py-0.5 text-[10px] ${i === leakIdx ? "text-[#e11d48] font-bold" : "text-[#8595a8]"}`}>
-                        <span>↓ {step}% continue{lost > 0 ? ` · ${lost} lost` : ""}</span>
-                        {i === leakIdx && lost > 0 && (
+                        <span>↓ {s.conn.pct}% {s.conn.text}{s.conn.lost > 0 ? ` · ${s.conn.lost} ${s.conn.lostText}` : ""}</span>
+                        {i === leakIdx && s.conn.lost > 0 && (
                           <span className="px-1.5 py-0.5 rounded bg-[#fde8ee] border border-[#f5c2cf] leading-none">⚠ biggest leak — stuck here</span>
                         )}
                       </div>
