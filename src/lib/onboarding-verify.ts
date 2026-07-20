@@ -121,6 +121,20 @@ const STATE_TZ: Record<string, string[]> = {
   HI: ["Pacific/Honolulu"],
 };
 
+// Year-round UTC offset signature of a timezone ("GMT-5/GMT-4" for winter/
+// summer). Aliases like US/Eastern share America/New_York's signature in BOTH
+// seasons — same GMT year-round means the setting is fine. Checking a single
+// date isn't enough: America/Caracas is GMT-4 all year and would wrongly pass
+// against Eastern every summer.
+const offsetOf = (tz: string): { sig: string; now: string } | null => {
+  try {
+    const at = (d: Date) => new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" })
+      .formatToParts(d).find((p) => p.type === "timeZoneName")?.value ?? "?";
+    const y = new Date().getUTCFullYear();
+    return { sig: `${at(new Date(Date.UTC(y, 0, 15)))}/${at(new Date(Date.UTC(y, 6, 15)))}`, now: at(new Date()) };
+  } catch { return null; }
+};
+
 // Sub-account user permission template (from the team's screenshots): ONLY
 // these may be ON — everything else must be OFF. Keys are GHL's classic
 // permission booleans; labels are the plain-English names shown in reports.
@@ -167,22 +181,40 @@ const titleCase = (s: string) => s.split(" ").map((w) => (/^[a-z]/.test(w) ? w[0
 async function fixAddress(raw: string): Promise<string | null> {
   let s = raw.replace(/[.,]/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(/\b(united states( of america)?|usa|u\.?s\.?)\s*$/i, "").trim();
-  const m = s.match(/^(.*?)\s+([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?$/);
-  if (!m) return null;
-  const body = m[1].trim();
-  const zip = m[3];
+  // The ZIP can sit anywhere in sloppy values ("6305 orange cove drive 32819
+  // Orlando FL"), so find it wherever it is and rebuild the address around it:
+  // the ZIP names the city/state, and stripping zip + city + state out of the
+  // client's own wording leaves their street exactly as written. A 5-digit
+  // STREET number ("21073 Powerline Rd…") looks just like a ZIP, so try the
+  // candidates back-to-front — the real ZIP sits late in the string — and let
+  // zippopotam reject the impostors.
+  const zipCands: Array<{ index: number; text: string; zip: string }> = [];
+  for (const mm of s.matchAll(/\b(\d{5})(?:-\d{4})?\b/g))
+    if (mm.index !== undefined) zipCands.push({ index: mm.index, text: mm[0], zip: mm[1] });
   try {
-    const r = await fetch(`https://api.zippopotam.us/us/${zip}`);
-    if (!r.ok) return null;
-    const j = (await r.json()) as { places?: Array<Record<string, string>> };
-    const place = j.places?.[0];
+    let zm: { index: number; text: string; zip: string } | null = null;
+    let place: Record<string, string> | undefined;
+    for (const cand of zipCands.reverse().slice(0, 3)) {
+      const r = await fetch(`https://api.zippopotam.us/us/${cand.zip}`);
+      if (!r.ok) continue;
+      const j = (await r.json()) as { places?: Array<Record<string, string>> };
+      if (j.places?.[0]) { zm = cand; place = j.places[0]; break; }
+    }
+    if (!zm) return null;
+    const zip = zm.zip;
     const city = place?.["place name"] ?? "";
-    const st = (place?.["state abbreviation"] ?? m[2]).toUpperCase();
-    if (!city) return null;
-    const idx = body.toLowerCase().lastIndexOf(city.toLowerCase());
-    if (idx > 0) return `${titleCase(body.slice(0, idx).trim())}, ${city}, ${st} ${zip}`;
-    if (idx === -1) return `${titleCase(body)}, ${city}, ${st} ${zip}`; // city spelled differently — append the ZIP's city
-    return null;
+    const st = (place?.["state abbreviation"] ?? "").toUpperCase();
+    if (!city || !st) return null;
+    let body = (s.slice(0, zm.index) + " " + s.slice(zm.index + zm.text.length)).replace(/\s+/g, " ").trim();
+    const ci = body.toLowerCase().lastIndexOf(city.toLowerCase());
+    if (ci !== -1) body = (body.slice(0, ci) + " " + body.slice(ci + city.length)).replace(/\s+/g, " ").trim();
+    // Drop the LAST standalone state token only ("NY-112" in a street stays).
+    const stRe = new RegExp(`(?:^|\\s)${st}(?=\\s|$)`, "ig");
+    let last: RegExpExecArray | null = null;
+    for (let mm = stRe.exec(body); mm; mm = stRe.exec(body)) last = mm;
+    if (last) body = (body.slice(0, last.index) + " " + body.slice(last.index + last[0].length)).replace(/\s+/g, " ").trim();
+    if (!body) return null;
+    return `${titleCase(body)}, ${city}, ${st} ${zip}`;
   } catch { return null; }
 }
 
@@ -257,10 +289,14 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     const tzPhone = customValues.find((v) => /business phone number/i.test(v.name))?.value ?? "";
     const tzState = ((tzAddr.match(/\b([A-Z]{2})\b[ ,]*\d{5}/) ?? [])[1] ?? "") || (AREA_STATE[areaCode(tzPhone)] ?? "");
     const allowed = STATE_TZ[tzState] ?? [];
+    // Zone NAMES don't have to match — US/Eastern is America/New_York by
+    // another name. Same current GMT offset as any zone of the state = fine.
+    const tzOff = offsetOf(tz);
+    const offMatch = !!tzOff && allowed.some((z) => offsetOf(z)?.sig === tzOff.sig);
     if (!tz) push("ghl_timezone", "fail", "No timezone set on the sub-account — set it in Settings → Business Profile");
     else if (!tzState) push("ghl_timezone", "manual", `Sub-account timezone: ${tz} — couldn't determine the client's state to compare`);
-    else if (allowed.includes(tz)) push("ghl_timezone", "pass", `Timezone: ${tz} — matches ${tzState}`);
-    else checks.push({ key: "ghl_timezone", status: "fail", detail: `Sub-account timezone is ${tz} but the client is in ${tzState} — set it to ${allowed[0]} (Settings → Business Profile)`, copy: [allowed[0]] });
+    else if (allowed.includes(tz) || offMatch) push("ghl_timezone", "pass", `Timezone: ${tz}${tzOff ? ` (${tzOff.now})` : ""} — matches ${tzState}`);
+    else checks.push({ key: "ghl_timezone", status: "fail", detail: `Sub-account timezone is ${tz}${tzOff ? ` (${tzOff.now})` : ""} but the client is in ${tzState} — set it to ${allowed[0]} (Settings → Business Profile)`, copy: [allowed[0]] });
   }
 
   // Custom-values-filled check — the exact fields the "Funnel + Reactivation
