@@ -37,6 +37,8 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   const [supabase] = useState(() => createClient());
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(false);
   const [avail, setAvail] = useState<{ openSlots: number; openHours: number; pctFree: number | null; lookBusy?: { on: boolean; percentage: number } } | null>(null);
@@ -54,14 +56,24 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setOpenDay(null);
+    setLoading(true); setLoadError(false); setOpenDay(null);
     (async () => {
-      const { data } = await supabase.from("ghl_lead_status").select("id,contact_name,email,date_added,status,priority,ai_off,price_signal,activity_date")
-        .eq("owner_key", ownerKey).order("priority").order("date_added", { ascending: false });
-      if (!cancelled) { setLeads((data as Lead[]) ?? []); setLoading(false); }
+      // A transient network/auth blip must not render as "no lead data" when
+      // the rows are sitting in the table — retry once, then show an error.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const { data, error } = await supabase.from("ghl_lead_status").select("id,contact_name,email,date_added,status,priority,ai_off,price_signal,activity_date")
+            .eq("owner_key", ownerKey).order("priority").order("date_added", { ascending: false });
+          if (cancelled) return;
+          if (!error) { setLeads((data as Lead[]) ?? []); setLoading(false); return; }
+        } catch { /* fetch rejected — treat like a query error and retry */ }
+        if (cancelled) return;
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+      if (!cancelled) { setLoadError(true); setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [supabase, ownerKey]);
+  }, [supabase, ownerKey, retryTick]);
 
   // Changes from the Activity & Changes Log — pinned on the conversion timeline.
   const [changes, setChanges] = useState<{ action_date: string; note: string; created_by_email: string | null }[]>([]);
@@ -203,6 +215,12 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   };
 
   if (loading) return <div className="flex items-center gap-2 text-xs text-[#697a91] py-4"><Loader2 size={13} className="animate-spin" />Loading…</div>;
+  if (loadError) return (
+    <div className="text-xs text-[#8595a8] py-3">
+      Couldn&apos;t load the leads (connection hiccup — the data is still there).{" "}
+      <button onClick={() => setRetryTick((t) => t + 1)} className="text-[#2563eb] underline underline-offset-2">Retry</button>
+    </div>
+  );
   if (!leads.length) return <div className="text-xs text-[#8595a8] py-3">No V3 lead data ingested for this client yet.</div>;
 
   return (
