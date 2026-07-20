@@ -22,7 +22,7 @@ const TABS: Tab[] = [
   { label: "💎 LTV", href: "/ltv", adminOnly: true }, // admins only
   { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true }, // pay-per-show tracking — admins only
-  { label: "🚀 Onboarding", href: "/onboarding", adminOnly: true }, // new-client setup checklist
+  { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🗺️ Map", href: "/map" },
   { label: "🤖 AI", href: "/ask" },
   { label: "📊 Reports", href: "/reports" },
