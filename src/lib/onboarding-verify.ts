@@ -167,7 +167,12 @@ const EXPECTED_PERMS_ON = new Set([
 // Optional — fine ON or OFF, never graded: custom-menu-link keys aren't
 // visible in the permissions UI, and "View opportunities lead value" is
 // allowed either way per the team.
-const PERM_IGNORE = new Set(["customMenuLinkReadOnly", "customMenuLinkWrite", "leadValueEnabled"]);
+// …plus four legacy flags the GHL permissions UI no longer even shows (the API
+// still returns them true on some users, but the team can't see or toggle them).
+const PERM_IGNORE = new Set([
+  "customMenuLinkReadOnly", "customMenuLinkWrite", "leadValueEnabled",
+  "adPublishingReadOnly", "affiliateManagerEnabled", "phoneCallEnabled", "reportingEnabled",
+]);
 
 // Build the professionally-formatted version of a client's own address:
 // "street, City, ST zip". The city/state come from the ZIP (zippopotam.us —
@@ -206,15 +211,44 @@ async function fixAddress(raw: string): Promise<string | null> {
     const st = (place?.["state abbreviation"] ?? "").toUpperCase();
     if (!city || !st) return null;
     let body = (s.slice(0, zm.index) + " " + s.slice(zm.index + zm.text.length)).replace(/\s+/g, " ").trim();
-    const ci = body.toLowerCase().lastIndexOf(city.toLowerCase());
-    if (ci !== -1) body = (body.slice(0, ci) + " " + body.slice(ci + city.length)).replace(/\s+/g, " ").trim();
-    // Drop the LAST standalone state token only ("NY-112" in a street stays).
     const stRe = new RegExp(`(?:^|\\s)${st}(?=\\s|$)`, "ig");
+    let cityName = city;
+    const ci = body.toLowerCase().lastIndexOf(city.toLowerCase());
+    if (ci !== -1) {
+      body = (body.slice(0, ci) + " " + body.slice(ci + city.length)).replace(/\s+/g, " ").trim();
+    } else {
+      // A ZIP often spans several towns and zippopotam names just one of them
+      // (19067 → "Morrisville" while the client is in Yardley). The client's
+      // own city sits right before the state token — validate it against the
+      // ZIP via OSM/Nominatim (same geocoder as the client map), and if
+      // nothing validates, offer NO suggestion rather than a wrong address.
+      let stLast: RegExpExecArray | null = null;
+      for (let mm = stRe.exec(body); mm; mm = stRe.exec(body)) stLast = mm;
+      if (!stLast) return null;
+      const before = body.slice(0, stLast.index).trim().split(/\s+/);
+      let found: { phrase: string; n: number } | null = null;
+      for (let n = Math.min(3, before.length - 1); n >= 1 && !found; n--) {
+        const phrase = before.slice(-n).join(" ");
+        try {
+          const cr = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&limit=1&country=us&state=${st.toLowerCase()}&city=${encodeURIComponent(phrase.toLowerCase())}&postalcode=${zip}`,
+            { headers: { "User-Agent": "PMU-Dashboard-AddressCheck/1.0" } });
+          if (!cr.ok) continue;
+          const cj = (await cr.json()) as Array<unknown>;
+          if (Array.isArray(cj) && cj.length > 0) found = { phrase, n };
+        } catch { /* try a shorter phrase */ }
+      }
+      if (!found) return null;
+      cityName = titleCase(found.phrase);
+      body = (before.slice(0, before.length - found.n).join(" ") + " " + body.slice(stLast.index + stLast[0].length)).replace(/\s+/g, " ").trim();
+    }
+    // Drop the LAST standalone state token only ("NY-112" in a street stays).
+    stRe.lastIndex = 0;
     let last: RegExpExecArray | null = null;
     for (let mm = stRe.exec(body); mm; mm = stRe.exec(body)) last = mm;
     if (last) body = (body.slice(0, last.index) + " " + body.slice(last.index + last[0].length)).replace(/\s+/g, " ").trim();
     if (!body) return null;
-    return `${titleCase(body)}, ${city}, ${st} ${zip}`;
+    return `${titleCase(body)}, ${cityName}, ${st} ${zip}`;
   } catch { return null; }
 }
 
@@ -909,10 +943,19 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         }
       }
     }
-    if (critFail.length) push("fin_test", "fail", `Not ready — failing: ${critFail.join(", ")}${slots === 0 ? " · no open booking slots" : ""}`);
-    else if (slots === 0) push("fin_test", "fail", "Funnel components ✓ but the calendar has NO open booking slots in the next 14 days");
-    else if (checkoutUrl && slots > 0) push("fin_test", "pass", `Funnel pages ✓ · product & live checkout ✓ · ${slots} open booking slots in the next 14 days`);
-    else push("fin_test", "manual", `Components ✓ but couldn't verify ${!checkoutUrl ? "the live checkout" : "booking slots"} — spot-check by hand`);
+    // The team's proof of a funnel test is a TEST LEAD — a contact whose full
+    // name contains "test" (the messages don't have to deliver).
+    let testContact = "";
+    if (locTok) {
+      const tr = await ghlGet(`${BASE}/contacts/?locationId=${locationId}&query=test&limit=20`, locTok);
+      const tc = ((tr.json.contacts as Array<Record<string, unknown>> | undefined) ?? []).find((c) =>
+        /test/i.test(String(c.contactName ?? `${c.firstName ?? ""} ${c.lastName ?? ""}`)));
+      if (tc) testContact = String(tc.contactName ?? `${tc.firstName ?? ""} ${tc.lastName ?? ""}`).trim();
+    }
+    if (testContact) push("fin_test", "pass", `Test lead "${testContact}" found in the contacts ✓${critFail.length ? ` · heads-up, still failing: ${critFail.join(", ")}` : ""}${slots > 0 ? ` · ${slots} open booking slots` : ""}`);
+    else if (critFail.length) push("fin_test", "fail", `No "test" contact found and still failing: ${critFail.join(", ")}${slots === 0 ? " · no open booking slots" : ""}`);
+    else if (slots === 0) push("fin_test", "fail", "No \"test\" contact found · components ✓ but the calendar has NO open booking slots in the next 14 days");
+    else push("fin_test", "fail", `No contact with "test" in the name — run a test lead through the funnel${checkoutUrl && slots > 0 ? ` (components ✓ · checkout ✓ · ${slots} open slots)` : ""}`);
   }
 
   // Every remaining checklist step (external tools we can't reach) → manual, so
