@@ -56,6 +56,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // lead-pixel.js is loaded by anonymous funnel visitors — it must bypass auth.
+    "/((?!_next/static|_next/image|favicon.ico|lead-pixel.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
