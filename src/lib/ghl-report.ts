@@ -246,10 +246,60 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
     }
   }
 
+  // 8. Deterministic KPI + scorecard verdict LINES. Two people running the
+  // same report must see EXACTLY the same text — so every judgment (emoji,
+  // note, percentages) is computed here, and the model prints these verbatim.
+  const totalLeads = pipeline.reduce((s, p) => s + p.leads, 0);
+  const stageSum = (re: RegExp) => pipeline.filter((p) => re.test(p.stage)).reduce((s, p) => s + p.leads, 0);
+  const depCollected = stageSum(/deposit/i);
+  const depSessions = stageSum(/session/i);
+  const depStars = stageSum(/5 ?star|review|google/i);
+  const D = depCollected + depSessions + depStars;
+  const bookingPct = totalLeads > 0 ? Math.round((D / totalLeads) * 100) : 0;
+  const decliningN = stageSum(/declin|dead/i);
+  const decliningPct = totalLeads > 0 ? Math.round((decliningN / totalLeads) * 100) : 0;
+  const bookingEmoji = bookingPct >= 10 ? "🟢" : bookingPct >= 5 ? "⚠️" : "🔴";
+  const decliningEmoji = decliningPct >= 40 ? "🔴" : decliningPct >= 25 ? "⚠️" : "🟢";
+
+  // "Dashboard organized" = leads aren't piling up in one open stage.
+  const openStages = pipeline.filter((p) => String(p.status).toLowerCase() === "open" && p.leads > 0);
+  const openTotal = openStages.reduce((s, p) => s + p.leads, 0);
+  const biggest = openStages.sort((a, b) => b.leads - a.leads)[0];
+  const biggestShare = biggest && openTotal > 0 ? Math.round((biggest.leads / openTotal) * 100) : 0;
+  const dashboardLine = !biggest
+    ? "Dashboard organized? ⚠️ No open leads"
+    : biggestShare >= 60
+      ? `Dashboard organized? 🔴 ${biggest.leads} piling in ${biggest.stage}`
+      : biggestShare >= 35
+        ? `Dashboard organized? ⚠️ ${biggest.leads} piling in ${biggest.stage}`
+        : "Dashboard organized? ✅ Leads distributed";
+
+  const verdict = (p: number | null, hi: number, mid: number, w: [string, string, string]) =>
+    p == null ? "⚠️ No recent activity" : p >= hi ? `✅ ${w[0]} (${p}%)` : p >= mid ? `⚠️ ${w[1]} (${p}%)` : `🔴 ${w[2]} (${p}%)`;
+  const dblPct = pct(doubleCallContacts, calledContacts);
+  const w24Pct = pct(within24, within24Base);
+  const pmPct = pct(calls1719, callsTotalHist);
+  const fu3Pct = pct(follow3days, followBase);
+
   return {
     client,
     timezone: tz,
-    pipeline: { total: pipeline.reduce((s, p) => s + p.leads, 0), stages: pipeline },
+    pipeline: { total: totalLeads, stages: pipeline },
+    // Print these lines EXACTLY as-is in the report (see system prompt).
+    reportLines: {
+      deposits: `Deposits: ${D} (Collected: ${depCollected} + Sessions: ${depSessions} + 5 Stars: ${depStars})`,
+      bookingRate: `${bookingEmoji} Booking Rate: ${bookingPct}% (${D}/${totalLeads})`,
+      declining: `${decliningEmoji} Declining: ${decliningPct}% (${decliningN}/${totalLeads})`,
+      scorecard: [
+        dashboardLine,
+        `Call 2x in a row? ${verdict(dblPct, 30, 10, ["Confirmed", "Inconsistent", "No"])}`,
+        `Call in 24h? ${verdict(w24Pct, 60, 25, ["Confirmed", "Inconsistent", "Rarely"])}`,
+        `Calls between 5–7 PM? ${verdict(pmPct, 30, 10, ["Strong", "Some", "Rarely"])}`,
+        `3-day follow-up? ${verdict(fu3Pct, 50, 20, ["Consistent", "Inconsistent", "No"])}`,
+        "Price handling? ⚠️ Unable to verify",
+        "Script followed? ⚠️ Unable to verify",
+      ],
+    },
     behavior: {
       sampledConversations: convList.length,
       outboundCalls: outCalls,
