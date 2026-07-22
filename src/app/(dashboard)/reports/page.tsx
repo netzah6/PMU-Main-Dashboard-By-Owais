@@ -69,6 +69,8 @@ const ACTION_OPTIONS = [
 const ACTION_INCREASE_BUDGET = "Increase Budget 💰";
 const ACTION_GMB = "GMB ⭐️";
 const ACTION_STRATEGY_CALL = "Strategy call 🧠";
+const ACTION_OFFER_V3 = "Offer switch to V3 🔵";
+const ACTION_OFFER_V23 = "Offer switch to V2.3 🟣";
 
 // "Nice" axis scale → a round max with ~5 even ticks
 function niceScale(max: number): { max: number; step: number } {
@@ -176,6 +178,16 @@ export default function ReportsPage() {
     rawClients.forEach((c) => {
       const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
       if (owner) m.set(owner, String(c["GMB"] ?? "").trim().toLowerCase() === "true");
+    });
+    return m;
+  }, [rawClients]);
+
+  // client name → Version ('(V3)', '(V2.3)', '(V1)', '', 'Not Interested')
+  const versionMap = useMemo(() => {
+    const m = new Map<string, string>();
+    rawClients.forEach((c) => {
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      if (owner) m.set(owner, String(c["Version"] ?? "").trim());
     });
     return m;
   }, [rawClients]);
@@ -322,8 +334,52 @@ export default function ReportsPage() {
         });
       }
     }
+    // ── Version-upgrade rules ──
+    const version = versionMap.get(current.name.trim().toLowerCase()) ?? "";
+    const isV3 = /v3/i.test(version);
+    const noAutomation = /v1|not\s*interested/i.test(version) || version === "";
+    const latest = rr[rr.length - 1];
+    const latestBooking = latest?.booking ?? null;
+    // "Launch anchor" = the earliest signal we have for when this client
+    // started: their first tracking report, or an earlier logged strategy call.
+    let anchorMs = rr[0]?.ms ?? 0;
+    rr.forEach((r) => {
+      const d = String(r.raw["Last Strategy?"] ?? "").trim();
+      if (d) { const ms = parseMs(d); if (ms && ms < anchorMs) anchorMs = ms; }
+    });
+    const monthsSinceLaunch = anchorMs ? (Date.now() - anchorMs) / (30 * 86400000) : 0;
+
+    // Rule 4: not on V3, 2+ months in, booking rate stuck under 6% → offer V3.
+    if (!isV3 && latestBooking != null && latestBooking < 0.06 && monthsSinceLaunch >= 2) {
+      out.push({
+        option: ACTION_OFFER_V3,
+        accent: "#2563eb",
+        body: `Booking rate is ${(latestBooking * 100).toFixed(1)}% after ${Math.floor(monthsSinceLaunch)}+ months since launch — below the 6% benchmark. Offer the V3 upgrade so the AI takes over follow-up and booking.`,
+      });
+    }
+    // Rule 5: not on V3, booking rate sliding down 3 reports in a row and
+    // getting close to the 6% line → offer V3 before it drops under.
+    else if (!isV3 && rr.length >= 3) {
+      const [a, b, c] = rr.slice(-3).map((r) => r.booking);
+      if (a != null && b != null && c != null && b < a && c < b && c < 0.09) {
+        out.push({
+          option: ACTION_OFFER_V3,
+          accent: "#2563eb",
+          body: `Booking rate is sliding (${(a * 100).toFixed(1)}% → ${(b * 100).toFixed(1)}% → ${(c * 100).toFixed(1)}%) and approaching the 6% line. Offer the V3 upgrade before it drops further.`,
+        });
+      }
+    }
+    // Rule 6: doing well WITHOUT automation (V1 / no version / "Not
+    // Interested") → offer V2.3 to add auto-bookings on top of the manual work.
+    if (noAutomation && latest && ((latest.sessions ?? 0) > 0 || (latestBooking ?? 0) >= 0.06)) {
+      out.push({
+        option: ACTION_OFFER_V23,
+        accent: "#9333ea",
+        body: `Doing well on ${version || "manual work"} (${latestBooking != null ? (latestBooking * 100).toFixed(1) + "% booking" : "steady sessions"}) with no automation. Offer V2.3 to add automated bookings on top of their great manual work.`,
+      });
+    }
     return out;
-  }, [current, gmbActive]);
+  }, [current, gmbActive, versionMap]);
 
   return (
     <div className="flex h-full">
