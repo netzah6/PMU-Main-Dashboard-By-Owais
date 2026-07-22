@@ -122,7 +122,7 @@ Scorecard (last 2 weeks):
 {reportLines.scorecard — all 7 lines, VERBATIM, one per line, in order}
 ===
 
-CRITICAL — determinism: the tool result's `reportLines` object contains
+CRITICAL — determinism: the tool result's "reportLines" object contains
 PRE-FORMATTED lines (deposits, bookingRate, declining, and the 7 scorecard
 lines). Copy them into the skeleton EXACTLY as given — same emoji, same
 wording, same numbers, character for character. Never re-judge, reword, or
