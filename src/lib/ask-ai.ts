@@ -105,11 +105,11 @@ substituting the {placeholders}:
 Happy? ⚠️ Unknown — not tracked yet
 Last Strategy Call: {lastStrategyCall.start as a date, e.g. Jun 14, 2026 — it's the client's most recent past strategy-call appointment in the agency's own sub-account; if lastStrategyCall isn't an appointment object, write NO DATA}
 
-Deposits: {D} (Collected: {a} + Sessions: {b} + 5 Stars: {c})
+{reportLines.deposits — VERBATIM}
 Call vs Chat: ~{x}% calls / ~{y}% SMS / ~{z}% email
 Total Leads: {pipeline.total}
-{🟢|⚠️|🔴} Booking Rate: {pct}% ({D}/{total})
-{🔴|⚠️|🟢} Declining: {pct}% ({n}/{total})
+{reportLines.bookingRate — VERBATIM}
+{reportLines.declining — VERBATIM}
 
 Pipeline Breakdown:
 
@@ -119,33 +119,19 @@ Pipeline Breakdown:
 
 Scorecard (last 2 weeks):
 
-Dashboard organized? {✅|⚠️|🔴} {2-4 word note}
-Call 2x in a row? {✅ Confirmed|⚠️ Inconsistent|🔴 No}
-Call in 24h? {✅ Confirmed|⚠️ Inconsistent|🔴 Rarely}
-Calls between 5–7 PM? {✅|⚠️|🔴} {2-3 word note}
-3-day follow-up? {✅|⚠️|🔴} {2-3 word note}
-Price handling? ⚠️ Unable to verify
-Script followed? ⚠️ Unable to verify
+{reportLines.scorecard — all 7 lines, VERBATIM, one per line, in order}
 ===
 
-The scorecard call metrics (doubleCallRatePct, firstCallWithin24hPct,
-callsBetween5and7pmPct, followedUp3PlusDaysPct) cover ONLY the last 14 days —
-they track RECENT team activity. Everything else in the report is all-time.
-If a scorecard base is 0 (no recent leads/calls), write "⚠️ No recent
-activity" on that line.
-
-Thresholds: Booking Rate 🟢 ≥10% ⚠️ 5–9% 🔴 <5%. Declining 🔴 ≥40% ⚠️ 25–39%
-🟢 <25%. Call 2x (doubleCallRatePct): ✅ ≥30% ⚠️ 10–29% 🔴 <10%. Call in 24h
-(firstCallWithin24hPct, weekends excluded): ✅ ≥60% ⚠️ 25–59% 🔴 <25%.
-5–7 PM (callsBetween5and7pmPct): ✅ ≥30% ⚠️ 10–29% 🔴 <10%. 3-day follow-up
-(followedUp3PlusDaysPct): ✅ ≥50% ⚠️ 20–49% 🔴 <20%. Call vs Chat from
-behavior.outboundByChannel, rounded.
-
-Deposits definitions: Collected = leads in the deposit-collected-type stage,
-Sessions = session-done stage, 5 Stars = google-review/5-star stage; D =
-their sum. Declining = the declining/dead stage. Match stage names by
-meaning. If a piece of data is unavailable, write "Unable to verify — {short
-reason}" on that line instead of inventing numbers. End with ONE short line
+CRITICAL — determinism: the tool result's `reportLines` object contains
+PRE-FORMATTED lines (deposits, bookingRate, declining, and the 7 scorecard
+lines). Copy them into the skeleton EXACTLY as given — same emoji, same
+wording, same numbers, character for character. Never re-judge, reword, or
+re-compute them: two people running the same report must see identical text.
+The scorecard call metrics cover ONLY the last 14 days (recent team
+activity); everything else is all-time. Call vs Chat from
+behavior.outboundByChannel, rounded. If a piece of data is unavailable,
+write "Unable to verify — {short reason}" on that line instead of inventing
+numbers. End with ONE short line
 of caveats (sample size). If the tool errors (client not ingested), say so
 and show what SQL alone can tell (status, payments).
 `;
