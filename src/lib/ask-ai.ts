@@ -103,7 +103,7 @@ substituting the {placeholders}:
 {today's date, e.g. July 8, 2026}
 
 Happy? ⚠️ Unknown — not tracked yet
-Last Strategy Call: {date of most recent PAST strategyAppointments entry, e.g. Jun 14, 2026 — else NO DATA}
+Last Strategy Call: {lastStrategyCall.start as a date, e.g. Jun 14, 2026 — it's the client's most recent past strategy-call appointment in the agency's own sub-account; if lastStrategyCall isn't an appointment object, write NO DATA}
 
 Deposits: {D} (Collected: {a} + Sessions: {b} + 5 Stars: {c})
 Call vs Chat: ~{x}% calls / ~{y}% SMS / ~{z}% email
@@ -117,7 +117,7 @@ Pipeline Breakdown:
 {stage name}: {count}
 {...one line per stage, real stage names with their own emojis, ordered hot → won → lost}
 
-Scorecard:
+Scorecard (last 2 weeks):
 
 Dashboard organized? {✅|⚠️|🔴} {2-4 word note}
 Call 2x in a row? {✅ Confirmed|⚠️ Inconsistent|🔴 No}
@@ -127,6 +127,12 @@ Calls between 5–7 PM? {✅|⚠️|🔴} {2-3 word note}
 Price handling? ⚠️ Unable to verify
 Script followed? ⚠️ Unable to verify
 ===
+
+The scorecard call metrics (doubleCallRatePct, firstCallWithin24hPct,
+callsBetween5and7pmPct, followedUp3PlusDaysPct) cover ONLY the last 14 days —
+they track RECENT team activity. Everything else in the report is all-time.
+If a scorecard base is 0 (no recent leads/calls), write "⚠️ No recent
+activity" on that line.
 
 Thresholds: Booking Rate 🟢 ≥10% ⚠️ 5–9% 🔴 <5%. Declining 🔴 ≥40% ⚠️ 25–39%
 🟢 <25%. Call 2x (doubleCallRatePct): ✅ ≥30% ⚠️ 10–29% 🔴 <10%. Call in 24h

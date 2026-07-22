@@ -156,6 +156,11 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
   }
   for (const list of byContact.values()) list.sort((a, b) => a.t - b.t);
 
+  // Scorecard metrics track RECENT team behavior — the last 14 days only.
+  // Everything else in the report (channel mix, totals, pipeline) is all-time.
+  const SCORECARD_WINDOW_MS = 14 * 24 * 3600 * 1000;
+  const windowStart = Date.now() - SCORECARD_WINDOW_MS;
+
   let outCalls = 0, outMsgs = 0;
   const hourHist: Record<number, number> = {};
   let calledContacts = 0, doubleCallContacts = 0;
@@ -163,27 +168,31 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
   let followBase = 0, follow3days = 0;
 
   for (const [cid, list] of byContact) {
-    const calls = list.filter((e) => e.call && e.outbound);
-    const msgs = list.filter((e) => !e.call && e.outbound);
-    outCalls += calls.length; outMsgs += msgs.length;
+    const callsAll = list.filter((e) => e.call && e.outbound);
+    const msgsAll = list.filter((e) => !e.call && e.outbound);
+    outCalls += callsAll.length; outMsgs += msgsAll.length; // all-time (channel mix)
+
+    // Scorecard: only calls made inside the window.
+    const calls = callsAll.filter((e) => e.t >= windowStart);
     for (const c of calls) { const h = localHour(c.iso, tz); if (h != null) hourHist[h] = (hourHist[h] ?? 0) + 1; }
     if (calls.length) {
       calledContacts++;
       for (let i = 1; i < calls.length; i++) {
         if (calls[i].t - calls[i - 1].t <= 20 * 60 * 1000) { doubleCallContacts++; break; }
       }
-      const added = addedMap.get(cid);
-      if (added && !isWeekend(added, tz)) {
-        within24Base++;
-        if (calls[0].t - Date.parse(added) <= 24 * 3600 * 1000) within24++;
-      }
+    }
+    const added = addedMap.get(cid);
+    const addedT = added ? Date.parse(added) : NaN;
+    // "Call in 24h" cohort: leads that ARRIVED inside the window (weekdays).
+    if (added && addedT >= windowStart && !isWeekend(added, tz)) {
+      const firstCall = callsAll[0];
+      within24Base++;
+      if (firstCall && firstCall.t - addedT <= 24 * 3600 * 1000) within24++;
     }
     // Follow-up persistence: distinct local days with outbound attempts in the
-    // lead's first 7 days, for leads that never wrote back in that window.
-    const added = addedMap.get(cid);
-    if (added) {
-      const t0 = Date.parse(added);
-      const week = list.filter((e) => e.t - t0 <= 7 * 24 * 3600 * 1000);
+    // lead's first 7 days, for window-arrived leads that never wrote back.
+    if (added && addedT >= windowStart) {
+      const week = list.filter((e) => e.t - addedT <= 7 * 24 * 3600 * 1000);
       const inboundInWeek = week.some((e) => !e.outbound);
       const outDays = new Set(week.filter((e) => e.outbound).map((e) => localDay(e.iso, tz)));
       if (!inboundInWeek && outDays.size >= 1) {
@@ -196,18 +205,42 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
   const calls1719 = (hourHist[17] ?? 0) + (hourHist[18] ?? 0);
   const callsTotalHist = Object.values(hourHist).reduce((s, n) => s + n, 0);
 
-  // 7. Strategy calls — the client's contact in the agency sub-account.
-  let strategy: unknown = "no contact ID on the master sheet";
-  const masterContactId = String(master["Contact ID"] ?? "").trim();
-  if (masterContactId) {
+  // 7. Strategy calls — find the client's contact in the agency's own
+  // PMU Bookings On Demand sub-account (by master Contact ID, else by owner
+  // name search) and pull their appointments on the STRATEGY calendars.
+  const STRATEGY_CALS = new Set([
+    "4FG5yV50RFMPGndIsk0w", // Stephanie - Strategy Call
+    "9klo32r1Vj08Oq4AtmAV", // Strategy Call - NO Social Proof
+    "NW3xtMOcKWlsy2w0AFHC", // Nicolas (CEO) - Strategy Call
+    "fuMZ70vIoDxAid9KEGrl", // Strategy Call With Social Proof
+    "uUHtU77nekeJKYnAa9dW", // Dana - Strategy Call
+    "bsQvpeQn6xd0ldXISn25", // Growth retention strategy session
+  ]);
+  let strategy: unknown = "contact not found in the agency sub-account";
+  let lastStrategyCall: unknown = null;
+  {
     const agencyTok = await getAppLocationToken(PMU_BOD_LOCATION);
     if (agencyTok.token) {
-      const aj = await gget(`${GHL}/contacts/${masterContactId}/appointments`, agencyTok.token);
-      const evs = ((aj?.events ?? aj?.appointments) as Array<Record<string, unknown>> | undefined) ?? [];
-      strategy = evs
-        .map((e) => ({ title: String(e.title ?? ""), start: String(e.startTime ?? e.start_time ?? ""), status: String(e.appointmentStatus ?? e.status ?? "") }))
-        .sort((a, b) => (a.start < b.start ? 1 : -1))
-        .slice(0, 8);
+      let contactId = String(master["Contact ID"] ?? "").trim();
+      if (!contactId && owner) {
+        const sj = await gget(`${GHL}/contacts/?locationId=${PMU_BOD_LOCATION}&query=${encodeURIComponent(owner)}&limit=5`, agencyTok.token);
+        const found = ((sj?.contacts as Array<Record<string, unknown>> | undefined) ?? [])[0];
+        if (found) contactId = String(found.id ?? "");
+      }
+      if (contactId) {
+        const aj = await gget(`${GHL}/contacts/${contactId}/appointments`, agencyTok.token);
+        const evs = ((aj?.events ?? aj?.appointments) as Array<Record<string, unknown>> | undefined) ?? [];
+        const mapped = evs.map((e) => ({
+          title: String(e.title ?? ""),
+          start: String(e.startTime ?? e.start_time ?? ""),
+          status: String(e.appointmentStatus ?? e.status ?? ""),
+          isStrategy: STRATEGY_CALS.has(String(e.calendarId ?? "")) || /strategy/i.test(String(e.title ?? "")),
+        })).sort((a, b) => (a.start < b.start ? 1 : -1));
+        strategy = mapped.slice(0, 8);
+        lastStrategyCall = mapped.find((e) =>
+          e.isStrategy && !/cancelled|invalid|noshow/i.test(e.status) && Date.parse(e.start) < Date.now()
+        ) ?? "no past strategy-call appointment found";
+      }
     } else {
       strategy = `agency sub-account token unavailable (${agencyTok.error})`;
     }
@@ -225,6 +258,8 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
         acc[e.channel] = (acc[e.channel] ?? 0) + 1;
         return acc;
       }, {}),
+      // Scorecard metrics — LAST 14 DAYS ONLY (recent team activity).
+      scorecardWindowDays: 14,
       contactsWithAnyCall: calledContacts,
       contactsSampled: byContact.size,
       doubleCallRatePct: pct(doubleCallContacts, calledContacts),
@@ -236,6 +271,7 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
       followupBase: followBase,
     },
     strategyAppointments: strategy,
+    lastStrategyCall,
     caveats,
   };
 }
