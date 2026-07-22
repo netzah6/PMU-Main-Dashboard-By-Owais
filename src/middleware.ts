@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest, event: NextFetchEvent) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -49,6 +49,28 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/clients";
     return NextResponse.redirect(url);
+  }
+
+  // ── Admin activity log ──
+  // Every CHANGE a logged-in team member makes goes through a mutating /api
+  // call — record who did what, fire-and-forget so requests aren't slowed.
+  // Cron/automation calls have no user session and are skipped automatically.
+  if (user?.email && isApiRoute && ["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) {
+    const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (svcKey) {
+      event.waitUntil(
+        fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/audit_log`, {
+          method: "POST",
+          headers: { apikey: svcKey, Authorization: `Bearer ${svcKey}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+          body: JSON.stringify({
+            user_email: user.email,
+            method: request.method,
+            path: request.nextUrl.pathname,
+            query: request.nextUrl.search ? request.nextUrl.search.slice(0, 500) : null,
+          }),
+        }).catch(() => {})
+      );
+    }
   }
 
   return supabaseResponse;
