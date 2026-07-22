@@ -325,9 +325,13 @@ export default function ReportsPage() {
       }
     }
     // ── Version-upgrade rules ──
+    // Only when the client's version is KNOWN — if the report name doesn't
+    // match a master-sheet row, suggesting an upgrade could target a client
+    // who's already on V3.
     const version = versionMap.get(current.name.trim().toLowerCase()) ?? "";
     const isV3 = /v3/i.test(version);
-    const noAutomation = /v1|not\s*interested/i.test(version) || version === "";
+    const knownNotV3 = version !== "" && !isV3;
+    const noAutomation = /v1|not\s*interested/i.test(version);
     const latest = rr[rr.length - 1];
     const latestBooking = latest?.booking ?? null;
     // "Launch anchor" = the earliest signal we have for when this client
@@ -340,7 +344,9 @@ export default function ReportsPage() {
     const monthsSinceLaunch = anchorMs ? (Date.now() - anchorMs) / (30 * 86400000) : 0;
 
     // Rule 4: not on V3, 2+ months in, booking rate stuck under 6% → offer V3.
-    if (!isV3 && latestBooking != null && latestBooking < 0.06 && monthsSinceLaunch >= 2) {
+    let v3Suggested = false;
+    if (knownNotV3 && latestBooking != null && latestBooking < 0.06 && monthsSinceLaunch >= 2) {
+      v3Suggested = true;
       out.push({
         option: ACTION_OFFER_V3,
         accent: "#2563eb",
@@ -349,9 +355,10 @@ export default function ReportsPage() {
     }
     // Rule 5: not on V3, booking rate sliding down 3 reports in a row and
     // getting close to the 6% line → offer V3 before it drops under.
-    else if (!isV3 && rr.length >= 3) {
+    else if (knownNotV3 && rr.length >= 3) {
       const [a, b, c] = rr.slice(-3).map((r) => r.booking);
       if (a != null && b != null && c != null && b < a && c < b && c < 0.09) {
+        v3Suggested = true;
         out.push({
           option: ACTION_OFFER_V3,
           accent: "#2563eb",
@@ -361,7 +368,8 @@ export default function ReportsPage() {
     }
     // Rule 6: doing well WITHOUT automation (V1 / no version / "Not
     // Interested") → offer V2.3 to add auto-bookings on top of the manual work.
-    if (noAutomation && latest && ((latest.sessions ?? 0) > 0 || (latestBooking ?? 0) >= 0.06)) {
+    // Never alongside a V3 suggestion — one clear recommendation at a time.
+    if (!v3Suggested && noAutomation && latest && ((latest.sessions ?? 0) > 0 || (latestBooking ?? 0) >= 0.06)) {
       out.push({
         option: ACTION_OFFER_V23,
         accent: "#9333ea",
