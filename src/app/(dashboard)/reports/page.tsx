@@ -64,6 +64,7 @@ const ACTION_OPTIONS = [
   "Send Video 📹",
   "Power PMU Arrtist 🙋🏻‍♀️",
   "Offer switch to V3 🔵",
+  "Offer switch to V2.3 🟣",
 ];
 const ACTION_INCREASE_BUDGET = "Increase Budget 💰";
 const ACTION_GMB = "GMB ⭐️";
