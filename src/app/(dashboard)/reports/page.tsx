@@ -182,16 +182,6 @@ export default function ReportsPage() {
     return m;
   }, [rawClients]);
 
-  // client name → Version ('(V3)', '(V2.3)', '(V1)', '', 'Not Interested')
-  const versionMap = useMemo(() => {
-    const m = new Map<string, string>();
-    rawClients.forEach((c) => {
-      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
-      if (owner) m.set(owner, String(c["Version"] ?? "").trim());
-    });
-    return m;
-  }, [rawClients]);
-
   // client name → Business Name (from clients_master, matched on Owner Full Name)
   const businessMap = useMemo(() => {
     const m = new Map<string, string>();
