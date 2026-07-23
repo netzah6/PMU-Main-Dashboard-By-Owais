@@ -128,7 +128,7 @@ export default function DepositsPage() {
   const money = (a: unknown) => { const s = String(a ?? ""); return s ? (s.startsWith("$") ? s : "$" + s) : "—"; };
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-3 md:p-4 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-lg font-semibold text-[#1f3559]">Deposits</h1>
         <div className="flex items-center gap-2">

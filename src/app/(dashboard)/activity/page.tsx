@@ -59,7 +59,7 @@ export default function ActivityPage() {
   if (role !== "admin") return <div className="p-8 text-sm text-[#697a91]">Admins only.</div>;
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto">
+    <div className="p-3 md:p-4 max-w-5xl mx-auto">
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <h1 className="text-lg font-bold text-[#1f3559]">🕵️ Activity Log</h1>
         <span className="text-xs text-[#8595a8]">every change team members make · latest 500</span>

@@ -158,7 +158,7 @@ export default function TasksPage() {
   }, [tasks]);
 
   return (
-    <div className="p-4 sm:p-6 space-y-4">
+    <div className="p-3 sm:p-4 space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Tasks</h1>
@@ -189,7 +189,7 @@ export default function TasksPage() {
       ) : groups.length === 0 ? (
         <div className="py-12 text-center text-[#8595a8]">No open tasks.</div>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-3">
           {groups.map(([person, list]) => (
             <div key={person}>
               <div className="flex items-center gap-2 mb-1.5">

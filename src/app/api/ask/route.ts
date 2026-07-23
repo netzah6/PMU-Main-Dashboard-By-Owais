@@ -27,7 +27,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await askAi(messages, user.email ?? "");
+    const { data: roleRow } = await supabase.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    const isAdmin = (roleRow as { role?: string } | null)?.role === "admin";
+    const result = await askAi(messages, user.email ?? "", isAdmin);
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "AI request failed" }, { status: 500 });

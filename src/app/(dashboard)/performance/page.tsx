@@ -238,7 +238,7 @@ export default function PerformancePage() {
   }, [rows, search, assignee, statusFilter]);
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-3 md:p-4 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold text-[#1f3559]">Performance</h1>

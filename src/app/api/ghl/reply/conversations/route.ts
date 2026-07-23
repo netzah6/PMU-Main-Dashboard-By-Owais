@@ -40,5 +40,17 @@ export async function GET() {
     assignedToName: c.assignedTo ? (nameById.get(c.assignedTo) ?? "") : "",
   }));
 
-  return NextResponse.json({ me, conversations: enriched, locationId: acct.locationId });
+  // Visibility: team members only see chats ASSIGNED TO THEM (matched by
+  // email → GHL user). Admins see everything + get the roster for filtering.
+  const { data: roleRow } = await supabase.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+  const isAdmin = (roleRow as { role?: string } | null)?.role === "admin";
+  const visible = isAdmin ? enriched : me.ghlUserId ? enriched.filter((c) => c.assignedTo === me.ghlUserId) : [];
+
+  return NextResponse.json({
+    me,
+    role: isAdmin ? "admin" : "member",
+    conversations: visible,
+    locationId: acct.locationId,
+    roster: isAdmin ? roster.map((u) => ({ id: u.id, name: u.name })) : undefined,
+  });
 }

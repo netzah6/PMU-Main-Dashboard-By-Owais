@@ -258,7 +258,7 @@ async function runDraftReply(leadName: string, instructions: string | undefined,
   };
 }
 
-export async function askAi(history: AskMessage[], userEmail = ""): Promise<AskResult> {
+export async function askAi(history: AskMessage[], userEmail = "", isAdmin = false): Promise<AskResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const svc = createServiceClient();
   const queries: string[] = [];
@@ -291,7 +291,13 @@ export async function askAi(history: AskMessage[], userEmail = ""): Promise<AskR
         try {
           const acct = await getReplyAccount();
           if (!acct) throw new Error("PMU Bookings On Demand account not configured");
-          const convs = await getRecentConversations(acct, 40, { unreadOnly: true });
+          let convs = await getRecentConversations(acct, 40, { unreadOnly: true });
+          // Team members only see chats assigned to THEM (email → GHL user).
+          if (!isAdmin) {
+            const roster = await getRoster(acct);
+            const meU = roster.find((u) => u.email && u.email === userEmail.toLowerCase());
+            convs = meU ? convs.filter((c) => c.assignedTo === meU.id) : [];
+          }
           content = JSON.stringify(convs.map((c) => ({
             contact: c.contactName, lastMessage: c.lastMessageBody.slice(0, 150),
             direction: c.lastMessageDirection, at: c.lastMessageDate, channel: c.channel, unread: c.unreadCount,

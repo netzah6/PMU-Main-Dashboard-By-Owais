@@ -133,7 +133,7 @@ export default function LtvPage() {
   if (roleLoading || role !== "admin") return null;
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-3 md:p-4 space-y-3">
       <h1 className="text-lg font-semibold text-[#1f3559]">LTV</h1>
       <div className="flex gap-1 border-b border-[#e4ebf2]">
         {(["payments", "summary"] as const).map((tab) => (
@@ -167,7 +167,7 @@ export default function LtvPage() {
           <DataTable columns={paymentCols} data={paymentsRows} loading={lp} error={ep} exportFilename="ltv-payments.csv" emptyMessage="No payments match" />
         </>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-3">
           {!ls && (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
               {kpis.map((k) => <Kpi key={k.label} {...k} />)}

@@ -14,6 +14,7 @@ type Conv = {
   lastMessageDate: string | null;
   unreadCount: number;
   channel: string;
+  assignedTo: string | null;
   assignedToName: string;
 };
 type ThreadMsg = { id: string; direction: "inbound" | "outbound"; body: string; dateAdded: string | null; channel: string };
@@ -36,6 +37,11 @@ export default function AskPage() {
   const [convs, setConvs] = useState<Conv[]>([]);
   const [convsLoading, setConvsLoading] = useState(true);
   const [convsError, setConvsError] = useState<string | null>(null);
+  // Members are server-filtered to their own assigned chats; admins get
+  // everything plus the roster and this client-side filter.
+  const [role, setRole] = useState<"admin" | "member">("member");
+  const [roster, setRoster] = useState<{ id: string; name: string }[]>([]);
+  const [filterUser, setFilterUser] = useState<string>("all");
   const [showChats, setShowChats] = useState(false); // mobile toggle
   const [locationId, setLocationId] = useState<string>("");
   const [pending, setPending] = useState<Conv | null>(null); // chat awaiting a draft
@@ -51,6 +57,8 @@ export default function AskPage() {
       if (!res.ok) throw new Error(json.error || "Failed to load chats");
       setConvs(json.conversations ?? []);
       setLocationId(json.locationId ?? "");
+      setRole(json.role ?? "member");
+      setRoster(json.roster ?? []);
     } catch (e) {
       setConvsError(`${e}`.replace("Error: ", ""));
     } finally {
@@ -143,21 +151,36 @@ export default function AskPage() {
     }
   }, [busy, chatUrl]);
 
+  // Admin-only client-side filter (members are already server-filtered).
+  const shownConvs = role === "admin" && filterUser !== "all"
+    ? convs.filter((c) => (filterUser === "__none" ? !c.assignedTo : c.assignedTo === filterUser))
+    : convs;
+
   const chatList = (
     <>
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#eef3f8]">
-        <span className="text-xs font-bold text-[#1f3559] flex items-center gap-1.5"><MessageCircle size={13} className="text-[#15B7AE]" /> Unread chats {convs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{convs.length}</span>}</span>
+        <span className="text-xs font-bold text-[#1f3559] flex items-center gap-1.5"><MessageCircle size={13} className="text-[#15B7AE]" /> {role === "member" ? "Your unread chats" : "Unread chats"} {shownConvs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{shownConvs.length}</span>}</span>
         <button onClick={loadConvs} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading ? "animate-spin" : ""} /></button>
       </div>
+      {role === "admin" && (
+        <div className="px-3 py-1.5 border-b border-[#eef3f8]">
+          <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)}
+            className="w-full text-xs border border-[#e4ebf2] rounded-lg px-2 py-1 bg-white text-[#1f3559]">
+            <option value="all">👥 Everyone</option>
+            {roster.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            <option value="__none">Unassigned</option>
+          </select>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto">
         {convsError ? (
           <p className="p-3 text-xs text-[#e11d48]">{convsError}</p>
         ) : convsLoading && convs.length === 0 ? (
           <p className="p-3 text-xs text-[#8595a8] flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Loading chats…</p>
-        ) : convs.length === 0 ? (
-          <p className="p-3 text-xs text-[#8595a8]">Inbox zero — no unread chats 🎉</p>
+        ) : shownConvs.length === 0 ? (
+          <p className="p-3 text-xs text-[#8595a8]">{role === "member" ? "No unread chats assigned to you 🎉" : "Inbox zero — no unread chats 🎉"}</p>
         ) : (
-          convs.map((c) => (
+          shownConvs.map((c) => (
             <button key={c.id} onClick={() => clickConv(c)} disabled={busy}
               className="w-full text-left px-3 py-2.5 border-b border-[#f1f5f9] hover:bg-[#f7fdfc] disabled:opacity-50 transition-colors">
               <div className="flex items-center justify-between gap-2">
