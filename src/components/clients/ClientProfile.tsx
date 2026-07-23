@@ -643,6 +643,7 @@ const DETAIL_FIELDS: { key: string; label: string }[] = [
   { key: "IG Page link", label: "IG Page Link" },
   { key: "IG Followers", label: "IG Followers" },
   { key: "Notes", label: "Notes" },
+  { key: "Want V3?", label: "Want V3?" },
 ];
 
 // Detail-box sheet keys that also have a normalized alias used elsewhere in the
