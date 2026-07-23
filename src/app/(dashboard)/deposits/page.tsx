@@ -234,7 +234,7 @@ export default function DepositsPage() {
             <thead>
               <tr className="border-b border-[#e4ebf2] bg-[#f8fafc]">
                 {["Business", "Contact", "Amount", "Date", "Source", "Refund"].map((h) => (
-                  <th key={h} className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -244,15 +244,15 @@ export default function DepositsPage() {
                 const rf = refundByKey.get(key);
                 return (
                   <tr key={i} className={cn("border-b border-[#eef3f8]", i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
-                    <td className="px-3 py-2 text-[#1f3559]">{String(r["Business Name"] ?? r.client_name ?? "—")}</td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-1 text-[#1f3559]">{String(r["Business Name"] ?? r.client_name ?? "—")}</td>
+                    <td className="px-3 py-1">
                       <div className="text-[#1f3559]">{String(r["Full Name"] ?? "—")}</div>
                       {r["Email"] ? <div className="text-[11px] text-[#8595a8]">{String(r["Email"])}</div> : null}
                     </td>
-                    <td className="px-3 py-2 font-semibold text-[#0e8f88] whitespace-nowrap">{money(r["Amount"])}</td>
-                    <td className="px-3 py-2 text-[#697a91] whitespace-nowrap">{fmtDate(dateStr(r))}</td>
-                    <td className="px-3 py-2 text-[#697a91]">{String(r["Source"] ?? "—")}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">
+                    <td className="px-3 py-1 font-semibold text-[#0e8f88] whitespace-nowrap">{money(r["Amount"])}</td>
+                    <td className="px-3 py-1 text-[#697a91] whitespace-nowrap">{fmtDate(dateStr(r))}</td>
+                    <td className="px-3 py-1 text-[#697a91]">{String(r["Source"] ?? "—")}</td>
+                    <td className="px-3 py-1 whitespace-nowrap">
                       {rf ? (
                         <div className="flex items-center gap-1.5">
                           <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold border", (STATUS[rf.status] ?? STATUS.denied).cls)}>{(STATUS[rf.status] ?? STATUS.denied).label}</span>

@@ -302,7 +302,7 @@ export default function CostPerDepositPage() {
                 {HEADERS.map((h, idx) => {
                   const divider = idx === 8 || idx === 12 || idx === 16 || idx === 18 || idx === 21; // after Deposit $, D 3, L 3, Conv% 14, CPD 7
                   return (
-                    <th key={h} className={cn("sticky top-0 px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
+                    <th key={h} className={cn("sticky top-0 px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
                       idx === 0 || idx === 1 ? "z-30" : "z-20", divider && "border-r-2 border-[#9fb0c4]")}
                       style={{ background: "#2d4c79",
                         ...(idx === 0 && { left: 0, width: 180, minWidth: 180, maxWidth: 180 }),
@@ -326,7 +326,7 @@ export default function CostPerDepositPage() {
                 return (
                   <Fragment key={rowId}>
                   <tr className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
-                    <td className={cn("sticky left-0 z-10 px-3 py-2 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
+                    <td className={cn("sticky left-0 z-10 px-3 py-1 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
                       style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
                       onClick={() => setOpenRow(isOpen ? null : rowId)}>
                       <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 transition-transform align-[-2px]", isOpen && "rotate-90", ghl === "ok" ? "text-[#94a3b8]" : "text-[#ea580c]")} />
@@ -339,31 +339,31 @@ export default function CostPerDepositPage() {
                       <span className={cn(ghl !== "ok" && "text-[#ea580c] font-bold")} title={ghl === "ok" ? undefined : GHL_FLAG[ghl].title}>{r.owner_name || "—"}</span>
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
                     </td>
-                    <td className={cn("sticky z-10 px-3 py-2 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
+                    <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
                       style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name ?? ""}>{r.ad_account_name || "—"}</td>
-                    <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
-                    <td className="px-3 py-2"><UserCell name={r.assigned} /></td>
-                    <td className="px-3 py-2"><UserCell name={r.media_buyer} /></td>
-                    <td className="px-3 py-2 whitespace-nowrap text-[#8595a8] line-through">{r.original_price || "—"}</td>
-                    <td className="px-3 py-2 font-semibold text-[#0e8f88]"><ExpandText value={r.discounted_price} /></td>
-                    <td className="px-3 py-2 max-w-[130px] truncate text-[#34568a]" title={r.current_offer ?? ""}>{r.current_offer || <span className="text-[#a6b3c4]">—</span>}</td>
-                    <td className="px-3 py-2 whitespace-nowrap font-semibold text-[#1e2a3a] border-r-2 border-[#cbd5e1]">{r.deposit_amount || <span className="text-[#a6b3c4]">—</span>}</td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: depCellTone(r.d30, 8, 3, paused).bg, color: depCellTone(r.d30, 8, 3, paused).fg }}>{r.d30}</td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: depCellTone(r.d14, 5, 2, paused).bg, color: depCellTone(r.d14, 5, 2, paused).fg }}>{r.d14}</td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: depCellTone(r.d7, 3, 1, paused).bg, color: depCellTone(r.d7, 3, 1, paused).fg }}>{r.d7}</td>
-                    <td className="px-3 py-2 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: depCellTone(r.d3, 2, 1, paused).bg, color: depCellTone(r.d3, 2, 1, paused).fg }}>{r.d3}</td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l30 ?? 0, 86, 65, paused).bg, color: leadCellTone(r.l30 ?? 0, 86, 65, paused).fg }}>{r.l30 ?? 0}</td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l14 ?? 0, 43, 33, paused).bg, color: leadCellTone(r.l14 ?? 0, 43, 33, paused).fg }}>{r.l14 ?? 0}</td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l7 ?? 0, 22, 17, paused).bg, color: leadCellTone(r.l7 ?? 0, 22, 17, paused).fg }}>{r.l7 ?? 0}</td>
-                    <td className="px-3 py-2 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3 ?? 0, 11, 8, paused).bg, color: leadCellTone(r.l3 ?? 0, 11, 8, paused).fg }}>{r.l3 ?? 0}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: convTone(conv30).bg, color: convTone(conv30).fg }} title={conv30 == null ? "No leads in 30d" : `${r.d30} deposits / ${r.l30} leads (30d)`}>{conv30 == null ? "—" : conv30.toFixed(1) + "%"}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: convTone(conv14).bg, color: convTone(conv14).fg }} title={conv14 == null ? "No leads in 14d" : `${r.d14} deposits / ${r.l14} leads (14d)`}>{conv14 == null ? "—" : conv14.toFixed(1) + "%"}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd30).bg, color: cpdVivid(cpd30).fg }}>{cpd30 == null ? "—" : formatCurrency(cpd30)}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd14).bg, color: cpdVivid(cpd14).fg }}>{cpd14 == null ? "—" : formatCurrency(cpd14)}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cpdVivid(cpd7).bg, color: cpdVivid(cpd7).fg }}>{cpd7 == null ? "—" : formatCurrency(cpd7)}</td>
-                    <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{num(r.spent30) != null ? formatCurrency(num(r.spent30)) : "—"}</td>
-                    <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{num(r.spent14) != null ? formatCurrency(num(r.spent14)) : "—"}</td>
-                    <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{num(r.spent7) != null ? formatCurrency(num(r.spent7)) : "—"}</td>
+                    <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
+                    <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
+                    <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
+                    <td className="px-3 py-1 whitespace-nowrap text-[#8595a8] line-through">{r.original_price || "—"}</td>
+                    <td className="px-3 py-1 font-semibold text-[#0e8f88]"><ExpandText value={r.discounted_price} /></td>
+                    <td className="px-3 py-1 max-w-[130px] truncate text-[#34568a]" title={r.current_offer ?? ""}>{r.current_offer || <span className="text-[#a6b3c4]">—</span>}</td>
+                    <td className="px-3 py-1 whitespace-nowrap font-semibold text-[#1e2a3a] border-r-2 border-[#cbd5e1]">{r.deposit_amount || <span className="text-[#a6b3c4]">—</span>}</td>
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: depCellTone(r.d30, 8, 3, paused).bg, color: depCellTone(r.d30, 8, 3, paused).fg }}>{r.d30}</td>
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: depCellTone(r.d14, 5, 2, paused).bg, color: depCellTone(r.d14, 5, 2, paused).fg }}>{r.d14}</td>
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: depCellTone(r.d7, 3, 1, paused).bg, color: depCellTone(r.d7, 3, 1, paused).fg }}>{r.d7}</td>
+                    <td className="px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: depCellTone(r.d3, 2, 1, paused).bg, color: depCellTone(r.d3, 2, 1, paused).fg }}>{r.d3}</td>
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l30 ?? 0, 86, 65, paused).bg, color: leadCellTone(r.l30 ?? 0, 86, 65, paused).fg }}>{r.l30 ?? 0}</td>
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l14 ?? 0, 43, 33, paused).bg, color: leadCellTone(r.l14 ?? 0, 43, 33, paused).fg }}>{r.l14 ?? 0}</td>
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l7 ?? 0, 22, 17, paused).bg, color: leadCellTone(r.l7 ?? 0, 22, 17, paused).fg }}>{r.l7 ?? 0}</td>
+                    <td className="px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3 ?? 0, 11, 8, paused).bg, color: leadCellTone(r.l3 ?? 0, 11, 8, paused).fg }}>{r.l3 ?? 0}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: convTone(conv30).bg, color: convTone(conv30).fg }} title={conv30 == null ? "No leads in 30d" : `${r.d30} deposits / ${r.l30} leads (30d)`}>{conv30 == null ? "—" : conv30.toFixed(1) + "%"}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: convTone(conv14).bg, color: convTone(conv14).fg }} title={conv14 == null ? "No leads in 14d" : `${r.d14} deposits / ${r.l14} leads (14d)`}>{conv14 == null ? "—" : conv14.toFixed(1) + "%"}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd30).bg, color: cpdVivid(cpd30).fg }}>{cpd30 == null ? "—" : formatCurrency(cpd30)}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd14).bg, color: cpdVivid(cpd14).fg }}>{cpd14 == null ? "—" : formatCurrency(cpd14)}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cpdVivid(cpd7).bg, color: cpdVivid(cpd7).fg }}>{cpd7 == null ? "—" : formatCurrency(cpd7)}</td>
+                    <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent30) != null ? formatCurrency(num(r.spent30)) : "—"}</td>
+                    <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent14) != null ? formatCurrency(num(r.spent14)) : "—"}</td>
+                    <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent7) != null ? formatCurrency(num(r.spent7)) : "—"}</td>
                   </tr>
                   {isOpen && (
                     <tr className="bg-[#f3f7fb]">

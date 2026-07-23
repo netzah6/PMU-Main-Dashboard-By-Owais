@@ -167,7 +167,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
             <thead>
               <tr className="border-b border-[#e4ebf2] bg-[#f8fafc]">
                 {["Contact", "Deposit", "Appt date", "Stage", "Status", "Bill / Void"].map((h) => (
-                  <th key={h} className="px-2.5 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-2.5 py-1 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>

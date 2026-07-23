@@ -320,20 +320,20 @@ export default function PerformancePage() {
                 return (
                   <Fragment key={rowId}>
                   <tr className={cn("group border-b border-[#eef3f8]", rowBgClass, "hover:bg-[#a7e3df]")}>
-                    <td className={cn("sticky left-0 z-10 px-3 py-2 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
+                    <td className={cn("sticky left-0 z-10 px-3 py-1 text-[#1f3559] font-medium whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df] cursor-pointer select-none", rowBgClass)}
                       style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
                       onClick={() => setOpenRow(isOpen ? null : rowId)}>
                       <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 text-[#94a3b8] transition-transform align-[-2px]", isOpen && "rotate-90")} />
                       {r.owner_name || "—"}
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
                     </td>
-                    <td className={cn("sticky z-10 px-3 py-2 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
+                    <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
                       style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name ?? ""}>{r.ad_account_name || "—"}</td>
-                    <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
-                    <td className="px-3 py-2"><UserCell name={r.assigned} /></td>
-                    <td className="px-3 py-2"><UserCell name={r.media_buyer} /></td>
-                    <td className="px-3 py-2 align-top"><PmuServicesCell value={r.pmu_services} /></td>
-                    <td className="px-3 py-2 whitespace-nowrap">
+                    <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
+                    <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
+                    <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
+                    <td className="px-3 py-1 align-top"><PmuServicesCell value={r.pmu_services} /></td>
+                    <td className="px-3 py-1 whitespace-nowrap">
                       <span className={cn("inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border", statusTone(r.campaign_status))}>
                         {shortStatus(r.campaign_status)}
                       </span>
@@ -344,31 +344,31 @@ export default function PerformancePage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]"
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]"
                       style={bookingPctVal == null ? undefined : { background: bookingFill(bookingPctVal).bg, color: bookingFill(bookingPctVal).fg }}>
                       {bookingPctVal == null ? <span className="text-[#a6b3c4]">—</span> : `${bookingPctVal.toFixed(2)}%`}
                     </td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l30, 86, 65, paused).bg, color: leadCellTone(r.l30, 86, 65, paused).fg }}>{r.l30}</td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l14, 43, 33, paused).bg, color: leadCellTone(r.l14, 43, 33, paused).fg }}>{r.l14}</td>
-                    <td className="px-3 py-2 text-center font-bold" style={{ background: leadCellTone(r.l7, 22, 17, paused).bg, color: leadCellTone(r.l7, 22, 17, paused).fg }}>{r.l7}</td>
-                    <td className="px-3 py-2 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3, 11, 8, paused).bg, color: leadCellTone(r.l3, 11, 8, paused).fg }}>{r.l3}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl30).bg, color: cplVivid(cpl30).fg }}>{cpl30 == null ? "$0.00" : formatCurrency(cpl30)}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl14).bg, color: cplVivid(cpl14).fg }}>{cpl14 == null ? "$0.00" : formatCurrency(cpl14)}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cplVivid(cpl7).bg, color: cplVivid(cpl7).fg }}>{cpl7 == null ? "$0.00" : formatCurrency(cpl7)}</td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap"
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l30, 86, 65, paused).bg, color: leadCellTone(r.l30, 86, 65, paused).fg }}>{r.l30}</td>
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l14, 43, 33, paused).bg, color: leadCellTone(r.l14, 43, 33, paused).fg }}>{r.l14}</td>
+                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l7, 22, 17, paused).bg, color: leadCellTone(r.l7, 22, 17, paused).fg }}>{r.l7}</td>
+                    <td className="px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3, 11, 8, paused).bg, color: leadCellTone(r.l3, 11, 8, paused).fg }}>{r.l3}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl30).bg, color: cplVivid(cpl30).fg }}>{cpl30 == null ? "$0.00" : formatCurrency(cpl30)}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl14).bg, color: cplVivid(cpl14).fg }}>{cpl14 == null ? "$0.00" : formatCurrency(cpl14)}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cplVivid(cpl7).bg, color: cplVivid(cpl7).fg }}>{cpl7 == null ? "$0.00" : formatCurrency(cpl7)}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap"
                       style={sp14 ? { background: sp14.bg, color: sp14.fg } : undefined}
                       title={sp14 === SPEND_BLUE ? "Spend too low vs daily budget × 14" : sp14 === SPEND_PURPLE ? "Spend too high vs daily budget × 14" : undefined}>
                       {num(r.spent14) == null ? <span className="text-[#a6b3c4]">—</span> : formatCurrency(num(r.spent14))}
                     </td>
-                    <td className="px-3 py-2 text-center font-semibold whitespace-nowrap"
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap"
                       style={sp7 ? { background: sp7.bg, color: sp7.fg } : undefined}
                       title={sp7 === SPEND_BLUE ? "Spend too low vs daily budget × 7" : sp7 === SPEND_PURPLE ? "Spend too high vs daily budget × 7" : undefined}>
                       {num(r.spent7) == null ? <span className="text-[#a6b3c4]">—</span> : formatCurrency(num(r.spent7))}
                     </td>
-                    <td className="px-3 py-2 text-[#1e2a3a] whitespace-nowrap">{num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—"}</td>
-                    <td className="px-3 py-2 text-center text-[#1e2a3a] whitespace-nowrap">{r.sessions_done || <span className="text-[#a6b3c4]">—</span>}</td>
-                    <td className="px-3 py-2 text-[#34568a] whitespace-nowrap">{r.last_strategy ? formatDate(r.last_strategy) : <span className="text-[#a6b3c4]">—</span>}</td>
-                    <td className="px-3 py-2 align-top"><CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={load} /></td>
+                    <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—"}</td>
+                    <td className="px-3 py-1 text-center text-[#1e2a3a] whitespace-nowrap">{r.sessions_done || <span className="text-[#a6b3c4]">—</span>}</td>
+                    <td className="px-3 py-1 text-[#34568a] whitespace-nowrap">{r.last_strategy ? formatDate(r.last_strategy) : <span className="text-[#a6b3c4]">—</span>}</td>
+                    <td className="px-3 py-1 align-top"><CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={load} /></td>
                   </tr>
                   {isOpen && (
                     <tr className="bg-[#f3f7fb]">
