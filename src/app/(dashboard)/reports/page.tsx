@@ -302,13 +302,37 @@ export default function ReportsPage() {
     });
   }, []);
 
+  // Owner-name → Business Name with the same token-overlap tolerance as
+  // versionMap: report names don't always equal the master sheet's owner
+  // exactly ("Irma Contella" vs "Irma Contella (Robert)").
+  const bizResolve = useMemo(() => {
+    const m = new Map<string, string>();
+    const entries: { tokens: string[]; biz: string }[] = [];
+    rawClients.forEach((c) => {
+      const biz = String(c["Business Name"] ?? "").trim();
+      if (!biz) return;
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      if (owner) { m.set(owner, biz); entries.push({ tokens: owner.split(/\s+/).filter((t) => t.length > 1), biz }); }
+    });
+    return (name: string): string => {
+      const k = name.trim().toLowerCase();
+      const exact = m.get(k);
+      if (exact) return exact;
+      const tokens = k.split(/\s+/).filter((t) => t.length > 1);
+      if (!tokens.length) return "";
+      const hit = entries.find((e) =>
+        tokens.every((t) => e.tokens.includes(t)) || e.tokens.every((t) => tokens.includes(t)));
+      return hit?.biz ?? "";
+    };
+  }, [rawClients]);
+
   // Cumulative deposits at each report date for the selected client.
   const depositCum = useMemo(() => {
     if (!current) return [] as number[];
-    const biz = (businessMap.get(current.name.toLowerCase()) ?? "").trim().toLowerCase();
+    const biz = bizResolve(current.name).trim().toLowerCase();
     const times = depositsByBiz.get(biz) ?? [];
     return current.reports.map((r) => times.filter((t) => t <= r.ms + 86399999).length);
-  }, [current, businessMap, depositsByBiz]);
+  }, [current, bizResolve, depositsByBiz]);
   const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
   const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
   const ghlContactId = current ? contactIdMap.get(current.name.toLowerCase()) ?? "" : "";
