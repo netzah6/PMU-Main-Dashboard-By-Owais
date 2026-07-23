@@ -224,7 +224,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   )}
                 >
                   {columns.map((col) => (
-                    <td key={col.key} className={cn("px-4 py-3 text-[#1e2a3a]", col.className)}>
+                    <td key={col.key} className={cn("px-4 py-1.5 text-[#1e2a3a]", col.className)}>
                       {col.render
                         ? col.render(row)
                         : (row[col.key] as string) ?? <span className="text-[#8595a8]">—</span>}

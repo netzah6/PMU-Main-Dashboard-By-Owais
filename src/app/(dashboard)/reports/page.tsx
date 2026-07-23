@@ -566,9 +566,9 @@ export default function ReportsPage() {
                 <table className="text-sm border-collapse w-full">
                   <thead>
                     <tr style={{ background: "linear-gradient(180deg,#34568a,#26416b)" }} className="text-white">
-                      <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider sticky left-0 z-10" style={{ background: "#2d4c79" }}>Metric</th>
+                      <th className="px-3 py-1 text-left text-[10px] font-bold uppercase tracking-wider sticky left-0 z-10" style={{ background: "#2d4c79" }}>Metric</th>
                       {reps.map((r, i) => (
-                        <th key={i} className="px-3 py-2 text-center text-[10px] font-bold uppercase whitespace-nowrap">
+                        <th key={i} className="px-3 py-1 text-center text-[10px] font-bold uppercase whitespace-nowrap">
                           #{i + 1}<br /><span className="font-medium opacity-80">{r.date}</span>
                         </th>
                       ))}
@@ -626,14 +626,14 @@ function NumRow({ label, reps, get, fmt, higherBetter }: {
 }) {
   return (
     <tr className="border-b border-[#eef3f8]">
-      <td className="px-3 py-2 font-medium text-[#1f3559] whitespace-nowrap sticky left-0 bg-white">{label}</td>
+      <td className="px-3 py-1 font-medium text-[#1f3559] whitespace-nowrap sticky left-0 bg-white">{label}</td>
       {reps.map((r, i) => {
         const v = get(r);
         const prev = i > 0 ? get(reps[i - 1]) : null;
         const d = v != null && prev != null ? v - prev : null;
         const good = d == null ? null : higherBetter ? d >= 0 : d <= 0;
         return (
-          <td key={i} className="px-3 py-2 text-center whitespace-nowrap text-[#1e2a3a]">
+          <td key={i} className="px-3 py-1 text-center whitespace-nowrap text-[#1e2a3a]">
             {v == null ? <span className="text-[#a6b3c4]">–</span> : fmt(v)}
             {d != null && Math.abs(d) > 0.001 && (
               <span className={cn("ml-1 text-[10px] font-semibold", good ? "text-[#0e8f88]" : "text-[#e11d48]")}>
@@ -650,7 +650,7 @@ function NumRow({ label, reps, get, fmt, higherBetter }: {
 function BehaviourRow({ label, bkey, reps }: { label: string; bkey: string; reps: Report[] }) {
   return (
     <tr className="border-b border-[#eef3f8]">
-      <td className="px-3 py-2 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
+      <td className="px-3 py-1 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
       {reps.map((r, i) => {
         const raw = r.raw[bkey];
         const on = onState(raw);
@@ -658,7 +658,7 @@ function BehaviourRow({ label, bkey, reps }: { label: string; bkey: string; reps
         const flipped = i > 0 && prevOn !== on && (on != null || prevOn != null);
         const txt = String(raw ?? "").trim() || "–";
         return (
-          <td key={i} className={cn("px-3 py-2 text-center text-xs font-semibold",
+          <td key={i} className={cn("px-3 py-1 text-center text-xs font-semibold",
             on === true ? "bg-[#e6f7f5] text-[#0e8f88]" : on === false ? "bg-[#fde8ee] text-[#e11d48]" : "text-[#a6b3c4]",
             flipped && (on === true ? "border-l-4 border-l-[#0e8f88]" : "border-l-4 border-l-[#e11d48]"))}>
             {txt}
@@ -672,8 +672,8 @@ function BehaviourRow({ label, bkey, reps }: { label: string; bkey: string; reps
 function ContextRow({ label, reps, get }: { label: string; reps: Report[]; get: (r: Report) => string }) {
   return (
     <tr className="border-b border-[#eef3f8]">
-      <td className="px-3 py-2 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
-      {reps.map((r, i) => <td key={i} className="px-3 py-2 text-center whitespace-nowrap text-[#34568a]">{get(r)}</td>)}
+      <td className="px-3 py-1 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
+      {reps.map((r, i) => <td key={i} className="px-3 py-1 text-center whitespace-nowrap text-[#34568a]">{get(r)}</td>)}
     </tr>
   );
 }
@@ -686,7 +686,7 @@ function ActionRow({ reps, edits, onSave }: {
 }) {
   return (
     <tr className="border-b border-[#eef3f8]">
-      <td className="px-3 py-2 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">Action</td>
+      <td className="px-3 py-1 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">Action</td>
       {reps.map((r, i) => <ActionCell key={i} report={r} edits={edits} onSave={onSave} />)}
     </tr>
   );
@@ -718,7 +718,7 @@ function ActionCell({ report, edits, onSave }: {
   const options = value && !ACTION_OPTIONS.includes(value) ? [value, ...ACTION_OPTIONS] : ACTION_OPTIONS;
 
   return (
-    <td className="px-3 py-2 text-center min-w-[150px]">
+    <td className="px-3 py-1 text-center min-w-[150px]">
       <div className="inline-flex items-center gap-1">
         <select value={value} onChange={(e) => change(e.target.value)} disabled={saving} title="Set the action (synced to the sheet)"
           className="max-w-[170px] text-xs rounded border border-[#d7e0ea] bg-white px-2 py-1 text-[#34568a] cursor-pointer focus:outline-none focus:border-[#15B7AE] disabled:opacity-60">

@@ -196,7 +196,7 @@ export default function SubscriptionsPage() {
             <thead>
               <tr className="border-b border-[#e4ebf2] bg-[#f8fafc]">
                 {["Customer", "Plan", "Amount", "Status", "Started", "Next Charge"].map((h) => (
-                  <th key={h} className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
+                  <th key={h} className="px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -205,15 +205,15 @@ export default function SubscriptionsPage() {
                 const st = statusStyle(s.status);
                 return (
                   <tr key={s.id} className={cn("border-b border-[#eef3f8]", i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-1">
                       <div className="font-medium text-[#1f3559]">{s.customerName}</div>
                       {s.customerEmail && <div className="text-[11px] text-[#8595a8]">{s.customerEmail}</div>}
                     </td>
-                    <td className="px-3 py-2 text-[#34568a]">{s.planName}</td>
-                    <td className="px-3 py-2 font-semibold text-[#0e8f88] whitespace-nowrap">{money(s.amountCents, s.currency)}<span className="text-[#8595a8] font-normal">{CADENCE_LABEL[s.cadence] ?? ""}</span></td>
-                    <td className="px-3 py-2"><span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{s.status}</span></td>
-                    <td className="px-3 py-2 text-[#697a91] whitespace-nowrap">{fmtDate(s.startDate)}</td>
-                    <td className="px-3 py-2 text-[#1f3559]"><ChargeCell s={s} /></td>
+                    <td className="px-3 py-1 text-[#34568a]">{s.planName}</td>
+                    <td className="px-3 py-1 font-semibold text-[#0e8f88] whitespace-nowrap">{money(s.amountCents, s.currency)}<span className="text-[#8595a8] font-normal">{CADENCE_LABEL[s.cadence] ?? ""}</span></td>
+                    <td className="px-3 py-1"><span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{s.status}</span></td>
+                    <td className="px-3 py-1 text-[#697a91] whitespace-nowrap">{fmtDate(s.startDate)}</td>
+                    <td className="px-3 py-1 text-[#1f3559]"><ChargeCell s={s} /></td>
                   </tr>
                 );
               })}

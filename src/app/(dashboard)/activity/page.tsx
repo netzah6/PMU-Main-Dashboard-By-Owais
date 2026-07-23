@@ -83,7 +83,7 @@ export default function ActivityPage() {
       ) : (
         <div className="border border-[#e4ebf2] rounded-xl bg-white overflow-hidden">
           {listed.map((r, i) => (
-            <div key={r.id} className={cn("flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5", i > 0 && "border-t border-[#eef3f8]") }>
+            <div key={r.id} className={cn("flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-1.5", i > 0 && "border-t border-[#eef3f8]") }>
               <span className="text-xs text-[#8595a8] whitespace-nowrap w-36">
                 {new Date(r.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
               </span>
