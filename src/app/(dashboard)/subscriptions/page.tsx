@@ -128,7 +128,7 @@ export default function SubscriptionsPage() {
   }, [subs, search, statusFilter]);
 
   return (
-    <div className="p-4 sm:p-6 space-y-4">
+    <div className="p-3 sm:p-4 space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Subscriptions</h1>
