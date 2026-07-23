@@ -102,7 +102,7 @@ function AreaChart({ values, dates, color, yFmt }: {
   const xIdx = want <= 1 ? [0] : Array.from({ length: want }, (_, k) => Math.round((k * (n - 1)) / (want - 1)));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 230 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 170 }}>
       {ticks.map((t, k) => (
         <g key={k}>
           <line x1={mL} x2={W - mR} y1={Y(t)} y2={Y(t)} stroke="#eef3f8" strokeWidth={1} />
@@ -277,6 +277,38 @@ export default function ReportsPage() {
 
   const current = useMemo(() => clients.find((c) => c.name === selected) ?? listed[0], [clients, listed, selected]);
   const reps = current?.reports ?? [];
+
+  // business name (lowercased) → sorted deposit timestamps, from the real
+  // Deposits sheet — the tracking sheet has no deposit counts, so the chart
+  // uses actual collected deposits matched by the client's Business Name.
+  const [depositsByBiz, setDepositsByBiz] = useState<Map<string, number[]>>(new Map());
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from("deposits").select("data").then(({ data }) => {
+      const m = new Map<string, number[]>();
+      (data ?? []).forEach((row) => {
+        const d = (row as { data?: Record<string, unknown> }).data ?? {};
+        const biz = String(d["Business Name"] ?? "").trim().toLowerCase();
+        const ds = String(d["Date"] ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (!biz || !ds) return;
+        // Deposits sheet dates are DD/MM/YYYY (swap if the month slot is >12)
+        let day = +ds[1], mon = +ds[2];
+        if (mon > 12) { const t = day; day = mon; mon = t; }
+        const t = new Date(+ds[3], mon - 1, day).getTime();
+        if (!isNaN(t)) { if (!m.has(biz)) m.set(biz, []); m.get(biz)!.push(t); }
+      });
+      m.forEach((arr) => arr.sort((a, b) => a - b));
+      setDepositsByBiz(m);
+    });
+  }, []);
+
+  // Cumulative deposits at each report date for the selected client.
+  const depositCum = useMemo(() => {
+    if (!current) return [] as number[];
+    const biz = (businessMap.get(current.name.toLowerCase()) ?? "").trim().toLowerCase();
+    const times = depositsByBiz.get(biz) ?? [];
+    return current.reports.map((r) => times.filter((t) => t <= r.ms + 86399999).length);
+  }, [current, businessMap, depositsByBiz]);
   const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
   const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
   const ghlContactId = current ? contactIdMap.get(current.name.toLowerCase()) ?? "" : "";
@@ -431,7 +463,7 @@ export default function ReportsPage() {
         ) : !current ? (
           <div className="p-10 text-center text-[#8595a8]">No tracking data found.</div>
         ) : (
-          <div className="p-4 sm:p-6 space-y-5 md:min-w-[900px]">
+          <div className="p-3 sm:p-4 space-y-3 md:min-w-[900px]">
             {/* Header */}
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl font-bold text-[#1f3559]">{current.name}</h1>
@@ -479,7 +511,7 @@ export default function ReportsPage() {
 
             {/* AI suggestions */}
             {suggestions.length > 0 && (
-              <div className="rounded-2xl border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-4 space-y-2.5">
+              <div className="rounded-2xl border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <Sparkles size={15} className="text-[#0e8f88]" />
                   <h2 className="text-sm font-bold text-[#0e8f88]">AI Suggestions</h2>
@@ -497,17 +529,15 @@ export default function ReportsPage() {
             )}
 
             {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-3">
               <ChartCard title="Total Leads Over Time" color="#34568a" values={reps.map((r) => r.leads ?? 0)} dates={reps.map((r) => r.date)} yFmt={(v) => String(Math.round(v))} />
               <ChartCard title="Booking Rate %" color="#15B7AE" values={reps.map((r) => (r.booking ?? 0) * 100)} dates={reps.map((r) => r.date)} yFmt={(v) => `${Math.round(v)}%`} />
               <ChartCard title="Sessions Booked" color="#7e8fc4" values={reps.map((r) => r.sessions ?? 0)} dates={reps.map((r) => r.date)} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Deposits (Total)" color="#d97706" values={depositCum} dates={reps.map((r) => r.date)} yFmt={(v) => String(Math.round(v))} />
             </div>
 
             {/* Date-by-date comparison */}
             <div className="rounded-2xl border border-[#e4ebf2] bg-white overflow-hidden">
-              <div className="px-5 py-3 border-b border-[#e4ebf2]">
-                <h2 className="text-sm font-semibold text-[#34568a]">Date-by-Date Comparison — read left→right to compare each date to the one before</h2>
-              </div>
               <div className="overflow-x-auto">
                 <table className="text-sm border-collapse w-full">
                   <thead>
@@ -530,6 +560,7 @@ export default function ReportsPage() {
                     <NumRow label="Total Leads" reps={reps} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
                     <NumRow label="Booking %" reps={reps} get={(r) => (r.booking == null ? null : r.booking * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter />
                     <NumRow label="Sessions Booked" reps={reps} get={(r) => r.sessions} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Deposits (total)" reps={reps} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
                     <NumRow label="Declining %" reps={reps} get={(r) => (r.declining == null ? null : r.declining * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter={false} />
 
                     <SectionRow label="Behaviours & Process" span={reps.length} />
@@ -551,8 +582,8 @@ export default function ReportsPage() {
 
 function ChartCard({ title, color, values, dates, yFmt }: { title: string; color: string; values: number[]; dates: string[]; yFmt: (v: number) => string }) {
   return (
-    <div className="rounded-2xl border border-[#e4ebf2] bg-white p-4">
-      <h3 className="text-xs font-bold uppercase tracking-wide text-[#34568a] mb-2">{title}</h3>
+    <div className="rounded-2xl border border-[#e4ebf2] bg-white p-3">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-[#34568a] mb-1">{title}</h3>
       <AreaChart values={values} dates={dates} color={color} yFmt={yFmt} />
     </div>
   );
