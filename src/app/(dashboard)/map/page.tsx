@@ -64,6 +64,31 @@ export default function MapPage() {
   const { coords, loaded: geoLoaded } = useGeocodeCache();
   const [filter, setFilter] = useState<StatusFilter>("all");
 
+  // Address / ZIP search → geocode (OSM) → fly the map there.
+  const [searchQ, setSearchQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  const [focus, setFocus] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
+  const runSearch = async () => {
+    const q = searchQ.trim();
+    if (!q) return;
+    setSearching(true); setSearchErr(null);
+    try {
+      const isZip = /^\d{5}$/.test(q);
+      const url = isZip
+        ? `https://nominatim.openstreetmap.org/search?format=json&limit=1&country=us&postalcode=${q}`
+        : `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us,ca&q=${encodeURIComponent(q)}`;
+      const r = await fetch(url, { headers: { Accept: "application/json" } });
+      const j = (await r.json()) as Array<{ lat: string; lon: string }>;
+      if (!Array.isArray(j) || !j.length) { setSearchErr("Address not found"); return; }
+      setFocus({ lat: parseFloat(j[0].lat), lng: parseFloat(j[0].lon), zoom: isZip ? 12 : 13 });
+    } catch {
+      setSearchErr("Search failed — try again");
+    } finally {
+      setSearching(false);
+    }
+  };
+
   // Resolve each client's coordinates from its address via the geocode cache.
   // The sheet's own lat/lng columns are unreliable, so we ignore them.
   const clients = useMemo(() => {
@@ -120,11 +145,27 @@ export default function MapPage() {
         )}
       </div>
 
+      <div className="flex items-center gap-2">
+        <input
+          value={searchQ}
+          onChange={(e) => setSearchQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }}
+          placeholder="Search address or ZIP code…"
+          inputMode="search"
+          className="flex-1 max-w-md px-3 py-1.5 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE]"
+        />
+        <button onClick={runSearch} disabled={searching || !searchQ.trim()}
+          className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-[#15B7AE] text-white disabled:opacity-50">
+          {searching ? "…" : "Go"}
+        </button>
+        {searchErr && <span className="text-xs text-[#e11d48]">{searchErr}</span>}
+      </div>
+
       <div className="flex-1 border border-[#e4ebf2] rounded-xl overflow-hidden">
         {loading || !geoLoaded ? (
           <Skeleton className="w-full h-full" />
         ) : (
-          <ClientMap clients={shown} />
+          <ClientMap clients={shown} focus={focus} />
         )}
       </div>
     </div>

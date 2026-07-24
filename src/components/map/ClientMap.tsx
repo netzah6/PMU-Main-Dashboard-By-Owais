@@ -5,6 +5,8 @@ import type { ClientRecord } from "@/lib/types";
 
 interface ClientMapProps {
   clients: ClientRecord[];
+  // When set (from the search box), the map flies to this point.
+  focus?: { lat: number; lng: number; zoom?: number } | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -19,7 +21,7 @@ function getColor(status: string | undefined): string {
   return STATUS_COLORS[(status ?? "").toLowerCase()] ?? STATUS_COLORS.default;
 }
 
-export default function ClientMap({ clients }: ClientMapProps) {
+export default function ClientMap({ clients, focus }: ClientMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<unknown>(null);
   // Synchronous guard prevents StrictMode double-invoke race on the async import
@@ -73,6 +75,13 @@ export default function ClientMap({ clients }: ClientMapProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fly to the searched address/ZIP when the focus point changes.
+  useEffect(() => {
+    if (!focus || !mapInstanceRef.current) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (mapInstanceRef.current as any).flyTo([focus.lat, focus.lng], focus.zoom ?? 11, { duration: 1.2 });
+  }, [focus]);
 
   // Re-render markers when clients data changes
   // eslint-disable-next-line react-hooks/exhaustive-deps

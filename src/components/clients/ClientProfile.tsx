@@ -333,7 +333,14 @@ export function ClientProfile({
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {ghlUrl && (
-              <a href={ghlUrl} target="_blank" rel="noopener noreferrer"
+              // On mobile, navigate in the SAME context (no new tab) so the OS
+              // hands the gohighlevel.com link to the installed GHL app —
+              // universal links don't fire from JS-opened tabs. Desktop keeps
+              // the new-tab behavior.
+              <a href={ghlUrl}
+                {...(typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+                  ? {}
+                  : { target: "_blank", rel: "noopener noreferrer" })}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] hover:bg-[#e6f7f5] transition-colors">
                 <MessageSquare size={12} /> Click To Chat
               </a>

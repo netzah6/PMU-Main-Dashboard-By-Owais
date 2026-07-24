@@ -156,13 +156,19 @@ export function DataTable<T extends Record<string, unknown>>({
                 {cellValue(columns[0], row)}
               </div>
               {columns.length > 1 && (
-                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
-                  {columns.slice(1).map((col) => (
-                    <div key={col.key} className="min-w-0">
-                      <dt className="text-[10px] uppercase tracking-wide text-[#8595a8]">{col.header}</dt>
-                      <dd className="text-sm text-[#1e2a3a] break-words">{cellValue(col, row)}</dd>
-                    </div>
-                  ))}
+                <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1">
+                  {columns.slice(1).map((col) => {
+                    // Mobile cards: skip empty fields entirely — a wall of "—"
+                    // rows just forces scrolling without saying anything.
+                    const raw = row[col.key];
+                    if (raw === null || raw === undefined || String(raw).trim() === "") return null;
+                    return (
+                      <div key={col.key} className="min-w-0">
+                        <dt className="text-[10px] uppercase tracking-wide text-[#8595a8]">{col.header}</dt>
+                        <dd className="text-sm text-[#1e2a3a] break-words">{cellValue(col, row)}</dd>
+                      </div>
+                    );
+                  })}
                 </dl>
               )}
             </div>
@@ -178,7 +184,7 @@ export function DataTable<T extends Record<string, unknown>>({
                 <th
                   key={col.key}
                   className={cn(
-                    "px-4 py-2.5 text-left text-[10.5px] font-bold text-white uppercase tracking-wider whitespace-nowrap sticky top-0",
+                    "px-3 py-1.5 text-left text-[10.5px] font-bold text-white uppercase tracking-wider whitespace-nowrap sticky top-0",
                     col.sortable !== false && "cursor-pointer select-none",
                     col.className
                   )}
@@ -224,7 +230,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   )}
                 >
                   {columns.map((col) => (
-                    <td key={col.key} className={cn("px-4 py-1.5 text-[#1e2a3a]", col.className)}>
+                    <td key={col.key} className={cn("px-3 py-1.5 text-[#1e2a3a]", col.className)}>
                       {col.render
                         ? col.render(row)
                         : (row[col.key] as string) ?? <span className="text-[#8595a8]">—</span>}
