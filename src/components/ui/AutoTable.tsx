@@ -32,8 +32,20 @@ export function AutoTable({ data, loading, error, exportFilename, maxCols = 12 }
     const keySet = new Set<string>();
     data.slice(0, 5).forEach((r) => Object.keys(r).forEach((k) => keySet.add(k)));
 
+    // Drop columns that are empty in (almost) all rows — sheet tabs carry
+    // spare/legacy columns that only add "—" noise and force scrolling.
+    const sample = data.slice(0, 200);
+    const mostlyEmpty = (k: string) => {
+      let filled = 0;
+      for (const r of sample) {
+        const v = r[k];
+        if (v !== null && v !== undefined && String(v).trim() !== "") filled++;
+      }
+      return filled / sample.length < 0.05;
+    };
+
     return Array.from(keySet)
-      .filter((k) => !SKIP_KEYS.has(k))
+      .filter((k) => !SKIP_KEYS.has(k) && !mostlyEmpty(k))
       .slice(0, maxCols)
       .map((key) => ({
         key,
