@@ -703,7 +703,8 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                     {secSteps.map((s) => {
                       const c = byKey.get(s.key)!;
                       const icon = c.status === "pass" ? "✓" : c.status === "fail" ? "✗" : "○";
-                      const color = c.status === "pass" ? "text-[#15803d]" : c.status === "fail" ? "text-[#e11d48]" : "text-[#b9c3d0]";
+                      // Manual (○) rows in purple — the old gray was nearly invisible.
+                      const color = c.status === "pass" ? "text-[#15803d]" : c.status === "fail" ? "text-[#e11d48]" : "text-[#9333ea]";
                       // Show the product ID + checkout link right under the "create product" row.
                       const showProduct = s.key === "fanbasis_product" && result.productId;
                       // Checks whose detail is a useful breakdown whatever the status
