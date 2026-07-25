@@ -490,10 +490,14 @@ export default function OnboardingPage() {
   }
 
   // ── List + create form (left) · Check Setup (right) ──────────────────────
+  // The tab shows ONLY the Check Setup panel for now — flip this to true to
+  // bring the new-client checklist/creation form back.
+  const SHOW_ONBOARDING_LIST = false;
   return (
     <div className="p-4 sm:p-6">
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(360px,540px)_minmax(0,1fr)] gap-5 items-start">
+      <div className={SHOW_ONBOARDING_LIST ? "grid grid-cols-1 lg:grid-cols-[minmax(360px,540px)_minmax(0,1fr)] gap-5 items-start" : "max-w-5xl mx-auto"}>
       {/* LEFT — onboarding */}
+      {SHOW_ONBOARDING_LIST && (
       <div className="space-y-4 min-w-0">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
@@ -613,10 +617,11 @@ export default function OnboardingPage() {
           })}
         </div>
       )}
-      </div>{/* /LEFT */}
+      </div>
+      )}{/* /LEFT */}
 
       {/* RIGHT — Check Setup */}
-      <div className="lg:sticky lg:top-4">
+      <div className={SHOW_ONBOARDING_LIST ? "lg:sticky lg:top-4" : undefined}>
         <CheckPanel query={checkQuery} setQuery={setCheckQuery} running={checkRunning} result={checkResult} onRun={runCheck} businesses={list.map((o) => o.form.business_name).filter(Boolean)} />
       </div>
       </div>{/* /grid */}
