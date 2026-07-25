@@ -182,6 +182,17 @@ const PERM_IGNORE = new Set([
 // Every word starts with a capital ("21073 Powerline Rd Suite 61"); words
 // starting with a digit ("21073", "10089b") are left alone.
 const titleCase = (s: string) => s.split(" ").map((w) => (/^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w)).join(" ");
+// ALL-CAPS words (3+ letters) get proper casing: "WASHINGTON" → "Washington".
+// 1–2 letter tokens stay (state codes, "S", "NW"), as do digit-led words.
+const fixCaps = (s: string) => s.split(" ").map((w) => (/^[A-Z]{3,}$/.test(w) ? w[0] + w.slice(1).toLowerCase() : w)).join(" ");
+// OSM returns expanded road names — abbreviate to the team's style.
+const ROAD_ABBREV: Record<string, string> = {
+  South: "S", North: "N", East: "E", West: "W",
+  Northeast: "NE", Northwest: "NW", Southeast: "SE", Southwest: "SW",
+  Street: "St", Avenue: "Ave", Boulevard: "Blvd", Drive: "Dr", Road: "Rd",
+  Lane: "Ln", Court: "Ct", Place: "Pl", Terrace: "Ter", Highway: "Hwy",
+  Parkway: "Pkwy", Circle: "Cir", Trail: "Trl", Suite: "Ste",
+};
 
 async function fixAddress(raw: string): Promise<string | null> {
   let s = raw.replace(/[.,]/g, " ").replace(/\s+/g, " ").trim();
@@ -248,6 +259,29 @@ async function fixAddress(raw: string): Promise<string | null> {
     for (let mm = stRe.exec(body); mm; mm = stRe.exec(body)) last = mm;
     if (last) body = (body.slice(0, last.index) + " " + body.slice(last.index + last[0].length)).replace(/\s+/g, " ").trim();
     if (!body) return null;
+    body = fixCaps(body);
+
+    // Street-level canonical lookup (OSM): proper street suffix and the TRUE
+    // ZIP. A wrong-but-existing ZIP (46385 stored for a 46383 street) passes
+    // the ZIP→city check, but the street lookup returns the real postcode.
+    const unitM = body.match(/\b(?:suite|ste|apt|unit|#)\s*[\w-]+\s*$/i);
+    const unit = unitM ? unitM[0].trim() : "";
+    const qStreet = unit ? body.slice(0, body.length - unitM![0].length).trim() : body;
+    const num = (qStreet.match(/^\d+[a-z]?/i) ?? [])[0] ?? "";
+    try {
+      const nr = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&country=us&state=${st.toLowerCase()}&city=${encodeURIComponent(cityName.toLowerCase())}&street=${encodeURIComponent(qStreet.toLowerCase())}`,
+        { headers: { "User-Agent": "PMU-Dashboard-AddressCheck/1.0" } });
+      if (nr.ok) {
+        const nj = (await nr.json()) as Array<{ address?: Record<string, string> }>;
+        const a = nj?.[0]?.address;
+        // Only trust it when the house number matches exactly.
+        if (a?.road && a.postcode && /^\d{5}/.test(a.postcode) && num && a.house_number === num) {
+          const road = a.road.split(" ").map((w) => ROAD_ABBREV[w] ?? w).join(" ");
+          return `${num} ${road}${unit ? " " + titleCase(fixCaps(unit)) : ""}, ${cityName}, ${st} ${a.postcode.slice(0, 5)}`;
+        }
+      }
+    } catch { /* fall back to the reconstructed address */ }
     return `${titleCase(body)}, ${cityName}, ${st} ${zip}`;
   } catch { return null; }
 }
@@ -386,11 +420,13 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     }
     if (!addrV) fmtIssues.push("address is empty");
     else {
+      const fixed = await fixAddress(addrV);
       const addrOk = !/[.]/.test(addrV) && !/\s{2,}/.test(addrV) && !/\s,|,(?!\s)/.test(addrV)
         && /^[^,]+, [^,]+, [A-Z]{2} \d{5}(-\d{4})?$/.test(addrV) && !/united states|usa/i.test(addrV)
-        && !/(^|\s)[a-z]/.test(addrV); // every word capitalized ("Powerline Rd", not "powerline rd")
+        && !/(^|\s)[a-z]/.test(addrV) // every word capitalized ("Powerline Rd", not "powerline rd")
+        && !/\b[A-Z]{3,}\b/.test(addrV) // no SHOUTING ("WASHINGTON" is not valid)
+        && (!fixed || norm(fixed) === norm(addrV)); // canonical match (catches wrong ZIP / missing "St")
       if (!addrOk) {
-        const fixed = await fixAddress(addrV);
         if (fixed && fixed !== addrV) { fmtIssues.push(`address "${addrV}" should be:`); fmtCopies.push(fixed); }
         else if (!fixed) fmtIssues.push(`address "${addrV}" → use "street, city, ST zip", no periods, single spaces`);
       }
