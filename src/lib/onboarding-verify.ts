@@ -471,8 +471,22 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       const selected = team.filter((t) => t.selected);
       push("cal_team", selected.length ? "pass" : "fail", selected.length ? `${selected.length} team member(s) selected` : "No team members selected on the calendar");
 
-      const loc = selected.map((t) => String(t.meetingLocation ?? "")).find((v) => v.trim()) ?? String(team[0]?.meetingLocation ?? "");
-      const hasAddr = /full_address|address/i.test(loc) || (!!address && loc.includes(address.split(",")[0]));
+      // The meeting location lives in the legacy meetingLocation field OR (new
+      // calendar UI) in locationConfigurations[].location — on the member or
+      // the calendar itself. {{location.full_address}} merge tags are valid:
+      // GHL resolves them to the Business Profile address.
+      const locStrings = (t: Record<string, unknown> | undefined): string[] => !t ? [] : [
+        String(t.meetingLocation ?? ""),
+        ...(((t.locationConfigurations as Array<Record<string, unknown>> | undefined) ?? []).map((l) => String(l.location ?? ""))),
+      ];
+      const allLocs = [
+        ...selected.flatMap((t) => locStrings(t)),
+        ...locStrings(team[0]),
+        ...(((c.locationConfigurations as Array<Record<string, unknown>> | undefined) ?? []).map((l) => String(l.location ?? ""))),
+      ].map((s) => s.trim()).filter(Boolean);
+      const isAddr = (v: string) => /full_address|address/i.test(v) || (!!address && v.includes(address.split(",")[0]));
+      const loc = allLocs.find(isAddr) ?? allLocs[0] ?? "";
+      const hasAddr = !!loc && isAddr(loc);
       push("cal_location", hasAddr ? "pass" : "fail", hasAddr ? `Meeting location set (${loc})` : loc ? `Meeting location = ${loc} — not the full address` : "No meeting location set");
 
       const lb = (c.lookBusyConfig as Record<string, unknown> | undefined) ?? {};
