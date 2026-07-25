@@ -727,7 +727,7 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                         <li key={s.key} className="flex items-start gap-1.5">
                           <span className={cn("text-[13px] leading-tight mt-px shrink-0", color)}>{icon}</span>
                           <div className="min-w-0">
-                            <span className={cn("text-[12px]", c.status === "manual" ? "text-[#8595a8]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
+                            <span className={cn("text-[12px]", c.status === "manual" ? "text-[#9333ea]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
                             {isPathDetail && (
                               <div className="text-[10px]">
                                 {c.detail.split(" · ").map((seg, i) => (
