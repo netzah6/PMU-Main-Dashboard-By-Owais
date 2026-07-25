@@ -707,9 +707,9 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                   <ul className="space-y-0.5">
                     {secSteps.map((s) => {
                       const c = byKey.get(s.key)!;
-                      const icon = c.status === "pass" ? "✓" : c.status === "fail" ? "✗" : "○";
-                      // Manual (○) rows in purple — the old gray was nearly invisible.
-                      const color = c.status === "pass" ? "text-[#15803d]" : c.status === "fail" ? "text-[#e11d48]" : "text-[#9333ea]";
+                      // Manual rows: FILLED purple circle + bold purple text so they pop.
+                      const icon = c.status === "pass" ? "✓" : c.status === "fail" ? "✗" : "●";
+                      const color = c.status === "pass" ? "text-[#15803d]" : c.status === "fail" ? "text-[#e11d48]" : "text-[#7c3aed] font-bold";
                       // Show the product ID + checkout link right under the "create product" row.
                       const showProduct = s.key === "fanbasis_product" && result.productId;
                       // Checks whose detail is a useful breakdown whatever the status
@@ -732,7 +732,7 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
                         <li key={s.key} className="flex items-start gap-1.5">
                           <span className={cn("text-[13px] leading-tight mt-px shrink-0", color)}>{icon}</span>
                           <div className="min-w-0">
-                            <span className={cn("text-[12px]", c.status === "manual" ? "text-[#9333ea]" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
+                            <span className={cn("text-[12px]", c.status === "manual" ? "text-[#7c3aed] font-semibold" : "text-[#34568a]")} title={c.detail}>{s.label}</span>
                             {isPathDetail && (
                               <div className="text-[10px]">
                                 {c.detail.split(" · ").map((seg, i) => (
