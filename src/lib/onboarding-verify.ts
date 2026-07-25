@@ -296,6 +296,9 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // fill-state of the fields the "Funnel + Reactivation Form" populates.
   // Reuse the same location token for the calendar checks below.
   let depositUrl: string | null = null;
+  let cvBookingUrl: string | null = null;
+  let cvThankUrl: string | null = null;
+  let cvSurveyUrl: string | null = null;
   const customValues: Array<{ name: string; value: string }> = [];
   let locTok: string | undefined;
   if (locationId) {
@@ -308,6 +311,12 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         customValues.push({ name: nm, value: val });
         // Prefer the V3 deposit funnel url; any "deposit funnel url" works.
         if (nm.toLowerCase().includes("deposit funnel url") && val.startsWith("http") && (!depositUrl || nm.toLowerCase().includes("v3"))) depositUrl = val;
+        // New-style funnels ("CC - PMU Survey + Auto Booking") use random page
+        // slugs (schedule-5670, last-step-5631), so sibling pages CANNOT be
+        // derived from the deposit URL — take them from their own custom values.
+        if (/booking funnel url/i.test(nm) && val.startsWith("http")) cvBookingUrl = val;
+        if (/thank ?(you )?page funnel url/i.test(nm) && val.startsWith("http")) cvThankUrl = val;
+        if (/survey funnel url/i.test(nm) && val.startsWith("http")) cvSurveyUrl = val;
       }
     }
   }
@@ -758,16 +767,27 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       try { const r = await fetch(url, { method: "HEAD", headers: { "User-Agent": "Mozilla/5.0" } }); return r.ok; }
       catch { return false; }
     };
-    const resolvePage = async (suffix: string): Promise<{ url: string; ok: boolean }> => {
+    const resolvePage = async (cvUrl: string | null, suffix: string): Promise<{ url: string; ok: boolean }> => {
+      // A dedicated custom value beats suffix-derivation (new-style funnels
+      // have underivable slugs) — but only if that URL is actually live.
+      if (cvUrl && (await live(cvUrl))) return { url: cvUrl, ok: true };
       const cands = [...new Set(bases.map((b) => b + suffix))];
       for (const u of cands) if (await live(u)) return { url: u, ok: true };
-      return { url: cands[0], ok: false };
+      return { url: cvUrl ?? cands[0], ok: false };
     };
-    const [surveyR, bookingR, tyR] = [await resolvePage("-survey"), await resolvePage("-booking"), await resolvePage("-thank-you")];
+    const [surveyR, bookingR, tyR] = [
+      await resolvePage(cvSurveyUrl, "-survey"),
+      await resolvePage(cvBookingUrl, "-booking"),
+      await resolvePage(cvThankUrl, "-thank-you"),
+    ];
     funnelUrls = { survey: surveyR.url, booking: bookingR.url, lastStep: depositUrl, thankYou: tyR.url };
+    // New-style funnels have no survey custom value and the slug can't be
+    // derived — an unresolvable survey is "unknown", not a failure, as long
+    // as the booking page (which the survey feeds into) is confirmed live.
+    const surveyUnknown = !surveyR.ok && !cvSurveyUrl && bookingR.ok && !!cvBookingUrl;
     const pathResults = [
       `Last-Step ${httpOk ? "✓" : "✗"}`,
-      `Survey ${surveyR.ok ? "✓" : "✗"}`,
+      `Survey ${surveyR.ok ? "✓" : surveyUnknown ? "— (no survey URL on file)" : "✗"}`,
       `Booking ${bookingR.ok ? "✓" : "✗"}`,
       `Thank ${tyR.ok ? "✓" : "✗"}`,
     ];
@@ -835,11 +855,14 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
           const at = m.index ?? 0;
           sigs.add(norm(unesc.slice(Math.max(0, at - 60), at + 30)));
         }
-        const leadCount = sigs.size;
+        // The hosted lead-pixel.js element (the new standard) fires Lead once
+        // via an external script — the page has NO inline fbq('Lead') text.
+        const hostedLead = /lead-pixel\.js/.test(unesc);
+        const leadCount = sigs.size + (hostedLead ? 1 : 0);
         if (!br.ok) push("funnel_lead_pixel", "fail", "Booking page didn't load");
-        else if (leadCount === 1) push("funnel_lead_pixel", "pass", "Booking page fires fbq('track','Lead') once");
-        else if (leadCount === 0) push("funnel_lead_pixel", "fail", "Booking page is missing the fbq('track','Lead') code");
-        else push("funnel_lead_pixel", "fail", `${leadCount} different Lead conversion codes on the booking page — should be ONE (each lead is being counted ${leadCount} times); remove the extra from the page's tracking-code/custom-code settings`);
+        else if (leadCount === 1) push("funnel_lead_pixel", "pass", hostedLead ? "Booking page fires Lead via the hosted lead-pixel.js element ✓ (instant-fire version)" : "Booking page fires fbq('track','Lead') once");
+        else if (leadCount === 0) push("funnel_lead_pixel", "fail", "Booking page is missing the Lead conversion — add the lead-pixel.js element (or an fbq('track','Lead') snippet)");
+        else push("funnel_lead_pixel", "fail", `${leadCount} different Lead conversion codes on the booking page${hostedLead ? " (hosted lead-pixel.js element PLUS inline code)" : ""} — should be ONE (each lead is being counted ${leadCount} times); remove the extra from the page's tracking-code/custom-code settings`);
         // IG widget is OPTIONAL ("only if IG looks good") — detected = pass, else neutral manual.
         const hasIg = /instagram\.com\/embed|instagram-media|lightwidget|snapwidget|elfsight|behold\.so|powr\.io/i.test(bhtml);
         push("funnel_ig_widget", hasIg ? "pass" : "manual",
