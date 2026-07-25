@@ -933,26 +933,31 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         // matched offer (end or punctuation), so "$200 OFF for NEW clients"
         // still fails as off-script.
         const offNorm = (s: string) => s.toLowerCase().replace(/[–—]/g, "-").replace(/!/g, "").replace(/\s+/g, " ").trim();
-        const om = flat.match(/book your appointment now to claim\s*(.{0,70})/i);
-        if (!br.ok) push("funnel_offer", "fail", "Booking page didn't load");
-        else if (!om) push("funnel_offer", "fail", `The booking headline "Book Your Appointment NOW to Claim …" wasn't found on the page`);
-        else {
-          const seg = offNorm(om[1]);
-          const hit = [...VALID_OFFERS].sort((a, b) => b.length - a.length).find((o) => {
+        // The headline appears several times on a page (visible H1 + SEO/meta
+        // copies where the offer can be BLANK) — scan ALL occurrences and pass
+        // if ANY carries an approved offer. (Eve Beauty's meta title was
+        // "…to Claim ." while her real H1 had a perfectly valid offer.)
+        const oms = [...flat.matchAll(/book your appointment now to claim\s*(.{0,70})/gi)];
+        const matchOffer = (segRaw: string): string | null =>
+          [...VALID_OFFERS].sort((a, b) => b.length - a.length).find((o) => {
+            const seg = offNorm(segRaw);
             const oN = offNorm(o);
             if (!seg.startsWith(oN)) return false;
             const rest = seg.slice(oN.length).trimStart();
             return rest === "" || !/^[a-z0-9$]/.test(rest); // next word continues the offer → off-script
-          });
-          if (hit) push("funnel_offer", "pass", `Offer: ${hit}`);
-          else {
-            const raw = om[1];
-            const bang = raw.indexOf("!");
-            const dot = raw.indexOf(".");
-            const cut = bang >= 0 && bang < 55 ? bang + 1 : dot >= 0 && dot < 45 ? dot : 45;
-            const shown = raw.slice(0, cut).trim();
-            push("funnel_offer", "fail", `Offer in the title is "${shown}" — not one of the 7 approved offers ($200 OFF! · $150 OFF! · Free Consultation - For a Limited Time Only! · Free Consultation + Free Aftercare Kit! · Just $149/$197/$249 for Models)`);
-          }
+          }) ?? null;
+        const hit = oms.map((m) => matchOffer(m[1])).find(Boolean) ?? null;
+        if (!br.ok) push("funnel_offer", "fail", "Booking page didn't load");
+        else if (!oms.length) push("funnel_offer", "fail", `The booking headline "Book Your Appointment NOW to Claim …" wasn't found on the page`);
+        else if (hit) push("funnel_offer", "pass", `Offer: ${hit}`);
+        else {
+          // Show the most human-readable segment (not a JSON/meta blob).
+          const raw = oms.map((m) => m[1]).sort((a, b) => (b.match(/[a-zA-Z $!]/g)?.length ?? 0) - (a.match(/[a-zA-Z $!]/g)?.length ?? 0))[0];
+          const bang = raw.indexOf("!");
+          const dot = raw.indexOf(".");
+          const cut = bang >= 0 && bang < 55 ? bang + 1 : dot >= 0 && dot < 45 ? dot : 45;
+          const shown = raw.slice(0, cut).trim();
+          push("funnel_offer", "fail", `Offer in the title is "${shown}" — not one of the 7 approved offers ($200 OFF! · $150 OFF! · Free Consultation - For a Limited Time Only! · Free Consultation + Free Aftercare Kit! · Just $149/$197/$249 for Models)`);
         }
 
         // Before & After pictures: the booking/deposit pages must carry the
