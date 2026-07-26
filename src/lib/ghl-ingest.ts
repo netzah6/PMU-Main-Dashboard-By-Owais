@@ -109,6 +109,24 @@ export async function getV3Accounts(): Promise<V3Account[]> {
       }
     } catch { /* best-effort — keys-sheet accounts still ingest */ }
   }
+
+  // Last resort: accounts that synced before but vanished from every source
+  // above (keys-sheet row deleted, GHL location renamed so the name matcher
+  // misses, etc.). ghl_sync_status remembers each owner's location_id, and the
+  // marketplace app can mint a token for any sub-account — so a live/paused
+  // client who EVER synced keeps syncing. Without this, a rename silently
+  // drops the account from the roster and its data goes stale forever
+  // (IBrow by Becky: master says "IBrow by Becky", location renamed
+  // "Eyebrow by Becky" → 1 shared token → no match → 3 days of missed leads).
+  const rosterKeys = new Set(roster.map((c) => c.key));
+  const { data: stRows } = await supabase.from("ghl_sync_status").select("owner_key, location_id");
+  for (const r of (stRows ?? []) as Array<{ owner_key: string | null; location_id: string | null }>) {
+    const ownerKey = String(r.owner_key ?? "").trim().toLowerCase();
+    if (!ownerKey || !r.location_id) continue;
+    if (seen.has(ownerKey) || !rosterKeys.has(ownerKey)) continue;
+    seen.add(ownerKey);
+    out.push({ ownerKey, locationId: r.location_id, token: "", viaAgency: true });
+  }
   return out;
 }
 
