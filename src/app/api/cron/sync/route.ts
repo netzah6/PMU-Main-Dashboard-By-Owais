@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { syncAllSheets } from "@/lib/sync";
 import { syncPayments } from "@/lib/payments";
 import { refreshOffers } from "@/lib/offers";
+import { trackVersionChanges } from "@/lib/version-track";
 
 export const maxDuration = 300; // Vercel: allow up to 5 min for full sync
 
@@ -21,6 +22,9 @@ export async function GET(req: NextRequest) {
   const payments = await syncPayments();
   const results = await syncAllSheets();
   const offers = await refreshOffers();
+  // After the master mirror is fresh: auto-log any V3/V2.3 switches into the
+  // Activity & Changes Log (shows in the log + pins 📌 on the timeline).
+  const versionChanges = await trackVersionChanges();
 
   const errors = results.filter((r) => r.status === "error");
   const totalSynced = results.reduce((s, r) => s + r.supabaseRowsAfter, 0);
@@ -31,6 +35,7 @@ export async function GET(req: NextRequest) {
     results,
     payments,
     offers,
+    versionChanges,
     errors: errors.length,
   });
 }
