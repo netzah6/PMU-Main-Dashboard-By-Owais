@@ -387,8 +387,73 @@ export default function CostPerDepositPage() {
             </tbody>
           </table>
         </div>
+        <EmojiLegend />
         </>
       )}
+    </div>
+  );
+}
+
+// Bottom-of-page cheat sheet: what every emoji on this tab means.
+function EmojiLegend() {
+  const groups: { title: string; items: { e: string; t: string }[] }[] = [
+    {
+      title: "Lead status (in the client dropdown)",
+      items: [
+        { e: "✅", t: "Confirmed deposit (paid)" },
+        { e: "🤖", t: "AI chat → booked, deposit pending" },
+        { e: "📋", t: "Funnel → booked, deposit pending, no AI yet" },
+        { e: "🔥", t: "Got an offer in chat, didn't book" },
+        { e: "🟡", t: "AI active, no offer made yet" },
+        { e: "🔴", t: "AI turned off, lead stalled" },
+        { e: "⚪", t: "Signed up, nothing started" },
+      ],
+    },
+    {
+      title: "Price signals (on a lead)",
+      items: [
+        { e: "🔇", t: "Silent after offer — saw the price, stopped replying" },
+        { e: "💸", t: "Said it's too expensive" },
+      ],
+    },
+    {
+      title: "Client-row flags (in the table)",
+      items: [
+        { e: "🏷️", t: "GHL connected but leads missing the (v3) tag — fix the tag workflow" },
+        { e: "📡", t: "No GHL data ingested for this client yet" },
+        { e: "🟢", t: "Colored dot = Funnel Health score (only in Funnel Health sort)" },
+      ],
+    },
+    {
+      title: "Inside the analysis boxes",
+      items: [
+        { e: "🪜", t: "Lead funnel: 🆕 new → 📅 booked → 💬 engaged → 💰 paid" },
+        { e: "🚨", t: "Booking rate below the 35% healthy target (✓ = at/above)" },
+        { e: "⚠", t: "Biggest leak — the step losing the most leads" },
+        { e: "📋/🤖", t: "Where bookings come from: funnel vs AI chat" },
+        { e: "📌", t: "Timeline pin = a change logged in the Activity log" },
+        { e: "✨", t: "AI recommendation based on the last 14 days" },
+      ],
+    },
+  ];
+  return (
+    <div className="rounded-[14px] border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-2">🧭 What the emojis mean</div>
+      <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-4">
+        {groups.map((g) => (
+          <div key={g.title}>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8] mb-1">{g.title}</div>
+            <ul className="space-y-0.5">
+              {g.items.map((it) => (
+                <li key={it.e + it.t} className="flex items-start gap-1.5 text-[11px] text-[#34568a] leading-snug">
+                  <span className="shrink-0 w-7 text-center">{it.e}</span>
+                  <span>{it.t}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
