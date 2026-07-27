@@ -21,6 +21,7 @@ const TABS: Tab[] = [
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "💎 LTV", href: "/ltv", adminOnly: true }, // admins only
   { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
+  { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true }, // Square disputes + evidence prep — admins only
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true }, // pay-per-show tracking — admins only
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🕵️ Activity", href: "/activity", adminOnly: true }, // team-member change log
