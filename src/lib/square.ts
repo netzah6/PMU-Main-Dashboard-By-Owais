@@ -152,6 +152,87 @@ export async function getCustomers(ids: string[]): Promise<Map<string, SquareCus
   return map;
 }
 
+// ── Disputes (chargebacks) ───────────────────────────────────────────────────
+export type SquareDispute = {
+  id: string;
+  state: string;            // e.g. EVIDENCE_REQUIRED, PROCESSING, WON, LOST, ACCEPTED
+  reason: string;           // e.g. NOT_AS_DESCRIBED, NO_KNOWLEDGE, PRODUCT_NOT_RECEIVED
+  amountCents: number;
+  currency: string;
+  dueAt: string | null;     // evidence deadline
+  reportedAt: string | null;
+  cardBrand: string | null;
+  paymentId: string | null;
+};
+
+export async function listDisputes(): Promise<SquareDispute[]> {
+  const out: SquareDispute[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const url = new URL(`${BASE}/v2/disputes`);
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const r = await fetch(url.toString(), { headers: headers() });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Square disputes ${r.status}: ${text.slice(0, 300)}`);
+    }
+    const j = (await r.json()) as { disputes?: Array<Record<string, unknown>>; cursor?: string };
+    for (const d of j.disputes ?? []) {
+      const amt = d.amount_money as { amount?: number; currency?: string } | undefined;
+      const pay = d.disputed_payment as { payment_id?: string } | undefined;
+      out.push({
+        id: String(d.id ?? d.dispute_id ?? ""),
+        state: String(d.state ?? ""),
+        reason: String(d.reason ?? ""),
+        amountCents: amt?.amount ?? 0,
+        currency: amt?.currency ?? "USD",
+        dueAt: (d.due_at as string) ?? null,
+        reportedAt: (d.reported_at as string) ?? (d.reported_date as string) ?? null,
+        cardBrand: (d.card_brand as string) ?? null,
+        paymentId: pay?.payment_id ?? null,
+      });
+    }
+    cursor = j.cursor;
+    if (!cursor) break;
+  }
+  return out;
+}
+
+export type SquarePayment = {
+  id: string;
+  createdAt: string | null;
+  receiptNumber: string | null;
+  amountCents: number;
+  customerId: string | null;
+  buyerEmail: string | null;
+  cardLast4: string | null;
+  note: string | null;
+};
+
+export async function getPayment(id: string): Promise<SquarePayment | null> {
+  try {
+    const r = await fetch(`${BASE}/v2/payments/${id}`, { headers: headers() });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { payment?: Record<string, unknown> };
+    const p = j.payment;
+    if (!p) return null;
+    const amt = p.amount_money as { amount?: number } | undefined;
+    const card = (p.card_details as { card?: { last_4?: string } } | undefined)?.card;
+    return {
+      id: String(p.id),
+      createdAt: (p.created_at as string) ?? null,
+      receiptNumber: (p.receipt_number as string) ?? null,
+      amountCents: amt?.amount ?? 0,
+      customerId: (p.customer_id as string) ?? null,
+      buyerEmail: (p.buyer_email_address as string) ?? null,
+      cardLast4: card?.last_4 ?? null,
+      note: (p.note as string) ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export type SquarePlan = { id: string; name: string; cadence: string; priceCents: number | null };
 
 // Amount actually billed on each invoice (in cents), keyed by invoice id.
