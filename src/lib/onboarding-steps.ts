@@ -58,6 +58,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "cal_location", section: "Calendar", label: "Meeting location: full address", auto: true },
   { key: "cal_availability", section: "Calendar", label: "My Staff → User Availability → choose calendar" },
   { key: "cal_lookbusy", section: "Calendar", label: "Booking rules → Look Busy 75%", auto: true },
+  { key: "cal_id_cv", section: "Calendar", label: "Custom value \"CC - … Calendar ID🔵\" holds the calendar's ID (not a link)", auto: true },
 
   // ── Make.com ──
   { key: "make_http", section: "Make.com", label: "Fanbasis_Make.com_GHL scenario → duplicate HTTP + paste the GHL webhook", loom: "https://www.loom.com/share/898c1fece6b64942af27f3de2f7b8187", auto: true },
