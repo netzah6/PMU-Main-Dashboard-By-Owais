@@ -395,16 +395,18 @@ export default function PerformancePage() {
   );
 }
 
-// Mobile card for one performance row (key metrics + tap to expand activity).
+// Mobile card for one performance row — carries EVERY data point the desktop
+// table shows (all lead/CPL/spend windows always visible; status, services,
+// sessions & strategy in the card too), so nothing is missing on a phone.
 function PerfCard({ r, open, onToggle, onChanged }: { r: PerfRow; open: boolean; onToggle: () => void; onChanged: () => void }) {
   const booking = num(r.booking_pct);
   const bookingPctVal = booking == null ? null : booking < 1 ? booking * 100 : booking;
-  const cpl30 = num(r.cpl30);
+  const cpl30 = num(r.cpl30), cpl14 = num(r.cpl14), cpl7 = num(r.cpl7);
   const paused = String(r.client_status ?? "").toLowerCase() === "paused";
   const chip = (label: string, val: string | number, tone?: { bg: string; fg: string }) => (
-    <div className="rounded-lg px-2 py-1.5 text-center" style={tone ? { background: tone.bg, color: tone.fg } : { background: "#f1f5f9", color: "#1f3559" }}>
-      <div className="text-[9px] font-bold uppercase tracking-wide opacity-70">{label}</div>
-      <div className="text-sm font-bold">{val}</div>
+    <div className="rounded-lg px-1.5 py-1.5 text-center" style={tone ? { background: tone.bg, color: tone.fg } : { background: "#f1f5f9", color: "#1f3559" }}>
+      <div className="text-[9px] font-bold uppercase tracking-wide opacity-70 whitespace-nowrap">{label}</div>
+      <div className="text-sm font-bold whitespace-nowrap">{val}</div>
     </div>
   );
   return (
@@ -415,17 +417,38 @@ function PerfCard({ r, open, onToggle, onChanged }: { r: PerfRow; open: boolean;
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-bold text-[#1f3559]">{r.owner_name || "—"}</span>
             {paused && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
+            {r.campaign_status && (
+              <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border", statusTone(r.campaign_status))}>{shortStatus(r.campaign_status)}</span>
+            )}
           </div>
           <div className="text-xs text-[#697a91] truncate">{r.business_name || r.ad_account_name || "—"}</div>
         </div>
       </button>
-      <div className="px-3 pb-3 grid grid-cols-3 gap-1.5">
-        {chip("Book %", bookingPctVal == null ? "—" : `${bookingPctVal.toFixed(0)}%`, bookingPctVal == null ? undefined : bookingFill(bookingPctVal))}
-        {chip("L 30", r.l30, leadCellTone(r.l30, 86, 65, paused))}
-        {chip("L 7", r.l7, leadCellTone(r.l7, 22, 17, paused))}
-        {chip("CPL 30", cpl30 == null ? "—" : formatCurrency(cpl30), cplVivid(cpl30))}
-        {chip("Spent", num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—")}
-        {chip("Budget", money0(r.daily_budget))}
+      <div className="px-3 pb-3 space-y-1.5">
+        <div className="grid grid-cols-4 gap-1.5">
+          {chip("L 30", r.l30, leadCellTone(r.l30, 86, 65, paused))}
+          {chip("L 14", r.l14, leadCellTone(r.l14, 43, 33, paused))}
+          {chip("L 7", r.l7, leadCellTone(r.l7, 22, 17, paused))}
+          {chip("L 3", r.l3, leadCellTone(r.l3, 11, 8, paused))}
+          {chip("CPL 30", cpl30 == null ? "—" : formatCurrency(cpl30), cplVivid(cpl30))}
+          {chip("CPL 14", cpl14 == null ? "—" : formatCurrency(cpl14), cplVivid(cpl14))}
+          {chip("CPL 7", cpl7 == null ? "—" : formatCurrency(cpl7), cplVivid(cpl7))}
+          {chip("Book %", bookingPctVal == null ? "—" : `${bookingPctVal.toFixed(0)}%`, bookingPctVal == null ? undefined : bookingFill(bookingPctVal))}
+          {chip("Spent 7", num(r.spent7) == null ? "—" : formatCurrency(num(r.spent7)))}
+          {chip("Spent 14", num(r.spent14) == null ? "—" : formatCurrency(num(r.spent14)))}
+          {chip("Spent all", num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—")}
+          {chip("Budget", money0(r.daily_budget))}
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 text-xs">
+          <div className="rounded-lg bg-[#f7fafc] border border-[#eef3f8] px-2 py-1.5">
+            <div className="text-[9px] font-bold uppercase tracking-wide text-[#8595a8]">Sessions done</div>
+            <div className="font-semibold text-[#1f3559] truncate">{r.sessions_done || "—"}</div>
+          </div>
+          <div className="rounded-lg bg-[#f7fafc] border border-[#eef3f8] px-2 py-1.5">
+            <div className="text-[9px] font-bold uppercase tracking-wide text-[#8595a8]">Last strategy</div>
+            <div className="font-semibold text-[#1f3559] truncate">{r.last_strategy || "—"}</div>
+          </div>
+        </div>
       </div>
       {open && (
         <div className="px-3 pb-3 space-y-3 border-t border-[#eef3f8] pt-3">
@@ -433,6 +456,9 @@ function PerfCard({ r, open, onToggle, onChanged }: { r: PerfRow; open: boolean;
             <span className="text-[#697a91]">Assigned:</span><UserCell name={r.assigned} />
             <span className="text-[#697a91] ml-2">Buyer:</span><UserCell name={r.media_buyer} />
           </div>
+          {r.pmu_services && (
+            <div className="flex items-start gap-2 text-xs"><span className="text-[#697a91] shrink-0">PMU services:</span> <PmuServicesCell value={r.pmu_services} /></div>
+          )}
           <CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={onChanged} />
           <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
         </div>
