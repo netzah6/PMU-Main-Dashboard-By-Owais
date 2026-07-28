@@ -525,6 +525,22 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       const hasAddr = !!loc && isAddr(loc);
       push("cal_location", hasAddr ? "pass" : "fail", hasAddr ? `Meeting location set (${loc})` : loc ? `Meeting location = ${loc} — not the full address` : "No meeting location set");
 
+      // The "…Calendar ID🔵" custom value must hold the PMU Transformation
+      // calendar's actual ID — a pasted booking LINK or an empty value breaks
+      // every workflow that reads it. (Live sweep Jul 2026: 21 accounts had a
+      // link/empty/wrong-calendar value; all fixed, this check keeps it fixed.)
+      const calIdCv = customValues.find((v) => /calendar\s*id/i.test(v.name));
+      if (calIdCv) {
+        const cvVal = String(calIdCv.value ?? "").trim();
+        const cvMatch = cals.find((x) => String(x.id) === cvVal);
+        const pmuCals = cals.filter((x) => /permanent\s*makeup\s*transformation|pmu\s*transformation/i.test(String(x.name ?? "")));
+        const cvExpected = pmuCals.length === 1 ? String(pmuCals[0].id) : "";
+        if (cvMatch) push("cal_id_cv", "pass", `Calendar ID ${cvVal} → "${String(cvMatch.name ?? "calendar")}"`);
+        else if (!cvVal) push("cal_id_cv", "fail", `The custom value is EMPTY${cvExpected ? ` — paste the calendar ID: ${cvExpected}` : ""}`);
+        else if (/^https?:/i.test(cvVal)) push("cal_id_cv", "fail", `The custom value contains a LINK, not a calendar ID${cvExpected ? ` — replace it with: ${cvExpected}` : ""}`);
+        else push("cal_id_cv", "fail", `Value "${cvVal.slice(0, 40)}" doesn't match any calendar on this sub-account${cvExpected ? ` — should be: ${cvExpected}` : ""}`);
+      }
+
       const lb = (c.lookBusyConfig as Record<string, unknown> | undefined) ?? {};
       const lbOn = !!lb.enabled;
       const lbPct = Number(lb.lookBusyPercentage ?? 0);
