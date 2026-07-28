@@ -10,6 +10,7 @@ interface PerfRow {
   client_status: string | null;
   owner_name: string | null;
   ad_account_name: string | null;
+  business_name: string | null;
   assigned: string | null;
   media_buyer: string | null;
   pmu_services: string | null;
@@ -185,7 +186,7 @@ function CampaignsCell({ campaigns, acctKey, onChanged }: { campaigns: PerfRow["
   );
 }
 
-const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Sessions Done", "Last Strategy", "Campaigns"];
+const HEADERS = ["Owner Name", "Business Name", "Daily Budget", "Assigned", "Media Buyer", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Sessions Done", "Last Strategy", "Campaigns"];
 
 export default function PerformancePage() {
   const [rows, setRows] = useState<PerfRow[]>([]);
@@ -228,7 +229,7 @@ export default function PerformancePage() {
       }
       if (search) {
         const q = search.toLowerCase();
-        if (!`${r.owner_name ?? ""} ${r.ad_account_name ?? ""}`.toLowerCase().includes(q)) return false;
+        if (!`${r.owner_name ?? ""} ${r.ad_account_name ?? ""} ${r.business_name ?? ""}`.toLowerCase().includes(q)) return false;
       }
       return true;
     });
@@ -328,7 +329,7 @@ export default function PerformancePage() {
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
                     </td>
                     <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
-                      style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name ?? ""}>{r.ad_account_name || "—"}</td>
+                      style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name && r.ad_account_name !== r.business_name ? `Ad account: ${r.ad_account_name}` : (r.business_name ?? "")}>{r.business_name || r.ad_account_name || "—"}</td>
                     <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
                     <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
                     <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
@@ -415,7 +416,7 @@ function PerfCard({ r, open, onToggle, onChanged }: { r: PerfRow; open: boolean;
             <span className="font-bold text-[#1f3559]">{r.owner_name || "—"}</span>
             {paused && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
           </div>
-          <div className="text-xs text-[#697a91] truncate">{r.ad_account_name || "—"}</div>
+          <div className="text-xs text-[#697a91] truncate">{r.business_name || r.ad_account_name || "—"}</div>
         </div>
       </button>
       <div className="px-3 pb-3 grid grid-cols-3 gap-1.5">
