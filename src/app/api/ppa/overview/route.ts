@@ -34,12 +34,22 @@ export async function GET(req: NextRequest) {
   await warmStageMap(locations, refresh);
   if (refresh) { await ingestAppointments(); await svc.rpc("refresh_ppa_facts"); }
 
-  const [sumRes, depRes, cfgRes, chgRes] = await Promise.all([
+  const [sumRes, depRes, cfgRes, chgRes, refRes] = await Promise.all([
     svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("owner_key, charged, amount").in("owner_key", ownerKeys),
+    svc.from("deposit_refunds").select("business, email, contact_name").eq("status", "refunded"),
   ]);
+
+  // Executed refunds per business (normalized) — a refunded deposit is not
+  // billable, so it's surfaced as its own bucket on the row.
+  const refNorm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const refundsByBiz = new Map<string, number>();
+  for (const r of (refRes.data ?? []) as Array<{ business: string | null }>) {
+    const k = refNorm(String(r.business ?? ""));
+    if (k) refundsByBiz.set(k, (refundsByBiz.get(k) ?? 0) + 1);
+  }
 
   const sumBy = new Map<string, SummaryRow>();
   for (const r of (sumRes.data ?? []) as SummaryRow[]) sumBy.set(r.owner_key, r);
@@ -92,6 +102,7 @@ export async function GET(req: NextRequest) {
       showed,
       noShowMarked,
       excludedCount: s?.excluded_count ?? 0,
+      refundedCount: refundsByBiz.get(c.bizNorm) ?? 0,
       showRate: reviewed > 0 ? Math.round((showed / reviewed) * 100) : null,
     };
   });

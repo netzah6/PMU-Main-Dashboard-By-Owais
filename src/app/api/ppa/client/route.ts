@@ -37,12 +37,24 @@ export async function GET(req: NextRequest) {
   if (!client) return NextResponse.json({ error: "not a V3 client" }, { status: 404 });
 
   const svc = createServiceClient();
-  const [depRes, chgRes, billRes, cfgRes] = await Promise.all([
+  const [depRes, chgRes, billRes, cfgRes, refRes] = await Promise.all([
     svc.from("ppa_deposit_rows").select("*").eq("biz_norm", client.bizNorm),
     svc.from("ppa_charges").select("*").eq("owner_key", ownerKey),
     svc.from("ppa_deposit_billing").select("*").eq("owner_key", ownerKey),
     svc.from("ppa_config").select("*").eq("owner_key", ownerKey).maybeSingle(),
+    svc.from("deposit_refunds").select("business, contact_name, email, decided_at").eq("status", "refunded"),
   ]);
+
+  // Executed refunds for THIS business, matched by email (fallback: name).
+  const bizNorm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const refunds = ((refRes.data ?? []) as Array<{ business: string | null; contact_name: string | null; email: string | null; decided_at: string | null }>)
+    .filter((r) => bizNorm(String(r.business ?? "")) === client.bizNorm);
+  const refundByEmail = new Map<string, string | null>();
+  const refundByName = new Map<string, string | null>();
+  for (const r of refunds) {
+    if (r.email) refundByEmail.set(r.email.toLowerCase().trim(), r.decided_at);
+    if (r.contact_name) refundByName.set(r.contact_name.toLowerCase().trim(), r.decided_at);
+  }
 
   const chgBy = new Map<string, ChargeRow>();
   for (const r of (chgRes.data ?? []) as ChargeRow[]) chgBy.set(r.appt_id, r);
@@ -52,7 +64,7 @@ export async function GET(req: NextRequest) {
   // showedCount / noShowCount are the review decisions that measure show rate:
   // a charged appointment = the client showed; an exclude with reason "no_show"
   // = they didn't. Other exclude reasons void the row without affecting the rate.
-  const summary = { deposits: 0, served: 0, pastDue: 0, upcoming: 0, noshow: 0, noAppt: 0, readyToCharge: 0, excluded: 0, showed: 0, noShowMarked: 0, showRate: null as number | null };
+  const summary = { deposits: 0, served: 0, pastDue: 0, upcoming: 0, noshow: 0, noAppt: 0, readyToCharge: 0, excluded: 0, refunded: 0, showed: 0, noShowMarked: 0, showRate: null as number | null };
   const appointments = ((depRes.data ?? []) as DepRow[]).map((d) => {
     const c = chgBy.get(d.appt_id);
     const b = billBy.get(d.appt_id);
@@ -60,6 +72,10 @@ export async function GET(req: NextRequest) {
     const charged = c?.charged ?? false;
     const excluded = c?.excluded ?? false;
     const excludeReason = c?.exclude_reason ?? null;
+    // A refunded deposit is never billable — the client gave the money back.
+    const refundedAt = (d.email && refundByEmail.get(d.email.toLowerCase().trim())) ||
+      (d.contact_name && refundByName.get(d.contact_name.toLowerCase().trim())) || null;
+    const refunded = refundedAt !== null || refundedAt === "";
     summary.deposits++;
     if (chargeStatus === "served") summary.served++;
     else if (chargeStatus === "past_due") summary.pastDue++;
@@ -67,10 +83,11 @@ export async function GET(req: NextRequest) {
     else if (chargeStatus === "noshow") summary.noshow++;
     else summary.noAppt++;
     if (excluded) summary.excluded++;
+    if (refunded) summary.refunded++;
     if (charged) summary.showed++;
     else if (excluded && excludeReason === "no_show") summary.noShowMarked++;
     // Ready = a past appointment we haven't reviewed yet (not charged, not excluded).
-    if (!charged && !excluded && (chargeStatus === "served" || chargeStatus === "past_due")) summary.readyToCharge++;
+    if (!charged && !excluded && !refunded && (chargeStatus === "served" || chargeStatus === "past_due")) summary.readyToCharge++;
     return {
       apptId: d.appt_id,
       contactName: d.contact_name,
@@ -87,6 +104,8 @@ export async function GET(req: NextRequest) {
       charged,
       excluded,
       excludeReason,
+      refunded,
+      refundedAt: refundedAt || null,
       chargedAmount: c?.amount ?? null,
       chargedAt: c?.charged_at ?? null,
       chargedBy: c?.charged_by ?? null,
@@ -98,7 +117,7 @@ export async function GET(req: NextRequest) {
   // Ready-to-review first, then upcoming, then the rest; charged/excluded sink
   // to the bottom. Newest deposit within a group.
   const rank: Record<string, number> = { served: 0, past_due: 1, upcoming: 2, no_appt: 3, noshow: 4 };
-  const order = (a: (typeof appointments)[number]) => (a.charged ? 9 : a.excluded ? 8 : (rank[a.chargeStatus] ?? 5));
+  const order = (a: (typeof appointments)[number]) => (a.charged ? 9 : a.excluded || a.refunded ? 8 : (rank[a.chargeStatus] ?? 5));
   appointments.sort((a, b) => {
     const ca = order(a), cb = order(b);
     if (ca !== cb) return ca - cb;
