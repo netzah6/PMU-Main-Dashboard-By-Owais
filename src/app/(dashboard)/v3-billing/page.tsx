@@ -311,6 +311,16 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
           {c.noAppt > 0 && <Metric label="No appt" value={c.noAppt} sub="not booked" tone="amber" />}
           {c.excludedCount > 0 && <Metric label="Test/excl" value={c.excludedCount} sub="not billed" tone="gray" />}
           {(c.refundedCount ?? 0) > 0 && <Metric label="Refunded" value={c.refundedCount!} sub="deposit returned" tone="gray" />}
+          {/* Right-edge pointer: this client has shows waiting to be charged. */}
+          {c.readyToCharge > 0 && (
+            <span className="flex items-center gap-1.5 pl-1.5 border-l-2 border-[#fcd9a8]" title={`${c.readyToCharge} appointment${c.readyToCharge === 1 ? "" : "s"} waiting for your charge decision`}>
+              <span className="text-xl animate-pulse">👈</span>
+              <span className="text-left leading-tight">
+                <span className="block text-[10px] font-bold uppercase tracking-wide text-[#d97706]">Charge</span>
+                <span className="block text-[11px] font-bold text-[#b45309]">{money(c.readyOwed)}</span>
+              </span>
+            </span>
+          )}
         </div>
       </div>
 
