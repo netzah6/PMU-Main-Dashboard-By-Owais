@@ -10,7 +10,7 @@ interface ClientRow {
   deposits: number; depositTotal: number;
   served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number;
   readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number;
-  showed: number; noShowMarked: number; excludedCount: number; showRate: number | null;
+  showed: number; noShowMarked: number; excludedCount: number; refundedCount?: number; showRate: number | null;
 }
 interface Appt {
   apptId: string; contactName: string | null; email: string | null; depositDate: string | null;
@@ -19,10 +19,11 @@ interface Appt {
   chargeStatus: string; charged: boolean; chargedAmount: number | null; chargedAt: string | null;
   chargedBy: string | null; chargeNote: string | null;
   excluded: boolean; excludeReason: string | null;
+  refunded?: boolean; refundedAt?: string | null;
 }
 interface Drill {
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
-  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; readyToCharge: number; excluded: number; showed: number; noShowMarked: number; showRate: number | null };
+  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; readyToCharge: number; excluded: number; refunded?: number; showed: number; noShowMarked: number; showRate: number | null };
   appointments: Appt[];
 }
 
@@ -45,7 +46,7 @@ const CS: Record<string, { label: string; cls: string }> = {
   noshow:   { label: "No-show",      cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]" },
   no_appt:  { label: "No appt",      cls: "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]" },
 };
-const isReady = (a: Appt) => !a.charged && !a.excluded && (a.chargeStatus === "served" || a.chargeStatus === "past_due");
+const isReady = (a: Appt) => !a.charged && !a.excluded && !a.refunded && (a.chargeStatus === "served" || a.chargeStatus === "past_due");
 
 function money(n: number): string {
   return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });
@@ -136,6 +137,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
           <span className="font-normal text-[#64748b]"> ({s.showed} showed / {s.noShowMarked} no-show)</span>
         </span>
         {s.excluded > 0 && <Pill label="Excluded" value={s.excluded} tone="gray" />}
+        {(s.refunded ?? 0) > 0 && <Pill label="Refunded" value={s.refunded!} tone="amber" />}
       </div>
       {/* Deposit-linked snapshot */}
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -178,7 +180,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                 const b = busy.has(a.apptId);
                 return (
                   <tr key={a.apptId} className={cn("border-b border-[#eef3f8]",
-                    a.excluded ? "bg-[#f6f7f9] text-[#94a3b8]" : a.charged ? "bg-[#f2fbf9]" : ready ? "bg-[#fffdf5]" : i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
+                    a.excluded || a.refunded ? "bg-[#f6f7f9] text-[#94a3b8]" : a.charged ? "bg-[#f2fbf9]" : ready ? "bg-[#fffdf5]" : i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
                     <td className="px-2.5 py-1.5">
                       <div className={cn("font-medium", a.excluded ? "text-[#94a3b8] line-through" : "text-[#1f3559]")}>{a.contactName || "—"}</div>
                       {a.email && <div className="text-[10px] text-[#8595a8]">{a.email}</div>}
@@ -202,6 +204,9 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                             {b ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={12} />}
                           </button>
                         </div>
+                      ) : (
+                        a.refunded && !a.charged ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-[#fff1f2] text-[#be123c] border-[#fecdd3] whitespace-nowrap">↩ Refunded — not billable</span>
                       ) : (
                         <div className="flex items-center gap-1.5">
                           <button onClick={() => toggleCharge(a, !a.charged)} disabled={b}
@@ -229,7 +234,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                             </div>
                           )}
                         </div>
-                      )}
+                      ))}
                       {a.charged && a.chargedBy && <div className="text-[9px] text-[#a6b3c4] mt-0.5">by {a.chargedBy}</div>}
                     </td>
                   </tr>
@@ -301,6 +306,11 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
           <Metric label="Upcoming" value={c.upcoming} tone="gray" />
           <Metric label="Ready" value={c.readyToCharge} sub={money(c.readyOwed)} tone={c.readyToCharge > 0 ? "amber" : "gray"} />
           <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
+          {/* The buckets that used to be invisible — without them the row's
+              numbers don't add up to Deposits (18 = 4+4+6+2 no-appt+2 test). */}
+          {c.noAppt > 0 && <Metric label="No appt" value={c.noAppt} sub="not booked" tone="amber" />}
+          {c.excludedCount > 0 && <Metric label="Test/excl" value={c.excludedCount} sub="not billed" tone="gray" />}
+          {(c.refundedCount ?? 0) > 0 && <Metric label="Refunded" value={c.refundedCount!} sub="deposit returned" tone="gray" />}
         </div>
       </div>
 
