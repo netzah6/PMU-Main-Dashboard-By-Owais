@@ -24,6 +24,7 @@ const TABS: Tab[] = [
   { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true }, // Square disputes + evidence prep — admins only
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true }, // pay-per-show tracking — admins only
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
+  { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "🕵️ Activity", href: "/activity", adminOnly: true }, // team-member change log
   { label: "🗺️ Map", href: "/map" },
   { label: "🤖 AI", href: "/ask" },
