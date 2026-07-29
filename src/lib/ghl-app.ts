@@ -11,7 +11,9 @@ const LOCATION_TOKEN_URL = "https://services.leadconnectorhq.com/oauth/locationT
 // scopes in the GHL developer portal.
 export const APP_SCOPES = [
   "contacts.readonly",
+  "contacts.write", // Cleanup tab — delete contacts when wiping an offboarded sub-account
   "conversations.readonly",
+  "conversations.write", // Cleanup tab — delete conversations when wiping an offboarded sub-account
   "conversations/message.readonly",
   "opportunities.readonly",
   "calendars.readonly",
