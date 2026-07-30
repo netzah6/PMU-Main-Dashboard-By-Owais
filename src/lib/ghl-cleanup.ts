@@ -241,7 +241,9 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
     out.users = { found: 0, deleted: 0, failed: 0, error: e instanceof Error ? e.message : "failed" };
   }
 
-  // Pipelines (opportunities) — needs the opportunities.write scope.
+  // Pipelines (opportunities) — the DELETE endpoint exists but GHL rejects it
+  // even with opportunities.write granted (verified live), so expect the
+  // attempt to fail and surface the manual path instead of a cryptic 401.
   try {
     const j = await getJson(`${GHL}/opportunities/pipelines?locationId=${locationId}`, locHeaders(tok));
     const items = (j.pipelines as Array<{ id?: string }>) ?? [];
@@ -250,6 +252,9 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
       const r = await del(`${GHL}/opportunities/pipelines/${it.id}`, locHeaders(tok));
       if (r.ok) step.deleted++; else { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
       await sleep(60);
+    }
+    if (step.failed > 0 && step.deleted === 0) {
+      step.error = "GHL doesn't allow pipeline deletion via API — delete it in Settings → Opportunities & Pipelines (or ask Claude to do it in the browser)";
     }
     out.pipelines = step;
   } catch (e) {
