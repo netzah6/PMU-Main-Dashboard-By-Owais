@@ -76,6 +76,7 @@ export type CleanupCounts = {
   users: number;
   workflows: number;
   conversations: number;
+  pipelines: number;
 };
 
 export type InspectResult = {
@@ -98,7 +99,7 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
   if (!lt.token) throw new Error(lt.error ?? "could not mint location token");
   const tok = lt.token;
 
-  const [locDetail, contacts, cvs, cfs, cals, users, workflows, convos] = await Promise.all([
+  const [locDetail, contacts, cvs, cfs, cals, users, workflows, convos, pipelines] = await Promise.all([
     getJson(`${GHL}/locations/${locationId}`, locHeaders(tok)),
     getJson(`${GHL}/contacts/?locationId=${locationId}&limit=1`, locHeaders(tok)),
     getJson(`${GHL}/locations/${locationId}/customValues`, locHeaders(tok)),
@@ -107,6 +108,7 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
     getJson(`${GHL}/users/?locationId=${locationId}`, locHeaders(tok)),
     getJson(`${GHL}/workflows/?locationId=${locationId}`, locHeaders(tok)).catch(() => ({ workflows: [] })),
     getJson(`${GHL}/conversations/search?locationId=${locationId}&limit=1`, locHeaders(tok, V_CONVO)).catch(() => ({ total: 0 })),
+    getJson(`${GHL}/opportunities/pipelines?locationId=${locationId}`, locHeaders(tok)).catch(() => ({ pipelines: [] })),
   ]);
 
   const name = String((locDetail.location as { name?: string } | undefined)?.name ?? "").trim();
@@ -121,6 +123,7 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
       users: ((users.users as unknown[]) ?? []).length,
       workflows: ((workflows.workflows as unknown[]) ?? []).length,
       conversations: Number(convos.total ?? 0),
+      pipelines: ((pipelines.pipelines as unknown[]) ?? []).length,
     },
     protected: isProtectedLocation(locationId),
     isPool: POOL_NAME_RE.test(name),
@@ -236,6 +239,21 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
     out.users = step;
   } catch (e) {
     out.users = { found: 0, deleted: 0, failed: 0, error: e instanceof Error ? e.message : "failed" };
+  }
+
+  // Pipelines (opportunities) — needs the opportunities.write scope.
+  try {
+    const j = await getJson(`${GHL}/opportunities/pipelines?locationId=${locationId}`, locHeaders(tok));
+    const items = (j.pipelines as Array<{ id?: string }>) ?? [];
+    const step: StepResult = { found: items.length, deleted: 0, failed: 0 };
+    for (const it of items) {
+      const r = await del(`${GHL}/opportunities/pipelines/${it.id}`, locHeaders(tok));
+      if (r.ok) step.deleted++; else { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
+      await sleep(60);
+    }
+    out.pipelines = step;
+  } catch (e) {
+    out.pipelines = { found: 0, deleted: 0, failed: 0, error: e instanceof Error ? e.message : "failed" };
   }
 
   // Conversations — whatever the search API returns (GMB-review threads are
