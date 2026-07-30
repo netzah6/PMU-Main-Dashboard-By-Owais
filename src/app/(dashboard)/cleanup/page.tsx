@@ -241,7 +241,7 @@ export default function CleanupPage() {
               ))}
               <p className="text-[11px] text-[#9aa8bc] pt-1">
                 Google-review threads are invisible to the API — if the GHL Conversations &quot;All&quot; tab still shows
-                old reviews, ask Claude to clear them in the browser. Same for automations.
+                old reviews, ask Claude to clear them in the browser. Same for automations and pipelines.
               </p>
             </div>
           )}
