@@ -23,29 +23,42 @@
   if (window.__pmuLeadFired) return; // never double-fire, even if loaded twice
 
   // Once our Lead is out, silently swallow any later Lead fired by GHL's own
-  // lazy tracking config so each page view counts exactly one Lead.
+  // delayed tracking (~10s in) so each page view counts exactly one Lead.
+  //
+  // GHL's runtime captures its own PRIVATE reference to the fbq stub before
+  // this script runs, so swapping window.fbq alone can't intercept its calls
+  // (verified live). Every fbq invocation, through any reference, routes via
+  // the stub object's .callMethod once fbevents.js is active — so the filter
+  // is patched onto callMethod itself, on the original object AND window.fbq,
+  // re-checked for 30s in case fbevents (re)attaches it later.
+  function isLeadCall(args) {
+    if (String(args[0]).indexOf("track") !== 0) return false; // track / trackSingle / trackCustom…
+    for (var i = 1; i < args.length; i++) if (args[i] === "Lead") return true;
+    return false;
+  }
+
   function installLeadFilter() {
-    var prev = window.fbq;
-    if (!prev || prev.__pmuFiltered) return;
-    var w = function () {
-      // Drop Lead in every calling style GHL uses: ("track","Lead"),
-      // ("trackSingle","<pixelId>","Lead"), etc. — anything track-ish with
-      // "Lead" among its arguments.
-      if (String(arguments[0]).indexOf("track") === 0) {
-        for (var i = 1; i < arguments.length; i++) {
-          if (arguments[i] === "Lead") return;
-        }
+    var orig = window.fbq;
+    if (!orig) return;
+    function patch(target) {
+      if (target && target.callMethod && !target.callMethod.__pmuFiltered) {
+        var real = target.callMethod;
+        var filtered = function () {
+          if (isLeadCall(arguments)) return;
+          return real.apply(this, arguments);
+        };
+        filtered.__pmuFiltered = true;
+        target.callMethod = filtered;
       }
-      return w.callMethod ? w.callMethod.apply(w, arguments) : w.queue.push(arguments);
-    };
-    w.__pmuFiltered = true;
-    w.callMethod = prev.callMethod; // present once fbevents.js has loaded
-    w.queue = prev.queue || [];
-    w.push = w;
-    w.loaded = true;
-    w.version = prev.version || "2.0";
-    window.fbq = w;
-    window._fbq = w;
+    }
+    patch(orig);
+    patch(window.fbq);
+    var tries = 0;
+    var timer = setInterval(function () {
+      patch(orig);
+      patch(window.fbq);
+      if (++tries > 100) clearInterval(timer);
+    }, 300);
   }
 
   function send() {
