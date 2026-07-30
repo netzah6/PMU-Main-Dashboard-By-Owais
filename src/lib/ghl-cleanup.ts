@@ -135,9 +135,13 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
 export type StepResult = { found: number; deleted: number; failed: number; error?: string };
 export type CleanResult = Record<string, StepResult>;
 
-async function del(url: string, headers: Record<string, string>): Promise<{ ok: boolean; status: number; body: string }> {
+async function del(url: string, headers: Record<string, string>): Promise<{ ok: boolean; gone: boolean; status: number; body: string }> {
   const r = await fetch(url, { method: "DELETE", headers });
-  return { ok: r.ok, status: r.status, body: r.ok ? "" : (await r.text()).slice(0, 120) };
+  const body = r.ok ? "" : (await r.text()).slice(0, 120);
+  // 400/404 on DELETE = the item is already gone (pagination race with an
+  // earlier pass, or a stale id in GHL's listing) — that's success, not failure.
+  const gone = !r.ok && (r.status === 400 || r.status === 404);
+  return { ok: r.ok, gone, status: r.status, body };
 }
 
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
@@ -161,14 +165,16 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
       const page = await getJson(`${GHL}/contacts/?locationId=${locationId}&limit=100`, locHeaders(tok));
       const batch = (page.contacts as Array<{ id?: string }>) ?? [];
       if (batch.length === 0) break;
+      let pageDeleted = 0;
       for (const c of batch) {
         const r = await del(`${GHL}/contacts/${c.id}`, locHeaders(tok));
-        if (r.ok) step.deleted++;
-        else { step.failed++; if (!firstError) firstError = `HTTP ${r.status}: ${r.body}`; }
+        if (r.ok) { step.deleted++; pageDeleted++; }
+        else if (!r.gone) { step.failed++; if (!firstError) firstError = `HTTP ${r.status}: ${r.body}`; }
         await sleep(60);
       }
-      // Every delete in a full page failed (e.g. missing contacts.write) — stop looping.
-      if (batch.length === step.failed && step.deleted === 0) break;
+      // No successful delete in a whole page — either missing scope (401s) or
+      // the listing is stale (all already gone). Either way, stop looping.
+      if (pageDeleted === 0) break;
     }
     if (firstError) step.error = firstError;
     out.contacts = step;
@@ -183,7 +189,7 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
     const step: StepResult = { found: items.length, deleted: 0, failed: 0 };
     for (const it of items) {
       const r = await del(`${GHL}/locations/${locationId}/customValues/${it.id}`, locHeaders(tok));
-      if (r.ok) step.deleted++; else { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
+      if (r.ok) step.deleted++; else if (!r.gone) { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
       await sleep(60);
     }
     out.customValues = step;
@@ -198,7 +204,7 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
     const step: StepResult = { found: items.length, deleted: 0, failed: 0 };
     for (const it of items) {
       const r = await del(`${GHL}/locations/${locationId}/customFields/${it.id}`, locHeaders(tok));
-      if (r.ok) step.deleted++; else { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
+      if (r.ok) step.deleted++; else if (!r.gone) { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
       await sleep(60);
     }
     out.customFields = step;
@@ -213,7 +219,7 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
     const step: StepResult = { found: items.length, deleted: 0, failed: 0 };
     for (const it of items) {
       const r = await del(`${GHL}/calendars/${it.id}`, locHeaders(tok, V_CONVO));
-      if (r.ok) step.deleted++; else { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
+      if (r.ok) step.deleted++; else if (!r.gone) { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
       await sleep(60);
     }
     out.calendars = step;
@@ -233,7 +239,7 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
     const step: StepResult = { found: onlyHere.length, deleted: 0, failed: 0 };
     for (const u of onlyHere) {
       const r = await del(`${GHL}/users/${u.id}`, locHeaders(tok));
-      if (r.ok) step.deleted++; else { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
+      if (r.ok) step.deleted++; else if (!r.gone) { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
       await sleep(60);
     }
     out.users = step;
@@ -250,7 +256,7 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
     const step: StepResult = { found: items.length, deleted: 0, failed: 0 };
     for (const it of items) {
       const r = await del(`${GHL}/opportunities/pipelines/${it.id}`, locHeaders(tok));
-      if (r.ok) step.deleted++; else { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
+      if (r.ok) step.deleted++; else if (!r.gone) { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
       await sleep(60);
     }
     if (step.failed > 0 && step.deleted === 0) {
@@ -270,13 +276,14 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
       const items = (j.conversations as Array<{ id?: string }>) ?? [];
       if (round === 0) step.found = Number(j.total ?? items.length);
       if (items.length === 0) break;
-      let pageFails = 0;
+      let pageDeleted = 0;
       for (const c of items) {
         const r = await del(`${GHL}/conversations/${c.id}`, locHeaders(tok, V_CONVO));
-        if (r.ok) step.deleted++; else { step.failed++; pageFails++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
+        if (r.ok) { step.deleted++; pageDeleted++; }
+        else if (!r.gone) { step.failed++; if (!step.error) step.error = `HTTP ${r.status}: ${r.body}`; }
         await sleep(60);
       }
-      if (pageFails === items.length) break;
+      if (pageDeleted === 0) break;
     }
     out.conversations = step;
   } catch (e) {
