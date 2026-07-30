@@ -16,6 +16,7 @@ export const APP_SCOPES = [
   "conversations.write", // Cleanup tab — delete conversations when wiping an offboarded sub-account
   "conversations/message.readonly",
   "opportunities.readonly",
+  "opportunities.write", // Cleanup tab — delete pipelines when wiping an offboarded sub-account
   "calendars.readonly",
   "calendars.write",
   "locations.readonly",

@@ -115,9 +115,9 @@ export async function POST(req: NextRequest) {
     if (body.action === "finalize") {
       // Only rename an account that has been cleaned (or is verifiably empty).
       const inspect = await inspectLocation(locationId);
-      const dirty = inspect.counts.contacts + inspect.counts.customFields + inspect.counts.customValues + inspect.counts.calendars;
+      const dirty = inspect.counts.contacts + inspect.counts.customFields + inspect.counts.customValues + inspect.counts.calendars + inspect.counts.pipelines;
       if (dirty > 0) {
-        return NextResponse.json({ error: `Account still has data (${inspect.counts.contacts} contacts, ${inspect.counts.customFields} fields, ${inspect.counts.customValues} values, ${inspect.counts.calendars} calendars) — clean it first.` }, { status: 400 });
+        return NextResponse.json({ error: `Account still has data (${inspect.counts.contacts} contacts, ${inspect.counts.customFields} fields, ${inspect.counts.customValues} values, ${inspect.counts.calendars} calendars, ${inspect.counts.pipelines} pipelines) — clean it first.` }, { status: 400 });
       }
       const client = await matchClient(inspect.name);
       const { oldName, poolName } = await renameToPool(locationId);

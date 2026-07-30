@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 // client's status in Clients Master from Paused → Offboarded. Admin only.
 
 type Candidate = { id: string; name: string };
-type Counts = { contacts: number; customValues: number; customFields: number; calendars: number; users: number; workflows: number; conversations: number };
+type Counts = { contacts: number; customValues: number; customFields: number; calendars: number; users: number; workflows: number; conversations: number; pipelines: number };
 type Inspect = { id: string; name: string; counts: Counts; protected: boolean; isPool: boolean };
 type SheetClient = { business: string; owner: string; status: string; rowNumber: number } | null;
 type StepResult = { found: number; deleted: number; failed: number; error?: string };
@@ -22,6 +22,7 @@ const COUNT_LABELS: Array<{ key: keyof Counts; label: string }> = [
   { key: "calendars", label: "Calendars" },
   { key: "users", label: "Users (this account only)" },
   { key: "conversations", label: "Conversations" },
+  { key: "pipelines", label: "Pipelines" },
   { key: "workflows", label: "Automations" },
 ];
 
@@ -31,6 +32,7 @@ const STEP_LABELS: Record<string, string> = {
   customFields: "Custom fields",
   calendars: "Calendars",
   users: "Users",
+  pipelines: "Pipelines",
   conversations: "Conversations",
 };
 
