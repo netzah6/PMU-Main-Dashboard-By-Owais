@@ -61,9 +61,41 @@
     }, 300);
   }
 
+  // Last line of defense: GHL's delayed tracker (~10s) can send the Lead
+  // beacon as a DIRECT facebook.com/tr image — never touching fbq at all
+  // (verified live; the callMethod filter alone didn't stop it). All Meta
+  // browser events leave as <img> requests, so guard the img src setter:
+  // the FIRST Lead beacon of the page view (ours) passes, duplicates are
+  // swallowed before the request is ever made. Other events untouched.
+  function installBeaconGuard() {
+    if (window.__pmuBeaconGuard) return;
+    window.__pmuBeaconGuard = true;
+    try {
+      var desc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
+      if (!desc || !desc.set || !desc.get) return;
+      var leadBeacons = 0;
+      Object.defineProperty(HTMLImageElement.prototype, "src", {
+        configurable: true,
+        enumerable: desc.enumerable,
+        get: desc.get,
+        set: function (v) {
+          try {
+            var u = String(v);
+            if (u.indexOf("facebook.com/tr") !== -1 && /[?&]ev=Lead(&|$)/.test(u)) {
+              leadBeacons++;
+              if (leadBeacons > 1) return; // duplicate Lead — drop before it sends
+            }
+          } catch (e) { /* never break image loading */ }
+          return desc.set.call(this, v);
+        },
+      });
+    } catch (e) { /* prototype locked down — nothing we can do */ }
+  }
+
   function send() {
     if (!window.__pmuLeadFired && window.fbq) {
       window.__pmuLeadFired = true;
+      installBeaconGuard(); // before our own fire — ours is beacon #1, later dupes drop
       window.fbq("track", "Lead");
       installLeadFilter();
     }
