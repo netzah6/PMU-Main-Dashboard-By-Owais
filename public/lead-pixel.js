@@ -1,5 +1,5 @@
 // Fires the Facebook "Lead" conversion event IMMEDIATELY on page load, exactly
-// once. Loaded by funnel booking pages via a Custom Code element:
+// once. Loaded by funnel booking/thank-you pages via a Custom Code element:
 //   <script src="https://pmu-main-dashboard-by-owais1.vercel.app/lead-pixel.js" async></script>
 // GHL custom-code elements never execute INLINE scripts (and sanitize onerror
 // handlers), but they do load external ones — which is why this file exists.
@@ -12,13 +12,40 @@
 // ignores repeat inits of the same pixel ID), and PageView still comes from
 // GHL's code as usual. No hardcoded pixel ID — works for every client and
 // clones with the funnel template.
+//
+// DEDUPE: pages whose GHL tracking settings ALSO fire a Lead (~10s in) would
+// otherwise double-count — Meta Pixel Helper shows "Lead ×2". After our early
+// Lead fires, window.fbq is swapped for a same-shape wrapper that drops any
+// further ("track", "Lead") calls on this page view and passes everything else
+// (init, PageView, customs) straight through. fbevents.js treats the wrapper
+// exactly like the standard stub, whether it loads before or after the swap.
 (function () {
   if (window.__pmuLeadFired) return; // never double-fire, even if loaded twice
+
+  // Once our Lead is out, silently swallow any later Lead fired by GHL's own
+  // lazy tracking config so each page view counts exactly one Lead.
+  function installLeadFilter() {
+    var prev = window.fbq;
+    if (!prev || prev.__pmuFiltered) return;
+    var w = function () {
+      if (arguments[0] === "track" && arguments[1] === "Lead") return;
+      return w.callMethod ? w.callMethod.apply(w, arguments) : w.queue.push(arguments);
+    };
+    w.__pmuFiltered = true;
+    w.callMethod = prev.callMethod; // present once fbevents.js has loaded
+    w.queue = prev.queue || [];
+    w.push = w;
+    w.loaded = true;
+    w.version = prev.version || "2.0";
+    window.fbq = w;
+    window._fbq = w;
+  }
 
   function send() {
     if (!window.__pmuLeadFired && window.fbq) {
       window.__pmuLeadFired = true;
       window.fbq("track", "Lead");
+      installLeadFilter();
     }
   }
 
