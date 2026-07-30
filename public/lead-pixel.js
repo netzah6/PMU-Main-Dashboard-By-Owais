@@ -28,7 +28,14 @@
     var prev = window.fbq;
     if (!prev || prev.__pmuFiltered) return;
     var w = function () {
-      if (arguments[0] === "track" && arguments[1] === "Lead") return;
+      // Drop Lead in every calling style GHL uses: ("track","Lead"),
+      // ("trackSingle","<pixelId>","Lead"), etc. — anything track-ish with
+      // "Lead" among its arguments.
+      if (String(arguments[0]).indexOf("track") === 0) {
+        for (var i = 1; i < arguments.length; i++) {
+          if (arguments[i] === "Lead") return;
+        }
+      }
       return w.callMethod ? w.callMethod.apply(w, arguments) : w.queue.push(arguments);
     };
     w.__pmuFiltered = true;
