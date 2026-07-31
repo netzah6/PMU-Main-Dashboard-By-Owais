@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import {
-  searchLocations, inspectLocation, cleanLocation, renameToPool, isProtectedLocation, syncPool,
+  searchLocations, inspectLocation, cleanLocation, renameToPool, isProtectedLocation, syncPool, setPoolA2p,
 } from "@/lib/ghl-cleanup";
 import { readSheetValues, writeRowToSheet, rowsToObjects } from "@/lib/sheets";
 
@@ -81,7 +81,16 @@ export async function POST(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = (await req.json().catch(() => ({}))) as { action?: string; locationId?: string; confirmName?: string };
+  const body = (await req.json().catch(() => ({}))) as { action?: string; locationId?: string; locationIds?: string[]; confirmName?: string; a2p?: string };
+
+  // A2P marking — accepts one id or a batch, and never touches GHL itself.
+  if (body.action === "a2p") {
+    const ids = body.locationIds?.length ? body.locationIds : body.locationId ? [body.locationId] : [];
+    if (!ids.length) return NextResponse.json({ error: "locationId(s) required" }, { status: 400 });
+    for (const id of ids) await setPoolA2p(id, String(body.a2p ?? "pending"), auth.email);
+    return NextResponse.json({ updated: ids.length, a2p: body.a2p });
+  }
+
   const locationId = String(body.locationId ?? "");
   if (!locationId) return NextResponse.json({ error: "locationId required" }, { status: 400 });
   if (isProtectedLocation(locationId)) return NextResponse.json({ error: "This location is protected and can never be cleaned." }, { status: 400 });
