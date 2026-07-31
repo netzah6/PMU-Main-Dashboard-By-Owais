@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import {
-  searchLocations, inspectLocation, cleanLocation, renameToPool, isProtectedLocation,
+  searchLocations, inspectLocation, cleanLocation, renameToPool, isProtectedLocation, syncPool,
 } from "@/lib/ghl-cleanup";
 import { readSheetValues, writeRowToSheet, rowsToObjects } from "@/lib/sheets";
 
@@ -53,6 +53,9 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams;
   try {
+    if (sp.get("pool")) {
+      return NextResponse.json(await syncPool());
+    }
     if (sp.get("history")) {
       const svc = createServiceClient();
       const { data } = await svc.from("cleanup_log").select("*").order("cleaned_at", { ascending: false }).limit(50);
@@ -151,6 +154,7 @@ export async function POST(req: NextRequest) {
         cleaned_by: auth.email,
       }, { onConflict: "location_id" }); // steps column not in payload → prior clean results are kept
 
+      await syncPool().catch(() => {}); // record the new pool account right away
       return NextResponse.json({ oldName, poolName, sheetChange });
     }
 
