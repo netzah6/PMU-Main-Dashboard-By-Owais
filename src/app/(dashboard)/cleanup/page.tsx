@@ -177,8 +177,13 @@ export default function CleanupPage() {
     }
     return { counts: counts!, steps };
   };
+  // Everything that must reach zero before an account may join the pool.
+  // Automations count: GHL exposes no delete for them (workflows.readonly is
+  // the only scope, and their screen is an iframe that ignores automation), so
+  // they're cleared by hand — but a pool account with live workflows isn't
+  // clean, so pooling stays blocked until they're gone.
   const blockersOf = (c?: Counts) =>
-    !c ? 1 : c.contacts + c.customValues + c.customFields + c.calendars + c.users + c.conversations + c.pipelines + (c.funnels > 0 ? c.funnels : 0);
+    !c ? 1 : c.contacts + c.customValues + c.customFields + c.calendars + c.users + c.conversations + c.pipelines + c.workflows + (c.funnels > 0 ? c.funnels : 0);
 
   // Look each typed name up and pull its counts, so nothing is wiped before
   // you can see what it is and whether it's safe to touch.
@@ -453,9 +458,16 @@ export default function CleanupPage() {
                         left === 0
                           ? <span className="text-xs text-[#15803d]">wiped ✓ ready to pool</span>
                           : <span className="text-xs text-[#d97706]">
-                              wiped — still needs GHL UI: {r.counts!.pipelines > 0 ? `${r.counts!.pipelines} pipeline ` : ""}
-                              {r.counts!.workflows > 0 ? `${r.counts!.workflows} automations ` : ""}
-                              {r.counts!.funnels !== 0 ? "funnels" : ""}
+                              wiped — blocked from pool by: {r.counts!.pipelines > 0 ? `${r.counts!.pipelines} pipeline ` : ""}
+                              {r.counts!.funnels > 0 ? `${r.counts!.funnels} funnels ` : ""}
+                              {r.counts!.workflows > 0 && (
+                                <a
+                                  href={`https://app.gohighlevel.com/v2/location/${r.id}/automation/workflows`}
+                                  target="_blank" rel="noopener noreferrer" className="underline font-semibold"
+                                >
+                                  {r.counts!.workflows} automations ↗
+                                </a>
+                              )}
                             </span>
                       )}
                       {r.state === "done" && <span className="text-xs text-[#15803d]">→ {r.poolName} ✓</span>}
@@ -576,8 +588,17 @@ export default function CleanupPage() {
               <p className="font-semibold">⚠ GHL&apos;s API can&apos;t delete these — they need the GHL UI:</p>
               {inspect.counts.workflows > 0 && (
                 <p>
-                  • <b>{inspect.counts.workflows} automation{inspect.counts.workflows > 1 ? "s" : ""}</b> — Automation tab:
-                  select all folders → Delete → type &quot;Delete&quot;, then select all workflows → Delete again.
+                  • <b>{inspect.counts.workflows} automation{inspect.counts.workflows > 1 ? "s" : ""}</b> —{" "}
+                  <a
+                    href={`https://app.gohighlevel.com/v2/location/${inspect.id}/automation/workflows`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="underline font-semibold hover:text-[#b45309]"
+                  >
+                    open this account&apos;s Workflows ↗
+                  </a>{" "}
+                  — select all folders → Delete → type &quot;Delete&quot;, then select all remaining workflows → Delete
+                  again. <b>Pooling stays blocked until this reaches 0</b> (GHL exposes no API for automations, and
+                  their screen refuses browser automation, so this one is by hand).
                 </p>
               )}
               {inspect.counts.funnels !== 0 && (

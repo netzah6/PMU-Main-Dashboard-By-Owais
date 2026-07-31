@@ -130,9 +130,24 @@ export async function POST(req: NextRequest) {
       // -1 = funnels unreadable (missing scope); unknown can't block pooling,
       // it just stays called out as a manual step in the tab.
       const funnelsBlocking = inspect.counts.funnels > 0 ? inspect.counts.funnels : 0;
-      const dirty = inspect.counts.contacts + inspect.counts.customFields + inspect.counts.customValues + inspect.counts.calendars + inspect.counts.pipelines + funnelsBlocking;
+      // Automations block pooling too. Nothing here can delete them — GHL
+      // publishes no write endpoint (workflows.readonly is the entire API) and
+      // their screen is a cross-origin iframe that ignores synthetic input — so
+      // they're cleared by hand. Blocking here is what keeps "in the pool"
+      // meaning genuinely clean rather than mostly clean.
+      const dirty = inspect.counts.contacts + inspect.counts.customFields + inspect.counts.customValues + inspect.counts.calendars + inspect.counts.pipelines + inspect.counts.workflows + funnelsBlocking;
       if (dirty > 0) {
-        return NextResponse.json({ error: `Account still has data (${inspect.counts.contacts} contacts, ${inspect.counts.customFields} fields, ${inspect.counts.customValues} values, ${inspect.counts.calendars} calendars, ${inspect.counts.pipelines} pipelines, ${funnelsBlocking} funnels) — clean it first.` }, { status: 400 });
+        const parts: Array<[number, string]> = [
+          [inspect.counts.contacts, "contacts"], [inspect.counts.customFields, "custom fields"],
+          [inspect.counts.customValues, "custom values"], [inspect.counts.calendars, "calendars"],
+          [inspect.counts.pipelines, "pipelines"], [funnelsBlocking, "funnels"],
+          [inspect.counts.workflows, "automations"],
+        ];
+        const listed = parts.filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`).join(", ");
+        const hint = inspect.counts.workflows > 0
+          ? ` Automations are deleted by hand in GHL: Automation → Workflows → select all folders → Delete → type "Delete", then select all remaining workflows → Delete again.`
+          : "";
+        return NextResponse.json({ error: `Account still has ${listed} — clean it first.${hint}` }, { status: 400 });
       }
       const client = await matchClient(inspect.name);
       const { oldName, poolName } = await renameToPool(locationId);
