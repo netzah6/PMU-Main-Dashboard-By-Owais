@@ -315,12 +315,14 @@ export default function CleanupPage() {
             {COUNT_LABELS.map(({ key, label }) => (
               <div key={key} className={cn("rounded-lg border p-2.5 text-center",
                 inspect.counts[key] > 0 ? "border-[#fcd9a8] bg-[#fff7ec]" : "border-[#e2e8f0] bg-[#f8fafc]")}>
-                <div className="text-lg font-bold text-[#1e2b3d]">{inspect.counts[key]}</div>
+                <div className="text-lg font-bold text-[#1e2b3d]">
+                  {inspect.counts[key] < 0 ? "?" : inspect.counts[key]}
+                </div>
                 <div className="text-[10px] text-[#697a91] leading-tight">{label}</div>
               </div>
             ))}
           </div>
-          {(inspect.counts.workflows > 0 || inspect.counts.funnels > 0) && (
+          {(inspect.counts.workflows > 0 || inspect.counts.funnels !== 0) && (
             <div className="text-xs text-[#d97706] space-y-1">
               <p className="font-semibold">⚠ GHL&apos;s API can&apos;t delete these — they need the GHL UI:</p>
               {inspect.counts.workflows > 0 && (
@@ -329,10 +331,14 @@ export default function CleanupPage() {
                   select all folders → Delete → type &quot;Delete&quot;, then select all workflows → Delete again.
                 </p>
               )}
-              {inspect.counts.funnels > 0 && (
+              {inspect.counts.funnels !== 0 && (
                 <p>
-                  • <b>{inspect.counts.funnels} funnel{inspect.counts.funnels > 1 ? "s" : ""}</b> — Sites → Funnels:
-                  ⋮ on each funnel → Delete. Ask Claude and it can do these in the browser.
+                  • <b>
+                    {inspect.counts.funnels < 0
+                      ? "Funnels (count unavailable)"
+                      : `${inspect.counts.funnels} funnel${inspect.counts.funnels > 1 ? "s" : ""}`}
+                  </b>{" "}
+                  — Sites → Funnels: ⋮ on each funnel → Delete. Ask Claude and it can do these in the browser.
                 </p>
               )}
             </div>
