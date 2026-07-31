@@ -16,6 +16,18 @@ type StepResult = { found: number; deleted: number; failed: number; error?: stri
 type LogRow = { location_id: string; old_name: string; pool_name: string | null; client_business: string | null; sheet_status_change: string | null; cleaned_at: string; cleaned_by: string | null };
 type PoolRow = { location_id: string; pool_name: string; status: string; used_as: string | null; used_at: string | null; a2p: string };
 
+// One line of the bulk list, from the typed name through to its final result.
+type BulkRow = {
+  typed: string;
+  id?: string;
+  name?: string;
+  sheetStatus?: string;
+  counts?: Counts;
+  state: "resolving" | "ready" | "skip" | "cleaning" | "cleaned" | "finalizing" | "done" | "error";
+  note?: string;
+  poolName?: string;
+};
+
 const COUNT_LABELS: Array<{ key: keyof Counts; label: string }> = [
   { key: "contacts", label: "Contacts" },
   { key: "customValues", label: "Custom values" },
@@ -56,6 +68,12 @@ export default function CleanupPage() {
   const [pool, setPool] = useState<{ available: PoolRow[]; used: PoolRow[] } | null>(null);
   const [poolLoading, setPoolLoading] = useState(false);
   const [a2pSaving, setA2pSaving] = useState<string | null>(null);
+  // Bulk mode — paste a list of sub-account names, wipe them one after another.
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkRows, setBulkRows] = useState<BulkRow[] | null>(null);
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+  const [bulkConfirm, setBulkConfirm] = useState("");
 
   useEffect(() => {
     if (role !== "admin") return;
@@ -101,6 +119,97 @@ export default function CleanupPage() {
     }
     setA2pSaving(null);
   };
+
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const blockersOf = (c?: Counts) =>
+    !c ? 1 : c.contacts + c.customValues + c.customFields + c.calendars + c.users + c.conversations + c.pipelines + (c.funnels > 0 ? c.funnels : 0);
+
+  // Look each typed name up and pull its counts, so nothing is wiped before
+  // you can see what it is and whether it's safe to touch.
+  const resolveBulk = async () => {
+    const names = bulkText.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (!names.length) return;
+    setBulkRows(names.map((typed) => ({ typed, state: "resolving" as const })));
+    setBulkConfirm("");
+    for (let i = 0; i < names.length; i++) {
+      const typed = names[i];
+      try {
+        const s = await fetch(`/api/cleanup?q=${encodeURIComponent(typed)}`).then((r) => r.json());
+        const cands: Candidate[] = s.candidates ?? [];
+        const hit = cands.find((c) => norm(c.name) === norm(typed)) ?? cands[0];
+        if (!hit) {
+          setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "error", note: "no sub-account with that name" } : r)));
+          continue;
+        }
+        const j = await fetch(`/api/cleanup?locationId=${hit.id}`).then((r) => r.json());
+        const counts: Counts = j.inspect.counts;
+        const sheetStatus: string = j.client?.status ?? "";
+        const live = sheetStatus.trim().toLowerCase() === "live";
+        setBulkRows((prev) =>
+          prev!.map((r, idx) =>
+            idx === i
+              ? {
+                  ...r, id: hit.id, name: j.inspect.name, counts, sheetStatus,
+                  state: j.inspect.protected ? "skip" : j.inspect.isPool ? "skip" : live ? "skip" : "ready",
+                  note: j.inspect.protected ? "protected account" : j.inspect.isPool ? "already in the pool" : live ? "client is LIVE" : undefined,
+                }
+              : r
+          )
+        );
+      } catch (e) {
+        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "error", note: e instanceof Error ? e.message : "lookup failed" } : r)));
+      }
+    }
+  };
+
+  // Wipe one account at a time — each gets its own request, so a big account
+  // can't eat the whole batch's time budget.
+  const runBulkClean = async () => {
+    if (!bulkRows) return;
+    setBulkBusy("clean");
+    for (let i = 0; i < bulkRows.length; i++) {
+      const row = bulkRows[i];
+      if (row.state !== "ready" || !row.id) continue;
+      setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "cleaning" } : r)));
+      try {
+        const res = await fetch("/api/cleanup", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "clean", locationId: row.id, confirmName: row.name }),
+        }).then((r) => r.json());
+        if (res.error) throw new Error(res.error);
+        const j = await fetch(`/api/cleanup?locationId=${row.id}`).then((r) => r.json());
+        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "cleaned", counts: j.inspect.counts } : r)));
+      } catch (e) {
+        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "error", note: e instanceof Error ? e.message : "clean failed" } : r)));
+      }
+    }
+    setBulkBusy(null);
+  };
+
+  const runBulkFinalize = async () => {
+    if (!bulkRows) return;
+    setBulkBusy("finalize");
+    for (let i = 0; i < bulkRows.length; i++) {
+      const row = bulkRows[i];
+      if (row.state !== "cleaned" || !row.id || blockersOf(row.counts) > 0) continue;
+      setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "finalizing" } : r)));
+      try {
+        const res = await fetch("/api/cleanup", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "finalize", locationId: row.id }),
+        }).then((r) => r.json());
+        if (res.error) throw new Error(res.error);
+        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "done", poolName: res.poolName, note: res.sheetChange } : r)));
+      } catch (e) {
+        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "error", note: e instanceof Error ? e.message : "finalize failed" } : r)));
+      }
+    }
+    setBulkBusy(null);
+    setFinalized({ oldName: "", poolName: "", sheetChange: "" }); // refresh pool + history
+  };
+
+  const readyCount = bulkRows?.filter((r) => r.state === "ready").length ?? 0;
+  const finalizableCount = bulkRows?.filter((r) => r.state === "cleaned" && blockersOf(r.counts) === 0).length ?? 0;
 
   if (roleLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-[#15B7AE]" /></div>;
   if (role !== "admin") return <div className="p-8 text-sm text-[#697a91]">Admins only.</div>;
@@ -238,6 +347,87 @@ export default function CleanupPage() {
               ))}
             </div>
           </details>
+        )}
+      </div>
+
+      {/* Bulk cleanup */}
+      <div className="rounded-xl border border-[#e2e8f0] bg-white">
+        <button onClick={() => setBulkOpen((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-[#1e2b3d]">
+          <span>📋 Clean several accounts at once</span>
+          <span className="text-xs text-[#697a91]">{bulkOpen ? "hide" : "show"}</span>
+        </button>
+
+        {bulkOpen && (
+          <div className="px-4 pb-4 space-y-3">
+            <p className="text-xs text-[#697a91]">
+              One sub-account name per line. Each is looked up and shown with what&apos;s inside before anything is deleted —
+              LIVE clients, pool accounts and the protected account are skipped automatically.
+            </p>
+            <textarea
+              value={bulkText} onChange={(e) => setBulkText(e.target.value)} rows={4}
+              placeholder={"Business name 1\nBusiness name 2\nBusiness name 3"}
+              className="w-full px-3 py-2 rounded-lg border border-[#e2e8f0] text-sm font-mono focus:outline-none focus:border-[#15B7AE]"
+            />
+            <button onClick={resolveBulk} disabled={!bulkText.trim() || !!bulkBusy}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[#15B7AE] text-white hover:bg-[#0e8f88] disabled:opacity-50">
+              <Search size={14} /> Look them up
+            </button>
+
+            {bulkRows && (
+              <div className="rounded-lg border border-[#e2e8f0] divide-y divide-[#f1f5f9]">
+                {bulkRows.map((r, i) => {
+                  const left = r.counts ? blockersOf(r.counts) : null;
+                  return (
+                    <div key={i} className="px-3 py-2 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-medium text-[#1e2b3d]">{r.name ?? r.typed}</span>
+                      {r.state === "resolving" && <Loader2 size={13} className="animate-spin text-[#9aa8bc]" />}
+                      {r.state === "cleaning" && <span className="text-xs text-[#d97706] inline-flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> wiping…</span>}
+                      {r.state === "finalizing" && <span className="text-xs text-[#d97706] inline-flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> finalizing…</span>}
+                      {r.state === "ready" && r.counts && (
+                        <span className="text-xs text-[#697a91]">
+                          {r.counts.contacts} contacts · {r.counts.workflows} automations · {r.counts.pipelines} pipelines
+                          {r.sheetStatus ? ` · sheet: ${r.sheetStatus}` : ""}
+                        </span>
+                      )}
+                      {r.state === "cleaned" && (
+                        left === 0
+                          ? <span className="text-xs text-[#15803d]">wiped ✓ ready to pool</span>
+                          : <span className="text-xs text-[#d97706]">
+                              wiped — still needs GHL UI: {r.counts!.pipelines > 0 ? `${r.counts!.pipelines} pipeline ` : ""}
+                              {r.counts!.workflows > 0 ? `${r.counts!.workflows} automations ` : ""}
+                              {r.counts!.funnels !== 0 ? "funnels" : ""}
+                            </span>
+                      )}
+                      {r.state === "done" && <span className="text-xs text-[#15803d]">→ {r.poolName} ✓</span>}
+                      {r.state === "skip" && <span className="text-xs text-[#9aa8bc]">skipped — {r.note}</span>}
+                      {r.state === "error" && <span className="text-xs text-[#e11d48]">{r.note}</span>}
+                      {r.state === "done" && r.note && <span className="w-full text-[11px] text-[#697a91]">{r.note}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {readyCount > 0 && !bulkBusy && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <span className="text-xs text-[#697a91]">Type <b>CLEAN</b> to wipe {readyCount} account{readyCount > 1 ? "s" : ""}:</span>
+                <input value={bulkConfirm} onChange={(e) => setBulkConfirm(e.target.value)} placeholder="CLEAN"
+                  className="px-3 py-1.5 w-28 rounded-lg border border-[#e2e8f0] text-sm focus:outline-none focus:border-[#e11d48]" />
+                <button onClick={runBulkClean} disabled={bulkConfirm.trim().toUpperCase() !== "CLEAN"}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold bg-[#e11d48] text-white hover:bg-[#be123c] disabled:opacity-40">
+                  <Trash2 size={14} /> Clean {readyCount}
+                </button>
+              </div>
+            )}
+
+            {finalizableCount > 0 && !bulkBusy && (
+              <button onClick={runBulkFinalize}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-[#15B7AE] text-white hover:bg-[#0e8f88]">
+                <Sparkles size={14} /> Rename {finalizableCount} to pool + mark Offboarded
+              </button>
+            )}
+          </div>
         )}
       </div>
 
