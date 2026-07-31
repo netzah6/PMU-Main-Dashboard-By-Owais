@@ -61,6 +61,7 @@ export default function CleanupPage() {
   const [inspecting, setInspecting] = useState(false);
   const [confirmName, setConfirmName] = useState("");
   const [cleaning, setCleaning] = useState(false);
+  const [cleanNote, setCleanNote] = useState<string | null>(null);
   const [steps, setSteps] = useState<Record<string, StepResult> | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [finalized, setFinalized] = useState<{ oldName: string; poolName: string; sheetChange: string } | null>(null);
@@ -122,6 +123,60 @@ export default function CleanupPage() {
   };
 
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  // A wipe with hundreds of contacts can outrun the serverless time limit; the
+  // platform then answers with an error page instead of JSON. That's a pause,
+  // not a failure — everything deleted so far stays deleted — so treat it as
+  // "resume needed" rather than surfacing a JSON parse error.
+  const cleanOnce = async (
+    locationId: string,
+    confirmName: string
+  ): Promise<{ timedOut: boolean; error?: string; steps?: Record<string, StepResult> }> => {
+    try {
+      const r = await fetch("/api/cleanup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clean", locationId, confirmName }),
+      });
+      const text = await r.text();
+      try {
+        const j = JSON.parse(text);
+        return { timedOut: false, error: j.error, steps: j.steps };
+      } catch {
+        return { timedOut: true };
+      }
+    } catch {
+      return { timedOut: true };
+    }
+  };
+
+  const apiWipeLeft = (c: Counts) =>
+    c.contacts + c.customValues + c.customFields + c.calendars + c.users + c.conversations;
+
+  // Keep passing over an account until the API-deletable side is empty or a
+  // pass stops making progress.
+  const cleanUntilDone = async (
+    locationId: string,
+    confirmName: string,
+    onPass?: (pass: number, left: number) => void
+  ): Promise<{ counts: Counts; steps?: Record<string, StepResult>; error?: string }> => {
+    const countsNow = async () =>
+      (await fetch(`/api/cleanup?locationId=${locationId}`).then((r) => r.json())).inspect.counts as Counts;
+    let last = Infinity;
+    let counts: Counts | null = null;
+    let steps: Record<string, StepResult> | undefined;
+    for (let pass = 1; pass <= 8; pass++) {
+      const res = await cleanOnce(locationId, confirmName);
+      if (res.error) return { counts: counts ?? (await countsNow()), steps, error: res.error };
+      if (res.steps) steps = res.steps;
+      counts = await countsNow();
+      const left = apiWipeLeft(counts);
+      onPass?.(pass, left);
+      if (left === 0) break;
+      if (left >= last) break; // a pass that changed nothing won't be helped by another
+      last = left;
+    }
+    return { counts: counts!, steps };
+  };
   const blockersOf = (c?: Counts) =>
     !c ? 1 : c.contacts + c.customValues + c.customFields + c.calendars + c.users + c.conversations + c.pipelines + (c.funnels > 0 ? c.funnels : 0);
 
@@ -172,15 +227,15 @@ export default function CleanupPage() {
     for (let i = 0; i < bulkRows.length; i++) {
       const row = bulkRows[i];
       if (row.state !== "ready" || !row.id) continue;
-      setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "cleaning" } : r)));
+      setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "cleaning", note: undefined } : r)));
       try {
-        const res = await fetch("/api/cleanup", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "clean", locationId: row.id, confirmName: row.name }),
-        }).then((r) => r.json());
-        if (res.error) throw new Error(res.error);
-        const j = await fetch(`/api/cleanup?locationId=${row.id}`).then((r) => r.json());
-        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "cleaned", counts: j.inspect.counts } : r)));
+        const { counts, error } = await cleanUntilDone(row.id, row.name!, (pass, left) =>
+          setBulkRows((prev) =>
+            prev!.map((r, idx) => (idx === i ? { ...r, note: left > 0 ? `pass ${pass} — ${left} left, resuming…` : undefined } : r))
+          )
+        );
+        if (error) throw new Error(error);
+        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "cleaned", counts, note: undefined } : r)));
       } catch (e) {
         setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "error", note: e instanceof Error ? e.message : "clean failed" } : r)));
       }
@@ -238,14 +293,15 @@ export default function CleanupPage() {
 
   const doClean = async () => {
     if (!inspect) return;
-    setCleaning(true); setError(null);
+    setCleaning(true); setError(null); setCleanNote(null);
     try {
-      const j = await fetch("/api/cleanup", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clean", locationId: inspect.id, confirmName }),
-      }).then((r) => r.json());
-      if (j.error) throw new Error(j.error);
-      setSteps(j.steps);
+      const { counts, steps: s, error: err } = await cleanUntilDone(inspect.id, confirmName, (pass, left) =>
+        setCleanNote(left > 0 ? `Pass ${pass} done — ${left} records left, resuming…` : null)
+      );
+      if (err) throw new Error(err);
+      setCleanNote(null);
+      setSteps(s ?? null);
+      setInspect({ ...inspect, counts });
     } catch (e) { setError(e instanceof Error ? e.message : "clean failed"); }
     setCleaning(false);
   };
@@ -552,6 +608,11 @@ export default function CleanupPage() {
                   {cleaning ? "Cleaning…" : "Clean sub-account"}
                 </button>
               </div>
+              {cleanNote && (
+                <p className="text-xs text-[#697a91] flex items-center gap-1.5">
+                  <Loader2 size={12} className="animate-spin" /> {cleanNote}
+                </p>
+              )}
             </div>
           )}
 
