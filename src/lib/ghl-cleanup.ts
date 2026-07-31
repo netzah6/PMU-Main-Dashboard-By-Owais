@@ -1,5 +1,6 @@
 import { getAppAgencyToken, getAppLocationToken } from "@/lib/ghl-app";
 import { POOL_NAME_RE, discoverPool } from "@/lib/ghl-claim";
+import { createServiceClient } from "@/lib/supabase/server";
 
 // Sub-account cleanup: wipe an offboarded client's location (contacts, custom
 // values, custom fields, calendars, location-only users, conversations) so it
@@ -303,6 +304,76 @@ export async function nextPoolName(): Promise<string> {
     if (m) max = Math.max(max, Number(m[1]));
   }
   return `Clean New Account ${max + 1}`;
+}
+
+// ── Pool inventory ──────────────────────────────────────────────────────────
+// Every "Clean New Account N" is recorded once. A recorded account whose GHL
+// name no longer matches the pool pattern was claimed for a client setup, so
+// it flips to `used` with the name it became — that's how the available count
+// stays honest without anyone updating a list by hand.
+
+export type PoolRow = {
+  location_id: string;
+  pool_name: string;
+  status: string;
+  used_as: string | null;
+  used_at: string | null;
+  first_seen_at: string;
+};
+
+export async function syncPool(): Promise<{ available: PoolRow[]; used: PoolRow[] }> {
+  const svc = createServiceClient();
+  const live = await listAllLocations();
+  const nameById = new Map(live.map((l) => [l.id, l.name]));
+  const now = new Date().toISOString();
+
+  // Anything currently named like a pool account is available (and newly
+  // pooled accounts get inserted here the first time they're seen).
+  const currentPool = live.filter((l) => POOL_NAME_RE.test(l.name));
+  if (currentPool.length) {
+    await svc.from("pool_accounts").upsert(
+      currentPool.map((l) => ({
+        location_id: l.id,
+        pool_name: l.name,
+        status: "available",
+        used_as: null,
+        used_at: null,
+        last_checked_at: now,
+      })),
+      { onConflict: "location_id" }
+    );
+  }
+
+  // Recorded-but-renamed = claimed for a setup.
+  const { data: recorded } = await svc.from("pool_accounts").select("*");
+  for (const row of (recorded ?? []) as PoolRow[]) {
+    const liveName = nameById.get(row.location_id);
+    const stillPool = liveName ? POOL_NAME_RE.test(liveName) : false;
+    if (!stillPool && row.status !== "used") {
+      await svc
+        .from("pool_accounts")
+        .update({
+          status: "used",
+          used_as: liveName ?? "(removed from GHL)",
+          used_at: now,
+          last_checked_at: now,
+        })
+        .eq("location_id", row.location_id);
+    }
+  }
+
+  const { data: fresh } = await svc
+    .from("pool_accounts")
+    .select("*")
+    .order("pool_name", { ascending: true });
+  const rows = (fresh ?? []) as PoolRow[];
+  const numOf = (n: string) => Number((n.match(/(\d+)\s*$/) ?? [])[1] ?? 0);
+  return {
+    available: rows.filter((r) => r.status === "available").sort((a, b) => numOf(a.pool_name) - numOf(b.pool_name)),
+    used: rows
+      .filter((r) => r.status === "used")
+      .sort((a, b) => String(b.used_at ?? "").localeCompare(String(a.used_at ?? ""))),
+  };
 }
 
 export async function renameToPool(locationId: string): Promise<{ oldName: string; poolName: string }> {

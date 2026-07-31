@@ -14,6 +14,7 @@ type Inspect = { id: string; name: string; counts: Counts; protected: boolean; i
 type SheetClient = { business: string; owner: string; status: string; rowNumber: number } | null;
 type StepResult = { found: number; deleted: number; failed: number; error?: string };
 type LogRow = { location_id: string; old_name: string; pool_name: string | null; client_business: string | null; sheet_status_change: string | null; cleaned_at: string; cleaned_by: string | null };
+type PoolRow = { location_id: string; pool_name: string; status: string; used_as: string | null; used_at: string | null };
 
 const COUNT_LABELS: Array<{ key: keyof Counts; label: string }> = [
   { key: "contacts", label: "Contacts" },
@@ -51,11 +52,25 @@ export default function CleanupPage() {
   const [finalized, setFinalized] = useState<{ oldName: string; poolName: string; sheetChange: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<LogRow[]>([]);
+  const [pool, setPool] = useState<{ available: PoolRow[]; used: PoolRow[] } | null>(null);
+  const [poolLoading, setPoolLoading] = useState(false);
 
   useEffect(() => {
     if (role !== "admin") return;
     fetch("/api/cleanup?history=1").then((r) => r.json()).then((j) => setHistory(j.history ?? [])).catch(() => {});
   }, [role, finalized, steps]);
+
+  // Pool inventory — re-synced on load and after each finalize, so a clean
+  // account claimed for a setup drops out of "available" on its own.
+  useEffect(() => {
+    if (role !== "admin") return;
+    setPoolLoading(true);
+    fetch("/api/cleanup?pool=1")
+      .then((r) => r.json())
+      .then((j) => setPool({ available: j.available ?? [], used: j.used ?? [] }))
+      .catch(() => {})
+      .finally(() => setPoolLoading(false));
+  }, [role, finalized]);
 
   if (roleLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-[#15B7AE]" /></div>;
   if (role !== "admin") return <div className="p-8 text-sm text-[#697a91]">Admins only.</div>;
@@ -120,6 +135,60 @@ export default function CleanupPage() {
           Wipe an offboarded client&apos;s sub-account, rename it into the <b>Clean New Account</b> pool
           (A2P approval carries over) and mark the client <b>Offboarded</b> in Clients Master.
         </p>
+      </div>
+
+      {/* Pool inventory */}
+      <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-[#15B7AE]">
+              {poolLoading && !pool ? "…" : (pool?.available.length ?? 0)}
+            </span>
+            <span className="text-sm font-semibold text-[#1e2b3d]">clean accounts available</span>
+            {poolLoading && pool && <Loader2 size={12} className="animate-spin text-[#9aa8bc]" />}
+          </div>
+          {pool && pool.used.length > 0 && (
+            <span className="text-xs text-[#697a91]">{pool.used.length} used so far</span>
+          )}
+        </div>
+
+        {pool && pool.available.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {pool.available.map((p) => (
+              <span key={p.location_id}
+                className="px-2 py-1 rounded-md text-[11px] font-medium bg-[#e7f6ec] text-[#15803d] border border-[#bfe3cd]">
+                {p.pool_name}
+              </span>
+            ))}
+          </div>
+        )}
+        {pool && pool.available.length === 0 && !poolLoading && (
+          <p className="text-xs text-[#d97706] mt-2">
+            ⚠ No clean accounts left — clean an offboarded sub-account (below) or pre-provision more from the Onboarding tab.
+          </p>
+        )}
+
+        {pool && pool.used.length > 0 && (
+          <details className="mt-3">
+            <summary className="text-xs text-[#697a91] cursor-pointer select-none">
+              Recently claimed for setups
+            </summary>
+            <div className="mt-2 space-y-1">
+              {pool.used.slice(0, 12).map((p) => (
+                <div key={p.location_id} className="text-xs text-[#697a91] flex flex-wrap gap-x-1.5">
+                  <span className="text-[#9aa8bc] line-through">{p.pool_name}</span>
+                  <span>→</span>
+                  <span className="font-medium text-[#1e2b3d]">{p.used_as}</span>
+                  {p.used_at && (
+                    <span className="text-[#9aa8bc] ml-auto">
+                      {new Date(p.used_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </div>
 
       {/* Search */}
