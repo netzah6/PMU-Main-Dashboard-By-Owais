@@ -22,6 +22,7 @@ type BulkRow = {
   id?: string;
   name?: string;
   sheetStatus?: string;
+  owner?: string; // client's full name from Clients Master
   counts?: Counts;
   state: "resolving" | "ready" | "skip" | "cleaning" | "cleaned" | "finalizing" | "done" | "error";
   note?: string;
@@ -144,12 +145,13 @@ export default function CleanupPage() {
         const j = await fetch(`/api/cleanup?locationId=${hit.id}`).then((r) => r.json());
         const counts: Counts = j.inspect.counts;
         const sheetStatus: string = j.client?.status ?? "";
+        const owner: string = j.client?.owner ?? "";
         const live = sheetStatus.trim().toLowerCase() === "live";
         setBulkRows((prev) =>
           prev!.map((r, idx) =>
             idx === i
               ? {
-                  ...r, id: hit.id, name: j.inspect.name, counts, sheetStatus,
+                  ...r, id: hit.id, name: j.inspect.name, counts, sheetStatus, owner,
                   state: j.inspect.protected ? "skip" : j.inspect.isPool ? "skip" : live ? "skip" : "ready",
                   note: j.inspect.protected ? "protected account" : j.inspect.isPool ? "already in the pool" : live ? "client is LIVE" : undefined,
                 }
@@ -381,6 +383,7 @@ export default function CleanupPage() {
                   return (
                     <div key={i} className="px-3 py-2 text-sm flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="font-medium text-[#1e2b3d]">{r.name ?? r.typed}</span>
+                      {r.owner && <span className="text-xs text-[#697a91]">— {r.owner}</span>}
                       {r.state === "resolving" && <Loader2 size={13} className="animate-spin text-[#9aa8bc]" />}
                       {r.state === "cleaning" && <span className="text-xs text-[#d97706] inline-flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> wiping…</span>}
                       {r.state === "finalizing" && <span className="text-xs text-[#d97706] inline-flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> finalizing…</span>}
