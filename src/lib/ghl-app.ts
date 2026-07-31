@@ -27,6 +27,8 @@ export const APP_SCOPES = [
   "users.readonly",
   "users.write",
   "workflows.readonly",
+  "funnels/funnel.readonly", // Cleanup tab — count funnels so they're never left behind
+  "funnels/page.readonly",
   "snapshots.readonly",
   "oauth.readonly",
   "oauth.write",
