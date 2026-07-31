@@ -14,7 +14,7 @@ type Inspect = { id: string; name: string; counts: Counts; protected: boolean; i
 type SheetClient = { business: string; owner: string; status: string; rowNumber: number } | null;
 type StepResult = { found: number; deleted: number; failed: number; error?: string };
 type LogRow = { location_id: string; old_name: string; pool_name: string | null; client_business: string | null; sheet_status_change: string | null; cleaned_at: string; cleaned_by: string | null };
-type PoolRow = { location_id: string; pool_name: string; status: string; used_as: string | null; used_at: string | null };
+type PoolRow = { location_id: string; pool_name: string; status: string; used_as: string | null; used_at: string | null; a2p: string };
 
 const COUNT_LABELS: Array<{ key: keyof Counts; label: string }> = [
   { key: "contacts", label: "Contacts" },
@@ -54,6 +54,7 @@ export default function CleanupPage() {
   const [history, setHistory] = useState<LogRow[]>([]);
   const [pool, setPool] = useState<{ available: PoolRow[]; used: PoolRow[] } | null>(null);
   const [poolLoading, setPoolLoading] = useState(false);
+  const [a2pSaving, setA2pSaving] = useState<string | null>(null);
 
   useEffect(() => {
     if (role !== "admin") return;
@@ -71,6 +72,34 @@ export default function CleanupPage() {
       .catch(() => {})
       .finally(() => setPoolLoading(false));
   }, [role, finalized]);
+
+  const approvedCount = pool?.available.filter((p) => p.a2p === "approved").length ?? 0;
+  const pendingCount = (pool?.available.length ?? 0) - approvedCount;
+
+  // Optimistic flip so the chip recolors instantly; the row is persisted server-side.
+  const toggleA2p = async (row: PoolRow) => {
+    const next = row.a2p === "approved" ? "pending" : "approved";
+    setA2pSaving(row.location_id);
+    setPool((prev) =>
+      prev
+        ? { ...prev, available: prev.available.map((p) => (p.location_id === row.location_id ? { ...p, a2p: next } : p)) }
+        : prev
+    );
+    try {
+      await fetch("/api/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "a2p", locationId: row.location_id, a2p: next }),
+      });
+    } catch {
+      setPool((prev) =>
+        prev
+          ? { ...prev, available: prev.available.map((p) => (p.location_id === row.location_id ? { ...p, a2p: row.a2p } : p)) }
+          : prev
+      );
+    }
+    setA2pSaving(null);
+  };
 
   if (roleLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-[#15B7AE]" /></div>;
   if (role !== "admin") return <div className="p-8 text-sm text-[#697a91]">Admins only.</div>;
@@ -139,28 +168,48 @@ export default function CleanupPage() {
 
       {/* Pool inventory */}
       <div className="rounded-xl border border-[#e2e8f0] bg-white p-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-[#15B7AE]">
-              {poolLoading && !pool ? "…" : (pool?.available.length ?? 0)}
+            <span className="text-2xl font-bold text-[#15803d]">
+              {poolLoading && !pool ? "…" : approvedCount}
             </span>
-            <span className="text-sm font-semibold text-[#1e2b3d]">clean accounts available</span>
+            <span className="text-sm font-semibold text-[#1e2b3d]">A2P-approved &amp; ready to use</span>
             {poolLoading && pool && <Loader2 size={12} className="animate-spin text-[#9aa8bc]" />}
           </div>
-          {pool && pool.used.length > 0 && (
-            <span className="text-xs text-[#697a91]">{pool.used.length} used so far</span>
-          )}
+          <div className="flex items-center gap-3 text-xs text-[#697a91]">
+            {pool && pendingCount > 0 && <span className="text-[#d97706]">{pendingCount} awaiting A2P</span>}
+            <span>{pool?.available.length ?? 0} clean total</span>
+            {pool && pool.used.length > 0 && <span>{pool.used.length} used</span>}
+          </div>
         </div>
 
         {pool && pool.available.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {pool.available.map((p) => (
-              <span key={p.location_id}
-                className="px-2 py-1 rounded-md text-[11px] font-medium bg-[#e7f6ec] text-[#15803d] border border-[#bfe3cd]">
-                {p.pool_name}
-              </span>
-            ))}
-          </div>
+          <>
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {pool.available.map((p) => {
+                const approved = p.a2p === "approved";
+                return (
+                  <button
+                    key={p.location_id}
+                    onClick={() => toggleA2p(p)}
+                    disabled={a2pSaving === p.location_id}
+                    title={approved ? "A2P approved — click to mark as awaiting" : "Awaiting A2P — click to mark approved"}
+                    className={cn(
+                      "px-2 py-1 rounded-md text-[11px] font-medium border transition-colors disabled:opacity-50",
+                      approved
+                        ? "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd] hover:bg-[#d7efdf]"
+                        : "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8] hover:bg-[#ffeed6]"
+                    )}
+                  >
+                    {p.pool_name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-[#9aa8bc] mt-2">
+              🟢 A2P approved — safe to use · 🟡 not approved yet — don&apos;t use. Click a chip to switch it.
+            </p>
+          </>
         )}
         {pool && pool.available.length === 0 && !poolLoading && (
           <p className="text-xs text-[#d97706] mt-2">

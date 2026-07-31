@@ -319,7 +319,19 @@ export type PoolRow = {
   used_as: string | null;
   used_at: string | null;
   first_seen_at: string;
+  a2p: string; // "approved" (green, ready to use) | "pending" (amber, don't use yet)
 };
+
+// A2P registration status isn't exposed anywhere in GHL's API (checked the
+// location record and the phone-system endpoints), so it's tracked here and
+// toggled from the tab.
+export async function setPoolA2p(locationId: string, a2p: string, by: string | null): Promise<void> {
+  const svc = createServiceClient();
+  await svc
+    .from("pool_accounts")
+    .update({ a2p: a2p === "approved" ? "approved" : "pending", a2p_updated_at: new Date().toISOString(), a2p_updated_by: by })
+    .eq("location_id", locationId);
+}
 
 export async function syncPool(): Promise<{ available: PoolRow[]; used: PoolRow[] }> {
   const svc = createServiceClient();
