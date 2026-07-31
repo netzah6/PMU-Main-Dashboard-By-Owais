@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 // client's status in Clients Master from Paused → Offboarded. Admin only.
 
 type Candidate = { id: string; name: string };
-type Counts = { contacts: number; customValues: number; customFields: number; calendars: number; users: number; workflows: number; conversations: number; pipelines: number };
+type Counts = { contacts: number; customValues: number; customFields: number; calendars: number; users: number; workflows: number; conversations: number; pipelines: number; funnels: number };
 type Inspect = { id: string; name: string; counts: Counts; protected: boolean; isPool: boolean };
 type SheetClient = { business: string; owner: string; status: string; rowNumber: number } | null;
 type StepResult = { found: number; deleted: number; failed: number; error?: string };
@@ -24,6 +24,7 @@ const COUNT_LABELS: Array<{ key: keyof Counts; label: string }> = [
   { key: "users", label: "Users (this account only)" },
   { key: "conversations", label: "Conversations" },
   { key: "pipelines", label: "Pipelines" },
+  { key: "funnels", label: "Funnels" },
   { key: "workflows", label: "Automations" },
 ];
 
@@ -319,11 +320,22 @@ export default function CleanupPage() {
               </div>
             ))}
           </div>
-          {inspect.counts.workflows > 0 && (
-            <p className="text-xs text-[#d97706]">
-              ⚠ {inspect.counts.workflows} automation{inspect.counts.workflows > 1 ? "s" : ""} exist — GHL&apos;s API can&apos;t delete
-              workflows, so remove them in the GHL UI (Automation tab) or ask Claude to do it in the browser.
-            </p>
+          {(inspect.counts.workflows > 0 || inspect.counts.funnels > 0) && (
+            <div className="text-xs text-[#d97706] space-y-1">
+              <p className="font-semibold">⚠ GHL&apos;s API can&apos;t delete these — they need the GHL UI:</p>
+              {inspect.counts.workflows > 0 && (
+                <p>
+                  • <b>{inspect.counts.workflows} automation{inspect.counts.workflows > 1 ? "s" : ""}</b> — Automation tab:
+                  select all folders → Delete → type &quot;Delete&quot;, then select all workflows → Delete again.
+                </p>
+              )}
+              {inspect.counts.funnels > 0 && (
+                <p>
+                  • <b>{inspect.counts.funnels} funnel{inspect.counts.funnels > 1 ? "s" : ""}</b> — Sites → Funnels:
+                  ⋮ on each funnel → Delete. Ask Claude and it can do these in the browser.
+                </p>
+              )}
+            </div>
           )}
 
           {/* Clean */}
@@ -359,7 +371,7 @@ export default function CleanupPage() {
               ))}
               <p className="text-[11px] text-[#9aa8bc] pt-1">
                 Google-review threads are invisible to the API — if the GHL Conversations &quot;All&quot; tab still shows
-                old reviews, ask Claude to clear them in the browser. Same for automations and pipelines.
+                old reviews, ask Claude to clear them in the browser. Same for automations, pipelines and funnels.
               </p>
             </div>
           )}

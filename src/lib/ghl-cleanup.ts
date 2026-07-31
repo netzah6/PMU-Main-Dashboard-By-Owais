@@ -78,6 +78,7 @@ export type CleanupCounts = {
   workflows: number;
   conversations: number;
   pipelines: number;
+  funnels: number;
 };
 
 export type InspectResult = {
@@ -100,7 +101,7 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
   if (!lt.token) throw new Error(lt.error ?? "could not mint location token");
   const tok = lt.token;
 
-  const [locDetail, contacts, cvs, cfs, cals, users, workflows, convos, pipelines] = await Promise.all([
+  const [locDetail, contacts, cvs, cfs, cals, users, workflows, convos, pipelines, funnels] = await Promise.all([
     getJson(`${GHL}/locations/${locationId}`, locHeaders(tok)),
     getJson(`${GHL}/contacts/?locationId=${locationId}&limit=1`, locHeaders(tok)),
     getJson(`${GHL}/locations/${locationId}/customValues`, locHeaders(tok)),
@@ -110,6 +111,9 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
     getJson(`${GHL}/workflows/?locationId=${locationId}`, locHeaders(tok)).catch(() => ({ workflows: [] })),
     getJson(`${GHL}/conversations/search?locationId=${locationId}&limit=1`, locHeaders(tok, V_CONVO)).catch(() => ({ total: 0 })),
     getJson(`${GHL}/opportunities/pipelines?locationId=${locationId}`, locHeaders(tok)).catch(() => ({ pipelines: [] })),
+    // Funnels can't be deleted through GHL's API (no such route) — counted so
+    // the wipe never silently leaves the previous client's pages behind.
+    getJson(`${GHL}/funnels/funnel/list?locationId=${locationId}&limit=100`, locHeaders(tok)).catch(() => ({ funnels: [] })),
   ]);
 
   const name = String((locDetail.location as { name?: string } | undefined)?.name ?? "").trim();
@@ -125,6 +129,7 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
       workflows: ((workflows.workflows as unknown[]) ?? []).length,
       conversations: Number(convos.total ?? 0),
       pipelines: ((pipelines.pipelines as unknown[]) ?? []).length,
+      funnels: ((funnels.funnels as unknown[]) ?? []).length,
     },
     protected: isProtectedLocation(locationId),
     isPool: POOL_NAME_RE.test(name),
