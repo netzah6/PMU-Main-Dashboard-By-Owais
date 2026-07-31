@@ -27,8 +27,11 @@ export const APP_SCOPES = [
   "users.readonly",
   "users.write",
   "workflows.readonly",
-  "funnels/funnel.readonly", // Cleanup tab — count funnels so they're never left behind
-  "funnels/page.readonly",
+  // NOTE: funnels/funnel.readonly + funnels/page.readonly are NOT requested —
+  // GHL rejects the authorize call ("Invalid scope(s)") until those two are
+  // ticked on the app itself (developer portal → Advanced Settings → Auth →
+  // Funnels). Re-add them here once that's done; until then the Cleanup tab
+  // reports funnels as unknown and they're deleted through the GHL UI.
   "snapshots.readonly",
   "oauth.readonly",
   "oauth.write",

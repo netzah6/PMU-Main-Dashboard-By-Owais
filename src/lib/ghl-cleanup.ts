@@ -113,7 +113,9 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
     getJson(`${GHL}/opportunities/pipelines?locationId=${locationId}`, locHeaders(tok)).catch(() => ({ pipelines: [] })),
     // Funnels can't be deleted through GHL's API (no such route) — counted so
     // the wipe never silently leaves the previous client's pages behind.
-    getJson(`${GHL}/funnels/funnel/list?locationId=${locationId}&limit=100`, locHeaders(tok)).catch(() => ({ funnels: [] })),
+    // Reading them needs funnel scopes the app doesn't have yet, so a failure
+    // means "unknown" (-1), never a reassuring zero.
+    getJson(`${GHL}/funnels/funnel/list?locationId=${locationId}&limit=100`, locHeaders(tok)).catch(() => ({ funnels: null })),
   ]);
 
   const name = String((locDetail.location as { name?: string } | undefined)?.name ?? "").trim();
@@ -129,7 +131,7 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
       workflows: ((workflows.workflows as unknown[]) ?? []).length,
       conversations: Number(convos.total ?? 0),
       pipelines: ((pipelines.pipelines as unknown[]) ?? []).length,
-      funnels: ((funnels.funnels as unknown[]) ?? []).length,
+      funnels: funnels.funnels === null ? -1 : ((funnels.funnels as unknown[]) ?? []).length,
     },
     protected: isProtectedLocation(locationId),
     isPool: POOL_NAME_RE.test(name),

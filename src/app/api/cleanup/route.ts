@@ -127,9 +127,12 @@ export async function POST(req: NextRequest) {
     if (body.action === "finalize") {
       // Only rename an account that has been cleaned (or is verifiably empty).
       const inspect = await inspectLocation(locationId);
-      const dirty = inspect.counts.contacts + inspect.counts.customFields + inspect.counts.customValues + inspect.counts.calendars + inspect.counts.pipelines + inspect.counts.funnels;
+      // -1 = funnels unreadable (missing scope); unknown can't block pooling,
+      // it just stays called out as a manual step in the tab.
+      const funnelsBlocking = inspect.counts.funnels > 0 ? inspect.counts.funnels : 0;
+      const dirty = inspect.counts.contacts + inspect.counts.customFields + inspect.counts.customValues + inspect.counts.calendars + inspect.counts.pipelines + funnelsBlocking;
       if (dirty > 0) {
-        return NextResponse.json({ error: `Account still has data (${inspect.counts.contacts} contacts, ${inspect.counts.customFields} fields, ${inspect.counts.customValues} values, ${inspect.counts.calendars} calendars, ${inspect.counts.pipelines} pipelines, ${inspect.counts.funnels} funnels) — clean it first.` }, { status: 400 });
+        return NextResponse.json({ error: `Account still has data (${inspect.counts.contacts} contacts, ${inspect.counts.customFields} fields, ${inspect.counts.customValues} values, ${inspect.counts.calendars} calendars, ${inspect.counts.pipelines} pipelines, ${funnelsBlocking} funnels) — clean it first.` }, { status: 400 });
       }
       const client = await matchClient(inspect.name);
       const { oldName, poolName } = await renameToPool(locationId);
