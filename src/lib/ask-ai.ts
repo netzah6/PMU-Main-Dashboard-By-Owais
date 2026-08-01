@@ -3,13 +3,14 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { buildClientReport } from "@/lib/ghl-report";
 import { getReplyAccount, getRecentConversations, getThread, getRoster, getVoiceSamples, channelFromType } from "@/lib/ghl-conversations";
 import { generateDraft } from "@/lib/reply-draft";
+import { resolveAccount, readThread, scanMessages, pipelineContacts } from "@/lib/ask-conversations";
 
 // "Ask AI" — chat over the dashboard's client/lead data. The model writes
 // SELECT queries; they run through the ask_ai_query() RPC, which forces a
 // read-only transaction, single statement, 8s timeout, 500-row cap.
 
 const MODEL = "claude-sonnet-4-5";
-const MAX_TOOL_ROUNDS = 8;
+const MAX_TOOL_ROUNDS = 12; // chat audits need: scan inbound, scan outbound, pipeline, answer
 
 const SCHEMA_DOC = `
 You are the analytics assistant for PMU Bookings On Demand — a marketing agency
@@ -67,8 +68,10 @@ RULES:
 - You may query information_schema.columns to discover exact columns.
 - Only SELECT/WITH; one statement; ≤500 rows; 8s timeout. Aggregate in SQL,
   never pull raw rows to count them yourself.
-- "Sessions done" is NOT tracked directly; closest signals: booked=true and
-  deposit_collected=true in ghl_lead_status. Say what you're using as proxy.
+- "Sessions done" is NOT tracked as a field. In SQL the closest signals are
+  booked=true / deposit_collected=true in ghl_lead_status — but if the user
+  wants to know who ACTUALLY had a session or paid, read the chats
+  (search_messages), because the truth is in what people wrote, not in a flag.
 - GHL data covers all live/paused clients whose sub-account name matches the
   master sheet. If a client has no ghl_* rows, say their sub-account isn't
   being ingested yet (first sync may still be running) — not that they have
@@ -76,6 +79,31 @@ RULES:
 - Answer in plain text: short paragraphs, "-" bullets, no markdown tables or
   headers. Round percentages to whole numbers. Always state the time window.
 - Today's date is {TODAY}.
+
+READING ACTUAL CHATS — read_thread / search_messages / pipeline_contacts:
+The SQL tables hold counts and the LATEST message only. Any question about
+what someone actually said, agreed to, promised or confirmed needs these
+tools. Reach for them instead of answering "not tracked".
+
+- "Did {client} ask to pause / go on vacation / change their plan?", "what
+  did {client} say about X?", "why did {lead} cancel?" → read_thread with
+  contact_name = the person. Leave client_name EMPTY when it's one of our
+  artists talking to our team (that lives in the agency account). Set
+  client_name when it's one of THEIR leads.
+- "Check {client}'s chats and find who paid a deposit / who had their session
+  but isn't marked" → search_messages with client_name = {client} and several
+  regex phrasings, then pipeline_contacts for the same client, and report the
+  people whose chat says one thing and whose stage says another. Business-side
+  confirmations ("I got it", "I received your payment") are stronger evidence
+  than a lead saying "paid" — a lead's "paid" is often "how much do I pay?".
+  Run one pass with direction inbound and one with outbound when it matters.
+- Quote the decisive line and its date. A one-line quote is worth more than a
+  paragraph of summary, and it lets the team verify you.
+- Report coverage honestly: repeat the tool's coverageNote, and say plainly
+  that anything agreed by phone or in person is invisible here, so a count
+  from chat is a floor, not a total.
+- These read live message history and are slower than SQL. Use them when the
+  question needs them; don't scan for something a SELECT can answer.
 
 REPLIES (merged from the old AI Replies tab):
 - "what's unread?" / "who's waiting for a reply?" → unread_conversations,
@@ -162,6 +190,50 @@ const reportTool: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: { client_name: { type: "string" as const, description: "The client's full name or business name (partial is fine)." } },
+    required: ["client_name"],
+  },
+};
+
+const readThreadTool: Anthropic.Tool = {
+  name: "read_thread",
+  description:
+    "Read the actual message history with one person. Use whenever a question turns on what someone SAID rather than a number — 'did X ask to pause', 'what did she say about her trip', 'why did they cancel', 'what was agreed'. Omit client_name to read the agency's own chats with a client (the team talking to an artist). Give client_name to read inside that client's sub-account instead (the artist talking to their own leads). Returns messages oldest-first; direction 'inbound' means the other person wrote it, 'outbound' means our side did.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      contact_name: { type: "string" as const, description: "Who the conversation is with — name, email or phone. Partial is fine." },
+      client_name: { type: "string" as const, description: "Only when reading inside a client's own sub-account. Leave empty for the agency account." },
+    },
+    required: ["contact_name"],
+  },
+};
+
+const searchMessagesTool: Anthropic.Tool = {
+  name: "search_messages",
+  description:
+    "Search the wording of every conversation in an account and return the matches with the pipeline stage each person currently sits in. This is the tool for auditing what the pipeline is missing — deposits that were paid but never marked, people who showed up, promises made — because none of that is a field anywhere, it only exists in what people wrote. Pass several regex alternatives to cover phrasing. Results include a coverage note; repeat it honestly rather than implying full coverage.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      contains: {
+        type: "array" as const,
+        items: { type: "string" as const },
+        description: "Case-insensitive regex patterns, e.g. ['i (just )?sent (it|the deposit)','got your (deposit|payment)','i.?m here']. Prefer several specific phrases over one vague word.",
+      },
+      client_name: { type: "string" as const, description: "Client whose sub-account to search. Leave empty to search the agency's own account." },
+      direction: { type: "string" as const, enum: ["inbound", "outbound", "any"], description: "'inbound' = only what the lead/client wrote, 'outbound' = only what our side wrote (business confirmations are often the harder evidence). Default any." },
+      max_contacts: { type: "number" as const, description: "How many of the most recently active conversations to scan. Default 200, max 400." },
+    },
+    required: ["contains"],
+  },
+};
+
+const pipelineContactsTool: Anthropic.Tool = {
+  name: "pipeline_contacts",
+  description: "List who is sitting in each pipeline stage for a client, by name. Use together with search_messages to work out which people are in the wrong stage.",
+  input_schema: {
+    type: "object" as const,
+    properties: { client_name: { type: "string" as const, description: "The client whose pipeline to list." } },
     required: ["client_name"],
   },
 };
@@ -270,10 +342,10 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const msg = await client.messages.create({
       model: MODEL,
-      max_tokens: 2000,
+      max_tokens: 4000,
       system,
       messages,
-      tools: [queryTool, reportTool, unreadTool, draftReplyTool],
+      tools: [queryTool, reportTool, unreadTool, draftReplyTool, readThreadTool, searchMessagesTool, pipelineContactsTool],
     });
 
     if (msg.stop_reason !== "tool_use") {
@@ -319,6 +391,32 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
             });
           }
           content = JSON.stringify(r).slice(0, 30000);
+        } catch (e) { content = `error: ${e instanceof Error ? e.message : "failed"}`; isError = true; }
+        results.push({ type: "tool_result", tool_use_id: block.id, content, is_error: isError });
+        continue;
+      }
+      if (block.name === "read_thread" || block.name === "search_messages" || block.name === "pipeline_contacts") {
+        const input = block.input as { contact_name?: string; client_name?: string; contains?: string[]; direction?: string; max_contacts?: number };
+        const where = input.client_name ? `${input.client_name}'s account` : "agency account";
+        queries.push(
+          block.name === "read_thread" ? `[read chat: ${input.contact_name} — ${where}]`
+            : block.name === "search_messages" ? `[search chats: ${(input.contains ?? []).join(" | ").slice(0, 80)} — ${where}]`
+              : `[pipeline: ${input.client_name}]`,
+        );
+        let content: string; let isError = false;
+        try {
+          const acct = await resolveAccount(input.client_name);
+          if ("error" in acct) throw new Error(acct.error);
+          const r = block.name === "read_thread"
+            ? await readThread(acct, String(input.contact_name ?? ""))
+            : block.name === "search_messages"
+              ? await scanMessages(acct, {
+                contains: input.contains ?? [],
+                maxContacts: input.max_contacts,
+                direction: input.direction === "inbound" || input.direction === "outbound" ? input.direction : "any",
+              })
+              : await pipelineContacts(acct);
+          content = JSON.stringify(r).slice(0, 60000);
         } catch (e) { content = `error: ${e instanceof Error ? e.message : "failed"}`; isError = true; }
         results.push({ type: "tool_result", tool_use_id: block.id, content, is_error: isError });
         continue;
