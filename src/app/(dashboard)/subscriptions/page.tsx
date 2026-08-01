@@ -68,12 +68,19 @@ function ChargeCell({ s }: { s: Sub }) {
   );
 }
 
+type ServerCounts = {
+  total: number;
+  byStatus: Record<string, number>;
+  duplicateActiveCustomers: string[];
+};
+
 export default function SubscriptionsPage() {
   const [subs, setSubs] = useState<Sub[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [serverCounts, setServerCounts] = useState<ServerCounts | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -82,12 +89,13 @@ export default function SubscriptionsPage() {
       // The platform can return plain text (e.g. a gateway timeout page), so
       // never assume JSON — show a readable error instead of a parse crash.
       const text = await res.text();
-      let json: { subscriptions?: Sub[]; error?: string } = {};
+      let json: { subscriptions?: Sub[]; error?: string; counts?: ServerCounts } = {};
       try { json = JSON.parse(text); } catch {
         throw new Error(res.ok ? "Unexpected response from the server" : `Server error (${res.status}) — try Refresh in a moment`);
       }
       if (!res.ok) throw new Error(json.error || "Failed to load subscriptions");
       setSubs(json.subscriptions ?? []);
+      setServerCounts(json.counts ?? null);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
     } finally {
@@ -132,7 +140,17 @@ export default function SubscriptionsPage() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Subscriptions</h1>
-          <p className="text-sm text-[#697a91]">Square · active subscriptions &amp; upcoming charge dates</p>
+          <p className="text-sm text-[#697a91]">
+            Square · active subscriptions &amp; upcoming charge dates
+            {serverCounts && (
+              // Spell out what Square actually holds, so a short list reads as
+              // a short list rather than "that must be all of them".
+              <> · <span className="text-[#34568a] font-medium">{serverCounts.total} on file</span>{" "}
+                ({Object.entries(serverCounts.byStatus).sort((a, b) => b[1] - a[1])
+                  .map(([k, v]) => `${v} ${k.toLowerCase()}`).join(", ")})
+              </>
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{counts.active} active</span>
@@ -159,6 +177,20 @@ export default function SubscriptionsPage() {
           <option value="All">All statuses</option>
         </select>
       </div>
+
+      {serverCounts && serverCounts.duplicateActiveCustomers.length > 0 && (
+        // Two active subscriptions for one person = billed twice. Worth
+        // shouting about: nobody goes looking for this.
+        <div className="px-3 py-2.5 rounded-xl border border-[#fca5a5] bg-[#fef2f2] space-y-1">
+          <p className="text-sm font-semibold text-[#b91c1c]">
+            ⚠ {serverCounts.duplicateActiveCustomers.length} customer
+            {serverCounts.duplicateActiveCustomers.length > 1 ? "s have" : " has"} more than one ACTIVE subscription — they are being charged multiple times.
+          </p>
+          <p className="text-xs text-[#7f1d1d]">
+            {serverCounts.duplicateActiveCustomers.join(", ")} — check each in Square before the next charge date.
+          </p>
+        </div>
+      )}
 
       {error ? (
         <div className="px-4 py-6 rounded-xl border border-[#e4ebf2] bg-white text-center space-y-2">
