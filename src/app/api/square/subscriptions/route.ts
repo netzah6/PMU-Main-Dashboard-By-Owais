@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { squareConfigured, listSubscriptions, getCustomers, getPlans, getInvoiceAmounts } from "@/lib/square";
 
-export const maxDuration = 120;
+// Resolving customers/plans/invoices for the live subs pushes this to ~80s on
+// a full account. At the old 120s ceiling a slow Square response tipped it into
+// a gateway timeout, and the tab then showed an error or a stale list — i.e.
+// subscriptions silently missing from a page people trust to be complete.
+export const maxDuration = 300;
 
 // All Square subscriptions with customer names, plan info, and charge dates.
 export async function GET() {
@@ -62,7 +66,31 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ subscriptions: rows });
+    // Duplicate ACTIVE subscriptions for one customer mean they get billed
+    // twice. Surfaced here so the tab can warn rather than leaving it to be
+    // noticed on a statement.
+    const activeByCustomer = new Map<string, number>();
+    for (const r of rows) {
+      if (r.status.toUpperCase() !== "ACTIVE") continue;
+      const key = (r.customerEmail || r.customerName || r.id).toLowerCase().trim();
+      activeByCustomer.set(key, (activeByCustomer.get(key) ?? 0) + 1);
+    }
+    const duplicateActive = rows
+      .filter((r) => r.status.toUpperCase() === "ACTIVE" &&
+        (activeByCustomer.get((r.customerEmail || r.customerName || r.id).toLowerCase().trim()) ?? 0) > 1)
+      .map((r) => r.customerName);
+
+    return NextResponse.json({
+      subscriptions: rows,
+      // Totals straight from Square, so a short list is visibly a short list.
+      counts: {
+        total: rows.length,
+        byStatus: rows.reduce<Record<string, number>>((a, r) => {
+          a[r.status.toUpperCase()] = (a[r.status.toUpperCase()] ?? 0) + 1; return a;
+        }, {}),
+        duplicateActiveCustomers: Array.from(new Set(duplicateActive)).sort(),
+      },
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Square request failed";
     return NextResponse.json({ error: message }, { status: 502 });
