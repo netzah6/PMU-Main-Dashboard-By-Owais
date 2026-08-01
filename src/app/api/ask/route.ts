@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { askAi, type AskMessage } from "@/lib/ask-ai";
 
-export const maxDuration = 120;
+export const maxDuration = 300; // reading real chat history is slower than SQL
 
 // "Ask AI" chat — answers questions about clients/leads by querying the
 // dashboard's own data (read-only) with Claude.
