@@ -14,7 +14,39 @@ type Inspect = { id: string; name: string; counts: Counts; protected: boolean; i
 type SheetClient = { business: string; owner: string; status: string; rowNumber: number } | null;
 type StepResult = { found: number; deleted: number; failed: number; error?: string };
 type LogRow = { location_id: string; old_name: string; pool_name: string | null; client_business: string | null; sheet_status_change: string | null; cleaned_at: string; cleaned_by: string | null };
-type PoolRow = { location_id: string; pool_name: string; status: string; used_as: string | null; used_at: string | null; a2p: string };
+type PoolRow = {
+  location_id: string; pool_name: string; status: string;
+  used_as: string | null; used_at: string | null; a2p: string;
+  workflows: number | null; dirty: number | null;
+  clean_checked_at: string | null; clean_note: string | null;
+};
+
+type Readiness = "ready" | "partial" | "dirty" | "unknown";
+
+// Green only when the account is genuinely empty AND A2P-approved, because the
+// chip is what the team acts on — anything less has to look different.
+function readinessOf(p: PoolRow): Readiness {
+  if (p.clean_checked_at == null || p.workflows == null || p.dirty == null) return "unknown";
+  if (p.dirty > 0) return "dirty";
+  if (p.workflows > 0) return "partial";
+  return p.a2p === "approved" ? "ready" : "partial";
+}
+
+const READINESS: Record<Readiness, { label: string; chip: string; text: string }> = {
+  ready:   { label: "Ready to use", chip: "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd] hover:bg-[#d7efdf]", text: "text-[#15803d]" },
+  partial: { label: "Nearly ready", chip: "bg-[#fff3e6] text-[#c2410c] border-[#fdba74] hover:bg-[#ffe8d1]", text: "text-[#c2410c]" },
+  dirty:   { label: "Not clean",    chip: "bg-[#fef2f2] text-[#b91c1c] border-[#fca5a5] hover:bg-[#fee2e2]", text: "text-[#b91c1c]" },
+  unknown: { label: "Not checked",  chip: "bg-[#f1f5f9] text-[#697a91] border-[#e2e8f0] hover:bg-[#e8eef5]", text: "text-[#697a91]" },
+};
+
+function ago(iso: string): string {
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
 
 // One line of the bulk list, from the typed name through to its final result.
 type BulkRow = {
@@ -70,6 +102,7 @@ export default function CleanupPage() {
   const [pool, setPool] = useState<{ available: PoolRow[]; used: PoolRow[] } | null>(null);
   const [poolLoading, setPoolLoading] = useState(false);
   const [a2pSaving, setA2pSaving] = useState<string | null>(null);
+  const [recheck, setRecheck] = useState<{ done: number; total: number } | null>(null);
   // Bulk mode — paste a list of sub-account names, wipe them one after another.
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
@@ -94,8 +127,10 @@ export default function CleanupPage() {
       .finally(() => setPoolLoading(false));
   }, [role, finalized]);
 
-  const approvedCount = pool?.available.filter((p) => p.a2p === "approved").length ?? 0;
-  const pendingCount = (pool?.available.length ?? 0) - approvedCount;
+  const poolReadyCount = pool?.available.filter((p) => readinessOf(p) === "ready").length ?? 0;
+  const partialCount = pool?.available.filter((p) => readinessOf(p) === "partial").length ?? 0;
+  const dirtyCount = pool?.available.filter((p) => readinessOf(p) === "dirty").length ?? 0;
+  const uncheckedCount = pool?.available.filter((p) => readinessOf(p) === "unknown").length ?? 0;
 
   // Optimistic flip so the chip recolors instantly; the row is persisted server-side.
   const toggleA2p = async (row: PoolRow) => {
@@ -120,6 +155,36 @@ export default function CleanupPage() {
       );
     }
     setA2pSaving(null);
+  };
+
+  // Re-inspect every available pool account so the colours reflect what's
+  // actually in them right now. Batched — one inspect is ~10 GHL calls, so the
+  // whole pool in one request would run past the serverless limit.
+  const recheckPool = async () => {
+    const ids = (pool?.available ?? []).map((p) => p.location_id);
+    if (!ids.length) return;
+    setRecheck({ done: 0, total: ids.length });
+    const merged = new Map<string, PoolRow>();
+    for (let i = 0; i < ids.length; i += 8) {
+      const batch = ids.slice(i, i + 8);
+      try {
+        const j = await fetch("/api/cleanup", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "refreshPool", locationIds: batch }),
+        }).then((r) => r.json());
+        for (const row of (j.rows ?? []) as PoolRow[]) merged.set(row.location_id, row);
+      } catch { /* keep going — a failed batch just stays "not checked" */ }
+      setRecheck({ done: Math.min(i + 8, ids.length), total: ids.length });
+      setPool((prev) => prev && {
+        ...prev,
+        available: prev.available.map((p) => merged.get(p.location_id) ?? p),
+      });
+    }
+    setRecheck(null);
+    // Re-sync afterwards: an account a teammate claimed mid-check should drop
+    // out of "available" rather than linger as a green chip.
+    fetch("/api/cleanup?pool=1").then((r) => r.json())
+      .then((j) => setPool({ available: j.available ?? [], used: j.used ?? [] })).catch(() => {});
   };
 
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -344,15 +409,26 @@ export default function CleanupPage() {
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-baseline gap-2">
             <span className="text-2xl font-bold text-[#15803d]">
-              {poolLoading && !pool ? "…" : approvedCount}
+              {poolLoading && !pool ? "…" : poolReadyCount}
             </span>
-            <span className="text-sm font-semibold text-[#1e2b3d]">A2P-approved &amp; ready to use</span>
+            <span className="text-sm font-semibold text-[#1e2b3d]">ready to use</span>
             {poolLoading && pool && <Loader2 size={12} className="animate-spin text-[#9aa8bc]" />}
           </div>
           <div className="flex items-center gap-3 text-xs text-[#697a91]">
-            {pool && pendingCount > 0 && <span className="text-[#d97706]">{pendingCount} awaiting A2P</span>}
-            <span>{pool?.available.length ?? 0} clean total</span>
+            {pool && partialCount > 0 && <span className="text-[#c2410c]">{partialCount} nearly ready</span>}
+            {pool && dirtyCount > 0 && <span className="text-[#b91c1c]">{dirtyCount} not clean</span>}
+            {pool && uncheckedCount > 0 && <span>{uncheckedCount} not checked</span>}
+            <span>{pool?.available.length ?? 0} in pool</span>
             {pool && pool.used.length > 0 && <span>{pool.used.length} used</span>}
+            <button
+              onClick={recheckPool}
+              disabled={!!recheck || !pool?.available.length}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] disabled:opacity-50"
+            >
+              {recheck
+                ? <><Loader2 size={11} className="animate-spin" /> {recheck.done}/{recheck.total}</>
+                : <>Re-check</>}
+            </button>
           </div>
         </div>
 
@@ -360,27 +436,51 @@ export default function CleanupPage() {
           <>
             <div className="flex flex-wrap gap-1.5 mt-3">
               {pool.available.map((p) => {
-                const approved = p.a2p === "approved";
+                const state = readinessOf(p);
+                const s = READINESS[state];
                 return (
                   <button
                     key={p.location_id}
                     onClick={() => toggleA2p(p)}
                     disabled={a2pSaving === p.location_id}
-                    title={approved ? "A2P approved — click to mark as awaiting" : "Awaiting A2P — click to mark approved"}
+                    title={`${s.label}${p.clean_note ? ` — ${p.clean_note}` : ""}${
+                      p.a2p === "approved" ? " · A2P approved" : " · A2P not approved"
+                    }${p.clean_checked_at ? ` · checked ${ago(p.clean_checked_at)}` : " · never checked"}\nClick to toggle A2P.`}
                     className={cn(
                       "px-2 py-1 rounded-md text-[11px] font-medium border transition-colors disabled:opacity-50",
-                      approved
-                        ? "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd] hover:bg-[#d7efdf]"
-                        : "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8] hover:bg-[#ffeed6]"
+                      s.chip
                     )}
                   >
                     {p.pool_name}
+                    {state === "partial" && p.workflows ? ` · ${p.workflows}⚙` : ""}
+                    {state === "dirty" ? " · ⚠" : ""}
                   </button>
                 );
               })}
             </div>
+            {/* Anything not green needs a reason next to it, not just a colour. */}
+            {pool.available.some((p) => readinessOf(p) !== "ready") && (
+              <div className="mt-2 space-y-0.5">
+                {pool.available.filter((p) => readinessOf(p) !== "ready").slice(0, 8).map((p) => (
+                  <p key={p.location_id} className="text-[11px] text-[#697a91]">
+                    <b className={READINESS[readinessOf(p)].text}>{p.pool_name}</b> —{" "}
+                    {readinessOf(p) === "unknown"
+                      ? "never checked — hit Re-check to see what's in it"
+                      : readinessOf(p) === "dirty"
+                        ? `still has data: ${p.clean_note}`
+                        : p.workflows
+                          ? `${p.workflows} automations left — delete them in GHL, then Re-check`
+                          : "A2P not approved yet"}
+                  </p>
+                ))}
+                {pool.available.filter((p) => readinessOf(p) !== "ready").length > 8 && (
+                  <p className="text-[11px] text-[#9aa8bc]">…and {pool.available.filter((p) => readinessOf(p) !== "ready").length - 8} more</p>
+                )}
+              </div>
+            )}
             <p className="text-[11px] text-[#9aa8bc] mt-2">
-              🟢 A2P approved — safe to use · 🟡 not approved yet — don&apos;t use. Click a chip to switch it.
+              🟢 empty + A2P approved — safe to use · 🟠 nearly there (automations left, or A2P not approved) ·
+              🔴 still has data · ⚪ not checked yet. Click a chip to toggle A2P; use Re-check to refresh what&apos;s inside.
             </p>
           </>
         )}
