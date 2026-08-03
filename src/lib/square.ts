@@ -38,22 +38,50 @@ export type SquareSubscription = {
 };
 
 // All subscriptions in the account (every status), paginated.
+// Set to false when Square couldn't serve the richer payload, so callers can
+// say that scheduled pauses weren't detectable on this run.
+export let actionsIncluded = true;
+
 export async function listSubscriptions(): Promise<SquareSubscription[]> {
+  actionsIncluded = true;
   const out: SquareSubscription[] = [];
   let cursor: string | undefined;
-  for (let page = 0; page < 20; page++) {
-    // include:["actions"] surfaces scheduled pauses/cancels. Without it a
-    // "Pause Scheduled" subscription is indistinguishable from a plain active
-    // one, because Square leaves status as ACTIVE until the date arrives.
-    const body: Record<string, unknown> = { limit: 200, include: ["actions"] };
+  // include:["actions"] surfaces scheduled pauses/cancels — without it a
+  // "Pause Scheduled" subscription is indistinguishable from a plain active
+  // one, because Square leaves status ACTIVE until the date arrives. It also
+  // makes each page heavier, and Square answered a full 200-row page with a
+  // 504, so pages are smaller when actions are included and the whole thing
+  // degrades to a plain listing rather than failing the tab outright.
+  let withActions = true;
+  for (let page = 0; page < 40; page++) {
+    const body: Record<string, unknown> = withActions
+      ? { limit: 100, include: ["actions"] }
+      : { limit: 200 };
     if (cursor) body.cursor = cursor;
-    const r = await fetch(`${BASE}/v2/subscriptions/search`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(body),
-    });
+
+    let r: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      r = await fetch(`${BASE}/v2/subscriptions/search`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(body),
+      });
+      if (r.ok || r.status < 500) break;           // 4xx is ours to fix, don't retry
+      await new Promise((s) => setTimeout(s, 1500 * (attempt + 1)));
+    }
+    if (!r) throw new Error("Square subscriptions: no response");
     if (!r.ok) {
       const text = await r.text();
+      // Square struggling with the heavier payload shouldn't take the page
+      // down — drop actions and carry on. Scheduled pauses stop being
+      // detected, which the route reports rather than hides.
+      if (r.status >= 500 && withActions) {
+        withActions = false;
+        actionsIncluded = false;
+        cursor = undefined;
+        out.length = 0;
+        continue;
+      }
       throw new Error(`Square subscriptions ${r.status}: ${text.slice(0, 300)}`);
     }
     const j = (await r.json()) as { subscriptions?: Array<Record<string, unknown>>; cursor?: string };
