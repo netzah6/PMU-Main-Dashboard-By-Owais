@@ -28,6 +28,11 @@ export async function GET() {
     // Canceled rows fall back to the raw customer id.
     const isEnded = (s: string) => ["CANCELED", "DEACTIVATED"].includes(s.toUpperCase());
     const live = subs.filter((s) => !isEnded(s.status));
+    // Square leaves status ACTIVE while a pause is merely scheduled. Treat that
+    // as paused — it's leaving, and counting it as active overstates both the
+    // active roster and the monthly total.
+    const effectiveStatus = (s: (typeof subs)[number]) =>
+      s.status.toUpperCase() === "ACTIVE" && s.pauseScheduledOn ? "PAUSE SCHEDULED" : s.status;
     const customerIds = Array.from(new Set(live.map((s) => s.customerId).filter(Boolean))) as string[];
     // Plans too: only for live subs — canceled ones can reference hundreds of
     // old plan variations and the catalog lookups were timing out the route.
@@ -46,7 +51,10 @@ export async function GET() {
       const customer = s.customerId ? customers.get(s.customerId) : undefined;
       return {
         id: s.id,
-        status: s.status,
+        status: effectiveStatus(s),
+        squareStatus: s.status, // what Square itself reports, before our reading of it
+        pauseScheduledOn: s.pauseScheduledOn,
+        cancelScheduledOn: s.cancelScheduledOn,
         customerName: customer?.name ?? s.customerId ?? "—",
         customerEmail: customer?.email ?? null,
         planName: plan?.name ?? "Subscription",
