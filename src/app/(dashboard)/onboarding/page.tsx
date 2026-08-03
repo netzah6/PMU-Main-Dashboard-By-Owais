@@ -230,6 +230,25 @@ export default function OnboardingPage() {
   const open = useMemo(() => list.find((o) => o.id === openId) ?? null, [list, openId]);
 
   const [claiming, setClaiming] = useState(false);
+
+  // Clean accounts ready for a setup. Read-only inventory, shown to everyone
+  // who opens this tab — whoever is doing the setup is the one who needs to
+  // know what's actually available.
+  const [poolInfo, setPoolInfo] = useState<{
+    ready: Array<{ location_id: string; pool_name: string; clean_checked_at: string | null }>;
+    notReady: Array<{ pool_name: string; blocker: string | null }>;
+    counts: { ready: number; notReady: number; total: number };
+  } | null>(null);
+  const [poolBusy, setPoolBusy] = useState(true);
+  const loadPool = useCallback(async () => {
+    setPoolBusy(true);
+    try {
+      const r = await fetch("/api/pool");
+      if (r.ok) setPoolInfo(await r.json());
+    } catch { /* the panel just stays quiet */ }
+    setPoolBusy(false);
+  }, []);
+  useEffect(() => { loadPool(); }, [loadPool, claiming]);
   const claim = useCallback(async (o: Onboarding) => {
     if (!window.confirm(`Claim a "Clean New Account" from the pool and rename it to "${o.form.business_name}"?\n\nThis renames the sub-account in GHL and fills its custom values from the form.`)) return;
     setClaiming(true);
@@ -495,6 +514,66 @@ export default function OnboardingPage() {
   const SHOW_ONBOARDING_LIST = false;
   return (
     <div className="p-4 sm:p-6">
+      {/* Available clean accounts — the first thing you need before a setup. */}
+      <div className="max-w-5xl mx-auto mb-4 rounded-xl border border-[#e2e8f0] bg-white p-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-[#15803d]">
+              {poolBusy && !poolInfo ? "…" : poolInfo?.counts.ready ?? 0}
+            </span>
+            <span className="text-sm font-semibold text-[#1e2b3d]">clean accounts ready for a setup</span>
+          </div>
+          <button onClick={loadPool} disabled={poolBusy}
+            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] disabled:opacity-50">
+            {poolBusy ? "Checking…" : "Refresh"}
+          </button>
+        </div>
+
+        {poolInfo && poolInfo.ready.length > 0 && (
+          <>
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {poolInfo.ready.map((p) => (
+                <span key={p.location_id}
+                  title={p.clean_checked_at ? `Verified empty and A2P-approved · checked ${new Date(p.clean_checked_at).toLocaleString()}` : undefined}
+                  className="px-2 py-1 rounded-md text-[11px] font-medium border bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]">
+                  {p.pool_name}
+                </span>
+              ))}
+            </div>
+            <p className="text-[11px] text-[#9aa8bc] mt-2">
+              Empty and A2P-approved — safe to use. Take the lowest number first.
+            </p>
+          </>
+        )}
+
+        {poolInfo && poolInfo.ready.length === 0 && !poolBusy && (
+          <p className="text-xs text-[#d97706] mt-2">
+            ⚠ No clean accounts are ready right now. {poolInfo.counts.notReady > 0
+              ? `${poolInfo.counts.notReady} are in the pool but not usable yet — see below.`
+              : "Clean an offboarded sub-account in the Cleanup tab."}
+          </p>
+        )}
+
+        {/* Say why the others can't be used, so nobody grabs one anyway. */}
+        {poolInfo && poolInfo.notReady.length > 0 && (
+          <details className="mt-2">
+            <summary className="text-[11px] text-[#697a91] cursor-pointer">
+              {poolInfo.counts.notReady} more in the pool, not ready yet
+            </summary>
+            <div className="mt-1.5 space-y-0.5">
+              {poolInfo.notReady.slice(0, 12).map((p) => (
+                <p key={p.pool_name} className="text-[11px] text-[#697a91]">
+                  <b className="text-[#c2410c]">{p.pool_name}</b> — {p.blocker}
+                </p>
+              ))}
+              {poolInfo.notReady.length > 12 && (
+                <p className="text-[11px] text-[#9aa8bc]">…and {poolInfo.notReady.length - 12} more</p>
+              )}
+            </div>
+          </details>
+        )}
+      </div>
+
       <div className={SHOW_ONBOARDING_LIST ? "grid grid-cols-1 lg:grid-cols-[minmax(360px,540px)_minmax(0,1fr)] gap-5 items-start" : "max-w-5xl mx-auto"}>
       {/* LEFT — onboarding */}
       {SHOW_ONBOARDING_LIST && (
