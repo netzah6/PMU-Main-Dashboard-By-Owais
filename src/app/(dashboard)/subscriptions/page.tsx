@@ -6,6 +6,9 @@ import { cn } from "@/lib/utils";
 interface Sub {
   id: string;
   status: string;
+  squareStatus?: string;
+  pauseScheduledOn?: string | null;
+  cancelScheduledOn?: string | null;
   customerName: string;
   customerEmail: string | null;
   planName: string;
@@ -45,6 +48,7 @@ function daysUntil(d: string | null): number | null {
 function statusStyle(s: string): { bg: string; color: string; border: string } {
   const u = s.toUpperCase();
   if (u === "ACTIVE") return { bg: "#e6f7ee", color: "#15803d", border: "#86efac" };
+  if (u === "PAUSE SCHEDULED") return { bg: "#fff3e6", color: "#c2410c", border: "#fdba74" };
   if (u === "PAUSED") return { bg: "#fff7ec", color: "#d97706", border: "#fcd9a8" };
   if (u === "CANCELED" || u === "DEACTIVATED") return { bg: "#fde8ee", color: "#e11d48", border: "#f5c2cf" };
   return { bg: "#f1f5f9", color: "#64748b", border: "#d7e0ea" }; // PENDING / other
@@ -112,7 +116,7 @@ export default function SubscriptionsPage() {
         c.active++;
         if ((s.cadence || "MONTHLY") === "MONTHLY" && s.amountCents != null) c.monthlyCents += s.amountCents;
       }
-      if (u === "PAUSED") c.paused++;
+      if (u === "PAUSED" || u === "PAUSE SCHEDULED") c.paused++;
     });
     return c;
   }, [subs]);
@@ -172,6 +176,7 @@ export default function SubscriptionsPage() {
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
           className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
           <option value="ACTIVE">Active</option>
+          <option value="PAUSE SCHEDULED">Pause scheduled</option>
           <option value="PAUSED">Paused</option>
           <option value="CANCELED">Canceled</option>
           <option value="All">All statuses</option>
@@ -214,7 +219,7 @@ export default function SubscriptionsPage() {
               <div key={s.id} className="rounded-xl border border-[#e4ebf2] bg-white p-3 space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-bold text-[#1f3559] truncate">{s.customerName}</span>
-                  <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{s.status}</span>
+                  <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }} title={s.pauseScheduledOn ? `Pauses ${fmtDate(s.pauseScheduledOn)}` : undefined}>{s.status}</span>
                 </div>
                 <div className="text-xs text-[#697a91] truncate">{s.planName} · <strong className="text-[#0e8f88]">{money(s.amountCents, s.currency)}{CADENCE_LABEL[s.cadence] ?? ""}</strong></div>
                 <div className="text-xs text-[#34568a]">Next charge: <ChargeCell s={s} /></div>
@@ -243,7 +248,10 @@ export default function SubscriptionsPage() {
                     </td>
                     <td className="px-3 py-1 text-[#34568a]">{s.planName}</td>
                     <td className="px-3 py-1 font-semibold text-[#0e8f88] whitespace-nowrap">{money(s.amountCents, s.currency)}<span className="text-[#8595a8] font-normal">{CADENCE_LABEL[s.cadence] ?? ""}</span></td>
-                    <td className="px-3 py-1"><span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{s.status}</span></td>
+                    <td className="px-3 py-1">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{s.status}</span>
+                      {s.pauseScheduledOn && <span className="block text-[10px] text-[#c2410c] mt-0.5">pauses {fmtDate(s.pauseScheduledOn)}</span>}
+                    </td>
                     <td className="px-3 py-1 text-[#697a91] whitespace-nowrap">{fmtDate(s.startDate)}</td>
                     <td className="px-3 py-1 text-[#1f3559]"><ChargeCell s={s} /></td>
                   </tr>

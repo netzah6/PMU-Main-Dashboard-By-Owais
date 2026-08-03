@@ -31,6 +31,10 @@ export type SquareSubscription = {
   priceOverrideCents: number | null;
   currency: string;
   latestInvoiceId: string | null;
+  // Square keeps status ACTIVE when a pause is only scheduled, so the pending
+  // action is the only way to know the subscription is on its way out.
+  pauseScheduledOn: string | null;
+  cancelScheduledOn: string | null;
 };
 
 // All subscriptions in the account (every status), paginated.
@@ -38,7 +42,10 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
   const out: SquareSubscription[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 20; page++) {
-    const body: Record<string, unknown> = { limit: 200 };
+    // include:["actions"] surfaces scheduled pauses/cancels. Without it a
+    // "Pause Scheduled" subscription is indistinguishable from a plain active
+    // one, because Square leaves status as ACTIVE until the date arrives.
+    const body: Record<string, unknown> = { limit: 200, include: ["actions"] };
     if (cursor) body.cursor = cursor;
     const r = await fetch(`${BASE}/v2/subscriptions/search`, {
       method: "POST",
@@ -55,6 +62,11 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
       // invoice_ids is newest-first; the latest invoice is the ground truth
       // for what this subscription actually charges.
       const invoiceIds = (s.invoice_ids as string[] | undefined) ?? [];
+      const actions = (s.actions as Array<Record<string, unknown>> | undefined) ?? [];
+      const actionOn = (type: string): string | null => {
+        const hit = actions.find((a) => String(a.type ?? "").toUpperCase() === type);
+        return hit ? ((hit.effective_date as string) ?? null) : null;
+      };
       out.push({
         id: String(s.id),
         status: String(s.status ?? ""),
@@ -67,6 +79,8 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
         priceOverrideCents: priceOverride?.amount ?? null,
         currency: priceOverride?.currency ?? "USD",
         latestInvoiceId: invoiceIds[0] ?? null,
+        pauseScheduledOn: actionOn("PAUSE"),
+        cancelScheduledOn: actionOn("CANCEL"),
       });
     }
     cursor = j.cursor;
