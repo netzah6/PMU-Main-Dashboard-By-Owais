@@ -326,8 +326,73 @@ export type PoolRow = {
   used_as: string | null;
   used_at: string | null;
   first_seen_at: string;
-  a2p: string; // "approved" (green, ready to use) | "pending" (amber, don't use yet)
+  a2p: string; // "approved" | "pending" — A2P isn't in any API, so it's tracked by hand
+  // Cleanliness, filled in by refreshPoolCleanliness(). null = never checked.
+  workflows: number | null; // automations left; deletable only by hand in GHL
+  dirty: number | null;     // contacts + values + fields + calendars + pipelines + funnels
+  clean_checked_at: string | null;
+  clean_note: string | null;
 };
+
+// Is this account actually safe to hand to a new client?
+//   ready   — nothing left in it and A2P approved
+//   partial — data is gone but automations remain, or A2P not approved yet
+//   dirty   — still holds real data
+//   unknown — never checked
+export type PoolReadiness = "ready" | "partial" | "dirty" | "unknown";
+
+export function poolReadiness(r: Pick<PoolRow, "workflows" | "dirty" | "a2p" | "clean_checked_at">): PoolReadiness {
+  if (r.clean_checked_at == null || r.workflows == null || r.dirty == null) return "unknown";
+  if (r.dirty > 0) return "dirty";
+  if (r.workflows > 0) return "partial";
+  return r.a2p === "approved" ? "ready" : "partial";
+}
+
+// Re-inspect pool accounts and store what's left in each. Batched by the
+// caller: one inspect is ~10 GHL calls, so checking the whole pool in a single
+// request would outrun the serverless limit.
+export async function refreshPoolCleanliness(locationIds: string[]): Promise<PoolRow[]> {
+  const svc = createServiceClient();
+  const now = new Date().toISOString();
+  const results = await Promise.all(
+    locationIds.map(async (id) => {
+      try {
+        const inspect = await inspectLocation(id);
+        const c = inspect.counts;
+        const funnels = c.funnels > 0 ? c.funnels : 0; // -1 = unreadable, can't be counted as dirt
+        const dirty = c.contacts + c.customValues + c.customFields + c.calendars + c.pipelines + funnels;
+        const bits: string[] = [];
+        if (c.contacts) bits.push(`${c.contacts} contacts`);
+        if (c.customValues) bits.push(`${c.customValues} custom values`);
+        if (c.customFields) bits.push(`${c.customFields} custom fields`);
+        if (c.calendars) bits.push(`${c.calendars} calendars`);
+        if (c.pipelines) bits.push(`${c.pipelines} pipelines`);
+        if (funnels) bits.push(`${funnels} funnels`);
+        if (c.workflows) bits.push(`${c.workflows} automations`);
+        return {
+          location_id: id,
+          workflows: c.workflows,
+          dirty,
+          clean_checked_at: now,
+          clean_note: bits.length ? `${bits.join(", ")} left` : "empty",
+        };
+      } catch (e) {
+        return {
+          location_id: id, workflows: null, dirty: null, clean_checked_at: now,
+          clean_note: `couldn't check: ${e instanceof Error ? e.message : "failed"}`,
+        };
+      }
+    })
+  );
+  for (const r of results) {
+    await svc.from("pool_accounts").update({
+      workflows: r.workflows, dirty: r.dirty,
+      clean_checked_at: r.clean_checked_at, clean_note: r.clean_note,
+    }).eq("location_id", r.location_id);
+  }
+  const { data } = await svc.from("pool_accounts").select("*").in("location_id", locationIds);
+  return (data ?? []) as PoolRow[];
+}
 
 // A2P registration status isn't exposed anywhere in GHL's API (checked the
 // location record and the phone-system endpoints), so it's tracked here and

@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import {
   searchLocations, inspectLocation, cleanLocation, renameToPool, isProtectedLocation, syncPool, setPoolA2p,
+  refreshPoolCleanliness,
 } from "@/lib/ghl-cleanup";
 import { readSheetValues, writeRowToSheet, rowsToObjects } from "@/lib/sheets";
 
@@ -89,6 +90,16 @@ export async function POST(req: NextRequest) {
     if (!ids.length) return NextResponse.json({ error: "locationId(s) required" }, { status: 400 });
     for (const id of ids) await setPoolA2p(id, String(body.a2p ?? "pending"), auth.email);
     return NextResponse.json({ updated: ids.length, a2p: body.a2p });
+  }
+
+  // Re-check what's actually left in pool accounts. The tab sends them in
+  // small batches and shows progress — one inspect is ~10 GHL calls, so the
+  // whole pool in a single request would run past the serverless limit.
+  if (body.action === "refreshPool") {
+    const ids = body.locationIds ?? [];
+    if (!ids.length) return NextResponse.json({ error: "locationIds required" }, { status: 400 });
+    if (ids.length > 12) return NextResponse.json({ error: "send at most 12 accounts per batch" }, { status: 400 });
+    return NextResponse.json({ rows: await refreshPoolCleanliness(ids) });
   }
 
   const locationId = String(body.locationId ?? "");
