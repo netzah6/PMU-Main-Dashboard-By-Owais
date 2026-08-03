@@ -41,7 +41,31 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 
 export default function DepositsPage() {
-  const { data, loading, error } = useTableData<Row>({ table: "deposits" });
+  // Realtime so a deposit landing in the table appears in this tab without a
+  // reload; the pull below covers the sheet -> table hop.
+  const { data, loading, error, syncing, refetch } = useTableData<Row>({ table: "deposits", realtimeEnabled: true });
+
+  // A deposit can sit in the sheet for up to a minute before the cron picks it
+  // up, and whoever is watching this tab is usually watching because they're
+  // expecting one. Pull on open and whenever the tab regains focus.
+  useEffect(() => {
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const r = await fetch("/api/deposits/refresh", { method: "POST" });
+        if (r.ok && !cancelled) refetch();
+      } catch { /* the cron still runs every minute */ }
+    };
+    pull();
+    const onFocus = () => { if (document.visibilityState === "visible") pull(); };
+    document.addEventListener("visibilitychange", onFocus);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onFocus);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refetch]);
   const { role } = useUser();
   const canRequest = role === "admin" || role === "editor";
   const [search, setSearch] = useState("");
@@ -130,7 +154,22 @@ export default function DepositsPage() {
   return (
     <div className="p-3 md:p-4 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-lg font-semibold text-[#1f3559]">Deposits</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold text-[#1f3559]">Deposits</h1>
+          {/* Live means live — say so, and show when a new one lands. */}
+          <span
+            title="New deposits appear here automatically — no refresh needed"
+            className={cn(
+              "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border",
+              syncing
+                ? "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]"
+                : "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]"
+            )}
+          >
+            <span className={cn("w-1.5 h-1.5 rounded-full", syncing ? "bg-[#0e8f88] animate-ping" : "bg-[#15803d]")} />
+            {syncing ? "updating" : "live"}
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           <button onClick={loadRefunds} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]"><RefreshCw size={12} /> Refunds</button>
           {role === "admin" && (
