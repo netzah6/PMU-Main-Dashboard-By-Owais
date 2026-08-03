@@ -115,9 +115,12 @@ export async function POST(req: NextRequest) {
       if (norm(String(body.confirmName ?? "")) !== norm(inspect.name)) {
         return NextResponse.json({ error: `Confirmation name doesn't match "${inspect.name}"` }, { status: 400 });
       }
-      if (inspect.isPool) {
-        return NextResponse.json({ error: "This account is already in the clean pool." }, { status: 400 });
-      }
+      // Pool accounts are cleanable. Being in the pool was never proof of
+      // being empty — the pre-provisioned ones (4-50) came from a snapshot and
+      // still carry custom values, fields, a calendar, a pipeline and 18
+      // automations each. An account still named "Clean New Account N" is by
+      // definition unclaimed, so wiping it is safe; refusing just left dirty
+      // accounts sitting in the pool with no way to fix them.
       const client = await matchClient(inspect.name);
       if (client && client.status.trim().toLowerCase() === "live") {
         return NextResponse.json({ error: `"${client.business}" is marked LIVE in Clients Master — refusing to clean a live client's account.` }, { status: 400 });
