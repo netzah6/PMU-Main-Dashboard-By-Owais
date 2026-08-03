@@ -277,8 +277,9 @@ export default function CleanupPage() {
             idx === i
               ? {
                   ...r, id: hit.id, name: j.inspect.name, counts, sheetStatus, owner,
-                  state: j.inspect.protected ? "skip" : j.inspect.isPool ? "skip" : live ? "skip" : "ready",
-                  note: j.inspect.protected ? "protected account" : j.inspect.isPool ? "already in the pool" : live ? "client is LIVE" : undefined,
+                  // Pool accounts are cleanable — being pooled never meant empty.
+                  state: j.inspect.protected ? "skip" : live ? "skip" : "ready",
+                  note: j.inspect.protected ? "protected account" : live ? "client is LIVE" : j.inspect.isPool ? "pool account — re-clean" : undefined,
                 }
               : r
           )
@@ -662,8 +663,10 @@ export default function CleanupPage() {
             </div>
           )}
           {inspect.isPool && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-[#e7f6ec] border border-[#bfe3cd] text-sm text-[#15803d]">
-              <Sparkles size={15} /> Already in the clean pool.
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-[#e6f7f5] border border-[#a7e3df] text-sm text-[#0e8f88]">
+              <Sparkles size={15} />
+              In the clean pool — it can still be re-cleaned. Pre-provisioned accounts
+              were never wiped, so many still carry template values, fields and automations.
             </div>
           )}
           {statusLower === "live" && (
@@ -715,7 +718,7 @@ export default function CleanupPage() {
           )}
 
           {/* Clean */}
-          {!inspect.protected && !inspect.isPool && statusLower !== "live" && !steps && (
+          {!inspect.protected && statusLower !== "live" && !steps && (
             <div className="pt-2 border-t border-[#f1f5f9] space-y-2">
               <p className="text-xs text-[#697a91]">
                 Type the sub-account name to confirm — this permanently deletes everything listed above (except automations).
