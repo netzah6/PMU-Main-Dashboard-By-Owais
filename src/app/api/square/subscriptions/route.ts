@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { squareConfigured, listSubscriptions, getCustomers, getPlans, getInvoiceAmounts } from "@/lib/square";
+import { squareConfigured, listSubscriptions, getCustomers, getPlans, getInvoiceAmounts, actionsIncluded } from "@/lib/square";
 
 // Resolving customers/plans/invoices for the live subs pushes this to ~80s on
 // a full account. At the old 120s ceiling a slow Square response tipped it into
@@ -91,6 +91,10 @@ export async function GET() {
     return NextResponse.json({
       subscriptions: rows,
       // Totals straight from Square, so a short list is visibly a short list.
+      // False when Square couldn't serve the scheduled-actions payload, so the
+      // tab can say pause/cancel detection was unavailable rather than imply
+      // there simply weren't any.
+      scheduledActionsAvailable: actionsIncluded,
       counts: {
         total: rows.length,
         byStatus: rows.reduce<Record<string, number>>((a, r) => {
