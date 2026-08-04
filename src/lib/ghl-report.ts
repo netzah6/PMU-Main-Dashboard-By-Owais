@@ -49,6 +49,64 @@ function isWeekend(iso: string, tz: string | null): boolean {
 
 type Ev = { contactId: string; t: number; iso: string; call: boolean; outbound: boolean; channel: "call" | "sms" | "email" | "other" };
 
+// Render the report card as final text, server-side. This exists because the
+// model was caught filling the report skeleton from imagination — fabricated
+// owner names ("Joy Adenuga", "Leilani Bell") and lead counts 10x reality —
+// instead of copying the tool result. Text assembled in code can't be made up:
+// the model now only ever sees and forwards this string.
+export function renderClientReport(r: Record<string, unknown>): string | null {
+  const client = r.client as { owner?: string; business?: string } | undefined;
+  const lines = r.reportLines as { deposits: string; bookingRate: string; declining: string; scorecard: string[] } | undefined;
+  const pipeline = r.pipeline as { total: number; stages: Array<{ stage: string; leads: number }> } | undefined;
+  if (!client || !lines || !pipeline) return null;
+
+  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+  const lsc = r.lastStrategyCall as { start?: string } | string | null | undefined;
+  const lastCall = lsc && typeof lsc === "object" && lsc.start
+    ? new Date(lsc.start).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+    : "NO DATA";
+
+  const byChannel = ((r.behavior as Record<string, unknown> | undefined)?.outboundByChannel ?? {}) as Record<string, number>;
+  const chTotal = Object.values(byChannel).reduce((s, n) => s + n, 0);
+  const chPct = (k: string) => (chTotal > 0 ? Math.round(((byChannel[k] ?? 0) / chTotal) * 100) : 0);
+  const callVsChat = chTotal > 0
+    ? `Call vs Chat: ~${chPct("call")}% calls / ~${chPct("sms")}% SMS / ~${chPct("email")}% email`
+    : "Call vs Chat: ⚠️ Unable to verify — no message history readable";
+
+  // Merge duplicate stage rows (open/won splits), biggest first.
+  const merged = new Map<string, number>();
+  for (const s of pipeline.stages) merged.set(s.stage, (merged.get(s.stage) ?? 0) + s.leads);
+  const stageLines = [...merged.entries()].sort((a, b) => b[1] - a[1]).map(([stage, n]) => `${stage}: ${n}`);
+
+  const caveat = ((r.caveats as string[] | undefined) ?? [])[0]
+    ?? "Metrics computed from synced data; message history sampled live.";
+
+  return [
+    `📊 CLIENT REPORT — ${client.business} (${client.owner})`,
+    today,
+    "",
+    "Happy? ⚠️ Unknown — not tracked yet",
+    `Last Strategy Call: ${lastCall}`,
+    "",
+    lines.deposits,
+    callVsChat,
+    `Total Leads: ${pipeline.total}`,
+    lines.bookingRate,
+    lines.declining,
+    "",
+    "Pipeline Breakdown:",
+    "",
+    ...stageLines,
+    "",
+    "Scorecard (last 2 weeks):",
+    "",
+    ...lines.scorecard,
+    "",
+    caveat,
+  ].join("\n");
+}
+
 export async function buildClientReport(nameQuery: string): Promise<Record<string, unknown>> {
   const svc = createServiceClient();
   const q = nameQuery.trim();
