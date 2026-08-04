@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
-import { buildClientReport } from "@/lib/ghl-report";
+import { buildClientReport, renderClientReport } from "@/lib/ghl-report";
 import { getReplyAccount, getRecentConversations, getThread, getRoster, getVoiceSamples, channelFromType } from "@/lib/ghl-conversations";
 import { generateDraft } from "@/lib/reply-draft";
 import { resolveAccount, readThread, scanMessages, pipelineContacts } from "@/lib/ask-conversations";
@@ -120,48 +120,15 @@ REPLIES (merged from the old AI Replies tab):
 
 CLIENT REPORT:
 When the user gives a client's name or business name (alone, or asks for a
-"report" / "performance report"), call the client_report tool with that name,
-then present the result copying this skeleton LINE FOR LINE — same line
-order, same blank lines between sections, nothing added or reordered. The
-skeleton is delimited by ===; reproduce everything between the === markers,
-substituting the {placeholders}:
-
-===
-📊 CLIENT REPORT — {Business Name} ({Owner})
-{today's date, e.g. July 8, 2026}
-
-Happy? ⚠️ Unknown — not tracked yet
-Last Strategy Call: {lastStrategyCall.start as a date, e.g. Jun 14, 2026 — it's the client's most recent past strategy-call appointment in the agency's own sub-account; if lastStrategyCall isn't an appointment object, write NO DATA}
-
-{reportLines.deposits — VERBATIM}
-Call vs Chat: ~{x}% calls / ~{y}% SMS / ~{z}% email
-Total Leads: {pipeline.total}
-{reportLines.bookingRate — VERBATIM}
-{reportLines.declining — VERBATIM}
-
-Pipeline Breakdown:
-
-{stage name}: {count}
-{stage name}: {count}
-{...one line per stage, real stage names with their own emojis, ordered hot → won → lost}
-
-Scorecard (last 2 weeks):
-
-{reportLines.scorecard — all 7 lines, VERBATIM, one per line, in order}
-===
-
-CRITICAL — determinism: the tool result's "reportLines" object contains
-PRE-FORMATTED lines (deposits, bookingRate, declining, and the 7 scorecard
-lines). Copy them into the skeleton EXACTLY as given — same emoji, same
-wording, same numbers, character for character. Never re-judge, reword, or
-re-compute them: two people running the same report must see identical text.
-The scorecard call metrics cover ONLY the last 14 days (recent team
-activity); everything else is all-time. Call vs Chat from
-behavior.outboundByChannel, rounded. If a piece of data is unavailable,
-write "Unable to verify — {short reason}" on that line instead of inventing
-numbers. End with ONE short line
-of caveats (sample size). If the tool errors (client not ingested), say so
-and show what SQL alone can tell (status, payments).
+"report" / "performance report"), call the client_report tool with that name.
+The report card is rendered by the SERVER from computed data and shown to the
+user directly — you never see the numbers and must never produce them.
+- On success, reply with ONE short line: "Here's the report for {business}."
+- On error, state the error plainly and stop.
+- NEVER write a report card, pipeline breakdown, scorecard, or any metric
+  yourself — not from memory, not from earlier messages in this chat, not
+  from SQL. A report without a client_report call in this turn is fabricated,
+  and fabricated numbers about a client's business are worse than no answer.
 `;
 
 const unreadTool: Anthropic.Tool = {
@@ -250,7 +217,7 @@ const queryTool: Anthropic.Tool = {
 
 export type AskMessage = { role: "user" | "assistant"; content: string };
 export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string };
-export type AskResult = { answer: string; queries: string[]; drafts?: AskDraft[] };
+export type AskResult = { answer: string; queries: string[]; drafts?: AskDraft[]; reports?: string[] };
 
 // Find the conversation in the agency account that best matches a lead name
 // (or fetch it directly when an exact conversation id is given).
@@ -335,6 +302,7 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
   const svc = createServiceClient();
   const queries: string[] = [];
   const drafts: AskDraft[] = [];
+  const reports: string[] = [];
 
   const messages: Anthropic.MessageParam[] = history.map((m) => ({ role: m.role, content: m.content }));
   const system = SCHEMA_DOC.replace("{TODAY}", new Date().toISOString().slice(0, 10));
@@ -350,7 +318,7 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
 
     if (msg.stop_reason !== "tool_use") {
       const text = msg.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("\n").trim();
-      return { answer: text || "(no answer)", queries, drafts: drafts.length ? drafts : undefined };
+      return { answer: text || "(no answer)", queries, drafts: drafts.length ? drafts : undefined, reports: reports.length ? reports : undefined };
     }
 
     messages.push({ role: "assistant", content: msg.content });
@@ -427,7 +395,25 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
         let content: string;
         let isError = false;
         try {
-          content = JSON.stringify(await buildClientReport(name)).slice(0, 40000);
+          const data = await buildClientReport(name);
+          const rendered = !data.error ? renderClientReport(data) : null;
+          if (rendered) {
+            // The report card the user sees is THIS string, assembled in code.
+            // The model gets no numbers to transcribe — it was caught inventing
+            // owner names and lead counts when asked to copy them — only enough
+            // context for a one-line handoff.
+            reports.push(rendered);
+            const c = data.client as { owner?: string; business?: string };
+            content = JSON.stringify({
+              rendered: true,
+              business: c.business,
+              owner: c.owner,
+              note: "The full report card is already displayed to the user, exactly as computed. Reply with ONE short line (e.g. \"Here's the report for {business}.\") and do NOT restate, summarize or invent any numbers — they are all in the card.",
+            });
+          } else {
+            content = `report error: ${String(data.error ?? "could not render report")}`;
+            isError = true;
+          }
         } catch (e) {
           content = `report error: ${e instanceof Error ? e.message : "failed"}`;
           isError = true;
@@ -447,5 +433,5 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
     }
     messages.push({ role: "user", content: results });
   }
-  return { answer: "I ran out of query rounds before finishing — try a more specific question.", queries, drafts: drafts.length ? drafts : undefined };
+  return { answer: "I ran out of query rounds before finishing — try a more specific question.", queries, drafts: drafts.length ? drafts : undefined, reports: reports.length ? reports : undefined };
 }

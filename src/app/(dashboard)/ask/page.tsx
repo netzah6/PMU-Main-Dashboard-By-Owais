@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string };
-type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[] };
+type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[]; reports?: string[] };
 type Conv = {
   id: string;
   contactId: string | null;
@@ -105,7 +105,7 @@ export default function AskPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Request failed");
-      setMsgs((m) => [...m, { role: "assistant", content: json.answer, queries: json.queries, drafts: json.drafts }]);
+      setMsgs((m) => [...m, { role: "assistant", content: json.answer, queries: json.queries, drafts: json.drafts, reports: json.reports }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
       setMsgs((m) => m.slice(0, -1));
@@ -242,6 +242,11 @@ export default function AskPage() {
                 : "bg-white border border-[#e4ebf2] text-[#1f3559] rounded-bl-md",
             )}>
               {m.content}
+              {m.role === "assistant" && (m.reports ?? []).map((r, j) => (
+                // Server-rendered report card — exact computed text, the model
+                // never touches these numbers.
+                <pre key={"r" + j} className="mt-2 p-3 rounded-lg bg-[#f8fafc] border border-[#e4ebf2] text-[12px] leading-relaxed whitespace-pre-wrap font-sans text-[#1f3559]">{r}</pre>
+              ))}
               {m.role === "assistant" && (m.drafts ?? []).map((d, j) => <DraftCard key={j} d={d} />)}
               {m.role === "assistant" && (m.queries?.length ?? 0) > 0 && <QueryDetails queries={m.queries!} />}
             </div>
