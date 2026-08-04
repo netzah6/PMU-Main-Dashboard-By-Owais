@@ -69,7 +69,7 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: A
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <Column
-        label="Deposits"
+        label="Deposits from auto bookings"
         color="#0e8f88"
         count={dDeposits.length}
         rows={dDeposits}

@@ -41,7 +41,38 @@ export default function ClientsPage() {
   const { data: rawCalls } = useTableData<Record<string, unknown>>({ table: "outgoing_calls" });
   const { data: rawPerformance } = useTableData<Record<string, unknown>>({ table: "performance_tracking" });
 
-  const clients = useMemo(() => rawClients.map(normalizeClient) as ClientRecord[], [rawClients]);
+  // The master sheet contains accidental duplicate rows (e.g. Jessica
+  // Phillips twice as "The Spa Navarre"/"The spa navarre", both Live), so the
+  // list collapses them: same owner, and the same business ignoring
+  // case/punctuation — or a business left blank on one row. An owner who
+  // genuinely ran two different businesses would still show twice. Kept row =
+  // the one with a real status, then the newest (highest sheet row).
+  const clients = useMemo(() => {
+    const all = rawClients.map(normalizeClient) as ClientRecord[];
+    const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const rowNum = (c: ClientRecord) => Number((c as Record<string, unknown>)._row_number ?? (c as Record<string, unknown>).row_number ?? 0);
+    const better = (a: ClientRecord, b: ClientRecord) => {
+      const aHas = String(a.status ?? "").trim() !== "";
+      const bHas = String(b.status ?? "").trim() !== "";
+      if (aHas !== bHas) return aHas ? a : b;
+      return rowNum(a) >= rowNum(b) ? a : b;
+    };
+    const byOwner = new Map<string, ClientRecord[]>();
+    for (const c of all) {
+      const ok = norm(c.owner_name);
+      if (!ok) { (byOwner.get("") ?? byOwner.set("", []).get("")!).push(c); continue; }
+      const kept = byOwner.get(ok) ?? [];
+      const biz = norm(c.business_name);
+      const i = kept.findIndex((k) => {
+        const kb = norm(k.business_name);
+        return kb === biz || kb === "" || biz === "";
+      });
+      if (i >= 0) kept[i] = better(kept[i], c);
+      else kept.push(c);
+      byOwner.set(ok, kept);
+    }
+    return Array.from(byOwner.values()).flat();
+  }, [rawClients]);
   const deposits = useMemo(() => rawDeposits.map(normalizeDeposit), [rawDeposits]);
   const bookings = useMemo(() => rawBookings.map(normalizeBooking), [rawBookings]);
   const leads = useMemo(() => rawLeads.map(normalizeLead), [rawLeads]);
