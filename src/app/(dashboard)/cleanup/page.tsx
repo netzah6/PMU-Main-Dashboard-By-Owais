@@ -17,6 +17,7 @@ type LogRow = { location_id: string; old_name: string; pool_name: string | null;
 type PoolRow = {
   location_id: string; pool_name: string; status: string;
   used_as: string | null; used_at: string | null; a2p: string;
+  a2p_updated_at: string | null;
   workflows: number | null; dirty: number | null;
   clean_checked_at: string | null; clean_note: string | null;
 };
@@ -455,6 +456,9 @@ export default function CleanupPage() {
                     {p.pool_name}
                     {state === "partial" && p.workflows ? ` · ${p.workflows}⚙` : ""}
                     {state === "dirty" ? " · ⚠" : ""}
+                    {/* A2P is invisible on red/orange chips otherwise — an
+                        approved-but-dirty account is the one worth cleaning first. */}
+                    {state !== "ready" && p.a2p === "approved" ? " · ✓A2P" : ""}
                   </button>
                 );
               })}
@@ -472,6 +476,11 @@ export default function CleanupPage() {
                         : p.workflows
                           ? `${p.workflows} automations left — delete them in GHL, then Re-check`
                           : "A2P not approved yet"}
+                    {" · "}
+                    <span className={p.a2p === "approved" ? "text-[#15803d]" : ""}>
+                      A2P {p.a2p === "approved" ? "✓ approved" : "not approved"}
+                      {p.a2p_updated_at ? ` (checked ${ago(p.a2p_updated_at)})` : " (never scanned)"}
+                    </span>
                   </p>
                 ))}
                 {pool.available.filter((p) => readinessOf(p) !== "ready").length > 8 && (
@@ -481,7 +490,8 @@ export default function CleanupPage() {
             )}
             <p className="text-[11px] text-[#9aa8bc] mt-2">
               🟢 empty + A2P approved — safe to use · 🟠 nearly there (automations left, or A2P not approved) ·
-              🔴 still has data · ⚪ not checked yet. Click a chip to toggle A2P; use Re-check to refresh what&apos;s inside.
+              🔴 still has data · ⚪ not checked yet · ✓A2P on a red/orange chip = A2P already approved, worth cleaning first.
+              Click a chip to toggle A2P; use Re-check to refresh what&apos;s inside (A2P itself has no API — ask Claude to re-scan it).
             </p>
           </>
         )}
