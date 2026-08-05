@@ -47,7 +47,10 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
   ]);
   const ppaByKey = new Map<string, string>(); // normalized owner key → financing-sheet client name
   for (const p of (pay ?? []) as Array<{ client_name: string; owner_key: string; payment_status: string }>) {
-    if (String(p.payment_status ?? "").toLowerCase().includes("ppa")) ppaByKey.set(p.owner_key, p.client_name);
+    // The team renamed the financing-sheet mark from "PPA" to "PPS" (pay-per-
+    // show) — accept both so a sheet-side rename never empties the roster.
+    const status = String(p.payment_status ?? "").toLowerCase();
+    if (status.includes("ppa") || status.includes("pps")) ppaByKey.set(p.owner_key, p.client_name);
   }
   const matched = new Set<string>();
   const seen = new Set<string>();

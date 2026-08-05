@@ -89,9 +89,14 @@ export interface PaymentSyncResult {
  * Read the latest month tab of the financing sheet and upsert one row per
  * client into client_payments, keyed by normalized owner name.
  */
+// Fallback: SHEET5_ID was never set in the Vercel env, so the cron's payments
+// sync errored on every run and client_payments went stale (last write was a
+// manual local run on Jul 14). A sheet ID is not a credential — access still
+// requires the service account — so hardcoding the fallback is safe.
+const FINANCING_SHEET_ID = "1h0QdmsUVm6Ss8OQWz0yXt6dy5fkXHL2wwQWpjV3_P7A";
+
 export async function syncPayments(): Promise<PaymentSyncResult> {
-  const spreadsheetId = process.env.SHEET5_ID;
-  if (!spreadsheetId) return { status: "error", error: "SHEET5_ID not set" };
+  const spreadsheetId = process.env.SHEET5_ID || FINANCING_SHEET_ID;
 
   try {
     const tabs = await getTabNames(spreadsheetId);
@@ -101,7 +106,10 @@ export async function syncPayments(): Promise<PaymentSyncResult> {
     const sheets = await getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `'${monthTab}'!A1:H200`,
+      // The month tab keeps growing over the month (Aug reached row 271 by
+      // Aug 5); the old H200 cap silently dropped every client added below
+      // row 200 — that's how Shameka Raphael went missing from PPS Billing.
+      range: `'${monthTab}'!A1:H1000`,
       valueRenderOption: "UNFORMATTED_VALUE",
     });
     const rows = (res.data.values ?? []) as string[][];

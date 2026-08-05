@@ -46,7 +46,7 @@ async function main(){
   if(!monthTab)throw new Error("No month tab found");
   console.log("Latest month tab:",monthTab);
 
-  const res=await sheets.spreadsheets.values.get({spreadsheetId,range:`'${monthTab}'!A1:H200`,valueRenderOption:"UNFORMATTED_VALUE"});
+  const res=await sheets.spreadsheets.values.get({spreadsheetId,range:`'${monthTab}'!A1:H1000`,valueRenderOption:"UNFORMATTED_VALUE"});
   const rows=res.data.values||[];
   const cols=mapColumns(rows);
   if(!cols)throw new Error("No header row found");
