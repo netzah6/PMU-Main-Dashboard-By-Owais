@@ -94,7 +94,33 @@ export async function POST(req: NextRequest) {
     pick(body, ["external_id", "transaction_id", "transactionId", "payment_id", "id", "charge_id"]) ||
     `derived:${email.toLowerCase()}|${amount}|${date}|${productId}`;
 
-  const data: Record<string, string> = {
+  const supabase = createServiceClient();
+  const now = new Date().toISOString();
+
+  // The dashboard sorts deposits newest-first by data.row_number (see
+  // sortNewestFirst in lib/utils). Without one, a direct row falls back to 0 and
+  // sinks below every sheet-sourced row — invisible in practice.
+  //
+  // Make sends the row number the Google Sheets module just created, so the
+  // direct row lines up exactly with its sheet twin: it sorts correctly AND a
+  // later sheet sync upserts onto the same row instead of duplicating it.
+  // Without it, fall back to one past the current highest.
+  const sheetRowFromMake = Number(pick(body, ["row_number", "rowNumber", "sheet_row"])) || null;
+  let rowNumber = sheetRowFromMake ?? 0;
+  if (!rowNumber) {
+    const { data: top } = await supabase
+      .from("deposits")
+      .select("data")
+      .order("synced_at", { ascending: false })
+      .limit(200);
+    const highest = (top ?? []).reduce((max, r) => {
+      const n = Number((r.data as Record<string, unknown> | null)?.row_number) || 0;
+      return n > max ? n : max;
+    }, 0);
+    rowNumber = highest + 1;
+  }
+
+  const data: Record<string, string | number> = {
     "Date": date,
     "Email": email,
     "Amount": amount,
@@ -102,10 +128,8 @@ export async function POST(req: NextRequest) {
     "Full Name": fullName,
     "Product ID": productId,
     "Business Name": business,
+    row_number: rowNumber,
   };
-
-  const supabase = createServiceClient();
-  const now = new Date().toISOString();
 
   // If the same deposit already arrived via the sheet, adopt that row instead of
   // creating a duplicate — the sheet path may still be running in parallel.
@@ -131,7 +155,10 @@ export async function POST(req: NextRequest) {
   const { error } = await supabase
     .from("deposits")
     .upsert(
-      { external_id: externalId, sheet_row: null, data, synced_at: now },
+      // sheet_row is set only when Make told us the real sheet row, so a later
+      // sheet sync upserts onto this row rather than creating a twin. Left NULL
+      // otherwise (Postgres allows many NULLs in a unique index).
+      { external_id: externalId, sheet_row: sheetRowFromMake, data, synced_at: now },
       { onConflict: "external_id" }
     );
 
