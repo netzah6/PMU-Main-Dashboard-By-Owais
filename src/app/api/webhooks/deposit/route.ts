@@ -108,15 +108,17 @@ export async function POST(req: NextRequest) {
   const sheetRowFromMake = Number(pick(body, ["row_number", "rowNumber", "sheet_row"])) || null;
   let rowNumber = sheetRowFromMake ?? 0;
   if (!rowNumber) {
+    // Order by the row number itself, not by synced_at: a sheet sync stamps every
+    // row with an identical synced_at, so "most recently synced" returns an
+    // arbitrary slice and the max found there can be hundreds of rows too low.
+    // row_number is stored as a JSON *number* on every row, so `data->row_number`
+    // sorts numerically.
     const { data: top } = await supabase
       .from("deposits")
       .select("data")
-      .order("synced_at", { ascending: false })
-      .limit(200);
-    const highest = (top ?? []).reduce((max, r) => {
-      const n = Number((r.data as Record<string, unknown> | null)?.row_number) || 0;
-      return n > max ? n : max;
-    }, 0);
+      .order("data->row_number", { ascending: false })
+      .limit(1);
+    const highest = Number((top?.[0]?.data as Record<string, unknown> | null)?.row_number) || 0;
     rowNumber = highest + 1;
   }
 
