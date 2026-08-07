@@ -8,16 +8,18 @@ export const maxDuration = 120;
 // (mirrored in the `deposits` table). Lists deposit-range payments that exist
 // in Commas but never made it into the sheet. Gated by CRON_SECRET — no writes.
 //
-// Matching is COUNT-BASED per (email + business): a repeat customer with two
-// deposits under the same artist must have two sheet rows, else one is missing.
-// This catches second deposits that a simple "email seen anywhere" check misses.
+// Matching is COUNT-BASED on the buyer's email: a repeat customer with two
+// deposits must have two sheet rows, else one is missing. This catches second
+// deposits that a simple "email seen anywhere" check misses.
+//
+// Business name is deliberately NOT part of the key. It used to be, derived from
+// the product title ("Owner Name - Business Name") by splitting on the first
+// dash — but that breaks on hyphenated owner names ("Fatima Al-Zeheri",
+// "Generose Danao-Uy", "Rachel Tate-Study") and on ad-account suffixes
+// ("GlamourEyes & More - Ad Account 2"), where the sheet stores a shorter name.
+// The result was 26 false positives out of 28 flagged rows. Email is unique
+// enough on its own; the product title is still reported for context.
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
-// Product title is "Owner Name - Business Name"; take everything after the 1st dash.
-function bizFromProduct(p: string | null): string {
-  if (!p) return "";
-  const i = p.indexOf("-");
-  return norm(i >= 0 ? p.slice(i + 1) : p);
-}
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
@@ -30,29 +32,29 @@ export async function GET(req: NextRequest) {
   const txns = await listAllTransactions(new Date(since + "T00:00:00Z").toISOString());
 
   // Sheet side (the `deposits` table mirrors the Deposits tab). Build multisets
-  // keyed by email+biz and name+biz so we can consume one per matched deposit.
+  // keyed by email and by normalized name, so we consume one per matched deposit.
+  // .range() is explicit: PostgREST caps an unbounded select at 1000 rows, and
+  // silently truncating the sheet side would invent "missing" deposits.
   const svc = createServiceClient();
-  const { data } = await svc.from("deposits").select("data");
-  const emailBiz = new Map<string, number>();
-  const nameBiz = new Map<string, number>();
-  const emailAny = new Set<string>();
+  const { data } = await svc.from("deposits").select("data").range(0, 49999);
+  const byEmail = new Map<string, number>();
+  const byName = new Map<string, number>();
   const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
   for (const r of (data ?? []) as Array<{ data: Record<string, unknown> }>) {
     const e = String(r.data?.["Email"] ?? "").trim().toLowerCase();
     const n = norm(String(r.data?.["Full Name"] ?? ""));
-    const b = norm(String(r.data?.["Business Name"] ?? ""));
-    if (e) { bump(emailBiz, e + "|" + b); emailAny.add(e); }
-    if (n) bump(nameBiz, n + "|" + b);
+    if (e) bump(byEmail, e);
+    if (n) bump(byName, n);
   }
 
   const missing: typeof txns = [];
   for (const t of txns) {
     if (t.amountDollars != null && t.amountDollars > maxAmount) continue;
-    const b = bizFromProduct(t.product);
-    const ek = t.email + "|" + b;
-    const nk = norm(t.name) + "|" + b;
-    if (t.email && (emailBiz.get(ek) ?? 0) > 0) { emailBiz.set(ek, emailBiz.get(ek)! - 1); continue; }
-    if (t.name && (nameBiz.get(nk) ?? 0) > 0) { nameBiz.set(nk, nameBiz.get(nk)! - 1); continue; }
+    const nk = norm(t.name);
+    if (t.email && (byEmail.get(t.email) ?? 0) > 0) { byEmail.set(t.email, byEmail.get(t.email)! - 1); continue; }
+    // Name fallback: the sheet occasionally stores a different buyer name than
+    // Commas does for the same payment (e.g. the cardholder vs the lead).
+    if (nk && (byName.get(nk) ?? 0) > 0) { byName.set(nk, byName.get(nk)! - 1); continue; }
     missing.push(t);
   }
   missing.sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")));
@@ -68,8 +70,6 @@ export async function GET(req: NextRequest) {
       amount: t.amountDollars,
       date: t.createdAt,
       product: t.product,
-      // whether this buyer's email exists in the sheet under a DIFFERENT business
-      emailSeenElsewhere: t.email ? emailAny.has(t.email) : false,
       transactionId: t.id,
     })),
   });
