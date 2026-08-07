@@ -21,6 +21,22 @@ const SHEET_TO_TABLE: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
+  // Shared-secret auth. This endpoint writes arbitrary JSON into any mirrored
+  // table using the service-role key, so it must not be open — anyone who found
+  // the URL could forge rows or overwrite real ones. Same scheme as
+  // /api/webhooks: a dedicated secret if set, else CRON_SECRET.
+  const expected = process.env.DEPOSIT_WEBHOOK_SECRET || process.env.CRON_SECRET;
+  if (expected) {
+    const got =
+      req.headers.get("x-webhook-secret") ||
+      (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "") ||
+      new URL(req.url).searchParams.get("secret") ||
+      "";
+    if (got !== expected) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+  }
+
   const body = await req.json();
   const { sheetName, rowNumber, rowData } = body as {
     sheetName: string;

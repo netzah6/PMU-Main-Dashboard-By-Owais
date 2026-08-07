@@ -1,5 +1,45 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { readSheetValues, rowsToObjects, SHEET_MAP } from "@/lib/sheets";
+import { fingerprint, resolveTable } from "@/lib/direct-ingest";
+
+/**
+ * Drop direct-ingest rows that the sheet has now caught up on.
+ *
+ * Rows posted to /api/webhooks land with `external_id` set and `sheet_row` NULL,
+ * so the "delete rows past the sheet's last row" step below can't touch them
+ * (NULL > n is never true — deliberately, so a direct row survives until the
+ * sheet is read). But once the sheet read finally succeeds, the same record
+ * arrives again with a real sheet_row, and without this the dashboard would
+ * show it twice.
+ *
+ * The sheet is the system of record, so the sheet copy wins and the early
+ * direct copy is removed. A direct row with no counterpart in the sheet — a
+ * manual backfill, or a record the sheet genuinely never received — is kept.
+ */
+async function dropSupersededDirectRows(
+  table: string,
+  sheetObjects: Record<string, unknown>[]
+): Promise<number> {
+  const t = resolveTable(table);
+  if (!t) return 0;
+
+  const supabase = createServiceClient();
+  const { data: direct } = await supabase
+    .from(table)
+    .select("id, data")
+    .not("external_id", "is", null)
+    .is("sheet_row", null);
+  if (!direct || direct.length === 0) return 0;
+
+  const inSheet = new Set(sheetObjects.map((o) => fingerprint(t, o)));
+  const superseded = direct
+    .filter((r) => inSheet.has(fingerprint(t, (r.data ?? {}) as Record<string, unknown>)))
+    .map((r) => r.id);
+  if (superseded.length === 0) return 0;
+
+  await supabase.from(table).delete().in("id", superseded);
+  return superseded.length;
+}
 
 export interface SyncResult {
   table: string;
@@ -7,6 +47,8 @@ export interface SyncResult {
   sheetRows: number;
   supabaseRowsBefore: number;
   supabaseRowsAfter: number;
+  /** Direct-ingest rows retired because the sheet caught up on them. */
+  supersededDirect?: number;
   status: "ok" | "error";
   error?: string;
   durationMs: number;
@@ -77,6 +119,10 @@ export async function syncOneSheet(
     // 3. Delete rows that were removed from the sheet (sheet_row beyond current max)
     await supabase.from(table).delete().gt("sheet_row", maxSheetRow);
 
+    // 4. Retire direct-ingest rows the sheet has now caught up on, so a record
+    //    that arrived by webhook first isn't shown twice.
+    const supersededDirect = await dropSupersededDirectRows(table, objects);
+
     const { count: afterCount } = await supabase
       .from(table)
       .select("*", { count: "exact", head: true });
@@ -86,6 +132,7 @@ export async function syncOneSheet(
       sheetRows: objects.length,
       supabaseRowsBefore: beforeCount ?? 0,
       supabaseRowsAfter: afterCount ?? 0,
+      supersededDirect,
       status: "ok",
       durationMs: Date.now() - start,
     };
