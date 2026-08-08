@@ -12,7 +12,9 @@ import { ingestRow, resolveTable } from "@/lib/direct-ingest";
 // how the original deposit module was configured before the other tables
 // existed.
 
-export const maxDuration = 30;
+// Headroom over the ~1s this normally takes, so a cold start or a slow Supabase
+// round trip can't turn into a timeout that Make records as a failed execution.
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   // Shared-secret auth. Accepts a dedicated secret, or falls back to CRON_SECRET

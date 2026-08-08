@@ -239,13 +239,22 @@ export async function ingestRow(table: IngestTable, body: Record<string, unknown
 
   // If the sheet path already delivered this record, adopt that row rather than
   // creating a duplicate — both paths run in parallel by design.
-  // Narrow on one indexed-ish field first (email, else name) so this stays a
-  // small read even against the 37k-row leads table, then compare fingerprints.
+  //
+  // Narrow on ONE identifying field before comparing fingerprints, and pick a
+  // field that is actually indexed. Order matters: the funnel that feeds this is
+  // "Phone Number Only Leads", so email is usually absent and phone is the
+  // reliable identifier. Falling through to the name was a sequential scan of
+  // 38k rows (measured: 8.4s), which timed the webhook out and filled Make's
+  // incomplete-executions queue.
   const fp = fingerprint(table, row);
   let q = supabase.from(table).select("id, data").is("external_id", null).limit(50);
-  q = v.email ? q.eq("data->>Email", v.email) : q.eq("data->>Full Name", v.fullName);
+  if (v.email) q = q.eq("data->>Email", v.email);
+  else if (v.phone) q = q.eq("data->>Phone Number", String(toPhone(v.phone)));
+  else q = q.eq("data->>Full Name", v.fullName);
   const { data: candidates, error: twinErr } = await q;
-  if (twinErr) return { ok: false, status: 500, error: `duplicate check failed: ${twinErr.message}` };
+  // A slow or failed duplicate check must not lose the row: fall through and
+  // write it. external_id still guards against the same delivery arriving twice.
+  if (twinErr) console.warn("direct-ingest: duplicate check failed:", twinErr.message);
   const twin = (candidates ?? []).find(
     (r) => fingerprint(table, (r.data ?? {}) as Record<string, unknown>) === fp
   );
