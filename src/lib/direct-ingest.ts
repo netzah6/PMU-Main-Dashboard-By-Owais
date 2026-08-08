@@ -61,7 +61,11 @@ function parseDate(raw: string): Date | null {
 // record created between 8pm Eastern and midnight UTC on the FOLLOWING day. The
 // sheet said Aug 7, the webhook said Aug 8, the fingerprints stopped matching,
 // and the same call was stored twice.
-const BUSINESS_TZ = "America/New_York";
+// US Pacific — confirmed as the Make organisation's timezone, which is what the
+// Google Sheets module stamps rows with. Keep these in step: if the Make org
+// timezone ever changes, this must change with it or direct rows and sheet rows
+// will disagree by a day again.
+const BUSINESS_TZ = "America/Los_Angeles";
 
 /**
  * Calendar parts for a value.
