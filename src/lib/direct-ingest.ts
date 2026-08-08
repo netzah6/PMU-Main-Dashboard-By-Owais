@@ -56,17 +56,44 @@ function parseDate(raw: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// The studio's calendar day, not the server's. Make and the Google Sheets module
+// both write the org-local date; formatting the same moment in UTC put every
+// record created between 8pm Eastern and midnight UTC on the FOLLOWING day. The
+// sheet said Aug 7, the webhook said Aug 8, the fingerprints stopped matching,
+// and the same call was stored twice.
+const BUSINESS_TZ = "America/New_York";
+
+/**
+ * Calendar parts for a value.
+ *
+ * A bare DD/MM/YYYY has no time in it, so it is passed straight through — the
+ * caller already decided which day it means. Only an instant (an ISO timestamp,
+ * or "now") gets resolved through the studio's timezone.
+ */
+function dateParts(raw: string): { y: number; m: number; d: number } {
+  const lit = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (lit) return { d: Number(lit[1]), m: Number(lit[2]), y: Number(lit[3]) };
+
+  const parsed = raw ? parseDate(raw) : null;
+  const at = parsed ?? new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(at);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  return { y: get("year"), m: get("month"), d: get("day") };
+}
+
 /** "07/08/2026" — zero-padded, used by the Deposits tab and the col_6 column. */
 export function toPaddedDate(raw: string): string {
-  const d = parseDate(raw) ?? new Date();
+  const { y, m, d } = dateParts(raw);
   const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
+  return `${p(d)}/${p(m)}/${y}`;
 }
 
 /** "7/8/2026" — unpadded, the format the Leads/Bookings/Calls tabs store. */
 function toLooseDate(raw: string): string {
-  const d = parseDate(raw) ?? new Date();
-  return `${d.getUTCDate()}/${d.getUTCMonth() + 1}/${d.getUTCFullYear()}`;
+  const { y, m, d } = dateParts(raw);
+  return `${d}/${m}/${y}`;
 }
 
 /** Sheet rows store amounts as "$50" — match that. */
