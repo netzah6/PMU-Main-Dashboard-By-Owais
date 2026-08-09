@@ -16,12 +16,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Payments first: it's one tab read + one upsert, and running it after the
-  // full sheet sync starved it whenever syncAllSheets ate the 300s budget
-  // (client_payments sat on the June tab for two weeks of July).
-  const payments = await syncPayments();
+  // ?only=offers|payments runs a single job. syncAllSheets can consume the whole
+  // 300s budget on the slow workbook, so without this there is no way to run the
+  // cheap jobs on demand — a full run just times out before reaching them.
+  const only = req.nextUrl.searchParams.get("only");
+
+  // Cheap jobs FIRST. Anything sequenced after syncAllSheets is starved whenever
+  // the sheet read eats the budget: that is how client_payments sat on the June
+  // tab for two weeks of July, and how refreshOffers silently stopped running.
+  const payments = only && only !== "payments" ? null : await syncPayments();
+  const offers = only && only !== "offers" ? null : await refreshOffers();
+  if (only) {
+    return NextResponse.json({ timestamp: new Date().toISOString(), only, payments, offers });
+  }
+
   const results = await syncAllSheets();
-  const offers = await refreshOffers();
   // After the master mirror is fresh: auto-log any V3/V2.3 switches into the
   // Activity & Changes Log (shows in the log + pins 📌 on the timeline).
   const versionChanges = await trackVersionChanges();
