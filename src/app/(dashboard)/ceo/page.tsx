@@ -25,6 +25,9 @@ interface MonthFinance {
   newNames: string[];
 }
 
+interface Close { name: string; closedOn: string; upfront: number; assignedTo: string; }
+interface Win { key: string; label: string; closes: Close[]; closeCount: number; upfrontTotal: number; expectedLtv: number; }
+
 const money0 = (n: number | null | undefined) =>
   n == null ? "—" : "$" + Math.round(n).toLocaleString();
 
@@ -42,6 +45,9 @@ export default function CeoPage() {
   const [fin, setFin] = useState<MonthFinance[] | null>(null);
   const [finErr, setFinErr] = useState<string | null>(null);
   const [ym, setYm] = useState<string | null>(null);
+  const [wins, setWins] = useState<Win[] | null>(null);
+  const [avgLtv, setAvgLtv] = useState(0);
+  const [openWin, setOpenWin] = useState<string | null>(null);
 
   useEffect(() => {
     if (role !== "admin") return;
@@ -55,6 +61,14 @@ export default function CeoPage() {
       })
       .catch((e) => setFinErr(String(e)));
   }, [role]);
+
+  useEffect(() => {
+    if (role !== "admin" || !ym) return;
+    fetch(`/api/ceo/upfront?ym=${encodeURIComponent(ym)}`)
+      .then((r) => r.json())
+      .then((j) => { setWins(j.windows ?? []); setAvgLtv(j.avgLtv ?? 0); })
+      .catch(() => setWins([]));
+  }, [role, ym]);
 
   // Column A of Clients Master holds the status but has no header cell, so the
   // sheet sync names it col_1.
@@ -216,6 +230,98 @@ export default function CeoPage() {
             </p>
           </>
         )}
+      </div>
+
+      {/* ── Upfront collected & closes ────────────────────────────── */}
+      <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2.5">
+          <h2 className="text-sm font-semibold text-[#1f3559]">Upfront Collected &amp; Closes</h2>
+          <span className="text-[11px] text-[#8595a8]">
+            By close date &middot; expected LTV at {money0(avgLtv)}/client
+          </span>
+        </div>
+
+        {!wins ? (
+          <div className="py-6 text-center text-sm text-[#8595a8]">Loading closes…</div>
+        ) : (
+          <div className="space-y-1.5">
+            {wins.map((w) => {
+              const open = openWin === w.key;
+              const max = Math.max(1, ...wins.map((x) => Math.max(x.upfrontTotal, x.expectedLtv)));
+              return (
+                <div key={w.key} className="rounded-md border border-[#eef3f8] overflow-hidden">
+                  <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
+                    <span className="w-24 shrink-0 text-[11px] font-semibold text-[#1f3559]">{w.label}</span>
+                    <span className="flex-1 min-w-[100px] space-y-1">
+                      <span className="flex items-center gap-2">
+                        <span className="w-16 text-[9px] uppercase tracking-wide text-[#8595a8]">Upfront</span>
+                        <span className="flex-1 h-3 rounded bg-[#f1f5f9] overflow-hidden">
+                          <span className="block h-full bg-[#15B7AE]"
+                                style={{ width: `${(w.upfrontTotal / max) * 100}%` }} />
+                        </span>
+                        <span className="w-20 text-right text-[11px] font-bold tabular-nums text-[#0f8f88]">{money0(w.upfrontTotal)}</span>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="w-16 text-[9px] uppercase tracking-wide text-[#8595a8]">Exp. LTV</span>
+                        <span className="flex-1 h-3 rounded bg-[#f1f5f9] overflow-hidden">
+                          <span className="block h-full bg-[#2c4a7c]"
+                                style={{ width: `${(w.expectedLtv / max) * 100}%` }} />
+                        </span>
+                        <span className="w-20 text-right text-[11px] font-semibold tabular-nums text-[#2c4a7c]">{money0(w.expectedLtv)}</span>
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => setOpenWin(open ? null : w.key)}
+                      disabled={w.closeCount === 0}
+                      aria-expanded={open}
+                      className={cn("shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-colors",
+                        w.closeCount === 0
+                          ? "text-[#a8b3c0] bg-[#f8fafc] border-[#eef3f8] cursor-default"
+                          : open
+                            ? "text-white bg-[#0f8f88] border-[#0f8f88]"
+                            : "text-[#0f8f88] bg-[#eefaf9] border-[#bfe6e3] hover:bg-[#d9f4f1]")}
+                    >
+                      {w.closeCount} {w.closeCount === 1 ? "close" : "closes"} {w.closeCount > 0 && (open ? "▲" : "▼")}
+                    </button>
+                  </div>
+
+                  {open && (
+                    <div className="border-t border-[#eef3f8] bg-[#fbfdfe] px-2 py-1.5">
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="text-[9px] uppercase tracking-wide text-[#8595a8]">
+                            <th className="text-left font-semibold py-1">Client</th>
+                            <th className="text-left font-semibold py-1">Closed</th>
+                            <th className="text-left font-semibold py-1">Closer</th>
+                            <th className="text-right font-semibold py-1">Upfront</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {w.closes.map((c, i) => (
+                            <tr key={c.name + c.closedOn + i} className="border-t border-[#f1f6fa]">
+                              <td className="py-1 font-medium text-[#1f3559]">{c.name}</td>
+                              <td className="py-1 text-[#697a91] tabular-nums">{c.closedOn}</td>
+                              <td className="py-1 text-[#697a91]">{c.assignedTo || "—"}</td>
+                              <td className="py-1 text-right tabular-nums font-semibold text-[#0f8f88]">{money0(c.upfront)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <p className="text-[10px] text-[#8595a8] mt-2 leading-snug">
+          From the &ldquo;Demos (unique entries)&rdquo; tab &mdash; every row marked Closed, placed by its Close Date.
+          Expected LTV is closes &times; {money0(avgLtv)} (LTV sheet, &ldquo;Real LTV &minus; $250 &amp; Deposits&rdquo;) &mdash;
+          projected worth, not cash in hand. <strong className="text-[#b45309]">ROI is not shown:</strong> the old card
+          divided by spend on a campaign called &ldquo;PMU Conversions - New&rdquo;, which does not exist in the Facebook
+          Campaign Stats workbook &mdash; that workbook holds client campaigns only, which is why it read $0 spend and +0%.
+        </p>
       </div>
 
       {/* ── New clients for whichever month is selected ───────────── */}
