@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSheetsClient } from "@/lib/sheets";
+import { getAppLocationToken } from "@/lib/ghl-app";
 
 export interface OfferRefreshResult {
   status: "ok" | "error";
@@ -27,16 +28,22 @@ function sameClient(a: Set<string>, b: Set<string>): boolean {
   return shared >= 2 || (shared >= 1 && (a.size === 1 || b.size === 1));
 }
 
-// Reads the "Private Integrations - GHL" sheet (Name / Location ID / key) at
-// run time, pulls each client's "CC - Offer" custom value from their GHL
-// sub-account, and stores just the offer text in client_offers.
-// Scope: V3 clients only — non-V3/V2.3 sub-accounts don't carry the
-// "CC - Offer" custom value, and the Cost/Deposit tab only shows V3.
-// Keys are read transiently server-side and never persisted in Supabase.
+// Pulls each client's "CC - Offer" (and pricing) custom values from their GHL
+// sub-account and stores them in client_offers, which is what the Cost/Deposit
+// tab's "Current offer" column reads.
+//
+// Sub-accounts are reached through the MARKETPLACE APP, which covers every
+// location. This used to walk the "Private Integrations - GHL" sheet and
+// authenticate with a per-client private-integration key — but those keys became
+// obsolete when the marketplace app went live, so clients onboarded since then
+// were never in that sheet and got silently skipped. The visible symptom was a
+// blank "Current offer" for 23 of 93 rows (The One Beauty, Blossom Beauty,
+// Brows by Lissette and others), and, because this same pass auto-appends
+// missing V3 pricing rows, those clients had no V3 row at all.
+//
+// Scope: live/paused V2.3+ and V3 clients — others don't carry these custom
+// values and the Cost/Deposit tab only shows V3.
 export async function refreshOffers(): Promise<OfferRefreshResult> {
-  const sheetId = process.env.GHL_KEYS_SHEET_ID;
-  if (!sheetId) return { status: "error", error: "GHL_KEYS_SHEET_ID not set" };
-
   try {
     const supabase = createServiceClient();
 
@@ -67,24 +74,26 @@ export async function refreshOffers(): Promise<OfferRefreshResult> {
     const matchRoster = (tokens: Set<string>) => roster.find((c) => sameClient(tokens, c.tokens)) ?? null;
 
     const sheets = await getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: "Sheet1" });
-    const rows = (res.data.values ?? []) as string[][];
-    if (rows.length < 2) return { status: "ok", ok: 0, skipped: 0, failed: 0 };
 
-    const header = rows[0].map((h) => String(h ?? "").toLowerCase());
-    const nameIdx = header.findIndex((h) => /^name/.test(h.trim()));
-    const locIdx = header.findIndex((h) => /location/.test(h));
-    const tokIdx = header.findIndex((h) => /integration|private|key|token/.test(h));
+    // Every sub-account the marketplace app can reach, keyed by owner name.
+    // This replaces the keys sheet as the roster: it covers all locations, not
+    // just the ones that still have a legacy private-integration key.
+    const { data: locRows } = await supabase
+      .from("ghl_sync_status")
+      .select("owner_key, location_id");
+    const locations = (locRows ?? [])
+      .map((r) => ({
+        name: String(r.owner_key ?? "").trim(),
+        locationId: String(r.location_id ?? "").trim(),
+      }))
+      .filter((l) => l.name && l.locationId);
+    if (locations.length === 0) return { status: "ok", ok: 0, skipped: 0, failed: 0 };
 
     let ok = 0, skipped = 0, failed = 0;
     // Pricing rows to auto-add to the V3 tab (client had custom values but no
     // OWNER/BUSINESS row in the sheet).
     const toAppend: string[][] = [];
-    for (const row of rows.slice(1)) {
-      const name = String(row[nameIdx] ?? "").trim();
-      const locationId = String(row[locIdx] ?? "").trim();
-      const token = String(row[tokIdx] ?? "").trim();
-      if (!name || !locationId || !token) { skipped++; continue; }
+    for (const { name, locationId } of locations) {
       const tokens = nameTokens(name);
       let ownerKey = matchV3(tokens);
       let appendAs: string | null = null; // proper-case name for the new sheet row
@@ -95,6 +104,8 @@ export async function refreshOffers(): Promise<OfferRefreshResult> {
         appendAs = rc.owner;
       }
       try {
+        const { token } = await getAppLocationToken(locationId);
+        if (!token) { failed++; continue; }
         const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, {
           headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" },
         });
