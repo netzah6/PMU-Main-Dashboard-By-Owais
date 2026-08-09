@@ -434,12 +434,17 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     if (!fmtIssues.length) push("form_contact_format", "pass", `${phoneV} · ${addrV}`);
     else checks.push({ key: "form_contact_format", status: "fail", detail: fmtIssues.join(" | "), copy: fmtCopies });
 
-    // Charm pricing (V3): the funnel prices must NOT be round numbers — they
-    // should end in 7 or 9 ($397 / $399 / $349 / $299…), never $400 / $350.
-    if (isV3) {
-      const priceOf = (re: RegExp) => customValues.find((v) => re.test(v.name))?.value ?? "";
-      const origV = priceOf(/original price for brows/i);
-      const discV = priceOf(/discounted price for brows/i);
+    // Charm pricing: the funnel prices must NOT be round numbers — they should
+    // end in 7 or 9 ($397 / $399 / $349 / $299…), never $400 / $350.
+    //
+    // Gate on the VALUES, not on the plan. The custom values are named
+    // "(V3)" but V2 sub-accounts carry and use them too, and gating on isV3
+    // meant a V2 client with $550/$750 pricing silently reported "check
+    // manually" instead of failing (The Healing Design, Aug 2026).
+    const priceOf = (re: RegExp) => customValues.find((v) => re.test(v.name))?.value ?? "";
+    const origV = priceOf(/original price for brows/i);
+    const discV = priceOf(/discounted price for brows/i);
+    if (isV3 || origV.trim() || discV.trim()) {
       const priceIssue = (label: string, raw: string): string | null => {
         if (!raw.trim()) return `${label} is empty`;
         const m = raw.replace(/,/g, "").match(/(\d+)(?:\.\d+)?/);
@@ -453,6 +458,18 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         return `${label} "${raw}" is a round number — use charm pricing like $${decade + 7} or $${decade + 9}`;
       };
       const pIssues = [priceIssue("Original price", origV), priceIssue("Discounted price", discV)].filter(Boolean) as string[];
+      // The discount has to actually be a discount. Swapped values still look
+      // fine to the charm-pricing rule, so check the relationship separately.
+      const numOf = (raw: string) => {
+        const m = raw.replace(/,/g, "").match(/(\d+)(?:\.\d+)?/);
+        return m ? parseInt(m[1], 10) : null;
+      };
+      const oN = numOf(origV), dN = numOf(discV);
+      if (oN != null && dN != null && dN >= oN) {
+        pIssues.push(dN === oN
+          ? `Original and discounted are both "${origV}" — the discounted price should be lower`
+          : `Discounted "${discV}" is higher than original "${origV}" — the two look swapped`);
+      }
       if (!pIssues.length) push("funnel_pricing", "pass", `Original ${origV} · Discounted ${discV}`);
       else push("funnel_pricing", "fail", pIssues.join(" | "));
     }
