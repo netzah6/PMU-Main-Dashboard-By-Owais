@@ -36,6 +36,13 @@ export interface CapacityResult {
   error?: string;
 }
 
+// Team membership and the user list change rarely but cost ~14 GHL round trips
+// to rebuild, which was the whole reason this endpoint took ~12s. Cache the
+// slow-moving half; free-slots (the part that actually changes) is always live.
+type Roster = { users: Array<Record<string, unknown>>; cals: { id: string; name: string; members: string[] }[] };
+let rosterCache: { at: number; data: Roster } | null = null;
+const ROSTER_TTL_MS = 30 * 60 * 1000;
+
 const H = (token: string, version = "2021-04-15") => ({
   Authorization: `Bearer ${token}`,
   Version: version,
@@ -52,6 +59,10 @@ export async function getSetterCloserCapacity(days = 7): Promise<CapacityResult>
   try {
     const { token, error } = await getAppLocationToken(AGENCY_LOCATION_ID);
     if (!token) return { ...empty, error: error ?? "no GHL token for the agency sub-account" };
+
+    if (rosterCache && Date.now() - rosterCache.at < ROSTER_TTL_MS) {
+      return buildFromRoster(rosterCache.data, token, now, endMs, days, from, to);
+    }
 
     const usersRes = await fetch(
       `https://services.leadconnectorhq.com/users/?locationId=${AGENCY_LOCATION_ID}`,
@@ -86,7 +97,21 @@ export async function getSetterCloserCapacity(days = 7): Promise<CapacityResult>
       })
     );
     const cals = detailed.filter(Boolean) as { id: string; name: string; members: string[] }[];
+    rosterCache = { at: Date.now(), data: { users, cals } };
 
+    return buildFromRoster({ users, cals }, token, now, endMs, days, from, to);
+  } catch (err) {
+    return { people: [], from, to, generatedAt: new Date().toISOString(), error: String(err) };
+  }
+}
+
+// Free-slots only: the part that has to be live. ~7 requests instead of ~21.
+async function buildFromRoster(
+  roster: Roster, token: string, now: Date, endMs: number,
+  days: number, from: string, to: string
+): Promise<CapacityResult> {
+  try {
+    const { users, cals } = roster;
     const people: PersonCapacity[] = [];
     for (const p of PEOPLE) {
       const u = users.find((x: { firstName?: string; lastName?: string }) =>
@@ -135,6 +160,6 @@ export async function getSetterCloserCapacity(days = 7): Promise<CapacityResult>
 
     return { people, from, to, generatedAt: new Date().toISOString() };
   } catch (err) {
-    return { ...empty, error: String(err) };
+    return { people: [], from, to, generatedAt: new Date().toISOString(), error: String(err) };
   }
 }
