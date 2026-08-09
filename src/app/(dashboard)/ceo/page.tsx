@@ -3,19 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
 import { useTableData } from "@/lib/hooks/useTableData";
-import { Loader2, TrendingUp, TrendingDown } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // CEO view, rebuilt natively.
 //
-// It used to embed a standalone HTML page that fetched five Google Sheets
-// straight from the browser against a hardcoded month list ending in May, so
-// June onward were invisible and nothing could be cross-checked. Now:
-//   Live vs Paused  -> clients_master (the Clients Master tab we already mirror)
+// It used to embed a standalone HTML page that fetched five Google Sheets from
+// the browser against a hardcoded month list ending in May, so June onward were
+// invisible and nothing could be cross-checked. Now:
+//   Live vs Paused   -> clients_master (the Clients Master tab we mirror)
 //   New vs recurring -> /api/ceo/finance, read server-side from the Financing
 //                       workbook, every month tab, both layouts.
-// A client counts as NEW the first month their name appears and recurring
-// thereafter, which is the rule the team uses.
+// A client is NEW the first month their name appears and recurring thereafter.
 
 interface MonthFinance {
   label: string; ym: string;
@@ -29,54 +28,37 @@ interface MonthFinance {
 const money0 = (n: number | null | undefined) =>
   n == null ? "—" : "$" + Math.round(n).toLocaleString();
 
-function Card({ title, sub, children, className }: {
-  title?: string; sub?: string; children: React.ReactNode; className?: string;
-}) {
-  return (
-    <div className={cn("rounded-xl border border-[#e4ebf2] bg-white p-4", className)}
-         style={{ boxShadow: "var(--shadow-sm)" }}>
-      {title && (
-        <div className="mb-3">
-          <h2 className="text-sm font-semibold text-[#1f3559]">{title}</h2>
-          {sub && <p className="text-[11px] text-[#8595a8] mt-0.5">{sub}</p>}
-        </div>
-      )}
-      {children}
-    </div>
-  );
-}
-
-function Stat({ label, value, tone, hint }: {
-  label: string; value: string; tone?: "teal" | "green" | "amber" | "slate"; hint?: string;
-}) {
-  const fg = tone === "teal" ? "#0f8f88" : tone === "green" ? "#15803d"
-    : tone === "amber" ? "#b45309" : "#1f3559";
-  return (
-    <div className="rounded-lg border border-[#eef3f8] bg-[#fbfdfe] px-3 py-2.5">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">{label}</div>
-      <div className="text-xl font-bold mt-0.5 tabular-nums" style={{ color: fg }}>{value}</div>
-      {hint && <div className="text-[11px] text-[#8595a8] mt-0.5">{hint}</div>}
-    </div>
-  );
-}
+// One legend for the whole page: new cash, recurring, and the deposits the
+// team collects from clients (the "… Deposits From Clients" rows).
+const SERIES = {
+  new:      { fill: "#15B7AE", label: "New cash" },
+  recurring:{ fill: "#bfe6e3", label: "Recurring" },
+  deposits: { fill: "#f0a83c", label: "Deposits from clients" },
+};
 
 export default function CeoPage() {
   const { role, loading } = useUser();
   const { data: clients } = useTableData<Record<string, unknown>>({ table: "clients_master" });
   const [fin, setFin] = useState<MonthFinance[] | null>(null);
   const [finErr, setFinErr] = useState<string | null>(null);
+  const [ym, setYm] = useState<string | null>(null);
 
   useEffect(() => {
     if (role !== "admin") return;
     fetch("/api/ceo/finance")
       .then((r) => r.json())
-      .then((j) => (j.error ? setFinErr(String(j.error)) : setFin(j.months ?? [])))
+      .then((j) => {
+        if (j.error) return setFinErr(String(j.error));
+        const months: MonthFinance[] = j.months ?? [];
+        setFin(months);
+        setYm((cur) => cur ?? months[months.length - 1]?.ym ?? null);
+      })
       .catch((e) => setFinErr(String(e)));
   }, [role]);
 
   // Column A of Clients Master holds the status but has no header cell, so the
   // sheet sync names it col_1.
-  const statuses = useMemo(() => {
+  const st = useMemo(() => {
     const c = { live: 0, paused: 0, offboarded: 0, blank: 0 };
     for (const r of clients) {
       const s = String(r?.["col_1"] ?? "").trim().toLowerCase();
@@ -88,24 +70,31 @@ export default function CeoPage() {
     return c;
   }, [clients]);
 
-  const latest = fin?.[fin.length - 1];
-  const prev = fin && fin.length > 1 ? fin[fin.length - 2] : null;
-  const ytdNew = fin?.reduce((s, m) => s + m.newCash, 0) ?? 0;
-  const ytdRec = fin?.reduce((s, m) => s + m.recurringCash, 0) ?? 0;
+  const sel = fin?.find((m) => m.ym === ym) ?? null;
+  const selIdx = fin && sel ? fin.indexOf(sel) : -1;
+  const prev = fin && selIdx > 0 ? fin[selIdx - 1] : null;
+  const delta = sel && prev ? sel.totalCash - prev.totalCash : null;
   const maxBar = Math.max(1, ...(fin ?? []).map((m) => m.totalCash));
 
   if (loading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-[#15B7AE]" /></div>;
   if (role !== "admin") return <div className="p-8 text-sm text-[#697a91]">Admins only.</div>;
 
-  const delta = latest && prev ? latest.totalCash - prev.totalCash : 0;
-
   return (
-    <div className="p-3 md:p-4 space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="p-3 md:p-4 space-y-2.5">
+      {/* ── Header + month selector ───────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3">
         <h1 className="text-lg font-semibold text-[#1f3559]">CEO</h1>
-        <span className="text-xs text-[#697a91]">
-          {latest ? `${latest.label} 2026` : "loading…"}
-        </span>
+        <select
+          value={ym ?? ""}
+          onChange={(e) => setYm(e.target.value)}
+          disabled={!fin}
+          className="px-3 py-1.5 bg-white border border-[#e4ebf2] rounded-lg text-sm
+                     text-[#1f3559] focus:outline-none focus:border-[#15B7AE] disabled:opacity-50"
+        >
+          {(fin ?? []).map((m) => (
+            <option key={m.ym} value={m.ym}>{m.label} 2026</option>
+          ))}
+        </select>
       </div>
 
       {finErr && (
@@ -114,154 +103,143 @@ export default function CeoPage() {
         </div>
       )}
 
-      {/* ── Headline ─────────────────────────────────────────────── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <Stat label="Live clients" value={String(statuses.live)} tone="teal"
-                hint={`${statuses.paused} paused`} />
-        </Card>
-        <Card>
-          <Stat label={`${latest?.label ?? "Month"} cash`} value={money0(latest?.totalCash)}
-                tone="slate"
-                hint={prev ? `${delta >= 0 ? "+" : ""}${money0(delta)} vs ${prev.label}` : undefined} />
-        </Card>
-        <Card>
-          <Stat label="New cash YTD" value={money0(ytdNew)} tone="green" />
-        </Card>
-        <Card>
-          <Stat label="Recurring YTD" value={money0(ytdRec)} tone="teal" />
-        </Card>
+      {/* ── One compact stat strip ────────────────────────────────── */}
+      <div className="rounded-xl border border-[#e4ebf2] bg-white px-3 py-2.5 flex flex-wrap
+                      items-center gap-x-6 gap-y-2 text-sm" style={{ boxShadow: "var(--shadow-sm)" }}>
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">Live</span>
+          <span className="text-lg font-bold text-[#15803d] tabular-nums">{st.live}</span>
+          <span className="text-[11px] text-[#8595a8]">· {st.paused} paused · {st.offboarded} offboarded
+            {st.blank > 0 && <> · <span className="text-[#b45309]">{st.blank} no status</span></>}
+          </span>
+        </div>
+        <div className="h-5 w-px bg-[#e4ebf2] hidden sm:block" />
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">
+            {sel?.label ?? "Month"} cash
+          </span>
+          <span className="text-lg font-bold text-[#1f3559] tabular-nums">{money0(sel?.totalCash)}</span>
+          {delta != null && prev && (
+            <span className={cn("text-[11px] font-medium tabular-nums",
+                                delta >= 0 ? "text-[#15803d]" : "text-[#dc2626]")}>
+              {delta >= 0 ? "+" : ""}{money0(delta)} vs {prev.label}
+            </span>
+          )}
+        </div>
+        <div className="h-5 w-px bg-[#e4ebf2] hidden sm:block" />
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">Profit</span>
+          <span className="text-lg font-bold text-[#0f8f88] tabular-nums">{money0(sel?.totalProfit)}</span>
+          {sel?.totalExpense != null && (
+            <span className="text-[11px] text-[#8595a8]">{money0(sel.totalExpense)} expenses</span>
+          )}
+        </div>
       </div>
 
-      {/* ── Clients ──────────────────────────────────────────────── */}
-      <Card title="Clients — Live vs Paused"
-            sub="From the Clients Master tab, mirrored every 15 minutes.">
-        <div className="grid gap-3 sm:grid-cols-4">
-          <Stat label="Live" value={String(statuses.live)} tone="green" />
-          <Stat label="Paused" value={String(statuses.paused)} tone="amber" />
-          <Stat label="Offboarded" value={String(statuses.offboarded)} tone="slate" />
-          <Stat label="No status set" value={String(statuses.blank)} tone="slate"
-                hint={statuses.blank ? "not counted anywhere" : undefined} />
-        </div>
-      </Card>
-
-      {/* ── New vs recurring ─────────────────────────────────────── */}
-      <Card title="New Cash vs Recurring Revenue"
-            sub="A client is new the first month their name appears in the Financing sheet, and recurring every month after.">
-        {!fin ? (
-          <div className="py-10 text-center text-sm text-[#8595a8]">Reading the Financing sheet…</div>
-        ) : (
-          <>
-            <div className="space-y-2 mb-4">
-              {fin.map((m) => {
-                const newPct = m.totalCash > 0 ? (m.newCash / m.totalCash) * 100 : 0;
-                const width = (m.totalCash / maxBar) * 100;
-                return (
-                  <div key={m.ym} className="flex items-center gap-3">
-                    <div className="w-20 shrink-0 text-[11px] font-medium text-[#34568a]">{m.label}</div>
-                    <div className="flex-1 h-6 rounded-md bg-[#f1f5f9] overflow-hidden">
-                      <div className="h-full flex" style={{ width: `${width}%` }}>
-                        <div className="h-full bg-[#15B7AE]" style={{ width: `${newPct}%` }}
-                             title={`New ${money0(m.newCash)}`} />
-                        <div className="h-full bg-[#bfe6e3]" style={{ width: `${100 - newPct}%` }}
-                             title={`Recurring ${money0(m.recurringCash)}`} />
-                      </div>
-                    </div>
-                    <div className="w-24 shrink-0 text-right text-[11px] font-semibold text-[#1f3559] tabular-nums">
-                      {money0(m.totalCash)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex items-center gap-4 text-[11px] text-[#697a91] mb-3">
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-sm bg-[#15B7AE] inline-block" /> New cash
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-sm bg-[#bfe6e3] inline-block" /> Recurring
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-[10px] uppercase tracking-wide text-[#8595a8] border-b border-[#eef3f8]">
-                    <th className="text-left font-semibold py-2 px-2">Month</th>
-                    <th className="text-right font-semibold py-2 px-2">New</th>
-                    <th className="text-right font-semibold py-2 px-2">New cash</th>
-                    <th className="text-right font-semibold py-2 px-2">Recurring</th>
-                    <th className="text-right font-semibold py-2 px-2">Recurring cash</th>
-                    <th className="text-right font-semibold py-2 px-2">Deposits</th>
-                    <th className="text-right font-semibold py-2 px-2">Total</th>
-                    <th className="text-right font-semibold py-2 px-2">Profit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fin.map((m) => (
-                    <tr key={m.ym} className="border-b border-[#f4f8fb] last:border-0">
-                      <td className="py-2 px-2 font-medium text-[#1f3559]">{m.label}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-[#34568a]">{m.newClients}</td>
-                      <td className="py-2 px-2 text-right tabular-nums font-semibold text-[#0f8f88]">{money0(m.newCash)}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-[#34568a]">{m.recurringClients}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-[#34568a]">{money0(m.recurringCash)}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-[#697a91]">{m.depositIncome ? money0(m.depositIncome) : "—"}</td>
-                      <td className="py-2 px-2 text-right tabular-nums font-semibold text-[#1f3559]">{money0(m.totalCash)}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-[#697a91]">{money0(m.totalProfit)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-[11px] text-[#8595a8] mt-2">
-              Deposits are Whop + Fanbasis money collected from clients &mdash; income, but not a
-              subscription, so they sit outside new and recurring. Including them makes each month tie
-              to the sheet&rsquo;s own Total Income. Profit comes from the tab&rsquo;s summary row and
-              only exists on the V2 layout (April onward).
-            </p>
-          </>
-        )}
-      </Card>
-
-      {/* ── This month's new clients ─────────────────────────────── */}
-      {latest && latest.newNames.length > 0 && (
-        <Card title={`New clients in ${latest.label}`}
-              sub={`${latest.newClients} first-time payers · ${money0(latest.newCash)}`}>
-          <div className="flex flex-wrap gap-2">
-            {latest.newNames.map((n) => (
-              <span key={n} className="px-2 py-1 rounded-md text-[11px] font-medium
-                                       bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">
-                {n}
+      {/* ── Merged: bars carry the numbers, no second table ───────── */}
+      <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+          <h2 className="text-sm font-semibold text-[#1f3559]">New Cash vs Recurring Revenue</h2>
+          <div className="flex items-center gap-3 text-[11px] text-[#697a91]">
+            {Object.values(SERIES).map((s) => (
+              <span key={s.label} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: s.fill }} />
+                {s.label}
               </span>
             ))}
           </div>
-        </Card>
-      )}
+        </div>
 
-      {/* ── Momentum ─────────────────────────────────────────────── */}
-      {fin && fin.length > 1 && (
-        <Card title="Month over month">
-          <div className="grid gap-3 sm:grid-cols-3">
-            {fin.slice(-3).map((m, i, arr) => {
-              const before = i === 0 ? null : arr[i - 1];
-              const d = before ? m.totalCash - before.totalCash : 0;
-              const up = d >= 0;
-              return (
-                <div key={m.ym} className="rounded-lg border border-[#eef3f8] bg-[#fbfdfe] px-3 py-2.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">{m.label}</div>
-                  <div className="text-lg font-bold text-[#1f3559] tabular-nums mt-0.5">{money0(m.totalCash)}</div>
-                  {before && (
-                    <div className={cn("text-[11px] mt-0.5 flex items-center gap-1",
-                                       up ? "text-[#15803d]" : "text-[#dc2626]")}>
-                      {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                      {up ? "+" : ""}{money0(d)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+        {!fin ? (
+          <div className="py-8 text-center text-sm text-[#8595a8]">Reading the Financing sheet…</div>
+        ) : (
+          <>
+            {/* column headings for the inline numbers */}
+            <div className="hidden md:flex items-center gap-2 px-1 pb-1 text-[9px] font-semibold
+                            uppercase tracking-wide text-[#8595a8]">
+              <span className="w-16 shrink-0">Month</span>
+              <span className="flex-1" />
+              <span className="w-24 text-right">New</span>
+              <span className="w-24 text-right">Recurring</span>
+              <span className="w-20 text-right">Deposits</span>
+              <span className="w-24 text-right">Total</span>
+            </div>
+
+            <div className="space-y-1">
+              {fin.map((m) => {
+                const on = m.ym === ym;
+                const pct = (v: number) => (m.totalCash > 0 ? (v / m.totalCash) * 100 : 0);
+                return (
+                  <button
+                    key={m.ym}
+                    onClick={() => setYm(m.ym)}
+                    className={cn(
+                      "w-full flex items-center gap-2 rounded-md px-1 py-1 text-left transition-colors",
+                      on ? "bg-[#f2fbfa]" : "hover:bg-[#f8fbfd]"
+                    )}
+                  >
+                    <span className={cn("w-16 shrink-0 text-[11px]",
+                                        on ? "font-bold text-[#0f8f88]" : "font-medium text-[#34568a]")}>
+                      {m.label}
+                    </span>
+
+                    <span className="flex-1 min-w-[80px] h-5 rounded bg-[#f1f5f9] overflow-hidden">
+                      <span className="h-full flex" style={{ width: `${(m.totalCash / maxBar) * 100}%` }}>
+                        <span className="h-full" style={{ width: `${pct(m.newCash)}%`, background: SERIES.new.fill }} />
+                        <span className="h-full" style={{ width: `${pct(m.recurringCash)}%`, background: SERIES.recurring.fill }} />
+                        <span className="h-full" style={{ width: `${pct(m.depositIncome)}%`, background: SERIES.deposits.fill }} />
+                      </span>
+                    </span>
+
+                    <span className="w-24 text-right text-[11px] tabular-nums font-semibold text-[#0f8f88]">
+                      {money0(m.newCash)}<span className="text-[#8595a8] font-normal"> ·{m.newClients}</span>
+                    </span>
+                    <span className="w-24 text-right text-[11px] tabular-nums text-[#34568a]">
+                      {money0(m.recurringCash)}<span className="text-[#8595a8]"> ·{m.recurringClients}</span>
+                    </span>
+                    <span className="w-20 text-right text-[11px] tabular-nums"
+                          style={{ color: m.depositIncome ? "#b4701a" : "#c3ccd6" }}>
+                      {m.depositIncome ? money0(m.depositIncome) : "—"}
+                    </span>
+                    <span className="w-24 text-right text-[11px] tabular-nums font-bold text-[#1f3559]">
+                      {money0(m.totalCash)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="text-[10px] text-[#8595a8] mt-2 leading-snug">
+              Deposits are the &ldquo;Deposits From Clients&rdquo; rows (Whop + Fanbasis) &mdash; money collected
+              from clients rather than a subscription, so they sit outside new and recurring. Counting them is
+              what makes each month tie to the sheet&rsquo;s own Total Income.
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* ── New clients for whichever month is selected ───────────── */}
+      {sel && (
+        <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
+          <div className="flex flex-wrap items-baseline gap-x-2 mb-2">
+            <h2 className="text-sm font-semibold text-[#1f3559]">New clients in {sel.label}</h2>
+            <span className="text-[11px] text-[#8595a8]">
+              {sel.newClients} first-time {sel.newClients === 1 ? "payer" : "payers"} · {money0(sel.newCash)}
+            </span>
           </div>
-        </Card>
+          {sel.newNames.length === 0 ? (
+            <p className="text-[11px] text-[#8595a8]">No first-time payers this month.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {sel.newNames.map((n) => (
+                <span key={n} className="px-2 py-0.5 rounded text-[11px] font-medium
+                                         bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">
+                  {n}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
