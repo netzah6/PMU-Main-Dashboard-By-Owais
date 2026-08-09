@@ -139,3 +139,117 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
     return { months: [], generatedAt: new Date().toISOString(), error: String(err) };
   }
 }
+
+// ── Upfront collected & closes ──────────────────────────────────────────────
+//
+// Sources, confirmed against the live workbooks:
+//   Closes + upfront -> Cash workbook, tab "Demos (unique entries)" (gid
+//                       1137757254): Full Name, Status, Assigned Person,
+//                       Close Date, Upfront Collected.
+//   Expected LTV     -> LTV workbook, Sheet2!E4 ("Real LTV - $250 & Deposits").
+//
+// Ad spend is deliberately absent. The embedded page filtered the Facebook
+// Campaign Stats workbook for a campaign called "PMU Conversions - New", which
+// does not exist in it — that workbook holds CLIENT campaigns only, and zero
+// rows match. That is why the old card showed $0 spend and ROI +0%. Rather than
+// reproduce a broken number, ROI is left out until the agency's own ad spend has
+// a real source.
+export const CASH_SHEET_ID = "11lqrr8C-GdrqAhMJ5cNU9lRMfFP3dqyJQle2pxaMH9s";
+const DEMOS_TAB = "Demos (unique entries)";
+
+export interface Close {
+  name: string;
+  closedOn: string;   // ISO date
+  upfront: number;
+  assignedTo: string;
+}
+
+export interface Window {
+  key: "month" | "d14" | "d30";
+  label: string;
+  closes: Close[];
+  closeCount: number;
+  upfrontTotal: number;
+  expectedLtv: number;
+}
+
+export interface UpfrontResult {
+  windows: Window[];
+  avgLtv: number;
+  generatedAt: string;
+  error?: string;
+}
+
+/** "01/03/2022" (DD/MM/YYYY) or a long-form date -> UTC Date, else null. */
+function parseCloseDate(raw: string): Date | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
+  try {
+    const sheets = await getSheetsClient();
+    const [demos, ltv] = await Promise.all([
+      sheets.spreadsheets.values.get({
+        spreadsheetId: CASH_SHEET_ID,
+        range: `'${DEMOS_TAB}'!A1:J4000`,
+        valueRenderOption: "FORMATTED_VALUE",
+      }),
+      sheets.spreadsheets.values.get({
+        spreadsheetId: process.env.SHEET2_ID!,
+        range: "'Sheet2'!E4",
+        valueRenderOption: "FORMATTED_VALUE",
+      }),
+    ]);
+
+    const avgLtv = money(ltv.data.values?.[0]?.[0]);
+    const rows = (demos.data.values ?? []) as string[][];
+
+    // Header row 1: Date | Full Name | Status | Assigned Person | | Discovery
+    // Date | | Demo Date | Close Date | Upfront Collected
+    const all: Close[] = [];
+    for (const r of rows.slice(1)) {
+      const name = String(r?.[1] ?? "").trim();
+      const status = String(r?.[2] ?? "").trim().toLowerCase();
+      if (!name || status !== "closed") continue;
+      const on = parseCloseDate(String(r?.[8] ?? ""));
+      if (!on) continue; // closed but no close date — cannot place it in a window
+      all.push({
+        name,
+        closedOn: on.toISOString().slice(0, 10),
+        upfront: money(r?.[9]),
+        assignedTo: String(r?.[3] ?? "").trim(),
+      });
+    }
+
+    const now = new Date();
+    const since = (days: number) => {
+      const d = new Date(now);
+      d.setUTCDate(d.getUTCDate() - days);
+      return d.toISOString().slice(0, 10);
+    };
+    const build = (key: Window["key"], label: string, keep: (c: Close) => boolean): Window => {
+      const closes = all.filter(keep).sort((a, b) => b.closedOn.localeCompare(a.closedOn));
+      const upfrontTotal = closes.reduce((s, c) => s + c.upfront, 0);
+      return { key, label, closes, closeCount: closes.length, upfrontTotal, expectedLtv: closes.length * avgLtv };
+    };
+
+    const d14 = since(14), d30 = since(30);
+    const windows: Window[] = [
+      build("d14", "Last 14 days", (c) => c.closedOn >= d14),
+      build("d30", "Last 30 days", (c) => c.closedOn >= d30),
+    ];
+    if (ym) {
+      const monthLabel = MONTHS.find((m) => m.ym === ym)?.label ?? ym;
+      windows.unshift(build("month", monthLabel, (c) => c.closedOn.startsWith(ym)));
+    }
+
+    return { windows, avgLtv, generatedAt: new Date().toISOString() };
+  } catch (err) {
+    return { windows: [], avgLtv: 0, generatedAt: new Date().toISOString(), error: String(err) };
+  }
+}
