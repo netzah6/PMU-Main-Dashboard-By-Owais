@@ -25,6 +25,9 @@ interface MonthFinance {
   newNames: string[];
 }
 
+interface DaySlots { date: string; slots: number }
+interface PersonCapacity { role: string; name: string; calendars: string[]; days: DaySlots[]; totalSlots: number }
+
 interface Close { name: string; closedOn: string; upfront: number; assignedTo: string; }
 interface Win { key: string; label: string; closes: Close[]; closeCount: number; upfrontTotal: number; expectedLtv: number; }
 
@@ -48,6 +51,8 @@ export default function CeoPage() {
   const [wins, setWins] = useState<Win[] | null>(null);
   const [avgLtv, setAvgLtv] = useState(0);
   const [openWin, setOpenWin] = useState<string | null>(null);
+  const [cap, setCap] = useState<PersonCapacity[] | null>(null);
+  const [capErr, setCapErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (role !== "admin") return;
@@ -69,6 +74,14 @@ export default function CeoPage() {
       .then((j) => { setWins(j.windows ?? []); setAvgLtv(j.avgLtv ?? 0); })
       .catch(() => setWins([]));
   }, [role, ym]);
+
+  useEffect(() => {
+    if (role !== "admin") return;
+    fetch("/api/ceo/capacity")
+      .then((r) => r.json())
+      .then((j) => { if (j.error) setCapErr(String(j.error)); setCap(j.people ?? []); })
+      .catch((e) => { setCapErr(String(e)); setCap([]); });
+  }, [role]);
 
   // Column A of Clients Master holds the status but has no header cell, so the
   // sheet sync names it col_1.
@@ -321,6 +334,66 @@ export default function CeoPage() {
           projected worth, not cash in hand. <strong className="text-[#b45309]">ROI is not shown:</strong> the old card
           divided by spend on a campaign called &ldquo;PMU Conversions - New&rdquo;, which does not exist in the Facebook
           Campaign Stats workbook &mdash; that workbook holds client campaigns only, which is why it read $0 spend and +0%.
+        </p>
+      </div>
+
+      {/* ── Setter & closer capacity, next 7 days ─────────────────── */}
+      <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2.5">
+          <h2 className="text-sm font-semibold text-[#1f3559]">Setter &amp; Closer &middot; Capacity</h2>
+          <span className="text-[11px] text-[#8595a8]">Open slots, next 7 days from today</span>
+        </div>
+        {capErr && (
+          <div className="rounded-md border border-[#fcd9a8] bg-[#fff7ec] px-2 py-1.5 text-[11px] text-[#b45309] mb-2">
+            {capErr}
+          </div>
+        )}
+        {!cap ? (
+          <div className="py-6 text-center text-sm text-[#8595a8]">Reading calendars…</div>
+        ) : cap.length === 0 ? (
+          <p className="text-[11px] text-[#8595a8]">No calendar data.</p>
+        ) : (
+          <div className="space-y-2">
+            {cap.map((p) => {
+              const max = Math.max(1, ...p.days.map((d) => d.slots));
+              return (
+                <div key={p.role} className="rounded-md border border-[#eef3f8] px-2 py-2">
+                  <div className="flex flex-wrap items-baseline gap-x-2 mb-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded
+                                     bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">{p.role}</span>
+                    <span className="text-[12px] font-semibold text-[#1f3559]">{p.name}</span>
+                    <span className="text-[11px] text-[#8595a8]">
+                      {p.totalSlots} open {p.totalSlots === 1 ? "slot" : "slots"}
+                      {p.calendars.length > 0 && <> &middot; {p.calendars.join(", ")}</>}
+                    </span>
+                  </div>
+                  <div className="flex items-end gap-1">
+                    {p.days.map((d) => {
+                      const dt = new Date(d.date + "T00:00:00Z");
+                      const dow = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+                      const dom = dt.getUTCDate();
+                      return (
+                        <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
+                          <span className="text-[10px] font-bold tabular-nums"
+                                style={{ color: d.slots > 0 ? "#0f8f88" : "#c3ccd6" }}>{d.slots}</span>
+                          <span className="w-full rounded-sm" title={`${d.date}: ${d.slots} open`}
+                                style={{ height: `${Math.max(3, (d.slots / max) * 34)}px`,
+                                         background: d.slots > 0 ? "#15B7AE" : "#eef3f8" }} />
+                          <span className="text-[9px] text-[#8595a8] leading-none">{dow}</span>
+                          <span className="text-[9px] text-[#b6c0cc] leading-none tabular-nums">{dom}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="text-[10px] text-[#8595a8] mt-2 leading-snug">
+          Bookable availability from each person&rsquo;s GHL calendars in the PMU Bookings On Demand sub-account.
+          Measured as open slots rather than booked events, because the marketplace app is not granted
+          <code className="mx-1">calendars/events.readonly</code> and that endpoint returns 401.
         </p>
       </div>
 
