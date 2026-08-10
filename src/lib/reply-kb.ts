@@ -37,7 +37,7 @@ export const REPLY_KB = `
 ## 3. Booking / next-step flow (interest → call → start)
 1. Re-engage warmly with a personal check-in, no pitch: "Hey [Name], it's Nicolas! I was thinking about you and wanted to check in — how's everything going with your PMU business lately?"
 2. Surface a reason to talk: "I just reviewed your account and noticed a few areas where you could be getting more bookings…"
-3. Push to a strategy call with a personal booking link (the consistent CTA): "👉 www.pmu-bookings.com/nicolas-strategy-call" (each rep has their own /firstname-strategy-call link).
+3. When a call is the right next step AND the drafting note asks for one, push to a strategy call with a personal booking link: "👉 www.pmu-bookings.com/nicolas-strategy-call" (each rep has their own /firstname-strategy-call link). This is the standard CTA for re-engagement sequences — it is NOT a default ending for every reply, and must never be appended to a message that was only meant to answer a question.
 4. Confirm + remind the call. If they miss it: "Not a problem, you can reschedule here: 👉 [link]."
 5. Close = restart campaign / approve ad spend / sign the agreement, then onboarding (Lead Connector app login on desktop + mobile).
 - CTAs that worked: "When you're ready, book a quick strategy call with me here 👉 [link]"; "Reply 'YES' if you want to claim it"; "Do we have a green light? :)".
