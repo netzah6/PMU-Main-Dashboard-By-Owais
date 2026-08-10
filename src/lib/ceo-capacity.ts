@@ -20,7 +20,12 @@ const PEOPLE = [
   { role: "Closer" as const, match: /maria\s+de\s+las/i },
 ];
 
-export interface DaySlots { date: string; slots: number }
+export interface DaySlots {
+  date: string;
+  slots: number;
+  /** Local "HH:mm" for every open slot, so the UI can draw a real week grid. */
+  times: string[];
+}
 export interface PersonCapacity {
   role: "Setter" | "Closer";
   name: string;
@@ -120,7 +125,7 @@ async function buildFromRoster(
       if (!u) { people.push({ role: p.role, name: "—", calendars: [], days: [], totalSlots: 0 }); continue; }
 
       const mine = cals.filter((c) => c.members.includes(String(u.id)));
-      const byDay = new Map<string, number>();
+      const byDay = new Map<string, Set<string>>();
 
       await Promise.all(
         mine.map(async (c) => {
@@ -135,7 +140,14 @@ async function buildFromRoster(
               if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
               const slots = (val as { slots?: unknown[] })?.slots;
               if (!Array.isArray(slots)) continue;
-              byDay.set(date, (byDay.get(date) ?? 0) + slots.length);
+              const set = byDay.get(date) ?? new Set<string>();
+              for (const iso of slots) {
+                // "2026-08-09T09:15:00-07:00" — keep the calendar's own local
+                // time; converting to the viewer's zone would move the slot.
+                const m = String(iso).match(/T(\d{2}):(\d{2})/);
+                if (m) set.add(`${m[1]}:${m[2]}`);
+              }
+              byDay.set(date, set);
             }
           } catch { /* one calendar failing shouldn't blank the person */ }
         })
@@ -146,7 +158,8 @@ async function buildFromRoster(
       const daysOut: DaySlots[] = [];
       for (let i = 0; i < days; i++) {
         const d = new Date(now.getTime() + i * 86_400_000).toISOString().slice(0, 10);
-        daysOut.push({ date: d, slots: byDay.get(d) ?? 0 });
+        const times = [...(byDay.get(d) ?? new Set<string>())].sort();
+        daysOut.push({ date: d, slots: times.length, times });
       }
 
       people.push({
