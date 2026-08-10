@@ -134,20 +134,20 @@ export default function CeoPage() {
       <div className="rounded-xl border border-[#e4ebf2] bg-white px-3 py-2.5 flex flex-wrap
                       items-center gap-x-6 gap-y-2 text-sm" style={{ boxShadow: "var(--shadow-sm)" }}>
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">Live</span>
+          <span className="text-[12px] font-semibold uppercase tracking-wide text-[#8595a8]">Live</span>
           <span className="text-lg font-bold text-[#15803d] tabular-nums">{st.live}</span>
-          <span className="text-[11px] text-[#8595a8]">· {st.paused} paused · {st.offboarded} offboarded
+          <span className="text-[13px] text-[#8595a8]">· {st.paused} paused · {st.offboarded} offboarded
             {st.blank > 0 && <> · <span className="text-[#b45309]">{st.blank} no status</span></>}
           </span>
         </div>
         <div className="h-5 w-px bg-[#e4ebf2] hidden sm:block" />
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">
+          <span className="text-[12px] font-semibold uppercase tracking-wide text-[#8595a8]">
             {sel?.label ?? "Month"} cash
           </span>
           <span className="text-lg font-bold text-[#1f3559] tabular-nums">{money0(sel?.totalCash)}</span>
           {delta != null && prev && (
-            <span className={cn("text-[11px] font-medium tabular-nums",
+            <span className={cn("text-[13px] font-medium tabular-nums",
                                 delta >= 0 ? "text-[#15803d]" : "text-[#dc2626]")}>
               {delta >= 0 ? "+" : ""}{money0(delta)} vs {prev.label}
             </span>
@@ -155,10 +155,10 @@ export default function CeoPage() {
         </div>
         <div className="h-5 w-px bg-[#e4ebf2] hidden sm:block" />
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">Profit</span>
+          <span className="text-[12px] font-semibold uppercase tracking-wide text-[#8595a8]">Profit</span>
           <span className="text-lg font-bold text-[#0f8f88] tabular-nums">{money0(sel?.totalProfit)}</span>
           {sel?.totalExpense != null && (
-            <span className="text-[11px] text-[#8595a8]">{money0(sel.totalExpense)} expenses</span>
+            <span className="text-[13px] text-[#8595a8]">{money0(sel.totalExpense)} expenses</span>
           )}
         </div>
       </div>
@@ -167,7 +167,7 @@ export default function CeoPage() {
       <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
           <h2 className="text-sm font-semibold text-[#1f3559]">New Cash vs Recurring Revenue</h2>
-          <div className="flex items-center gap-3 text-[11px] text-[#697a91]">
+          <div className="flex items-center gap-3 text-[13px] text-[#697a91]">
             {Object.values(SERIES).map((s) => (
               <span key={s.label} className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: s.fill }} />
@@ -182,7 +182,7 @@ export default function CeoPage() {
         ) : (
           <>
             {/* column headings for the inline numbers */}
-            <div className="hidden md:flex items-center gap-2 px-1 pb-1 text-[9px] font-semibold
+            <div className="hidden md:flex items-center gap-2 px-1 pb-1 text-[13px] font-semibold
                             uppercase tracking-wide text-[#8595a8]">
               <span className="w-16 shrink-0">Month</span>
               <span className="flex-1" />
@@ -205,7 +205,7 @@ export default function CeoPage() {
                       on ? "bg-[#f2fbfa]" : "hover:bg-[#f8fbfd]"
                     )}
                   >
-                    <span className={cn("w-16 shrink-0 text-[11px]",
+                    <span className={cn("w-16 shrink-0 text-[13px]",
                                         on ? "font-bold text-[#0f8f88]" : "font-medium text-[#34568a]")}>
                       {m.label}
                     </span>
@@ -218,17 +218,17 @@ export default function CeoPage() {
                       </span>
                     </span>
 
-                    <span className="w-24 text-right text-[11px] tabular-nums font-semibold text-[#0f8f88]">
+                    <span className="w-24 text-right text-[14px] tabular-nums font-semibold text-[#0f8f88]">
                       {money0(m.newCash)}<span className="text-[#8595a8] font-normal"> ·{m.newClients}</span>
                     </span>
-                    <span className="w-24 text-right text-[11px] tabular-nums text-[#34568a]">
+                    <span className="w-24 text-right text-[13px] tabular-nums text-[#34568a]">
                       {money0(m.recurringCash)}<span className="text-[#8595a8]"> ·{m.recurringClients}</span>
                     </span>
-                    <span className="w-20 text-right text-[11px] tabular-nums"
+                    <span className="w-20 text-right text-[13px] tabular-nums"
                           style={{ color: m.depositIncome ? "#b4701a" : "#c3ccd6" }}>
                       {m.depositIncome ? money0(m.depositIncome) : "—"}
                     </span>
-                    <span className="w-24 text-right text-[11px] tabular-nums font-bold text-[#1f3559]">
+                    <span className="w-24 text-right text-[14px] tabular-nums font-bold text-[#1f3559]">
                       {money0(m.totalCash)}
                     </span>
                   </button>
@@ -236,7 +236,7 @@ export default function CeoPage() {
               })}
             </div>
 
-            <p className="text-[10px] text-[#8595a8] mt-2 leading-snug">
+            <p className="text-[12px] text-[#8595a8] mt-2 leading-snug">
               Deposits are the &ldquo;Deposits From Clients&rdquo; rows (Whop + Fanbasis) &mdash; money collected
               from clients rather than a subscription, so they sit outside new and recurring. Counting them is
               what makes each month tie to the sheet&rsquo;s own Total Income.
@@ -248,9 +248,9 @@ export default function CeoPage() {
       {/* ── Upfront collected & closes ────────────────────────────── */}
       <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2.5">
-          <h2 className="text-sm font-semibold text-[#1f3559]">Upfront Collected &amp; Closes</h2>
-          <span className="text-[11px] text-[#8595a8]">
-            By close date &middot; expected LTV at {money0(avgLtv)}/client
+          <h2 className="text-sm font-semibold text-[#1f3559]">New Cash Collected &amp; Closes</h2>
+          <span className="text-[13px] text-[#8595a8]">
+            New clients only &middot; by close date &middot; expected LTV at {money0(avgLtv)}/client
           </span>
         </div>
 
@@ -264,30 +264,30 @@ export default function CeoPage() {
               return (
                 <div key={w.key} className="rounded-md border border-[#eef3f8] overflow-hidden">
                   <div className="flex flex-wrap items-center gap-2 px-2 py-1.5">
-                    <span className="w-24 shrink-0 text-[11px] font-semibold text-[#1f3559]">{w.label}</span>
+                    <span className="w-24 shrink-0 text-[13px] font-semibold text-[#1f3559]">{w.label}</span>
                     <span className="flex-1 min-w-[100px] space-y-1">
                       <span className="flex items-center gap-2">
-                        <span className="w-16 text-[9px] uppercase tracking-wide text-[#8595a8]">Upfront</span>
+                        <span className="w-16 text-[13px] uppercase tracking-wide text-[#8595a8]">Upfront</span>
                         <span className="flex-1 h-3 rounded bg-[#f1f5f9] overflow-hidden">
                           <span className="block h-full bg-[#15B7AE]"
                                 style={{ width: `${(w.upfrontTotal / max) * 100}%` }} />
                         </span>
-                        <span className="w-20 text-right text-[11px] font-bold tabular-nums text-[#0f8f88]">{money0(w.upfrontTotal)}</span>
+                        <span className="w-20 text-right text-[13px] font-bold tabular-nums text-[#0f8f88]">{money0(w.upfrontTotal)}</span>
                       </span>
                       <span className="flex items-center gap-2">
-                        <span className="w-16 text-[9px] uppercase tracking-wide text-[#8595a8]">Exp. LTV</span>
+                        <span className="w-16 text-[13px] uppercase tracking-wide text-[#8595a8]">Exp. LTV</span>
                         <span className="flex-1 h-3 rounded bg-[#f1f5f9] overflow-hidden">
                           <span className="block h-full bg-[#2c4a7c]"
                                 style={{ width: `${(w.expectedLtv / max) * 100}%` }} />
                         </span>
-                        <span className="w-20 text-right text-[11px] font-semibold tabular-nums text-[#2c4a7c]">{money0(w.expectedLtv)}</span>
+                        <span className="w-20 text-right text-[13px] font-semibold tabular-nums text-[#2c4a7c]">{money0(w.expectedLtv)}</span>
                       </span>
                     </span>
                     <button
                       onClick={() => setOpenWin(open ? null : w.key)}
                       disabled={w.closeCount === 0}
                       aria-expanded={open}
-                      className={cn("shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-colors",
+                      className={cn("shrink-0 px-2.5 py-0.5 rounded-full text-[13px] font-bold border transition-colors",
                         w.closeCount === 0
                           ? "text-[#a8b3c0] bg-[#f8fafc] border-[#eef3f8] cursor-default"
                           : open
@@ -300,9 +300,9 @@ export default function CeoPage() {
 
                   {open && (
                     <div className="border-t border-[#eef3f8] bg-[#fbfdfe] px-2 py-1.5">
-                      <table className="w-full text-[11px]">
+                      <table className="w-full text-[13px]">
                         <thead>
-                          <tr className="text-[9px] uppercase tracking-wide text-[#8595a8]">
+                          <tr className="text-[13px] uppercase tracking-wide text-[#8595a8]">
                             <th className="text-left font-semibold py-1">Client</th>
                             <th className="text-left font-semibold py-1">Closed</th>
                             <th className="text-left font-semibold py-1">Closer</th>
@@ -328,8 +328,8 @@ export default function CeoPage() {
           </div>
         )}
 
-        <p className="text-[10px] text-[#8595a8] mt-2 leading-snug">
-          From the &ldquo;Demos (unique entries)&rdquo; tab &mdash; every row marked Closed, placed by its Close Date.
+        <p className="text-[12px] text-[#8595a8] mt-2 leading-snug">
+          From the &ldquo;Demos (unique entries)&rdquo; tab &mdash; rows marked Closed, placed by Close Date, and limited to clients who were not already being billed before that month (renewals are excluded).
           Expected LTV is closes &times; {money0(avgLtv)} (LTV sheet, &ldquo;Real LTV &minus; $250 &amp; Deposits&rdquo;) &mdash;
           projected worth, not cash in hand. <strong className="text-[#b45309]">ROI is not shown:</strong> the old card
           divided by spend on a campaign called &ldquo;PMU Conversions - New&rdquo;, which does not exist in the Facebook
@@ -341,56 +341,60 @@ export default function CeoPage() {
       <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2.5">
           <h2 className="text-sm font-semibold text-[#1f3559]">Setter &amp; Closer &middot; Capacity</h2>
-          <span className="text-[11px] text-[#8595a8]">Open slots, next 7 days from today</span>
+          <span className="text-[13px] text-[#8595a8]">Open slots, next 7 days from today</span>
         </div>
         {capErr && (
-          <div className="rounded-md border border-[#fcd9a8] bg-[#fff7ec] px-2 py-1.5 text-[11px] text-[#b45309] mb-2">
+          <div className="rounded-md border border-[#fcd9a8] bg-[#fff7ec] px-2 py-1.5 text-[13px] text-[#b45309] mb-2">
             {capErr}
           </div>
         )}
         {!cap ? (
-          <div className="py-6 text-center text-sm text-[#8595a8]">Reading calendars…</div>
+          <div className="py-8 text-center text-sm text-[#8595a8]">Reading calendars…</div>
         ) : cap.length === 0 ? (
-          <p className="text-[11px] text-[#8595a8]">No calendar data.</p>
+          <p className="text-sm text-[#8595a8]">No calendar data.</p>
         ) : (
-          <div className="space-y-2">
-            {cap.map((p) => {
-              const max = Math.max(1, ...p.days.map((d) => d.slots));
-              return (
-                <div key={p.role} className="rounded-md border border-[#eef3f8] px-2 py-2">
-                  <div className="flex flex-wrap items-baseline gap-x-2 mb-1.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded
-                                     bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">{p.role}</span>
-                    <span className="text-[12px] font-semibold text-[#1f3559]">{p.name}</span>
-                    <span className="text-[11px] text-[#8595a8]">
-                      {p.totalSlots} open {p.totalSlots === 1 ? "slot" : "slots"}
-                      {p.calendars.length > 0 && <> &middot; {p.calendars.join(", ")}</>}
-                    </span>
-                  </div>
-                  <div className="flex items-end gap-1">
-                    {p.days.map((d) => {
-                      const dt = new Date(d.date + "T00:00:00Z");
-                      const dow = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
-                      const dom = dt.getUTCDate();
-                      return (
-                        <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
-                          <span className="text-[10px] font-bold tabular-nums"
-                                style={{ color: d.slots > 0 ? "#0f8f88" : "#c3ccd6" }}>{d.slots}</span>
-                          <span className="w-full rounded-sm" title={`${d.date}: ${d.slots} open`}
-                                style={{ height: `${Math.max(3, (d.slots / max) * 34)}px`,
-                                         background: d.slots > 0 ? "#15B7AE" : "#eef3f8" }} />
-                          <span className="text-[9px] text-[#8595a8] leading-none">{dow}</span>
-                          <span className="text-[9px] text-[#b6c0cc] leading-none tabular-nums">{dom}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+          <div className="space-y-4">
+            {cap.map((p) => (
+              <div key={p.role}>
+                <div className="flex flex-wrap items-baseline gap-x-2 mb-2">
+                  <span className="text-[13px] font-bold uppercase tracking-wide px-2 py-0.5 rounded
+                                   bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">{p.role}</span>
+                  <span className="text-base font-semibold text-[#1f3559]">{p.name}</span>
+                  <span className="text-sm text-[#697a91]">
+                    {p.totalSlots} open {p.totalSlots === 1 ? "slot" : "slots"} this week
+                  </span>
                 </div>
-              );
-            })}
+                <div className="grid grid-cols-7 gap-1.5">
+                  {p.days.map((d, i) => {
+                    const dt = new Date(d.date + "T00:00:00Z");
+                    const dow = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+                    const dom = dt.getUTCDate();
+                    const mon = dt.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+                    const none = d.slots === 0;
+                    return (
+                      <div key={d.date}
+                           className={cn("rounded-lg border px-2 py-2 text-center",
+                             none ? "border-[#eef3f8] bg-[#fbfcfd]" : "border-[#bfe6e3] bg-[#f2fbfa]")}>
+                        <div className="text-[13px] font-semibold uppercase tracking-wide text-[#8595a8]">
+                          {dow}{i === 0 && <span className="text-[#0f8f88]"> · today</span>}
+                        </div>
+                        <div className="text-[13px] font-medium text-[#34568a] tabular-nums">{dom} {mon}</div>
+                        <div className={cn("text-2xl font-bold tabular-nums mt-1",
+                                           none ? "text-[#c3ccd6]" : "text-[#0f8f88]")}>{d.slots}</div>
+                        <div className="text-[13px] text-[#8595a8]">{none ? "full" : "open"}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {p.calendars.length > 0 && (
+                  <p className="text-[13px] text-[#8595a8] mt-1.5">{p.calendars.join(" · ")}</p>
+                )}
+              </div>
+            ))}
           </div>
         )}
-        <p className="text-[10px] text-[#8595a8] mt-2 leading-snug">
+
+        <p className="text-[12px] text-[#8595a8] mt-2 leading-snug">
           Bookable availability from each person&rsquo;s GHL calendars in the PMU Bookings On Demand sub-account.
           Measured as open slots rather than booked events, because the marketplace app is not granted
           <code className="mx-1">calendars/events.readonly</code> and that endpoint returns 401.
@@ -402,16 +406,16 @@ export default function CeoPage() {
         <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
           <div className="flex flex-wrap items-baseline gap-x-2 mb-2">
             <h2 className="text-sm font-semibold text-[#1f3559]">New clients in {sel.label}</h2>
-            <span className="text-[11px] text-[#8595a8]">
+            <span className="text-[13px] text-[#8595a8]">
               {sel.newClients} first-time {sel.newClients === 1 ? "payer" : "payers"} · {money0(sel.newCash)}
             </span>
           </div>
           {sel.newNames.length === 0 ? (
-            <p className="text-[11px] text-[#8595a8]">No first-time payers this month.</p>
+            <p className="text-[13px] text-[#8595a8]">No first-time payers this month.</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {sel.newNames.map((n) => (
-                <span key={n} className="px-2 py-0.5 rounded text-[11px] font-medium
+                <span key={n} className="px-2 py-0.5 rounded text-[13px] font-medium
                                          bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">
                   {n}
                 </span>

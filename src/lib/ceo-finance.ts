@@ -190,6 +190,31 @@ function parseCloseDate(raw: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/** name key -> earliest "YYYY-MM" that name appears in the Financing workbook. */
+async function firstBillingMonth(): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  try {
+    const sheets = await getSheetsClient();
+    const res = await sheets.spreadsheets.values.batchGet({
+      spreadsheetId: FINANCE_SHEET_ID,
+      ranges: MONTHS.map((m) => `'${m.tab}'!A1:H400`),
+      valueRenderOption: "FORMATTED_VALUE",
+    });
+    MONTHS.forEach((m, i) => {
+      const rows = (res.data.valueRanges?.[i]?.values ?? []) as string[][];
+      const nameIdx = m.schema === "old" ? 6 : 1;
+      for (const r of rows) {
+        const raw = String(r?.[nameIdx] ?? "").trim();
+        if (!raw || NOT_A_CLIENT.test(raw) || /deposits from clients/i.test(raw)) continue;
+        const k = nameKey(raw);
+        if (k.length < 3) continue;
+        if (!out.has(k)) out.set(k, m.ym);
+      }
+    });
+  } catch { /* if the workbook is unreadable, treat every close as new */ }
+  return out;
+}
+
 export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
   try {
     const sheets = await getSheetsClient();
@@ -226,6 +251,17 @@ export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
       });
     }
 
+    // NEW cash only. A close belongs to a client who was already paying us
+    // before that month is a renewal, not new cash — so it is dropped, using
+    // the same first-appearance rule the New vs Recurring card uses.
+    const firstSeen = await firstBillingMonth();
+    const isNewCash = (c: Close) => {
+      const first = firstSeen.get(nameKey(c.name));
+      if (!first) return true;              // never billed before -> new
+      return first >= c.closedOn.slice(0, 7); // first bill is this month or later
+    };
+    const newOnly = all.filter(isNewCash);
+
     const now = new Date();
     const since = (days: number) => {
       const d = new Date(now);
@@ -233,7 +269,7 @@ export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
       return d.toISOString().slice(0, 10);
     };
     const build = (key: Window["key"], label: string, keep: (c: Close) => boolean): Window => {
-      const closes = all.filter(keep).sort((a, b) => b.closedOn.localeCompare(a.closedOn));
+      const closes = newOnly.filter(keep).sort((a, b) => b.closedOn.localeCompare(a.closedOn));
       const upfrontTotal = closes.reduce((s, c) => s + c.upfront, 0);
       return { key, label, closes, closeCount: closes.length, upfrontTotal, expectedLtv: closes.length * avgLtv };
     };
