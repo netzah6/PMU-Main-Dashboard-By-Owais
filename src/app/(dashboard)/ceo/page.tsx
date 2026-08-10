@@ -357,9 +357,11 @@ export default function CeoPage() {
             {cap.map((p) => {
               // One shared hour range per person so every day lines up, derived
               // from their actual slots rather than a fixed 9-5 assumption.
+              // Clamp to the hours that actually carry availability, but never
+              // let one stray early/late slot stretch the grid over a whole day.
               const hours = p.days.flatMap((d) => d.times.map((t) => parseInt(t.slice(0, 2), 10)));
-              const lo = hours.length ? Math.min(...hours) : 9;
-              const hi = hours.length ? Math.max(...hours) : 17;
+              const lo = Math.max(6, hours.length ? Math.min(...hours) : 8);
+              const hi = Math.min(21, hours.length ? Math.max(...hours) : 18);
               const rows: number[] = [];
               for (let h = lo; h <= hi; h++) rows.push(h);
               const hLabel = (h: number) =>
@@ -370,7 +372,7 @@ export default function CeoPage() {
                     <span className="text-[12px] font-bold uppercase tracking-wide px-2 py-0.5 rounded
                                      bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">{p.role}</span>
                     <span className="text-base font-semibold text-[#1f3559]">{p.name}</span>
-                    <span className="text-sm text-[#697a91]">{p.totalSlots} open slots this week</span>
+                    <span className="text-sm text-[#697a91]">{p.totalSlots} open 15-min slots this week</span>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -383,11 +385,11 @@ export default function CeoPage() {
                           return (
                             <div key={d.date}
                                  className="bg-[#f7fafc] border-b border-l border-[#e4ebf2] px-1 py-1.5 text-center">
-                              <div className="text-[12px] font-semibold text-[#34568a]">
+                              <div className="text-[13px] font-semibold text-[#34568a]">
                                 {dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}
                                 {i === 0 && <span className="text-[#0f8f88]"> ·today</span>}
                               </div>
-                              <div className="text-[11px] text-[#8595a8] tabular-nums">
+                              <div className="text-[12px] text-[#8595a8] tabular-nums">
                                 {dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
                               </div>
                             </div>
@@ -397,18 +399,18 @@ export default function CeoPage() {
                       {/* hour rows */}
                       {rows.map((h) => (
                         <div key={h} className="grid" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
-                          <div className="bg-[#fbfcfd] border-b border-[#eef3f8] px-1 py-1
-                                          text-[11px] text-[#8595a8] text-right tabular-nums">{hLabel(h)}</div>
+                          <div className="bg-[#fbfcfd] border-b border-[#eef3f8] px-1.5 py-1.5
+                                          text-[13px] font-medium text-[#697a91] text-right tabular-nums">{hLabel(h)}</div>
                           {p.days.map((d) => {
                             const inHour = d.times.filter((t) => parseInt(t.slice(0, 2), 10) === h);
                             const open = inHour.length > 0;
                             return (
                               <div key={d.date + h}
                                    title={open ? `${inHour.length} open: ${inHour.join(", ")}` : "no availability"}
-                                   className={cn("border-b border-l border-[#eef3f8] px-1 py-1 text-center",
+                                   className={cn("border-b border-l border-[#eef3f8] px-1 py-1.5 text-center",
                                                  open ? "bg-[#e6f7f5]" : "bg-white")}>
                                 {open && (
-                                  <span className="text-[12px] font-semibold text-[#0f8f88] tabular-nums">
+                                  <span className="text-[15px] font-bold text-[#0f8f88] tabular-nums">
                                     {inHour.length}
                                   </span>
                                 )}
@@ -429,6 +431,9 @@ export default function CeoPage() {
         )}
 
         <p className="text-[12px] text-[#8595a8] mt-2 leading-snug">
+          <strong>Each number is how many 15-minute slots are still bookable in that hour</strong> &mdash;
+          4 means the whole hour is free, 2 or 3 means part of it is taken, blank means nothing is bookable.
+          All times are Pacific, the agency timezone, converted from whatever offset each calendar reports.
           Bookable availability from each person&rsquo;s GHL calendars in the PMU Bookings On Demand sub-account.
           Measured as open slots rather than booked events, because the marketplace app is not granted
           <code className="mx-1">calendars/events.readonly</code> and that endpoint returns 401.
