@@ -29,7 +29,7 @@ interface DaySlots { date: string; slots: number; times: string[] }
 interface PersonCapacity { role: string; name: string; calendars: string[]; days: DaySlots[]; totalSlots: number }
 
 interface Close { name: string; closedOn: string; upfront: number; assignedTo: string; }
-interface Win { key: string; label: string; closes: Close[]; closeCount: number; upfrontTotal: number; expectedLtv: number; }
+interface Win { key: string; label: string; closes: Close[]; closeCount: number; upfrontTotal: number; expectedLtv: number; fromPayments?: boolean }
 
 const money0 = (n: number | null | undefined) =>
   n == null ? "—" : "$" + Math.round(n).toLocaleString();
@@ -50,6 +50,7 @@ export default function CeoPage() {
   const [ym, setYm] = useState<string | null>(null);
   const [wins, setWins] = useState<Win[] | null>(null);
   const [avgLtv, setAvgLtv] = useState(0);
+  const [undated, setUndated] = useState(0);
   const [openWin, setOpenWin] = useState<string | null>(null);
   const [cap, setCap] = useState<PersonCapacity[] | null>(null);
   const [capErr, setCapErr] = useState<string | null>(null);
@@ -71,7 +72,7 @@ export default function CeoPage() {
     if (role !== "admin" || !ym) return;
     fetch(`/api/ceo/upfront?ym=${encodeURIComponent(ym)}`)
       .then((r) => r.json())
-      .then((j) => { setWins(j.windows ?? []); setAvgLtv(j.avgLtv ?? 0); })
+      .then((j) => { setWins(j.windows ?? []); setAvgLtv(j.avgLtv ?? 0); setUndated(j.undatedClosed ?? 0); })
       .catch(() => setWins([]));
   }, [role, ym]);
 
@@ -313,7 +314,7 @@ export default function CeoPage() {
                           {w.closes.map((c, i) => (
                             <tr key={c.name + c.closedOn + i} className="border-t border-[#f1f6fa]">
                               <td className="py-1 font-medium text-[#1f3559]">{c.name}</td>
-                              <td className="py-1 text-[#697a91] tabular-nums">{c.closedOn}</td>
+                              <td className="py-1 text-[#697a91] tabular-nums">{c.closedOn || <span className="text-[#b6c0cc]">no close date</span>}</td>
                               <td className="py-1 text-[#697a91]">{c.assignedTo || "—"}</td>
                               <td className="py-1 text-right tabular-nums font-semibold text-[#0f8f88]">{money0(c.upfront)}</td>
                             </tr>
@@ -329,7 +330,12 @@ export default function CeoPage() {
         )}
 
         <p className="text-[12px] text-[#8595a8] mt-2 leading-snug">
-          From the &ldquo;Demos (unique entries)&rdquo; tab &mdash; rows marked Closed, placed by Close Date, and limited to clients who were not already being billed before that month (renewals are excluded).
+          The <strong>month</strong> row comes from the Financing sheet &mdash; where Square payments land &mdash;
+          so anyone who paid for the first time that month appears even if the pipeline sheet has no row or no
+          close date for them. The rolling <strong>14/30-day</strong> rows still need a Close Date, so they can
+          only show what has been filled in. Renewals are excluded from all three.
+          {undated > 0 && <> <span className="text-[#b45309]">{undated} rows are marked Closed with no close
+          date</span> &mdash; they count in the month if they paid, but cannot appear in the rolling windows.</>}
           Expected LTV is closes &times; {money0(avgLtv)} (LTV sheet, &ldquo;Real LTV &minus; $250 &amp; Deposits&rdquo;) &mdash;
           projected worth, not cash in hand. <strong className="text-[#b45309]">ROI is not shown:</strong> the old card
           divided by spend on a campaign called &ldquo;PMU Conversions - New&rdquo;, which does not exist in the Facebook
