@@ -14,6 +14,19 @@ import { getAppLocationToken } from "@/lib/ghl-app";
 // than by counting existing events.
 const AGENCY_LOCATION_ID = "SfpNMJ5YU9lBkxss47lK"; // PMU Bookings On Demand
 
+// The agency runs on Pacific. Every slot is normalised into this zone before it
+// reaches the UI: GHL returns each slot as a full ISO timestamp WITH an offset,
+// and those offsets are not all the same across calendars, so reading the
+// literal "HH:mm" out of the string put slots on the wrong hour (Maria showed
+// availability at midnight-6am that does not exist).
+export const AGENCY_TZ = "America/Los_Angeles";
+const HHMM = new Intl.DateTimeFormat("en-US", {
+  timeZone: AGENCY_TZ, hour: "2-digit", minute: "2-digit", hour12: false,
+});
+const YMD = new Intl.DateTimeFormat("en-CA", {
+  timeZone: AGENCY_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+});
+
 // Matched by name, not id, so a rebuilt user doesn't silently empty the card.
 const PEOPLE = [
   { role: "Setter" as const, match: /jennifer/i },
@@ -140,14 +153,16 @@ async function buildFromRoster(
               if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
               const slots = (val as { slots?: unknown[] })?.slots;
               if (!Array.isArray(slots)) continue;
-              const set = byDay.get(date) ?? new Set<string>();
               for (const iso of slots) {
-                // "2026-08-09T09:15:00-07:00" — keep the calendar's own local
-                // time; converting to the viewer's zone would move the slot.
-                const m = String(iso).match(/T(\d{2}):(\d{2})/);
-                if (m) set.add(`${m[1]}:${m[2]}`);
+                const at = new Date(String(iso));
+                if (isNaN(at.getTime())) continue;
+                // Bucket by the PACIFIC day and hour, not by the key GHL used —
+                // a slot near midnight can belong to a different local day.
+                const day = YMD.format(at);
+                const set = byDay.get(day) ?? new Set<string>();
+                set.add(HHMM.format(at).replace(/^24:/, "00:"));
+                byDay.set(day, set);
               }
-              byDay.set(date, set);
             }
           } catch { /* one calendar failing shouldn't blank the person */ }
         })
@@ -157,7 +172,7 @@ async function buildFromRoster(
       // shows the next 7 days regardless of what is booked.
       const daysOut: DaySlots[] = [];
       for (let i = 0; i < days; i++) {
-        const d = new Date(now.getTime() + i * 86_400_000).toISOString().slice(0, 10);
+        const d = YMD.format(new Date(now.getTime() + i * 86_400_000));
         const times = [...(byDay.get(d) ?? new Set<string>())].sort();
         daysOut.push({ date: d, slots: times.length, times });
       }
