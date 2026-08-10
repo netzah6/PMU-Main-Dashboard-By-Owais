@@ -25,7 +25,7 @@ interface MonthFinance {
   newNames: string[];
 }
 
-interface DaySlots { date: string; slots: number }
+interface DaySlots { date: string; slots: number; times: string[] }
 interface PersonCapacity { role: string; name: string; calendars: string[]; days: DaySlots[]; totalSlots: number }
 
 interface Close { name: string; closedOn: string; upfront: number; assignedTo: string; }
@@ -341,7 +341,7 @@ export default function CeoPage() {
       <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2.5">
           <h2 className="text-sm font-semibold text-[#1f3559]">Setter &amp; Closer &middot; Capacity</h2>
-          <span className="text-[13px] text-[#8595a8]">Open slots, next 7 days from today</span>
+          <span className="text-[13px] text-[#8595a8]">Open slots by hour · next 7 days · calendar\u2019s own timezone</span>
         </div>
         {capErr && (
           <div className="rounded-md border border-[#fcd9a8] bg-[#fff7ec] px-2 py-1.5 text-[13px] text-[#b45309] mb-2">
@@ -353,44 +353,78 @@ export default function CeoPage() {
         ) : cap.length === 0 ? (
           <p className="text-sm text-[#8595a8]">No calendar data.</p>
         ) : (
-          <div className="space-y-4">
-            {cap.map((p) => (
-              <div key={p.role}>
-                <div className="flex flex-wrap items-baseline gap-x-2 mb-2">
-                  <span className="text-[13px] font-bold uppercase tracking-wide px-2 py-0.5 rounded
-                                   bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">{p.role}</span>
-                  <span className="text-base font-semibold text-[#1f3559]">{p.name}</span>
-                  <span className="text-sm text-[#697a91]">
-                    {p.totalSlots} open {p.totalSlots === 1 ? "slot" : "slots"} this week
-                  </span>
-                </div>
-                <div className="grid grid-cols-7 gap-1.5">
-                  {p.days.map((d, i) => {
-                    const dt = new Date(d.date + "T00:00:00Z");
-                    const dow = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
-                    const dom = dt.getUTCDate();
-                    const mon = dt.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
-                    const none = d.slots === 0;
-                    return (
-                      <div key={d.date}
-                           className={cn("rounded-lg border px-2 py-2 text-center",
-                             none ? "border-[#eef3f8] bg-[#fbfcfd]" : "border-[#bfe6e3] bg-[#f2fbfa]")}>
-                        <div className="text-[13px] font-semibold uppercase tracking-wide text-[#8595a8]">
-                          {dow}{i === 0 && <span className="text-[#0f8f88]"> · today</span>}
-                        </div>
-                        <div className="text-[13px] font-medium text-[#34568a] tabular-nums">{dom} {mon}</div>
-                        <div className={cn("text-2xl font-bold tabular-nums mt-1",
-                                           none ? "text-[#c3ccd6]" : "text-[#0f8f88]")}>{d.slots}</div>
-                        <div className="text-[13px] text-[#8595a8]">{none ? "full" : "open"}</div>
+          <div className="space-y-5">
+            {cap.map((p) => {
+              // One shared hour range per person so every day lines up, derived
+              // from their actual slots rather than a fixed 9-5 assumption.
+              const hours = p.days.flatMap((d) => d.times.map((t) => parseInt(t.slice(0, 2), 10)));
+              const lo = hours.length ? Math.min(...hours) : 9;
+              const hi = hours.length ? Math.max(...hours) : 17;
+              const rows: number[] = [];
+              for (let h = lo; h <= hi; h++) rows.push(h);
+              const hLabel = (h: number) =>
+                `${((h + 11) % 12) + 1}${h < 12 ? "a" : "p"}`;
+              return (
+                <div key={p.role}>
+                  <div className="flex flex-wrap items-baseline gap-x-2 mb-2">
+                    <span className="text-[12px] font-bold uppercase tracking-wide px-2 py-0.5 rounded
+                                     bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">{p.role}</span>
+                    <span className="text-base font-semibold text-[#1f3559]">{p.name}</span>
+                    <span className="text-sm text-[#697a91]">{p.totalSlots} open slots this week</span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[640px] border border-[#e4ebf2] rounded-lg overflow-hidden">
+                      {/* day header */}
+                      <div className="grid" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
+                        <div className="bg-[#f7fafc] border-b border-[#e4ebf2]" />
+                        {p.days.map((d, i) => {
+                          const dt = new Date(d.date + "T00:00:00Z");
+                          return (
+                            <div key={d.date}
+                                 className="bg-[#f7fafc] border-b border-l border-[#e4ebf2] px-1 py-1.5 text-center">
+                              <div className="text-[12px] font-semibold text-[#34568a]">
+                                {dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}
+                                {i === 0 && <span className="text-[#0f8f88]"> ·today</span>}
+                              </div>
+                              <div className="text-[11px] text-[#8595a8] tabular-nums">
+                                {dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                      {/* hour rows */}
+                      {rows.map((h) => (
+                        <div key={h} className="grid" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
+                          <div className="bg-[#fbfcfd] border-b border-[#eef3f8] px-1 py-1
+                                          text-[11px] text-[#8595a8] text-right tabular-nums">{hLabel(h)}</div>
+                          {p.days.map((d) => {
+                            const inHour = d.times.filter((t) => parseInt(t.slice(0, 2), 10) === h);
+                            const open = inHour.length > 0;
+                            return (
+                              <div key={d.date + h}
+                                   title={open ? `${inHour.length} open: ${inHour.join(", ")}` : "no availability"}
+                                   className={cn("border-b border-l border-[#eef3f8] px-1 py-1 text-center",
+                                                 open ? "bg-[#e6f7f5]" : "bg-white")}>
+                                {open && (
+                                  <span className="text-[12px] font-semibold text-[#0f8f88] tabular-nums">
+                                    {inHour.length}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {p.calendars.length > 0 && (
+                    <p className="text-[11px] text-[#8595a8] mt-1.5">{p.calendars.join(" · ")}</p>
+                  )}
                 </div>
-                {p.calendars.length > 0 && (
-                  <p className="text-[13px] text-[#8595a8] mt-1.5">{p.calendars.join(" · ")}</p>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
