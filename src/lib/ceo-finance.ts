@@ -171,13 +171,45 @@ export interface Window {
   closeCount: number;
   upfrontTotal: number;
   expectedLtv: number;
+  /** True when the window is built from payments rather than close dates. */
+  fromPayments?: boolean;
 }
 
 export interface UpfrontResult {
   windows: Window[];
   avgLtv: number;
+  /** Rows marked Closed in the Demos tab with no Close Date — invisible to the
+   *  rolling windows, so the count is surfaced instead of silently dropped. */
+  undatedClosed: number;
   generatedAt: string;
   error?: string;
+}
+
+/** First-time payers in one month, straight from the Financing workbook —
+ *  the sheet Square payments actually land in. */
+async function newPayersForMonth(ym: string): Promise<{ name: string; amount: number }[]> {
+  const sheets = await getSheetsClient();
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: FINANCE_SHEET_ID,
+    ranges: MONTHS.map((m) => `'${m.tab}'!A1:H400`),
+    valueRenderOption: "FORMATTED_VALUE",
+  });
+  const seen = new Set<string>();
+  const out: { name: string; amount: number }[] = [];
+  MONTHS.forEach((m, i) => {
+    const rows = (res.data.valueRanges?.[i]?.values ?? []) as string[][];
+    const nameIdx = m.schema === "old" ? 6 : 1;
+    const amtIdx = m.schema === "old" ? 3 : 4;
+    for (const r of rows) {
+      const raw = String(r?.[nameIdx] ?? "").trim();
+      if (!raw || NOT_A_CLIENT.test(raw) || /deposits from clients/i.test(raw)) continue;
+      const k = nameKey(raw);
+      if (k.length < 3 || seen.has(k)) continue;
+      seen.add(k);
+      if (m.ym === ym) out.push({ name: raw, amount: money(r?.[amtIdx]) });
+    }
+  });
+  return out;
 }
 
 /** "01/03/2022" (DD/MM/YYYY) or a long-form date -> UTC Date, else null. */
@@ -237,12 +269,13 @@ export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
     // Header row 1: Date | Full Name | Status | Assigned Person | | Discovery
     // Date | | Demo Date | Close Date | Upfront Collected
     const all: Close[] = [];
+    let undatedClosed = 0;
     for (const r of rows.slice(1)) {
       const name = String(r?.[1] ?? "").trim();
       const status = String(r?.[2] ?? "").trim().toLowerCase();
       if (!name || status !== "closed") continue;
       const on = parseCloseDate(String(r?.[8] ?? ""));
-      if (!on) continue; // closed but no close date — cannot place it in a window
+      if (!on) { undatedClosed++; continue; } // no close date — no window to place it in
       all.push({
         name,
         closedOn: on.toISOString().slice(0, 10),
@@ -279,13 +312,43 @@ export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
       build("d14", "Last 14 days", (c) => c.closedOn >= d14),
       build("d30", "Last 30 days", (c) => c.closedOn >= d30),
     ];
+
     if (ym) {
+      // The MONTH window is driven by payments, not by the pipeline sheet.
+      // 119 of 569 "Closed" rows carry no Close Date, and some clients (Martin
+      // Aba) have no Demos row at all — they were invisible even though the
+      // money arrived. The Financing workbook is where Square payments land, so
+      // first-time payers there ARE the month's new cash. Demos is demoted to
+      // enrichment: it supplies the closer and close date when a row matches.
+      const byName = new Map<string, Close>();
+      for (const c of all) {
+        const k = nameKey(c.name);
+        if (!byName.has(k)) byName.set(k, c);
+      }
+      const payers = await newPayersForMonth(ym);
+      const monthCloses: Close[] = payers.map((p) => {
+        const hit = byName.get(nameKey(p.name));
+        return {
+          name: p.name,
+          closedOn: hit?.closedOn ?? "",
+          upfront: p.amount || hit?.upfront || 0,
+          assignedTo: hit?.assignedTo ?? "",
+        };
+      });
       const monthLabel = MONTHS.find((m) => m.ym === ym)?.label ?? ym;
-      windows.unshift(build("month", monthLabel, (c) => c.closedOn.startsWith(ym)));
+      windows.unshift({
+        key: "month",
+        label: monthLabel,
+        closes: monthCloses,
+        closeCount: monthCloses.length,
+        upfrontTotal: monthCloses.reduce((s, c) => s + c.upfront, 0),
+        expectedLtv: monthCloses.length * avgLtv,
+        fromPayments: true,
+      });
     }
 
-    return { windows, avgLtv, generatedAt: new Date().toISOString() };
+    return { windows, avgLtv, undatedClosed, generatedAt: new Date().toISOString() };
   } catch (err) {
-    return { windows: [], avgLtv: 0, generatedAt: new Date().toISOString(), error: String(err) };
+    return { windows: [], avgLtv: 0, undatedClosed: 0, generatedAt: new Date().toISOString(), error: String(err) };
   }
 }
