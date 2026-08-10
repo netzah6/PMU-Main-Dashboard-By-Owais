@@ -178,9 +178,10 @@ export interface Window {
 export interface UpfrontResult {
   windows: Window[];
   avgLtv: number;
-  /** Rows marked Closed in the Demos tab with no Close Date — invisible to the
-   *  rolling windows, so the count is surfaced instead of silently dropped. */
+  /** Rows marked Closed in the Demos tab with no Close Date. */
   undatedClosed: number;
+  /** How many of those were placed in time using the Financing payment date. */
+  datedFromPayment: number;
   generatedAt: string;
   error?: string;
 }
@@ -222,9 +223,15 @@ function parseCloseDate(raw: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** name key -> earliest "YYYY-MM" that name appears in the Financing workbook. */
-async function firstBillingMonth(): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/**
+ * name key -> the client's first payment in the Financing workbook: the month
+ * they first appear, plus DAY OF PAYMENT where the sheet records one.
+ *
+ * The payment date IS the close date when the pipeline sheet has none, which is
+ * how 119 undated "Closed" rows get placed in time instead of disappearing.
+ */
+async function firstBillingMonth(): Promise<Map<string, { ym: string; date: string }>> {
+  const out = new Map<string, { ym: string; date: string }>();
   try {
     const sheets = await getSheetsClient();
     const res = await sheets.spreadsheets.values.batchGet({
@@ -240,7 +247,12 @@ async function firstBillingMonth(): Promise<Map<string, string>> {
         if (!raw || NOT_A_CLIENT.test(raw) || /deposits from clients/i.test(raw)) continue;
         const k = nameKey(raw);
         if (k.length < 3) continue;
-        if (!out.has(k)) out.set(k, m.ym);
+        if (out.has(k)) continue;
+        // "DAY OF PAYMENT" is a day-of-month on the V2 layout; 0/blank means it
+        // was never filled in, in which case fall back to the 1st.
+        const day = m.schema === "new" ? parseInt(String(r?.[3] ?? "").replace(/\D/g, ""), 10) : NaN;
+        const dd = Number.isFinite(day) && day >= 1 && day <= 31 ? day : 1;
+        out.set(k, { ym: m.ym, date: `${m.ym}-${String(dd).padStart(2, "0")}` });
       }
     });
   } catch { /* if the workbook is unreadable, treat every close as new */ }
@@ -268,17 +280,17 @@ export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
 
     // Header row 1: Date | Full Name | Status | Assigned Person | | Discovery
     // Date | | Demo Date | Close Date | Upfront Collected
-    const all: Close[] = [];
+    const pending: Close[] = [];
     let undatedClosed = 0;
     for (const r of rows.slice(1)) {
       const name = String(r?.[1] ?? "").trim();
       const status = String(r?.[2] ?? "").trim().toLowerCase();
       if (!name || status !== "closed") continue;
       const on = parseCloseDate(String(r?.[8] ?? ""));
-      if (!on) { undatedClosed++; continue; } // no close date — no window to place it in
-      all.push({
+      if (!on) undatedClosed++;
+      pending.push({
         name,
-        closedOn: on.toISOString().slice(0, 10),
+        closedOn: on ? on.toISOString().slice(0, 10) : "",
         upfront: money(r?.[9]),
         assignedTo: String(r?.[3] ?? "").trim(),
       });
@@ -288,10 +300,17 @@ export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
     // before that month is a renewal, not new cash — so it is dropped, using
     // the same first-appearance rule the New vs Recurring card uses.
     const firstSeen = await firstBillingMonth();
+
+    // Close Date wins. When the pipeline sheet has none, the payment date from
+    // the Financing sheet stands in for it — same event, recorded elsewhere.
+    const all: Close[] = pending.map((c) =>
+      c.closedOn ? c : { ...c, closedOn: firstSeen.get(nameKey(c.name))?.date ?? "" }
+    ).filter((c) => c.closedOn);
+    const datedFromPayment = all.filter((c) => !pending.find((x) => x.name === c.name && x.closedOn)).length;
     const isNewCash = (c: Close) => {
       const first = firstSeen.get(nameKey(c.name));
-      if (!first) return true;              // never billed before -> new
-      return first >= c.closedOn.slice(0, 7); // first bill is this month or later
+      if (!first) return true;                   // never billed before -> new
+      return first.ym >= c.closedOn.slice(0, 7); // first bill is this month or later
     };
     const newOnly = all.filter(isNewCash);
 
@@ -347,8 +366,8 @@ export async function getUpfrontAndCloses(ym?: string): Promise<UpfrontResult> {
       });
     }
 
-    return { windows, avgLtv, undatedClosed, generatedAt: new Date().toISOString() };
+    return { windows, avgLtv, undatedClosed, datedFromPayment, generatedAt: new Date().toISOString() };
   } catch (err) {
-    return { windows: [], avgLtv: 0, undatedClosed: 0, generatedAt: new Date().toISOString(), error: String(err) };
+    return { windows: [], avgLtv: 0, undatedClosed: 0, datedFromPayment: 0, generatedAt: new Date().toISOString(), error: String(err) };
   }
 }

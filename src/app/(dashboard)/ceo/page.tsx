@@ -51,6 +51,7 @@ export default function CeoPage() {
   const [wins, setWins] = useState<Win[] | null>(null);
   const [avgLtv, setAvgLtv] = useState(0);
   const [undated, setUndated] = useState(0);
+  const [rescued, setRescued] = useState(0);
   const [openWin, setOpenWin] = useState<string | null>(null);
   const [cap, setCap] = useState<PersonCapacity[] | null>(null);
   const [capErr, setCapErr] = useState<string | null>(null);
@@ -72,7 +73,7 @@ export default function CeoPage() {
     if (role !== "admin" || !ym) return;
     fetch(`/api/ceo/upfront?ym=${encodeURIComponent(ym)}`)
       .then((r) => r.json())
-      .then((j) => { setWins(j.windows ?? []); setAvgLtv(j.avgLtv ?? 0); setUndated(j.undatedClosed ?? 0); })
+      .then((j) => { setWins(j.windows ?? []); setAvgLtv(j.avgLtv ?? 0); setUndated(j.undatedClosed ?? 0); setRescued(j.datedFromPayment ?? 0); })
       .catch(() => setWins([]));
   }, [role, ym]);
 
@@ -334,8 +335,9 @@ export default function CeoPage() {
           so anyone who paid for the first time that month appears even if the pipeline sheet has no row or no
           close date for them. The rolling <strong>14/30-day</strong> rows still need a Close Date, so they can
           only show what has been filled in. Renewals are excluded from all three.
-          {undated > 0 && <> <span className="text-[#b45309]">{undated} rows are marked Closed with no close
-          date</span> &mdash; they count in the month if they paid, but cannot appear in the rolling windows.</>}
+          {undated > 0 && <> {undated} rows are marked Closed with no close date;
+          <strong> {rescued} of them were placed using the payment date</strong> from the Financing sheet, which is
+          the same event recorded elsewhere. The rest have no payment on file either.</>}
           Expected LTV is closes &times; {money0(avgLtv)} (LTV sheet, &ldquo;Real LTV &minus; $250 &amp; Deposits&rdquo;) &mdash;
           projected worth, not cash in hand. <strong className="text-[#b45309]">ROI is not shown:</strong> the old card
           divided by spend on a campaign called &ldquo;PMU Conversions - New&rdquo;, which does not exist in the Facebook
