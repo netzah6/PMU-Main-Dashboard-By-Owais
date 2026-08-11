@@ -154,6 +154,7 @@
     state.submitted = true;
     var a = state.answers;
     var payload = {
+      slug: C.slug || "",
       surveyId: C.surveyId || "",
       locationId: C.locationId || "",
       full_name: a.full_name || "",
