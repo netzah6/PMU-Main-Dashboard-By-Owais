@@ -84,6 +84,24 @@
     "#onebox-root .obslots button.booking{background:var(--teal);border-color:var(--teal);color:#fff;cursor:wait}" +
     "#onebox-root .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:ob-spin .7s linear infinite;vertical-align:-2px;margin-right:6px}" +
     "@keyframes ob-spin{to{transform:rotate(360deg)}}" +
+    "#onebox-root .vlabel{text-align:center;font-family:var(--form);font-size:11px;font-weight:600;letter-spacing:.12em;color:var(--muted);margin:2px 0 10px;text-transform:uppercase}" +
+    "#onebox-root .chips{display:flex;justify-content:center;gap:10px;margin:0 0 18px}" +
+    "#onebox-root .chips div{border:1px solid var(--line);border-radius:10px;padding:9px 0;width:72px;text-align:center;box-shadow:0 3px 8px -6px rgba(17,19,21,.25)}" +
+    "#onebox-root .chips b{display:block;font-size:22px;font-weight:700;font-family:var(--headline);line-height:1;font-variant-numeric:tabular-nums}" +
+    "#onebox-root .chips span{font-size:9px;font-weight:600;letter-spacing:.08em;color:var(--muted);font-family:var(--form);text-transform:uppercase}" +
+    "#onebox-root .confcard{background:#f7f9f9;border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;margin:0 0 16px}" +
+    "#onebox-root .confcard h3{margin:0 0 10px;font-family:var(--headline);font-weight:700;font-size:16.5px;color:#000}" +
+    "#onebox-root .confcard p{margin:0 0 10px;font-family:var(--content);font-size:13.5px;line-height:1.55;color:var(--ink-soft)}" +
+    "#onebox-root .confwhen{font-family:var(--headline);font-weight:700;font-size:16px;color:#000!important;margin:0 0 2px!important}" +
+    "#onebox-root .confrel{color:var(--teal-deep)!important;font-weight:700;font-size:13px!important;font-family:var(--form)!important;margin:0 0 8px!important}" +
+    "#onebox-root .confaddr{font-size:12.5px!important;color:var(--muted)!important;margin:0!important}" +
+    "#onebox-root .confyes{display:block;width:100%;border:0;border-radius:12px;padding:13px;cursor:pointer;background:linear-gradient(100deg,#5adbd4,var(--teal) 60%,var(--teal-deep));box-shadow:0 10px 22px -10px rgba(23,195,195,.55);transition:filter .15s;margin:0 0 10px}" +
+    "#onebox-root .confyes:hover:not(:disabled){filter:brightness(1.05)}" +
+    "#onebox-root .confyes:disabled{cursor:wait;filter:saturate(.7)}" +
+    "#onebox-root .confyes b{display:block;font-family:var(--headline);font-weight:700;font-size:15.5px;color:#083b3b}" +
+    "#onebox-root .confyes span{display:block;font-family:var(--form);font-size:11.5px;color:#0b4f4d;margin-top:2px}" +
+    "#onebox-root .confalt{display:block;width:100%;border:1.5px solid var(--line);border-radius:12px;padding:12px;background:#fff;cursor:pointer;font-family:var(--form);font-size:13.5px;font-weight:600;color:var(--ink-soft);transition:border-color .15s}" +
+    "#onebox-root .confalt:hover{border-color:var(--teal)}" +
     "#onebox-root .fbslot{position:relative;min-height:400px}" +
     "#onebox-root .fbslot::before{content:'';position:absolute;top:56px;left:50%;margin-left:-14px;width:28px;height:28px;border:3px solid #e4e7e9;border-top-color:var(--teal);border-radius:50%;animation:ob-spin .8s linear infinite}" +
     "#onebox-root .fbslot::after{content:'Loading secure checkout\u2026';position:absolute;top:98px;left:0;right:0;text-align:center;font-family:var(--form);font-size:12.5px;color:var(--muted)}" +
@@ -217,9 +235,10 @@
     '<div class="callbar">Call Us Today:' + (PHONE ? " " + esc(PHONE) : "") + "</div>" +
     '<div class="wrap">' +
     (LOGO ? '<img class="biglogo" src="' + esc(LOGO) + '" alt="' + esc(BIZ) + ' logo">' : "") +
-    '<p class="lede">Congrats on claiming ' + (OFFERR ? esc(OFFERR) + " " : "") + "All Permanent Makeup Packages!</p>" +
-    '<h1 class="page">Fill Out Our Quiz To See If You Qualify</h1>' +
-    '<p class="sub">(30 Seconds)</p>' +
+    '<p class="lede">' + (C.congrats ? esc(C.congrats)
+      : "Congrats on claiming " + (OFFERR ? esc(OFFERR) + " " : "") + "All Permanent Makeup Packages!") + "</p>" +
+    '<h1 class="page">' + esc(C.headline || "Fill Out Our Quiz To See If You Qualify") + "</h1>" +
+    '<p class="sub">' + esc(C.sub || "(30 Seconds)") + "</p>" +
     '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     '<div class="box"><div class="rail"><span id="ob-rail">&nbsp;</span></div>' +
     '<div class="slide" id="ob-slide"></div><div class="bar" id="ob-bar"></div></div>' +
@@ -242,6 +261,7 @@
     if (phase === "survey") return;
     var pct, label;
     if (phase === "booking") { pct = 72; label = "You’re Almost Done…"; }
+    else if (phase === "confirm") { pct = 80; label = "You\u2019re Almost Done\u2026"; }
     else if (phase === "deposit") { pct = 88; label = "Last Step…"; }
     else { pct = 100; label = "100%"; }
     railEl.style.width = pct + "%";
@@ -286,7 +306,7 @@
       var n = new Date();
       calState.y = n.getFullYear(); calState.m = n.getMonth();
     }
-    return '<h2 class="phead">' + (OFFERR
+    return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
       ? "Book Your Appointment NOW to Claim " + esc(OFFERR) + "."
       : "Book Your Appointment NOW!") + "</h2>" +
       '<div id="ob-calbox">' + calHTML() + "</div>";
@@ -410,14 +430,56 @@
     if (slots) slots.onclick = function (e) {
       var b = e.target.closest("button[data-slot]");
       if (!b || calState.booking) return;
-      book(b.getAttribute("data-slot"));
+      state.pendingIso = b.getAttribute("data-slot");
+      show("confirm");
     };
+  }
+
+  function relDay(iso) {
+    var y = +iso.slice(0, 4), m = +iso.slice(5, 7), d = +iso.slice(8, 10);
+    var t = new Date(); t.setHours(0, 0, 0, 0);
+    var diff = Math.round((new Date(y, m - 1, d) - t) / 86400000);
+    if (diff <= 0) return "Today";
+    if (diff === 1) return "Tomorrow";
+    return "In " + diff + " days";
+  }
+
+  var vtimer = null, vleft = 900;
+  function paintVClock() {
+    var el = document.getElementById("ob-vclock");
+    if (!el) return;
+    var hh = Math.floor(vleft / 3600), mm = Math.floor((vleft % 3600) / 60), ss = vleft % 60;
+    function two(n) { return (n < 10 ? "0" : "") + n; }
+    el.innerHTML = "<div><b>" + two(hh) + "</b><span>hours</span></div>" +
+      "<div><b>" + two(mm) + "</b><span>minutes</span></div>" +
+      "<div><b>" + two(ss) + "</b><span>seconds</span></div>";
+  }
+
+  function slideConfirm() {
+    var first = (state.answers.full_name || "").split(/\s+/)[0] || "Hey";
+    return '<p class="vlabel">Your spot is saved for:</p>' +
+      '<div class="chips" id="ob-vclock"></div>' +
+      '<div class="confcard">' +
+        "<h3>" + esc(first) + ", please confirm your appointment</h3>" +
+        "<p>Our specialist will set this time aside exclusively for you and prepare for your visit in advance &mdash; so please confirm you can attend:</p>" +
+        '<p class="confwhen">' + esc(fmtWhen(state.pendingIso)) + "</p>" +
+        '<p class="confrel">' + esc(relDay(state.pendingIso)) + "</p>" +
+        (ADDR ? '<p class="confaddr">' + esc(ADDR) + "</p>" : "") +
+      "</div>" +
+      '<button type="button" class="confyes" id="ob-yes"><b>Yes, I&rsquo;ll be there</b>' +
+      "<span>Continue to securing my appointment</span></button>" +
+      '<button type="button" class="confalt" id="ob-alt">Choose a different time</button>';
   }
 
   function book(iso) {
     calState.booking = true;
     calState.bookingIso = iso;
-    paintCal();
+    var yes = document.getElementById("ob-yes");
+    if (yes) {
+      yes.disabled = true;
+      yes.innerHTML = '<b><span class="spin"></span>Securing your appointment&hellip;</b>' +
+        "<span>One moment</span>";
+    }
     fetch((C.submitUrl || "").replace(/submit$/, "book"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -434,6 +496,8 @@
         calState.booking = false;
         if (j.ok) { state.slotIso = iso; show("deposit"); }
         else {
+          calState.error = "";
+          show("booking", "prev");
           var note = document.getElementById("ob-note");
           if (note) note.textContent = "That time just got taken — please pick another.";
           loadMonth();
@@ -441,14 +505,17 @@
       })
       .catch(function () {
         calState.booking = false;
-        var note = document.getElementById("ob-note");
-        if (note) note.textContent = "Something went wrong — please try again.";
-        paintCal();
+        var yes2 = document.getElementById("ob-yes");
+        if (yes2) {
+          yes2.disabled = false;
+          yes2.innerHTML = "<b>Yes, I&rsquo;ll be there</b><span>Something went wrong &mdash; tap to try again</span>";
+        }
       });
   }
 
   function slideDeposit() {
-    return '<h2 class="phead">Last Step - ' + esc(DEPOSIT) + ' Refundable Reservation Fee</h2>' +
+    return '<h2 class="phead">' + (C.depositHead ? esc(C.depositHead)
+      : "Last Step - " + esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
       '<p class="psub">&#9203; Slot is held for 10 min</p>' +
       '<div class="guarantee"><strong>100% Guaranteed &mdash; Fully Refundable</strong>' +
       "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p></div>" +
@@ -482,7 +549,10 @@
     slideEl.className = "slide";
     void slideEl.offsetWidth;
     slideEl.classList.add(dir === "prev" ? "anim-prev" : "anim-next");
-    slideEl.innerHTML = phase === "survey" ? slideSurvey() : phase === "booking" ? slideBooking() : slideDeposit();
+    slideEl.innerHTML = phase === "survey" ? slideSurvey()
+      : phase === "booking" ? slideBooking()
+      : phase === "confirm" ? slideConfirm()
+      : slideDeposit();
     barEl.innerHTML = barHTML();
 
     var prev = document.getElementById("ob-prev");
@@ -491,6 +561,18 @@
       else if (phase === "booking") { qi = N - 1; show("survey", "prev"); }
       else show("booking", "prev");
     };
+    if (phase === "confirm") {
+      vleft = 900; paintVClock();
+      if (vtimer) clearInterval(vtimer);
+      vtimer = setInterval(function () {
+        vleft--; if (vleft <= 0) { vleft = 0; clearInterval(vtimer); vtimer = null; }
+        paintVClock();
+      }, 1000);
+      document.getElementById("ob-yes").onclick = function () {
+        if (!calState.booking) book(state.pendingIso);
+      };
+      document.getElementById("ob-alt").onclick = function () { show("booking", "prev"); };
+    } else if (vtimer) { clearInterval(vtimer); vtimer = null; }
 
     if (phase === "survey") bindSurvey();
     if (phase === "booking") { bindCal(); if (!calState.loading && !monthKeyDates().length && !calState.error) loadMonth(); }
