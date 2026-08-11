@@ -23,6 +23,7 @@ const TABS: Tab[] = [
   { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
   { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true }, // Square disputes + evidence prep — admins only
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true }, // pay-per-show tracking — admins only
+  { label: "💼 Sales", href: "/sales" }, // demo checker — paste contacts, get showed/no-show from the pipeline stage
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "👑 CEO", href: "/ceo", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
