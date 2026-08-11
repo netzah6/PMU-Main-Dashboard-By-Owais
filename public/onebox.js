@@ -81,7 +81,23 @@
     "#onebox-root .bar button[hidden]{visibility:hidden;display:block}" +
     "#onebox-root .phead{font-family:var(--headline);font-weight:700;font-size:17px;line-height:1.3;text-align:center;text-wrap:balance;margin:0 0 4px;color:#000}" +
     "#onebox-root .psub{text-align:center;font-family:var(--content);font-size:13px;color:var(--muted);margin:0 0 14px}" +
-    "#onebox-root .calframe{width:100%;border:0;min-height:640px;border-radius:8px}" +
+    "#onebox-root .cal-nav{display:flex;align-items:center;justify-content:center;gap:16px;margin:2px 0 10px}" +
+    "#onebox-root .cal-nav button{width:29px;height:29px;border-radius:50%;border:0;background:#eef7f7;color:var(--teal-deep);font-size:16px;line-height:1;cursor:pointer}" +
+    "#onebox-root .cal-nav button:hover:not(:disabled){background:#dcf0f0}" +
+    "#onebox-root .cal-nav button:disabled{opacity:.35;cursor:default}" +
+    "#onebox-root .cal-nav strong{font-size:14px;font-weight:600;min-width:8.5em;text-align:center;font-family:var(--form)}" +
+    "#onebox-root .obgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;max-width:340px;margin:0 auto}" +
+    "#onebox-root .obgrid .dow{font-size:10px;color:var(--muted);padding:4px 0;font-weight:600}" +
+    "#onebox-root .obgrid button{aspect-ratio:1;border:0;background:none;border-radius:50%;font:inherit;font-size:13px;color:var(--ink);cursor:pointer;font-variant-numeric:tabular-nums}" +
+    "#onebox-root .obgrid button:hover:not(:disabled){background:#eef7f7}" +
+    "#onebox-root .obgrid button:disabled{color:#c9ced2;cursor:default}" +
+    "#onebox-root .obgrid button[aria-pressed=true],#onebox-root .obgrid button[aria-pressed=true]:hover{background:var(--ink);color:#fff;font-weight:600}" +
+    "#onebox-root .obslots{margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;max-height:150px;overflow-y:auto}" +
+    "#onebox-root .obslots button{padding:10px 4px;border:1.5px solid #cfe6e6;border-radius:8px;background:#fff;font:inherit;font-size:13px;color:var(--teal-deep);font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums;transition:border-color .15s,background .15s}" +
+    "#onebox-root .obslots button:hover:not(:disabled){background:#f2fbfb;border-color:var(--teal)}" +
+    "#onebox-root .obslots button:disabled{opacity:.5;cursor:wait}" +
+    "#onebox-root .obslots p{margin:0;font-size:13px;color:var(--muted);text-align:center;padding:16px 0;grid-column:1/-1}" +
+    "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
     "#onebox-root .guarantee{background:var(--mint-bg);border:1px solid var(--mint-line);border-radius:7px;padding:13px 15px;text-align:center;margin:0 0 12px;font-family:var(--content)}" +
     "#onebox-root .guarantee strong{display:block;color:var(--mint-ink);font-size:14px;margin-bottom:5px;font-family:var(--headline)}" +
     "#onebox-root .guarantee p{margin:0;font-size:12.5px;color:#2c5c39;line-height:1.55}" +
@@ -232,36 +248,172 @@
       }).join("") + '</div><p class="err" id="ob-err"></p>';
   }
 
+  /* Native date & time picker fed by the calendar's real availability
+     (our /api/onebox/slots proxy of GHL free-slots). Picking a time books
+     the appointment server-side with the survey's data — no extra form —
+     and only a confirmed booking advances to the deposit step. */
+  var calState = { y: 0, m: 0, day: null, dates: {}, loading: false, error: "", booking: false };
+
+  function monthKeyDates() {
+    var out = [];
+    for (var k in calState.dates) if (calState.dates[k] && calState.dates[k].length) out.push(k);
+    return out;
+  }
+
   function slideBooking() {
-    /* Real GHL calendar widget — the appointment books natively and fires
-       the sub-account's appointment automations. Prefill uses the widget's
-       own param names (first_name/last_name/phone) so the lead doesn't
-       retype what the survey already captured. */
-    var src = "https://api.leadconnectorhq.com/widget/booking/" + encodeURIComponent(CAL);
-    var pre = [];
-    if (state.answers.full_name) pre.push("full_name=" + encodeURIComponent(state.answers.full_name));
-    if (state.answers.phone) pre.push("phone=" + encodeURIComponent(state.answers.phone));
-    if (state.answers.email) pre.push("email=" + encodeURIComponent(state.answers.email));
-    if (pre.length) src += "?" + pre.join("&");
+    if (!calState.y) {
+      var n = new Date();
+      calState.y = n.getFullYear(); calState.m = n.getMonth();
+    }
     return '<h2 class="phead">' + (OFFERR
       ? "Book Your Appointment NOW to Claim " + esc(OFFERR) + "."
       : "Book Your Appointment NOW!") + "</h2>" +
-      (CAL ? '<iframe class="calframe" id="ob-cal" src="' + src + '" loading="lazy"></iframe>'
-           : '<p class="psub">Calendar not configured for this account.</p>');
+      '<div id="ob-calbox">' + calHTML() + "</div>";
   }
 
-  /* No skipping: the deposit step opens only when the calendar widget
-     itself reports a completed booking (postMessage from the GHL widget). */
-  window.addEventListener("message", function (ev) {
-    if (phase !== "booking") return;
-    if (!/leadconnectorhq\.com|msgsndr\.com|gohighlevel\.com/.test(ev.origin)) return;
-    var s = "";
-    try { s = JSON.stringify(ev.data); } catch (e) { s = String(ev.data); }
-    if (/height|resize|dimension|scroll|loaded/i.test(s) && !/appointment|booked/i.test(s)) return;
-    if (/appointment|booked|booking[-_ ]?(success|confirmed|complete)|confirmation/i.test(s)) {
-      show("deposit");
+  var MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  function calHTML() {
+    if (calState.loading) return '<p class="obcal-note">Loading available times&hellip;</p>';
+    if (calState.error) {
+      return '<p class="obcal-note">' + esc(calState.error) + '</p>' +
+        '<div class="cal-nav"><button type="button" id="ob-retry" style="width:auto;padding:0 14px;border-radius:8px">Try again</button></div>';
     }
-  });
+    var y = calState.y, m = calState.m;
+    var first = new Date(y, m, 1).getDay();
+    var days = new Date(y, m + 1, 0).getDate();
+    var cells = "";
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(function (d) { cells += '<div class="dow">' + d + "</div>"; });
+    for (var i = 0; i < first; i++) cells += "<div></div>";
+    for (var d = 1; d <= days; d++) {
+      var key = y + "-" + pad2(m + 1) + "-" + pad2(d);
+      var has = calState.dates[key] && calState.dates[key].length;
+      cells += '<button type="button" data-day="' + key + '"' + (has ? "" : " disabled") +
+        ' aria-pressed="' + (calState.day === key) + '">' + d + "</button>";
+    }
+    var slots = "";
+    if (calState.day && calState.dates[calState.day]) {
+      slots = calState.dates[calState.day].map(function (iso) {
+        return '<button type="button" data-slot="' + esc(iso) + '"' + (calState.booking ? " disabled" : "") + ">" +
+          fmtTime(iso) + "</button>";
+      }).join("");
+    } else {
+      slots = "<p>Pick a day to see open times.</p>";
+    }
+    return '<div class="cal-nav">' +
+        '<button type="button" id="ob-pm" aria-label="Previous month">&lsaquo;</button>' +
+        "<strong>" + MONTHS[m] + " " + y + "</strong>" +
+        '<button type="button" id="ob-nm" aria-label="Next month">&rsaquo;</button>' +
+      "</div>" +
+      '<div class="obgrid" id="ob-grid">' + cells + "</div>" +
+      '<div class="obslots" id="ob-slots">' + slots + "</div>" +
+      '<p class="obcal-note" id="ob-note">' + (calState.booking ? "Booking your spot&hellip;" : "") + "</p>";
+  }
+
+  function fmtTime(iso) {
+    /* The ISO string is already in the calendar's own timezone — read the
+       wall-clock time straight from it. */
+    var hh = parseInt(iso.slice(11, 13), 10), mm = iso.slice(14, 16);
+    var ap = hh >= 12 ? "PM" : "AM";
+    hh = hh % 12 || 12;
+    return hh + ":" + mm + " " + ap;
+  }
+
+  function paintCal() {
+    var box = document.getElementById("ob-calbox");
+    if (!box) return;
+    box.innerHTML = calHTML();
+    bindCal();
+  }
+
+  function loadMonth() {
+    var y = calState.y, m = calState.m;
+    var start = new Date(y, m, 1).getTime();
+    var now = Date.now();
+    if (start < now) start = now;
+    var end = new Date(y, m + 1, 1).getTime();
+    calState.loading = true; calState.error = ""; calState.day = null; calState.dates = {};
+    paintCal();
+    fetch((C.submitUrl || "").replace(/submit$/, "slots") + "?slug=" + encodeURIComponent(C.slug || "") +
+      "&start=" + start + "&end=" + end)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        calState.loading = false;
+        if (!j.ok) { calState.error = "Couldn’t load available times."; }
+        else {
+          calState.dates = j.dates || {};
+          var ks = monthKeyDates().sort();
+          calState.day = ks.length ? ks[0] : null;
+        }
+        paintCal();
+      })
+      .catch(function () {
+        calState.loading = false;
+        calState.error = "Couldn’t load available times.";
+        paintCal();
+      });
+  }
+
+  function bindCal() {
+    var pm = document.getElementById("ob-pm"), nm = document.getElementById("ob-nm");
+    if (pm) pm.onclick = function () {
+      calState.m--; if (calState.m < 0) { calState.m = 11; calState.y--; }
+      loadMonth();
+    };
+    if (nm) nm.onclick = function () {
+      calState.m++; if (calState.m > 11) { calState.m = 0; calState.y++; }
+      loadMonth();
+    };
+    var retry = document.getElementById("ob-retry");
+    if (retry) retry.onclick = loadMonth;
+    var grid = document.getElementById("ob-grid");
+    if (grid) grid.onclick = function (e) {
+      var b = e.target.closest("button[data-day]");
+      if (!b || b.disabled) return;
+      calState.day = b.getAttribute("data-day");
+      paintCal();
+    };
+    var slots = document.getElementById("ob-slots");
+    if (slots) slots.onclick = function (e) {
+      var b = e.target.closest("button[data-slot]");
+      if (!b || calState.booking) return;
+      book(b.getAttribute("data-slot"));
+    };
+  }
+
+  function book(iso) {
+    calState.booking = true;
+    paintCal();
+    fetch((C.submitUrl || "").replace(/submit$/, "book"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: C.slug || "",
+        full_name: state.answers.full_name || "",
+        phone: state.answers.phone || "",
+        email: state.answers.email || "",
+        startTime: iso,
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        calState.booking = false;
+        if (j.ok) { state.slotIso = iso; show("deposit"); }
+        else {
+          var note = document.getElementById("ob-note");
+          if (note) note.textContent = "That time just got taken — please pick another.";
+          loadMonth();
+        }
+      })
+      .catch(function () {
+        calState.booking = false;
+        var note = document.getElementById("ob-note");
+        if (note) note.textContent = "Something went wrong — please try again.";
+        paintCal();
+      });
+  }
 
   function slideDeposit() {
     return '<h2 class="phead">Last Step - ' + esc(DEPOSIT) + ' Refundable Reservation Fee</h2>' +
@@ -308,6 +460,7 @@
     };
 
     if (phase === "survey") bindSurvey();
+    if (phase === "booking") { bindCal(); if (!calState.loading && !monthKeyDates().length && !calState.error) loadMonth(); }
     if (phase === "deposit") {
       left = 600; paintClock();
       if (timer) clearInterval(timer);
