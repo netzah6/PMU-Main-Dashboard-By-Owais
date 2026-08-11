@@ -1,0 +1,52 @@
+<!-- ============================================================
+  One-Box Funnel — GHL custom-code element snippet
+  Paste this into a single Custom Code element on a BLANK funnel
+  step. All client content resolves from the sub-account's custom
+  values via merge tags; the engine itself is hosted at
+  /onebox.js on the dashboard, so updates roll out to every
+  client without touching their funnels.
+
+  Per-funnel edits needed:
+    - surveyId / submitUrl: set during the pilot (survey-submit
+      capture) so the lead lands in GHL and automations fire.
+    - Fanbasis block: same custom-code block already used on the
+      client's live -last-step page (PRODUCT_ID per client — make
+      it a custom value during rollout).
+    - OB_FAQS: per-client FAQ copy (optional; omit to hide FAQs).
+    - elfsightId: the client's Elfsight widget id (optional; when
+      set, the real IG/reviews widget renders in the results
+      section; otherwise resultImgs URLs are used).
+============================================================ -->
+
+<div id="onebox-root"></div>
+
+<script>
+  window.OB_CONFIG = {
+    biz:        "{{ custom_values.business_name }}",
+    phone:      "{{ custom_values.business_phone_number }}",
+    address:    "{{ custom_values.full_business_address }}",
+    offer:      "{{ custom_values.offer }}",
+    deposit:    "{{ custom_values.cc__deposit_amount_ }}",
+    logo:       "{{ custom_values.logo }}",
+    igLink:     "{{ custom_values.ig_business_page_link }}",
+    calendarId: "{{ custom_values.cc__permanent_makeup_transformation_calendar_id }}",
+    locationId: "{{ location.id }}",
+    surveyId:   "",           /* set during pilot */
+    submitUrl:  "",           /* set during pilot (survey submit capture) */
+    fanbasisSelector: "#fanbasis-checkout-wrapper",
+    elfsightId: "",           /* optional Elfsight widget id */
+    resultImgs: ""            /* fallback: comma-separated image URLs */
+  };
+  window.OB_FAQS = [
+    /* {q: "Question?", a: "Answer."}, ... per-client copy */
+  ];
+</script>
+
+<!-- Fanbasis checkout: the client's EXISTING custom-code block from their
+     -last-step page goes here, wrapped so it stays hidden until the deposit
+     step reveals it inside the box. -->
+<div style="display:none" id="onebox-fanbasis-holder">
+  <!-- paste client Fanbasis block here (wrapper div + embed script + config) -->
+</div>
+
+<script src="https://pmu-main-dashboard-by-owais1.vercel.app/onebox.js" async></script>
