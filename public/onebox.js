@@ -518,6 +518,38 @@
       });
   }
 
+  /* The Fanbasis block ships inert in a <template> — booting it at page
+     load and moving it later reloads the iframe and kills its one-time
+     checkout session (symptom: endless 'Loading secure checkout').
+     Instead the block is instantiated fresh, scripts and all, the moment
+     the deposit step opens — same lifecycle as on a GHL page. */
+  function bootFanbasis(slot) {
+    if (!slot || state.fbBooted) return;
+    var tpl = document.getElementById("onebox-fanbasis-holder");
+    if (!tpl || !tpl.content) return;
+    state.fbBooted = true;
+    var nodes = Array.prototype.slice.call(tpl.content.childNodes);
+    var scripts = [];
+    nodes.forEach(function (n) {
+      if (n.tagName === "SCRIPT") scripts.push(n);
+      else slot.appendChild(n.cloneNode(true));
+    });
+    (function runNext(i) {
+      if (i >= scripts.length) return;
+      var s = document.createElement("script");
+      if (scripts[i].src) {
+        s.src = scripts[i].src;
+        s.onload = function () { runNext(i + 1); };
+        s.onerror = function () { runNext(i + 1); };
+        slot.appendChild(s);
+      } else {
+        s.textContent = scripts[i].textContent;
+        slot.appendChild(s);
+        runNext(i + 1);
+      }
+    })(0);
+  }
+
   function slideDeposit() {
     return '<h2 class="phead">' + (C.depositHead ? esc(C.depositHead)
       : "Last Step - " + esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
@@ -567,6 +599,8 @@
   }
 
   function show(p, dir) {
+    var oldWrap = slideEl.querySelector(C.fanbasisSelector || "#fanbasis-checkout-wrapper");
+    if (oldWrap) { oldWrap.remove(); state.fbBooted = false; }
     phase = p;
     if (phase === "survey" || phase === "booking") stopHold();
     slideEl.className = "slide";
@@ -597,10 +631,7 @@
     if (phase === "booking") { bindCal(); if (!calState.loading && !monthKeyDates().length && !calState.error) loadMonth(); }
     if (phase === "deposit") {
       ensureHold(false);
-      /* move the page's (hidden) Fanbasis wrapper into the box */
-      var slot = document.getElementById("ob-fbslot");
-      var fb = document.querySelector(C.fanbasisSelector || "#fanbasis-checkout-wrapper");
-      if (fb && slot) { slot.appendChild(fb); fb.style.display = ""; }
+      bootFanbasis(document.getElementById("ob-fbslot"));
     }
     rail(); renderExtras();
     if (p !== "survey") { try { root.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }
