@@ -19,6 +19,11 @@ export const APP_SCOPES = [
   "opportunities.write", // Cleanup tab — delete pipelines when wiping an offboarded sub-account
   "calendars.readonly",
   "calendars.write",
+  // One-Box funnels book appointments server-side. NOTE: tick these two on
+  // the app in the developer portal (Advanced Settings -> Auth) BEFORE
+  // re-authorizing, or the authorize call fails with "Invalid scope(s)".
+  "calendars/events.readonly",
+  "calendars/events.write",
   "locations.readonly",
   "locations/customValues.readonly",
   "locations/customValues.write",
