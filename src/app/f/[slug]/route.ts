@@ -64,7 +64,7 @@ export async function GET(
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${row.extras.fanbasisHtml ? `<div style="display:none" id="onebox-fanbasis-holder">${row.extras.fanbasisHtml}</div>` : ""}
-<script src="/onebox.js?v=2" async></script>
+<script src="/onebox.js?v=3" async></script>
 </body>
 </html>`;
 

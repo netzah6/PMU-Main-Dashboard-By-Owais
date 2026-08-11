@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
   const slug = String(body.slug ?? "").slice(0, 100);
   const fullName = String(body.full_name ?? "").trim().slice(0, 200);
   const phone = String(body.phone ?? "").trim().slice(0, 40);
+  const email = String(body.email ?? "").trim().slice(0, 200);
   if (!slug || !fullName || !phone) {
     return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
   }
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   const { data: leadRow } = await svc
     .from("onebox_leads")
-    .insert({ slug, location_id: locationId, full_name: fullName, phone, answers })
+    .insert({ slug, location_id: locationId, full_name: fullName, phone, answers: { ...answers, email } })
     .select("id")
     .single();
 
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
         lastName: rest.join(" "),
         name: fullName,
         phone,
+        ...(email ? { email } : {}),
         source: "One-Box Funnel",
         tags: ["onebox-survey"],
       }),
