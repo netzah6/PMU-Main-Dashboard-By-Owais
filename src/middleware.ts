@@ -78,7 +78,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
 
 export const config = {
   matcher: [
-    // lead-pixel.js is loaded by anonymous funnel visitors — it must bypass auth.
-    "/((?!_next/static|_next/image|favicon.ico|lead-pixel.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // lead-pixel.js + onebox.js are loaded by anonymous funnel visitors — they must bypass auth.
+    "/((?!_next/static|_next/image|favicon.ico|lead-pixel.js|onebox.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
