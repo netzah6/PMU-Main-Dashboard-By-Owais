@@ -232,20 +232,35 @@
 
   function slideBooking() {
     /* Real GHL calendar widget — the appointment books natively and fires
-       the sub-account's appointment automations. */
+       the sub-account's appointment automations. Prefill uses the widget's
+       own param names (first_name/last_name/phone) so the lead doesn't
+       retype what the survey already captured. */
     var src = "https://api.leadconnectorhq.com/widget/booking/" + encodeURIComponent(CAL);
     var pre = [];
-    if (state.answers.full_name) pre.push("full_name=" + encodeURIComponent(state.answers.full_name));
+    var nm = (state.answers.full_name || "").split(/\s+/).filter(Boolean);
+    if (nm.length) pre.push("first_name=" + encodeURIComponent(nm[0]));
+    if (nm.length > 1) pre.push("last_name=" + encodeURIComponent(nm.slice(1).join(" ")));
     if (state.answers.phone) pre.push("phone=" + encodeURIComponent(state.answers.phone));
     if (pre.length) src += "?" + pre.join("&");
     return '<h2 class="phead">' + (OFFERR
       ? "Book Your Appointment NOW to Claim " + esc(OFFERR) + "."
       : "Book Your Appointment NOW!") + "</h2>" +
-      '<p class="psub">Permanent Makeup Transformation &middot; 30 min' + (ADDR ? " &middot; " + esc(ADDR) : "") + "</p>" +
       (CAL ? '<iframe class="calframe" id="ob-cal" src="' + src + '" loading="lazy"></iframe>'
-           : '<p class="psub">Calendar not configured for this account.</p>') +
-      '<button class="opt" id="ob-booked" style="justify-content:center;font-weight:600">I booked my time &mdash; continue to the last step &rarr;</button>';
+           : '<p class="psub">Calendar not configured for this account.</p>');
   }
+
+  /* No skipping: the deposit step opens only when the calendar widget
+     itself reports a completed booking (postMessage from the GHL widget). */
+  window.addEventListener("message", function (ev) {
+    if (phase !== "booking") return;
+    if (!/leadconnectorhq\.com|msgsndr\.com|gohighlevel\.com/.test(ev.origin)) return;
+    var s = "";
+    try { s = JSON.stringify(ev.data); } catch (e) { s = String(ev.data); }
+    if (/height|resize|dimension|scroll|loaded/i.test(s) && !/appointment|booked/i.test(s)) return;
+    if (/appointment|booked|booking[-_ ]?(success|confirmed|complete)|confirmation/i.test(s)) {
+      show("deposit");
+    }
+  });
 
   function slideDeposit() {
     return '<h2 class="phead">Last Step - ' + esc(DEPOSIT) + ' Refundable Reservation Fee</h2>' +
@@ -292,10 +307,6 @@
     };
 
     if (phase === "survey") bindSurvey();
-    if (phase === "booking") {
-      var done = document.getElementById("ob-booked");
-      if (done) done.onclick = function () { show("deposit"); };
-    }
     if (phase === "deposit") {
       left = 600; paintClock();
       if (timer) clearInterval(timer);
@@ -329,16 +340,12 @@
       }
       var err = document.getElementById("ob-err");
       if (!val) { err.textContent = q.type ? q.q + " is required" : "Please choose an option to continue"; return; }
-      if (q.k === "full_name") {
-        var parts = val.split(/\s+/).filter(Boolean);
-        if (parts.length < 2 || !/^[A-Za-zÀ-ɏ' .-]+$/.test(val)) {
-          err.textContent = "Please enter your full name (first and last)"; return;
-        }
-      }
       if (q.k === "phone") {
         var digits = val.replace(/\D/g, "");
         if (digits.length === 11 && digits.charAt(0) === "1") digits = digits.slice(1);
-        if (digits.length !== 10 || /[^0-9()+\s.-]/.test(val)) {
+        /* Real US number: 10 digits, area code + exchange can't start 0/1 —
+           catches "1 + 9 digits" and other missing-digit variants. */
+        if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(digits)) {
           err.textContent = "Please enter a valid phone number"; return;
         }
       }
