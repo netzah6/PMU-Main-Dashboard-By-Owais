@@ -23,9 +23,9 @@ type Row = {
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: { slug: string } }
 ) {
-  const { slug } = await params;
+  const { slug } = params;
   const svc = createServiceClient();
   const { data } = await svc
     .from("onebox_clients")
@@ -37,7 +37,7 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  const cfg = {
+  const cfg: Record<string, string> = {
     ...row.config,
     slug: row.slug,
     locationId: row.location_id,
