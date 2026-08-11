@@ -38,8 +38,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   // so the phone can install the app and show its icon.
   const p = request.nextUrl.pathname;
   const isPublicMeta = p === "/manifest.webmanifest" || p.startsWith("/icon") || p.startsWith("/apple-icon");
+  // One-Box funnel pages are client-facing marketing pages — public by design.
+  const isPublicFunnel = p.startsWith("/f/");
 
-  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta) {
+  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
