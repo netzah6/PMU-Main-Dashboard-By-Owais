@@ -75,6 +75,19 @@
     "#onebox-root .opt input{accent-color:var(--teal-deep);width:16px;height:16px;margin:0;cursor:pointer;flex:none}" +
     "#onebox-root .field{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:14px;color:var(--ink)}" +
     "#onebox-root .err{color:#d33;font-size:12px;margin:8px 0 0;min-height:1.1em}" +
+    "#onebox-root .field.err-f{border-color:#d33;box-shadow:0 0 0 3px rgba(221,51,51,.08)}" +
+    "#onebox-root .trustnote{margin:10px 0 0;font-size:12px;color:var(--muted);font-family:var(--form);display:flex;align-items:center;gap:6px}" +
+    "#onebox-root .skel{max-width:340px;margin:8px auto}" +
+    "#onebox-root .skel div{height:16px;border-radius:8px;margin:10px 0;background:linear-gradient(90deg,#eef1f2 25%,#f7f9f9 50%,#eef1f2 75%);background-size:200% 100%;animation:ob-shimmer 1.2s infinite}" +
+    "#onebox-root .skel div:nth-child(2){width:75%}#onebox-root .skel div:nth-child(3){width:55%}" +
+    "@keyframes ob-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}" +
+    "#onebox-root .obslots button.booking{background:var(--teal);border-color:var(--teal);color:#fff;cursor:wait}" +
+    "#onebox-root .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:ob-spin .7s linear infinite;vertical-align:-2px;margin-right:6px}" +
+    "@keyframes ob-spin{to{transform:rotate(360deg)}}" +
+    "#onebox-root .fbslot{position:relative;min-height:400px}" +
+    "#onebox-root .fbslot::before{content:'';position:absolute;top:56px;left:50%;margin-left:-14px;width:28px;height:28px;border:3px solid #e4e7e9;border-top-color:var(--teal);border-radius:50%;animation:ob-spin .8s linear infinite}" +
+    "#onebox-root .fbslot::after{content:'Loading secure checkout\u2026';position:absolute;top:98px;left:0;right:0;text-align:center;font-family:var(--form);font-size:12.5px;color:var(--muted)}" +
+    "#onebox-root .fbslot>*{position:relative;z-index:1}" +
     "#onebox-root .bar{background:var(--ink);display:flex;justify-content:space-between;align-items:center;padding:13px 22px;gap:12px}" +
     "#onebox-root .bar button{background:none;border:0;color:#fff;font-family:var(--form);font-size:13px;font-weight:600;letter-spacing:.08em;cursor:pointer;padding:6px 8px;border-radius:6px;opacity:.92;transition:opacity .15s,background .15s}" +
     "#onebox-root .bar button:hover:not(:disabled){opacity:1;background:rgba(255,255,255,.09)}" +
@@ -238,9 +251,16 @@
   function slideSurvey() {
     var q = QUESTIONS[qi];
     if (q.type) {
+      var extra = q.k === "full_name"
+        ? ' autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="next"'
+        : q.k === "phone" ? ' inputmode="tel" enterkeyhint="next"'
+        : ' autocapitalize="none" spellcheck="false" enterkeyhint="done"';
+      var note = (q.k === "phone" || q.k === "email")
+        ? '<p class="trustnote">&#128274; Only used to confirm your appointment &mdash; no spam.</p>' : "";
       return '<label class="qlabel" for="ob-f">' + esc(q.q) + ' <em>*</em></label>' +
         '<input class="field" id="ob-f" type="' + q.type + '" placeholder="' + esc(q.ph) + '" value="' +
-        esc(state.answers[q.k] || "") + '" autocomplete="' + (q.k === "phone" ? "tel" : q.k === "email" ? "email" : "name") + '"><p class="err" id="ob-err"></p>';
+        esc(state.answers[q.k] || "") + '" autocomplete="' + (q.k === "phone" ? "tel" : q.k === "email" ? "email" : "name") + '"' +
+        extra + '><p class="err" id="ob-err"></p>' + note;
     }
     return '<p class="qlabel">' + esc(q.q) + ' <em>*</em></p><div class="opts">' +
       q.o.map(function (o) {
@@ -277,7 +297,8 @@
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
 
   function calHTML() {
-    if (calState.loading) return '<p class="obcal-note">Loading available times&hellip;</p>';
+    if (calState.loading) return '<div class="skel"><div></div><div></div><div></div></div>' +
+      '<p class="obcal-note">Finding open times&hellip;</p>';
     if (calState.error) {
       return '<p class="obcal-note">' + esc(calState.error) + '</p>' +
         '<div class="cal-nav"><button type="button" id="ob-retry" style="width:auto;padding:0 14px;border-radius:8px">Try again</button></div>';
@@ -297,8 +318,10 @@
     var slots = "";
     if (calState.day && calState.dates[calState.day]) {
       slots = calState.dates[calState.day].map(function (iso) {
-        return '<button type="button" data-slot="' + esc(iso) + '"' + (calState.booking ? " disabled" : "") + ">" +
-          fmtTime(iso) + "</button>";
+        var isB = calState.booking && calState.bookingIso === iso;
+        return '<button type="button" data-slot="' + esc(iso) + '" class="' + (isB ? "booking" : "") + '"' +
+          (calState.booking ? " disabled" : "") + ">" +
+          (isB ? '<span class="spin"></span>Booking&hellip;' : fmtTime(iso)) + "</button>";
       }).join("");
     } else {
       slots = "<p>Pick a day to see open times.</p>";
@@ -393,6 +416,7 @@
 
   function book(iso) {
     calState.booking = true;
+    calState.bookingIso = iso;
     paintCal();
     fetch((C.submitUrl || "").replace(/submit$/, "book"), {
       method: "POST",
@@ -502,9 +526,11 @@
         val = sel ? sel.value : "";
       }
       var err = document.getElementById("ob-err");
-      if (!val) { err.textContent = q.type ? q.q + " is required" : "Please choose an option to continue"; return; }
+      var fld = document.getElementById("ob-f");
+      function fail(msg) { err.textContent = msg; if (fld) fld.classList.add("err-f"); }
+      if (!val) { fail(q.type ? q.q + " is required" : "Please choose an option to continue"); return; }
       if (q.k === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val)) {
-        err.textContent = "Please enter a valid email address"; return;
+        fail("Please enter a valid email address"); return;
       }
       if (q.k === "phone") {
         var digits = val.replace(/\D/g, "");
@@ -512,7 +538,7 @@
         /* Real US number: 10 digits, area code + exchange can't start 0/1 —
            catches "1 + 9 digits" and other missing-digit variants. */
         if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(digits)) {
-          err.textContent = "Please enter a valid phone number"; return;
+          fail("Please enter a valid phone number"); return;
         }
       }
       state.answers[q.k] = val;
@@ -527,7 +553,20 @@
     });
     slideEl.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); submit(); } };
     var f = document.getElementById("ob-f");
-    if (f) f.focus();
+    if (f) {
+      f.oninput = function () {
+        f.classList.remove("err-f");
+        document.getElementById("ob-err").textContent = "";
+        if (f.type === "tel") {
+          var d = f.value.replace(/\D/g, "").slice(0, 11);
+          if (d.length === 11 && d.charAt(0) === "1") d = d.slice(1);
+          if (d.length > 6) f.value = "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6);
+          else if (d.length > 3) f.value = "(" + d.slice(0, 3) + ") " + d.slice(3);
+          else if (d.length > 0) f.value = "(" + d;
+        }
+      };
+      f.focus();
+    }
   }
 
   /* stage-dependent sections: survey none; booking results+map+FAQs;
