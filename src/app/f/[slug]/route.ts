@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { refreshOneboxConfig, parseFaqs, SYNC_TTL_MS } from "@/lib/onebox";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
 // the hosted engine public/onebox.js owns the DOM; a hydrated page would
@@ -12,6 +13,7 @@ type Row = {
   location_id: string;
   client_name: string;
   status: string;
+  cv_synced_at: string | null;
   config: Record<string, string>;
   extras: {
     faqs?: { q: string; a: string }[];
@@ -37,20 +39,29 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
+  // Auto-resync from GHL when the stored copy is stale, so the team can
+  // edit custom values in GHL and see the funnel update within minutes.
+  const age = row.cv_synced_at ? Date.now() - new Date(row.cv_synced_at).getTime() : Infinity;
+  if (age > SYNC_TTL_MS) {
+    const fresh = await refreshOneboxConfig(svc, row.slug, row.location_id);
+    if (fresh) row.config = fresh;
+  }
+
   const cfg: Record<string, string> = {
     ...row.config,
     slug: row.slug,
     locationId: row.location_id,
     submitUrl: "/api/onebox/submit",
     fanbasisSelector: "#fanbasis-checkout-wrapper",
-    elfsightId: row.extras.elfsightId ?? "",
-    resultImgs: row.extras.resultImgs ?? "",
+    elfsightId: row.config.elfsightId || row.extras.elfsightId || "",
+    resultImgs: row.config.resultImgs || row.extras.resultImgs || "",
   };
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
   // </script> inside the JSON payloads must not terminate the script tag.
+  const faqs = row.config.faqsRaw ? parseFaqs(row.config.faqsRaw) : row.extras.faqs ?? [];
   const boot = (
     `window.OB_CONFIG=${JSON.stringify(cfg)};` +
-    `window.OB_FAQS=${JSON.stringify(row.extras.faqs ?? [])};`
+    `window.OB_FAQS=${JSON.stringify(faqs)};`
   ).replace(/<\//g, "<\\/");
 
   const html = `<!doctype html>
@@ -64,7 +75,7 @@ export async function GET(
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${row.extras.fanbasisHtml ? `<div style="display:none" id="onebox-fanbasis-holder">${row.extras.fanbasisHtml}</div>` : ""}
-<script src="/onebox.js?v=6" async></script>
+<script src="/onebox.js?v=7" async></script>
 </body>
 </html>`;
 
