@@ -102,6 +102,7 @@
     "#onebox-root .guarantee strong{display:block;color:var(--mint-ink);font-size:14px;margin-bottom:5px;font-family:var(--headline)}" +
     "#onebox-root .guarantee p{margin:0;font-size:12.5px;color:#2c5c39;line-height:1.55}" +
     "#onebox-root .addr{border:1px solid var(--amber);border-radius:5px;padding:8px;text-align:center;font-size:12.5px;font-weight:600;margin:0 0 14px;font-family:var(--content)}" +
+    "#onebox-root .when{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:5px;padding:9px;text-align:center;font-size:13px;font-weight:700;margin:0 0 14px;font-family:var(--content);color:var(--teal-deep)}" +
     "#onebox-root .clock{display:flex;justify-content:center;gap:26px;margin:0 0 16px}" +
     "#onebox-root .clock div{text-align:center}" +
     "#onebox-root .clock b{display:block;font-size:26px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em;font-family:var(--headline)}" +
@@ -312,6 +313,13 @@
       '<p class="obcal-note" id="ob-note">' + (calState.booking ? "Booking your spot&hellip;" : "") + "</p>";
   }
 
+  var DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  function fmtWhen(iso) {
+    var y = +iso.slice(0, 4), m = +iso.slice(5, 7), d = +iso.slice(8, 10);
+    var wd = DAYS[new Date(y, m - 1, d).getDay()];
+    return wd + ", " + MONTHS[m - 1] + " " + d + " at " + fmtTime(iso);
+  }
+
   function fmtTime(iso) {
     /* The ISO string is already in the calendar's own timezone — read the
        wall-clock time straight from it. */
@@ -421,6 +429,7 @@
       '<div class="guarantee"><strong>100% Guaranteed &mdash; Fully Refundable</strong>' +
       "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p></div>" +
       (ADDR ? '<div class="addr">' + esc(ADDR) + "</div>" : "") +
+      (state.slotIso ? '<div class="when">&#128197; Your appointment: ' + esc(fmtWhen(state.slotIso)) + "</div>" : "") +
       '<div class="clock" id="ob-clock"></div>' +
       '<div class="fbslot" id="ob-fbslot"></div>';
   }
