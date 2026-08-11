@@ -74,8 +74,8 @@ export async function GET(
 <body style="margin:0">
 <div id="onebox-root"></div>
 <script>${boot}</script>
-${row.extras.fanbasisHtml ? `<div style="display:none" id="onebox-fanbasis-holder">${row.extras.fanbasisHtml}</div>` : ""}
-<script src="/onebox.js?v=8" async></script>
+${row.extras.fanbasisHtml ? `<template id="onebox-fanbasis-holder">${row.extras.fanbasisHtml}</template>` : ""}
+<script src="/onebox.js?v=9" async></script>
 </body>
 </html>`;
 
