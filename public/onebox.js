@@ -69,8 +69,8 @@
     "#onebox-root .qlabel{font-size:16px;font-weight:600;margin:0 0 16px;line-height:1.45;letter-spacing:-.01em}" +
     "#onebox-root .qlabel em{font-style:normal;color:#d33}" +
     "#onebox-root .opts{display:flex;flex-direction:column;gap:9px}" +
-    "#onebox-root .opt{display:flex;align-items:center;gap:12px;padding:13px 15px;cursor:pointer;font-size:14.5px;font-weight:500;border:1.5px solid var(--line);border-radius:9px;background:#fff;transition:border-color .15s,background .15s,box-shadow .15s}" +
-    "#onebox-root .opt:hover{border-color:var(--teal);background:#f6fcfc}" +
+    "#onebox-root .opt{display:flex;align-items:center;gap:12px;padding:13px 15px;cursor:pointer;font-size:14.5px;font-weight:500;border:1.5px solid #cdeeed;border-radius:10px;background:#f4fbfb;transition:border-color .15s,background .15s,box-shadow .15s}" +
+    "#onebox-root .opt:hover{border-color:var(--teal);background:#e4f6f6}" +
     "#onebox-root .opt:has(input:checked){border-color:var(--teal);background:#eefafa;box-shadow:0 0 0 3px rgba(23,195,195,.14)}" +
     "#onebox-root .opt input{accent-color:var(--teal-deep);width:16px;height:16px;margin:0;cursor:pointer;flex:none}" +
     "#onebox-root .field{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:14px;color:var(--ink)}" +
@@ -97,7 +97,7 @@
     "#onebox-root .confaddr{font-size:12.5px!important;color:var(--muted)!important;margin:0!important}" +
     "#onebox-root .confyes{display:block;width:100%;border:0;border-radius:12px;padding:13px;cursor:pointer;background:linear-gradient(100deg,#5adbd4,var(--teal) 60%,var(--teal-deep));box-shadow:0 10px 22px -10px rgba(23,195,195,.55);transition:filter .15s;margin:0 0 10px}" +
     "#onebox-root .confyes:hover:not(:disabled){filter:brightness(1.05)}" +
-    "#onebox-root .confyes:disabled{cursor:wait;filter:saturate(.7)}" +
+    "#onebox-root .confyes:disabled{cursor:not-allowed;filter:saturate(.35);opacity:.75;box-shadow:none}" +
     "#onebox-root .confyes b{display:block;font-family:var(--headline);font-weight:700;font-size:15.5px;color:#083b3b}" +
     "#onebox-root .confyes span{display:block;font-family:var(--form);font-size:11.5px;color:#0b4f4d;margin-top:2px}" +
     "#onebox-root .confalt{display:block;width:100%;border:1.5px solid var(--line);border-radius:12px;padding:12px;background:#fff;cursor:pointer;font-family:var(--form);font-size:13.5px;font-weight:600;color:var(--ink-soft);transition:border-color .15s}" +
@@ -124,8 +124,10 @@
     "#onebox-root .obgrid button:disabled{color:#c9ced2;cursor:default}" +
     "#onebox-root .obgrid button[aria-pressed=true],#onebox-root .obgrid button[aria-pressed=true]:hover{background:var(--ink);color:#fff;font-weight:600}" +
     "#onebox-root .obslots{margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;max-height:150px;overflow-y:auto}" +
-    "#onebox-root .obslots button{padding:10px 4px;border:1.5px solid #cfe6e6;border-radius:8px;background:#fff;font:inherit;font-size:13px;color:var(--teal-deep);font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums;transition:border-color .15s,background .15s}" +
-    "#onebox-root .obslots button:hover:not(:disabled){background:#f2fbfb;border-color:var(--teal)}" +
+    "#onebox-root .obslots button{padding:12px 4px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit;font-size:13.5px;color:var(--ink);font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums;transition:border-color .15s,background .15s,box-shadow .15s;box-shadow:0 3px 8px -6px rgba(17,19,21,.18)}" +
+    "#onebox-root .obslots button:hover:not(:disabled){border-color:var(--teal);background:#f2fbfb}" +
+    "#onebox-root .obslots button.sel,#onebox-root .obslots button.sel:hover{background:linear-gradient(100deg,#3ed2cb,var(--teal) 55%,var(--teal-deep));color:#fff;border-color:transparent;box-shadow:0 8px 18px -8px rgba(23,195,195,.65)}" +
+    "#onebox-root .obreserve{margin:14px auto 0;max-width:340px}" +
     "#onebox-root .obslots button:disabled{opacity:.5;cursor:wait}" +
     "#onebox-root .obslots p{margin:0;font-size:13px;color:var(--muted);text-align:center;padding:16px 0;grid-column:1/-1}" +
     "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
@@ -277,10 +279,14 @@
         : ' autocapitalize="none" spellcheck="false" enterkeyhint="done"';
       var note = (q.k === "phone" || q.k === "email")
         ? '<p class="trustnote">&#128274; Only used to confirm your appointment &mdash; no spam.</p>' : "";
+      var submitBtn = qi === N - 1
+        ? '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>See My Available Times</b>' +
+          "<span>Next: pick your appointment</span></button>"
+        : "";
       return '<label class="qlabel" for="ob-f">' + esc(q.q) + ' <em>*</em></label>' +
         '<input class="field" id="ob-f" type="' + q.type + '" placeholder="' + esc(q.ph) + '" value="' +
         esc(state.answers[q.k] || "") + '" autocomplete="' + (q.k === "phone" ? "tel" : q.k === "email" ? "email" : "name") + '"' +
-        extra + '><p class="err" id="ob-err"></p>' + note;
+        extra + '><p class="err" id="ob-err"></p>' + note + submitBtn;
     }
     return '<p class="qlabel">' + esc(q.q) + ' <em>*</em></p><div class="opts">' +
       q.o.map(function (o) {
@@ -338,10 +344,8 @@
     var slots = "";
     if (calState.day && calState.dates[calState.day]) {
       slots = calState.dates[calState.day].map(function (iso) {
-        var isB = calState.booking && calState.bookingIso === iso;
-        return '<button type="button" data-slot="' + esc(iso) + '" class="' + (isB ? "booking" : "") + '"' +
-          (calState.booking ? " disabled" : "") + ">" +
-          (isB ? '<span class="spin"></span>Booking&hellip;' : fmtTime(iso)) + "</button>";
+        return '<button type="button" data-slot="' + esc(iso) + '" class="' +
+          (calState.selIso === iso ? "sel" : "") + '">' + fmtTime(iso) + "</button>";
       }).join("");
     } else {
       slots = "<p>Pick a day to see open times.</p>";
@@ -353,7 +357,10 @@
       "</div>" +
       '<div class="obgrid" id="ob-grid">' + cells + "</div>" +
       '<div class="obslots" id="ob-slots">' + slots + "</div>" +
-      '<p class="obcal-note" id="ob-note">' + (calState.booking ? "Booking your spot&hellip;" : "") + "</p>";
+      '<div class="obreserve"><button type="button" class="confyes" id="ob-reserve"' +
+        (calState.selIso ? "" : " disabled") + "><b>Reserve This Time</b>" +
+        "<span>" + (calState.selIso ? "Next: confirm your appointment" : "Pick a time above") + "</span></button></div>" +
+      '<p class="obcal-note" id="ob-note"></p>';
   }
 
   var DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -385,7 +392,7 @@
     var now = Date.now();
     if (start < now) start = now;
     var end = new Date(y, m + 1, 1).getTime();
-    calState.loading = true; calState.error = ""; calState.day = null; calState.dates = {};
+    calState.loading = true; calState.error = ""; calState.day = null; calState.dates = {}; calState.selIso = null;
     paintCal();
     fetch((C.submitUrl || "").replace(/submit$/, "slots") + "?slug=" + encodeURIComponent(C.slug || "") +
       "&start=" + start + "&end=" + end)
@@ -424,13 +431,22 @@
       var b = e.target.closest("button[data-day]");
       if (!b || b.disabled) return;
       calState.day = b.getAttribute("data-day");
+      calState.selIso = null;
       paintCal();
     };
     var slots = document.getElementById("ob-slots");
     if (slots) slots.onclick = function (e) {
       var b = e.target.closest("button[data-slot]");
       if (!b || calState.booking) return;
-      state.pendingIso = b.getAttribute("data-slot");
+      calState.selIso = b.getAttribute("data-slot");
+      paintCal();
+      var rb = document.getElementById("ob-reserve");
+      if (rb) rb.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+    var reserve = document.getElementById("ob-reserve");
+    if (reserve) reserve.onclick = function () {
+      if (!calState.selIso || calState.booking) return;
+      state.pendingIso = calState.selIso;
       show("confirm");
     };
   }
@@ -442,17 +458,6 @@
     if (diff <= 0) return "Today";
     if (diff === 1) return "Tomorrow";
     return "In " + diff + " days";
-  }
-
-  var vtimer = null, vleft = 900;
-  function paintVClock() {
-    var el = document.getElementById("ob-vclock");
-    if (!el) return;
-    var hh = Math.floor(vleft / 3600), mm = Math.floor((vleft % 3600) / 60), ss = vleft % 60;
-    function two(n) { return (n < 10 ? "0" : "") + n; }
-    el.innerHTML = "<div><b>" + two(hh) + "</b><span>hours</span></div>" +
-      "<div><b>" + two(mm) + "</b><span>minutes</span></div>" +
-      "<div><b>" + two(ss) + "</b><span>seconds</span></div>";
   }
 
   function slideConfirm() {
@@ -516,7 +521,7 @@
   function slideDeposit() {
     return '<h2 class="phead">' + (C.depositHead ? esc(C.depositHead)
       : "Last Step - " + esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
-      '<p class="psub">&#9203; Slot is held for 10 min</p>' +
+      '<p class="psub">&#9203; Your appointment is held while the timer runs</p>' +
       '<div class="guarantee"><strong>100% Guaranteed &mdash; Fully Refundable</strong>' +
       "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p></div>" +
       (ADDR ? '<div class="addr">' + esc(ADDR) + "</div>" : "") +
@@ -528,24 +533,42 @@
   function barHTML() {
     if (phase === "survey") {
       return '<button type="button" id="ob-prev"' + (qi === 0 ? " hidden" : "") + ">&larr; PREV</button>" +
-        '<button type="button" id="ob-next">' + (qi === N - 1 ? "SUBMIT" : "NEXT") + " &rarr;</button>";
+        (qi === N - 1 ? "<span></span>"
+          : '<button type="button" id="ob-next">NEXT &rarr;</button>');
     }
     if (phase === "booking") return '<button type="button" id="ob-prev">&larr; PREV</button><span></span>';
     return '<button type="button" id="ob-prev">&larr; PREV</button><span></span>';
   }
 
-  var timer = null, left = 600;
-  function paintClock() {
-    var el = document.getElementById("ob-clock");
-    if (!el) return;
-    var m = Math.floor(left / 60), s = left % 60;
-    el.innerHTML = "<div><b>0</b><span>hours</span></div><div><b>" + m + "</b><span>minutes</span></div><div><b>" +
-      String(s).padStart(2, "0") + "</b><span>seconds</span></div>";
+  /* One continuous hold countdown: starts on the confirmation screen and
+     keeps running into the deposit step, so the timers always agree. */
+  var holdTimer = null, holdLeft = 900;
+  function paintHold() {
+    var hh = Math.floor(holdLeft / 3600), mm = Math.floor((holdLeft % 3600) / 60), ss = holdLeft % 60;
+    function two(n) { return (n < 10 ? "0" : "") + n; }
+    var chips = "<div><b>" + two(hh) + "</b><span>hours</span></div><div><b>" + two(mm) +
+      "</b><span>minutes</span></div><div><b>" + two(ss) + "</b><span>seconds</span></div>";
+    var v = document.getElementById("ob-vclock");
+    if (v) v.innerHTML = chips;
+    var c = document.getElementById("ob-clock");
+    if (c) c.innerHTML = chips;
+  }
+  function ensureHold(reset) {
+    if (reset || holdLeft <= 0) holdLeft = 900;
+    paintHold();
+    if (holdTimer) return;
+    holdTimer = setInterval(function () {
+      holdLeft--; if (holdLeft <= 0) { holdLeft = 0; clearInterval(holdTimer); holdTimer = null; }
+      paintHold();
+    }, 1000);
+  }
+  function stopHold() {
+    if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
   }
 
   function show(p, dir) {
     phase = p;
-    if (timer && phase !== "deposit") { clearInterval(timer); timer = null; }
+    if (phase === "survey" || phase === "booking") stopHold();
     slideEl.className = "slide";
     void slideEl.offsetWidth;
     slideEl.classList.add(dir === "prev" ? "anim-prev" : "anim-next");
@@ -562,27 +585,18 @@
       else show("booking", "prev");
     };
     if (phase === "confirm") {
-      vleft = 900; paintVClock();
-      if (vtimer) clearInterval(vtimer);
-      vtimer = setInterval(function () {
-        vleft--; if (vleft <= 0) { vleft = 0; clearInterval(vtimer); vtimer = null; }
-        paintVClock();
-      }, 1000);
+      ensureHold(state.holdFor !== state.pendingIso);
+      state.holdFor = state.pendingIso;
       document.getElementById("ob-yes").onclick = function () {
         if (!calState.booking) book(state.pendingIso);
       };
       document.getElementById("ob-alt").onclick = function () { show("booking", "prev"); };
-    } else if (vtimer) { clearInterval(vtimer); vtimer = null; }
+    }
 
     if (phase === "survey") bindSurvey();
     if (phase === "booking") { bindCal(); if (!calState.loading && !monthKeyDates().length && !calState.error) loadMonth(); }
     if (phase === "deposit") {
-      left = 600; paintClock();
-      if (timer) clearInterval(timer);
-      timer = setInterval(function () {
-        left--; if (left <= 0) { left = 0; clearInterval(timer); timer = null; }
-        paintClock();
-      }, 1000);
+      ensureHold(false);
       /* move the page's (hidden) Fanbasis wrapper into the box */
       var slot = document.getElementById("ob-fbslot");
       var fb = document.querySelector(C.fanbasisSelector || "#fanbasis-checkout-wrapper");
@@ -626,7 +640,10 @@
       state.answers[q.k] = val;
       advance();
     }
-    document.getElementById("ob-next").onclick = submit;
+    var nextBtn = document.getElementById("ob-next");
+    if (nextBtn) nextBtn.onclick = submit;
+    var submitBtn = document.getElementById("ob-submit");
+    if (submitBtn) submitBtn.onclick = submit;
     slideEl.querySelectorAll('input[name="ob-o"]').forEach(function (r) {
       r.onclick = function () {
         state.answers[QUESTIONS[qi].k] = r.value;
