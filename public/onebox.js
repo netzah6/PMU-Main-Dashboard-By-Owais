@@ -138,7 +138,8 @@
     { k: "serious", q: "On A Scale From 1-10 How Serious Are You About Getting This Treatment?", o: ["0-2", "3-6", "7-9", "10 I Want This Treatment!"] },
     { k: "aftercare", q: "Would you like a FREE Aftercare Kit?", o: ["Yes", "No"] },
     { k: "full_name", q: "Full Name", type: "text", ph: "Full Name" },
-    { k: "phone", q: "Phone Number", type: "tel", ph: "Phone Number" }
+    { k: "phone", q: "Phone Number", type: "tel", ph: "Phone Number" },
+    { k: "email", q: "Email Address", type: "email", ph: "Email Address" }
   ];
   var N = QUESTIONS.length;
   var state = { answers: {}, submitted: false };
@@ -159,6 +160,7 @@
       locationId: C.locationId || "",
       full_name: a.full_name || "",
       phone: a.phone || "",
+      email: a.email || "",
       area: a.area || "",
       had_pmu: a.had_pmu || "",
       age: a.age || "",
@@ -221,7 +223,7 @@
     if (q.type) {
       return '<label class="qlabel" for="ob-f">' + esc(q.q) + ' <em>*</em></label>' +
         '<input class="field" id="ob-f" type="' + q.type + '" placeholder="' + esc(q.ph) + '" value="' +
-        esc(state.answers[q.k] || "") + '" autocomplete="' + (q.k === "phone" ? "tel" : "name") + '"><p class="err" id="ob-err"></p>';
+        esc(state.answers[q.k] || "") + '" autocomplete="' + (q.k === "phone" ? "tel" : q.k === "email" ? "email" : "name") + '"><p class="err" id="ob-err"></p>';
     }
     return '<p class="qlabel">' + esc(q.q) + ' <em>*</em></p><div class="opts">' +
       q.o.map(function (o) {
@@ -237,10 +239,9 @@
        retype what the survey already captured. */
     var src = "https://api.leadconnectorhq.com/widget/booking/" + encodeURIComponent(CAL);
     var pre = [];
-    var nm = (state.answers.full_name || "").split(/\s+/).filter(Boolean);
-    if (nm.length) pre.push("first_name=" + encodeURIComponent(nm[0]));
-    if (nm.length > 1) pre.push("last_name=" + encodeURIComponent(nm.slice(1).join(" ")));
+    if (state.answers.full_name) pre.push("full_name=" + encodeURIComponent(state.answers.full_name));
     if (state.answers.phone) pre.push("phone=" + encodeURIComponent(state.answers.phone));
+    if (state.answers.email) pre.push("email=" + encodeURIComponent(state.answers.email));
     if (pre.length) src += "?" + pre.join("&");
     return '<h2 class="phead">' + (OFFERR
       ? "Book Your Appointment NOW to Claim " + esc(OFFERR) + "."
@@ -340,6 +341,9 @@
       }
       var err = document.getElementById("ob-err");
       if (!val) { err.textContent = q.type ? q.q + " is required" : "Please choose an option to continue"; return; }
+      if (q.k === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val)) {
+        err.textContent = "Please enter a valid email address"; return;
+      }
       if (q.k === "phone") {
         var digits = val.replace(/\D/g, "");
         if (digits.length === 11 && digits.charAt(0) === "1") digits = digits.slice(1);
