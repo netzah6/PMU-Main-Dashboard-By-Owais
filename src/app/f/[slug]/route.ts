@@ -7,6 +7,8 @@ import { refreshOneboxConfig, parseFaqs, normalizeElfsight, SYNC_TTL_MS } from "
 // fight it). Config comes from onebox_clients, synced from the client's
 // GHL custom values; extras hold FAQs, the Fanbasis block, Elfsight id.
 export const dynamic = "force-dynamic";
+// Never serve cached fetches: Supabase rows and GHL availability must be live.
+export const fetchCache = "force-no-store";
 
 type Row = {
   slug: string;

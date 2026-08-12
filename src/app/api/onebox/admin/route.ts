@@ -3,6 +3,9 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { refreshOneboxConfig, normalizeElfsight, harvestPixelId } from "@/lib/onebox";
 
+// Never serve cached fetches: Supabase rows and GHL availability must be live.
+export const fetchCache = "force-no-store";
+
 export const maxDuration = 120;
 
 // Funnels tab (admin only): manage the one-box funnels.

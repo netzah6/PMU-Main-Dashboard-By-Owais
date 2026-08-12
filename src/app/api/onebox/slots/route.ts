@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 
+// Never serve cached fetches: Supabase rows and GHL availability must be live.
+export const fetchCache = "force-no-store";
+
 // Real availability for a one-box funnel's calendar: proxies GHL's
 // free-slots API (the same source the booking widget uses) so the page
 // can render its own date & time picker with zero extra form steps.
