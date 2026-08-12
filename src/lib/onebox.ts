@@ -30,7 +30,10 @@ const pickers: [key: string, ...names: string[]][] = [
   // Google reviews widget.
   ["googleWidget", "CC - Google Widget LINK", "OB - Google Widget"],
   ["resultImgs", "OB - Result Images"],
-  // Fanbasis checkout: paste the whole deposit-page block into this CV.
+  // Fanbasis checkout — the simple way: just the product ID.
+  ["fanbasisProductId", "CC - Fanbasis Product ID", "OB - Fanbasis Product ID"],
+  ["thankYouPath", "CC - Thank You Page Path", "OB - Thank You Path"],
+  // Or paste the whole deposit-page block (fallback for edge cases).
   ["fanbasisCode", "CC - Fanbasis Checkout Code", "CC - Fanbasis Code", "OB - Fanbasis Code"],
   ["faqsRaw", "OB - FAQs"],
   ["metaPixelId", "OB - Meta Pixel ID"],
@@ -125,4 +128,46 @@ export async function refreshOneboxConfig(
     console.error("[onebox] cv resync failed:", e);
     return null;
   }
+}
+
+
+// Agency-shared Fanbasis credentials (publishable embed key + creator);
+// only the product id and thank-you page differ per client.
+const FANBASIS_API_KEY = "lKI2gJ56jiZtjQA08FKyzW8HmgLCvC5n";
+const FANBASIS_CREATOR = "pmubookingsondemand";
+
+// Build the full Fanbasis checkout block from just a product id — the
+// simple path so a team member pastes only "CC - Fanbasis Product ID".
+// redirectUrl (absolute) is optional; empty => in-box success message.
+// Prefill reads window.OB_LEAD (set by the funnel engine) or URL params.
+export function buildFanbasisBlock(productId: string, redirectUrl: string): string {
+  const pid = String(productId ?? "").replace(/[^A-Za-z0-9_-]/g, "");
+  if (!pid) return "";
+  const K = JSON.stringify(FANBASIS_API_KEY);
+  const C = JSON.stringify(FANBASIS_CREATOR);
+  const P = JSON.stringify(pid);
+  const R = redirectUrl ? JSON.stringify(redirectUrl) : "null";
+  return [
+    '<style>#fanbasis-checkout-wrapper{width:100%}#fanbasis-checkout-wrapper iframe{width:100%!important;height:800px!important;border:none!important;overflow:hidden!important}@media(max-width:768px){#fanbasis-checkout-wrapper iframe{height:900px!important}}</style>',
+    '<div id="fanbasis-checkout-wrapper"></div>',
+    '<script src="https://cdn.embedded.fanbasis.io/embed/index.js"></scr' + 'ipt>',
+    '<script>(function(){',
+    'var API_KEY=' + K + ',CREATOR_ID=' + C + ',PRODUCT_ID=' + P + ',REDIRECT_URL=' + R + ';',
+    'var lead=window.OB_LEAD||{},params=new URLSearchParams(window.location.search);',
+    "var fullName=(lead.name||params.get('name')||'').trim(),email=(lead.email||params.get('email')||'').trim();",
+    'var parts=fullName.split(/\\s+/),prefillObj={};',
+    'if(parts[0])prefillObj.first_name=parts[0];',
+    "if(parts.slice(1).join(' '))prefillObj.last_name=parts.slice(1).join(' ');",
+    'if(email)prefillObj.email=email;var hasPrefill=Object.keys(prefillObj).length>0;',
+    "fetch('https://www.fanbasis.com/public-api/checkout-sessions/embedded',{method:'POST',headers:{'x-api-key':API_KEY}})",
+    '.then(function(res){return res.json();}).then(function(data){',
+    'var secret=data&&data.data&&data.data.checkout_session_secret;if(!secret){console.error("FanBasis: no session secret",data);return;}',
+    "var checkout=PaymentCheckout.create({creatorId:CREATOR_ID,productId:PRODUCT_ID,checkoutSessionSecret:secret,environment:'production',theme:{theme:'light',accent_color:'#239dde',show_product_info:false},containerOptions:{width:'100%',height:'100%'}});",
+    "checkout.attachToElement(document.getElementById('fanbasis-checkout-wrapper'));checkout.init();",
+    "if(hasPrefill){var pp=encodeURIComponent(JSON.stringify(prefillObj)),a=0,iv=setInterval(function(){a++;var f=document.querySelector('#fanbasis-checkout-wrapper iframe');if(f&&f.src){if(f.src.indexOf('prefill=')===-1)f.src=f.src+'&prefill='+pp;clearInterval(iv);}if(a>20)clearInterval(iv);},200);}",
+    "checkout.on('checkout:success',function(ev){if(REDIRECT_URL){window.top.location.href=REDIRECT_URL;}else{var w=document.getElementById('fanbasis-checkout-wrapper');if(w)w.innerHTML='<div style=\\'text-align:center;padding:34px 18px;font-family:sans-serif\\'><div style=\\'font-size:38px\\'>\\uD83C\\uDF89</div><h3 style=\\'margin:8px 0\\'>You\\u2019re all set!</h3><p style=\\'color:#667\\'>Your reservation is confirmed \\u2014 we\\u2019ll be in touch shortly.</p></div>';}});",
+    "checkout.on('checkout:error',function(err){console.error('Checkout error:',err);});",
+    '}).catch(function(e){console.error("FanBasis session error:",e);});',
+    '})();</scr' + 'ipt>',
+  ].join("\n");
 }
