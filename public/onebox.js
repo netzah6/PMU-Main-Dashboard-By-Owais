@@ -560,6 +560,7 @@
     var tpl = document.getElementById("onebox-fanbasis-holder");
     if (!tpl || !tpl.content) return;
     state.fbBooted = true;
+    window.OB_LEAD = { name: state.answers.full_name || "", email: state.answers.email || "" };
     var nodes = Array.prototype.slice.call(tpl.content.childNodes);
     var scripts = [];
     nodes.forEach(function (n) {

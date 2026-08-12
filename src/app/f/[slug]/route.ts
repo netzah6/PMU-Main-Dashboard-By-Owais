@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { refreshOneboxConfig, parseFaqs, normalizeElfsight, SYNC_TTL_MS } from "@/lib/onebox";
+import { refreshOneboxConfig, parseFaqs, normalizeElfsight, buildFanbasisBlock, SYNC_TTL_MS } from "@/lib/onebox";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
 // the hosted engine public/onebox.js owns the DOM; a hydrated page would
@@ -63,15 +63,25 @@ export async function GET(
   };
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
   // </script> inside the JSON payloads must not terminate the script tag.
-  // Fanbasis block: prefer the GHL custom value, else the Extras paste.
-  // A relative REDIRECT_URL (e.g. 'thank-you') would 404 on our host, so
-  // make it absolute to the client's own pmu-care.com page.
-  let fanbasisHtml = (row.config.fanbasisCode || "").trim() || row.extras.fanbasisHtml || "";
-  if (fanbasisHtml) {
-    fanbasisHtml = fanbasisHtml.replace(
-      /REDIRECT_URL\s*=\s*'([^']*)'/,
-      (m, u: string) => /^https?:\/\//i.test(u) ? m : `REDIRECT_URL = 'https://pmu-care.com/${u.replace(/^\/+/, "")}'`
-    );
+  // Fanbasis block, in order of preference:
+  //   1. product id  (the simple way — CC - Fanbasis Product ID)
+  //   2. the whole pasted block (CC - Fanbasis Checkout Code)
+  //   3. the Extras paste
+  // Any relative thank-you path is made absolute to pmu-care.com.
+  const absThankYou = (p: string) =>
+    !p ? "" : /^https?:\/\//i.test(p) ? p : `https://pmu-care.com/${p.replace(/^\/+/, "")}`;
+  let fanbasisHtml = "";
+  const productId = (row.config.fanbasisProductId || "").trim();
+  if (productId) {
+    fanbasisHtml = buildFanbasisBlock(productId, absThankYou((row.config.thankYouPath || "").trim()));
+  } else {
+    fanbasisHtml = (row.config.fanbasisCode || "").trim() || row.extras.fanbasisHtml || "";
+    if (fanbasisHtml) {
+      fanbasisHtml = fanbasisHtml.replace(
+        /REDIRECT_URL\s*=\s*'([^']*)'/,
+        (m, u: string) => /^https?:\/\//i.test(u) ? m : `REDIRECT_URL = '${absThankYou(u)}'`
+      );
+    }
   }
   const faqs = row.config.faqsRaw ? parseFaqs(row.config.faqsRaw) : row.extras.faqs ?? [];
   const boot = (
@@ -90,7 +100,7 @@ export async function GET(
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</template>` : ""}
-<script src="/onebox.js?v=14" async></script>
+<script src="/onebox.js?v=15" async></script>
 </body>
 </html>`;
 
