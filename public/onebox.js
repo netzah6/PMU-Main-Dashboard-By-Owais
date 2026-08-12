@@ -101,6 +101,8 @@
     "#onebox-root .obslots button.booking{background:var(--teal);border-color:var(--teal);color:#fff;cursor:wait}" +
     "#onebox-root .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:ob-spin .7s linear infinite;vertical-align:-2px;margin-right:6px}" +
     "@keyframes ob-spin{to{transform:rotate(360deg)}}" +
+    "#onebox-root .backlink{background:none;border:0;color:var(--muted);font-family:var(--form);font-size:12.5px;cursor:pointer;padding:0;margin:0 0 12px;display:inline-flex;align-items:center;gap:4px;transition:color .15s}" +
+    "#onebox-root .backlink:hover{color:var(--teal-deep)}" +
     "#onebox-root .vlabel{text-align:center;font-family:var(--form);font-size:11px;font-weight:600;letter-spacing:.12em;color:var(--muted);margin:2px 0 10px;text-transform:uppercase}" +
     "#onebox-root .chips{display:flex;justify-content:center;gap:10px;margin:0 0 18px}" +
     "#onebox-root .chips div{border:1px solid var(--line);border-radius:10px;padding:9px 0;width:72px;text-align:center;box-shadow:0 3px 8px -6px rgba(17,19,21,.25)}" +
@@ -217,12 +219,10 @@
      sub-account's automations fire. Endpoint + payload are confirmed
      during the Ivan pilot (captured from the live survey's own submit);
      until then failures are logged, never shown to the lead.            */
-  function submitLead() {
-    if (state.submitted) return;
-    state.submitted = true;
-    pixelTrack("Lead");
+  function sendLead(stage) {
     var a = state.answers;
     var payload = {
+      stage: stage,
       slug: C.slug || "",
       surveyId: C.surveyId || "",
       locationId: C.locationId || "",
@@ -240,6 +240,7 @@
     try {
       var url = C.submitUrl || "";
       if (!url) { console.warn("[onebox] no submitUrl configured; lead:", payload); return; }
+      payload.email = a.email || "";
       fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -247,6 +248,18 @@
         keepalive: true
       }).catch(function (e) { console.warn("[onebox] submit failed", e); });
     } catch (e) { console.warn("[onebox] submit failed", e); }
+  }
+
+  function submitLead() {
+    if (state.submitted) return;
+    state.submitted = true;
+    pixelTrack("Lead");
+    sendLead("complete");
+  }
+  function partialLead() {
+    if (state.partialSent || state.submitted) return;
+    state.partialSent = true;
+    sendLead("partial");
   }
 
   /* ------------------------------------------------------------------ */
@@ -261,7 +274,7 @@
     '<p class="sub">' + esc(C.sub || "(30 Seconds)") + "</p>" +
     '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     '<div class="box"><div class="rail"><span id="ob-rail">&nbsp;</span></div>' +
-    '<div class="slide" id="ob-slide"></div><div class="bar" id="ob-bar"></div></div>' +
+    '<div class="slide" id="ob-slide"></div></div>' +
     '<div id="ob-extras"></div>' +
     "</div>" +
     '<div class="contactblock">' +
@@ -273,7 +286,6 @@
 
   var railEl = document.getElementById("ob-rail");
   var slideEl = document.getElementById("ob-slide");
-  var barEl = document.getElementById("ob-bar");
 
   function rail() {
     var wrap = railEl.parentNode;
@@ -290,6 +302,7 @@
 
   function slideSurvey() {
     var q = QUESTIONS[qi];
+    var back = qi > 0 ? '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>' : "";
     if (q.type) {
       var extra = q.k === "full_name"
         ? ' autocapitalize="words" autocorrect="off" spellcheck="false" enterkeyhint="next"'
@@ -300,13 +313,13 @@
       var submitBtn = qi === N - 1
         ? '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>See My Available Times</b>' +
           "<span>Next: pick your appointment</span></button>"
-        : "";
-      return '<label class="qlabel" for="ob-f">' + esc(q.q) + ' <em>*</em></label>' +
+        : '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>Continue &rarr;</b></button>';
+      return back + '<label class="qlabel" for="ob-f">' + esc(q.q) + ' <em>*</em></label>' +
         '<input class="field" id="ob-f" type="' + q.type + '" placeholder="' + esc(q.ph) + '" value="' +
         esc(state.answers[q.k] || "") + '" autocomplete="' + (q.k === "phone" ? "tel" : q.k === "email" ? "email" : "name") + '"' +
         extra + '><p class="err" id="ob-err"></p>' + note + submitBtn;
     }
-    return '<p class="qlabel">' + esc(q.q) + ' <em>*</em></p><div class="opts">' +
+    return back + '<p class="qlabel">' + esc(q.q) + ' <em>*</em></p><div class="opts">' +
       q.o.map(function (o) {
         return '<label class="opt"><input type="radio" name="ob-o" value="' + esc(o) + '"' +
           (state.answers[q.k] === o ? " checked" : "") + ">" + esc(o) + "</label>";
@@ -330,7 +343,8 @@
       var n = new Date();
       calState.y = n.getFullYear(); calState.m = n.getMonth();
     }
-    return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
+    return '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>' +
+      '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
       ? "Book Your Appointment NOW to Claim " + esc(OFFERR) + "."
       : "Book Your Appointment NOW!") + "</h2>" +
       '<div id="ob-calbox">' + calHTML() + "</div>";
@@ -569,7 +583,8 @@
   }
 
   function slideDeposit() {
-    return '<h2 class="phead">' + (C.depositHead ? esc(C.depositHead)
+    return '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>' +
+      '<h2 class="phead">' + (C.depositHead ? esc(C.depositHead)
       : "Last Step - " + esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
       '<p class="psub">&#9203; Your appointment is held while the timer runs</p>' +
       '<div class="guarantee"><strong>100% Guaranteed &mdash; Fully Refundable</strong>' +
@@ -578,16 +593,6 @@
       (state.slotIso ? '<div class="when">&#128197; Your appointment: ' + esc(fmtWhen(state.slotIso)) + "</div>" : "") +
       '<div class="clock" id="ob-clock"></div>' +
       '<div class="fbslot" id="ob-fbslot"></div>';
-  }
-
-  function barHTML() {
-    if (phase === "survey") {
-      return '<button type="button" id="ob-prev"' + (qi === 0 ? " hidden" : "") + ">&larr; PREV</button>" +
-        (qi === N - 1 ? "<span></span>"
-          : '<button type="button" id="ob-next">NEXT &rarr;</button>');
-    }
-    if (phase === "booking") return '<button type="button" id="ob-prev">&larr; PREV</button><span></span>';
-    return '<button type="button" id="ob-prev">&larr; PREV</button><span></span>';
   }
 
   /* One continuous hold countdown: starts on the confirmation screen and
@@ -628,12 +633,12 @@
       : phase === "booking" ? slideBooking()
       : phase === "confirm" ? slideConfirm()
       : slideDeposit();
-    barEl.innerHTML = barHTML();
 
     var prev = document.getElementById("ob-prev");
     if (prev) prev.onclick = function () {
       if (phase === "survey") { if (qi > 0) { qi--; show("survey", "prev"); } }
       else if (phase === "booking") { qi = N - 1; show("survey", "prev"); }
+      else if (phase === "deposit") show("confirm", "prev");
       else show("booking", "prev");
     };
     if (phase === "confirm") {
@@ -687,10 +692,9 @@
         }
       }
       state.answers[q.k] = val;
+      if (q.k === "phone") partialLead();
       advance();
     }
-    var nextBtn = document.getElementById("ob-next");
-    if (nextBtn) nextBtn.onclick = submit;
     var submitBtn = document.getElementById("ob-submit");
     if (submitBtn) submitBtn.onclick = submit;
     slideEl.querySelectorAll('input[name="ob-o"]').forEach(function (r) {
