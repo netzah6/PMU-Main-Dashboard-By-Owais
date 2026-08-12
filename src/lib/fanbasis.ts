@@ -167,13 +167,30 @@ export async function listCheckoutTransactions(checkoutSessionId: string): Promi
 // The docs claim body {} = full refund, but the LIVE validator requires BOTH
 // `amount_cents` and `reason` (400: "The amount cents field is required. The
 // reason field is required.") — so a full refund = amount_cents equal to the
-// transaction amount, plus a reason string.
+// transaction amount, plus a reason.
+//
+// `reason` is an ENUM, not free text. Sending a sentence fails with
+// 400 "Invalid reason: must be one of duplicate, fraudulent, or
+// requested_by_customer" — which is what every refund did until 2026-08-11.
+// The operator's own wording is kept for our records but never sent.
+export const REFUND_REASONS = ["duplicate", "fraudulent", "requested_by_customer"] as const;
+export type RefundReason = (typeof REFUND_REASONS)[number];
+
+/** Map free text (or nothing) onto a reason Fanbasis will accept. */
+export function toRefundReason(input?: string): RefundReason {
+  const s = String(input ?? "").trim().toLowerCase();
+  if ((REFUND_REASONS as readonly string[]).includes(s)) return s as RefundReason;
+  if (/\bduplicate|double|charged twice|twice\b/.test(s)) return "duplicate";
+  if (/\bfraud|chargeback|stolen|unauthori[sz]ed\b/.test(s)) return "fraudulent";
+  return "requested_by_customer"; // the safe default for an ordinary deposit refund
+}
+
 export async function refundTransaction(
   transactionId: string,
   opts: { reason?: string; amountCents?: number } = {}
 ): Promise<Record<string, unknown>> {
   if (!opts.amountCents || opts.amountCents <= 0) throw new Error("refundTransaction: amountCents is required by the Fanbasis validator");
-  const body = { amount_cents: opts.amountCents, reason: opts.reason?.trim() || "Deposit refund approved via PMU dashboard" };
+  const body = { amount_cents: opts.amountCents, reason: toRefundReason(opts.reason) };
   const path = `${BASE}/checkout-sessions/transactions/${encodeURIComponent(transactionId)}/refund`;
   const r = await fetch(path, { method: "POST", headers: headers(), body: JSON.stringify(body) });
   const text = await r.text();
