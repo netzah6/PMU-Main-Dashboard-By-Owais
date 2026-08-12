@@ -22,6 +22,10 @@ export async function POST(req: NextRequest) {
   const fullName = String(body.full_name ?? "").trim().slice(0, 200);
   const phone = String(body.phone ?? "").trim().slice(0, 40);
   const email = String(body.email ?? "").trim().slice(0, 200);
+  // "partial" = fired the moment a valid phone exists, so a lead who quits
+  // before the email step is still captured in GHL. The later "complete"
+  // call upserts the same contact (deduped by phone) with full answers.
+  const partial = String(body.stage ?? "") === "partial";
   if (!slug || !fullName || !phone) {
     return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
   }
@@ -46,11 +50,13 @@ export async function POST(req: NextRequest) {
     aftercare_kit: String(body.aftercare_kit ?? ""),
   };
 
-  const { data: leadRow } = await svc
-    .from("onebox_leads")
-    .insert({ slug, location_id: locationId, full_name: fullName, phone, answers: { ...answers, email } })
-    .select("id")
-    .single();
+  const { data: leadRow } = partial
+    ? { data: null }
+    : await svc
+        .from("onebox_leads")
+        .insert({ slug, location_id: locationId, full_name: fullName, phone, answers: { ...answers, email } })
+        .select("id")
+        .single();
 
   // Create/upsert the contact in GHL so automations fire.
   let ghlStatus = "failed";
@@ -84,7 +90,7 @@ export async function POST(req: NextRequest) {
     ghlStatus = "created";
 
     // Survey answers as a note on the contact (visible in the timeline).
-    if (contactId) {
+    if (contactId && !partial) {
       const note = [
         "One-Box survey:",
         `Area: ${answers.area}`,
