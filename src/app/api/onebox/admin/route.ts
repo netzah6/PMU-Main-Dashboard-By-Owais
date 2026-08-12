@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
       url: funnelUrl(req, r.slug),
       hasCalendar: !!config.calendarId,
       hasFanbasis: !!extras.fanbasisHtml,
-      hasWidget: !!(config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
+      hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
       hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
       leads: counts[r.slug]?.leads ?? 0,
       booked: counts[r.slug]?.booked ?? 0,
