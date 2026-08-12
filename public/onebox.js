@@ -101,7 +101,7 @@
     "#onebox-root .obslots button.booking{background:var(--teal);border-color:var(--teal);color:#fff;cursor:wait}" +
     "#onebox-root .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:ob-spin .7s linear infinite;vertical-align:-2px;margin-right:6px}" +
     "@keyframes ob-spin{to{transform:rotate(360deg)}}" +
-    "#onebox-root .backlink{background:none;border:0;color:var(--muted);font-family:var(--form);font-size:12.5px;cursor:pointer;padding:0;margin:0 0 12px;display:inline-flex;align-items:center;gap:4px;transition:color .15s}" +
+    "#onebox-root .backlink{background:none;border:0;color:var(--muted);font-family:var(--form);font-size:12.5px;cursor:pointer;padding:0;margin:16px auto 0;display:flex;align-items:center;justify-content:center;gap:4px;transition:color .15s;width:100%}" +
     "#onebox-root .backlink:hover{color:var(--teal-deep)}" +
     "#onebox-root .vlabel{text-align:center;font-family:var(--form);font-size:11px;font-weight:600;letter-spacing:.12em;color:var(--muted);margin:2px 0 10px;text-transform:uppercase}" +
     "#onebox-root .chips{display:flex;justify-content:center;gap:10px;margin:0 0 18px}" +
@@ -314,16 +314,16 @@
         ? '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>See My Available Times</b>' +
           "<span>Next: pick your appointment</span></button>"
         : '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>Continue &rarr;</b></button>';
-      return back + '<label class="qlabel" for="ob-f">' + esc(q.q) + ' <em>*</em></label>' +
+      return '<label class="qlabel" for="ob-f">' + esc(q.q) + ' <em>*</em></label>' +
         '<input class="field" id="ob-f" type="' + q.type + '" placeholder="' + esc(q.ph) + '" value="' +
         esc(state.answers[q.k] || "") + '" autocomplete="' + (q.k === "phone" ? "tel" : q.k === "email" ? "email" : "name") + '"' +
-        extra + '><p class="err" id="ob-err"></p>' + note + submitBtn;
+        extra + '><p class="err" id="ob-err"></p>' + note + submitBtn + back;
     }
-    return back + '<p class="qlabel">' + esc(q.q) + ' <em>*</em></p><div class="opts">' +
+    return '<p class="qlabel">' + esc(q.q) + ' <em>*</em></p><div class="opts">' +
       q.o.map(function (o) {
         return '<label class="opt"><input type="radio" name="ob-o" value="' + esc(o) + '"' +
           (state.answers[q.k] === o ? " checked" : "") + ">" + esc(o) + "</label>";
-      }).join("") + '</div><p class="err" id="ob-err"></p>';
+      }).join("") + '</div><p class="err" id="ob-err"></p>' + back;
   }
 
   /* Native date & time picker fed by the calendar's real availability
@@ -343,11 +343,11 @@
       var n = new Date();
       calState.y = n.getFullYear(); calState.m = n.getMonth();
     }
-    return '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>' +
-      '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
+    return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
       ? "Book Your Appointment NOW to Claim " + esc(OFFERR) + "."
       : "Book Your Appointment NOW!") + "</h2>" +
-      '<div id="ob-calbox">' + calHTML() + "</div>";
+      '<div id="ob-calbox">' + calHTML() + "</div>" +
+      '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
   }
 
   var MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -583,8 +583,7 @@
   }
 
   function slideDeposit() {
-    return '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>' +
-      '<h2 class="phead">' + (C.depositHead ? esc(C.depositHead)
+    return '<h2 class="phead">' + (C.depositHead ? esc(C.depositHead)
       : "Last Step - " + esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
       '<p class="psub">&#9203; Your appointment is held while the timer runs</p>' +
       '<div class="guarantee"><strong>100% Guaranteed &mdash; Fully Refundable</strong>' +
@@ -592,7 +591,8 @@
       (ADDR ? '<div class="addr">' + esc(ADDR) + "</div>" : "") +
       (state.slotIso ? '<div class="when">&#128197; Your appointment: ' + esc(fmtWhen(state.slotIso)) + "</div>" : "") +
       '<div class="clock" id="ob-clock"></div>' +
-      '<div class="fbslot" id="ob-fbslot"></div>';
+      '<div class="fbslot" id="ob-fbslot"></div>' +
+      '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
   }
 
   /* One continuous hold countdown: starts on the confirmation screen and
