@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 
+// Never serve cached fetches: Supabase rows and GHL availability must be live.
+export const fetchCache = "force-no-store";
+
 // Books the appointment server-side with the survey's own data — the
 // lead never re-enters name/phone/email. Upserts the contact (idempotent
 // with the survey submit) and creates a native GHL appointment, so all

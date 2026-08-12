@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 
+// Never serve cached fetches: Supabase rows and GHL availability must be live.
+export const fetchCache = "force-no-store";
+
 // Public endpoint: a one-box funnel's completed survey lands here. We
 // upsert the contact into the client's GHL sub-account via the
 // marketplace app (dedupe by phone) and tag it "onebox-survey" so
