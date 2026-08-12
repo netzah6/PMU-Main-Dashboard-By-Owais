@@ -28,6 +28,7 @@ const pickers: [key: string, ...names: string[]][] = [
   ["elfsightId", "OB - Elfsight ID"],
   ["resultImgs", "OB - Result Images"],
   ["faqsRaw", "OB - FAQs"],
+  ["metaPixelId", "OB - Meta Pixel ID"],
 ];
 
 export function buildConfig(byName: Record<string, string>): Record<string, string> {
@@ -39,6 +40,39 @@ export function buildConfig(byName: Record<string, string>): Record<string, stri
   for (const [key, ...names] of pickers) config[key] = pick(...names);
   if (!config.deposit) config.deposit = "$50";
   return config;
+}
+
+// Elfsight widget id, from whatever the team pastes: the dashed id, the
+// dash-less id, the https://<id>.elf.site share link, or the whole embed
+// snippet. UUID dash positions are fixed, so all forms normalize.
+export function normalizeElfsight(raw: string): string {
+  const s = String(raw ?? "");
+  const dashed = s.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  if (dashed) return dashed[0].toLowerCase();
+  const bare = s.match(/[0-9a-f]{32}/i);
+  if (bare) {
+    const b = bare[0].toLowerCase();
+    return `${b.slice(0, 8)}-${b.slice(8, 12)}-${b.slice(12, 16)}-${b.slice(16, 20)}-${b.slice(20)}`;
+  }
+  return "";
+}
+
+// Meta pixel id, harvested from the client's existing live GHL funnel page
+// (the pixel sits in the funnel's tracking code, so it's in the public
+// HTML). Matches fbq('init','<id>') and the lead-pixel.js pixel config.
+export async function harvestPixelId(funnelUrl: string): Promise<string> {
+  try {
+    const r = await fetch(funnelUrl, { headers: { "User-Agent": "Mozilla/5.0 (pixel-harvest)" }, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) return "";
+    const html = await r.text();
+    const m =
+      html.match(/fbq\(\s*['"]init['"]\s*,\s*['"](\d{8,20})['"]/) ??
+      html.match(/pixel[_-]?id['"]?\s*[:=]\s*['"](\d{8,20})['"]/i) ??
+      html.match(/facebook\.com\/tr\?id=(\d{8,20})/);
+    return m ? m[1] : "";
+  } catch {
+    return "";
+  }
 }
 
 // "OB - FAQs" custom value: one FAQ per line, "Question | Answer".

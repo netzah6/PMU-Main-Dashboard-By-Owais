@@ -37,6 +37,23 @@
   var CAL = (C.calendarId || "").trim();
   var RESULTS = (C.resultImgs || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
 
+  /* Meta pixel: the client's own pixel id (harvested from their existing
+     funnel or set via the "OB - Meta Pixel ID" custom value). Fires
+     PageView here, Lead on survey completion, Schedule on booking. */
+  var PIXEL = (C.metaPixelId || "").replace(/\D/g, "");
+  if (PIXEL) {
+    (function (f, b, e, v, n, t, s) {
+      if (f.fbq) return; n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
+      if (!f._fbq) f._fbq = n; n.push = n; n.loaded = !0; n.version = "2.0"; n.queue = [];
+      t = b.createElement(e); t.async = !0; t.src = v; s = b.getElementsByTagName(e)[0]; s.parentNode.insertBefore(t, s);
+    })(window, document, "script", "https://connect.facebook.net/en_US/fbevents.js");
+    window.fbq("init", PIXEL);
+    window.fbq("track", "PageView");
+  }
+  function pixelTrack(ev) {
+    if (PIXEL && window.fbq) { try { window.fbq("track", ev); } catch (e) {} }
+  }
+
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
   fl.rel = "stylesheet";
@@ -203,6 +220,7 @@
   function submitLead() {
     if (state.submitted) return;
     state.submitted = true;
+    pixelTrack("Lead");
     var a = state.answers;
     var payload = {
       slug: C.slug || "",
@@ -499,7 +517,7 @@
       .then(function (r) { return r.json(); })
       .then(function (j) {
         calState.booking = false;
-        if (j.ok) { state.slotIso = iso; show("deposit"); }
+        if (j.ok) { state.slotIso = iso; pixelTrack("Schedule"); show("deposit"); }
         else {
           calState.error = "";
           show("booking", "prev");

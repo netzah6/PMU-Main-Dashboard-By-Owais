@@ -25,6 +25,7 @@ const TABS: Tab[] = [
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true }, // pay-per-show tracking — admins only
   { label: "💼 Sales", href: "/sales" }, // demo checker — paste contacts, get showed/no-show from the pipeline stage
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
+  { label: "🧪 Funnels", href: "/funnels", adminOnly: true }, // one-box funnels on Vercel — existence, health, leads/bookings
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "👑 CEO", href: "/ceo", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "🕵️ Activity", href: "/activity", adminOnly: true }, // team-member change log

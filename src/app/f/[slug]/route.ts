@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { refreshOneboxConfig, parseFaqs, SYNC_TTL_MS } from "@/lib/onebox";
+import { refreshOneboxConfig, parseFaqs, normalizeElfsight, SYNC_TTL_MS } from "@/lib/onebox";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
 // the hosted engine public/onebox.js owns the DOM; a hydrated page would
@@ -20,6 +20,7 @@ type Row = {
     fanbasisHtml?: string;
     elfsightId?: string;
     resultImgs?: string;
+    metaPixelId?: string;
   };
 };
 
@@ -53,8 +54,9 @@ export async function GET(
     locationId: row.location_id,
     submitUrl: "/api/onebox/submit",
     fanbasisSelector: "#fanbasis-checkout-wrapper",
-    elfsightId: row.config.elfsightId || row.extras.elfsightId || "",
+    elfsightId: normalizeElfsight(row.config.elfsightId || row.extras.elfsightId || ""),
     resultImgs: row.config.resultImgs || row.extras.resultImgs || "",
+    metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),
   };
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
   // </script> inside the JSON payloads must not terminate the script tag.
@@ -75,7 +77,7 @@ export async function GET(
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${row.extras.fanbasisHtml ? `<template id="onebox-fanbasis-holder">${row.extras.fanbasisHtml}</template>` : ""}
-<script src="/onebox.js?v=9" async></script>
+<script src="/onebox.js?v=10" async></script>
 </body>
 </html>`;
 
