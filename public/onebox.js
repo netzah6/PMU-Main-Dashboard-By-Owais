@@ -727,15 +727,20 @@
     var el = document.getElementById("ob-extras");
     if (phase === "survey") { el.innerHTML = ""; return; }
     var handle = IGLINK.replace(/\/+$/, "").split("/").pop() || "instagram";
-    var htmlStr = "";
-    if (C.elfsightId) {
-      htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>' +
-        '<div class="elfsight-app-' + esc(C.elfsightId) + '" data-elfsight-app-lazy></div></div>';
+    var IG = C.igWidget || C.elfsightId || "";
+    var GOOG = C.googleWidget || "";
+    function loadElfsight() {
       if (!document.querySelector('script[src*="elfsightcdn"]')) {
         var es = document.createElement("script");
         es.src = "https://elfsightcdn.com/platform.js"; es.async = true;
         document.head.appendChild(es);
       }
+    }
+    var htmlStr = "";
+    if (IG) {
+      htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>' +
+        '<div class="elfsight-app-' + esc(IG) + '" data-elfsight-app-lazy></div></div>';
+      loadElfsight();
     } else if (RESULTS.length) {
       htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2><div class="igcard">' +
         '<div class="ighead"><span class="avatar"><img src="' + esc(LOGO) + '" alt=""></span>' +
@@ -744,6 +749,11 @@
         '<div class="results">' + RESULTS.map(function (u) {
           return '<img src="' + esc(u) + '" alt="Client result" loading="lazy">';
         }).join("") + "</div></div></div>";
+    }
+    if (GOOG) {
+      htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say &#11088;</h2>' +
+        '<div class="elfsight-app-' + esc(GOOG) + '" data-elfsight-app-lazy></div></div>';
+      loadElfsight();
     }
     htmlStr += '<div class="xsec"><h2 class="xhead">&#128205;We are located at ' + esc(ADDR) + "</h2>" +
       '<div class="mapcard"><iframe loading="lazy" src="https://www.google.com/maps?q=' +

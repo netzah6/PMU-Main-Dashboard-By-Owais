@@ -56,7 +56,8 @@ export async function GET(
     locationId: row.location_id,
     submitUrl: "/api/onebox/submit",
     fanbasisSelector: "#fanbasis-checkout-wrapper",
-    elfsightId: normalizeElfsight(row.config.elfsightId || row.extras.elfsightId || ""),
+    igWidget: normalizeElfsight(row.config.igWidget || row.config.elfsightId || row.extras.elfsightId || ""),
+    googleWidget: normalizeElfsight(row.config.googleWidget || ""),
     resultImgs: row.config.resultImgs || row.extras.resultImgs || "",
     metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),
   };
@@ -79,7 +80,7 @@ export async function GET(
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${row.extras.fanbasisHtml ? `<template id="onebox-fanbasis-holder">${row.extras.fanbasisHtml}</template>` : ""}
-<script src="/onebox.js?v=12" async></script>
+<script src="/onebox.js?v=13" async></script>
 </body>
 </html>`;
 

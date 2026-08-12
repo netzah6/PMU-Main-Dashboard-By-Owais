@@ -25,7 +25,10 @@ const pickers: [key: string, ...names: string[]][] = [
   ["congrats", "OB - Congrats Line"],
   ["bookingHead", "OB - Booking Headline"],
   ["depositHead", "OB - Deposit Headline"],
-  ["elfsightId", "OB - Elfsight ID"],
+  // Instagram widget: the team's own CV name, then OB fallbacks.
+  ["igWidget", "CC - IG Widget LINK", "OB - IG Widget", "OB - Elfsight ID"],
+  // Google reviews widget.
+  ["googleWidget", "CC - Google Widget LINK", "OB - Google Widget"],
   ["resultImgs", "OB - Result Images"],
   ["faqsRaw", "OB - FAQs"],
   ["metaPixelId", "OB - Meta Pixel ID"],
