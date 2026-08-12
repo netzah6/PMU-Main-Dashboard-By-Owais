@@ -63,6 +63,16 @@ export async function GET(
   };
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
   // </script> inside the JSON payloads must not terminate the script tag.
+  // Fanbasis block: prefer the GHL custom value, else the Extras paste.
+  // A relative REDIRECT_URL (e.g. 'thank-you') would 404 on our host, so
+  // make it absolute to the client's own pmu-care.com page.
+  let fanbasisHtml = (row.config.fanbasisCode || "").trim() || row.extras.fanbasisHtml || "";
+  if (fanbasisHtml) {
+    fanbasisHtml = fanbasisHtml.replace(
+      /REDIRECT_URL\s*=\s*'([^']*)'/,
+      (m, u: string) => /^https?:\/\//i.test(u) ? m : `REDIRECT_URL = 'https://pmu-care.com/${u.replace(/^\/+/, "")}'`
+    );
+  }
   const faqs = row.config.faqsRaw ? parseFaqs(row.config.faqsRaw) : row.extras.faqs ?? [];
   const boot = (
     `window.OB_CONFIG=${JSON.stringify(cfg)};` +
@@ -79,8 +89,8 @@ export async function GET(
 <body style="margin:0">
 <div id="onebox-root"></div>
 <script>${boot}</script>
-${row.extras.fanbasisHtml ? `<template id="onebox-fanbasis-holder">${row.extras.fanbasisHtml}</template>` : ""}
-<script src="/onebox.js?v=13" async></script>
+${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</template>` : ""}
+<script src="/onebox.js?v=14" async></script>
 </body>
 </html>`;
 

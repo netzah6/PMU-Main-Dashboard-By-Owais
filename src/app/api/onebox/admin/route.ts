@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
       cvSyncedAt: r.cv_synced_at,
       url: funnelUrl(req, r.slug),
       hasCalendar: !!config.calendarId,
-      hasFanbasis: !!extras.fanbasisHtml,
+      hasFanbasis: !!(extras.fanbasisHtml || config.fanbasisCode),
       hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
       hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
       leads: counts[r.slug]?.leads ?? 0,
@@ -170,7 +170,8 @@ export async function POST(req: NextRequest) {
     } else slotNote = "no calendar id in custom values";
     checks.push({ name: "Calendar availability", ok: slotsOk, note: slotNote });
 
-    checks.push({ name: "Fanbasis checkout block", ok: !!extras.fanbasisHtml, note: extras.fanbasisHtml ? `${extras.fanbasisHtml.length} chars` : "paste the client's Fanbasis block" });
+    const fbCode = (config.fanbasisCode || "").trim() || extras.fanbasisHtml || "";
+    checks.push({ name: "Fanbasis checkout block", ok: !!fbCode, note: fbCode ? `${fbCode.length} chars${config.fanbasisCode ? " (custom value)" : " (extras)"}` : "add 'CC - Fanbasis Checkout Code' custom value or paste in Extras" });
     const pixel = (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "");
     checks.push({ name: "Meta pixel", ok: !!pixel, note: pixel ? `pixel ${pixel}` : "no pixel — harvest or set OB - Meta Pixel ID" });
     const syncAge = row.cv_synced_at ? Date.now() - new Date(row.cv_synced_at as string).getTime() : Infinity;
