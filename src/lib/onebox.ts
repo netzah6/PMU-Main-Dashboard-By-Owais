@@ -30,6 +30,8 @@ const pickers: [key: string, ...names: string[]][] = [
   // Google reviews widget.
   ["googleWidget", "CC - Google Widget LINK", "OB - Google Widget"],
   ["resultImgs", "OB - Result Images"],
+  // Fanbasis checkout: paste the whole deposit-page block into this CV.
+  ["fanbasisCode", "CC - Fanbasis Checkout Code", "CC - Fanbasis Code", "OB - Fanbasis Code"],
   ["faqsRaw", "OB - FAQs"],
   ["metaPixelId", "OB - Meta Pixel ID"],
 ];
