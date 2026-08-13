@@ -698,7 +698,9 @@
       ensureHold(false);
       bootFanbasis(document.getElementById("ob-fbslot"));
     }
-    root.classList.toggle("nohero", phase === "confirm" || phase === "deposit");
+    /* Survey-stage copy: hidden from the calendar onward so the booking,
+       confirm and deposit steps sit as high as possible. */
+    root.classList.toggle("nohero", phase !== "survey");
     rail(); renderExtras();
     if (firstShow) firstShow = false;
     else if (interacted) { focusBox(); setTimeout(focusBox, 700); }
