@@ -117,7 +117,14 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
   return out;
 }
 
-export type SquareCustomer = { id: string; name: string; email: string | null };
+export type SquareCustomer = {
+  id: string;
+  name: string;
+  email: string | null;
+  phone?: string | null;
+  company?: string | null;
+  createdAt?: string | null;
+};
 
 // In-process caches (warm serverless instance): customer names and plan
 // details change rarely, so repeat loads skip most Square calls entirely.
@@ -134,7 +141,14 @@ function customerFromRaw(id: string, c: Record<string, unknown>): SquareCustomer
     String(c.company_name ?? "").trim() ||
     String(c.email_address ?? "").trim() ||
     id;
-  return { id, name, email: (c.email_address as string) ?? null };
+  return {
+    id,
+    name,
+    email: (c.email_address as string) ?? null,
+    phone: (c.phone_number as string) ?? null,
+    company: (c.company_name as string) ?? null,
+    createdAt: (c.created_at as string) ?? null,
+  };
 }
 
 // Bulk customer lookup (100 ids per call) so large accounts stay fast —
@@ -192,6 +206,124 @@ export async function getCustomers(ids: string[]): Promise<Map<string, SquareCus
     }
   }
   return map;
+}
+
+// ── Finding a customer we don't already have an id for ───────────────────────
+// SearchCustomers can filter on email/phone but NOT on name, so a name match
+// has to scan the whole customer list (listAllCustomers below).
+
+async function searchCustomers(filter: Record<string, unknown>, limit = 20): Promise<SquareCustomer[]> {
+  const r = await fetch(`${BASE}/v2/customers/search`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ limit, query: { filter } }),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`Square customer search ${r.status}: ${text.slice(0, 300)}`);
+  }
+  const j = (await r.json()) as { customers?: Array<Record<string, unknown>> };
+  return (j.customers ?? []).map((c) => customerFromRaw(String(c.id), c));
+}
+
+// Exact email — the only high-confidence way to identify an artist's Square
+// customer record. Square allows duplicate emails, hence an array.
+export function searchCustomersByEmail(email: string): Promise<SquareCustomer[]> {
+  return searchCustomers({ email_address: { exact: email } });
+}
+
+// Fuzzy phone: Square normalizes formatting, so "(602) 471-9803" finds
+// "+16024719803". Callers should still compare the digits themselves.
+export function searchCustomersByPhone(phone: string): Promise<SquareCustomer[]> {
+  return searchCustomers({ phone_number: { fuzzy: phone } });
+}
+
+let allCustomersCache: { ts: number; list: SquareCustomer[]; truncated: boolean } | null = null;
+const ALL_CUSTOMERS_TTL_MS = 30 * 60 * 1000;
+const ALL_CUSTOMERS_MAX_PAGES = 60; // 6,000 customers
+
+// Every customer in the account, for name-based matching. Paginated and
+// capped: `truncated` is true when the cap was hit, so a "no customer found"
+// can be reported as "not found in the first N" rather than a flat no.
+export async function listAllCustomers(): Promise<{ customers: SquareCustomer[]; truncated: boolean }> {
+  const now = Date.now();
+  if (allCustomersCache && now - allCustomersCache.ts < ALL_CUSTOMERS_TTL_MS)
+    return { customers: allCustomersCache.list, truncated: allCustomersCache.truncated };
+
+  const list: SquareCustomer[] = [];
+  let cursor: string | undefined;
+  let truncated = false;
+  for (let page = 0; page < ALL_CUSTOMERS_MAX_PAGES; page++) {
+    const body: Record<string, unknown> = { limit: 100 };
+    if (cursor) body.cursor = cursor;
+    const r = await fetch(`${BASE}/v2/customers/search`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Square customers ${r.status}: ${text.slice(0, 300)}`);
+    }
+    const j = (await r.json()) as { customers?: Array<Record<string, unknown>>; cursor?: string };
+    for (const c of j.customers ?? []) list.push(customerFromRaw(String(c.id), c));
+    cursor = j.cursor;
+    if (!cursor) break;
+    if (page === ALL_CUSTOMERS_MAX_PAGES - 1) truncated = true;
+  }
+  allCustomersCache = { ts: now, list, truncated };
+  return { customers: list, truncated };
+}
+
+// ── Cards on file ────────────────────────────────────────────────────────────
+export type SquareCard = {
+  id: string;
+  brand: string;          // VISA, MASTERCARD, …
+  last4: string;
+  expMonth: number | null;
+  expYear: number | null;
+  cardholderName: string | null;
+  enabled: boolean;       // a disabled card cannot be charged
+  cardType: string | null;
+  fingerprint: string | null;
+};
+
+// Cards a customer has on file, NEWEST FIRST. Square's Card object carries no
+// created_at, so the sort order is the only signal for which card was added
+// last — and Square has no "default card" flag at all, so whoever charges has
+// to pick one deliberately.
+export async function listCards(customerId: string, includeDisabled = true): Promise<SquareCard[]> {
+  const out: SquareCard[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 5; page++) {
+    const url = new URL(`${BASE}/v2/cards`);
+    url.searchParams.set("customer_id", customerId);
+    url.searchParams.set("include_disabled", String(includeDisabled));
+    url.searchParams.set("sort_order", "DESC");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const r = await fetch(url.toString(), { headers: headers() });
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Square cards ${r.status}: ${text.slice(0, 300)}`);
+    }
+    const j = (await r.json()) as { cards?: Array<Record<string, unknown>>; cursor?: string };
+    for (const c of j.cards ?? []) {
+      out.push({
+        id: String(c.id),
+        brand: String(c.card_brand ?? "CARD"),
+        last4: String(c.last_4 ?? "????"),
+        expMonth: typeof c.exp_month === "number" ? c.exp_month : Number(c.exp_month) || null,
+        expYear: typeof c.exp_year === "number" ? c.exp_year : Number(c.exp_year) || null,
+        cardholderName: (c.cardholder_name as string) ?? null,
+        enabled: c.enabled !== false,
+        cardType: (c.card_type as string) ?? null,
+        fingerprint: (c.fingerprint as string) ?? null,
+      });
+    }
+    cursor = j.cursor;
+    if (!cursor) break;
+  }
+  return out;
 }
 
 // ── Disputes (chargebacks) ───────────────────────────────────────────────────
