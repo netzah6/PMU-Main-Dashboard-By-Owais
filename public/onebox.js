@@ -50,8 +50,10 @@
     window.fbq("init", PIXEL);
     window.fbq("track", "PageView");
   }
-  function pixelTrack(ev) {
-    if (PIXEL && window.fbq) { try { window.fbq("track", ev); } catch (e) {} }
+  function pixelTrack(ev, params) {
+    if (PIXEL && window.fbq) {
+      try { params ? window.fbq("track", ev, params) : window.fbq("track", ev); } catch (e) {}
+    }
   }
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */
@@ -571,6 +573,10 @@
     window.OB_ONPAID = function () {
       if (state.paidSent || !state.slotIso) return;
       state.paidSent = true;
+      // The deposit cleared — tell Meta, so campaigns can optimise for
+      // clients who actually pay, not just form fills.
+      var amt = parseFloat(String(C.deposit || "").replace(/[^0-9.]/g, ""));
+      pixelTrack("Purchase", { value: isNaN(amt) ? 0 : amt, currency: "USD" });
       try {
         fetch((C.submitUrl || "").replace(/submit$/, "book"), {
           method: "POST",

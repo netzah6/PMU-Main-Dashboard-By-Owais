@@ -23,6 +23,7 @@ type Extras = {
   resultImgs?: string;
   metaPixelId?: string;
   oldFunnelUrl?: string;
+  ownerName?: string;
 };
 
 // Public funnel URL on the branded domain (book.pmu-care.com is a
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest) {
     if (body.resultImgs !== undefined) extras.resultImgs = String(body.resultImgs);
     if (body.metaPixelId !== undefined) extras.metaPixelId = String(body.metaPixelId).replace(/\D/g, "");
     if (body.oldFunnelUrl !== undefined) extras.oldFunnelUrl = String(body.oldFunnelUrl).trim();
+    if (body.ownerName !== undefined) extras.ownerName = String(body.ownerName).trim();
     await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
     return NextResponse.json({ ok: true, elfsightId: extras.elfsightId ?? "" });
   }

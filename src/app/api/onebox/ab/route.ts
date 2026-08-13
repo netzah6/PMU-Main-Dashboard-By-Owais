@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     svc.from("onebox_variants").select("vkey, label, kind, target, weight").eq("experiment_id", exp.id).order("vkey"),
     svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id),
     svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, created_at").eq("slug", slug).gte("created_at", exp.created_at),
-    svc.from("onebox_clients").select("location_id, config, client_name").eq("slug", slug).single(),
+    svc.from("onebox_clients").select("location_id, config, client_name, extras").eq("slug", slug).single(),
   ]);
 
   const visitors: Record<string, number> = {};
@@ -86,14 +86,29 @@ export async function GET(req: NextRequest) {
 
   // Ad spend for this client, split across variants by their share of
   // visitors: the same ads feed both sides, so spend follows the traffic.
+  // The funnel's client name rarely matches the ad account's owner name
+  // ("PMU by Ivan" vs "Ivan Androsov"), so the team can pin it in Extras;
+  // otherwise try the name, then its distinctive words.
   let spend7: number | null = null;
-  if (client?.client_name) {
+  let spendOwner: string | null = null;
+  const pinned = ((client?.extras ?? {}) as { ownerName?: string }).ownerName?.trim();
+  const candidates: string[] = [];
+  if (pinned) candidates.push(pinned);
+  else if (client?.client_name) {
+    const name = String(client.client_name);
+    candidates.push(name);
+    for (const w of name.split(/\s+/)) {
+      if (w.length > 3 && !/^(pmu|by|the|and|llc|inc|studio|beauty)$/i.test(w)) candidates.push(w);
+    }
+  }
+  for (const c of candidates) {
     const { data: perf } = await svc
       .from("performance_overview")
       .select("owner_name, spent7")
-      .ilike("owner_name", client.client_name as string)
+      .ilike("owner_name", pinned && c === pinned ? c : `%${c}%`)
+      .limit(1)
       .maybeSingle();
-    if (perf?.spent7 != null) spend7 = Number(perf.spent7);
+    if (perf?.spent7 != null) { spend7 = Number(perf.spent7); spendOwner = perf.owner_name as string; break; }
   }
 
   const totalVisitors = Object.values(visitors).reduce((a, b) => a + b, 0);
@@ -120,6 +135,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     experiment: { id: exp.id, name: exp.name, status: exp.status, startedAt: exp.created_at },
     spendWindow: spend7 == null ? null : "last 7 days",
+    spendOwner,
     variants: rows,
   });
 }
