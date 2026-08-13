@@ -73,6 +73,7 @@
     "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(24px,3.4vw,30px);line-height:1.2;letter-spacing:-.01em;text-align:center;text-wrap:balance;margin:8px auto 0;max-width:24ch;color:#000}" +
     "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:18px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
     "#onebox-root .trust{text-align:center;padding:14px 20px 0}" +
+    "#onebox-root.nohero .lede,#onebox-root.nohero h1.page,#onebox-root.nohero .sub{display:none}" +
     "#onebox-root .trust p{margin:0;font-size:14px;color:var(--ink-soft)}" +
     "#onebox-root .stars{color:var(--gold);letter-spacing:.14em;font-size:15px;margin-top:3px}" +
     "#onebox-root .box{margin:20px auto 0;max-width:560px;background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 48px -20px rgba(17,19,21,.28),0 4px 14px -8px rgba(17,19,21,.14);overflow:hidden;font-family:var(--form)}" +
@@ -166,13 +167,12 @@
     "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
     "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:6px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
     "#onebox-root .depwhen{margin:0;font-size:13px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
-    "#onebox-root .depaddr{margin:1px 0 0;font-size:11.5px;font-weight:600;color:var(--ink-soft);line-height:1.35}" +
-    "#onebox-root .deprow{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 0 8px;font-family:var(--form);font-size:12.5px}" +
+    "#onebox-root .deprow{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 0 10px;font-family:var(--form);font-size:15px}" +
     "#onebox-root .depsafe{background:var(--mint-bg);border:1px solid var(--mint-line);border-radius:7px;padding:7px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
     "#onebox-root .depsafe strong{display:block;color:var(--mint-ink);font-size:13px;font-family:var(--headline);line-height:1.3}" +
     "#onebox-root .depsafe p{margin:1px 0 0;font-size:11.5px;color:#2c5c39;line-height:1.38}" +
     "#onebox-root .dephold{color:var(--ink-soft);font-weight:600}" +
-    "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ink)}" +
+    "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;font-size:19px;letter-spacing:-.01em;color:var(--ink)}" +
     "#onebox-root .dephead{font-size:15.5px;margin:0 0 7px}" +
     "#onebox-root .fbslot{min-height:400px}" +
     "#onebox-root .done{text-align:center;padding:6px 0}" +
@@ -622,10 +622,8 @@
   function slideDeposit() {
     return '<h2 class="phead dephead">' + (C.depositHead ? esc(C.depositHead)
       : "Last Step - " + esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
-      '<div class="depmeta">' +
-        (state.slotIso ? '<p class="depwhen">&#128197; ' + esc(fmtWhen(state.slotIso)) + "</p>" : "") +
-        (ADDR ? '<p class="depaddr">' + esc(ADDR) + "</p>" : "") +
-      "</div>" +
+      (state.slotIso ? '<div class="depmeta"><p class="depwhen">&#128197; ' +
+        esc(fmtWhen(state.slotIso)) + "</p></div>" : "") +
       '<div class="depsafe">' +
         '<strong>&#10004; 100% Guaranteed &mdash; Fully Refundable</strong>' +
         "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p>" +
@@ -700,6 +698,7 @@
       ensureHold(false);
       bootFanbasis(document.getElementById("ob-fbslot"));
     }
+    root.classList.toggle("nohero", phase === "confirm" || phase === "deposit");
     rail(); renderExtras();
     if (firstShow) firstShow = false;
     else if (interacted) { focusBox(); setTimeout(focusBox, 700); }
