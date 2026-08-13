@@ -163,15 +163,14 @@
     "#onebox-root .obslots button:disabled{opacity:.5;cursor:wait}" +
     "#onebox-root .obslots p{margin:0;font-size:13px;color:var(--muted);text-align:center;padding:16px 0;grid-column:1/-1}" +
     "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
-    "#onebox-root .guarantee{background:var(--mint-bg);border:1px solid var(--mint-line);border-radius:7px;padding:13px 15px;text-align:center;margin:0 0 12px;font-family:var(--content)}" +
-    "#onebox-root .guarantee strong{display:block;color:var(--mint-ink);font-size:14px;margin-bottom:5px;font-family:var(--headline)}" +
-    "#onebox-root .guarantee p{margin:0;font-size:12.5px;color:#2c5c39;line-height:1.55}" +
-    "#onebox-root .addr{border:1px solid var(--amber);border-radius:5px;padding:8px;text-align:center;font-size:12.5px;font-weight:600;margin:0 0 14px;font-family:var(--content)}" +
-    "#onebox-root .when{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:5px;padding:9px;text-align:center;font-size:13px;font-weight:700;margin:0 0 14px;font-family:var(--content);color:var(--teal-deep)}" +
-    "#onebox-root .clock{display:flex;justify-content:center;gap:26px;margin:0 0 16px}" +
-    "#onebox-root .clock div{text-align:center}" +
-    "#onebox-root .clock b{display:block;font-size:26px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em;font-family:var(--headline)}" +
-    "#onebox-root .clock span{font-size:11px;color:var(--muted)}" +
+    "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:7px 10px;text-align:center;margin:0 0 8px;font-family:var(--content)}" +
+    "#onebox-root .depwhen{margin:0;font-size:13px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
+    "#onebox-root .depaddr{margin:1px 0 0;font-size:11.5px;font-weight:600;color:var(--ink-soft);line-height:1.35}" +
+    "#onebox-root .deprow{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 0 10px;font-family:var(--form);font-size:12px}" +
+    "#onebox-root .depguar{color:var(--mint-ink);background:var(--mint-bg);border:1px solid var(--mint-line);border-radius:999px;padding:4px 10px;font-weight:700}" +
+    "#onebox-root .dephold{color:var(--ink-soft);font-weight:600}" +
+    "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ink)}" +
+    "#onebox-root .dephead{font-size:16px;margin:0 0 8px}" +
     "#onebox-root .fbslot{min-height:400px}" +
     "#onebox-root .done{text-align:center;padding:6px 0}" +
     "#onebox-root .done .tick{width:58px;height:58px;border-radius:50%;background:var(--mint-bg);border:1px solid var(--mint-line);color:var(--mint-ink);display:grid;place-items:center;margin:0 auto 14px;font-size:26px}" +
@@ -306,8 +305,12 @@
   root.addEventListener("keydown", function () { interacted = true; });
   function focusBox() {
     try {
-      var tall = boxEl.getBoundingClientRect().height >= window.innerHeight - 40;
-      boxEl.scrollIntoView({ behavior: "smooth", block: tall ? "start" : "end" });
+      var tall = phase === "deposit" || phase === "booking" ||
+        boxEl.getBoundingClientRect().height >= window.innerHeight - 40;
+      /* "Reduce Motion" turns smooth scrolling into a no-op, which would
+         drop the focus behaviour entirely — jump instantly instead. */
+      var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      boxEl.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: tall ? "start" : "end" });
     } catch (e) {}
   }
 
@@ -528,7 +531,7 @@
       '<div class="chips" id="ob-vclock"></div>' +
       '<div class="confcard">' +
         "<h3>" + esc(first) + ", please confirm your appointment</h3>" +
-        "<p>Our specialist will set this time aside exclusively for you and prepare for your visit in advance &mdash; so please confirm you can attend:</p>" +
+        "<p>We&rsquo;ll set this time aside exclusively for you and prepare in advance &mdash; please confirm you can attend:</p>" +
         '<p class="confwhen">' + esc(fmtWhen(state.pendingIso)) + "</p>" +
         '<p class="confrel">' + esc(relDay(state.pendingIso)) + "</p>" +
         (ADDR ? '<p class="confaddr">' + esc(ADDR) + "</p>" : "") +
@@ -614,14 +617,16 @@
   }
 
   function slideDeposit() {
-    return '<h2 class="phead">' + (C.depositHead ? esc(C.depositHead)
+    return '<h2 class="phead dephead">' + (C.depositHead ? esc(C.depositHead)
       : "Last Step - " + esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
-      '<p class="psub">&#9203; Your appointment is held while the timer runs</p>' +
-      '<div class="guarantee"><strong>100% Guaranteed &mdash; Fully Refundable</strong>' +
-      "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p></div>" +
-      (ADDR ? '<div class="addr">' + esc(ADDR) + "</div>" : "") +
-      (state.slotIso ? '<div class="when">&#128197; Your appointment: ' + esc(fmtWhen(state.slotIso)) + "</div>" : "") +
-      '<div class="clock" id="ob-clock"></div>' +
+      '<div class="depmeta">' +
+        (state.slotIso ? '<p class="depwhen">&#128197; ' + esc(fmtWhen(state.slotIso)) + "</p>" : "") +
+        (ADDR ? '<p class="depaddr">' + esc(ADDR) + "</p>" : "") +
+      "</div>" +
+      '<div class="deprow">' +
+        '<span class="depguar">&#10004; 100% refundable</span>' +
+        '<span class="dephold">&#9203; Held for <b id="ob-clock-mini">15:00</b></span>' +
+      "</div>" +
       '<div class="fbslot" id="ob-fbslot"></div>' +
       '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
   }
@@ -638,6 +643,8 @@
     if (v) v.innerHTML = chips;
     var c = document.getElementById("ob-clock");
     if (c) c.innerHTML = chips;
+    var mini = document.getElementById("ob-clock-mini");
+    if (mini) mini.textContent = (hh ? two(hh) + ":" : "") + two(mm) + ":" + two(ss);
   }
   function ensureHold(reset) {
     if (reset || holdLeft <= 0) holdLeft = 900;
@@ -814,6 +821,10 @@
   }
   window.addEventListener("scroll", ctaCheck, { passive: true });
   window.addEventListener("resize", function () { if (hasScrolled) ctaCheck(); });
+
+  if ("scrollRestoration" in history) { try { history.scrollRestoration = "manual"; } catch (e) {} }
+  window.scrollTo(0, 0);
+  window.addEventListener("load", function () { if (!interacted) window.scrollTo(0, 0); });
 
   show("survey");
 })();
