@@ -67,17 +67,18 @@
     "#onebox-root .topbar svg{width:13px;height:13px;fill:#111;flex:none}" +
     "#onebox-root .topbar span{font-family:var(--headline);font-weight:400;font-size:13.5px;color:#111;line-height:1.3}" +
     "#onebox-root .callbar{border-bottom:1px solid var(--line);padding:11px 20px;text-align:center;font-size:15px;font-weight:700;font-family:var(--headline)}" +
-    "#onebox-root .wrap{padding:14px 20px 44px;max-width:720px;margin:0 auto}" +
-    "#onebox-root .biglogo{display:block;margin:0 auto 8px;max-height:56px;width:auto}" +
+    "#onebox-root .wrap{padding:20px 20px 44px;max-width:720px;margin:0 auto;min-height:calc(100vh - 74px);min-height:calc(100svh - 74px)}" +
+    "#onebox-root .biglogo{display:block;margin:0 auto 12px;max-height:64px;width:auto}" +
     "#onebox-root .lede{text-align:center;margin:0;font-size:15px;color:var(--ink-soft)}" +
-    "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(24px,3.4vw,30px);line-height:1.2;letter-spacing:-.01em;text-align:center;text-wrap:balance;margin:6px auto 0;max-width:24ch;color:#000}" +
-    "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:17px;text-align:center;margin:4px 0 0;color:var(--ink-soft)}" +
-    "#onebox-root .trust{text-align:center;padding:10px 20px 0}" +
+    "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(24px,3.4vw,30px);line-height:1.2;letter-spacing:-.01em;text-align:center;text-wrap:balance;margin:8px auto 0;max-width:24ch;color:#000}" +
+    "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:18px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
+    "#onebox-root .trust{text-align:center;padding:14px 20px 0}" +
     "#onebox-root .trust p{margin:0;font-size:14px;color:var(--ink-soft)}" +
     "#onebox-root .stars{color:var(--gold);letter-spacing:.14em;font-size:15px;margin-top:3px}" +
-    "#onebox-root .box{margin:14px auto 0;max-width:560px;background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 48px -20px rgba(17,19,21,.28),0 4px 14px -8px rgba(17,19,21,.14);overflow:hidden;font-family:var(--form)}" +
+    "#onebox-root .box{margin:20px auto 0;max-width:560px;background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 48px -20px rgba(17,19,21,.28),0 4px 14px -8px rgba(17,19,21,.14);overflow:hidden;font-family:var(--form)}" +
     "#onebox-root .rail{margin:14px 16px 0;height:24px;border-radius:999px;background:#e9edef;overflow:hidden}" +
-    "#onebox-root .rail span{display:grid;place-items:center;height:100%;border-radius:999px;background:repeating-linear-gradient(135deg,var(--teal) 0 11px,var(--teal-deep) 11px 22px);color:#fff;font-size:11px;font-weight:600;white-space:nowrap;transition:width .45s cubic-bezier(.4,0,.2,1);min-width:44px}" +
+    "#onebox-root .rail span{display:grid;place-items:center;height:100%;border-radius:999px;background:repeating-linear-gradient(135deg,var(--teal) 0 11px,var(--teal-deep) 11px 22px);color:#fff;font-size:11px;font-weight:600;white-space:nowrap;transition:width .45s cubic-bezier(.4,0,.2,1);min-width:44px;animation:ob-railmove 1.1s linear infinite}" +
+    "@keyframes ob-railmove{to{background-position:31.11px 0}}" +
     "#onebox-root .slide{padding:22px 26px 26px;min-height:210px}" +
     "#onebox-root .slide.anim-next{animation:ob-in-next .3s ease both}" +
     "#onebox-root .slide.anim-prev{animation:ob-in-prev .3s ease both}" +
@@ -85,12 +86,13 @@
     "@keyframes ob-in-prev{from{opacity:0;transform:translateX(-46px)}to{opacity:1;transform:none}}" +
     "#onebox-root .qlabel{font-size:16px;font-weight:600;margin:0 0 16px;line-height:1.45;letter-spacing:-.01em}" +
     "#onebox-root .qlabel em{font-style:normal;color:#d33}" +
+    "#onebox-root label.qlabel{margin-bottom:24px;display:block}" +
     "#onebox-root .opts{display:flex;flex-direction:column;gap:9px}" +
     "#onebox-root .opt{display:flex;align-items:center;gap:12px;padding:13px 15px;cursor:pointer;font-size:14.5px;font-weight:500;border:1.5px solid #cdeeed;border-radius:10px;background:#f4fbfb;transition:border-color .15s,background .15s,box-shadow .15s}" +
     "#onebox-root .opt:hover{border-color:var(--teal);background:#e4f6f6}" +
     "#onebox-root .opt:has(input:checked){border-color:var(--teal);background:#eefafa;box-shadow:0 0 0 3px rgba(23,195,195,.14)}" +
     "#onebox-root .opt input{accent-color:var(--teal-deep);width:16px;height:16px;margin:0;cursor:pointer;flex:none}" +
-    "#onebox-root .field{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:14px;color:var(--ink)}" +
+    "#onebox-root .field{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:4px;font:inherit;font-size:16px;color:var(--ink)}" +
     "#onebox-root .err{color:#d33;font-size:12px;margin:8px 0 0;min-height:1.1em}" +
     "#onebox-root .field.err-f{border-color:#d33;box-shadow:0 0 0 3px rgba(221,51,51,.08)}" +
     "#onebox-root .trustnote{margin:10px 0 0;font-size:12px;color:var(--muted);font-family:var(--form);display:flex;align-items:center;gap:6px}" +
@@ -136,7 +138,7 @@
     "#onebox-root .bar button:hover:not(:disabled){opacity:1;background:rgba(255,255,255,.09)}" +
     "#onebox-root .bar button[hidden]{visibility:hidden;display:block}" +
     "#onebox-root .phead{font-family:var(--headline);font-weight:700;font-size:17px;line-height:1.3;text-align:center;text-wrap:balance;margin:0 0 4px;color:#000}" +
-    "#onebox-root .pheadoffer{display:block;margin-top:2px;color:var(--teal-deep);font-size:19px}" +
+    "#onebox-root .pheadoffer{display:block;margin-top:2px;color:#12b9b9;font-size:19px}" +
     "#onebox-root .psub{text-align:center;font-family:var(--content);font-size:13px;color:var(--muted);margin:0 0 14px}" +
     "#onebox-root .cal-nav{display:flex;align-items:center;justify-content:center;gap:16px;margin:2px 0 10px}" +
     "#onebox-root .cal-nav button{width:29px;height:29px;border-radius:50%;border:0;background:#eef7f7;color:var(--teal-deep);font-size:16px;line-height:1;cursor:pointer}" +
@@ -149,7 +151,11 @@
     "#onebox-root .obgrid button:hover:not(:disabled){background:#d8f3f2}" +
     "#onebox-root .obgrid button:disabled{color:#c9ced2;background:none;font-weight:400;cursor:default}" +
     "#onebox-root .obgrid button[aria-pressed=true],#onebox-root .obgrid button[aria-pressed=true]:hover{background:linear-gradient(135deg,#3ed2cb,var(--teal-deep));color:#fff;font-weight:700;box-shadow:0 5px 12px -4px rgba(23,195,195,.65)}" +
-    "#onebox-root .obslots{margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;max-height:150px;overflow-y:auto}" +
+    "#onebox-root .obslotwrap{position:relative;margin-top:12px}" +
+    "#onebox-root .obslots{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;max-height:176px;overflow-y:auto;padding-bottom:6px}" +
+    "#onebox-root .obfade{position:absolute;left:0;right:0;bottom:0;height:38px;background:linear-gradient(180deg,rgba(255,255,255,0),#fff 88%);pointer-events:none;opacity:0;transition:opacity .2s}" +
+    "#onebox-root .obslotwrap.can .obfade{opacity:1}" +
+    "#onebox-root .obmore{margin:4px 0 0;text-align:center;font-size:12.5px;font-weight:600;color:var(--teal-deep);font-family:var(--form)}" +
     "#onebox-root .obslots button{padding:12px 4px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit;font-size:13.5px;color:var(--ink);font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums;transition:border-color .15s,background .15s,box-shadow .15s;box-shadow:0 3px 8px -6px rgba(17,19,21,.18)}" +
     "#onebox-root .obslots button:hover:not(:disabled){border-color:var(--teal);background:#f2fbfb}" +
     "#onebox-root .obslots button.sel,#onebox-root .obslots button.sel:hover{background:linear-gradient(100deg,#3ed2cb,var(--teal) 55%,var(--teal-deep));color:#fff;border-color:transparent;box-shadow:0 8px 18px -8px rgba(23,195,195,.65)}" +
@@ -310,8 +316,8 @@
     wrap.style.display = phase === "survey" ? "none" : "";
     if (phase === "survey") return;
     var pct, label;
-    if (phase === "booking") { pct = 80; label = "You’re Almost Done…"; }
-    else if (phase === "confirm") { pct = 85; label = "You\u2019re Almost Done\u2026"; }
+    if (phase === "booking") { pct = 85; label = "You’re Almost Done…"; }
+    else if (phase === "confirm") { pct = 88; label = "You\u2019re Almost Done\u2026"; }
     else if (phase === "deposit") { pct = 90; label = "Last Step…"; }
     else { pct = 100; label = "100%"; }
     railEl.style.width = pct + "%";
@@ -406,10 +412,8 @@
         '<button type="button" id="ob-nm" aria-label="Next month">&rsaquo;</button>' +
       "</div>" +
       '<div class="obgrid" id="ob-grid">' + cells + "</div>" +
-      '<div class="obslots" id="ob-slots">' + slots + "</div>" +
-      '<div class="obreserve"><button type="button" class="confyes" id="ob-reserve"' +
-        (calState.selIso ? "" : " disabled") + "><b>Reserve This Time</b>" +
-        "<span>" + (calState.selIso ? "Next: confirm your appointment" : "Pick a time above") + "</span></button></div>" +
+      '<div class="obslotwrap"><div class="obslots" id="ob-slots">' + slots + '</div><div class="obfade"></div></div>' +
+      '<p class="obmore" id="ob-more">&darr; Scroll for more times</p>' +
       '<p class="obcal-note" id="ob-note"></p>';
   }
 
@@ -490,15 +494,23 @@
       if (!b || calState.booking) return;
       calState.selIso = b.getAttribute("data-slot");
       paintCal();
-      var rb = document.getElementById("ob-reserve");
-      if (rb) rb.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      // straight to the confirm step — no extra Reserve tap
+      setTimeout(function () {
+        if (calState.booking || !calState.selIso) return;
+        state.pendingIso = calState.selIso;
+        show("confirm");
+      }, 250);
     };
-    var reserve = document.getElementById("ob-reserve");
-    if (reserve) reserve.onclick = function () {
-      if (!calState.selIso || calState.booking) return;
-      state.pendingIso = calState.selIso;
-      show("confirm");
-    };
+    var more = document.getElementById("ob-more");
+    var se = document.getElementById("ob-slots");
+    if (more && se) {
+      var can = se.scrollHeight > se.clientHeight + 4;
+      more.style.display = can ? "" : "none";
+      se.parentNode.classList.toggle("can", can);
+      se.onscroll = function () {
+        se.parentNode.classList.toggle("can", se.scrollTop + se.clientHeight < se.scrollHeight - 6);
+      };
+    }
   }
 
   function relDay(iso) {
