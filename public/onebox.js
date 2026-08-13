@@ -115,6 +115,11 @@
     "#onebox-root .confrel{color:var(--teal-deep)!important;font-weight:700;font-size:13px!important;font-family:var(--form)!important;margin:0 0 8px!important}" +
     "#onebox-root .confaddr{font-size:12.5px!important;color:var(--muted)!important;margin:0!important}" +
     "#onebox-root .confyes{display:block;width:100%;border:0;border-radius:12px;padding:13px;cursor:pointer;background:linear-gradient(100deg,#5adbd4,var(--teal) 60%,var(--teal-deep));box-shadow:0 10px 22px -10px rgba(23,195,195,.55);transition:filter .15s;margin:0 0 10px}" +
+    "#onebox-root .stickycta{position:fixed;left:14px;right:14px;bottom:14px;z-index:2147483000;display:flex;justify-content:center;opacity:0;pointer-events:none;transform:translateY(12px);transition:opacity .25s,transform .25s}" +
+    "#onebox-root .stickycta.on{opacity:1;pointer-events:auto;transform:none}" +
+    "#onebox-root .stickycta button{width:100%;max-width:560px;border:0;cursor:pointer;border-radius:14px;padding:12px 18px;background:linear-gradient(100deg,#5adbd4,var(--teal) 60%,var(--teal-deep));box-shadow:0 14px 30px -12px rgba(23,195,195,.7),0 4px 12px rgba(17,19,21,.18);font-family:var(--form);text-align:center}" +
+    "#onebox-root .stickycta b{display:block;font-size:17px;font-weight:800;color:#0d2b33;letter-spacing:-.01em}" +
+    "#onebox-root .stickycta span{display:block;font-size:12px;font-weight:600;color:#0d3b40;opacity:.85;margin-top:2px}" +
     "#onebox-root .confyes:hover:not(:disabled){filter:brightness(1.05)}" +
     "#onebox-root .confyes:disabled{cursor:not-allowed;filter:saturate(.35);opacity:.75;box-shadow:none}" +
     "#onebox-root .confyes b{display:block;font-family:var(--headline);font-weight:700;font-size:15.5px;color:#083b3b}" +
@@ -286,6 +291,11 @@
 
   var railEl = document.getElementById("ob-rail");
   var slideEl = document.getElementById("ob-slide");
+  var boxEl = root.querySelector(".box");
+  var firstShow = true;
+  function focusBox() {
+    try { boxEl.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+  }
 
   function rail() {
     var wrap = railEl.parentNode;
@@ -314,12 +324,12 @@
         ? '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>See My Available Times</b>' +
           "<span>Next: pick your appointment</span></button>"
         : '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>Continue &rarr;</b></button>';
-      return '<label class="qlabel" for="ob-f">' + esc(q.q) + ' <em>*</em></label>' +
+      return '<label class="qlabel" for="ob-f">' + esc(q.q) + '\u00A0<em>*</em></label>' +
         '<input class="field" id="ob-f" type="' + q.type + '" placeholder="' + esc(q.ph) + '" value="' +
         esc(state.answers[q.k] || "") + '" autocomplete="' + (q.k === "phone" ? "tel" : q.k === "email" ? "email" : "name") + '"' +
         extra + '><p class="err" id="ob-err"></p>' + note + submitBtn + back;
     }
-    return '<p class="qlabel">' + esc(q.q) + ' <em>*</em></p><div class="opts">' +
+    return '<p class="qlabel">' + esc(q.q) + '\u00A0<em>*</em></p><div class="opts">' +
       q.o.map(function (o) {
         return '<label class="opt"><input type="radio" name="ob-o" value="' + esc(o) + '"' +
           (state.answers[q.k] === o ? " checked" : "") + ">" + esc(o) + "</label>";
@@ -658,7 +668,8 @@
       bootFanbasis(document.getElementById("ob-fbslot"));
     }
     rail(); renderExtras();
-    if (p !== "survey") { try { root.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }
+    if (firstShow) firstShow = false;
+    else { focusBox(); setTimeout(focusBox, 700); }
   }
 
   function bindSurvey() {
@@ -767,6 +778,19 @@
     }
     el.innerHTML = htmlStr;
   }
+
+  var cta = document.createElement("div");
+  cta.className = "stickycta";
+  cta.innerHTML = '<button type="button" id="ob-cta"><b>Receive My Voucher</b>' +
+    '<span>Limited to the next 20 clients only</span></button>';
+  root.appendChild(cta);
+  document.getElementById("ob-cta").onclick = focusBox;
+  function ctaCheck() {
+    var b = boxEl.getBoundingClientRect();
+    cta.classList.toggle("on", b.bottom < window.innerHeight * 0.35);
+  }
+  window.addEventListener("scroll", ctaCheck, { passive: true });
+  window.addEventListener("resize", ctaCheck);
 
   show("survey");
 })();
