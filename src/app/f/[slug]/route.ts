@@ -27,7 +27,7 @@ type Row = {
 };
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { slug: string } }
 ) {
   const { slug } = params;
@@ -55,6 +55,8 @@ export async function GET(
     slug: row.slug,
     locationId: row.location_id,
     submitUrl: "/api/onebox/submit",
+    experimentId: req.nextUrl.searchParams.get("ob_e") ?? "",
+    variantKey: req.nextUrl.searchParams.get("ob_v") ?? "",
     fanbasisSelector: "#fanbasis-checkout-wrapper",
     igWidget: normalizeElfsight(row.config.igWidget || row.config.elfsightId || row.extras.elfsightId || ""),
     googleWidget: normalizeElfsight(row.config.googleWidget || ""),
@@ -100,7 +102,7 @@ export async function GET(
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</template>` : ""}
-<script src="/onebox.js?v=25" async></script>
+<script src="/onebox.js?v=26" async></script>
 </body>
 </html>`;
 

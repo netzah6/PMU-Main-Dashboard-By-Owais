@@ -239,6 +239,8 @@
     var payload = {
       stage: stage,
       slug: C.slug || "",
+      experimentId: C.experimentId || "",
+      variantKey: C.variantKey || "",
       surveyId: C.surveyId || "",
       locationId: C.locationId || "",
       full_name: a.full_name || "",
