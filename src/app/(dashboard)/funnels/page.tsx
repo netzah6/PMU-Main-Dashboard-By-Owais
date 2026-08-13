@@ -17,6 +17,7 @@ type AbVariant = {
 type AbResult = {
   experiment: { id: number; name: string; status: string; startedAt: string } | null;
   spendWindow: string | null;
+  spendOwner?: string | null;
   variants: AbVariant[];
 };
 
@@ -58,7 +59,7 @@ export default function FunnelsPage() {
   const [addForm, setAddForm] = useState({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
   const [addNote, setAddNote] = useState<string | null>(null);
   const [extrasFor, setExtrasFor] = useState<string | null>(null);
-  const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "" });
+  const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
   const [toast, setToast] = useState<string | null>(null);
   const [abFor, setAbFor] = useState<string | null>(null);
   const [ab, setAb] = useState<Record<string, AbResult>>({});
@@ -236,7 +237,7 @@ export default function FunnelsPage() {
                   className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `health:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />} Health check
                 </button>
-                <button onClick={() => { setExtrasFor(extrasFor === f.slug ? null : f.slug); setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "" }); }}
+                <button onClick={() => { setExtrasFor(extrasFor === f.slug ? null : f.slug); setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); }}
                   className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
                   Extras
                 </button>
@@ -311,7 +312,9 @@ export default function FunnelsPage() {
                         </span>
                         <span className="text-[11px] text-[#697a91]">
                           since {new Date(ab[f.slug].experiment!.startedAt).toLocaleDateString()}
-                          {ab[f.slug].spendWindow ? ` · spend: ${ab[f.slug].spendWindow}` : " · no spend data"}
+                          {ab[f.slug].spendWindow
+                            ? ` · spend: ${ab[f.slug].spendWindow}${ab[f.slug].spendOwner ? ` (${ab[f.slug].spendOwner})` : ""}`
+                            : " · no spend data — set the ad-spend owner name in Extras"}
                         </span>
                         <div className="flex-1" />
                         <button onClick={() => void loadAb(f.slug)} disabled={abBusy}
@@ -397,6 +400,10 @@ export default function FunnelsPage() {
                     value={extrasForm.oldFunnelUrl}
                     onChange={(e) => setExtrasForm((x) => ({ ...x, oldFunnelUrl: e.target.value }))}
                     className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                  <input placeholder="Ad-spend owner name, exactly as in the Performance tab (e.g. Ivan Androsov)"
+                    value={extrasForm.ownerName}
+                    onChange={(e) => setExtrasForm((x) => ({ ...x, ownerName: e.target.value }))}
+                    className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                   <div>
                     <button onClick={() => {
                       const payload: Record<string, string> = {};
@@ -405,6 +412,7 @@ export default function FunnelsPage() {
                       if (extrasForm.resultImgs.trim()) payload.resultImgs = extrasForm.resultImgs;
                       if (extrasForm.metaPixelId.trim()) payload.metaPixelId = extrasForm.metaPixelId;
                       if (extrasForm.oldFunnelUrl.trim()) payload.oldFunnelUrl = extrasForm.oldFunnelUrl;
+                      if (extrasForm.ownerName.trim()) payload.ownerName = extrasForm.ownerName;
                       void act("extras", f.slug, payload);
                       setExtrasFor(null);
                     }} disabled={busy === `extras:${f.slug}`}
