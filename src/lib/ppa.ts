@@ -50,8 +50,18 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
     // The team renamed the financing-sheet mark from "PPA" to "PPS" (pay-per-
     // show) — accept both so a sheet-side rename never empties the roster.
     const status = String(p.payment_status ?? "").toLowerCase();
-    if (status.includes("ppa") || status.includes("pps")) ppaByKey.set(p.owner_key, p.client_name);
+    if (!status.includes("ppa") && !status.includes("pps")) continue;
+    ppaByKey.set(p.owner_key, p.client_name);
+    // The parenthetical is a name too: the financing sheet had "Ah Ra Cho
+    // (Estee Cho)" while Clients Master says "Estee Cho" — normalizeOwnerKey
+    // drops parentheses, so she never matched. Accept either name order.
+    for (const m of String(p.client_name ?? "").matchAll(/\(([^)]+)\)/g)) {
+      const alias = normalizeOwnerKey(m[1]);
+      if (alias && !ppaByKey.has(alias)) ppaByKey.set(alias, p.client_name);
+    }
   }
+  // Matches are tracked by the SHEET name, not the key — one sheet row can
+  // register several keys, and matching any of them means the client is found.
   const matched = new Set<string>();
   const seen = new Set<string>();
   const out: V3Client[] = [];
@@ -60,8 +70,9 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
     const version = String(d["Version"] ?? "");
     const status = String(d["col_1"] ?? "").toLowerCase();
     const normKey = normalizeOwnerKey(d["Owner Full Name"]);
-    if (!normKey || !ppaByKey.has(normKey)) continue;
-    matched.add(normKey);
+    const payName = normKey ? ppaByKey.get(normKey) : undefined;
+    if (!payName) continue;
+    matched.add(payName);
     if (status !== "live" && status !== "paused") continue;
     const ownerName = String(d["Owner Full Name"] ?? "").trim();
     if (!ownerName) continue;
@@ -79,9 +90,8 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
     });
   }
   out.sort((a, b) => a.ownerName.localeCompare(b.ownerName));
-  const missingFromMaster = [...ppaByKey.entries()]
-    .filter(([k]) => !matched.has(k))
-    .map(([, name]) => name)
+  const missingFromMaster = [...new Set(ppaByKey.values())]
+    .filter((name) => !matched.has(name))
     .sort();
   return { clients: out, missingFromMaster };
 }
