@@ -25,11 +25,12 @@ type Extras = {
 };
 
 // Public funnel URL on the branded domain (book.pmu-care.com is a
-// CNAME onto this same Vercel deployment).
+// CNAME onto this same Vercel deployment; middleware rewrites the
+// short path to /f/<slug> on that host).
 const FUNNEL_ORIGIN = "https://book.pmu-care.com";
 
 function funnelUrl(_req: NextRequest, slug: string): string {
-  return `${FUNNEL_ORIGIN}/f/${slug}`;
+  return `${FUNNEL_ORIGIN}/${slug}`;
 }
 
 export async function GET(req: NextRequest) {

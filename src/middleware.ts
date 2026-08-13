@@ -1,7 +1,24 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 
+// book.pmu-care.com serves ONLY funnels, so it gets the short client URLs
+// (book.pmu-care.com/<slug>) matching the pmu-care.com/BUSINESSNAME pattern.
+// The /f/ namespace still exists everywhere — it's what keeps funnel slugs
+// from colliding with dashboard routes on the main deployment domain.
+const FUNNEL_HOST = "book.pmu-care.com";
+const RESERVED = new Set(["api", "f", "login", "auth", "manifest.webmanifest"]);
+
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
+  const host = (request.headers.get("host") ?? "").toLowerCase();
+  if (host === FUNNEL_HOST) {
+    const m = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/?$/i);
+    if (m && !RESERVED.has(m[1].toLowerCase())) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/f/${m[1].toLowerCase()}`;
+      return NextResponse.rewrite(url);
+    }
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
