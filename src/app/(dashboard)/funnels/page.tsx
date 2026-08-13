@@ -9,6 +9,17 @@ import { cn } from "@/lib/utils";
 // each sub-account's GHL custom values; this tab manages existence,
 // status and the per-client extras (Fanbasis block, widget, pixel).
 
+type AbVariant = {
+  vkey: string; label: string; kind: string; target: string | null; weight: number;
+  visitors: number; leads: number | null; booked: number | null;
+  bookRate: number | null; spend: number | null; costPerBooking: number | null;
+};
+type AbResult = {
+  experiment: { id: number; name: string; status: string; startedAt: string } | null;
+  spendWindow: string | null;
+  variants: AbVariant[];
+};
+
 type Funnel = {
   slug: string; locationId: string; clientName: string; status: string;
   cvSyncedAt: string | null; url: string;
@@ -49,6 +60,9 @@ export default function FunnelsPage() {
   const [extrasFor, setExtrasFor] = useState<string | null>(null);
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "" });
   const [toast, setToast] = useState<string | null>(null);
+  const [abFor, setAbFor] = useState<string | null>(null);
+  const [ab, setAb] = useState<Record<string, AbResult>>({});
+  const [abBusy, setAbBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,6 +93,29 @@ export default function FunnelsPage() {
       else setToast(action === "resync" ? "Synced from GHL ✓" : "Saved ✓");
       if (action !== "health") await load();
     } finally { setBusy(null); }
+  }
+
+  const loadAb = useCallback(async (slug: string) => {
+    setAbBusy(true);
+    try {
+      const r = await fetch(`/api/onebox/ab?slug=${encodeURIComponent(slug)}`);
+      const j = (await r.json()) as AbResult;
+      setAb((x) => ({ ...x, [slug]: j }));
+    } finally { setAbBusy(false); }
+  }, []);
+
+  async function abAct(slug: string, payload: Record<string, unknown>) {
+    setAbBusy(true);
+    try {
+      const r = await fetch("/api/onebox/ab", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json();
+      if (j.error) setToast(`Error: ${j.error}`);
+      else setToast("Saved ✓");
+      await loadAb(slug);
+    } finally { setAbBusy(false); }
   }
 
   async function addFunnel() {
@@ -203,6 +240,10 @@ export default function FunnelsPage() {
                   className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
                   Extras
                 </button>
+                <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) void loadAb(f.slug); }}
+                  className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                  Split test
+                </button>
                 <button onClick={() => void act("status", f.slug, { status: f.status === "live" ? "paused" : "live" })}
                   disabled={busy === `status:${f.slug}`}
                   className={cn("text-xs rounded-lg px-2.5 py-1 border font-medium",
@@ -220,6 +261,116 @@ export default function FunnelsPage() {
                       <span className="text-[#697a91]">— {c.note}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {abFor === f.slug && (
+                <div className="mt-3 border-t border-[#eef2f6] pt-3">
+                  {abBusy && !ab[f.slug] ? (
+                    <div className="text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /> Loading…</div>
+                  ) : !ab[f.slug]?.experiment ? (
+                    <div className="grid gap-2">
+                      <p className="text-[11px] text-[#697a91]">
+                        Splits this funnel&rsquo;s ad traffic 50/50 against the client&rsquo;s original GHL funnel and
+                        compares cost per booking. Point the ad&rsquo;s redirect at{" "}
+                        <b>{f.url.replace("/f/", "/s/").replace(`/${f.slug}`, `/${f.slug}`)}</b>{" "}
+                        (same link, <code>/s/</code> instead of <code>/f/</code>).
+                      </p>
+                      <div className="grid md:grid-cols-2 gap-2">
+                        <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL (e.g. https://pmu-care.com/care-pmu-survey-test-old)"
+                          defaultValue={f.oldFunnelUrl || ""}
+                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                        <button
+                          onClick={() => {
+                            const el = document.getElementById(`ab-orig-${f.slug}`) as HTMLInputElement | null;
+                            const target = (el?.value ?? "").trim();
+                            if (!target) { setToast("Add the original funnel URL first"); return; }
+                            void abAct(f.slug, {
+                              action: "create", slug: f.slug, name: "Original vs One-Box",
+                              variants: [
+                                { vkey: "a", label: "Original GHL funnel", kind: "external", target, weight: 50 },
+                                { vkey: "b", label: "One-box funnel", kind: "onebox", weight: 50 },
+                              ],
+                            });
+                          }}
+                          disabled={abBusy}
+                          className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
+                          Start 50/50 test
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <b className="text-xs text-[#1c2b3a]">{ab[f.slug].experiment!.name}</b>
+                        <span className={cn("text-[10px] font-semibold rounded-full px-2 py-0.5 border",
+                          ab[f.slug].experiment!.status === "running"
+                            ? "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]"
+                            : "bg-[#fff3e6] text-[#c2410c] border-[#fdba74]")}>
+                          {ab[f.slug].experiment!.status.toUpperCase()}
+                        </span>
+                        <span className="text-[11px] text-[#697a91]">
+                          since {new Date(ab[f.slug].experiment!.startedAt).toLocaleDateString()}
+                          {ab[f.slug].spendWindow ? ` · spend: ${ab[f.slug].spendWindow}` : " · no spend data"}
+                        </span>
+                        <div className="flex-1" />
+                        <button onClick={() => void loadAb(f.slug)} disabled={abBusy}
+                          className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                          {abBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : "Refresh"}
+                        </button>
+                        <button onClick={() => void abAct(f.slug, { action: "status", id: ab[f.slug].experiment!.id,
+                          status: ab[f.slug].experiment!.status === "running" ? "paused" : "running" })}
+                          disabled={abBusy}
+                          className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                          {ab[f.slug].experiment!.status === "running" ? "Pause test" : "Resume"}
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="text-[#697a91]">
+                            <tr className="text-left">
+                              <th className="py-1 pr-3 font-medium">Variant</th>
+                              <th className="py-1 pr-3 font-medium">Visitors</th>
+                              <th className="py-1 pr-3 font-medium">Leads</th>
+                              <th className="py-1 pr-3 font-medium">Booked</th>
+                              <th className="py-1 pr-3 font-medium">Book rate</th>
+                              <th className="py-1 pr-3 font-medium">Spend</th>
+                              <th className="py-1 pr-3 font-medium">Cost / booking</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ab[f.slug].variants.map((v) => {
+                              const best = ab[f.slug].variants
+                                .filter((x) => x.costPerBooking != null)
+                                .sort((a, b) => (a.costPerBooking! - b.costPerBooking!))[0];
+                              const isBest = !!best && best.vkey === v.vkey && ab[f.slug].variants.filter((x) => x.costPerBooking != null).length > 1;
+                              return (
+                                <tr key={v.vkey} className="border-t border-[#eef2f6]">
+                                  <td className="py-1.5 pr-3">
+                                    <span className="text-[#1c2b3a] font-medium">{v.label}</span>
+                                    {isBest && <span className="ml-1.5 text-[10px] font-semibold text-[#15803d]">best</span>}
+                                  </td>
+                                  <td className="py-1.5 pr-3">{v.visitors}</td>
+                                  <td className="py-1.5 pr-3">{v.leads ?? "—"}</td>
+                                  <td className="py-1.5 pr-3">{v.booked ?? "—"}</td>
+                                  <td className="py-1.5 pr-3">{v.bookRate != null ? `${v.bookRate}%` : "—"}</td>
+                                  <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
+                                  <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">
+                                    {v.costPerBooking != null ? `$${v.costPerBooking}` : "—"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[10px] text-[#697a91]">
+                        Spend is this client&rsquo;s ad spend split by each side&rsquo;s share of visitors — the same ads
+                        feed both, so spend follows the traffic. The original funnel&rsquo;s bookings are counted from the
+                        GHL calendar (appointments the one-box didn&rsquo;t create).
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 

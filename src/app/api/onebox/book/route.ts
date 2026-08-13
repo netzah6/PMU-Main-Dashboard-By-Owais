@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
   // Reflect the booking on the stored lead row (best effort).
   await svc
     .from("onebox_leads")
-    .update({ ghl_status: "booked", ghl_contact_id: contactId })
+    .update({ ghl_status: "booked", ghl_contact_id: contactId, ghl_appointment_id: aj.id ?? null })
     .eq("slug", slug)
     .eq("phone", phone)
     .then(() => {});

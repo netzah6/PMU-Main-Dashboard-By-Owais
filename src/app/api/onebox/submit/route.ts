@@ -26,6 +26,11 @@ export async function POST(req: NextRequest) {
   // before the email step is still captured in GHL. The later "complete"
   // call upserts the same contact (deduped by phone) with full answers.
   const partial = String(body.stage ?? "") === "partial";
+  // Split-test attribution, passed through by the funnel page.
+  const expIdRaw = String(body.experimentId ?? "").replace(/\D/g, "");
+  const expId = expIdRaw ? Number(expIdRaw) : null;
+  const variantKey = String(body.variantKey ?? "").slice(0, 12) || null;
+  const visitorId = String(body.visitorId ?? "").slice(0, 64) || null;
   if (!slug || !fullName || !phone) {
     return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
   }
@@ -54,7 +59,11 @@ export async function POST(req: NextRequest) {
     ? { data: null }
     : await svc
         .from("onebox_leads")
-        .insert({ slug, location_id: locationId, full_name: fullName, phone, answers: { ...answers, email } })
+        .insert({
+          slug, location_id: locationId, full_name: fullName, phone,
+          answers: { ...answers, email },
+          experiment_id: expId, variant_key: variantKey, visitor_id: visitorId,
+        })
         .select("id")
         .single();
 
