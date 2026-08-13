@@ -29,10 +29,16 @@ export async function POST(req: NextRequest) {
   const svc = createServiceClient();
   const { data: client } = await svc
     .from("onebox_clients")
-    .select("slug, location_id, status, config")
+    .select("slug, location_id, status, config, extras")
     .eq("slug", slug)
     .single();
-  const calendarId = (client?.config as Record<string, string>)?.calendarId;
+  const cfg = (client?.config ?? {}) as Record<string, string>;
+  const calendarId = cfg.calendarId;
+  /* The appointment is only CONFIRMED once the deposit is paid. We can
+     only know that when we generate the checkout ourselves (product id),
+     because that block calls us back on success — with a hand-pasted
+     block there's no callback, so keep the old confirm-on-booking. */
+  const deferConfirm = !!(cfg.fanbasisProductId || "").trim();
   if (!client || client.status === "draft" || !calendarId) {
     return NextResponse.json({ ok: false, error: "unknown funnel" }, { status: 404 });
   }
@@ -92,7 +98,7 @@ export async function POST(req: NextRequest) {
       startTime,
       endTime,
       title,
-      appointmentStatus: "confirmed",
+      appointmentStatus: deferConfirm ? "new" : "confirmed",
     }),
   });
   const aj = (await ar.json()) as { id?: string; message?: string };
@@ -107,10 +113,10 @@ export async function POST(req: NextRequest) {
   // Reflect the booking on the stored lead row (best effort).
   await svc
     .from("onebox_leads")
-    .update({ ghl_status: "booked", ghl_contact_id: contactId })
+    .update({ ghl_status: deferConfirm ? "held" : "booked", ghl_contact_id: contactId })
     .eq("slug", slug)
     .eq("phone", phone)
     .then(() => {});
 
-  return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
+  return NextResponse.json({ ok: true, appointmentId: aj.id ?? null, deferConfirm });
 }

@@ -166,13 +166,13 @@
     "#onebox-root .obslots p{margin:0;font-size:13px;color:var(--muted);text-align:center;padding:16px 0;grid-column:1/-1}" +
     "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
     "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:6px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
-    "#onebox-root .depwhen{margin:0;font-size:13px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
-    "#onebox-root .deprow{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 0 10px;font-family:var(--form);font-size:15px}" +
+    "#onebox-root .depwhen{margin:0;font-size:14.5px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
+    "#onebox-root .deprow{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 0 10px;font-family:var(--form);font-size:17px}" +
     "#onebox-root .depsafe{background:var(--mint-bg);border:1px solid var(--mint-line);border-radius:7px;padding:7px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
-    "#onebox-root .depsafe strong{display:block;color:var(--mint-ink);font-size:13px;font-family:var(--headline);line-height:1.3}" +
-    "#onebox-root .depsafe p{margin:1px 0 0;font-size:11.5px;color:#2c5c39;line-height:1.38}" +
+    "#onebox-root .depsafe strong{display:block;color:var(--mint-ink);font-size:14px;font-family:var(--headline);line-height:1.3}" +
+    "#onebox-root .depsafe p{margin:2px 0 0;font-size:12.5px;color:#2c5c39;line-height:1.4}" +
     "#onebox-root .dephold{color:var(--ink-soft);font-weight:600}" +
-    "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;font-size:19px;letter-spacing:-.01em;color:var(--ink)}" +
+    "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;font-size:17px;letter-spacing:-.01em;color:var(--ink)}" +
     "#onebox-root .dephead{font-size:15.5px;margin:0 0 7px}" +
     "#onebox-root .fbslot{min-height:400px}" +
     "#onebox-root .done{text-align:center;padding:6px 0}" +
@@ -567,7 +567,13 @@
       .then(function (r) { return r.json(); })
       .then(function (j) {
         calState.booking = false;
-        if (j.ok) { state.slotIso = iso; pixelTrack("Schedule"); show("deposit"); }
+        if (j.ok) {
+          state.slotIso = iso;
+          state.apptId = j.appointmentId || "";
+          state.deferConfirm = !!j.deferConfirm;
+          pixelTrack("Schedule");
+          show("deposit");
+        }
         else {
           calState.error = "";
           show("booking", "prev");
@@ -597,6 +603,24 @@
     if (!tpl || !tpl.content) return;
     state.fbBooted = true;
     window.OB_LEAD = { name: state.answers.full_name || "", email: state.answers.email || "" };
+    /* The checkout calls this the moment the deposit clears — that's when
+       the appointment goes from held to confirmed. */
+    window.OB_ONPAID = function () {
+      if (!state.deferConfirm || !state.apptId || state.paidSent) return;
+      state.paidSent = true;
+      try {
+        fetch((C.submitUrl || "").replace(/submit$/, "confirm"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          keepalive: true,
+          body: JSON.stringify({
+            slug: C.slug || "",
+            appointmentId: state.apptId,
+            phone: state.answers.phone || "",
+          }),
+        });
+      } catch (e) {}
+    };
     var nodes = Array.prototype.slice.call(tpl.content.childNodes);
     var scripts = [];
     nodes.forEach(function (n) {
