@@ -93,14 +93,14 @@ export async function GET(
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>${title.replace(/[<>&]/g, "")}</title>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</template>` : ""}
-<script src="/onebox.js?v=18" async></script>
+<script src="/onebox.js?v=19" async></script>
 </body>
 </html>`;
 
