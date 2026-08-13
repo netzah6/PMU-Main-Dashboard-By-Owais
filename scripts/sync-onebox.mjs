@@ -80,17 +80,29 @@ const config = {
   calendarId: pick("CC - Permanent Makeup Transformation Calendar ID🔵"),
 };
 
-const up = await fetch(`${SB}/rest/v1/onebox_clients?on_conflict=slug`, {
-  method: "POST",
-  headers: { ...sbHeaders, Prefer: "resolution=merge-duplicates,return=representation" },
-  body: JSON.stringify([{
-    slug,
-    location_id: locationId,
-    client_name: clientName || config.biz,
-    config,
-    cv_synced_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  }]),
-});
+// Existing row: update config only — never clobber client_name
+// (it once renamed every card to the account's "Business Name").
+const existing = await fetch(`${SB}/rest/v1/onebox_clients?slug=eq.${encodeURIComponent(slug)}&select=slug`, { headers: sbHeaders }).then((r) => r.json());
+const payload = existing.length
+  ? { config, cv_synced_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+  : {
+      slug,
+      location_id: locationId,
+      client_name: clientName || config.biz,
+      config,
+      cv_synced_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+const up = existing.length
+  ? await fetch(`${SB}/rest/v1/onebox_clients?slug=eq.${encodeURIComponent(slug)}`, {
+      method: "PATCH",
+      headers: sbHeaders,
+      body: JSON.stringify(payload),
+    })
+  : await fetch(`${SB}/rest/v1/onebox_clients`, {
+      method: "POST",
+      headers: { ...sbHeaders, Prefer: "return=representation" },
+      body: JSON.stringify([payload]),
+    });
 if (!up.ok) throw new Error(`supabase upsert ${up.status}: ${await up.text()}`);
 console.log(`synced ${slug} (${locationId}):`, config);
