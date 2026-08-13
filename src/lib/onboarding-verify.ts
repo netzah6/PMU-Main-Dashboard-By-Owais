@@ -783,13 +783,21 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         for (const k of ["make_http", "make_filter"]) push(k, "manual", diag || "Make scenario not found");
       } else {
         const own = norm(String(form.owner_name ?? ""));
-        const route = routes.find((r) => {
+        // Collect EVERY matching route, not just the first. A business must have
+        // exactly one route: duplicates make the scenario fire twice per payment,
+        // which writes the deposit to the sheet twice. `.find()` used to stop at
+        // the first hit, so duplicates passed silently.
+        const matches = routes.filter((r) => {
           const rn = norm(r);
           return (!!bn && rn.includes(bn)) || (!!productId && r.includes(productId)) || (!!own && rn.includes(own));
         });
+        const route = matches[0];
         if (!route) {
           push("make_filter", "fail", `No route for "${business}" in "${usedName}" (${routes.length} routes checked)`);
           push("make_http", "fail", "No route → no GHL webhook for this business in Make");
+        } else if (matches.length > 1) {
+          push("make_filter", "fail", `${matches.length} DUPLICATE routes for "${business}" in "${usedName}" — there must be exactly 1. Duplicates fire the scenario ${matches.length}× per payment, so each deposit is written to the sheet ${matches.length} times. Delete the extras.`);
+          push("make_http", "fail", `Ambiguous — ${matches.length} routes match this business, so the GHL webhook target can't be confirmed. Fix the duplicates first.`);
         } else {
           push("make_filter", "pass", `Route found in "${usedName}" (${routes.length} routes total)`);
           if (route.includes(locationId)) push("make_http", "pass", "Route's HTTP module posts to THIS sub-account's GHL webhook");
