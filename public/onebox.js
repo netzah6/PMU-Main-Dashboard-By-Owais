@@ -66,16 +66,16 @@
     "#onebox-root .topbar{background:var(--teal);min-height:30px;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 14px;text-align:center}" +
     "#onebox-root .topbar svg{width:13px;height:13px;fill:#111;flex:none}" +
     "#onebox-root .topbar span{font-family:var(--headline);font-weight:400;font-size:13.5px;color:#111;line-height:1.3}" +
-    "#onebox-root .callbar{border-bottom:1px solid var(--line);padding:11px 20px;text-align:right;font-size:15px;font-weight:700;font-family:var(--headline)}" +
-    "#onebox-root .wrap{padding:26px 20px 44px;max-width:720px;margin:0 auto}" +
-    "#onebox-root .biglogo{display:block;margin:0 auto 14px;max-height:80px;width:auto}" +
+    "#onebox-root .callbar{border-bottom:1px solid var(--line);padding:11px 20px;text-align:center;font-size:15px;font-weight:700;font-family:var(--headline)}" +
+    "#onebox-root .wrap{padding:14px 20px 44px;max-width:720px;margin:0 auto}" +
+    "#onebox-root .biglogo{display:block;margin:0 auto 8px;max-height:56px;width:auto}" +
     "#onebox-root .lede{text-align:center;margin:0;font-size:15px;color:var(--ink-soft)}" +
-    "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(24px,3.4vw,30px);line-height:1.2;letter-spacing:-.01em;text-align:center;text-wrap:balance;margin:10px auto 0;max-width:24ch;color:#000}" +
-    "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:20px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
-    "#onebox-root .trust{text-align:center;padding:18px 20px 0}" +
+    "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(24px,3.4vw,30px);line-height:1.2;letter-spacing:-.01em;text-align:center;text-wrap:balance;margin:6px auto 0;max-width:24ch;color:#000}" +
+    "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:17px;text-align:center;margin:4px 0 0;color:var(--ink-soft)}" +
+    "#onebox-root .trust{text-align:center;padding:10px 20px 0}" +
     "#onebox-root .trust p{margin:0;font-size:14px;color:var(--ink-soft)}" +
     "#onebox-root .stars{color:var(--gold);letter-spacing:.14em;font-size:15px;margin-top:3px}" +
-    "#onebox-root .box{margin:26px auto 0;max-width:560px;background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 48px -20px rgba(17,19,21,.28),0 4px 14px -8px rgba(17,19,21,.14);overflow:hidden;font-family:var(--form)}" +
+    "#onebox-root .box{margin:14px auto 0;max-width:560px;background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 48px -20px rgba(17,19,21,.28),0 4px 14px -8px rgba(17,19,21,.14);overflow:hidden;font-family:var(--form)}" +
     "#onebox-root .rail{margin:14px 16px 0;height:24px;border-radius:999px;background:#e9edef;overflow:hidden}" +
     "#onebox-root .rail span{display:grid;place-items:center;height:100%;border-radius:999px;background:repeating-linear-gradient(135deg,var(--teal) 0 11px,var(--teal-deep) 11px 22px);color:#fff;font-size:11px;font-weight:600;white-space:nowrap;transition:width .45s cubic-bezier(.4,0,.2,1);min-width:44px}" +
     "#onebox-root .slide{padding:22px 26px 26px;min-height:210px}" +
@@ -117,7 +117,8 @@
     "#onebox-root .confyes{display:block;width:100%;border:0;border-radius:12px;padding:13px;cursor:pointer;background:linear-gradient(100deg,#5adbd4,var(--teal) 60%,var(--teal-deep));box-shadow:0 10px 22px -10px rgba(23,195,195,.55);transition:filter .15s;margin:0 0 10px}" +
     "#onebox-root .stickycta{position:fixed;left:14px;right:14px;bottom:14px;z-index:2147483000;display:flex;justify-content:center;opacity:0;pointer-events:none;transform:translateY(12px);transition:opacity .25s,transform .25s}" +
     "#onebox-root .stickycta.on{opacity:1;pointer-events:auto;transform:none}" +
-    "#onebox-root .stickycta button{width:100%;max-width:560px;border:0;cursor:pointer;border-radius:14px;padding:12px 18px;background:linear-gradient(100deg,#5adbd4,var(--teal) 60%,var(--teal-deep));box-shadow:0 14px 30px -12px rgba(23,195,195,.7),0 4px 12px rgba(17,19,21,.18);font-family:var(--form);text-align:center}" +
+    "#onebox-root .stickycta button{width:100%;max-width:560px;cursor:pointer;border-radius:14px;padding:13px 18px;background:linear-gradient(100deg,#5adbd4,var(--teal) 60%,var(--teal-deep));border:2px solid rgba(255,255,255,.75);box-shadow:0 0 0 3px rgba(13,43,51,.9),0 16px 34px -10px rgba(17,19,21,.5);font-family:var(--form);text-align:center;transition:transform .12s,filter .12s}" +
+    "#onebox-root .stickycta button:active{transform:scale(.97);filter:brightness(.96)}" +
     "#onebox-root .stickycta b{display:block;font-size:17px;font-weight:800;color:#0d2b33;letter-spacing:-.01em}" +
     "#onebox-root .stickycta span{display:block;font-size:12px;font-weight:600;color:#0d3b40;opacity:.85;margin-top:2px}" +
     "#onebox-root .confyes:hover:not(:disabled){filter:brightness(1.05)}" +
@@ -135,6 +136,7 @@
     "#onebox-root .bar button:hover:not(:disabled){opacity:1;background:rgba(255,255,255,.09)}" +
     "#onebox-root .bar button[hidden]{visibility:hidden;display:block}" +
     "#onebox-root .phead{font-family:var(--headline);font-weight:700;font-size:17px;line-height:1.3;text-align:center;text-wrap:balance;margin:0 0 4px;color:#000}" +
+    "#onebox-root .pheadoffer{display:block;margin-top:2px;color:var(--teal-deep);font-size:19px}" +
     "#onebox-root .psub{text-align:center;font-family:var(--content);font-size:13px;color:var(--muted);margin:0 0 14px}" +
     "#onebox-root .cal-nav{display:flex;align-items:center;justify-content:center;gap:16px;margin:2px 0 10px}" +
     "#onebox-root .cal-nav button{width:29px;height:29px;border-radius:50%;border:0;background:#eef7f7;color:var(--teal-deep);font-size:16px;line-height:1;cursor:pointer}" +
@@ -143,10 +145,10 @@
     "#onebox-root .cal-nav strong{font-size:14px;font-weight:600;min-width:8.5em;text-align:center;font-family:var(--form)}" +
     "#onebox-root .obgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;max-width:340px;margin:0 auto}" +
     "#onebox-root .obgrid .dow{font-size:10px;color:var(--muted);padding:4px 0;font-weight:600}" +
-    "#onebox-root .obgrid button{aspect-ratio:1;border:0;background:none;border-radius:50%;font:inherit;font-size:13px;color:var(--ink);cursor:pointer;font-variant-numeric:tabular-nums}" +
-    "#onebox-root .obgrid button:hover:not(:disabled){background:#eef7f7}" +
-    "#onebox-root .obgrid button:disabled{color:#c9ced2;cursor:default}" +
-    "#onebox-root .obgrid button[aria-pressed=true],#onebox-root .obgrid button[aria-pressed=true]:hover{background:var(--ink);color:#fff;font-weight:600}" +
+    "#onebox-root .obgrid button{aspect-ratio:1;border:0;background:#f2fbfb;border-radius:50%;font:inherit;font-size:13px;color:var(--teal-deep);font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums}" +
+    "#onebox-root .obgrid button:hover:not(:disabled){background:#d8f3f2}" +
+    "#onebox-root .obgrid button:disabled{color:#c9ced2;background:none;font-weight:400;cursor:default}" +
+    "#onebox-root .obgrid button[aria-pressed=true],#onebox-root .obgrid button[aria-pressed=true]:hover{background:linear-gradient(135deg,#3ed2cb,var(--teal-deep));color:#fff;font-weight:700;box-shadow:0 5px 12px -4px rgba(23,195,195,.65)}" +
     "#onebox-root .obslots{margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;max-height:150px;overflow-y:auto}" +
     "#onebox-root .obslots button{padding:12px 4px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit;font-size:13.5px;color:var(--ink);font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums;transition:border-color .15s,background .15s,box-shadow .15s;box-shadow:0 3px 8px -6px rgba(17,19,21,.18)}" +
     "#onebox-root .obslots button:hover:not(:disabled){border-color:var(--teal);background:#f2fbfb}" +
@@ -293,8 +295,14 @@
   var slideEl = document.getElementById("ob-slide");
   var boxEl = root.querySelector(".box");
   var firstShow = true;
+  var interacted = false;
+  root.addEventListener("pointerdown", function () { interacted = true; }, { passive: true });
+  root.addEventListener("keydown", function () { interacted = true; });
   function focusBox() {
-    try { boxEl.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+    try {
+      var tall = boxEl.getBoundingClientRect().height >= window.innerHeight - 40;
+      boxEl.scrollIntoView({ behavior: "smooth", block: tall ? "start" : "end" });
+    } catch (e) {}
   }
 
   function rail() {
@@ -302,9 +310,9 @@
     wrap.style.display = phase === "survey" ? "none" : "";
     if (phase === "survey") return;
     var pct, label;
-    if (phase === "booking") { pct = 72; label = "You’re Almost Done…"; }
-    else if (phase === "confirm") { pct = 80; label = "You\u2019re Almost Done\u2026"; }
-    else if (phase === "deposit") { pct = 88; label = "Last Step…"; }
+    if (phase === "booking") { pct = 80; label = "You’re Almost Done…"; }
+    else if (phase === "confirm") { pct = 85; label = "You\u2019re Almost Done\u2026"; }
+    else if (phase === "deposit") { pct = 90; label = "Last Step…"; }
     else { pct = 100; label = "100%"; }
     railEl.style.width = pct + "%";
     railEl.textContent = label;
@@ -354,7 +362,7 @@
       calState.y = n.getFullYear(); calState.m = n.getMonth();
     }
     return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
-      ? "Book Your Appointment NOW to Claim " + esc(OFFERR) + "."
+      ? 'Book Your Appointment NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR) + "</span>"
       : "Book Your Appointment NOW!") + "</h2>" +
       '<div id="ob-calbox">' + calHTML() + "</div>" +
       '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
@@ -669,7 +677,7 @@
     }
     rail(); renderExtras();
     if (firstShow) firstShow = false;
-    else { focusBox(); setTimeout(focusBox, 700); }
+    else if (interacted) { focusBox(); setTimeout(focusBox, 700); }
   }
 
   function bindSurvey() {
@@ -785,12 +793,15 @@
     '<span>Limited to the next 20 clients only</span></button>';
   root.appendChild(cta);
   document.getElementById("ob-cta").onclick = focusBox;
+  var hasScrolled = false;
   function ctaCheck() {
+    hasScrolled = true;
     var b = boxEl.getBoundingClientRect();
-    cta.classList.toggle("on", b.bottom < window.innerHeight * 0.35);
+    var away = b.bottom < window.innerHeight * 0.35 || b.top > window.innerHeight * 0.85;
+    cta.classList.toggle("on", hasScrolled && away);
   }
   window.addEventListener("scroll", ctaCheck, { passive: true });
-  window.addEventListener("resize", ctaCheck);
+  window.addEventListener("resize", function () { if (hasScrolled) ctaCheck(); });
 
   show("survey");
 })();
