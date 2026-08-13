@@ -22,6 +22,7 @@ type Extras = {
   elfsightId?: string;
   resultImgs?: string;
   metaPixelId?: string;
+  oldFunnelUrl?: string;
 };
 
 // Public funnel URL on the branded domain (book.pmu-care.com is a
@@ -70,6 +71,7 @@ export async function GET(req: NextRequest) {
       hasFanbasis: !!(config.fanbasisProductId || config.fanbasisCode || extras.fanbasisHtml),
       hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
       hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
+      oldFunnelUrl: extras.oldFunnelUrl ?? "",
       leads: counts[r.slug]?.leads ?? 0,
       booked: counts[r.slug]?.booked ?? 0,
       lastLeadAt: counts[r.slug]?.lastLeadAt ?? null,
@@ -104,6 +106,7 @@ export async function POST(req: NextRequest) {
     let pixelNote = "no old funnel URL given — add the pixel later";
     const oldUrl = String(body.oldFunnelUrl ?? "").trim();
     if (oldUrl) {
+      extras.oldFunnelUrl = oldUrl;
       const pixel = await harvestPixelId(oldUrl);
       if (pixel) { extras.metaPixelId = pixel; pixelNote = `pixel ${pixel} harvested from ${oldUrl}`; }
       else pixelNote = `no pixel found on ${oldUrl} — set it manually`;
@@ -144,6 +147,7 @@ export async function POST(req: NextRequest) {
     if (body.elfsightId !== undefined) extras.elfsightId = normalizeElfsight(body.elfsightId);
     if (body.resultImgs !== undefined) extras.resultImgs = String(body.resultImgs);
     if (body.metaPixelId !== undefined) extras.metaPixelId = String(body.metaPixelId).replace(/\D/g, "");
+    if (body.oldFunnelUrl !== undefined) extras.oldFunnelUrl = String(body.oldFunnelUrl).trim();
     await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
     return NextResponse.json({ ok: true, elfsightId: extras.elfsightId ?? "" });
   }
