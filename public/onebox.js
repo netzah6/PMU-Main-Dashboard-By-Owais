@@ -79,6 +79,7 @@
     "#onebox-root .rail{margin:14px 16px 0;height:24px;border-radius:999px;background:#e9edef;overflow:hidden}" +
     "#onebox-root .rail span{display:grid;place-items:center;height:100%;border-radius:999px;background:repeating-linear-gradient(135deg,var(--teal) 0 11px,var(--teal-deep) 11px 22px);color:#fff;font-size:11px;font-weight:600;white-space:nowrap;transition:width .45s cubic-bezier(.4,0,.2,1);min-width:44px;animation:ob-railmove 1.1s linear infinite}" +
     "@keyframes ob-railmove{to{background-position:31.11px 0}}" +
+    "@media(min-width:768px){#onebox-root .wrap{padding-top:34px}#onebox-root .biglogo{max-height:86px;margin-bottom:22px}#onebox-root h1.page{margin-top:16px}#onebox-root .sub{margin-top:10px}#onebox-root .trust{padding-top:24px}#onebox-root .box{margin-top:32px}}" +
     "#onebox-root .slide{padding:22px 26px 26px;min-height:210px}" +
     "#onebox-root .slide.anim-next{animation:ob-in-next .3s ease both}" +
     "#onebox-root .slide.anim-prev{animation:ob-in-prev .3s ease both}" +
@@ -163,14 +164,16 @@
     "#onebox-root .obslots button:disabled{opacity:.5;cursor:wait}" +
     "#onebox-root .obslots p{margin:0;font-size:13px;color:var(--muted);text-align:center;padding:16px 0;grid-column:1/-1}" +
     "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
-    "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:7px 10px;text-align:center;margin:0 0 8px;font-family:var(--content)}" +
+    "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:6px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
     "#onebox-root .depwhen{margin:0;font-size:13px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
     "#onebox-root .depaddr{margin:1px 0 0;font-size:11.5px;font-weight:600;color:var(--ink-soft);line-height:1.35}" +
-    "#onebox-root .deprow{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 0 10px;font-family:var(--form);font-size:12px}" +
-    "#onebox-root .depguar{color:var(--mint-ink);background:var(--mint-bg);border:1px solid var(--mint-line);border-radius:999px;padding:4px 10px;font-weight:700}" +
+    "#onebox-root .deprow{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 0 8px;font-family:var(--form);font-size:12.5px}" +
+    "#onebox-root .depsafe{background:var(--mint-bg);border:1px solid var(--mint-line);border-radius:7px;padding:7px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
+    "#onebox-root .depsafe strong{display:block;color:var(--mint-ink);font-size:13px;font-family:var(--headline);line-height:1.3}" +
+    "#onebox-root .depsafe p{margin:1px 0 0;font-size:11.5px;color:#2c5c39;line-height:1.38}" +
     "#onebox-root .dephold{color:var(--ink-soft);font-weight:600}" +
     "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ink)}" +
-    "#onebox-root .dephead{font-size:16px;margin:0 0 8px}" +
+    "#onebox-root .dephead{font-size:15.5px;margin:0 0 7px}" +
     "#onebox-root .fbslot{min-height:400px}" +
     "#onebox-root .done{text-align:center;padding:6px 0}" +
     "#onebox-root .done .tick{width:58px;height:58px;border-radius:50%;background:var(--mint-bg);border:1px solid var(--mint-line);color:var(--mint-ink);display:grid;place-items:center;margin:0 auto 14px;font-size:26px}" +
@@ -623,9 +626,12 @@
         (state.slotIso ? '<p class="depwhen">&#128197; ' + esc(fmtWhen(state.slotIso)) + "</p>" : "") +
         (ADDR ? '<p class="depaddr">' + esc(ADDR) + "</p>" : "") +
       "</div>" +
+      '<div class="depsafe">' +
+        '<strong>&#10004; 100% Guaranteed &mdash; Fully Refundable</strong>' +
+        "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p>" +
+      "</div>" +
       '<div class="deprow">' +
-        '<span class="depguar">&#10004; 100% refundable</span>' +
-        '<span class="dephold">&#9203; Held for <b id="ob-clock-mini">15:00</b></span>' +
+        '<span class="dephold">&#9203; Held for <b id="ob-clock-mini">10:00</b></span>' +
       "</div>" +
       '<div class="fbslot" id="ob-fbslot"></div>' +
       '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
@@ -633,7 +639,7 @@
 
   /* One continuous hold countdown: starts on the confirmation screen and
      keeps running into the deposit step, so the timers always agree. */
-  var holdTimer = null, holdLeft = 900;
+  var holdTimer = null, holdLeft = 600;
   function paintHold() {
     var hh = Math.floor(holdLeft / 3600), mm = Math.floor((holdLeft % 3600) / 60), ss = holdLeft % 60;
     function two(n) { return (n < 10 ? "0" : "") + n; }
@@ -647,7 +653,7 @@
     if (mini) mini.textContent = (hh ? two(hh) + ":" : "") + two(mm) + ":" + two(ss);
   }
   function ensureHold(reset) {
-    if (reset || holdLeft <= 0) holdLeft = 900;
+    if (reset || holdLeft <= 0) holdLeft = 600;
     paintHold();
     if (holdTimer) return;
     holdTimer = setInterval(function () {
