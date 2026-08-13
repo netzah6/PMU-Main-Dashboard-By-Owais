@@ -24,8 +24,12 @@ type Extras = {
   metaPixelId?: string;
 };
 
-function funnelUrl(req: NextRequest, slug: string): string {
-  return `${req.nextUrl.origin}/f/${slug}`;
+// Public funnel URL on the branded domain (book.pmu-care.com is a
+// CNAME onto this same Vercel deployment).
+const FUNNEL_ORIGIN = "https://book.pmu-care.com";
+
+function funnelUrl(_req: NextRequest, slug: string): string {
+  return `${FUNNEL_ORIGIN}/f/${slug}`;
 }
 
 export async function GET(req: NextRequest) {
