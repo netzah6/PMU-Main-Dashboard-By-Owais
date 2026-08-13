@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import PaymentCheck from "@/components/billing/PaymentCheck";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
 interface ClientRow {
@@ -342,7 +343,22 @@ function Metric({ label, value, sub, tone }: { label: string; value: string | nu
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 type Filter = "all" | "ready";
+// Two jobs, two views: decide what to bill (Charges) and check that the money
+// would land on the right card (Payment check).
+type View = "charges" | "payment";
+
+function SubTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick}
+      className={cn("px-3 py-1.5 -mb-px text-sm font-semibold border-b-2 transition-colors",
+        active ? "border-[#15B7AE] text-[#0e8f88]" : "border-transparent text-[#8595a8] hover:text-[#34568a]")}>
+      {children}
+    </button>
+  );
+}
+
 export default function V3BillingPage() {
+  const [view, setView] = useState<View>("charges");
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -397,7 +413,7 @@ export default function V3BillingPage() {
           <h1 className="text-xl font-bold text-[#1f3559]">PPS Billing</h1>
           <p className="text-sm text-[#697a91]">Pay-per-show clients (marked &quot;PPA&quot; in the financing sheet&apos;s current month) · charge per completed appointment</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className={cn("flex items-center gap-2 flex-wrap", view !== "charges" && "hidden")}>
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef7ff] text-[#1d4ed8] border border-[#c9dbfb]" title="Showed ÷ (showed + no-shows), from your review decisions">
             Show rate {programShowRate == null ? "—" : `${programShowRate}%`}
@@ -410,6 +426,13 @@ export default function V3BillingPage() {
         </div>
       </div>
 
+      <div className="flex items-center gap-1 border-b border-[#e4ebf2]">
+        <SubTab active={view === "charges"} onClick={() => setView("charges")}>💵 Charges</SubTab>
+        <SubTab active={view === "payment"} onClick={() => setView("payment")}>🔎 Payment check</SubTab>
+      </div>
+
+      {view === "payment" ? <PaymentCheck /> : (
+      <>
       {/* Billing policy: unorganized "confirmed" appointments are billed as shown. */}
       <div className="rounded-xl border border-[#e4ebf2] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#697a91]">
         Appointments left in <strong className="text-[#34568a]">&quot;confirmed&quot;</strong> past their date are billed as <strong className="text-[#34568a]">shown</strong> by default — per agreement, if the artist doesn&apos;t organize their dashboard we charge anyway. Clients with several of these are flagged <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span> so you can nudge them.
@@ -469,6 +492,8 @@ export default function V3BillingPage() {
         <div className="space-y-2">
           {filtered.map((c) => <ClientCard key={c.ownerKey} c={c} onChange={() => load()} defaultOpen={filter === "ready"} />)}
         </div>
+      )}
+      </>
       )}
     </div>
   );
