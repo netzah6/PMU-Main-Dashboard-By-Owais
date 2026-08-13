@@ -544,52 +544,13 @@
       '<button type="button" class="confalt" id="ob-alt">Choose a different time</button>';
   }
 
+  /* Choosing a time books nothing yet. The appointment is created once,
+     already confirmed, only after the deposit clears (see OB_ONPAID) —
+     unconfirmed holds on the calendar were confusing the clients. */
   function book(iso) {
-    calState.booking = true;
-    calState.bookingIso = iso;
-    var yes = document.getElementById("ob-yes");
-    if (yes) {
-      yes.disabled = true;
-      yes.innerHTML = '<b><span class="spin"></span>Securing your appointment&hellip;</b>' +
-        "<span>One moment</span>";
-    }
-    fetch((C.submitUrl || "").replace(/submit$/, "book"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slug: C.slug || "",
-        full_name: state.answers.full_name || "",
-        phone: state.answers.phone || "",
-        email: state.answers.email || "",
-        startTime: iso,
-      }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        calState.booking = false;
-        if (j.ok) {
-          state.slotIso = iso;
-          state.apptId = j.appointmentId || "";
-          state.deferConfirm = !!j.deferConfirm;
-          pixelTrack("Schedule");
-          show("deposit");
-        }
-        else {
-          calState.error = "";
-          show("booking", "prev");
-          var note = document.getElementById("ob-note");
-          if (note) note.textContent = "That time just got taken — please pick another.";
-          loadMonth();
-        }
-      })
-      .catch(function () {
-        calState.booking = false;
-        var yes2 = document.getElementById("ob-yes");
-        if (yes2) {
-          yes2.disabled = false;
-          yes2.innerHTML = "<b>Yes, I&rsquo;ll be there</b><span>Something went wrong &mdash; tap to try again</span>";
-        }
-      });
+    state.slotIso = iso;
+    pixelTrack("Schedule");
+    show("deposit");
   }
 
   /* The Fanbasis block ships inert in a <template> — booting it at page
@@ -606,17 +567,19 @@
     /* The checkout calls this the moment the deposit clears — that's when
        the appointment goes from held to confirmed. */
     window.OB_ONPAID = function () {
-      if (!state.deferConfirm || !state.apptId || state.paidSent) return;
+      if (state.paidSent || !state.slotIso) return;
       state.paidSent = true;
       try {
-        fetch((C.submitUrl || "").replace(/submit$/, "confirm"), {
+        fetch((C.submitUrl || "").replace(/submit$/, "book"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           keepalive: true,
           body: JSON.stringify({
             slug: C.slug || "",
-            appointmentId: state.apptId,
+            full_name: state.answers.full_name || "",
             phone: state.answers.phone || "",
+            email: state.answers.email || "",
+            startTime: state.slotIso,
           }),
         });
       } catch (e) {}
@@ -711,7 +674,7 @@
       ensureHold(state.holdFor !== state.pendingIso);
       state.holdFor = state.pendingIso;
       document.getElementById("ob-yes").onclick = function () {
-        if (!calState.booking) book(state.pendingIso);
+        book(state.pendingIso);
       };
       document.getElementById("ob-alt").onclick = function () { show("booking", "prev"); };
     }
