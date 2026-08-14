@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PaymentCluster, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
+import { CardCell, StatusCell, ActionsCell, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
 interface ClientRow {
@@ -264,8 +264,23 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
   return <span className={cn("px-1.5 py-0.5 rounded border font-semibold", c)}>{label}: {value}</span>;
 }
 
-// ── Client card ──────────────────────────────────────────────────────────────
-function ClientCard({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen }: {
+// ── Client table row ─────────────────────────────────────────────────────────
+// The client list is a real table: every number lives in a fixed column, so
+// rows align and can be compared down the page. NumCell keeps digits tabular.
+
+const COLS = 12; // for colSpan on the message/drill-down rows
+
+function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray"; title?: string }) {
+  const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : "text-[#1f3559]";
+  return (
+    <td className="px-2 py-2.5 text-center align-middle" title={title}>
+      <div className={cn("text-sm font-bold leading-none tabular-nums", color)}>{value}</div>
+      {sub && <div className="text-[9px] text-[#8595a8] mt-0.5 whitespace-nowrap">{sub}</div>}
+    </td>
+  );
+}
+
+function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen }: {
   c: ClientRow; v: VRow | undefined; verifyLoading: boolean;
   onChange: () => void; onVerifyReload: () => void; defaultOpen?: boolean;
 }) {
@@ -278,6 +293,9 @@ function ClientCard({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen
   // "Not organizing" = several past appointments left in "confirmed" (never moved
   // to session-done/showed). We bill these as shown by default, per agreement.
   const notOrganizing = c.pastDue >= 3;
+  const ready = v ? v.readyToCharge : c.readyToCharge;
+  const owed = v ? v.amount : c.readyOwed;
+  const split = v ? showSplit(v) : null;
 
   const saveConfig = async (patch: { fee?: number }) => {
     try {
@@ -287,101 +305,85 @@ function ClientCard({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen
   };
 
   return (
-    <div className={cn("rounded-xl border bg-white w-fit max-w-full", c.readyToCharge > 0 ? "border-[#fcd9a8]" : "border-[#a7e3df]")}>
-      <div className="flex items-center gap-2.5 px-3 py-2 flex-wrap">
-        <button onClick={() => setOpen((o) => !o)} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
-          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        </button>
-        <div className="w-[190px] shrink-0 mr-5">
-          <div className="font-bold text-[#1f3559] leading-tight truncate flex items-center gap-1" title={c.ownerName}>
-            <span className="truncate">{c.ownerName}</span>
-            {notOrganizing && (
-              <span title={`${c.pastDue} past appointments left in "confirmed" — not organizing their dashboard. Billed as shown by default per agreement.`}
-                className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span>
-            )}
+    <>
+      <tr className={cn("border-b border-[#eef3f8] transition-colors hover:bg-[#f8fafc]",
+        ready > 0 && "bg-[#fffdf7]", open && "bg-[#f8fafc]")}>
+        {/* Client */}
+        <td className="pl-3 pr-2 py-2.5 align-middle">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setOpen((o) => !o)} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
+              {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            </button>
+            <div className="min-w-[150px] max-w-[190px]">
+              <div className="font-bold text-[13px] text-[#1f3559] leading-tight truncate flex items-center gap-1" title={c.ownerName}>
+                <span className="truncate">{c.ownerName}</span>
+                {notOrganizing && (
+                  <span title={`${c.pastDue} past appointments left in "confirmed" — not organizing their dashboard. Billed as shown by default per agreement.`}
+                    className="shrink-0 px-1 py-0.5 rounded text-[8px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠</span>
+                )}
+              </div>
+              <div className="text-[10px] text-[#8595a8] truncate" title={c.business || undefined}>{c.business || "—"}
+                {c.status === "paused" && <span className="ml-1 px-1 py-0.5 rounded text-[8px] font-bold bg-[#fff7ec] text-[#d97706]">PAUSED</span>}
+              </div>
+            </div>
           </div>
-          <div className="text-[11px] text-[#8595a8] truncate" title={c.business || undefined}>{c.business || "—"}
-            {c.status === "paused" && <span className="ml-1.5 px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706]">PAUSED</span>}
-          </div>
-        </div>
+        </td>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <span className="text-[11px] text-[#8595a8]">Fee</span>
+        {/* Fee */}
+        <td className="px-2 py-2.5 text-center align-middle">
           {c.feeSource === "sheet" ? (
-            // The financing sheet's latest month states this client's fee — it
-            // is the source of truth, so no dashboard edit here. Change it in
-            // the sheet and it updates within 15 minutes (payments cron).
             <span title={`From the financing sheet's notes: "${c.sheetNotes ?? ""}" — edit the sheet to change it.`}
-              className="px-2 py-0.5 text-xs font-bold rounded-lg bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] cursor-help">
-              ${c.fee} <span className="font-normal text-[10px]">· sheet</span>
+              className="inline-block px-2 py-0.5 text-xs font-bold rounded-lg bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] cursor-help whitespace-nowrap">
+              ${c.fee}<span className="font-normal text-[9px]"> · sheet</span>
             </span>
           ) : (
-            <div className="relative" title="No per-show fee found in the financing sheet notes — this dashboard fee is used instead. Add it to the sheet to make the sheet authoritative.">
+            <div className="relative inline-block" title="No per-show fee found in the financing sheet notes — this dashboard fee is used instead. Add it to the sheet to make the sheet authoritative.">
               <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] text-[#8595a8]">$</span>
               <input value={fee} onChange={(e) => setFee(e.target.value.replace(/[^0-9.]/g, ""))}
                 onBlur={() => { const n = Number(fee); if (!isNaN(n) && n !== c.fee) saveConfig({ fee: n }); }}
                 className="w-14 pl-4 pr-1 py-0.5 text-xs text-right rounded-lg border border-[#fcd9a8] focus:outline-none focus:border-[#15B7AE]" />
             </div>
           )}
-        </div>
+        </td>
 
-        <div className="flex items-center gap-2.5 text-center shrink-0">
-          <Metric label="Deposits" value={c.deposits} />
-          <Metric label="Show %" value={c.showRate == null ? "—" : `${c.showRate}%`} sub={c.showRate == null ? "no reviews" : `${c.showed}/${c.showed + c.noShowMarked}`} tone={c.showRate == null ? "gray" : c.showRate >= 60 ? "green" : "amber"} />
-          <Metric label="Upcoming" value={c.upcoming} tone="gray" />
-          {/* Once the payment check has loaded, Ready mirrors ITS numbers — the
-              same row that powers the Charge button — so the count, the split,
-              and the button amount can never disagree on screen. */}
-          {(() => {
-            const ready = v ? v.readyToCharge : c.readyToCharge;
-            const owed = v ? v.amount : c.readyOwed;
-            const split = v ? showSplit(v) : null;
-            return (
-              <div title={split ? `${split.ours} we booked · ${split.hers} she booked (no deposit)` : undefined}>
-                <Metric label="Ready" value={ready}
-                  sub={split && split.hers > 0 ? `${money(owed)} · ${split.ours} us + ${split.hers} her` : money(owed)}
-                  tone={ready > 0 ? "amber" : "gray"} />
-              </div>
-            );
-          })()}
-          <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
-          {/* The buckets that used to be invisible — without them the row's
-              numbers don't add up to Deposits (18 = 4+4+6+2 no-appt+2 test). */}
-          {/* Standing column — shows booked on the artist's end (no deposit
-              through us) since Aug 1. Always visible so a zero is a fact, not
-              a hidden bucket. */}
-          <Metric label="Self-booked" value={c.selfBooked ?? 0}
-            sub={(c.selfBookedReady ?? 0) > 0 ? `${c.selfBookedReady} to charge` : "their end"}
-            tone={(c.selfBookedReady ?? 0) > 0 ? "amber" : "gray"} />
-          {c.noAppt > 0 && <Metric label="No appt" value={c.noAppt} sub="not booked" tone="amber" />}
-          {c.excludedCount > 0 && <Metric label="Test/excl" value={c.excludedCount} sub="not billed" tone="gray" />}
-          {(c.refundedCount ?? 0) > 0 && <Metric label="Refunded" value={c.refundedCount!} sub="deposit returned" tone="gray" />}
-        </div>
+        <NumCell value={c.deposits} />
+        <NumCell value={c.showRate == null ? "—" : `${c.showRate}%`}
+          sub={c.showRate == null ? "no reviews" : `${c.showed}/${c.showed + c.noShowMarked}`}
+          tone={c.showRate == null ? "gray" : c.showRate >= 60 ? "green" : "amber"} />
+        <NumCell value={c.upcoming} tone="gray" />
+        {/* Ready mirrors the payment check's row — the same shows the Charge
+            button charges — so count, split, and amount always agree. */}
+        <NumCell value={ready}
+          sub={split && split.hers > 0 ? `${money(owed)} · ${split.ours}+${split.hers} her` : money(owed)}
+          tone={ready > 0 ? "amber" : "gray"}
+          title={split ? `${split.ours} we booked · ${split.hers} she booked (no deposit)` : undefined} />
+        <NumCell value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
+        <NumCell value={c.selfBooked ?? 0}
+          sub={(c.selfBookedReady ?? 0) > 0 ? `${c.selfBookedReady} to charge` : "their end"}
+          tone={(c.selfBookedReady ?? 0) > 0 ? "amber" : "gray"} />
+        <NumCell value={c.noAppt} sub={c.noAppt > 0 ? "not booked" : undefined} tone={c.noAppt > 0 ? "amber" : "gray"} />
 
-        {/* Payment method + Charge + Auto — merged from the Payment check tab */}
-        <PaymentCluster v={v} loading={verifyLoading} onMsg={setPayMsg} onReload={reloadBoth} />
-      </div>
+        {/* Card · status · actions */}
+        <td className="px-2 py-2.5 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
+        <td className="px-2 py-2.5 text-center align-middle"><StatusCell v={v} /></td>
+        <td className="pl-2 pr-3 py-2.5 align-middle whitespace-nowrap"><ActionsCell v={v} onMsg={setPayMsg} onReload={reloadBoth} /></td>
+      </tr>
 
-      {payMsg && <PayMsg msg={payMsg} />}
+      {payMsg && (
+        <tr className="border-b border-[#eef3f8]"><td colSpan={COLS} className="px-3 pb-2 pt-0"><PayMsg msg={payMsg} /></td></tr>
+      )}
 
       {open && (
-        <div className="px-3 pb-3 border-t border-[#eef3f8] space-y-3">
-          <div className="pt-2"><PaymentDetails v={v} onMsg={setPayMsg} onReload={onVerifyReload} /></div>
-          <AppointmentList client={c} onCharged={onChange} />
-        </div>
+        <tr className="border-b border-[#e4ebf2] bg-[#fbfcfe]">
+          <td colSpan={COLS} className="px-4 py-3">
+            <div className="space-y-3">
+              <PaymentDetails v={v} onMsg={setPayMsg} onReload={onVerifyReload} />
+              <AppointmentList client={c} onCharged={onChange} />
+            </div>
+          </td>
+        </tr>
       )}
-    </div>
-  );
-}
-
-function Metric({ label, value, sub, tone }: { label: string; value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray" }) {
-  const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : "text-[#1f3559]";
-  return (
-    <div className="min-w-[52px]">
-      <div className={cn("text-base font-bold leading-none", color)}>{value}</div>
-      <div className="text-[9px] uppercase tracking-wide text-[#a6b3c4] font-semibold mt-0.5">{label}</div>
-      {sub && <div className="text-[9px] text-[#8595a8]">{sub}</div>}
-    </div>
+    </>
   );
 }
 
@@ -712,11 +714,29 @@ export default function V3BillingPage() {
       ) : filtered.length === 0 ? (
         <div className="py-12 text-center text-[#8595a8]">No clients match.</div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((c) => (
-            <ClientCard key={c.ownerKey} c={c} v={vBy.get(c.ownerKey)} verifyLoading={verifyLoading}
-              onChange={() => load()} onVerifyReload={() => loadVerify()} defaultOpen={filter === "ready"} />
-          ))}
+        <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-x-auto" style={{ boxShadow: "0 1px 3px rgba(31,53,89,0.06)" }}>
+          <table className="w-full text-sm border-collapse min-w-[1080px]">
+            <thead>
+              <tr className="border-b-2 border-[#e4ebf2] bg-[#f8fafc]">
+                {[
+                  ["Client", "left"], ["Fee", "center"], ["Deposits", "center"], ["Show %", "center"],
+                  ["Upcoming", "center"], ["Ready", "center"], ["Charged", "center"], ["Self-booked", "center"],
+                  ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
+                ].map(([h, align]) => (
+                  <th key={h} className={cn("px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
+                    align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <ClientTableRow key={c.ownerKey} c={c} v={vBy.get(c.ownerKey)} verifyLoading={verifyLoading}
+                  onChange={() => load()} onVerifyReload={() => loadVerify()} defaultOpen={filter === "ready"} />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

@@ -102,18 +102,51 @@ export function PayMsg({ msg }: { msg: PayMsgData }) {
 }
 
 // ── Header cluster: payment status + Charge + Auto toggle ────────────────────
-export function PaymentCluster({ v, loading, onMsg, onReload }: {
+// ── Table cells (the client list is an aligned table) ────────────────────────
+
+export function CardCell({ v, loading }: { v: VRow | undefined; loading: boolean }) {
+  if (loading && !v) {
+    return <span className="flex items-center gap-1.5 text-[10px] text-[#8595a8]"><Loader2 size={11} className="animate-spin" /> checking…</span>;
+  }
+  if (!v) return <span className="text-[10px] text-[#b9c3d0]">—</span>;
+  const card = v.cards.find((c) => c.wouldCharge);
+  if (!card) {
+    return <span className="text-[11px] font-semibold text-[#be123c] whitespace-nowrap">{v.match ? (v.cards.length ? "No usable card" : "No card on file") : "No Square customer"}</span>;
+  }
+  return (
+    <>
+      <div className="text-[11px] font-semibold text-[#34568a] whitespace-nowrap">{card.brand} ••{card.last4}{card.isChosenDefault && <Star size={9} className="inline ml-0.5 -mt-0.5 text-[#a16207]" fill="currentColor" />}</div>
+      <div className="text-[9px] text-[#8595a8] whitespace-nowrap">{card.lastUsedAt ? `last used ${fmtDate(card.lastUsedAt)}` : "never used"}</div>
+    </>
+  );
+}
+
+export function StatusCell({ v }: { v: VRow | undefined }) {
+  if (!v) return <span className="text-[10px] text-[#b9c3d0]">—</span>;
+  const blocking = v.flags.filter((f) => f.level === "block");
+  const warnings = v.flags.filter((f) => f.level === "warn");
+  if (v.safeToAutoCharge) {
+    return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#e6f7ee] text-[#15803d] border-[#86efac] whitespace-nowrap"><ShieldCheck size={12} /> Verified</span>;
+  }
+  return (
+    <span title={[...blocking, ...warnings].map((f) => f.message).join(" ")}
+      className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border whitespace-nowrap cursor-help",
+        blocking.length ? "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"
+          : warnings.length ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]"
+          : "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]")}>
+      <ShieldAlert size={12} /> {blocking.length ? "Do not charge" : warnings.length ? "Check first" : "Nothing due"}
+    </span>
+  );
+}
+
+export function ActionsCell({ v, onMsg, onReload }: {
   v: VRow | undefined;
-  loading: boolean;
   onMsg: (m: PayMsgData | null) => void;
   onReload: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
-  if (loading && !v) {
-    return <span className="flex items-center gap-1.5 text-[10px] text-[#8595a8] shrink-0"><Loader2 size={11} className="animate-spin" /> checking card…</span>;
-  }
   if (!v) return null;
 
   const card = v.cards.find((c) => c.wouldCharge);
@@ -183,30 +216,7 @@ export function PaymentCluster({ v, loading, onMsg, onReload }: {
   };
 
   return (
-    <div className="flex items-center gap-2 shrink-0 pl-2 border-l border-[#eef3f8]">
-      {/* Card summary — or what's missing */}
-      <div className="w-[130px]">
-        {card ? (
-          <>
-            <div className="text-[11px] font-semibold text-[#34568a] whitespace-nowrap">{card.brand} ••{card.last4}{card.isChosenDefault && <Star size={9} className="inline ml-0.5 -mt-0.5 text-[#a16207]" fill="currentColor" />}</div>
-            <div className="text-[9px] text-[#8595a8]">{card.lastUsedAt ? `last used ${fmtDate(card.lastUsedAt)}` : "never used"}</div>
-          </>
-        ) : (
-          <span className="text-[11px] font-semibold text-[#be123c]">{v.match ? (v.cards.length ? "No usable card" : "No card on file") : "No Square customer"}</span>
-        )}
-      </div>
-
-      {v.safeToAutoCharge ? (
-        <span className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#e6f7ee] text-[#15803d] border-[#86efac]"><ShieldCheck size={12} /> Verified</span>
-      ) : (
-        <span className={cn("flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border",
-          blocking.length ? "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"
-            : warnings.length ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]"
-            : "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]")}>
-          <ShieldAlert size={12} /> {blocking.length ? "Do not charge" : warnings.length ? "Check first" : "Nothing due"}
-        </span>
-      )}
-
+    <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
       {/* The green light. Two clicks: arm, then confirm the exact amount+card.
           The label always spells out the we-booked / she-booked split. */}
       {canCharge && (() => {
