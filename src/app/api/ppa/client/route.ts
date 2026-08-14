@@ -133,7 +133,10 @@ export async function GET(req: NextRequest) {
       business: client.business,
       status: client.status,
       isPpa: cfg?.is_ppa ?? false,
-      fee: cfg ? Number(cfg.fee_per_appt) : 30,
+      // Sheet fee first — the financing sheet's latest month is authoritative.
+      fee: client.sheetFee ?? (cfg ? Number(cfg.fee_per_appt) : 30),
+      feeSource: client.sheetFee != null ? "sheet" : "dashboard",
+      sheetNotes: client.sheetNotes,
       note: cfg?.note ?? null,
     },
     summary,

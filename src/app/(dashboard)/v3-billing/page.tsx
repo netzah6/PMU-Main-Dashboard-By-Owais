@@ -7,7 +7,7 @@ import PaymentCheck from "@/components/billing/PaymentCheck";
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
 interface ClientRow {
   ownerKey: string; ownerName: string; business: string; status: string; version: string;
-  isPpa: boolean; fee: number; note: string | null;
+  isPpa: boolean; fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null; note: string | null;
   deposits: number; depositTotal: number;
   served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number;
   readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number;
@@ -293,12 +293,22 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
 
         <div className="flex items-center gap-1 shrink-0">
           <span className="text-[11px] text-[#8595a8]">Fee</span>
-          <div className="relative">
-            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] text-[#8595a8]">$</span>
-            <input value={fee} onChange={(e) => setFee(e.target.value.replace(/[^0-9.]/g, ""))}
-              onBlur={() => { const n = Number(fee); if (!isNaN(n) && n !== c.fee) saveConfig({ fee: n }); }}
-              className="w-14 pl-4 pr-1 py-0.5 text-xs text-right rounded-lg border border-[#e4ebf2] focus:outline-none focus:border-[#15B7AE]" />
-          </div>
+          {c.feeSource === "sheet" ? (
+            // The financing sheet's latest month states this client's fee — it
+            // is the source of truth, so no dashboard edit here. Change it in
+            // the sheet and it updates within 15 minutes (payments cron).
+            <span title={`From the financing sheet's notes: "${c.sheetNotes ?? ""}" — edit the sheet to change it.`}
+              className="px-2 py-0.5 text-xs font-bold rounded-lg bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] cursor-help">
+              ${c.fee} <span className="font-normal text-[10px]">· sheet</span>
+            </span>
+          ) : (
+            <div className="relative" title="No per-show fee found in the financing sheet notes — this dashboard fee is used instead. Add it to the sheet to make the sheet authoritative.">
+              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[11px] text-[#8595a8]">$</span>
+              <input value={fee} onChange={(e) => setFee(e.target.value.replace(/[^0-9.]/g, ""))}
+                onBlur={() => { const n = Number(fee); if (!isNaN(n) && n !== c.fee) saveConfig({ fee: n }); }}
+                className="w-14 pl-4 pr-1 py-0.5 text-xs text-right rounded-lg border border-[#fcd9a8] focus:outline-none focus:border-[#15B7AE]" />
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2.5 text-center shrink-0">

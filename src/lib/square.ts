@@ -208,35 +208,28 @@ export async function getCustomers(ids: string[]): Promise<Map<string, SquareCus
   return map;
 }
 
-// ── Finding a customer we don't already have an id for ───────────────────────
-// SearchCustomers can filter on email/phone but NOT on name, so a name match
-// has to scan the whole customer list (listAllCustomers below).
-
-async function searchCustomers(filter: Record<string, unknown>, limit = 20): Promise<SquareCustomer[]> {
-  const r = await fetch(`${BASE}/v2/customers/search`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({ limit, query: { filter } }),
-  });
-  if (!r.ok) {
-    const text = await r.text();
-    throw new Error(`Square customer search ${r.status}: ${text.slice(0, 300)}`);
+// ── Rate-limit-aware fetch ───────────────────────────────────────────────────
+// Square throttles per-method: the first PPS payment-check run fired a search
+// per client and everyone after the first few came back 429 ("this merchant
+// has exceeded the number of requests for this method"), which the report
+// rendered as a sea of red. Retry 429s (honoring Retry-After) and 5xx with
+// backoff instead of failing the row.
+async function squareFetch(url: string, init?: RequestInit): Promise<Response> {
+  let r: Response | null = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    r = await fetch(url, { ...init, headers: headers() });
+    if (r.ok || (r.status !== 429 && r.status < 500)) return r;
+    const retryAfter = Number(r.headers.get("retry-after")) || 0;
+    const backoff = Math.max(retryAfter * 1000, 1000 * 2 ** attempt); // 1s,2s,4s,8s
+    await new Promise((s) => setTimeout(s, backoff));
   }
-  const j = (await r.json()) as { customers?: Array<Record<string, unknown>> };
-  return (j.customers ?? []).map((c) => customerFromRaw(String(c.id), c));
+  return r!;
 }
 
-// Exact email — the only high-confidence way to identify an artist's Square
-// customer record. Square allows duplicate emails, hence an array.
-export function searchCustomersByEmail(email: string): Promise<SquareCustomer[]> {
-  return searchCustomers({ email_address: { exact: email } });
-}
-
-// Fuzzy phone: Square normalizes formatting, so "(602) 471-9803" finds
-// "+16024719803". Callers should still compare the digits themselves.
-export function searchCustomersByPhone(phone: string): Promise<SquareCustomer[]> {
-  return searchCustomers({ phone_number: { fuzzy: phone } });
-}
+// ── The full customer list ───────────────────────────────────────────────────
+// Matching artists to Square customers reads the WHOLE list once and matches
+// locally (email/phone/name) instead of calling SearchCustomers per client —
+// per-client searches are what tripped the per-method rate limit.
 
 let allCustomersCache: { ts: number; list: SquareCustomer[]; truncated: boolean } | null = null;
 const ALL_CUSTOMERS_TTL_MS = 30 * 60 * 1000;
@@ -254,13 +247,12 @@ export async function listAllCustomers(): Promise<{ customers: SquareCustomer[];
   let cursor: string | undefined;
   let truncated = false;
   for (let page = 0; page < ALL_CUSTOMERS_MAX_PAGES; page++) {
-    const body: Record<string, unknown> = { limit: 100 };
-    if (cursor) body.cursor = cursor;
-    const r = await fetch(`${BASE}/v2/customers/search`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(body),
-    });
+    // Plain ListCustomers (GET) — a different rate bucket from the search
+    // method, and no search features are needed for a full scan.
+    const url = new URL(`${BASE}/v2/customers`);
+    url.searchParams.set("limit", "100");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const r = await squareFetch(url.toString());
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`Square customers ${r.status}: ${text.slice(0, 300)}`);
@@ -301,7 +293,7 @@ export async function listCards(customerId: string, includeDisabled = true): Pro
     url.searchParams.set("include_disabled", String(includeDisabled));
     url.searchParams.set("sort_order", "DESC");
     if (cursor) url.searchParams.set("cursor", cursor);
-    const r = await fetch(url.toString(), { headers: headers() });
+    const r = await squareFetch(url.toString());
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`Square cards ${r.status}: ${text.slice(0, 300)}`);
