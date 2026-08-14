@@ -130,15 +130,39 @@ function parseGhlTime(v: unknown): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-// Pull calendar appointments for deposit leads into ghl_appointments (via the
-// per-contact endpoint — the only calendar endpoint the app token can read).
+// Pull calendar appointments into ghl_appointments (via the per-contact
+// endpoint — the only calendar endpoint the app token can read).
+// Covers deposit leads AND every lead with an opportunity since June — an
+// artist who books a no-deposit lead on her GHL calendar is billable, and
+// without the wider pull those appointments were invisible.
 // Optionally scope to specific clients (drill-down refresh); otherwise all.
+const LEAD_APPTS_SINCE = "2026-06-01";
+
 export async function ingestAppointments(ownerKeys?: string[]): Promise<{ contacts: number; appointments: number }> {
   const svc = createServiceClient();
-  let q = svc.from("ppa_deposit_contacts").select("contact_id, location_id, owner_key");
-  if (ownerKeys && ownerKeys.length) q = q.in("owner_key", ownerKeys);
-  const { data } = await q;
-  const rows = (data ?? []) as Array<{ contact_id: string; location_id: string; owner_key: string }>;
+  const keys = ownerKeys && ownerKeys.length ? ownerKeys : (await getPpaRoster()).clients.map((c) => c.ownerKey);
+
+  const { data: depData } = await svc
+    .from("ppa_deposit_contacts").select("contact_id, location_id, owner_key").in("owner_key", keys);
+
+  // Supabase caps a select at 1,000 rows — the roster's leads exceed that,
+  // so page through and dedupe against the deposit contacts.
+  type CRow = { contact_id: string; location_id: string; owner_key: string };
+  const rows: CRow[] = [...((depData ?? []) as CRow[])];
+  const seen = new Set(rows.map((r) => r.contact_id));
+  for (let from = 0; ; from += 1000) {
+    const { data: oppData } = await svc
+      .from("ghl_opportunities").select("contact_id, location_id, owner_key")
+      .in("owner_key", keys).gte("date_added", LEAD_APPTS_SINCE)
+      .range(from, from + 999);
+    const page = (oppData ?? []) as CRow[];
+    for (const r of page) {
+      if (!r.contact_id || seen.has(r.contact_id)) continue;
+      seen.add(r.contact_id);
+      rows.push(r);
+    }
+    if (page.length < 1000) break;
+  }
   const tokenByLoc = new Map<string, string | null>();
   const now = new Date().toISOString();
   let appointments = 0;

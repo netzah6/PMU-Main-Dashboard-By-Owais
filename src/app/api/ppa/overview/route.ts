@@ -34,13 +34,14 @@ export async function GET(req: NextRequest) {
   await warmStageMap(locations, refresh);
   if (refresh) { await ingestAppointments(); await svc.rpc("refresh_ppa_facts"); }
 
-  const [sumRes, depRes, cfgRes, chgRes, refRes, sbRes] = await Promise.all([
+  const [sumRes, depRes, cfgRes, chgRes, refRes, sbRes, calRes] = await Promise.all([
     svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount").in("owner_key", ownerKeys),
     svc.from("deposit_refunds").select("business, email, contact_name").eq("status", "refunded"),
     svc.from("ppa_selfbooked").select("appt_id, owner_key").in("owner_key", ownerKeys),
+    svc.from("ppa_calendar_booked").select("appt_id, owner_key, start_time").in("owner_key", ownerKeys),
   ]);
 
   // Executed refunds per business (normalized) — a refunded deposit is not
@@ -76,11 +77,23 @@ export async function GET(req: NextRequest) {
     chgCountBy.set(r.owner_key, (chgCountBy.get(r.owner_key) ?? 0) + 1);
   }
 
-  // Self-booked shows (view applies the Aug 1 cutoff): total per client for
-  // the standing card metric, and how many still wait on a charge decision.
+  // "Their end" shows (both views apply the Aug 1 cutoff): done-stage leads
+  // with no deposit (ppa_selfbooked) + calendar appointments for no-deposit
+  // leads (ppa_calendar_booked, past only — future ones count as upcoming).
+  // The views are mutually exclusive, so totals never double-count a lead.
   const sbTotalBy = new Map<string, number>();
   const sbReadyBy = new Map<string, number>();
+  const calUpcomingBy = new Map<string, number>();
   for (const r of (sbRes.data ?? []) as Array<{ appt_id: string; owner_key: string }>) {
+    sbTotalBy.set(r.owner_key, (sbTotalBy.get(r.owner_key) ?? 0) + 1);
+    const ch = chgByApptId.get(r.appt_id);
+    if (ch?.charged || ch?.excluded) continue;
+    sbReadyBy.set(r.owner_key, (sbReadyBy.get(r.owner_key) ?? 0) + 1);
+  }
+  const nowMs = Date.now();
+  for (const r of (calRes.data ?? []) as Array<{ appt_id: string; owner_key: string; start_time: string | null }>) {
+    const past = r.start_time != null && new Date(r.start_time).getTime() < nowMs;
+    if (!past) { calUpcomingBy.set(r.owner_key, (calUpcomingBy.get(r.owner_key) ?? 0) + 1); continue; }
     sbTotalBy.set(r.owner_key, (sbTotalBy.get(r.owner_key) ?? 0) + 1);
     const ch = chgByApptId.get(r.appt_id);
     if (ch?.charged || ch?.excluded) continue;
@@ -118,7 +131,7 @@ export async function GET(req: NextRequest) {
       depositTotal: dep.deposit_total,
       served: s?.served ?? 0,
       pastDue: s?.past_due ?? 0,
-      upcoming: s?.upcoming ?? 0,
+      upcoming: (s?.upcoming ?? 0) + (calUpcomingBy.get(c.ownerKey) ?? 0),
       noshow: s?.noshow ?? 0,
       noAppt: s?.no_appt ?? 0,
       selfBooked: sbTotalBy.get(c.ownerKey) ?? 0,

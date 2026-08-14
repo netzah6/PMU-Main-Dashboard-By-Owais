@@ -37,13 +37,14 @@ export async function GET(req: NextRequest) {
   if (!client) return NextResponse.json({ error: "not a V3 client" }, { status: 404 });
 
   const svc = createServiceClient();
-  const [depRes, chgRes, billRes, cfgRes, refRes, sbRes] = await Promise.all([
+  const [depRes, chgRes, billRes, cfgRes, refRes, sbRes, calRes] = await Promise.all([
     svc.from("ppa_deposit_rows").select("*").eq("biz_norm", client.bizNorm),
     svc.from("ppa_charges").select("*").eq("owner_key", ownerKey),
     svc.from("ppa_deposit_billing").select("*").eq("owner_key", ownerKey),
     svc.from("ppa_config").select("*").eq("owner_key", ownerKey).maybeSingle(),
     svc.from("deposit_refunds").select("business, contact_name, email, decided_at").eq("status", "refunded"),
     svc.from("ppa_selfbooked").select("appt_id, contact_name, email, stage_name, done_at").eq("owner_key", ownerKey),
+    svc.from("ppa_calendar_booked").select("appt_id, contact_name, email, status, title, start_time").eq("owner_key", ownerKey),
   ]);
 
   // Executed refunds for THIS business, matched by email (fallback: name).
@@ -149,11 +150,51 @@ export async function GET(req: NextRequest) {
       chargeNote: c?.note ?? null,
     });
   }
+  // Calendar-booked shows: the artist put a NO-DEPOSIT lead on her GHL
+  // calendar. Past ones bill by default (same policy as past-due deposits);
+  // future ones are upcoming info. The view excludes deposit and done-stage
+  // leads, so nothing is ever double-billed across paths.
+  const nowMs = Date.now();
+  for (const s of (calRes.data ?? []) as Array<{ appt_id: string; contact_name: string | null; email: string | null; status: string | null; title: string | null; start_time: string | null }>) {
+    const c = chgBy.get(s.appt_id);
+    const charged = c?.charged ?? false;
+    const excluded = c?.excluded ?? false;
+    const past = s.start_time != null && new Date(s.start_time).getTime() < nowMs;
+    summary.selfBooked++;
+    if (!past) summary.upcoming++;
+    if (excluded) summary.excluded++;
+    if (charged) summary.showed++;
+    else if (excluded && c?.exclude_reason === "no_show") summary.noShowMarked++;
+    if (past && !charged && !excluded) summary.readyToCharge++;
+    appointments.push({
+      apptId: s.appt_id,
+      contactName: s.contact_name,
+      email: s.email,
+      depositDate: null,
+      amount: null,
+      status: null,
+      notes: s.title,
+      source: "calendar",
+      currentStage: null,
+      appointmentDate: s.start_time,
+      appointmentStatus: s.status,
+      chargeStatus: past ? "calendar_booked" : "upcoming",
+      charged,
+      excluded,
+      excludeReason: c?.exclude_reason ?? null,
+      refunded: false,
+      refundedAt: null,
+      chargedAmount: c?.amount ?? null,
+      chargedAt: c?.charged_at ?? null,
+      chargedBy: c?.charged_by ?? null,
+      chargeNote: c?.note ?? null,
+    });
+  }
   const reviewed = summary.showed + summary.noShowMarked;
   summary.showRate = reviewed > 0 ? Math.round((summary.showed / reviewed) * 100) : null;
   // Ready-to-review first, then upcoming, then the rest; charged/excluded sink
   // to the bottom. Newest deposit within a group.
-  const rank: Record<string, number> = { served: 0, self_booked: 0, past_due: 1, upcoming: 2, no_appt: 3, noshow: 4 };
+  const rank: Record<string, number> = { served: 0, self_booked: 0, calendar_booked: 0, past_due: 1, upcoming: 2, no_appt: 3, noshow: 4 };
   const order = (a: (typeof appointments)[number]) => (a.charged ? 9 : a.excluded || a.refunded ? 8 : (rank[a.chargeStatus] ?? 5));
   appointments.sort((a, b) => {
     const ca = order(a), cb = order(b);
