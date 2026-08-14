@@ -417,3 +417,66 @@ ALTER TABLE ppa_chat_flags ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "PPA chat flags admin" ON ppa_chat_flags FOR ALL TO authenticated
   USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
 CREATE INDEX IF NOT EXISTS ppa_chat_flags_owner ON ppa_chat_flags (owner_key);
+
+-- ── Self-booked query performance (2026-08-14) ───────────────────────────────
+-- ppa_deposit_contacts is a 3-way join over jsonb; the selfbooked/calendar
+-- anti-joins re-evaluated it PER ROW and a full-roster query crossed ~18s as
+-- deposits grew — routes timed out and the tab silently showed 0 self-booked.
+-- Materialized the contact set (refreshed with the other MV) + indexed
+-- ghl_opportunities(owner_key). Full-roster query: 18s → ~0.5s.
+CREATE MATERIALIZED VIEW IF NOT EXISTS ppa_deposit_contacts_mv AS
+  SELECT contact_id, location_id, owner_key FROM ppa_deposit_contacts;
+CREATE UNIQUE INDEX IF NOT EXISTS ppa_deposit_contacts_mv_uq
+  ON ppa_deposit_contacts_mv (contact_id, location_id, owner_key);
+
+CREATE OR REPLACE FUNCTION public.refresh_ppa_facts()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $function$
+BEGIN
+  REFRESH MATERIALIZED VIEW CONCURRENTLY ppa_deposit_facts;
+  REFRESH MATERIALIZED VIEW CONCURRENTLY ppa_deposit_contacts_mv;
+END; $function$;
+
+CREATE INDEX IF NOT EXISTS ghl_opportunities_owner_idx ON ghl_opportunities (owner_key);
+
+-- Same view bodies as above, with the anti-join pointed at the MV.
+CREATE OR REPLACE VIEW ppa_selfbooked AS
+SELECT
+  'opp:' || o.id          AS appt_id,
+  o.owner_key,
+  o.id                    AS opp_id,
+  o.contact_id,
+  c.contact_name,
+  c.email,
+  m.stage_name,
+  o.last_stage_change_at  AS done_at
+FROM ghl_opportunities o
+JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+LEFT JOIN ghl_contacts c ON c.id = o.contact_id
+WHERE (m.stage_name ~* 'session[[:space:]]*(done|complete)'
+   OR  m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
+  AND o.contact_id IS NOT NULL
+  AND o.last_stage_change_at >= '2026-08-01'
+  AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts_mv dc WHERE dc.contact_id = o.contact_id);
+
+CREATE OR REPLACE VIEW ppa_calendar_booked AS
+SELECT
+  'cal:' || a.id  AS appt_id,
+  a.owner_key,
+  a.contact_id,
+  a.start_time,
+  a.status,
+  a.title,
+  c.contact_name,
+  c.email
+FROM ghl_appointments a
+LEFT JOIN ghl_contacts c ON c.id = a.contact_id
+WHERE a.start_time >= '2026-08-01'
+  AND coalesce(a.status,'') ~* '^(confirmed|showed|new)$'
+  AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts_mv dc WHERE dc.contact_id = a.contact_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM ghl_opportunities o
+    JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+    WHERE o.contact_id = a.contact_id
+      AND (m.stage_name ~* 'session[[:space:]]*(done|complete)'
+        OR m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
+  );
