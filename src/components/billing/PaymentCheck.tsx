@@ -1,16 +1,19 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User } from "lucide-react";
+import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── PPS payment-method check (mirrors /api/ppa/verify) ───────────────────────
-// Shows, per PPS client, exactly who Square would charge and on which card
-// BEFORE any money moves. Read-only: nothing here charges anything.
+// ── PPS payment-method check + charge green-light (mirrors /api/ppa/verify) ──
+// Shows, per PPS client, exactly who Square would charge and on which card,
+// and carries the ONLY button in the dashboard that moves money: Charge, which
+// re-verifies server-side (/api/ppa/charge-run) before creating one
+// idempotent Square payment for the client's ready shows.
 
 interface Flag { key: string; level: "block" | "warn" | "info"; message: string }
 interface Card {
   id: string; brand: string; last4: string; expMonth: number | null; expYear: number | null;
   cardholderName: string | null; enabled: boolean; expired: boolean; expiringSoon: boolean; wouldCharge: boolean;
+  lastUsedAt?: string | null; isChosenDefault?: boolean;
 }
 interface Show { apptId: string; contactName: string | null; apptDate: string | null; chargeStatus: string }
 interface Match {
@@ -64,7 +67,9 @@ function CardLine({ c, compact }: { c: Card; compact?: boolean }) {
       <span className={cn("font-semibold", dead && "line-through")}>{c.brand} ••{c.last4}</span>
       <span>exp {expLabel(c)}</span>
       {!compact && c.cardholderName && <span className="text-[#8595a8] truncate max-w-[140px]">{c.cardholderName}</span>}
+      {!compact && c.isChosenDefault && <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded border text-[10px] font-bold bg-[#fef9e7] text-[#a16207] border-[#fde68a]"><Star size={9} fill="currentColor" /> your default</span>}
       {!compact && c.wouldCharge && <span className="px-1.5 py-0.5 rounded border text-[10px] font-bold bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]">would charge</span>}
+      {!compact && c.lastUsedAt && <span className="text-[10px] text-[#8595a8] whitespace-nowrap">last used {fmtDate(c.lastUsedAt)}</span>}
       {c.expired && <span className="px-1.5 py-0.5 rounded border text-[10px] font-bold bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]">expired</span>}
       {!c.enabled && <span className="px-1.5 py-0.5 rounded border text-[10px] font-bold bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]">disabled</span>}
       {c.expiringSoon && !c.expired && <span className="px-1.5 py-0.5 rounded border text-[10px] font-bold bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]">expiring</span>}
@@ -72,13 +77,57 @@ function CardLine({ c, compact }: { c: Card; compact?: boolean }) {
   );
 }
 
-function ClientRow({ r }: { r: Row }) {
+function ClientRow({ r, onReload }: { r: Row; onReload: () => void }) {
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [chargeMsg, setChargeMsg] = useState<{ ok: boolean; text: string; receiptUrl?: string | null } | null>(null);
   const charge = r.cards.find((c) => c.wouldCharge);
   const blocking = r.flags.filter((f) => f.level === "block");
   const warnings = r.flags.filter((f) => f.level === "warn");
   const m = r.match?.method ? METHOD[r.match.method] : null;
   const MIcon = m?.icon;
+  const canCharge = r.readyToCharge > 0 && blocking.length === 0 && !!charge;
+
+  const setDefaultCard = async (cardId: string | null) => {
+    if (!r.match) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/ppa/card-pref", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cardId
+          ? { owner_key: r.ownerKey, customer_id: r.match.customerId, card_id: cardId }
+          : { owner_key: r.ownerKey, clear: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save");
+      onReload();
+    } catch (e) {
+      setChargeMsg({ ok: false, text: `${e}`.replace("Error: ", "") });
+    } finally { setBusy(false); }
+  };
+
+  const runCharge = async () => {
+    setBusy(true); setConfirming(false); setChargeMsg(null);
+    try {
+      const res = await fetch("/api/ppa/charge-run", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        // The server re-verifies and refuses if the live amount differs from
+        // the one that was on screen when the human confirmed.
+        body: JSON.stringify({ owner_key: r.ownerKey, expected_amount: r.amount }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Charge failed");
+      setChargeMsg({
+        ok: true,
+        text: json.warning ?? `Charged ${money(json.amount ?? r.amount)} to ${json.card ?? "card"} — Square payment ${json.paymentId}`,
+        receiptUrl: json.receiptUrl,
+      });
+      onReload();
+    } catch (e) {
+      setChargeMsg({ ok: false, text: `${e}`.replace("Error: ", "") });
+    } finally { setBusy(false); }
+  };
 
   return (
     <div className={cn("rounded-xl border bg-white", blocking.length ? "border-[#f5c2cf]" : warnings.length ? "border-[#fcd9a8]" : "border-[#a7e3df]")}>
@@ -136,8 +185,44 @@ function ClientRow({ r }: { r: Row }) {
               <ShieldAlert size={12} /> {blocking.length ? "Do not charge" : warnings.length ? "Check first" : "Nothing due"}
             </span>
           )}
+
+          {/* The green light. Two clicks: arm, then confirm the exact amount
+              and card. Disabled whenever anything blocks. */}
+          {canCharge && (confirming ? (
+            <span className="flex items-center gap-1.5">
+              <button onClick={runCharge} disabled={busy}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74]">
+                {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+                Yes, charge {money(r.amount)} to ••{charge!.last4}
+              </button>
+              <button onClick={() => setConfirming(false)} disabled={busy}
+                className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button onClick={() => setConfirming(true)} disabled={busy}
+              title={warnings.length ? `Charges despite ${warnings.length} warning${warnings.length === 1 ? "" : "s"} — read them first` : undefined}
+              className={cn("flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border",
+                warnings.length
+                  ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]"
+                  : "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]")}>
+              {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />} Charge {money(r.amount)}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* Outcome of a charge attempt (or a card-pick error) */}
+      {chargeMsg && (
+        <div className={cn("mx-3 mb-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold",
+          chargeMsg.ok ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]" : "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]")}>
+          {chargeMsg.text}
+          {chargeMsg.ok && chargeMsg.receiptUrl && (
+            <a href={chargeMsg.receiptUrl} target="_blank" rel="noreferrer" className="ml-1.5 underline">receipt ↗</a>
+          )}
+        </div>
+      )}
 
       {/* Flag summary is always visible — the whole point of the report */}
       {(blocking.length > 0 || warnings.length > 0) && (
@@ -177,7 +262,31 @@ function ClientRow({ r }: { r: Row }) {
             <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#697a91] mb-1">Cards on file (newest first)</h4>
             {r.cards.length === 0
               ? <div className="text-[11px] text-[#be123c]">None — Square has no card for this customer.</div>
-              : <div className="space-y-1">{r.cards.map((c) => <CardLine key={c.id} c={c} />)}</div>}
+              : (
+                <div className="space-y-1.5">
+                  {r.cards.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2">
+                      <CardLine c={c} />
+                      {c.isChosenDefault ? (
+                        <button onClick={() => setDefaultCard(null)} disabled={busy}
+                          title="Stop forcing this card — go back to automatic (last used, then newest)"
+                          className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-white text-[#94a3b8] border-[#e4ebf2] hover:border-[#94a3b8]">
+                          clear
+                        </button>
+                      ) : c.enabled && !c.expired ? (
+                        <button onClick={() => setDefaultCard(c.id)} disabled={busy}
+                          title="Always charge this card for this client"
+                          className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-white text-[#0e8f88] border-[#a7e3df] hover:bg-[#e6f7f5]">
+                          <Star size={9} /> use this card
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            <div className="text-[10px] text-[#8595a8] mt-1.5">
+              No pick = automatic: the card they last paid with, else the newest. Your pick sticks until you clear it — and if that card is ever removed, charging blocks instead of switching silently.
+            </div>
             {r.flags.filter((f) => f.level === "info").map((f) => (
               <div key={f.key} className="text-[10px] text-[#8595a8] mt-1">{f.message}</div>
             ))}
@@ -249,9 +358,10 @@ export default function PaymentCheck() {
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <p className="text-sm text-[#697a91] max-w-[640px]">
-          What a charge run would actually do today: the Square customer behind each artist, how that match was made,
-          the card it would hit, and the shows the amount comes from. <strong className="text-[#34568a]">Read-only</strong> —
-          cards are read live from Square on every run, never stored, so a client who changes their card is picked up here.
+          The Square customer behind each artist, how that match was made, the card that gets charged, and the shows the
+          amount comes from. Cards are read live from Square on every run — a client who changes their card is picked up
+          here. The <strong className="text-[#0e8f88]">Charge</strong> button is the green light: it re-verifies on the
+          server, then creates one Square payment for that client&apos;s ready shows (a double-click can&apos;t charge twice).
         </p>
         <div className="flex items-center gap-2 flex-wrap">
           {t && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{t.clients} clients</span>}
@@ -303,7 +413,7 @@ export default function PaymentCheck() {
       ) : filtered.length === 0 ? (
         <div className="py-12 text-center text-[#8595a8]">No clients match.</div>
       ) : (
-        <div className="space-y-2">{filtered.map((r) => <ClientRow key={r.ownerKey} r={r} />)}</div>
+        <div className="space-y-2">{filtered.map((r) => <ClientRow key={r.ownerKey} r={r} onReload={() => load()} />)}</div>
       )}
 
       {report && (

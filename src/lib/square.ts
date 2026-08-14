@@ -318,6 +318,113 @@ export async function listCards(customerId: string, includeDisabled = true): Pro
   return out;
 }
 
+// ── Recent payments (which card did they actually last pay with?) ────────────
+export type RecentPayment = {
+  id: string;
+  customerId: string | null;
+  cardId: string | null;
+  cardFingerprint: string | null;
+  createdAt: string;
+};
+
+let recentPaymentsCache: { ts: number; list: RecentPayment[] } | null = null;
+const RECENT_PAYMENTS_TTL_MS = 30 * 60 * 1000;
+const RECENT_PAYMENTS_MONTHS = 6;
+const RECENT_PAYMENTS_MAX_PAGES = 30; // 3,000 payments
+
+// COMPLETED card payments from the last 6 months, newest first, one paginated
+// fetch for the whole account (per-customer payment queries don't exist in
+// Square's API). Cached like the customer list.
+export async function listRecentPayments(): Promise<RecentPayment[]> {
+  const now = Date.now();
+  if (recentPaymentsCache && now - recentPaymentsCache.ts < RECENT_PAYMENTS_TTL_MS)
+    return recentPaymentsCache.list;
+
+  const begin = new Date(now - RECENT_PAYMENTS_MONTHS * 30 * 24 * 3600 * 1000).toISOString();
+  const list: RecentPayment[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < RECENT_PAYMENTS_MAX_PAGES; page++) {
+    const url = new URL(`${BASE}/v2/payments`);
+    url.searchParams.set("begin_time", begin);
+    url.searchParams.set("sort_order", "DESC");
+    url.searchParams.set("limit", "100");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const r = await squareFetch(url.toString());
+    if (!r.ok) {
+      const text = await r.text();
+      throw new Error(`Square payments ${r.status}: ${text.slice(0, 300)}`);
+    }
+    const j = (await r.json()) as { payments?: Array<Record<string, unknown>>; cursor?: string };
+    for (const p of j.payments ?? []) {
+      if (String(p.status ?? "") !== "COMPLETED") continue;
+      const card = (p.card_details as { card?: { id?: string; fingerprint?: string } } | undefined)?.card;
+      list.push({
+        id: String(p.id),
+        customerId: (p.customer_id as string) ?? null,
+        cardId: card?.id ?? null,
+        cardFingerprint: card?.fingerprint ?? null,
+        createdAt: String(p.created_at ?? ""),
+      });
+    }
+    cursor = j.cursor;
+    if (!cursor) break;
+  }
+  recentPaymentsCache = { ts: now, list };
+  return list;
+}
+
+// ── Charging a card on file ──────────────────────────────────────────────────
+// The ONLY Square write in this codebase. Guarded by the idempotency key: the
+// same key can never produce two payments, so a retry or double-click is safe.
+export type ChargeResult = {
+  id: string;
+  status: string;
+  receiptUrl: string | null;
+  amountCents: number;
+};
+
+export async function createCardPayment(args: {
+  customerId: string;
+  cardId: string;
+  amountCents: number;
+  idempotencyKey: string;
+  note: string;
+  referenceId?: string;
+}): Promise<ChargeResult> {
+  // No squareFetch here: POSTs that time out mid-flight must not be blindly
+  // retried by a generic wrapper — the idempotency key protects an explicit
+  // retry by the caller, and Square treats repeated keys as the same payment.
+  const r = await fetch(`${BASE}/v2/payments`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({
+      idempotency_key: args.idempotencyKey,
+      source_id: args.cardId,
+      customer_id: args.customerId,
+      amount_money: { amount: args.amountCents, currency: "USD" },
+      autocomplete: true,
+      note: args.note.slice(0, 500),
+      reference_id: args.referenceId?.slice(0, 40),
+    }),
+  });
+  const j = (await r.json().catch(() => ({}))) as {
+    payment?: Record<string, unknown>;
+    errors?: Array<{ code?: string; detail?: string; category?: string }>;
+  };
+  if (!r.ok || !j.payment) {
+    const detail = (j.errors ?? []).map((e) => e.detail || e.code).filter(Boolean).join("; ");
+    throw new Error(`Square payment failed (${r.status}): ${detail || "unknown error"}`);
+  }
+  const p = j.payment;
+  const amt = p.amount_money as { amount?: number } | undefined;
+  return {
+    id: String(p.id),
+    status: String(p.status ?? ""),
+    receiptUrl: (p.receipt_url as string) ?? null,
+    amountCents: amt?.amount ?? args.amountCents,
+  };
+}
+
 // ── Disputes (chargebacks) ───────────────────────────────────────────────────
 export type SquareDispute = {
   id: string;
