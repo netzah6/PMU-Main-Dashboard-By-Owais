@@ -9,7 +9,7 @@ interface ClientRow {
   ownerKey: string; ownerName: string; business: string; status: string; version: string;
   isPpa: boolean; fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null; note: string | null;
   deposits: number; depositTotal: number;
-  served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number;
+  served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; selfBookedReady?: number;
   readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number;
   showed: number; noShowMarked: number; excludedCount: number; refundedCount?: number; showRate: number | null;
 }
@@ -330,7 +330,12 @@ function ClientCard({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen
           <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
           {/* The buckets that used to be invisible — without them the row's
               numbers don't add up to Deposits (18 = 4+4+6+2 no-appt+2 test). */}
-          {(c.selfBooked ?? 0) > 0 && <Metric label="Self-booked" value={c.selfBooked!} sub="no deposit" tone="amber" />}
+          {/* Standing column — shows booked on the artist's end (no deposit
+              through us) since Aug 1. Always visible so a zero is a fact, not
+              a hidden bucket. */}
+          <Metric label="Self-booked" value={c.selfBooked ?? 0}
+            sub={(c.selfBookedReady ?? 0) > 0 ? `${c.selfBookedReady} to charge` : "their end"}
+            tone={(c.selfBookedReady ?? 0) > 0 ? "amber" : "gray"} />
           {c.noAppt > 0 && <Metric label="No appt" value={c.noAppt} sub="not booked" tone="amber" />}
           {c.excludedCount > 0 && <Metric label="Test/excl" value={c.excludedCount} sub="not billed" tone="gray" />}
           {(c.refundedCount ?? 0) > 0 && <Metric label="Refunded" value={c.refundedCount!} sub="deposit returned" tone="gray" />}

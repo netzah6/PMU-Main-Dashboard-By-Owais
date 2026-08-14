@@ -76,10 +76,12 @@ export async function GET(req: NextRequest) {
     chgCountBy.set(r.owner_key, (chgCountBy.get(r.owner_key) ?? 0) + 1);
   }
 
-  // Self-booked shows still waiting on a charge decision (view applies the
-  // Aug 1 cutoff; charged/voided ones drop out here).
+  // Self-booked shows (view applies the Aug 1 cutoff): total per client for
+  // the standing card metric, and how many still wait on a charge decision.
+  const sbTotalBy = new Map<string, number>();
   const sbReadyBy = new Map<string, number>();
   for (const r of (sbRes.data ?? []) as Array<{ appt_id: string; owner_key: string }>) {
+    sbTotalBy.set(r.owner_key, (sbTotalBy.get(r.owner_key) ?? 0) + 1);
     const ch = chgByApptId.get(r.appt_id);
     if (ch?.charged || ch?.excluded) continue;
     sbReadyBy.set(r.owner_key, (sbReadyBy.get(r.owner_key) ?? 0) + 1);
@@ -92,10 +94,10 @@ export async function GET(req: NextRequest) {
     // The financing sheet's latest month is the source of truth for the fee;
     // the dashboard-entered fee only fills in when the notes don't state one.
     const fee = c.sheetFee ?? cfg.fee_per_appt;
-    const selfBooked = sbReadyBy.get(c.ownerKey) ?? 0;
+    const selfBookedReady = sbReadyBy.get(c.ownerKey) ?? 0;
     // Ready = deposit-linked shows waiting + self-booked shows waiting; both
     // bill at the same fee, and the verify report's shows list matches this.
-    const readyToCharge = (s?.ready_to_charge ?? 0) + selfBooked;
+    const readyToCharge = (s?.ready_to_charge ?? 0) + selfBookedReady;
     const showed = s?.showed ?? 0;
     const noShowMarked = s?.no_show_marked ?? 0;
     const reviewed = showed + noShowMarked;
@@ -119,7 +121,8 @@ export async function GET(req: NextRequest) {
       upcoming: s?.upcoming ?? 0,
       noshow: s?.noshow ?? 0,
       noAppt: s?.no_appt ?? 0,
-      selfBooked,
+      selfBooked: sbTotalBy.get(c.ownerKey) ?? 0,
+      selfBookedReady,
       readyToCharge,
       chargedCount: chgCountBy.get(c.ownerKey) ?? 0,
       chargedAmount: chgAmtBy.get(c.ownerKey) ?? 0,
