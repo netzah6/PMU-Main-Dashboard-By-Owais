@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPpaRoster, type V3Client } from "@/lib/ppa";
 import {
   listCards,
   listAllCustomers,
   listRecentPayments,
+  createCardPayment,
   type SquareCard,
   type SquareCustomer,
 } from "@/lib/square";
@@ -72,6 +74,7 @@ export interface VerifyRow {
   fee: number;
   feeSource: "sheet" | "dashboard";
   sheetNotes: string | null;
+  autoCharge: boolean;
   readyToCharge: number;
   amount: number;
   pastDue: number;
@@ -193,7 +196,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
 
   const [masterRes, cfgRes, billRes, chgRes, depRes] = await Promise.all([
     svc.from("clients_master").select("data"),
-    svc.from("ppa_config").select("owner_key, fee_per_appt").in("owner_key", ownerKeys),
+    svc.from("ppa_config").select("owner_key, fee_per_appt, auto_charge").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_billing").select("owner_key, appt_id, charge_status, start_time").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("appt_id, charged, excluded").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_rows").select("appt_id, biz_norm, contact_name").in("biz_norm", bizNorms),
@@ -213,8 +216,11 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
   }
 
   const feeBy = new Map<string, number>();
-  for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; fee_per_appt: number }>)
+  const autoBy = new Map<string, boolean>();
+  for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; fee_per_appt: number; auto_charge: boolean | null }>) {
     feeBy.set(r.owner_key, Number(r.fee_per_appt));
+    autoBy.set(r.owner_key, !!r.auto_charge);
+  }
 
   const chgBy = new Map<string, ChargeRow>();
   for (const r of (chgRes.data ?? []) as ChargeRow[]) chgBy.set(r.appt_id, r);
@@ -433,6 +439,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       fee,
       feeSource: (c.sheetFee != null ? "sheet" : "dashboard") as "sheet" | "dashboard",
       sheetNotes: c.sheetNotes,
+      autoCharge: autoBy.get(c.ownerKey) ?? false,
       readyToCharge: shows.length,
       amount: shows.length * fee,
       pastDue,
@@ -458,5 +465,83 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       blocked: rows.filter((r) => r.amount > 0 && !r.safeToAutoCharge).length,
     },
     generatedAt: now.toISOString(),
+  };
+}
+
+// ── Executing a charge ───────────────────────────────────────────────────────
+// Shared by the manual Charge button and the Monday auto-charge cron, so both
+// paths enforce identical rules. Throws ChargeRefused when the row isn't
+// chargeable; throws plain Error when Square declines.
+
+export class ChargeRefused extends Error {}
+
+export interface ChargeOutcome {
+  paymentId: string;
+  receiptUrl: string | null;
+  amount: number;
+  shows: number;
+  card: string;
+  /** Set when the payment succeeded but recording it in the dashboard failed. */
+  warning?: string;
+}
+
+export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Promise<ChargeOutcome> {
+  if (row.readyToCharge === 0) throw new ChargeRefused("Nothing to charge — no ready shows.");
+  const blocks = row.flags.filter((f) => f.level === "block");
+  if (blocks.length) throw new ChargeRefused(blocks.map((b) => b.message).join(" "));
+  if (!row.match) throw new ChargeRefused("No Square customer matched.");
+  const card = row.cards.find((c) => c.wouldCharge);
+  if (!card) throw new ChargeRefused("No usable card to charge.");
+
+  const apptIds = row.shows.map((s) => s.apptId).sort();
+  // Same client + same exact show set → same key → Square returns the one
+  // existing payment instead of creating another. Max 45 chars for Square.
+  const idempotencyKey = createHash("sha256")
+    .update(`pps:${row.ownerKey}:${apptIds.join(",")}`)
+    .digest("hex")
+    .slice(0, 45);
+
+  const payment = await createCardPayment({
+    customerId: row.match.customerId,
+    cardId: card.id,
+    amountCents: Math.round(row.amount * 100),
+    idempotencyKey,
+    note: `PPS ${row.readyToCharge} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee} — ${row.ownerName} (${row.business})`,
+    referenceId: row.ownerKey,
+  });
+
+  // Mark every included appointment charged, carrying the Square payment id so
+  // any later dispute can be traced back to the exact shows it covered.
+  const now = new Date().toISOString();
+  const svc = createServiceClient();
+  const { error } = await svc.from("ppa_charges").upsert(
+    apptIds.map((apptId) => ({
+      appt_id: apptId,
+      owner_key: row.ownerKey,
+      charged: true,
+      amount: row.fee,
+      charged_at: now,
+      charged_by: chargedBy,
+      square_payment_id: payment.id,
+      note: `Square ${payment.id}`,
+      excluded: false,
+      exclude_reason: null,
+      updated_at: now,
+    })),
+    { onConflict: "appt_id" }
+  );
+
+  return {
+    paymentId: payment.id,
+    receiptUrl: payment.receiptUrl,
+    amount: row.amount,
+    shows: row.readyToCharge,
+    card: `${card.brand} ••${card.last4}`,
+    // The payment went through — a bookkeeping failure must be loud but must
+    // NOT read as "charge failed" (an explicit retry is safe thanks to the
+    // idempotency key, but the human needs to know money moved).
+    ...(error ? {
+      warning: `CHARGED $${row.amount} (Square ${payment.id}) but recording it in the dashboard failed: ${error.message}. Mark the appointments charged manually.`,
+    } : {}),
   };
 }
