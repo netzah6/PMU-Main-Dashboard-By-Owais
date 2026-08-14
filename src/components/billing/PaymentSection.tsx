@@ -22,13 +22,26 @@ export interface VMatch {
   confidence: "high" | "medium" | "low" | "none";
   otherCandidates: Array<{ id: string; name: string; email: string | null }>;
 }
+export interface VShow { apptId: string; contactName: string | null; apptDate: string | null; chargeStatus: string }
 export interface VRow {
   ownerKey: string; ownerName: string; business: string;
   email: string | null; phone: string | null;
   fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null;
   autoCharge: boolean;
   readyToCharge: number; amount: number;
+  shows: VShow[];
   match: VMatch | null; cards: VCard[]; flags: VFlag[]; safeToAutoCharge: boolean;
+}
+
+// The charge is one amount but two kinds of shows — split them out so the
+// human always sees "we booked N, she booked M" before confirming.
+export function showSplit(v: VRow): { ours: number; hers: number } {
+  let ours = 0, hers = 0;
+  for (const s of v.shows) {
+    if (s.chargeStatus === "self_booked" || s.chargeStatus === "calendar_booked") hers++;
+    else ours++;
+  }
+  return { ours, hers };
 }
 export interface VReport {
   clients: VRow[]; missingFromMaster: string[]; customerScanTruncated: boolean;
@@ -168,27 +181,32 @@ export function PaymentCluster({ v, loading, onMsg, onReload }: {
         </span>
       )}
 
-      {/* The green light. Two clicks: arm, then confirm the exact amount+card. */}
-      {canCharge && (confirming ? (
-        <span className="flex items-center gap-1.5">
-          <button onClick={runCharge} disabled={busy}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74]">
-            {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
-            Yes, charge {money(v.amount)} to ••{card!.last4}
+      {/* The green light. Two clicks: arm, then confirm the exact amount+card.
+          The label always spells out the we-booked / she-booked split. */}
+      {canCharge && (() => {
+        const { ours, hers } = showSplit(v);
+        const breakdown = `${v.readyToCharge} show${v.readyToCharge === 1 ? "" : "s"} × ${money(v.fee)}: ${ours} we booked${hers ? ` + ${hers} she booked (no deposit)` : ""}`;
+        return confirming ? (
+          <span className="flex items-center gap-1.5">
+            <button onClick={runCharge} disabled={busy} title={breakdown}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74]">
+              {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+              Yes, charge {money(v.amount)} ({ours}{hers ? `+${hers}` : ""} shows) to ••{card!.last4}
+            </button>
+            <button onClick={() => setConfirming(false)} disabled={busy}
+              className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
+          </span>
+        ) : (
+          <button onClick={() => setConfirming(true)} disabled={busy}
+            title={`${breakdown}${warnings.length ? ` — charges despite ${warnings.length} warning${warnings.length === 1 ? "" : "s"}, read them first` : ""}`}
+            className={cn("flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border",
+              warnings.length
+                ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]"
+                : "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]")}>
+            {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />} Charge {money(v.amount)}
           </button>
-          <button onClick={() => setConfirming(false)} disabled={busy}
-            className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
-        </span>
-      ) : (
-        <button onClick={() => setConfirming(true)} disabled={busy}
-          title={warnings.length ? `Charges despite ${warnings.length} warning${warnings.length === 1 ? "" : "s"} — read them first` : undefined}
-          className={cn("flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border",
-            warnings.length
-              ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]"
-              : "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]")}>
-          {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />} Charge {money(v.amount)}
-        </button>
-      ))}
+        );
+      })()}
 
       {/* Auto-charge switch: Monday 10am Pacific, only when fully Verified —
           any warning makes the cron skip and report instead. */}

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PaymentCluster, PaymentDetails, PayMsg, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
+import { PaymentCluster, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
 interface ClientRow {
@@ -329,7 +329,21 @@ function ClientCard({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen
           <Metric label="Deposits" value={c.deposits} />
           <Metric label="Show %" value={c.showRate == null ? "—" : `${c.showRate}%`} sub={c.showRate == null ? "no reviews" : `${c.showed}/${c.showed + c.noShowMarked}`} tone={c.showRate == null ? "gray" : c.showRate >= 60 ? "green" : "amber"} />
           <Metric label="Upcoming" value={c.upcoming} tone="gray" />
-          <Metric label="Ready" value={c.readyToCharge} sub={money(c.readyOwed)} tone={c.readyToCharge > 0 ? "amber" : "gray"} />
+          {/* Once the payment check has loaded, Ready mirrors ITS numbers — the
+              same row that powers the Charge button — so the count, the split,
+              and the button amount can never disagree on screen. */}
+          {(() => {
+            const ready = v ? v.readyToCharge : c.readyToCharge;
+            const owed = v ? v.amount : c.readyOwed;
+            const split = v ? showSplit(v) : null;
+            return (
+              <div title={split ? `${split.ours} we booked · ${split.hers} she booked (no deposit)` : undefined}>
+                <Metric label="Ready" value={ready}
+                  sub={split && split.hers > 0 ? `${money(owed)} · ${split.ours} us + ${split.hers} her` : money(owed)}
+                  tone={ready > 0 ? "amber" : "gray"} />
+              </div>
+            );
+          })()}
           <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
           {/* The buckets that used to be invisible — without them the row's
               numbers don't add up to Deposits (18 = 4+4+6+2 no-appt+2 test). */}
@@ -565,21 +579,30 @@ export default function V3BillingPage() {
     return m;
   }, [verify]);
 
+  // Ready numbers prefer the payment check's row — it's what the Charge button
+  // charges, so the worklist, the banner, and the button always agree even
+  // when the two fetches caught the data at different moments.
+  const readyOf = useCallback((c: ClientRow) => {
+    const v = vBy.get(c.ownerKey);
+    return v ? { ready: v.readyToCharge, owed: v.amount } : { ready: c.readyToCharge, owed: c.readyOwed };
+  }, [vBy]);
+
   const totals = useMemo(() => {
     const t = { count: clients.length, ready: 0, readyUsd: 0, chargedUsd: 0, showed: 0, noShow: 0 };
     for (const c of clients) {
-      t.ready += c.readyToCharge; t.readyUsd += c.readyOwed;
+      const r = readyOf(c);
+      t.ready += r.ready; t.readyUsd += r.owed;
       t.chargedUsd += c.chargedAmount;
       t.showed += c.showed; t.noShow += c.noShowMarked;
     }
     return t;
-  }, [clients]);
+  }, [clients, readyOf]);
   const programShowRate = totals.showed + totals.noShow > 0 ? Math.round((totals.showed / (totals.showed + totals.noShow)) * 100) : null;
 
   // The Monday worklist — clients with appointments ready to charge.
   const worklist = useMemo(() =>
-    clients.filter((c) => c.readyToCharge > 0).sort((a, b) => b.readyOwed - a.readyOwed),
-  [clients]);
+    clients.filter((c) => readyOf(c).ready > 0).sort((a, b) => readyOf(b).owed - readyOf(a).owed),
+  [clients, readyOf]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -658,8 +681,8 @@ export default function V3BillingPage() {
               <button key={c.ownerKey} onClick={() => { setFilter("ready"); setSearch(c.ownerName); }}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-white border border-[#fcd9a8] hover:border-[#d97706]">
                 <span className="font-semibold text-[#1f3559]">{c.ownerName}</span>
-                <span className="text-[#d97706] font-bold">{c.readyToCharge}</span>
-                <span className="text-[#8595a8]">· {money(c.readyOwed)}</span>
+                <span className="text-[#d97706] font-bold">{readyOf(c).ready}</span>
+                <span className="text-[#8595a8]">· {money(readyOf(c).owed)}</span>
               </button>
             ))}
           </div>
