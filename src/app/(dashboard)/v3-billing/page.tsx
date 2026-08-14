@@ -9,7 +9,7 @@ interface ClientRow {
   ownerKey: string; ownerName: string; business: string; status: string; version: string;
   isPpa: boolean; fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null; note: string | null;
   deposits: number; depositTotal: number;
-  served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number;
+  served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number;
   readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number;
   showed: number; noShowMarked: number; excludedCount: number; refundedCount?: number; showRate: number | null;
 }
@@ -24,7 +24,7 @@ interface Appt {
 }
 interface Drill {
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
-  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; readyToCharge: number; excluded: number; refunded?: number; showed: number; noShowMarked: number; showRate: number | null };
+  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; readyToCharge: number; excluded: number; refunded?: number; showed: number; noShowMarked: number; showRate: number | null };
   appointments: Appt[];
 }
 
@@ -46,8 +46,12 @@ const CS: Record<string, { label: string; cls: string }> = {
   upcoming: { label: "Upcoming",     cls: "bg-[#eef4ff] text-[#3b6fd4] border-[#c9dbfb]" },
   noshow:   { label: "No-show",      cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]" },
   no_appt:  { label: "No appt",      cls: "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]" },
+  // Booked on the artist's end (no deposit through us) — still our lead, so
+  // the show fee applies. Billable since Aug 1, 2026.
+  self_booked: { label: "Self-booked", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
 };
-const isReady = (a: Appt) => !a.charged && !a.excluded && !a.refunded && (a.chargeStatus === "served" || a.chargeStatus === "past_due");
+const isReady = (a: Appt) => !a.charged && !a.excluded && !a.refunded &&
+  (a.chargeStatus === "served" || a.chargeStatus === "past_due" || a.chargeStatus === "self_booked");
 
 function money(n: number): string {
   return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });
@@ -146,6 +150,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
         <Pill label="Served" value={s.served} tone="green" />
         <Pill label="Past due" value={s.pastDue} tone={s.pastDue > 0 ? "amber" : "gray"} />
         <Pill label="Upcoming" value={s.upcoming} tone="gray" />
+        {(s.selfBooked ?? 0) > 0 && <Pill label="Self-booked (no deposit)" value={s.selfBooked!} tone="amber" />}
         {s.noshow > 0 && <Pill label="No-show" value={s.noshow} tone="gray" />}
         {s.noAppt > 0 && <Pill label="No appt booked" value={s.noAppt} tone="gray" />}
       </div>
@@ -325,6 +330,7 @@ function ClientCard({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen
           <Metric label="Charged" value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
           {/* The buckets that used to be invisible — without them the row's
               numbers don't add up to Deposits (18 = 4+4+6+2 no-appt+2 test). */}
+          {(c.selfBooked ?? 0) > 0 && <Metric label="Self-booked" value={c.selfBooked!} sub="no deposit" tone="amber" />}
           {c.noAppt > 0 && <Metric label="No appt" value={c.noAppt} sub="not booked" tone="amber" />}
           {c.excludedCount > 0 && <Metric label="Test/excl" value={c.excludedCount} sub="not billed" tone="gray" />}
           {(c.refundedCount ?? 0) > 0 && <Metric label="Refunded" value={c.refundedCount!} sub="deposit returned" tone="gray" />}
@@ -507,6 +513,7 @@ export default function V3BillingPage() {
       {/* Billing policy: unorganized "confirmed" appointments are billed as shown. */}
       <div className="rounded-xl border border-[#e4ebf2] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#697a91]">
         Appointments left in <strong className="text-[#34568a]">&quot;confirmed&quot;</strong> past their date are billed as <strong className="text-[#34568a]">shown</strong> by default — per agreement, if the artist doesn&apos;t organize their dashboard we charge anyway. Clients with several of these are flagged <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span> so you can nudge them.
+        {" "}Leads we sent that the artist booked <strong className="text-[#7c3aed]">on her end</strong> (no deposit through us) also bill the show fee once they hit Session Done — they show as <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">Self-booked</span>, counted from Aug 1, 2026.
       </div>
 
       {/* PPA names in the financing sheet with no Clients Master row — they

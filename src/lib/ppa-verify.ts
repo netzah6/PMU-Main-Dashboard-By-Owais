@@ -45,7 +45,7 @@ export interface VerifyShow {
   apptId: string;
   contactName: string | null;
   apptDate: string | null;
-  chargeStatus: string;    // served | past_due
+  chargeStatus: string;    // served | past_due | self_booked
 }
 
 export type MatchMethod = "email" | "phone" | "name" | "business" | null;
@@ -194,12 +194,13 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
   const ownerKeys = roster.map((c) => c.ownerKey);
   const bizNorms = roster.map((c) => c.bizNorm).filter(Boolean);
 
-  const [masterRes, cfgRes, billRes, chgRes, depRes] = await Promise.all([
+  const [masterRes, cfgRes, billRes, chgRes, depRes, sbRes] = await Promise.all([
     svc.from("clients_master").select("data"),
     svc.from("ppa_config").select("owner_key, fee_per_appt, auto_charge").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_billing").select("owner_key, appt_id, charge_status, start_time").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("appt_id, charged, excluded").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_rows").select("appt_id, biz_norm, contact_name").in("biz_norm", bizNorms),
+    svc.from("ppa_selfbooked").select("appt_id, owner_key, contact_name, done_at").in("owner_key", ownerKeys),
   ]);
 
   // Contact details come from Clients Master, the same sheet the roster is
@@ -245,6 +246,20 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       chargeStatus: b.charge_status,
     });
     showsBy.set(b.owner_key, list);
+  }
+  // Self-booked shows (leads we sent, booked directly with the artist — no
+  // deposit) bill at the same fee. The view already applies the Aug 1 cutoff.
+  for (const s of (sbRes.data ?? []) as Array<{ appt_id: string; owner_key: string; contact_name: string | null; done_at: string | null }>) {
+    const ch = chgBy.get(s.appt_id);
+    if (ch?.charged || ch?.excluded) continue;
+    const list = showsBy.get(s.owner_key) ?? [];
+    list.push({
+      apptId: s.appt_id,
+      contactName: s.contact_name,
+      apptDate: s.done_at,
+      chargeStatus: "self_booked",
+    });
+    showsBy.set(s.owner_key, list);
   }
 
   // One list fetch, matched locally — never a per-client Square search.
