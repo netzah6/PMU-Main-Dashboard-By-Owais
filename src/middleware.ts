@@ -70,6 +70,43 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     return NextResponse.redirect(url);
   }
 
+  // ── VA restriction ──
+  // A "va" may use only Clients and Onboarding. This is the real gate: hiding
+  // tabs in TabNav is cosmetic, since typing /ceo or calling /api/ceo directly
+  // would otherwise still work.
+  //
+  // Pages use an ALLOW-list (we know exactly which two are permitted). API
+  // routes use a DENY-list instead: the two permitted pages pull from several
+  // shared endpoints, and an api allow-list would silently break them as soon
+  // as one of those pages gained a new data source. The deny-list names every
+  // route carrying money, revenue, or agency-wide data.
+  if (user && !isAuthCallback && !isPublicMeta && !isPublicFunnel) {
+    const { data: roleRow } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .single();
+
+    if (roleRow?.role === "va") {
+      const VA_PAGES = ["/clients", "/onboarding"];
+      const VA_DENIED_API = [
+        "/api/ceo", "/api/ppa", "/api/square", "/api/refunds", "/api/ltv",
+        "/api/cleanup", "/api/users", "/api/pool", "/api/territory", "/api/budget",
+      ];
+
+      if (isApiRoute) {
+        if (VA_DENIED_API.some((d) => p === d || p.startsWith(d + "/"))) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+      } else if (!VA_PAGES.some((a) => p === a || p.startsWith(a + "/"))) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/clients";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+    }
+  }
+
   // ── Admin activity log ──
   // Every CHANGE a logged-in team member makes goes through a mutating /api
   // call — record who did what, fire-and-forget so requests aren't slowed.
