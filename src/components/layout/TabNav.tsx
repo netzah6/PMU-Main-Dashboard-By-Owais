@@ -34,10 +34,16 @@ const TABS: Tab[] = [
   { label: "📊 Reports", href: "/reports" },
 ];
 
+// A VA sees only these two. The real enforcement is in src/middleware.ts —
+// this just keeps the tab bar honest about what they can reach.
+const VA_TABS = new Set(["/clients", "/onboarding"]);
+
 export function TabNav() {
   const pathname = usePathname();
   const { role } = useUser();
-  const tabs = TABS.filter((t) => !t.adminOnly || role === "admin");
+  const tabs = TABS.filter((t) =>
+    role === "va" ? VA_TABS.has(t.href) : !t.adminOnly || role === "admin"
+  );
 
   return (
     <nav

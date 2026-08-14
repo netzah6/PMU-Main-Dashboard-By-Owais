@@ -1,4 +1,6 @@
-export type UserRole = "admin" | "editor" | "viewer";
+// "va" = virtual assistant: Clients + Onboarding only. Enforced in
+// src/middleware.ts (pages AND api routes), not merely hidden in the tab bar.
+export type UserRole = "admin" | "editor" | "viewer" | "va";
 
 export interface UserRoleRecord {
   id: string;
