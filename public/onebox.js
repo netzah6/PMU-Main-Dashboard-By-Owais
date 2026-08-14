@@ -50,10 +50,23 @@
     window.fbq("init", PIXEL);
     window.fbq("track", "PageView");
   }
+  function newEventId() {
+    try { return crypto.randomUUID(); } catch (e) {}
+    return "ob-" + Date.now() + "-" + Math.floor(Math.random() * 1e9);
+  }
+  /* The same event_id goes to the browser pixel and to our server, so the
+     Conversions API copy is deduplicated against this one by Meta. */
   function pixelTrack(ev, params) {
+    var id = newEventId();
+    state.eventIds[ev] = id;
     if (PIXEL && window.fbq) {
-      try { params ? window.fbq("track", ev, params) : window.fbq("track", ev); } catch (e) {}
+      try { window.fbq("track", ev, params || {}, { eventID: id }); } catch (e) {}
     }
+    return id;
+  }
+  function cookie(name) {
+    var m = document.cookie.match("(^|; )" + name + "=([^;]*)");
+    return m ? decodeURIComponent(m[2]) : "";
   }
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */
@@ -228,7 +241,7 @@
     { k: "email", q: "Email Address", type: "email", ph: "Email Address" }
   ];
   var N = QUESTIONS.length;
-  var state = { answers: {}, submitted: false };
+  var state = { eventIds: {}, answers: {}, submitted: false };
   var qi = 0, phase = "survey";
 
   /* -- lead submission ------------------------------------------------
@@ -243,6 +256,10 @@
       slug: C.slug || "",
       experimentId: C.experimentId || "",
       variantKey: C.variantKey || "",
+      eventId: state.eventIds.Lead || "",
+      fbp: cookie("_fbp"),
+      fbc: cookie("_fbc"),
+      pageUrl: location.href,
       surveyId: C.surveyId || "",
       locationId: C.locationId || "",
       full_name: a.full_name || "",
@@ -576,7 +593,7 @@
       // The deposit cleared — tell Meta, so campaigns can optimise for
       // clients who actually pay, not just form fills.
       var amt = parseFloat(String(C.deposit || "").replace(/[^0-9.]/g, ""));
-      pixelTrack("Purchase", { value: isNaN(amt) ? 0 : amt, currency: "USD" });
+      var purchaseId = pixelTrack("Purchase", { value: isNaN(amt) ? 0 : amt, currency: "USD" });
       try {
         fetch((C.submitUrl || "").replace(/submit$/, "book"), {
           method: "POST",
@@ -588,6 +605,10 @@
             phone: state.answers.phone || "",
             email: state.answers.email || "",
             startTime: state.slotIso,
+            eventId: purchaseId,
+            fbp: cookie("_fbp"),
+            fbc: cookie("_fbc"),
+            pageUrl: location.href,
           }),
         });
       } catch (e) {}

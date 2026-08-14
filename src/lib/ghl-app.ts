@@ -32,6 +32,14 @@ export const APP_SCOPES = [
   "users.readonly",
   "users.write",
   "workflows.readonly",
+  // Funnels tab — read a sub-account's funnels and create/point the URL
+  // redirect that sends ad traffic at the one-box funnel (or the split
+  // tester) without anyone opening GHL. Tick these in the developer
+  // portal before re-authorizing.
+  "funnels/redirect.readonly",
+  "funnels/redirect.write",
+  "funnels/funnel.readonly",
+  "funnels/page.readonly",
   // NOTE: funnels/funnel.readonly + funnels/page.readonly are NOT requested —
   // GHL rejects the authorize call ("Invalid scope(s)") until those two are
   // ticked on the app itself (developer portal → Advanced Settings → Auth →

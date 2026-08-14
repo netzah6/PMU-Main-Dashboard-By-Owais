@@ -102,7 +102,7 @@ export async function GET(
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</template>` : ""}
-<script src="/onebox.js?v=27" async></script>
+<script src="/onebox.js?v=28" async></script>
 </body>
 </html>`;
 
