@@ -302,3 +302,22 @@ SELECT b.owner_key,
 FROM ppa_deposit_billing b
 LEFT JOIN ppa_charges ch ON ch.appt_id = b.appt_id
 GROUP BY b.owner_key;
+
+-- ── Charge green-light (2026-08-13) ──────────────────────────────────────────
+-- Admin-chosen default card per PPS client. Re-validated against Square at
+-- read/charge time — if it's gone or unusable the charge is blocked, never
+-- silently redirected to another card.
+CREATE TABLE IF NOT EXISTS ppa_card_prefs (
+  owner_key   text PRIMARY KEY,
+  customer_id text NOT NULL,
+  card_id     text NOT NULL,
+  card_label  text,
+  chosen_by   text,
+  chosen_at   timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE ppa_card_prefs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "PPA card prefs admin" ON ppa_card_prefs FOR ALL TO authenticated
+  USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+
+-- Trace every executed Square charge back from the appointment it billed.
+ALTER TABLE ppa_charges ADD COLUMN IF NOT EXISTS square_payment_id text;

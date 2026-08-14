@@ -3,6 +3,7 @@ import { getPpaRoster, type V3Client } from "@/lib/ppa";
 import {
   listCards,
   listAllCustomers,
+  listRecentPayments,
   type SquareCard,
   type SquareCustomer,
 } from "@/lib/square";
@@ -34,6 +35,8 @@ export interface VerifyCard {
   expired: boolean;
   expiringSoon: boolean;   // within 60 days
   wouldCharge: boolean;    // the card this report would charge
+  lastUsedAt: string | null; // most recent COMPLETED Square payment on this card
+  isChosenDefault: boolean;  // admin picked this card on the Payment check tab
 }
 
 export interface VerifyShow {
@@ -239,8 +242,27 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
   }
 
   // One list fetch, matched locally — never a per-client Square search.
-  const { customers, truncated } = await listAllCustomers();
+  // Recent payments feed each card's "last used"; if that call fails the
+  // report still renders, just without last-used info.
+  const [{ customers, truncated }, recentPayments, prefRes] = await Promise.all([
+    listAllCustomers(),
+    listRecentPayments().catch(() => []),
+    svc.from("ppa_card_prefs").select("owner_key, customer_id, card_id").in("owner_key", ownerKeys),
+  ]);
   const index = new CustomerIndex(customers);
+
+  // Newest COMPLETED payment per card (payments arrive newest-first). Cards
+  // are matched by id when Square includes it, else by fingerprint.
+  const lastUsedByCardId = new Map<string, string>();
+  const lastUsedByFingerprint = new Map<string, string>();
+  for (const p of recentPayments) {
+    if (p.cardId && !lastUsedByCardId.has(p.cardId)) lastUsedByCardId.set(p.cardId, p.createdAt);
+    if (p.cardFingerprint && !lastUsedByFingerprint.has(p.cardFingerprint)) lastUsedByFingerprint.set(p.cardFingerprint, p.createdAt);
+  }
+
+  const prefBy = new Map<string, { customer_id: string; card_id: string }>();
+  for (const r of (prefRes.data ?? []) as Array<{ owner_key: string; customer_id: string; card_id: string }>)
+    prefBy.set(r.owner_key, { customer_id: r.customer_id, card_id: r.card_id });
 
   const now = new Date();
 
@@ -259,14 +281,30 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
 
     let match: VerifyMatch | null = null;
     let cards: VerifyCard[] = [];
+    const pref = prefBy.get(c.ownerKey);
+    let prefMissing = false;
     try {
       match = matchCustomer(c, contact.email, contact.phone, index);
       if (match) {
         const raw = await listCards(match.customerId);
-        // The card we'd charge: newest enabled and not expired. Newest, because
-        // an artist who adds a card is telling us to use that one.
-        const chargeable = raw.filter((k) => k.enabled && !expiryState(k, now).expired);
-        const wouldChargeId = chargeable[0]?.id ?? null;
+        const usable = (k: SquareCard) => k.enabled && !expiryState(k, now).expired;
+        const lastUsedOf = (k: SquareCard) =>
+          lastUsedByCardId.get(k.id) ?? (k.fingerprint ? lastUsedByFingerprint.get(k.fingerprint) : undefined) ?? null;
+        // Which card gets charged, in order of trust:
+        //   1. the card the admin explicitly chose (only if still usable —
+        //      if it's gone or dead we BLOCK below, never silently switch),
+        //   2. the card the client most recently paid with,
+        //   3. the newest card on file (adding a card is a signal to use it).
+        const chosen = pref && pref.customer_id === match.customerId
+          ? raw.find((k) => k.id === pref.card_id)
+          : undefined;
+        if (pref && pref.customer_id === match.customerId && (!chosen || !usable(chosen))) prefMissing = true;
+        const byLastUsed = raw.filter(usable).sort((a, b) =>
+          String(lastUsedOf(b) ?? "").localeCompare(String(lastUsedOf(a) ?? "")));
+        const wouldChargeId =
+          (chosen && usable(chosen) ? chosen.id : null) ??
+          (byLastUsed[0] && lastUsedOf(byLastUsed[0]) ? byLastUsed[0].id : null) ??
+          raw.find(usable)?.id ?? null;
         cards = raw.map((k) => {
           const e = expiryState(k, now);
           return {
@@ -280,6 +318,8 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
             expired: e.expired,
             expiringSoon: e.expiringSoon,
             wouldCharge: k.id === wouldChargeId,
+            lastUsedAt: lastUsedOf(k),
+            isChosenDefault: chosen?.id === k.id,
           };
         });
       }
@@ -323,15 +363,24 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     }
     if (match && !flags.some((f) => f.key === "square_error")) {
       const usable = cards.filter((k) => k.enabled && !k.expired);
+      const charging = cards.find((k) => k.wouldCharge);
+      if (prefMissing) {
+        flags.push({
+          key: "chosen_card_gone",
+          level: "block",
+          message: "The card you picked as default is no longer on file (or expired/disabled) — pick a card again before charging.",
+        });
+      }
       if (cards.length === 0) {
         flags.push({ key: "no_card", level: "block", message: "No card on file in Square — nothing to charge." });
       } else if (usable.length === 0) {
         flags.push({ key: "no_usable_card", level: "block", message: `${cards.length} card(s) on file, all expired or disabled.` });
-      } else if (usable.length > 1) {
+      } else if (usable.length > 1 && !charging?.isChosenDefault) {
+        const how = charging?.lastUsedAt ? "the one they last paid with" : "the newest";
         flags.push({
           key: "multiple_cards",
           level: "warn",
-          message: `${usable.length} usable cards (${usable.map((k) => `${k.brand} ••${k.last4}`).join(", ")}). Square has no default — this would charge the newest, ${usable[0].brand} ••${usable[0].last4}.`,
+          message: `${usable.length} usable cards (${usable.map((k) => `${k.brand} ••${k.last4}`).join(", ")}). Square has no default — this would charge ${how}, ${charging?.brand} ••${charging?.last4}. Pick one to silence this.`,
         });
       }
       const expiring = usable.find((k) => k.expiringSoon);
