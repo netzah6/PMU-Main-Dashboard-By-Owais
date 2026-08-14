@@ -28,6 +28,7 @@ export interface VRow {
   email: string | null; phone: string | null;
   fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null;
   autoCharge: boolean;
+  retry?: { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null } | null;
   readyToCharge: number; amount: number;
   shows: VShow[];
   match: VMatch | null; cards: VCard[]; flags: VFlag[]; safeToAutoCharge: boolean;
@@ -138,16 +139,9 @@ export function PaymentCluster({ v, loading, onMsg, onReload }: {
       });
       onReload();
     } catch (e) {
-      const text = `${e}`.replace("Error: ", "");
-      // A decline means the stored card is dead — retrying it only trips the
-      // issuer's fraud rules. Point straight at the fallback.
-      const declined = /DECLINE|INSUFFICIENT|CVV|EXPIR|INVALID_CARD/i.test(text);
-      onMsg({
-        ok: false,
-        text: declined
-          ? `${text} — the bank refused this card, retrying it won't help. Use "Payment link" to collect ${money(v.amount)} with a different card, and get a working card saved in Square for next time.`
-          : text,
-      });
+      // Declines come back from the server already explained (auto-retry
+      // schedule included) — show the message as-is.
+      onMsg({ ok: false, text: `${e}`.replace("Error: ", "") });
     } finally { setBusy(false); }
   };
 
@@ -239,6 +233,29 @@ export function PaymentCluster({ v, loading, onMsg, onReload }: {
           </button>
         );
       })()}
+
+      {/* Decline-retry status: the card is being retried automatically
+          (+1d, +3d, +3d after the decline). Click to stop the loop. */}
+      {v.retry && v.retry.status === "active" && (
+        <button onClick={async () => {
+            setBusy(true);
+            try {
+              await fetch("/api/ppa/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_key: v.ownerKey }) });
+              onMsg({ ok: true, text: "Automatic retries stopped for this client." });
+              onReload();
+            } finally { setBusy(false); }
+          }} disabled={busy}
+          title={`Card declined (${v.retry.lastError ?? "decline"}). Retry #${v.retry.attempts + 1} runs ${v.retry.nextAttemptAt ? new Date(v.retry.nextAttemptAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "soon"} at 10am Pacific — schedule is +1 day, then +3, then +3. Click to STOP the automatic retries.`}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]">
+          ↻ retry {v.retry.nextAttemptAt ? new Date(v.retry.nextAttemptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "pending"}
+        </button>
+      )}
+      {v.retry && v.retry.status === "exhausted" && (
+        <span title={`All ${3} automatic retries declined (last: ${v.retry.lastError ?? "decline"}). Send a payment link or get a new card on file.`}
+          className="px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]">
+          ↻ retries exhausted
+        </span>
+      )}
 
       {/* Fallback when the stored card declines (or there is no usable card):
           a Square-hosted checkout link for the exact ready amount — the artist

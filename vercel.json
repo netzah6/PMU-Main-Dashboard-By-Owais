@@ -19,6 +19,22 @@
     {
       "path": "/api/cron/pps-chat-scan",
       "schedule": "0 18 * * 0"
+    },
+    {
+      "path": "/api/cron/pps-autocharge",
+      "schedule": "0 17 * * 1"
+    },
+    {
+      "path": "/api/cron/pps-autocharge",
+      "schedule": "0 18 * * 1"
+    },
+    {
+      "path": "/api/cron/pps-retry",
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/pps-retry",
+      "schedule": "0 18 * * *"
     }
   ]
 }
