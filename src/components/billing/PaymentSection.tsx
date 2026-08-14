@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Loader2, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap } from "lucide-react";
+import { Loader2, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Payment-method pieces of the merged PPS Billing card ─────────────────────
@@ -95,7 +95,7 @@ export function PayMsg({ msg }: { msg: PayMsgData }) {
     <div className={cn("mx-3 mb-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold",
       msg.ok ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]" : "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]")}>
       {msg.text}
-      {msg.ok && msg.receiptUrl && <a href={msg.receiptUrl} target="_blank" rel="noreferrer" className="ml-1.5 underline">receipt ↗</a>}
+      {msg.ok && msg.receiptUrl && <a href={msg.receiptUrl} target="_blank" rel="noreferrer" className="ml-1.5 underline">open ↗</a>}
     </div>
   );
 }
@@ -137,6 +137,38 @@ export function PaymentCluster({ v, loading, onMsg, onReload }: {
         receiptUrl: json.receiptUrl,
       });
       onReload();
+    } catch (e) {
+      const text = `${e}`.replace("Error: ", "");
+      // A decline means the stored card is dead — retrying it only trips the
+      // issuer's fraud rules. Point straight at the fallback.
+      const declined = /DECLINE|INSUFFICIENT|CVV|EXPIR|INVALID_CARD/i.test(text);
+      onMsg({
+        ok: false,
+        text: declined
+          ? `${text} — the bank refused this card, retrying it won't help. Use "Payment link" to collect ${money(v.amount)} with a different card, and get a working card saved in Square for next time.`
+          : text,
+      });
+    } finally { setBusy(false); }
+  };
+
+  // Square-hosted checkout for the current ready amount — the decline
+  // fallback. Copies the link so it can be texted to the artist; the shows
+  // stay in Ready until she pays and the admin marks them charged.
+  const makePaymentLink = async () => {
+    setBusy(true); onMsg(null);
+    try {
+      const res = await fetch("/api/ppa/payment-link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner_key: v.ownerKey }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Payment link failed");
+      try { await navigator.clipboard.writeText(json.url); } catch { /* copy is best-effort */ }
+      onMsg({
+        ok: true,
+        text: `Payment link for ${money(json.amount)} (${json.shows} shows) copied to clipboard — text it to ${v.ownerName}. When she pays, mark the shows charged in the drill-down.`,
+        receiptUrl: json.url,
+      });
     } catch (e) {
       onMsg({ ok: false, text: `${e}`.replace("Error: ", "") });
     } finally { setBusy(false); }
@@ -207,6 +239,17 @@ export function PaymentCluster({ v, loading, onMsg, onReload }: {
           </button>
         );
       })()}
+
+      {/* Fallback when the stored card declines (or there is no usable card):
+          a Square-hosted checkout link for the exact ready amount — the artist
+          pays with any card, no card data touches us. */}
+      {v.readyToCharge > 0 && (
+        <button onClick={makePaymentLink} disabled={busy}
+          title={`Create a Square payment page for ${money(v.amount)} and copy the link — for when the card on file declines or there is no usable card. Shows stay in Ready until she pays and you mark them charged.`}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]">
+          <Link2 size={11} /> Payment link
+        </button>
+      )}
 
       {/* Auto-charge switch: Monday 10am Pacific, only when fully Verified —
           any warning makes the cron skip and report instead. */}
