@@ -350,8 +350,36 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     try {
       match = await matchCustomer(c, contact.email, contact.phone, index);
       if (match) {
-        const raw = await listCards(match.customerId);
         const usable = (k: SquareCard) => k.enabled && !expiryState(k, now).expired;
+        let raw = await listCards(match.customerId);
+        // Square auto-creates duplicate customer profiles, and the artist's
+        // working card can live on a different profile than the one her email
+        // matched to. When the matched profile has no usable card, check every
+        // other profile sharing her email / phone / name before concluding
+        // "no usable card" (Abegail's case).
+        if (!raw.some(usable)) {
+          const altIds = [...new Set([
+            ...match.otherCandidates.map((o) => o.id),
+            ...(contact.email ? (index.byEmail.get(normEmail(contact.email)) ?? []) : []).map((x) => x.id),
+            ...(contact.phone ? (index.byPhone.get(phoneKey(contact.phone)) ?? []) : []).map((x) => x.id),
+            ...(index.byName.get(nameKey(c.ownerName)) ?? []).map((x) => x.id),
+            ...(index.byBiz.get(bizKey(c.business)) ?? []).map((x) => x.id),
+          ])].filter((id) => id !== match!.customerId).slice(0, 5);
+          for (const id of altIds) {
+            const alt = await listCards(id).catch(() => [] as SquareCard[]);
+            if (alt.some(usable)) {
+              raw = alt;
+              // Charge the profile that actually owns the working card.
+              match = { ...match, customerId: id };
+              flags.push({
+                key: "duplicate_profile_card",
+                level: "warn",
+                message: "Square holds duplicate profiles for this artist — her usable card lives on a different profile than the primary match, so that one will be charged. Consider merging her profiles in Square (Customers → Merge).",
+              });
+              break;
+            }
+          }
+        }
         const lastUsedOf = (k: SquareCard) =>
           lastUsedByCardId.get(k.id) ?? (k.fingerprint ? lastUsedByFingerprint.get(k.fingerprint) : undefined) ?? null;
         // Which card gets charged, in order of trust:
@@ -438,7 +466,11 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       if (cards.length === 0) {
         flags.push({ key: "no_card", level: "block", message: "No card on file in Square — nothing to charge." });
       } else if (usable.length === 0) {
-        flags.push({ key: "no_usable_card", level: "block", message: `${cards.length} card(s) on file, all expired or disabled.` });
+        // Spell out WHICH cards and why each is unusable, so "no usable card"
+        // is checkable against what Square's dashboard shows.
+        const why = cards.map((k) =>
+          `${k.brand} ••${k.last4} (${!k.enabled ? "disabled" : `expired ${String(k.expMonth ?? "?").padStart(2, "0")}/${k.expYear ?? "?"}`})`).join(", ");
+        flags.push({ key: "no_usable_card", level: "block", message: `${cards.length} card(s) on file, none usable: ${why}. Checked her duplicate Square profiles too. Add a current card in Square or send a payment link.` });
       } else if (usable.length > 1 && !charging?.isChosenDefault) {
         const how = charging?.lastUsedAt ? "the one they last paid with" : "the newest";
         flags.push({
