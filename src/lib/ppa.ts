@@ -27,6 +27,22 @@ export interface V3Client {
   bizNorm: string;    // business name, alphanumerics only, lowercased
   status: string;     // live | paused
   version: string;
+  sheetNotes: string | null; // financing-sheet notes for this client's row
+  sheetFee: number | null;   // per-show fee parsed from those notes
+}
+
+// The per-show fee lives in the financing sheet's free-text notes ("$50
+// deposit + $40 per show", "$45 + $50 - PPS", "V3 - $50 for deposit + $30").
+// $50 is always the client deposit and anything over $60 is a retainer/plan
+// amount, so after dropping those, the one amount left is the fee. Two
+// different leftovers (or none) = the sheet doesn't clearly state it → null,
+// and callers fall back to the dashboard-entered fee.
+export function feeFromNotes(notes: string | null | undefined): number | null {
+  const amounts = [...String(notes ?? "").matchAll(/\$\s*([\d,]+(?:\.\d+)?)/g)]
+    .map((m) => Number(m[1].replace(/,/g, "")))
+    .filter((n) => n > 0 && n <= 60 && n !== 50);
+  const distinct = [...new Set(amounts)];
+  return distinct.length === 1 ? distinct[0] : null;
 }
 
 // The PPA roster: clients marked "PPA" (pay-per-appointment) in the financing
@@ -43,21 +59,23 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
   const svc = createServiceClient();
   const [{ data }, { data: pay }] = await Promise.all([
     svc.from("clients_master").select("data"),
-    svc.from("client_payments").select("client_name, owner_key, payment_status"),
+    svc.from("client_payments").select("client_name, owner_key, payment_status, notes"),
   ]);
-  const ppaByKey = new Map<string, string>(); // normalized owner key → financing-sheet client name
-  for (const p of (pay ?? []) as Array<{ client_name: string; owner_key: string; payment_status: string }>) {
+  type PayRow = { client_name: string; notes: string | null };
+  const ppaByKey = new Map<string, PayRow>(); // normalized owner key → financing-sheet row
+  for (const p of (pay ?? []) as Array<{ client_name: string; owner_key: string; payment_status: string; notes: string | null }>) {
     // The team renamed the financing-sheet mark from "PPA" to "PPS" (pay-per-
     // show) — accept both so a sheet-side rename never empties the roster.
     const status = String(p.payment_status ?? "").toLowerCase();
     if (!status.includes("ppa") && !status.includes("pps")) continue;
-    ppaByKey.set(p.owner_key, p.client_name);
+    const row: PayRow = { client_name: p.client_name, notes: p.notes };
+    ppaByKey.set(p.owner_key, row);
     // The parenthetical is a name too: the financing sheet had "Ah Ra Cho
     // (Estee Cho)" while Clients Master says "Estee Cho" — normalizeOwnerKey
     // drops parentheses, so she never matched. Accept either name order.
     for (const m of String(p.client_name ?? "").matchAll(/\(([^)]+)\)/g)) {
       const alias = normalizeOwnerKey(m[1]);
-      if (alias && !ppaByKey.has(alias)) ppaByKey.set(alias, p.client_name);
+      if (alias && !ppaByKey.has(alias)) ppaByKey.set(alias, row);
     }
   }
   // Matches are tracked by the SHEET name, not the key — one sheet row can
@@ -70,9 +88,9 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
     const version = String(d["Version"] ?? "");
     const status = String(d["col_1"] ?? "").toLowerCase();
     const normKey = normalizeOwnerKey(d["Owner Full Name"]);
-    const payName = normKey ? ppaByKey.get(normKey) : undefined;
-    if (!payName) continue;
-    matched.add(payName);
+    const payRow = normKey ? ppaByKey.get(normKey) : undefined;
+    if (!payRow) continue;
+    matched.add(payRow.client_name);
     if (status !== "live" && status !== "paused") continue;
     const ownerName = String(d["Owner Full Name"] ?? "").trim();
     if (!ownerName) continue;
@@ -87,10 +105,12 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
       bizNorm: business.toLowerCase().replace(/[^a-z0-9]/g, ""),
       status,
       version,
+      sheetNotes: payRow.notes,
+      sheetFee: feeFromNotes(payRow.notes),
     });
   }
   out.sort((a, b) => a.ownerName.localeCompare(b.ownerName));
-  const missingFromMaster = [...new Set(ppaByKey.values())]
+  const missingFromMaster = [...new Set([...ppaByKey.values()].map((r) => r.client_name))]
     .filter((name) => !matched.has(name))
     .sort();
   return { clients: out, missingFromMaster };

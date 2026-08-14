@@ -22,7 +22,8 @@ interface Match {
 interface Row {
   ownerKey: string; ownerName: string; business: string; status: string; version: string;
   email: string | null; phone: string | null;
-  fee: number; readyToCharge: number; amount: number; pastDue: number;
+  fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null;
+  readyToCharge: number; amount: number; pastDue: number;
   shows: Show[]; match: Match | null; cards: Card[]; flags: Flag[]; safeToAutoCharge: boolean;
 }
 interface Report {
@@ -116,9 +117,12 @@ function ClientRow({ r }: { r: Row }) {
 
         {/* What it would cost */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="min-w-[70px]">
+          <div className="min-w-[70px]" title={r.sheetNotes ? `Financing sheet: ${r.sheetNotes}` : undefined}>
             <div className="text-base font-bold leading-none text-[#1f3559]">{money(r.amount)}</div>
             <div className="text-[9px] uppercase tracking-wide text-[#a6b3c4] font-semibold mt-0.5">{r.readyToCharge} show{r.readyToCharge === 1 ? "" : "s"} × {money(r.fee)}</div>
+            <div className={cn("text-[9px] font-semibold", r.feeSource === "sheet" ? "text-[#0e8f88]" : "text-[#b45309]")}>
+              {r.feeSource === "sheet" ? "fee from sheet" : "dashboard fee"}
+            </div>
           </div>
           {r.safeToAutoCharge ? (
             <span className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#e6f7ee] text-[#15803d] border-[#86efac]">

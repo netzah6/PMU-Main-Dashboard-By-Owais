@@ -72,6 +72,9 @@ export async function GET(req: NextRequest) {
     const s = sumBy.get(c.ownerKey);
     const dep = depBy.get(c.bizNorm) ?? { deposits: 0, deposit_total: 0 };
     const cfg = cfgBy.get(c.ownerKey) ?? { is_ppa: false, fee_per_appt: 30, note: null };
+    // The financing sheet's latest month is the source of truth for the fee;
+    // the dashboard-entered fee only fills in when the notes don't state one.
+    const fee = c.sheetFee ?? cfg.fee_per_appt;
     const readyToCharge = s?.ready_to_charge ?? 0;
     const showed = s?.showed ?? 0;
     const noShowMarked = s?.no_show_marked ?? 0;
@@ -85,7 +88,9 @@ export async function GET(req: NextRequest) {
       // The roster only contains PPA-marked clients now, so everyone bills
       // per appointment — the old per-client toggle is meaningless.
       isPpa: true,
-      fee: cfg.fee_per_appt,
+      fee,
+      feeSource: c.sheetFee != null ? "sheet" : "dashboard",
+      sheetNotes: c.sheetNotes,
       note: cfg.note,
       deposits: dep.deposits,
       depositTotal: dep.deposit_total,
@@ -97,7 +102,7 @@ export async function GET(req: NextRequest) {
       readyToCharge,
       chargedCount: s?.charged_count ?? 0,
       chargedAmount: chgAmtBy.get(c.ownerKey) ?? 0,
-      readyOwed: readyToCharge * cfg.fee_per_appt,
+      readyOwed: readyToCharge * fee,
       // Show rate = showed / (showed + marked no-show), from our review decisions.
       showed,
       noShowMarked,

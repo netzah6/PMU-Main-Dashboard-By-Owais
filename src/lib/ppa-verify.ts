@@ -3,8 +3,6 @@ import { getPpaRoster, type V3Client } from "@/lib/ppa";
 import {
   listCards,
   listAllCustomers,
-  searchCustomersByEmail,
-  searchCustomersByPhone,
   type SquareCard,
   type SquareCustomer,
 } from "@/lib/square";
@@ -69,6 +67,8 @@ export interface VerifyRow {
   email: string | null;
   phone: string | null;
   fee: number;
+  feeSource: "sheet" | "dashboard";
+  sheetNotes: string | null;
   readyToCharge: number;
   amount: number;
   pastDue: number;
@@ -114,56 +114,67 @@ function expiryState(card: SquareCard, now: Date): { expired: boolean; expiringS
   return { expired, expiringSoon: soon };
 }
 
-// Find the artist's Square customer. Email is the only identifier we trust
-// outright; phone is close behind; a name match is a suggestion the human has
-// to confirm (name matching has put us on the wrong record before).
-async function matchCustomer(
+// Find the artist's Square customer against a pre-built local index of the
+// whole customer list. One paginated list fetch serves every client — the
+// per-client SearchCustomers calls this replaces are what tripped Square's
+// per-method rate limit and painted the first live run red.
+// Email is the only identifier trusted outright; phone is close behind; a
+// name match is a suggestion the human has to confirm (name matching has put
+// us on the wrong record before).
+class CustomerIndex {
+  byEmail = new Map<string, SquareCustomer[]>();
+  byPhone = new Map<string, SquareCustomer[]>();
+  byName = new Map<string, SquareCustomer[]>();
+  byBiz = new Map<string, SquareCustomer[]>();
+  constructor(customers: SquareCustomer[]) {
+    const add = (m: Map<string, SquareCustomer[]>, k: string, c: SquareCustomer) => {
+      if (!k) return;
+      const list = m.get(k) ?? [];
+      list.push(c);
+      m.set(k, list);
+    };
+    for (const c of customers) {
+      add(this.byEmail, normEmail(c.email), c);
+      add(this.byPhone, phoneKey(c.phone), c);
+      add(this.byName, nameKey(c.name), c);
+      add(this.byBiz, bizKey(c.company), c);
+      add(this.byBiz, bizKey(c.name), c);
+    }
+  }
+}
+
+function matchCustomer(
   c: V3Client,
   email: string | null,
   phone: string | null,
-  nameIndex: () => Promise<SquareCustomer[]>,
-): Promise<{ match: VerifyMatch | null; ambiguous: SquareCustomer[] }> {
-  const pick = (hits: SquareCustomer[], method: MatchMethod, confidence: MatchConfidence) => {
+  index: CustomerIndex,
+): VerifyMatch | null {
+  const pick = (hits: SquareCustomer[], method: MatchMethod, confidence: MatchConfidence): VerifyMatch => {
     const [first, ...rest] = hits;
     return {
-      match: {
-        customerId: first.id,
-        customerName: first.name,
-        customerEmail: first.email,
-        customerPhone: first.phone ?? null,
-        method,
-        confidence: rest.length ? ("low" as MatchConfidence) : confidence,
-        otherCandidates: rest.map((r) => ({ id: r.id, name: r.name, email: r.email })),
-      },
-      ambiguous: rest,
+      customerId: first.id,
+      customerName: first.name,
+      customerEmail: first.email,
+      customerPhone: first.phone ?? null,
+      method,
+      confidence: rest.length ? "low" : confidence,
+      otherCandidates: rest.map((r) => ({ id: r.id, name: r.name, email: r.email })),
     };
   };
 
-  if (email) {
-    const hits = await searchCustomersByEmail(email);
-    if (hits.length) return pick(hits, "email", "high");
-  }
+  const byEmail = email ? index.byEmail.get(normEmail(email)) : undefined;
+  if (byEmail?.length) return pick(byEmail, "email", "high");
 
-  if (phone) {
-    const want = phoneKey(phone);
-    // Square's fuzzy phone search also returns near-misses; keep only records
-    // whose national number is identical.
-    const hits = (await searchCustomersByPhone(phone)).filter((h) => want && phoneKey(h.phone) === want);
-    if (hits.length) return pick(hits, "phone", "medium");
-  }
+  const byPhone = phone ? index.byPhone.get(phoneKey(phone)) : undefined;
+  if (byPhone?.length) return pick(byPhone, "phone", "medium");
 
-  // Last resort: scan the customer list for the artist's name or business.
-  const all = await nameIndex();
-  const wantName = nameKey(c.ownerName);
-  const wantBiz = bizKey(c.business);
-  const byName = wantName ? all.filter((x) => nameKey(x.name) === wantName) : [];
-  if (byName.length) return pick(byName, "name", "low");
-  const byBiz = wantBiz
-    ? all.filter((x) => bizKey(x.company) === wantBiz || bizKey(x.name) === wantBiz)
-    : [];
-  if (byBiz.length) return pick(byBiz, "business", "low");
+  const byName = index.byName.get(nameKey(c.ownerName));
+  if (byName?.length) return pick(byName, "name", "low");
 
-  return { match: null, ambiguous: [] };
+  const byBiz = index.byBiz.get(bizKey(c.business));
+  if (byBiz?.length) return pick(byBiz, "business", "low");
+
+  return null;
 }
 
 type BillingRow = { owner_key: string; appt_id: string; charge_status: string; start_time: string | null };
@@ -227,22 +238,20 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     showsBy.set(b.owner_key, list);
   }
 
-  // The customer list is only loaded if some client can't be matched on email
-  // or phone — on a healthy roster it is never fetched at all.
-  let indexPromise: Promise<{ customers: SquareCustomer[]; truncated: boolean }> | null = null;
-  let truncated = false;
-  const nameIndex = async () => {
-    if (!indexPromise) indexPromise = listAllCustomers();
-    const r = await indexPromise;
-    truncated = r.truncated;
-    return r.customers;
-  };
+  // One list fetch, matched locally — never a per-client Square search.
+  const { customers, truncated } = await listAllCustomers();
+  const index = new CustomerIndex(customers);
 
   const now = new Date();
 
-  const rows = await mapWithConcurrency(roster, 4, async (c): Promise<VerifyRow> => {
+  // Concurrency 2: after the customer list, the only Square traffic left is
+  // one ListCards call per matched client, kept slow enough to stay under the
+  // per-method rate limit even right after other tabs hit Square.
+  const rows = await mapWithConcurrency(roster, 2, async (c): Promise<VerifyRow> => {
     const contact = contactByKey.get(c.ownerKey) ?? { email: null, phone: null };
-    const fee = feeBy.get(c.ownerKey) ?? 30;
+    // The financing sheet's latest month states the fee; dashboard fee is the
+    // fallback when the notes don't parse to one.
+    const fee = c.sheetFee ?? feeBy.get(c.ownerKey) ?? 30;
     const shows = (showsBy.get(c.ownerKey) ?? []).sort((a, b) =>
       String(b.apptDate ?? "").localeCompare(String(a.apptDate ?? "")));
     const pastDue = pastDueBy.get(c.ownerKey) ?? 0;
@@ -251,8 +260,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     let match: VerifyMatch | null = null;
     let cards: VerifyCard[] = [];
     try {
-      const found = await matchCustomer(c, contact.email, contact.phone, nameIndex);
-      match = found.match;
+      match = matchCustomer(c, contact.email, contact.phone, index);
       if (match) {
         const raw = await listCards(match.customerId);
         // The card we'd charge: newest enabled and not expired. Newest, because
@@ -353,6 +361,13 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
         message: `⚠ NOT ORGANIZED — ${pastDue} past appointments still sitting in "confirmed". Billed as shown by default, so double-check before charging.`,
       });
     }
+    if (c.sheetFee == null && shows.length > 0) {
+      flags.push({
+        key: "fee_not_in_sheet",
+        level: "warn",
+        message: `Couldn't read a per-show fee from the financing sheet notes ("${c.sheetNotes ?? "no notes"}") — using the dashboard fee ${"$" + fee}. State it in the sheet to be sure.`,
+      });
+    }
     if (shows.length === 0) {
       flags.push({ key: "nothing_to_charge", level: "info", message: "No shows waiting to be charged." });
     }
@@ -367,6 +382,8 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       email: contact.email,
       phone: contact.phone,
       fee,
+      feeSource: (c.sheetFee != null ? "sheet" : "dashboard") as "sheet" | "dashboard",
+      sheetNotes: c.sheetNotes,
       readyToCharge: shows.length,
       amount: shows.length * fee,
       pastDue,
