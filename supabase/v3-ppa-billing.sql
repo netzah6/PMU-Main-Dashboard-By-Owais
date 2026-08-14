@@ -384,7 +384,10 @@ SELECT
 FROM ghl_appointments a
 LEFT JOIN ghl_contacts c ON c.id = a.contact_id
 WHERE a.start_time >= '2026-08-01'
-  AND coalesce(a.status,'') !~* 'cancel|no.?show'
+  -- Only REAL bookings: 'invalid' is the funnel's leftover when a lead
+  -- books a slot but abandons at the deposit page (appointments confirm
+  -- only after payment) — 171/172 past no-deposit appts were 'invalid'.
+  AND coalesce(a.status,'') ~* '^(confirmed|showed|new)$'
   AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts dc WHERE dc.contact_id = a.contact_id)
   AND NOT EXISTS (
     SELECT 1 FROM ghl_opportunities o
