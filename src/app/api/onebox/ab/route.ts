@@ -161,6 +161,29 @@ export async function POST(req: NextRequest) {
     if (!slug || variants.length < 2) {
       return NextResponse.json({ error: "slug and at least two variants required" }, { status: 400 });
     }
+    /* A comparison against the original funnel is worthless if that URL
+       just redirects back to ours — which is exactly what happens after a
+       cutover, since the old path now forwards to the one-box. Follow the
+       URL and refuse the obvious mistake. */
+    for (const v of variants) {
+      if (v.kind !== "external" || !v.target) continue;
+      try {
+        const r = await fetch(v.target, { redirect: "follow", signal: AbortSignal.timeout(12000) });
+        if (/book\.pmu-care\.com|\/f\/|\/s\//.test(r.url)) {
+          return NextResponse.json(
+            {
+              error:
+                `"${v.target}" redirects to the one-box funnel (${r.url}), so both sides would be identical. ` +
+                `Use the original funnel's own URL — after a cutover that is usually the same path with "-old".`,
+            },
+            { status: 400 }
+          );
+        }
+      } catch {
+        /* unreachable target: let it through rather than block on a blip */
+      }
+    }
+
     // One live test per funnel keeps the maths (and the story) simple.
     await svc.from("onebox_experiments").update({ status: "paused" }).eq("slug", slug).eq("status", "running");
     const { data: exp, error } = await svc
