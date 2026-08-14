@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
+import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
   const svc = createServiceClient();
   const { data: client } = await svc
     .from("onebox_clients")
-    .select("slug, location_id, status")
+    .select("slug, location_id, status, config, extras")
     .eq("slug", slug)
     .single();
   if (!client || client.status === "draft") {
@@ -131,6 +132,28 @@ export async function POST(req: NextRequest) {
       .from("onebox_leads")
       .update({ ghl_status: ghlStatus, ghl_contact_id: contactId })
       .eq("id", leadRow.id);
+  }
+
+  // Server-side Lead: the browser pixel already fired this with the same
+  // event_id, so Meta keeps one and gains the events blockers ate.
+  if (!partial) {
+    const cfg = (client.config ?? {}) as Record<string, string>;
+    const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string };
+    const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
+    const token = capiToken(ex);
+    const eventId = String(body.eventId ?? "");
+    if (pixelId && token && eventId) {
+      await sendCapiEvent({
+        pixelId, token, eventName: "Lead", eventId,
+        eventSourceUrl: String(body.pageUrl ?? "") || undefined,
+        user: {
+          email, phone, fullName,
+          fbp: String(body.fbp ?? ""), fbc: String(body.fbc ?? ""),
+          clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+          userAgent: req.headers.get("user-agent"),
+        },
+      });
+    }
   }
 
   return NextResponse.json({ ok: true, ghl: ghlStatus });

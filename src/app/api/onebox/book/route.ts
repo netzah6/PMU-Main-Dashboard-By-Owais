@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
+import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -126,6 +127,28 @@ export async function POST(req: NextRequest) {
     .eq("slug", slug)
     .eq("phone", phone)
     .then(() => {});
+
+  // Server-side Purchase — this endpoint only runs once the deposit has
+  // cleared, so it is the honest signal for optimising on paying clients.
+  const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string };
+  const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
+  const token = capiToken(ex);
+  const eventId = String(body.eventId ?? "");
+  if (pixelId && token && eventId) {
+    const amount = parseFloat(String(cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
+    await sendCapiEvent({
+      pixelId, token, eventName: "Purchase", eventId,
+      eventSourceUrl: String(body.pageUrl ?? "") || undefined,
+      value: Number.isFinite(amount) ? amount : undefined,
+      currency: "USD",
+      user: {
+        email, phone, fullName,
+        fbp: String(body.fbp ?? ""), fbc: String(body.fbc ?? ""),
+        clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+        userAgent: req.headers.get("user-agent"),
+      },
+    });
+  }
 
   return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
 }
