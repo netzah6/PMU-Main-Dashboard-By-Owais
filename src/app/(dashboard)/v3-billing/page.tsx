@@ -47,11 +47,14 @@ const CS: Record<string, { label: string; cls: string }> = {
   noshow:   { label: "No-show",      cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]" },
   no_appt:  { label: "No appt",      cls: "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]" },
   // Booked on the artist's end (no deposit through us) — still our lead, so
-  // the show fee applies. Billable since Aug 1, 2026.
+  // the show fee applies. Billable since Aug 1, 2026. "Self-booked" = she
+  // marked the lead done in the pipeline; "Calendar" = the appointment sits on
+  // her GHL calendar and its date has passed.
   self_booked: { label: "Self-booked", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
+  calendar_booked: { label: "Calendar", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
 };
 const isReady = (a: Appt) => !a.charged && !a.excluded && !a.refunded &&
-  (a.chargeStatus === "served" || a.chargeStatus === "past_due" || a.chargeStatus === "self_booked");
+  (a.chargeStatus === "served" || a.chargeStatus === "past_due" || a.chargeStatus === "self_booked" || a.chargeStatus === "calendar_booked");
 
 function money(n: number): string {
   return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });
@@ -371,6 +374,111 @@ function Metric({ label, value, sub, tone }: { label: string; value: string | nu
 // ── Page ─────────────────────────────────────────────────────────────────────
 type Filter = "all" | "ready" | "issues" | "verified" | "auto";
 
+// ── Chat-detected bookings review panel ──────────────────────────────────────
+// Bookings that exist only inside a conversation: Claude reads recent chats of
+// leads no other billing path covers and flags concrete agreements. A human
+// bills or dismisses each — chat evidence never auto-charges.
+interface ChatFlag {
+  conversation_id: string; owner_key: string; contact_id: string | null; contact_name: string | null;
+  detected_when: string | null; evidence: string | null; last_message_at: string | null;
+}
+
+function ChatFlagsPanel({ feeByOwner, nameByOwner, onBilled }: {
+  feeByOwner: Map<string, number>; nameByOwner: Map<string, string>; onBilled: () => void;
+}) {
+  const [flags, setFlags] = useState<ChatFlag[]>([]);
+  const [lastScanAt, setLastScanAt] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ppa/chat-flags");
+      const j = await res.json();
+      if (res.ok) { setFlags(j.flags ?? []); setLastScanAt(j.lastScanAt ?? null); }
+    } catch { /* panel is best-effort */ }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const scan = async () => {
+    setScanning(true); setMsg(null);
+    try {
+      const res = await fetch("/api/ppa/chat-scan", { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Scan failed");
+      setMsg(`Scanned ${j.scanned} conversation${j.scanned === 1 ? "" : "s"} across ${j.clients} clients — ${j.flagged} new booking${j.flagged === 1 ? "" : "s"} flagged${j.partial ? " (time ran out — run again to continue)" : ""}.`);
+      load();
+    } catch (e) { setMsg(`${e}`.replace("Error: ", "")); }
+    finally { setScanning(false); }
+  };
+
+  const act = async (f: ChatFlag, bill: boolean) => {
+    setBusy(f.conversation_id); setMsg(null);
+    try {
+      if (bill) {
+        const fee = feeByOwner.get(f.owner_key) ?? 30;
+        const res = await fetch("/api/ppa/charge", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            appt_id: `chat:${f.conversation_id}`, owner_key: f.owner_key, charged: true, amount: fee,
+            note: `Chat-detected booking${f.detected_when ? ` (${f.detected_when})` : ""}${f.contact_name ? ` — ${f.contact_name}` : ""}`,
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Charge record failed");
+      }
+      const res2 = await fetch("/api/ppa/chat-flags", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: f.conversation_id, action: bill ? "billed" : "dismiss" }),
+      });
+      if (!res2.ok) throw new Error((await res2.json()).error || "Failed to update flag");
+      setFlags((cur) => cur.filter((x) => x.conversation_id !== f.conversation_id));
+      if (bill) onBilled();
+    } catch (e) { setMsg(`${e}`.replace("Error: ", "")); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <div className="rounded-xl border border-[#ddd6fe] bg-[#faf8ff] p-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <h2 className="text-sm font-bold text-[#1f3559]">💬 Booked in chat</h2>
+        {flags.length > 0
+          ? <span className="text-xs font-semibold text-[#7c3aed]">{flags.length} to review — found in conversations, no deposit / stage / calendar entry</span>
+          : <span className="text-xs text-[#8595a8]">No unreviewed chat bookings{lastScanAt ? ` · last scan ${new Date(lastScanAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : " — run a scan"}</span>}
+        <button onClick={scan} disabled={scanning}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white hover:bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">
+          {scanning ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />} {scanning ? "Reading chats…" : "Scan chats"}
+        </button>
+      </div>
+      {msg && <div className="mt-1.5 text-[11px] font-semibold text-[#7c3aed]">{msg}</div>}
+      {flags.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {flags.map((f) => (
+            <div key={f.conversation_id} className="rounded-lg border border-[#e4ebf2] bg-white px-2.5 py-1.5 flex items-start gap-2 flex-wrap">
+              <div className="min-w-[160px]">
+                <div className="text-[12px] font-bold text-[#1f3559]">{nameByOwner.get(f.owner_key) ?? f.owner_key}</div>
+                <div className="text-[11px] text-[#697a91]">{f.contact_name ?? "Unknown lead"}{f.detected_when ? ` · ${f.detected_when}` : ""}</div>
+              </div>
+              {f.evidence && <div className="flex-1 min-w-[200px] text-[11px] italic text-[#64748b]">&ldquo;{f.evidence}&rdquo;</div>}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={() => act(f, true)} disabled={busy === f.conversation_id}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]">
+                  {busy === f.conversation_id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                  Bill {money(feeByOwner.get(f.owner_key) ?? 30)}
+                </button>
+                <button onClick={() => act(f, false)} disabled={busy === f.conversation_id}
+                  className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#94a3b8] border-[#e4ebf2] hover:border-[#94a3b8]">
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Latest Monday auto-charge run, one line + expandable detail.
 interface AutoLogRow { owner_key: string; owner_name: string | null; status: string; amount: number | null; shows: number | null; square_payment_id: string | null; detail: string | null }
 
@@ -449,6 +557,8 @@ export default function V3BillingPage() {
   }, []);
   useEffect(() => { load(); loadVerify(); }, [load, loadVerify]);
 
+  const feeByOwner = useMemo(() => new Map(clients.map((c) => [c.ownerKey, c.fee])), [clients]);
+  const nameByOwner = useMemo(() => new Map(clients.map((c) => [c.ownerKey, c.ownerName])), [clients]);
   const vBy = useMemo(() => {
     const m = new Map<string, VRow>();
     for (const r of verify?.clients ?? []) m.set(r.ownerKey, r);
@@ -509,6 +619,10 @@ export default function V3BillingPage() {
       {/* Latest Monday auto-charge run (only shows once a run has happened) */}
       <AutoRunBanner />
 
+      {/* Chat-detected bookings — reviewed by a human, then billed via the
+          normal charge record (appt_id chat:<conversation>). */}
+      <ChatFlagsPanel feeByOwner={feeByOwner} nameByOwner={nameByOwner} onBilled={() => { load(); loadVerify(); }} />
+
       {verifyError && (
         <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] px-3 py-2 text-[12px] text-[#b45309]">
           Payment check unavailable: {verifyError} — billing numbers still work; card info and the Charge buttons are hidden until it loads (hit Refresh to retry).
@@ -518,7 +632,7 @@ export default function V3BillingPage() {
       {/* Billing policy: unorganized "confirmed" appointments are billed as shown. */}
       <div className="rounded-xl border border-[#e4ebf2] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#697a91]">
         Appointments left in <strong className="text-[#34568a]">&quot;confirmed&quot;</strong> past their date are billed as <strong className="text-[#34568a]">shown</strong> by default — per agreement, if the artist doesn&apos;t organize their dashboard we charge anyway. Clients with several of these are flagged <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span> so you can nudge them.
-        {" "}Leads we sent that the artist booked <strong className="text-[#7c3aed]">on her end</strong> (no deposit through us) also bill the show fee once they hit Session Done — they show as <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">Self-booked</span>, counted from Aug 1, 2026.
+        {" "}Leads we sent that the artist booked <strong className="text-[#7c3aed]">on her end</strong> (no deposit through us) also bill the show fee — caught three ways: moved to Session Done (<span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">Self-booked</span>), sitting on her GHL calendar past its date (<span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">Calendar</span>), or agreed in the conversation (💬 review panel above). All counted from Aug 1, 2026; booked fully off-platform we can&apos;t see.
       </div>
 
       {/* PPA names in the financing sheet with no Clients Master row — they

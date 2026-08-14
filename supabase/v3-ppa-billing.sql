@@ -366,3 +366,51 @@ WHERE (m.stage_name ~* 'session[[:space:]]*(done|complete)'
   AND o.contact_id IS NOT NULL
   AND o.last_stage_change_at >= '2026-08-01'
   AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts dc WHERE dc.contact_id = o.contact_id);
+
+-- ── Catch-all booking detection (2026-08-14) ─────────────────────────────────
+-- Calendar-booked shows: GHL calendar appointments for leads with NO deposit
+-- and NO done-stage (those bill through the other two paths). Aug 1 cutoff,
+-- cancelled/no-show excluded. Billable unit 'cal:<appointment id>'.
+CREATE OR REPLACE VIEW ppa_calendar_booked AS
+SELECT
+  'cal:' || a.id  AS appt_id,
+  a.owner_key,
+  a.contact_id,
+  a.start_time,
+  a.status,
+  a.title,
+  c.contact_name,
+  c.email
+FROM ghl_appointments a
+LEFT JOIN ghl_contacts c ON c.id = a.contact_id
+WHERE a.start_time >= '2026-08-01'
+  AND coalesce(a.status,'') !~* 'cancel|no.?show'
+  AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts dc WHERE dc.contact_id = a.contact_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM ghl_opportunities o
+    JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+    WHERE o.contact_id = a.contact_id
+      AND (m.stage_name ~* 'session[[:space:]]*(done|complete)'
+        OR m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
+  );
+
+-- Chat-scan results: one row per scanned conversation. verdict 'booked' rows
+-- are review candidates (never auto-charged); 'none' rows record scan state.
+CREATE TABLE IF NOT EXISTS ppa_chat_flags (
+  conversation_id text PRIMARY KEY,
+  owner_key       text NOT NULL,
+  location_id     text,
+  contact_id      text,
+  contact_name    text,
+  verdict         text NOT NULL,
+  detected_when   text,
+  evidence        text,
+  dismissed       boolean NOT NULL DEFAULT false,
+  billed          boolean NOT NULL DEFAULT false,
+  last_message_at timestamptz,
+  scanned_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE ppa_chat_flags ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "PPA chat flags admin" ON ppa_chat_flags FOR ALL TO authenticated
+  USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE INDEX IF NOT EXISTS ppa_chat_flags_owner ON ppa_chat_flags (owner_key);
