@@ -321,3 +321,24 @@ CREATE POLICY "PPA card prefs admin" ON ppa_card_prefs FOR ALL TO authenticated
 
 -- Trace every executed Square charge back from the appointment it billed.
 ALTER TABLE ppa_charges ADD COLUMN IF NOT EXISTS square_payment_id text;
+
+-- ── Auto-charge (2026-08-13) ─────────────────────────────────────────────────
+-- Per-client auto-charge opt-in (Monday 10:00 Pacific cron). Default OFF.
+ALTER TABLE ppa_config ADD COLUMN IF NOT EXISTS auto_charge boolean NOT NULL DEFAULT false;
+
+-- Every auto-charge run logs one row per client: charged / skipped / failed.
+CREATE TABLE IF NOT EXISTS ppa_autocharge_log (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  run_at timestamptz NOT NULL,
+  owner_key text NOT NULL,
+  owner_name text,
+  status text NOT NULL,
+  amount numeric,
+  shows int,
+  square_payment_id text,
+  detail text
+);
+ALTER TABLE ppa_autocharge_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "PPA autocharge log admin" ON ppa_autocharge_log FOR ALL TO authenticated
+  USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE INDEX IF NOT EXISTS ppa_autocharge_log_run_at ON ppa_autocharge_log (run_at DESC);

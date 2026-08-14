@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import PaymentCheck from "@/components/billing/PaymentCheck";
+import { PaymentCluster, PaymentDetails, PayMsg, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
 interface ClientRow {
@@ -257,10 +257,16 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
 }
 
 // ── Client card ──────────────────────────────────────────────────────────────
-function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () => void; defaultOpen?: boolean }) {
+function ClientCard({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen }: {
+  c: ClientRow; v: VRow | undefined; verifyLoading: boolean;
+  onChange: () => void; onVerifyReload: () => void; defaultOpen?: boolean;
+}) {
   const [open, setOpen] = useState(!!defaultOpen);
   const [fee, setFee] = useState(String(c.fee));
+  const [payMsg, setPayMsg] = useState<PayMsgData | null>(null);
   useEffect(() => { setFee(String(c.fee)); }, [c.fee]);
+  // A charge changes both the billing numbers and the payment state.
+  const reloadBoth = () => { onChange(); onVerifyReload(); };
   // "Not organizing" = several past appointments left in "confirmed" (never moved
   // to session-done/showed). We bill these as shown by default, per agreement.
   const notOrganizing = c.pastDue >= 3;
@@ -322,20 +328,20 @@ function ClientCard({ c, onChange, defaultOpen }: { c: ClientRow; onChange: () =
           {c.noAppt > 0 && <Metric label="No appt" value={c.noAppt} sub="not booked" tone="amber" />}
           {c.excludedCount > 0 && <Metric label="Test/excl" value={c.excludedCount} sub="not billed" tone="gray" />}
           {(c.refundedCount ?? 0) > 0 && <Metric label="Refunded" value={c.refundedCount!} sub="deposit returned" tone="gray" />}
-          {/* Right-edge pointer: this client has shows waiting to be charged. */}
-          {c.readyToCharge > 0 && (
-            <span className="flex items-center gap-1.5 pl-1.5 border-l-2 border-[#fcd9a8]" title={`${c.readyToCharge} appointment${c.readyToCharge === 1 ? "" : "s"} waiting for your charge decision`}>
-              <span className="text-xl animate-pulse">👈</span>
-              <span className="text-left leading-tight">
-                <span className="block text-[10px] font-bold uppercase tracking-wide text-[#d97706]">Charge</span>
-                <span className="block text-[11px] font-bold text-[#b45309]">{money(c.readyOwed)}</span>
-              </span>
-            </span>
-          )}
         </div>
+
+        {/* Payment method + Charge + Auto — merged from the Payment check tab */}
+        <PaymentCluster v={v} loading={verifyLoading} onMsg={setPayMsg} onReload={reloadBoth} />
       </div>
 
-      {open && <div className="px-3 pb-3 border-t border-[#eef3f8]"><AppointmentList client={c} onCharged={onChange} /></div>}
+      {payMsg && <PayMsg msg={payMsg} />}
+
+      {open && (
+        <div className="px-3 pb-3 border-t border-[#eef3f8] space-y-3">
+          <div className="pt-2"><PaymentDetails v={v} onMsg={setPayMsg} onReload={onVerifyReload} /></div>
+          <AppointmentList client={c} onCharged={onChange} />
+        </div>
+      )}
     </div>
   );
 }
@@ -352,29 +358,60 @@ function Metric({ label, value, sub, tone }: { label: string; value: string | nu
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
-type Filter = "all" | "ready";
-// Two jobs, two views: decide what to bill (Charges) and check that the money
-// would land on the right card (Payment check).
-type View = "charges" | "payment";
+type Filter = "all" | "ready" | "issues" | "verified" | "auto";
 
-function SubTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+// Latest Monday auto-charge run, one line + expandable detail.
+interface AutoLogRow { owner_key: string; owner_name: string | null; status: string; amount: number | null; shows: number | null; square_payment_id: string | null; detail: string | null }
+
+function AutoRunBanner() {
+  const [run, setRun] = useState<{ runAt: string; rows: AutoLogRow[] } | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    fetch("/api/ppa/autocharge-log").then((r) => r.json()).then((j) => setRun(j.run ?? null)).catch(() => {});
+  }, []);
+  if (!run || run.rows.length === 0) return null;
+  const charged = run.rows.filter((r) => r.status === "charged");
+  const skipped = run.rows.filter((r) => r.status === "skipped");
+  const failed = run.rows.filter((r) => r.status === "failed");
+  const total = charged.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   return (
-    <button onClick={onClick}
-      className={cn("px-3 py-1.5 -mb-px text-sm font-semibold border-b-2 transition-colors",
-        active ? "border-[#15B7AE] text-[#0e8f88]" : "border-transparent text-[#8595a8] hover:text-[#34568a]")}>
-      {children}
-    </button>
+    <div className={cn("rounded-xl border px-3 py-2 text-[12px]", failed.length ? "border-[#f5c2cf] bg-[#fde8ee] text-[#be123c]" : "border-[#c9dbfb] bg-[#eef7ff] text-[#1d4ed8]")}>
+      <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 w-full text-left">
+        <span className="font-bold">⚡ Last auto-charge run</span>
+        <span>{new Date(run.runAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+        <span>· {charged.length} charged ({money(total)})</span>
+        {skipped.length > 0 && <span>· {skipped.length} skipped</span>}
+        {failed.length > 0 && <span className="font-bold">· {failed.length} FAILED</span>}
+        <span className="ml-auto text-[10px]">{open ? "hide" : "details"}</span>
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-0.5">
+          {run.rows.map((r, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <span className={cn("font-bold w-[60px] shrink-0", r.status === "charged" ? "text-[#15803d]" : r.status === "failed" ? "text-[#be123c]" : "text-[#b45309]")}>{r.status}</span>
+              <span className="font-semibold w-[150px] shrink-0 truncate">{r.owner_name ?? r.owner_key}</span>
+              <span>{r.amount != null ? `${money(Number(r.amount))} (${r.shows} shows)` : ""} {r.detail ?? ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
 export default function V3BillingPage() {
-  const [view, setView] = useState<View>("charges");
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  // Payment verification (Square match/cards/flags) loads separately — it's
+  // slower than the billing overview, so cards render first and the payment
+  // cluster fills in when this arrives.
+  const [verify, setVerify] = useState<VReport | null>(null);
+  const [verifyLoading, setVerifyLoading] = useState(true);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true); setError(null);
@@ -389,7 +426,23 @@ export default function V3BillingPage() {
     } catch (e) { setError(`${e}`.replace("Error: ", "")); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => { load(); }, [load]);
+  const loadVerify = useCallback(async () => {
+    setVerifyLoading(true); setVerifyError(null);
+    try {
+      const res = await fetch("/api/ppa/verify");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Payment check failed");
+      setVerify(json as VReport);
+    } catch (e) { setVerifyError(`${e}`.replace("Error: ", "")); }
+    finally { setVerifyLoading(false); }
+  }, []);
+  useEffect(() => { load(); loadVerify(); }, [load, loadVerify]);
+
+  const vBy = useMemo(() => {
+    const m = new Map<string, VRow>();
+    for (const r of verify?.clients ?? []) m.set(r.ownerKey, r);
+    return m;
+  }, [verify]);
 
   const totals = useMemo(() => {
     const t = { count: clients.length, ready: 0, readyUsd: 0, chargedUsd: 0, showed: 0, noShow: 0 };
@@ -410,11 +463,15 @@ export default function V3BillingPage() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return clients.filter((c) => {
+      const v = vBy.get(c.ownerKey);
       if (filter === "ready" && !(c.readyToCharge > 0)) return false;
+      if (filter === "issues" && !(v && v.flags.some((f) => f.level !== "info"))) return false;
+      if (filter === "verified" && !v?.safeToAutoCharge) return false;
+      if (filter === "auto" && !v?.autoCharge) return false;
       if (q && !`${c.ownerName} ${c.business}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [clients, search, filter]);
+  }, [clients, search, filter, vBy]);
 
   return (
     <div className="p-3 sm:p-4 space-y-3">
@@ -423,26 +480,30 @@ export default function V3BillingPage() {
           <h1 className="text-xl font-bold text-[#1f3559]">PPS Billing</h1>
           <p className="text-sm text-[#697a91]">Pay-per-show clients (marked &quot;PPA&quot; in the financing sheet&apos;s current month) · charge per completed appointment</p>
         </div>
-        <div className={cn("flex items-center gap-2 flex-wrap", view !== "charges" && "hidden")}>
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef7ff] text-[#1d4ed8] border border-[#c9dbfb]" title="Showed ÷ (showed + no-shows), from your review decisions">
             Show rate {programShowRate == null ? "—" : `${programShowRate}%`}
           </span>
           {totals.chargedUsd > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{money(totals.chargedUsd)} charged</span>}
-          <button onClick={() => load(true)} disabled={loading}
+          {verify && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]" title="Fully verified: Square customer + usable card + no warnings — safe to charge">{verify.totals.ready} verified</span>}
+          {verify && verify.totals.blocked > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]" title="Money waiting but something needs your eyes first">{verify.totals.blocked} need review</span>}
+          <button onClick={() => { load(true); loadVerify(); }} disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
+            <RefreshCw size={12} className={loading || verifyLoading ? "animate-spin" : ""} /> Refresh
           </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-1 border-b border-[#e4ebf2]">
-        <SubTab active={view === "charges"} onClick={() => setView("charges")}>💵 Charges</SubTab>
-        <SubTab active={view === "payment"} onClick={() => setView("payment")}>🔎 Payment check</SubTab>
-      </div>
+      {/* Latest Monday auto-charge run (only shows once a run has happened) */}
+      <AutoRunBanner />
 
-      {view === "payment" ? <PaymentCheck /> : (
-      <>
+      {verifyError && (
+        <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] px-3 py-2 text-[12px] text-[#b45309]">
+          Payment check unavailable: {verifyError} — billing numbers still work; card info and the Charge buttons are hidden until it loads (hit Refresh to retry).
+        </div>
+      )}
+
       {/* Billing policy: unorganized "confirmed" appointments are billed as shown. */}
       <div className="rounded-xl border border-[#e4ebf2] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#697a91]">
         Appointments left in <strong className="text-[#34568a]">&quot;confirmed&quot;</strong> past their date are billed as <strong className="text-[#34568a]">shown</strong> by default — per agreement, if the artist doesn&apos;t organize their dashboard we charge anyway. Clients with several of these are flagged <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span> so you can nudge them.
@@ -489,6 +550,9 @@ export default function V3BillingPage() {
           className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
           <option value="all">All clients</option>
           <option value="ready">Ready to charge</option>
+          <option value="issues">Needs review</option>
+          <option value="verified">Verified only</option>
+          <option value="auto">Auto-charge ON</option>
         </select>
       </div>
 
@@ -500,10 +564,11 @@ export default function V3BillingPage() {
         <div className="py-12 text-center text-[#8595a8]">No clients match.</div>
       ) : (
         <div className="space-y-2">
-          {filtered.map((c) => <ClientCard key={c.ownerKey} c={c} onChange={() => load()} defaultOpen={filter === "ready"} />)}
+          {filtered.map((c) => (
+            <ClientCard key={c.ownerKey} c={c} v={vBy.get(c.ownerKey)} verifyLoading={verifyLoading}
+              onChange={() => load()} onVerifyReload={() => loadVerify()} defaultOpen={filter === "ready"} />
+          ))}
         </div>
-      )}
-      </>
       )}
     </div>
   );
