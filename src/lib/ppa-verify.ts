@@ -6,6 +6,8 @@ import {
   listAllCustomers,
   listRecentPayments,
   createCardPayment,
+  searchCustomersByEmail,
+  searchCustomersByPhone,
   type SquareCard,
   type SquareCustomer,
 } from "@/lib/square";
@@ -151,12 +153,12 @@ class CustomerIndex {
   }
 }
 
-function matchCustomer(
+async function matchCustomer(
   c: V3Client,
   email: string | null,
   phone: string | null,
   index: CustomerIndex,
-): VerifyMatch | null {
+): Promise<VerifyMatch | null> {
   const pick = (hits: SquareCustomer[], method: MatchMethod, confidence: MatchConfidence): VerifyMatch => {
     const [first, ...rest] = hits;
     return {
@@ -181,6 +183,21 @@ function matchCustomer(
 
   const byBiz = index.byBiz.get(bizKey(c.business));
   if (byBiz?.length) return pick(byBiz, "business", "low");
+
+  // Not in the bulk list — which is CAPPED, and Square auto-creates customer
+  // profiles for nearly every payment, so real artists can sit beyond it
+  // (Abegail did). Targeted search for the misses only: a couple of requests
+  // through the retrying squareFetch, nothing like the old per-client storm.
+  if (email) {
+    const hits = await searchCustomersByEmail(email).catch(() => []);
+    if (hits.length) return pick(hits, "email", "high");
+  }
+  if (phone) {
+    const want = phoneKey(phone);
+    const hits = (await searchCustomersByPhone(phone).catch(() => []))
+      .filter((h) => want && phoneKey(h.phone) === want);
+    if (hits.length) return pick(hits, "phone", "medium");
+  }
 
   return null;
 }
@@ -331,7 +348,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     const pref = prefBy.get(c.ownerKey);
     let prefMissing = false;
     try {
-      match = matchCustomer(c, contact.email, contact.phone, index);
+      match = await matchCustomer(c, contact.email, contact.phone, index);
       if (match) {
         const raw = await listCards(match.customerId);
         const usable = (k: SquareCard) => k.enabled && !expiryState(k, now).expired;

@@ -226,6 +226,33 @@ async function squareFetch(url: string, init?: RequestInit): Promise<Response> {
   return r!;
 }
 
+// ── Targeted customer search ─────────────────────────────────────────────────
+// Fallback for artists the bulk list misses (accounts bigger than the page
+// cap). Only called for MISSES — a handful of requests through the retrying
+// squareFetch, not the per-client storm that originally tripped the
+// per-method rate limit.
+
+async function searchCustomers(filter: Record<string, unknown>): Promise<SquareCustomer[]> {
+  const r = await squareFetch(`${BASE}/v2/customers/search`, {
+    method: "POST",
+    body: JSON.stringify({ limit: 20, query: { filter } }),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`Square customer search ${r.status}: ${text.slice(0, 300)}`);
+  }
+  const j = (await r.json()) as { customers?: Array<Record<string, unknown>> };
+  return (j.customers ?? []).map((c) => customerFromRaw(String(c.id), c));
+}
+
+export function searchCustomersByEmail(email: string): Promise<SquareCustomer[]> {
+  return searchCustomers({ email_address: { exact: email } });
+}
+
+export function searchCustomersByPhone(phone: string): Promise<SquareCustomer[]> {
+  return searchCustomers({ phone_number: { fuzzy: phone } });
+}
+
 // ── The full customer list ───────────────────────────────────────────────────
 // Matching artists to Square customers reads the WHOLE list once and matches
 // locally (email/phone/name) instead of calling SearchCustomers per client —
@@ -233,7 +260,11 @@ async function squareFetch(url: string, init?: RequestInit): Promise<Response> {
 
 let allCustomersCache: { ts: number; list: SquareCustomer[]; truncated: boolean } | null = null;
 const ALL_CUSTOMERS_TTL_MS = 30 * 60 * 1000;
-const ALL_CUSTOMERS_MAX_PAGES = 60; // 6,000 customers
+// Square auto-creates a customer profile for nearly every payment, so a
+// mature account holds far more customers than it has real clients — the old
+// 6,000 cap silently dropped artists past it (Abegail matched by email before
+// the bulk-list rework, then read as "no Square customer" after it).
+const ALL_CUSTOMERS_MAX_PAGES = 150; // 15,000 customers
 
 // Every customer in the account, for name-based matching. Paginated and
 // capped: `truncated` is true when the cap was hit, so a "no customer found"
