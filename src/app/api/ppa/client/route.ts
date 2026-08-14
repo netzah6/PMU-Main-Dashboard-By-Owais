@@ -37,12 +37,13 @@ export async function GET(req: NextRequest) {
   if (!client) return NextResponse.json({ error: "not a V3 client" }, { status: 404 });
 
   const svc = createServiceClient();
-  const [depRes, chgRes, billRes, cfgRes, refRes] = await Promise.all([
+  const [depRes, chgRes, billRes, cfgRes, refRes, sbRes] = await Promise.all([
     svc.from("ppa_deposit_rows").select("*").eq("biz_norm", client.bizNorm),
     svc.from("ppa_charges").select("*").eq("owner_key", ownerKey),
     svc.from("ppa_deposit_billing").select("*").eq("owner_key", ownerKey),
     svc.from("ppa_config").select("*").eq("owner_key", ownerKey).maybeSingle(),
     svc.from("deposit_refunds").select("business, contact_name, email, decided_at").eq("status", "refunded"),
+    svc.from("ppa_selfbooked").select("appt_id, contact_name, email, stage_name, done_at").eq("owner_key", ownerKey),
   ]);
 
   // Executed refunds for THIS business, matched by email (fallback: name).
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
   // showedCount / noShowCount are the review decisions that measure show rate:
   // a charged appointment = the client showed; an exclude with reason "no_show"
   // = they didn't. Other exclude reasons void the row without affecting the rate.
-  const summary = { deposits: 0, served: 0, pastDue: 0, upcoming: 0, noshow: 0, noAppt: 0, readyToCharge: 0, excluded: 0, refunded: 0, showed: 0, noShowMarked: 0, showRate: null as number | null };
+  const summary = { deposits: 0, served: 0, pastDue: 0, upcoming: 0, noshow: 0, noAppt: 0, selfBooked: 0, readyToCharge: 0, excluded: 0, refunded: 0, showed: 0, noShowMarked: 0, showRate: null as number | null };
   const appointments = ((depRes.data ?? []) as DepRow[]).map((d) => {
     const c = chgBy.get(d.appt_id);
     const b = billBy.get(d.appt_id);
@@ -112,11 +113,47 @@ export async function GET(req: NextRequest) {
       chargeNote: c?.note ?? null,
     };
   });
+  // Self-booked shows: leads we sent that the artist booked on her end — no
+  // deposit, but the show fee still applies. Same charge/void controls; the
+  // view's Aug 1 cutoff keeps retainer-era history out.
+  for (const s of (sbRes.data ?? []) as Array<{ appt_id: string; contact_name: string | null; email: string | null; stage_name: string | null; done_at: string | null }>) {
+    const c = chgBy.get(s.appt_id);
+    const charged = c?.charged ?? false;
+    const excluded = c?.excluded ?? false;
+    summary.selfBooked++;
+    if (excluded) summary.excluded++;
+    if (charged) summary.showed++;
+    else if (excluded && c?.exclude_reason === "no_show") summary.noShowMarked++;
+    if (!charged && !excluded) summary.readyToCharge++;
+    appointments.push({
+      apptId: s.appt_id,
+      contactName: s.contact_name,
+      email: s.email,
+      depositDate: null,
+      amount: null,
+      status: null,
+      notes: null,
+      source: "self-booked",
+      currentStage: s.stage_name,
+      appointmentDate: s.done_at,
+      appointmentStatus: null,
+      chargeStatus: "self_booked",
+      charged,
+      excluded,
+      excludeReason: c?.exclude_reason ?? null,
+      refunded: false,
+      refundedAt: null,
+      chargedAmount: c?.amount ?? null,
+      chargedAt: c?.charged_at ?? null,
+      chargedBy: c?.charged_by ?? null,
+      chargeNote: c?.note ?? null,
+    });
+  }
   const reviewed = summary.showed + summary.noShowMarked;
   summary.showRate = reviewed > 0 ? Math.round((summary.showed / reviewed) * 100) : null;
   // Ready-to-review first, then upcoming, then the rest; charged/excluded sink
   // to the bottom. Newest deposit within a group.
-  const rank: Record<string, number> = { served: 0, past_due: 1, upcoming: 2, no_appt: 3, noshow: 4 };
+  const rank: Record<string, number> = { served: 0, self_booked: 0, past_due: 1, upcoming: 2, no_appt: 3, noshow: 4 };
   const order = (a: (typeof appointments)[number]) => (a.charged ? 9 : a.excluded || a.refunded ? 8 : (rank[a.chargeStatus] ?? 5));
   appointments.sort((a, b) => {
     const ca = order(a), cb = order(b);

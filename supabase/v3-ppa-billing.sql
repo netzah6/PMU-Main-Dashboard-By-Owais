@@ -342,3 +342,27 @@ ALTER TABLE ppa_autocharge_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "PPA autocharge log admin" ON ppa_autocharge_log FOR ALL TO authenticated
   USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
 CREATE INDEX IF NOT EXISTS ppa_autocharge_log_run_at ON ppa_autocharge_log (run_at DESC);
+
+-- ── Self-booked shows (2026-08-13) ───────────────────────────────────────────
+-- Shows the artist booked on HER end: leads we sent that reached Session Done
+-- / 5-Star without ever paying a deposit through us. Billable at the same
+-- per-show fee. Cutoff 2026-08-01: older done-stages are from the retainer era
+-- and were never part of the PPS deal. done_at = the lead's last stage change.
+CREATE OR REPLACE VIEW ppa_selfbooked AS
+SELECT
+  'opp:' || o.id          AS appt_id,
+  o.owner_key,
+  o.id                    AS opp_id,
+  o.contact_id,
+  c.contact_name,
+  c.email,
+  m.stage_name,
+  o.last_stage_change_at  AS done_at
+FROM ghl_opportunities o
+JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+LEFT JOIN ghl_contacts c ON c.id = o.contact_id
+WHERE (m.stage_name ~* 'session[[:space:]]*(done|complete)'
+   OR  m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
+  AND o.contact_id IS NOT NULL
+  AND o.last_stage_change_at >= '2026-08-01'
+  AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts dc WHERE dc.contact_id = o.contact_id);
