@@ -75,6 +75,8 @@ export interface VerifyRow {
   feeSource: "sheet" | "dashboard";
   sheetNotes: string | null;
   autoCharge: boolean;
+  /** Pending decline-retry loop, if a charge attempt failed on this client. */
+  retry: { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null } | null;
   readyToCharge: number;
   amount: number;
   pastDue: number;
@@ -283,10 +285,12 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
   // One list fetch, matched locally — never a per-client Square search.
   // Recent payments feed each card's "last used"; if that call fails the
   // report still renders, just without last-used info.
-  const [{ customers, truncated }, recentPayments, prefRes] = await Promise.all([
+  const [{ customers, truncated }, recentPayments, prefRes, retryRes] = await Promise.all([
     listAllCustomers(),
     listRecentPayments().catch(() => []),
     svc.from("ppa_card_prefs").select("owner_key, customer_id, card_id").in("owner_key", ownerKeys),
+    svc.from("ppa_charge_retries").select("owner_key, status, attempts, next_attempt_at, last_error")
+      .in("owner_key", ownerKeys).in("status", ["active", "exhausted"]),
   ]);
   const index = new CustomerIndex(customers);
 
@@ -302,6 +306,10 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
   const prefBy = new Map<string, { customer_id: string; card_id: string }>();
   for (const r of (prefRes.data ?? []) as Array<{ owner_key: string; customer_id: string; card_id: string }>)
     prefBy.set(r.owner_key, { customer_id: r.customer_id, card_id: r.card_id });
+
+  const retryBy = new Map<string, { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null }>();
+  for (const r of (retryRes.data ?? []) as Array<{ owner_key: string; status: string; attempts: number; next_attempt_at: string | null; last_error: string | null }>)
+    retryBy.set(r.owner_key, { status: r.status, attempts: r.attempts, nextAttemptAt: r.next_attempt_at, lastError: r.last_error });
 
   const now = new Date();
 
@@ -473,6 +481,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       feeSource: (c.sheetFee != null ? "sheet" : "dashboard") as "sheet" | "dashboard",
       sheetNotes: c.sheetNotes,
       autoCharge: autoBy.get(c.ownerKey) ?? false,
+      retry: retryBy.get(c.ownerKey) ?? null,
       readyToCharge: shows.length,
       amount: shows.length * fee,
       pastDue,

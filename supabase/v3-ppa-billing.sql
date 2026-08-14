@@ -480,3 +480,22 @@ WHERE a.start_time >= '2026-08-01'
       AND (m.stage_name ~* 'session[[:space:]]*(done|complete)'
         OR m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
   );
+
+-- ── Decline auto-retry (2026-08-14) ──────────────────────────────────────────
+-- After a card decline: retry +1 day, then +3, then +3 (4 attempts total
+-- incl. the original), then 'exhausted' and the humans take over. Processed
+-- daily at 10:00 Pacific by /api/cron/pps-retry.
+CREATE TABLE IF NOT EXISTS ppa_charge_retries (
+  owner_key       text PRIMARY KEY,
+  status          text NOT NULL DEFAULT 'active',
+  attempts        int  NOT NULL DEFAULT 0,
+  next_attempt_at timestamptz,
+  last_attempt_at timestamptz,
+  last_error      text,
+  created_by      text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE ppa_charge_retries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "PPA retries admin" ON ppa_charge_retries FOR ALL TO authenticated
+  USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');

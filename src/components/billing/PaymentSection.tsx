@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Loader2, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap } from "lucide-react";
+import { Loader2, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Payment-method pieces of the merged PPS Billing card ─────────────────────
@@ -28,6 +28,7 @@ export interface VRow {
   email: string | null; phone: string | null;
   fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null;
   autoCharge: boolean;
+  retry?: { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null } | null;
   readyToCharge: number; amount: number;
   shows: VShow[];
   match: VMatch | null; cards: VCard[]; flags: VFlag[]; safeToAutoCharge: boolean;
@@ -95,7 +96,7 @@ export function PayMsg({ msg }: { msg: PayMsgData }) {
     <div className={cn("mx-3 mb-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold",
       msg.ok ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]" : "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]")}>
       {msg.text}
-      {msg.ok && msg.receiptUrl && <a href={msg.receiptUrl} target="_blank" rel="noreferrer" className="ml-1.5 underline">receipt ↗</a>}
+      {msg.ok && msg.receiptUrl && <a href={msg.receiptUrl} target="_blank" rel="noreferrer" className="ml-1.5 underline">open ↗</a>}
     </div>
   );
 }
@@ -137,6 +138,31 @@ export function PaymentCluster({ v, loading, onMsg, onReload }: {
         receiptUrl: json.receiptUrl,
       });
       onReload();
+    } catch (e) {
+      // Declines come back from the server already explained (auto-retry
+      // schedule included) — show the message as-is.
+      onMsg({ ok: false, text: `${e}`.replace("Error: ", "") });
+    } finally { setBusy(false); }
+  };
+
+  // Square-hosted checkout for the current ready amount — the decline
+  // fallback. Copies the link so it can be texted to the artist; the shows
+  // stay in Ready until she pays and the admin marks them charged.
+  const makePaymentLink = async () => {
+    setBusy(true); onMsg(null);
+    try {
+      const res = await fetch("/api/ppa/payment-link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner_key: v.ownerKey }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Payment link failed");
+      try { await navigator.clipboard.writeText(json.url); } catch { /* copy is best-effort */ }
+      onMsg({
+        ok: true,
+        text: `Payment link for ${money(json.amount)} (${json.shows} shows) copied to clipboard — text it to ${v.ownerName}. When she pays, mark the shows charged in the drill-down.`,
+        receiptUrl: json.url,
+      });
     } catch (e) {
       onMsg({ ok: false, text: `${e}`.replace("Error: ", "") });
     } finally { setBusy(false); }
@@ -207,6 +233,40 @@ export function PaymentCluster({ v, loading, onMsg, onReload }: {
           </button>
         );
       })()}
+
+      {/* Decline-retry status: the card is being retried automatically
+          (+1d, +3d, +3d after the decline). Click to stop the loop. */}
+      {v.retry && v.retry.status === "active" && (
+        <button onClick={async () => {
+            setBusy(true);
+            try {
+              await fetch("/api/ppa/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_key: v.ownerKey }) });
+              onMsg({ ok: true, text: "Automatic retries stopped for this client." });
+              onReload();
+            } finally { setBusy(false); }
+          }} disabled={busy}
+          title={`Card declined (${v.retry.lastError ?? "decline"}). Retry #${v.retry.attempts + 1} runs ${v.retry.nextAttemptAt ? new Date(v.retry.nextAttemptAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "soon"} at 10am Pacific — schedule is +1 day, then +3, then +3. Click to STOP the automatic retries.`}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]">
+          ↻ retry {v.retry.nextAttemptAt ? new Date(v.retry.nextAttemptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "pending"}
+        </button>
+      )}
+      {v.retry && v.retry.status === "exhausted" && (
+        <span title={`All ${3} automatic retries declined (last: ${v.retry.lastError ?? "decline"}). Send a payment link or get a new card on file.`}
+          className="px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]">
+          ↻ retries exhausted
+        </span>
+      )}
+
+      {/* Fallback when the stored card declines (or there is no usable card):
+          a Square-hosted checkout link for the exact ready amount — the artist
+          pays with any card, no card data touches us. */}
+      {v.readyToCharge > 0 && (
+        <button onClick={makePaymentLink} disabled={busy}
+          title={`Create a Square payment page for ${money(v.amount)} and copy the link — for when the card on file declines or there is no usable card. Shows stay in Ready until she pays and you mark them charged.`}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]">
+          <Link2 size={11} /> Payment link
+        </button>
+      )}
 
       {/* Auto-charge switch: Monday 10am Pacific, only when fully Verified —
           any warning makes the cron skip and report instead. */}

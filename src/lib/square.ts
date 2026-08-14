@@ -425,6 +425,59 @@ export async function createCardPayment(args: {
   };
 }
 
+// ── Payment links (fallback when a card on file declines) ────────────────────
+// A Square-hosted checkout page for a fixed amount: the artist pays with
+// whatever card she wants, no card data ever touches our side. Used when
+// charging the stored card fails (e.g. GENERIC_DECLINE).
+
+let mainLocationId: string | null = null;
+
+async function getMainLocationId(): Promise<string> {
+  if (mainLocationId) return mainLocationId;
+  const r = await squareFetch(`${BASE}/v2/locations`);
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`Square locations ${r.status}: ${text.slice(0, 300)}`);
+  }
+  const j = (await r.json()) as { locations?: Array<{ id?: string; status?: string }> };
+  const loc = (j.locations ?? []).find((l) => l.status === "ACTIVE") ?? (j.locations ?? [])[0];
+  if (!loc?.id) throw new Error("Square: no location found for payment links");
+  mainLocationId = loc.id;
+  return mainLocationId;
+}
+
+export async function createPaymentLink(args: {
+  name: string;
+  amountCents: number;
+  referenceId?: string;
+  note?: string;
+}): Promise<{ url: string; id: string }> {
+  const locationId = await getMainLocationId();
+  const r = await fetch(`${BASE}/v2/online-checkout/payment-links`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({
+      idempotency_key: crypto.randomUUID(),
+      quick_pay: {
+        name: args.name.slice(0, 255),
+        price_money: { amount: args.amountCents, currency: "USD" },
+        location_id: locationId,
+      },
+      payment_note: args.note?.slice(0, 500),
+      checkout_options: { ask_for_shipping_address: false },
+    }),
+  });
+  const j = (await r.json().catch(() => ({}))) as {
+    payment_link?: { id?: string; url?: string; long_url?: string };
+    errors?: Array<{ code?: string; detail?: string }>;
+  };
+  if (!r.ok || !j.payment_link?.url) {
+    const detail = (j.errors ?? []).map((e) => e.detail || e.code).filter(Boolean).join("; ");
+    throw new Error(`Square payment link failed (${r.status}): ${detail || "unknown error"}`);
+  }
+  return { url: j.payment_link.url, id: String(j.payment_link.id) };
+}
+
 // ── Disputes (chargebacks) ───────────────────────────────────────────────────
 export type SquareDispute = {
   id: string;

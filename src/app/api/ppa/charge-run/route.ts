@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/ppa";
 import { buildVerifyReport, executeChargeForRow, ChargeRefused } from "@/lib/ppa-verify";
+import { isDeclineError, scheduleRetry, resolveRetry, RETRY_OFFSETS_DAYS } from "@/lib/ppa-retry";
 import { squareConfigured } from "@/lib/square";
 
 export const maxDuration = 120;
@@ -36,13 +37,26 @@ export async function POST(req: NextRequest) {
 
   try {
     const outcome = await executeChargeForRow(row, auth.email ?? "admin");
+    // Money collected — end any pending decline-retry loop for this client.
+    await resolveRetry(ownerKey, "succeeded");
     return NextResponse.json({ ok: true, ...outcome });
   } catch (e) {
     if (e instanceof ChargeRefused) {
       return NextResponse.json({ error: `Refusing to charge — ${e.message}` }, { status: 409 });
     }
-    // Card declined, token lacks PAYMENTS_WRITE, etc. Nothing was recorded, so
-    // the row stays in "ready to charge" and can be retried safely.
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Square payment failed" }, { status: 502 });
+    const message = e instanceof Error ? e.message : "Square payment failed";
+    // A DECLINE starts the automatic retry clock (+1d, +3d, +3d) — cards often
+    // recover once funds land or a fraud hold lifts. Config errors don't
+    // retry; they'd fail identically.
+    if (isDeclineError(message)) {
+      const next = await scheduleRetry(ownerKey, message, auth.email ?? "admin");
+      return NextResponse.json({
+        error: `${message} — the bank refused the card. I'll retry automatically ${RETRY_OFFSETS_DAYS.length} times (next: ${next.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}, then every 3 days). If all fail, use Payment link or get a new card on file.`,
+        retryScheduled: true,
+        nextAttemptAt: next.toISOString(),
+      }, { status: 502 });
+    }
+    // Nothing was recorded, so the row stays in "ready to charge".
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }
