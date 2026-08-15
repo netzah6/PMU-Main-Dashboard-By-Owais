@@ -43,13 +43,14 @@ export async function GET(req: NextRequest) {
   for (const a of assigns ?? []) visitors[a.vkey] = (visitors[a.vkey] ?? 0) + 1;
 
   // Our own funnel's leads/bookings, by variant.
-  const ours: Record<string, { leads: number; booked: number }> = {};
+  const ours: Record<string, { leads: number; booked: number; paid: number }> = {};
   const ourApptIds = new Set<string>();
   for (const l of leads ?? []) {
     const k = l.variant_key ?? "?";
-    const c = (ours[k] ??= { leads: 0, booked: 0 });
+    const c = (ours[k] ??= { leads: 0, booked: 0, paid: 0 });
     c.leads++;
     if (l.ghl_status === "booked") c.booked++;
+    if (l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked") c.paid++;
     if (l.ghl_appointment_id) ourApptIds.add(l.ghl_appointment_id);
   }
 
@@ -126,6 +127,7 @@ export async function GET(req: NextRequest) {
       overrides: Object.keys((v as { config_override?: Record<string, string> }).config_override ?? {}),
       visitors: vis,
       leads: v.kind === "external" ? null : (ours[v.vkey]?.leads ?? 0),
+      deposits: v.kind === "external" ? null : (ours[v.vkey]?.paid ?? 0),
       booked,
       bookRate: vis && booked != null ? +((booked / vis) * 100).toFixed(1) : null,
       spend: spend == null ? null : +spend.toFixed(2),

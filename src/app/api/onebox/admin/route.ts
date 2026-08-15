@@ -46,15 +46,19 @@ export async function GET(req: NextRequest) {
     .select("slug, location_id, client_name, status, cv_synced_at, config, extras, created_at")
     .order("created_at", { ascending: true });
 
-  const { data: leads } = await svc
-    .from("onebox_leads")
-    .select("slug, ghl_status, created_at");
+  const [{ data: leads }, { data: hitRows }] = await Promise.all([
+    svc.from("onebox_leads").select("slug, ghl_status, created_at"),
+    svc.from("onebox_hits").select("slug"),
+  ]);
+  const hitCounts: Record<string, number> = {};
+  for (const hRow of hitRows ?? []) hitCounts[hRow.slug] = (hitCounts[hRow.slug] ?? 0) + 1;
 
-  const counts: Record<string, { leads: number; booked: number; lastLeadAt: string | null }> = {};
+  const counts: Record<string, { leads: number; booked: number; paid: number; lastLeadAt: string | null }> = {};
   for (const l of leads ?? []) {
-    const c = (counts[l.slug] ??= { leads: 0, booked: 0, lastLeadAt: null });
+    const c = (counts[l.slug] ??= { leads: 0, booked: 0, paid: 0, lastLeadAt: null });
     c.leads++;
     if (l.ghl_status === "booked") c.booked++;
+    if (l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked") c.paid++;
     if (!c.lastLeadAt || l.created_at > c.lastLeadAt) c.lastLeadAt = l.created_at;
   }
 
@@ -73,8 +77,10 @@ export async function GET(req: NextRequest) {
       hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
       hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
       oldFunnelUrl: extras.oldFunnelUrl ?? "",
+      visitors: hitCounts[r.slug] ?? 0,
       leads: counts[r.slug]?.leads ?? 0,
       booked: counts[r.slug]?.booked ?? 0,
+      paid: counts[r.slug]?.paid ?? 0,
       lastLeadAt: counts[r.slug]?.lastLeadAt ?? null,
     };
   });
