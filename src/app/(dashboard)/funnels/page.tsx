@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 
 type AbVariant = {
   vkey: string; label: string; kind: string; target: string | null; weight: number;
+  overrides?: string[];
   visitors: number; leads: number | null; booked: number | null;
   bookRate: number | null; spend: number | null; costPerBooking: number | null;
 };
@@ -62,6 +63,8 @@ export default function FunnelsPage() {
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
   const [toast, setToast] = useState<string | null>(null);
   const [abFor, setAbFor] = useState<string | null>(null);
+  const [abMode, setAbMode] = useState<"original" | "versions">("original");
+  const [abB, setAbB] = useState({ label: "Version B", headline: "", sub: "", congrats: "", offer: "", bookingHead: "", depositHead: "" });
   const [ab, setAb] = useState<Record<string, AbResult>>({});
   const [abBusy, setAbBusy] = useState(false);
 
@@ -271,34 +274,98 @@ export default function FunnelsPage() {
                     <div className="text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /> Loading…</div>
                   ) : !ab[f.slug]?.experiment ? (
                     <div className="grid gap-2">
-                      <p className="text-[11px] text-[#697a91]">
-                        Splits this funnel&rsquo;s ad traffic 50/50 against the client&rsquo;s original GHL funnel and
-                        compares cost per booking. Point the ad&rsquo;s redirect at{" "}
-                        <b>{f.url.replace("/f/", "/s/").replace(`/${f.slug}`, `/${f.slug}`)}</b>{" "}
-                        (same link, <code>/s/</code> instead of <code>/f/</code>).
-                      </p>
-                      <div className="grid md:grid-cols-2 gap-2">
-                        <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL (e.g. https://pmu-care.com/care-pmu-survey-test-old)"
-                          defaultValue={f.oldFunnelUrl || ""}
-                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                        <button
-                          onClick={() => {
-                            const el = document.getElementById(`ab-orig-${f.slug}`) as HTMLInputElement | null;
-                            const target = (el?.value ?? "").trim();
-                            if (!target) { setToast("Add the original funnel URL first"); return; }
-                            void abAct(f.slug, {
-                              action: "create", slug: f.slug, name: "Original vs One-Box",
-                              variants: [
-                                { vkey: "a", label: "Original GHL funnel", kind: "external", target, weight: 50 },
-                                { vkey: "b", label: "One-box funnel", kind: "onebox", weight: 50 },
-                              ],
-                            });
-                          }}
-                          disabled={abBusy}
-                          className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
-                          Start 50/50 test
+                      <div className="flex gap-1.5">
+                        <button onClick={() => setAbMode("original")}
+                          className={cn("text-xs rounded-lg px-2.5 py-1 border",
+                            abMode === "original" ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
+                          vs original funnel
+                        </button>
+                        <button onClick={() => setAbMode("versions")}
+                          className={cn("text-xs rounded-lg px-2.5 py-1 border",
+                            abMode === "versions" ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
+                          two versions of this funnel
                         </button>
                       </div>
+                      <p className="text-[11px] text-[#697a91]">
+                        Traffic must arrive at the splitter: point the ad&rsquo;s redirect at{" "}
+                        <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b>. With no test running it simply
+                        forwards to the funnel, so it can stay pointed there permanently.
+                      </p>
+                      {abMode === "original" ? (
+                        <div className="grid md:grid-cols-2 gap-2">
+                          <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL (e.g. https://pmu-care.com/care-pmu-survey-test-old)"
+                            defaultValue={f.oldFunnelUrl || ""}
+                            className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                          <button
+                            onClick={() => {
+                              const el = document.getElementById(`ab-orig-${f.slug}`) as HTMLInputElement | null;
+                              const target = (el?.value ?? "").trim();
+                              if (!target) { setToast("Add the original funnel URL first"); return; }
+                              void abAct(f.slug, {
+                                action: "create", slug: f.slug, name: "Original vs One-Box",
+                                variants: [
+                                  { vkey: "a", label: "Original GHL funnel", kind: "external", target, weight: 50 },
+                                  { vkey: "b", label: "One-box funnel", kind: "onebox", weight: 50 },
+                                ],
+                              });
+                            }}
+                            disabled={abBusy}
+                            className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
+                            Start 50/50 test
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="grid gap-2">
+                          <p className="text-[11px] text-[#697a91]">
+                            Version A is the funnel exactly as it is. Fill only what Version B should say differently —
+                            empty fields stay the same.
+                          </p>
+                          <div className="grid md:grid-cols-3 gap-2">
+                            <input placeholder="Version B name (e.g. Urgency headline)" value={abB.label}
+                              onChange={(e) => setAbB((x) => ({ ...x, label: e.target.value }))}
+                              className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                            <input placeholder="Headline (Fill Out Our Quiz…)" value={abB.headline}
+                              onChange={(e) => setAbB((x) => ({ ...x, headline: e.target.value }))}
+                              className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                            <input placeholder="Subheadline ((30 Seconds))" value={abB.sub}
+                              onChange={(e) => setAbB((x) => ({ ...x, sub: e.target.value }))}
+                              className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                            <input placeholder="Congrats line" value={abB.congrats}
+                              onChange={(e) => setAbB((x) => ({ ...x, congrats: e.target.value }))}
+                              className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                            <input placeholder="Offer text ($200 OFF …)" value={abB.offer}
+                              onChange={(e) => setAbB((x) => ({ ...x, offer: e.target.value }))}
+                              className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                            <input placeholder="Booking headline" value={abB.bookingHead}
+                              onChange={(e) => setAbB((x) => ({ ...x, bookingHead: e.target.value }))}
+                              className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                            <input placeholder="Deposit headline" value={abB.depositHead}
+                              onChange={(e) => setAbB((x) => ({ ...x, depositHead: e.target.value }))}
+                              className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                          </div>
+                          <div>
+                            <button
+                              onClick={() => {
+                                const override: Record<string, string> = {};
+                                for (const k of ["headline", "sub", "congrats", "offer", "bookingHead", "depositHead"] as const) {
+                                  if (abB[k].trim()) override[k] = abB[k].trim();
+                                }
+                                if (!Object.keys(override).length) { setToast("Give Version B at least one difference"); return; }
+                                void abAct(f.slug, {
+                                  action: "create", slug: f.slug, name: "Funnel versions",
+                                  variants: [
+                                    { vkey: "a", label: "Version A (current)", kind: "onebox", weight: 50 },
+                                    { vkey: "b", label: abB.label.trim() || "Version B", kind: "onebox", weight: 50, config_override: override },
+                                  ],
+                                });
+                              }}
+                              disabled={abBusy}
+                              className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
+                              Start 50/50 version test
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="grid gap-2">
@@ -352,6 +419,13 @@ export default function FunnelsPage() {
                                   <td className="py-1.5 pr-3">
                                     <span className="text-[#1c2b3a] font-medium">{v.label}</span>
                                     {isBest && <span className="ml-1.5 text-[10px] font-semibold text-[#15803d]">best</span>}
+                                    {v.kind === "onebox" && (
+                                      <a href={`${f.url}?ob_e=${ab[f.slug].experiment!.id}&ob_v=${v.vkey}`} target="_blank" rel="noopener"
+                                        className="ml-1.5 text-[10px] text-[#0e9c9c] hover:underline">preview</a>
+                                    )}
+                                    {!!v.overrides?.length && (
+                                      <div className="text-[10px] text-[#697a91]">changes: {v.overrides.join(", ")}</div>
+                                    )}
                                   </td>
                                   <td className="py-1.5 pr-3">{v.visitors}</td>
                                   <td className="py-1.5 pr-3">{v.leads ?? "—"}</td>
