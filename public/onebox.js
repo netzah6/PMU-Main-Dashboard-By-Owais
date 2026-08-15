@@ -73,7 +73,9 @@
   var fl = document.createElement("link");
   fl.rel = "stylesheet";
   fl.href = "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap";
-  document.head.appendChild(fl);
+  /* The page already links these (server-rendered, so they download in
+     parallel with this file) — only inject when embedded elsewhere. */
+  if (!document.querySelector('link[href*="fonts.googleapis.com/css2"]')) document.head.appendChild(fl);
 
   var css = "" +
     "#onebox-root{--teal:#17c3c3;--teal-deep:#0e9c9c;--ink:#111315;--ink-soft:#3d4348;--muted:#6f777d;--line:#e4e7e9;--mint-bg:#d8f5de;--mint-line:#8fd7a1;--mint-ink:#186b2f;--amber:#e8a33d;--gold:#ffc107;--footer:#2b2d2f;--headline:'Montserrat','Helvetica Neue',Arial,sans-serif;--content:'Lato','Helvetica Neue',Arial,sans-serif;--form:'Inter',system-ui,sans-serif;font-family:var(--content);color:var(--ink);background:#fff}" +

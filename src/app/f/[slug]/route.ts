@@ -42,12 +42,20 @@ export async function GET(
     return new Response("Not found", { status: 404 });
   }
 
-  // Auto-resync from GHL when the stored copy is stale, so the team can
-  // edit custom values in GHL and see the funnel update within minutes.
+  /* Resync from GHL when the stored copy is stale — but never on the
+     visitor's clock. Awaiting this made one visitor every few minutes
+     wait out a full GHL round trip; they now get the current config and
+     the refresh lands for the next request. Only a funnel that has never
+     synced blocks, because it has nothing to show otherwise. */
   const age = row.cv_synced_at ? Date.now() - new Date(row.cv_synced_at).getTime() : Infinity;
   if (age > SYNC_TTL_MS) {
-    const fresh = await refreshOneboxConfig(svc, row.slug, row.location_id);
-    if (fresh) row.config = fresh;
+    const refresh = refreshOneboxConfig(svc, row.slug, row.location_id);
+    if (!row.cv_synced_at) {
+      const fresh = await refresh;
+      if (fresh) row.config = fresh;
+    } else {
+      refresh.catch(() => {});
+    }
   }
 
   const cfg: Record<string, string> = {
@@ -97,19 +105,26 @@ export async function GET(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>${title.replace(/[<>&]/g, "")}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap">
+<script src="/onebox.js?v=29" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
 <script>${boot}</script>
 ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</template>` : ""}
-<script src="/onebox.js?v=28" async></script>
 </body>
 </html>`;
 
   return new Response(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
+      /* Served from the CDN for a minute, then refreshed in the
+         background — visitors get an edge hit instead of a database
+         round trip, and a custom-value edit still appears within the
+         same ~5 minutes as before. */
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
     },
   });
 }
