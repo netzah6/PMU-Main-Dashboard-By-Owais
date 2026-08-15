@@ -9,6 +9,10 @@ const FUNNEL_HOST = "book.pmu-care.com";
 const RESERVED = new Set(["api", "f", "s", "login", "auth", "manifest.webmanifest"]);
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
+  // Server components can't read the current path. Forward it so the (dashboard)
+  // layout can enforce the VA role gate — middleware itself must stay DB-free.
+  request.headers.set("x-pathname", request.nextUrl.pathname);
+
   const host = (request.headers.get("host") ?? "").toLowerCase();
   if (host === FUNNEL_HOST) {
     const m = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/?$/i);
@@ -70,42 +74,14 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     return NextResponse.redirect(url);
   }
 
-  // ── VA restriction ──
-  // A "va" may use only Clients and Onboarding. This is the real gate: hiding
-  // tabs in TabNav is cosmetic, since typing /ceo or calling /api/ceo directly
-  // would otherwise still work.
+  // The VA role gate used to live here and did a `user_roles` lookup on EVERY
+  // request. That took the whole dashboard down with
+  // MIDDLEWARE_INVOCATION_TIMEOUT: middleware runs on every page, asset and API
+  // call, so one DB round trip per request piles up — and it queued behind the
+  // heavy performance_overview queries until middleware blew its limit.
   //
-  // Pages use an ALLOW-list (we know exactly which two are permitted). API
-  // routes use a DENY-list instead: the two permitted pages pull from several
-  // shared endpoints, and an api allow-list would silently break them as soon
-  // as one of those pages gained a new data source. The deny-list names every
-  // route carrying money, revenue, or agency-wide data.
-  if (user && !isAuthCallback && !isPublicMeta && !isPublicFunnel) {
-    const { data: roleRow } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-
-    if (roleRow?.role === "va") {
-      const VA_PAGES = ["/clients", "/onboarding"];
-      const VA_DENIED_API = [
-        "/api/ceo", "/api/ppa", "/api/square", "/api/refunds", "/api/ltv",
-        "/api/cleanup", "/api/users", "/api/pool", "/api/territory", "/api/budget",
-      ];
-
-      if (isApiRoute) {
-        if (VA_DENIED_API.some((d) => p === d || p.startsWith(d + "/"))) {
-          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        }
-      } else if (!VA_PAGES.some((a) => p === a || p.startsWith(a + "/"))) {
-        const url = request.nextUrl.clone();
-        url.pathname = "/clients";
-        url.search = "";
-        return NextResponse.redirect(url);
-      }
-    }
-  }
+  // The gate now lives in the (dashboard) layout, which already runs server-side
+  // once per page render rather than once per request.
 
   // ── Admin activity log ──
   // Every CHANGE a logged-in team member makes goes through a mutating /api
