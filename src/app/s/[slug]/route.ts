@@ -55,7 +55,11 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     .maybeSingle();
 
   const search = req.nextUrl.search ?? "";
-  const funnelUrl = `${req.nextUrl.origin}/f/${slug}${search}`;
+  /* On the funnel host the clean URL (book.pmu-care.com/<slug>) is
+     rewritten to /f/<slug>, so hand visitors the tidy one — it is what
+     they see in the address bar. Elsewhere /f/ is still the real path. */
+  const shortHost = (req.headers.get("host") ?? "").toLowerCase() === "book.pmu-care.com";
+  const funnelUrl = `${req.nextUrl.origin}${shortHost ? "" : "/f"}/${slug}${search}`;
 
   // No live test: behave exactly like the plain funnel URL.
   if (!exp) return NextResponse.redirect(funnelUrl, 307);
