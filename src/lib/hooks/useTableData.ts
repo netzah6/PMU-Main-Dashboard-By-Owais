@@ -12,6 +12,17 @@ interface UseTableDataOptions {
 const tableCache = new Map<string, unknown[]>();
 const inflight = new Map<string, Promise<unknown[]>>();
 
+// Realtime re-fetch throttling. Every realtime event used to trigger a full
+// re-download of the table after 600ms — so a sync run upserting ~900 rows
+// made every open tab re-pull the whole table over and over, which was a real
+// share of the load that helped melt the DB on 2026-08-15. Now: wait for the
+// burst to settle (DEBOUNCE), and never do more than one full re-fetch per
+// table per COOLDOWN — with one trailing re-fetch afterwards so the UI still
+// converges on the truth.
+const REALTIME_DEBOUNCE_MS = 5_000;
+const REFETCH_COOLDOWN_MS = 60_000;
+const lastRefetchAt = new Map<string, number>();
+
 async function loadTable(table: string): Promise<unknown[]> {
   const supabase = createClient();
   type DbRow = { id: string; sheet_row: number | null; data: Record<string, unknown> };
@@ -77,14 +88,22 @@ export function useTableData<T>({ table, realtimeEnabled = false }: UseTableData
     const supabase = supabaseRef.current;
     let debounce: ReturnType<typeof setTimeout> | null = null;
 
+    const refetch = () => {
+      lastRefetchAt.set(table, Date.now());
+      fetchData(true).then(() => setTimeout(() => setSyncing(false), 800));
+    };
+
     const channel = supabase
       .channel(`realtime:${table}`)
       .on("postgres_changes", { event: "*", schema: "public", table }, () => {
         setSyncing(true);
         if (debounce) clearTimeout(debounce);
-        debounce = setTimeout(() => {
-          fetchData(true).then(() => setTimeout(() => setSyncing(false), 800));
-        }, 600);
+        // Wait out the write burst, then respect the cooldown: if a full
+        // re-fetch ran recently, schedule ONE trailing re-fetch for when the
+        // cooldown expires instead of piling on.
+        const sinceLast = Date.now() - (lastRefetchAt.get(table) ?? 0);
+        const wait = Math.max(REALTIME_DEBOUNCE_MS, REFETCH_COOLDOWN_MS - sinceLast);
+        debounce = setTimeout(refetch, wait);
       })
       .subscribe();
 

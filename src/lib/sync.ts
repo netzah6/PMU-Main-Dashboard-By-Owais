@@ -49,10 +49,21 @@ export interface SyncResult {
   supabaseRowsAfter: number;
   /** Direct-ingest rows retired because the sheet caught up on them. */
   supersededDirect?: number;
+  /** Set when the tail-delete guard refused to run — says why. */
+  deleteSkipped?: string;
   status: "ok" | "error";
   error?: string;
   durationMs: number;
 }
+
+// Circuit breaker for the tail delete. A sheet legitimately shrinks by a
+// handful of rows (someone deletes a bad entry); it never legitimately loses
+// dozens at once. When more rows than this sit past the sheet's end, the far
+// more likely explanation is that THIS READ was partial or truncated — and
+// deleting on a partial read is exactly how the 2026-08-15 meltdown fed
+// itself (the same DELETE repeated 1,880× in 2h while Make kept re-posting
+// the rows it wiped). Refuse, report, let the next clean read handle it.
+const MAX_TAIL_DELETE = 25;
 
 export interface ValidationResult {
   table: string;
@@ -79,9 +90,14 @@ export async function syncOneSheet(
   const start = Date.now();
   const supabase = createServiceClient();
 
+  // Estimated, not exact: these counts are report-only, and an exact count
+  // scans the whole table — two full scans per table per sync run was a real
+  // share of the standing DB load. (The tail-delete count below stays exact:
+  // it's filtered on the sheet_row unique index, so it's cheap — and the
+  // guard needs the true number.)
   const { count: beforeCount } = await supabase
     .from(table)
-    .select("*", { count: "exact", head: true });
+    .select("*", { count: "estimated", head: true });
 
   try {
     // 1. Read from Google Sheets (auto-resolves tab name if needed)
@@ -116,8 +132,34 @@ export async function syncOneSheet(
       if (error) throw new Error(`Batch ${i / BATCH + 1}: ${error.message}`);
     }
 
-    // 3. Delete rows that were removed from the sheet (sheet_row beyond current max)
-    await supabase.from(table).delete().gt("sheet_row", maxSheetRow);
+    // 3. Delete rows that were removed from the sheet (sheet_row beyond current max).
+    //
+    // Two guards, both born on 2026-08-15:
+    //  a) Direct-ingest rows are UNTOUCHABLE here. Make posts fresh payments
+    //     with real row numbers past the sheet's current end (the sheet hasn't
+    //     caught up yet), so "past the end" does NOT mean "removed from the
+    //     sheet" for rows carrying an external_id. Deleting them starts a
+    //     delete/re-add ping-pong with Make's retries. They're retired by
+    //     dropSupersededDirectRows below, once the sheet truly has them.
+    //  b) Mass deletes are refused (MAX_TAIL_DELETE) — see the constant.
+    let deleteSkipped: string | undefined;
+    const directTable = !!resolveTable(table);
+    const tailQuery = () => {
+      let q = supabase.from(table).delete().gt("sheet_row", maxSheetRow);
+      if (directTable) q = q.is("external_id", null);
+      return q;
+    };
+    let staleQ = supabase
+      .from(table)
+      .select("*", { count: "exact", head: true })
+      .gt("sheet_row", maxSheetRow);
+    if (directTable) staleQ = staleQ.is("external_id", null);
+    const { count: staleCount } = await staleQ;
+    if ((staleCount ?? 0) > MAX_TAIL_DELETE) {
+      deleteSkipped = `refused to delete ${staleCount} rows past sheet end (limit ${MAX_TAIL_DELETE}) — this read was likely partial, not a real sheet shrink`;
+    } else if ((staleCount ?? 0) > 0) {
+      await tailQuery();
+    }
 
     // 4. Retire direct-ingest rows the sheet has now caught up on, so a record
     //    that arrived by webhook first isn't shown twice.
@@ -125,7 +167,7 @@ export async function syncOneSheet(
 
     const { count: afterCount } = await supabase
       .from(table)
-      .select("*", { count: "exact", head: true });
+      .select("*", { count: "estimated", head: true });
 
     return {
       table, sheetName,
@@ -133,6 +175,7 @@ export async function syncOneSheet(
       supabaseRowsBefore: beforeCount ?? 0,
       supabaseRowsAfter: afterCount ?? 0,
       supersededDirect,
+      deleteSkipped,
       status: "ok",
       durationMs: Date.now() - start,
     };
