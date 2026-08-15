@@ -12,7 +12,7 @@ export const maxDuration = 120;
 //   POST {action:"status", id, status}    (running | paused)
 //   POST {action:"weights", id, weights:{a:50,b:50}}
 
-type VariantIn = { vkey: string; label: string; kind: string; target?: string; weight?: number };
+type VariantIn = { vkey: string; label: string; kind: string; target?: string; weight?: number; config_override?: Record<string, string> };
 
 export async function GET(req: NextRequest) {
   const auth = await getAuth();
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   if (!exp) return NextResponse.json({ experiment: null });
 
   const [{ data: variants }, { data: assigns }, { data: leads }, { data: client }] = await Promise.all([
-    svc.from("onebox_variants").select("vkey, label, kind, target, weight").eq("experiment_id", exp.id).order("vkey"),
+    svc.from("onebox_variants").select("vkey, label, kind, target, weight, config_override").eq("experiment_id", exp.id).order("vkey"),
     svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id),
     svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, created_at").eq("slug", slug).gte("created_at", exp.created_at),
     svc.from("onebox_clients").select("location_id, config, client_name, extras").eq("slug", slug).single(),
@@ -123,6 +123,7 @@ export async function GET(req: NextRequest) {
       kind: v.kind,
       target: v.target,
       weight: v.weight,
+      overrides: Object.keys((v as { config_override?: Record<string, string> }).config_override ?? {}),
       visitors: vis,
       leads: v.kind === "external" ? null : (ours[v.vkey]?.leads ?? 0),
       booked,
@@ -192,14 +193,23 @@ export async function POST(req: NextRequest) {
       .select("id")
       .single();
     if (error || !exp) return NextResponse.json({ error: error?.message ?? "insert failed" }, { status: 500 });
-    const rows = variants.map((v) => ({
-      experiment_id: exp.id,
-      vkey: String(v.vkey).slice(0, 12),
-      label: String(v.label).slice(0, 120),
-      kind: v.kind === "external" ? "external" : "onebox",
-      target: v.target ? String(v.target).slice(0, 500) : null,
-      weight: Number.isFinite(Number(v.weight)) ? Number(v.weight) : 50,
-    }));
+    const rows = variants.map((v) => {
+      const override: Record<string, string> = {};
+      for (const [k, val] of Object.entries(v.config_override ?? {})) {
+        if (typeof val === "string" && val.trim() && /^[a-zA-Z][a-zA-Z0-9]{0,40}$/.test(k)) {
+          override[k] = val.slice(0, 2000);
+        }
+      }
+      return {
+        experiment_id: exp.id,
+        vkey: String(v.vkey).slice(0, 12),
+        label: String(v.label).slice(0, 120),
+        kind: v.kind === "external" ? "external" : "onebox",
+        target: v.target ? String(v.target).slice(0, 500) : null,
+        weight: Number.isFinite(Number(v.weight)) ? Number(v.weight) : 50,
+        config_override: override,
+      };
+    });
     const { error: vErr } = await svc.from("onebox_variants").insert(rows);
     if (vErr) return NextResponse.json({ error: vErr.message }, { status: 500 });
     return NextResponse.json({ ok: true, id: exp.id });

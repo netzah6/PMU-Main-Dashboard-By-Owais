@@ -58,6 +58,32 @@ export async function GET(
     }
   }
 
+  /* Funnel-vs-funnel testing: when the splitter (or a preview link)
+     appends ob_e/ob_v, merge that variant's overrides over the config so
+     the same slug can render different headlines, offers or copy. The
+     experiment must belong to this slug — otherwise ignore. */
+  const obE = req.nextUrl.searchParams.get("ob_e") ?? "";
+  const obV = req.nextUrl.searchParams.get("ob_v") ?? "";
+  if (/^\d+$/.test(obE) && obV) {
+    const { data: ex } = await svc
+      .from("onebox_experiments")
+      .select("slug")
+      .eq("id", Number(obE))
+      .maybeSingle();
+    if (ex?.slug === slug) {
+      const { data: variant } = await svc
+        .from("onebox_variants")
+        .select("config_override, kind")
+        .eq("experiment_id", Number(obE))
+        .eq("vkey", obV)
+        .maybeSingle();
+      const override = (variant?.config_override ?? {}) as Record<string, unknown>;
+      for (const [k, v] of Object.entries(override)) {
+        if (typeof v === "string" && v.trim()) row.config[k] = v;
+      }
+    }
+  }
+
   const cfg: Record<string, string> = {
     ...row.config,
     slug: row.slug,
