@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 type AbVariant = {
   vkey: string; label: string; kind: string; target: string | null; weight: number;
   overrides?: string[];
+  deposits: number | null;
   visitors: number; leads: number | null; booked: number | null;
   bookRate: number | null; spend: number | null; costPerBooking: number | null;
 };
@@ -27,7 +28,9 @@ type Funnel = {
   cvSyncedAt: string | null; url: string;
   hasCalendar: boolean; hasFanbasis: boolean; hasWidget: boolean; hasPixel: boolean;
   oldFunnelUrl: string;
-  leads: number; booked: number; lastLeadAt: string | null;
+  visitors: number;
+  leads: number;
+  paid: number; booked: number; lastLeadAt: string | null;
 };
 type HealthCheck = { name: string; ok: boolean; note: string };
 
@@ -221,7 +224,10 @@ export default function FunnelsPage() {
                 </div>
                 <div className="flex-1" />
                 <div className="text-right text-xs text-[#697a91]">
-                  <div><b className="text-[#1c2b3a] text-sm">{f.leads}</b> leads · <b className="text-[#1c2b3a] text-sm">{f.booked}</b> booked</div>
+                  <div>
+                    <b className="text-[#1c2b3a] text-sm">{f.visitors}</b> visitors · <b className="text-[#1c2b3a] text-sm">{f.leads}</b> leads
+                    {" · "}<b className="text-[#1c2b3a] text-sm">{f.booked}</b> booked · <b className="text-[#1c2b3a] text-sm">{f.paid}</b> deposits
+                  </div>
                   <div>last lead {ago(f.lastLeadAt)} · synced {ago(f.cvSyncedAt)}</div>
                 </div>
               </div>
@@ -402,6 +408,7 @@ export default function FunnelsPage() {
                               <th className="py-1 pr-3 font-medium">Variant</th>
                               <th className="py-1 pr-3 font-medium">Visitors</th>
                               <th className="py-1 pr-3 font-medium">Leads</th>
+                              <th className="py-1 pr-3 font-medium">Deposits</th>
                               <th className="py-1 pr-3 font-medium">Booked</th>
                               <th className="py-1 pr-3 font-medium">Book rate</th>
                               <th className="py-1 pr-3 font-medium">Spend</th>
@@ -429,6 +436,7 @@ export default function FunnelsPage() {
                                   </td>
                                   <td className="py-1.5 pr-3">{v.visitors}</td>
                                   <td className="py-1.5 pr-3">{v.leads ?? "—"}</td>
+                                  <td className="py-1.5 pr-3">{v.deposits ?? "—"}</td>
                                   <td className="py-1.5 pr-3">{v.booked ?? "—"}</td>
                                   <td className="py-1.5 pr-3">{v.bookRate != null ? `${v.bookRate}%` : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
@@ -444,7 +452,8 @@ export default function FunnelsPage() {
                       <p className="text-[10px] text-[#697a91]">
                         Spend is this client&rsquo;s ad spend split by each side&rsquo;s share of visitors — the same ads
                         feed both, so spend follows the traffic. The original funnel&rsquo;s bookings are counted from the
-                        GHL calendar (appointments the one-box didn&rsquo;t create).
+                        GHL calendar (appointments the one-box didn&rsquo;t create); its leads and deposits live in
+                        GHL/Fanbasis, which is why those show &ldquo;—&rdquo;.
                       </p>
                     </div>
                   )}

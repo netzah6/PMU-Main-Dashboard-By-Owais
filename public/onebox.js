@@ -851,5 +851,32 @@
   window.scrollTo(0, 0);
   window.addEventListener("load", function () { if (!interacted) window.scrollTo(0, 0); });
 
+  /* Visit beacon: one report per visitor per day (the page itself is
+     CDN-cached, so the server can't count views). localStorage id keeps
+     refreshes from double counting; the server dedupes per day too. */
+  try {
+    var vid = localStorage.getItem("ob_vid");
+    if (!vid) {
+      vid = (crypto.randomUUID ? crypto.randomUUID() : "v-" + Date.now() + "-" + Math.floor(Math.random() * 1e9));
+      localStorage.setItem("ob_vid", vid);
+    }
+    var day = new Date().toISOString().slice(0, 10);
+    var hitKey = "ob_hit_" + (C.slug || "") + "_" + day;
+    if (!sessionStorage.getItem(hitKey)) {
+      sessionStorage.setItem(hitKey, "1");
+      fetch((C.submitUrl || "").replace(/submit$/, "hit"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({
+          slug: C.slug || "",
+          visitorId: vid,
+          experimentId: C.experimentId || "",
+          variantKey: C.variantKey || "",
+        }),
+      }).catch(function () {});
+    }
+  } catch (e) {}
+
   show("survey");
 })();
