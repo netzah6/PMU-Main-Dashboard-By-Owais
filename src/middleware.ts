@@ -9,10 +9,6 @@ const FUNNEL_HOST = "book.pmu-care.com";
 const RESERVED = new Set(["api", "f", "s", "login", "auth", "manifest.webmanifest"]);
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
-  // Server components can't read the current path. Forward it so the (dashboard)
-  // layout can enforce the VA role gate — middleware itself must stay DB-free.
-  request.headers.set("x-pathname", request.nextUrl.pathname);
-
   const host = (request.headers.get("host") ?? "").toLowerCase();
   if (host === FUNNEL_HOST) {
     const m = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/?$/i);
@@ -73,15 +69,6 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     url.pathname = "/clients";
     return NextResponse.redirect(url);
   }
-
-  // The VA role gate used to live here and did a `user_roles` lookup on EVERY
-  // request. That took the whole dashboard down with
-  // MIDDLEWARE_INVOCATION_TIMEOUT: middleware runs on every page, asset and API
-  // call, so one DB round trip per request piles up — and it queued behind the
-  // heavy performance_overview queries until middleware blew its limit.
-  //
-  // The gate now lives in the (dashboard) layout, which already runs server-side
-  // once per page render rather than once per request.
 
   // ── Admin activity log ──
   // Every CHANGE a logged-in team member makes goes through a mutating /api
