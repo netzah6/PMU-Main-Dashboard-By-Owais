@@ -259,7 +259,7 @@ export default function FunnelsPage() {
                       <b className="text-[#0e9c9c] text-sm">{f.leads}</b> leads
                     </button>
                     {" · "}
-                    <button className="hover:underline" onClick={() => { setLeadsFor(f.slug); setLeadFilter("paid_booked"); void loadLeads(f.slug); }}>
+                    <button className="hover:underline" onClick={() => { setLeadsFor(f.slug); setLeadFilter("picked_no_deposit"); void loadLeads(f.slug); }}>
                       <b className="text-[#0e9c9c] text-sm">{f.booked}</b> booked
                     </button>
                     {" · "}
