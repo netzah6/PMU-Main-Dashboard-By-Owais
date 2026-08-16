@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues } from "@/lib/onebox";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -126,9 +126,15 @@ export async function POST(req: NextRequest) {
       status: "paused",
       extras,
     });
+    // Older sub-accounts miss the one-box custom values — create the
+    // absent ones (empty) so the team only has to fill values in GHL.
+    const ensured = await ensureOneboxCustomValues(locationId);
     const config = await refreshOneboxConfig(svc, slug, locationId);
     return NextResponse.json({
       ok: true, slug, url: funnelUrl(req, slug), pixelNote,
+      cvNote: ensured.created.length
+        ? `created ${ensured.created.length} missing custom values: ${ensured.created.join(", ")} — fill them in GHL`
+        : "all one-box custom values already existed",
       synced: !!config, calendarId: config?.calendarId ?? "",
     });
   }
@@ -196,6 +202,19 @@ export async function POST(req: NextRequest) {
     });
     const pixel = (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "");
     checks.push({ name: "Meta pixel", ok: !!pixel, note: pixel ? `pixel ${pixel}` : "no pixel — harvest or set OB - Meta Pixel ID" });
+    // Which required values are still empty on the account.
+    const requiredCfg: [string, string][] = [
+      ["biz", "Business Name"], ["phone", "CC - Business Phone Number"],
+      ["address", "CC - Full Business Address"], ["offer", "CC - Offer"],
+      ["calendarId", "CC - Permanent Makeup Transformation Calendar ID🔵"],
+      ["fanbasisProductId", "CC - Fanbasis Product ID"],
+    ];
+    const missingCvs = requiredCfg.filter(([k]) => !(config[k] ?? "").trim()).map(([, n]) => n);
+    checks.push({
+      name: "Custom values",
+      ok: missingCvs.length === 0,
+      note: missingCvs.length ? `empty or missing: ${missingCvs.join(", ")}` : "all required values filled",
+    });
     const syncAge = row.cv_synced_at ? Date.now() - new Date(row.cv_synced_at as string).getTime() : Infinity;
     checks.push({ name: "GHL content sync", ok: syncAge < 30 * 60000, note: row.cv_synced_at ? `synced ${Math.round(syncAge / 60000)}m ago` : "never synced" });
 
