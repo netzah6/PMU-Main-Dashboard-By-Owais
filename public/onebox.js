@@ -573,6 +573,20 @@
   function book(iso) {
     state.slotIso = iso;
     pixelTrack("Schedule");
+    try {
+      fetch(C.submitUrl || "", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({
+          stage: "slot",
+          slug: C.slug || "",
+          full_name: state.answers.full_name || "",
+          phone: state.answers.phone || "",
+          slotIso: iso,
+        }),
+      }).catch(function () {});
+    } catch (e) {}
     show("deposit");
   }
 
