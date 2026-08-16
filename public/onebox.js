@@ -89,10 +89,10 @@
     "#onebox-root .lede{text-align:center;margin:0;font-size:15px;color:var(--ink-soft)}" +
     "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(24px,3.4vw,30px);line-height:1.2;letter-spacing:-.01em;text-align:center;text-wrap:balance;margin:8px auto 0;max-width:24ch;color:#000}" +
     "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:18px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
-    "#onebox-root .trust{text-align:center;padding:14px 20px 0}" +
+    "#onebox-root .trust{text-align:center;padding:0 20px;margin-bottom:12px}" +
     "#onebox-root.nohero .lede,#onebox-root.nohero h1.page,#onebox-root.nohero .sub,#onebox-root.nohero .biglogo{display:none}" +
     "#onebox-root.nohero .wrap{padding-top:8px}" +
-    "#onebox-root.nohero .trust{padding-top:0}" +
+    "#onebox-root.nohero .trust{margin-bottom:0}" +
     "#onebox-root.nohero .box{margin-top:10px}" +
     "#onebox-root .trust p{margin:0;font-size:14px;color:var(--ink-soft)}" +
     "#onebox-root .stars{color:var(--gold);letter-spacing:.14em;font-size:15px;margin-top:3px}" +
@@ -100,7 +100,7 @@
     "#onebox-root .rail{margin:14px 16px 0;height:24px;border-radius:999px;background:#e9edef;overflow:hidden}" +
     "#onebox-root .rail span{display:grid;place-items:center;height:100%;border-radius:999px;background:repeating-linear-gradient(135deg,var(--teal) 0 11px,var(--teal-deep) 11px 22px);color:#fff;font-size:11px;font-weight:600;white-space:nowrap;transition:width .45s cubic-bezier(.4,0,.2,1);min-width:44px;animation:ob-railmove 1.1s linear infinite}" +
     "@keyframes ob-railmove{to{background-position:31.11px 0}}" +
-    "@media(min-width:768px){#onebox-root .wrap{padding-top:34px}#onebox-root .biglogo{max-height:86px;margin-bottom:22px}#onebox-root h1.page{margin-top:16px}#onebox-root .sub{margin-top:10px}#onebox-root .trust{padding-top:24px}#onebox-root .box{margin-top:32px}}" +
+    "@media(min-width:768px){#onebox-root .wrap{padding-top:34px}#onebox-root .biglogo{max-height:86px;margin-bottom:22px}#onebox-root h1.page{margin-top:16px}#onebox-root .sub{margin-top:10px}#onebox-root .trust{margin-bottom:18px}#onebox-root .box{margin-top:32px}}" +
     "#onebox-root .slide{padding:22px 26px 26px;min-height:210px}" +
     "#onebox-root .slide.anim-next{animation:ob-in-next .3s ease both}" +
     "#onebox-root .slide.anim-prev{animation:ob-in-prev .3s ease both}" +
@@ -308,12 +308,12 @@
     '<div class="topbar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg><span>' + esc(ADDR) + "</span></div>" +
     '<div class="callbar">Call Us Today:' + (PHONE ? " " + esc(PHONE) : "") + "</div>" +
     '<div class="wrap">' +
+    '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     (LOGO ? '<img class="biglogo" src="' + esc(LOGO) + '" alt="' + esc(BIZ) + ' logo">' : "") +
     '<p class="lede">' + (C.congrats ? esc(C.congrats)
       : "Congrats on claiming " + (OFFERR ? esc(OFFERR) + " " : "") + "All Permanent Makeup Packages!") + "</p>" +
     '<h1 class="page">' + esc(C.headline || "Fill Out Our Quiz To See If You Qualify") + "</h1>" +
     '<p class="sub">' + esc(C.sub || "(30 Seconds)") + "</p>" +
-    '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     '<div class="box"><div class="rail"><span id="ob-rail">&nbsp;</span></div>' +
     '<div class="slide" id="ob-slide"></div></div>' +
     '<div id="ob-extras"></div>' +
