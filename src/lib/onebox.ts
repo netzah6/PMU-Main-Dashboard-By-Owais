@@ -132,6 +132,59 @@ export async function ensureOneboxCustomValues(locationId: string): Promise<{ cr
   }
 }
 
+// The values the dashboard's editor may write, keyed by config field.
+export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
+  biz: "Business Name",
+  phone: "CC - Business Phone Number",
+  address: "CC - Full Business Address",
+  offer: "CC - Offer",
+  deposit: "CC - Deposit Amount 🔵",
+  calendarId: "CC - Permanent Makeup Transformation Calendar ID🔵",
+  fanbasisProductId: "CC - Fanbasis Product ID",
+  thankYouPath: "CC - Thank You Page Path",
+  igWidget: "CC - IG Widget LINK",
+  googleWidget: "CC - Google Widget LINK",
+};
+
+// Write custom values straight to the sub-account — update when the
+// value exists, create when it doesn't — so the team never has to hunt
+// for them inside GHL.
+export async function setOneboxCustomValues(
+  locationId: string,
+  entries: { name: string; value: string }[]
+): Promise<{ written: string[]; error?: string }> {
+  try {
+    const tok = await getAppLocationToken(locationId);
+    if (!tok.token) return { written: [], error: "no token" };
+    const H = {
+      Authorization: `Bearer ${tok.token}`,
+      Version: "2021-07-28",
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, { headers: H });
+    if (!r.ok) return { written: [], error: `list ${r.status}` };
+    const { customValues } = (await r.json()) as { customValues?: { id?: string; name?: string }[] };
+    const idByName = new Map((customValues ?? []).map((v) => [String(v.name ?? ""), String(v.id ?? "")]));
+    const written: string[] = [];
+    for (const { name, value } of entries) {
+      const id = idByName.get(name);
+      const url = id
+        ? `https://services.leadconnectorhq.com/locations/${locationId}/customValues/${id}`
+        : `https://services.leadconnectorhq.com/locations/${locationId}/customValues`;
+      const res = await fetch(url, {
+        method: id ? "PUT" : "POST",
+        headers: H,
+        body: JSON.stringify({ name, value }),
+      });
+      if (res.ok) written.push(name);
+    }
+    return { written };
+  } catch {
+    return { written: [], error: "network" };
+  }
+}
+
 // Re-pull the location's custom values and persist the fresh config.
 // Returns the fresh config, or null on any failure (caller keeps stale).
 export async function refreshOneboxConfig(
