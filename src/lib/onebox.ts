@@ -92,6 +92,46 @@ export function parseFaqs(raw: string): { q: string; a: string }[] {
     .map((p) => ({ q: p[0].trim(), a: p.slice(1).join("|").trim() }));
 }
 
+// The custom values the one-box introduced. Older sub-accounts don't
+// have them; Add-client creates any that are missing (empty, for the
+// team to fill in GHL) so nobody has to add them by hand.
+export const ONEBOX_NEW_CVS = [
+  "CC - IG Widget LINK",
+  "CC - Google Widget LINK",
+  "CC - Fanbasis Product ID",
+  "CC - Thank You Page Path",
+];
+
+export async function ensureOneboxCustomValues(locationId: string): Promise<{ created: string[]; error?: string }> {
+  try {
+    const tok = await getAppLocationToken(locationId);
+    if (!tok.token) return { created: [], error: "no token" };
+    const H = {
+      Authorization: `Bearer ${tok.token}`,
+      Version: "2021-07-28",
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
+    const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, { headers: H });
+    if (!r.ok) return { created: [], error: `list ${r.status}` };
+    const { customValues } = (await r.json()) as { customValues?: { name?: string }[] };
+    const have = new Set((customValues ?? []).map((v) => String(v.name ?? "")));
+    const created: string[] = [];
+    for (const name of ONEBOX_NEW_CVS) {
+      if (have.has(name)) continue;
+      const c = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, {
+        method: "POST",
+        headers: H,
+        body: JSON.stringify({ name, value: "" }),
+      });
+      if (c.ok) created.push(name);
+    }
+    return { created };
+  } catch {
+    return { created: [], error: "network" };
+  }
+}
+
 // Re-pull the location's custom values and persist the fresh config.
 // Returns the fresh config, or null on any failure (caller keeps stale).
 export async function refreshOneboxConfig(
