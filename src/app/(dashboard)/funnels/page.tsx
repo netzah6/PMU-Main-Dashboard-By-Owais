@@ -9,6 +9,19 @@ import { cn } from "@/lib/utils";
 // each sub-account's GHL custom values; this tab manages existence,
 // status and the per-client extras (Fanbasis block, widget, pixel).
 
+type LeadRow = {
+  id: number; name: string; phone: string; at: string;
+  stage: "lead_only" | "picked_no_deposit" | "paid_no_slot" | "paid_booked";
+  slot: string | null; variant: string | null;
+};
+
+const STAGE_META: Record<LeadRow["stage"], { label: string; cls: string }> = {
+  lead_only: { label: "Lead — stopped at booking", cls: "bg-[#f1f5f9] text-[#475569] border-[#e2e8f0]" },
+  picked_no_deposit: { label: "Picked a time — no deposit", cls: "bg-[#fff3e6] text-[#c2410c] border-[#fdba74]" },
+  paid_no_slot: { label: "PAID — booking failed, call them", cls: "bg-[#fee2e2] text-[#b91c1c] border-[#fca5a5]" },
+  paid_booked: { label: "Paid & booked", cls: "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]" },
+};
+
 type AbVariant = {
   vkey: string; label: string; kind: string; target: string | null; weight: number;
   overrides?: string[];
@@ -65,6 +78,10 @@ export default function FunnelsPage() {
   const [addNote, setAddNote] = useState<string | null>(null);
   const [extrasFor, setExtrasFor] = useState<string | null>(null);
   const [cvFor, setCvFor] = useState<string | null>(null);
+  const [leadsFor, setLeadsFor] = useState<string | null>(null);
+  const [leadRows, setLeadRows] = useState<Record<string, LeadRow[]>>({});
+  const [leadFilter, setLeadFilter] = useState<string>("all");
+  const [leadsBusy, setLeadsBusy] = useState(false);
   const [cvForm, setCvForm] = useState<Record<string, string>>({});
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
   const [toast, setToast] = useState<string | null>(null);
@@ -104,6 +121,15 @@ export default function FunnelsPage() {
       if (action !== "health") await load();
     } finally { setBusy(null); }
   }
+
+  const loadLeads = useCallback(async (slug: string) => {
+    setLeadsBusy(true);
+    try {
+      const r = await fetch(`/api/onebox/leads?slug=${encodeURIComponent(slug)}`);
+      const j = await r.json();
+      setLeadRows((x) => ({ ...x, [slug]: j.leads ?? [] }));
+    } finally { setLeadsBusy(false); }
+  }, []);
 
   const loadAb = useCallback(async (slug: string) => {
     setAbBusy(true);
@@ -228,8 +254,18 @@ export default function FunnelsPage() {
                 <div className="flex-1" />
                 <div className="text-right text-xs text-[#697a91]">
                   <div>
-                    <b className="text-[#1c2b3a] text-sm">{f.visitors}</b> visitors · <b className="text-[#1c2b3a] text-sm">{f.leads}</b> leads
-                    {" · "}<b className="text-[#1c2b3a] text-sm">{f.booked}</b> booked · <b className="text-[#1c2b3a] text-sm">{f.paid}</b> deposits
+                    <b className="text-[#1c2b3a] text-sm">{f.visitors}</b> visitors ·{" "}
+                    <button className="hover:underline" onClick={() => { setLeadsFor(leadsFor === f.slug ? null : f.slug); setLeadFilter("all"); void loadLeads(f.slug); }}>
+                      <b className="text-[#0e9c9c] text-sm">{f.leads}</b> leads
+                    </button>
+                    {" · "}
+                    <button className="hover:underline" onClick={() => { setLeadsFor(f.slug); setLeadFilter("paid_booked"); void loadLeads(f.slug); }}>
+                      <b className="text-[#0e9c9c] text-sm">{f.booked}</b> booked
+                    </button>
+                    {" · "}
+                    <button className="hover:underline" onClick={() => { setLeadsFor(f.slug); setLeadFilter("deposits"); void loadLeads(f.slug); }}>
+                      <b className="text-[#0e9c9c] text-sm">{f.paid}</b> deposits
+                    </button>
                   </div>
                   <div>last lead {ago(f.lastLeadAt)} · synced {ago(f.cvSyncedAt)}</div>
                 </div>
@@ -278,6 +314,70 @@ export default function FunnelsPage() {
                       <span className="text-[#697a91]">— {c.note}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {leadsFor === f.slug && (
+                <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {([["all", "All"], ["lead_only", "Stopped at booking"], ["picked_no_deposit", "Picked time, no deposit"], ["deposits", "Paid"], ["paid_booked", "Paid & booked"]] as [string, string][]).map(([k, label]) => (
+                      <button key={k} onClick={() => setLeadFilter(k)}
+                        className={cn("text-[11px] rounded-full px-2.5 py-0.5 border",
+                          leadFilter === k ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] hover:bg-[#f6f9fc] text-[#475569]")}>
+                        {label}
+                      </button>
+                    ))}
+                    <div className="flex-1" />
+                    <button onClick={() => void loadLeads(f.slug)} disabled={leadsBusy}
+                      className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                      {leadsBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : "Refresh"}
+                    </button>
+                  </div>
+                  {!leadRows[f.slug] ? (
+                    <div className="text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /> Loading…</div>
+                  ) : (
+                    (() => {
+                      const rowsAll = leadRows[f.slug];
+                      const rows = rowsAll.filter((l) =>
+                        leadFilter === "all" ? true
+                        : leadFilter === "deposits" ? (l.stage === "paid_booked" || l.stage === "paid_no_slot")
+                        : l.stage === leadFilter);
+                      return rows.length === 0 ? (
+                        <div className="text-xs text-[#697a91]">No leads here yet.</div>
+                      ) : (
+                        <div className="overflow-x-auto max-h-72 overflow-y-auto">
+                          <table className="w-full text-xs">
+                            <thead className="text-[#697a91]">
+                              <tr className="text-left">
+                                <th className="py-1 pr-3 font-medium">Lead</th>
+                                <th className="py-1 pr-3 font-medium">Phone</th>
+                                <th className="py-1 pr-3 font-medium">Came through</th>
+                                <th className="py-1 pr-3 font-medium">Reached</th>
+                                <th className="py-1 pr-3 font-medium">Chosen time</th>
+                                <th className="py-1 pr-3 font-medium">When</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rows.map((l) => (
+                                <tr key={l.id} className="border-t border-[#eef2f6]">
+                                  <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{l.name}</td>
+                                  <td className="py-1.5 pr-3">{l.phone}</td>
+                                  <td className="py-1.5 pr-3">{l.variant ?? "direct"}</td>
+                                  <td className="py-1.5 pr-3">
+                                    <span className={cn("text-[10px] font-semibold rounded-full px-2 py-0.5 border", STAGE_META[l.stage].cls)}>
+                                      {STAGE_META[l.stage].label}
+                                    </span>
+                                  </td>
+                                  <td className="py-1.5 pr-3">{l.slot ? new Date(l.slot).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</td>
+                                  <td className="py-1.5 pr-3">{new Date(l.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
               )}
 

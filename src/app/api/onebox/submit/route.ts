@@ -26,7 +26,21 @@ export async function POST(req: NextRequest) {
   // "partial" = fired the moment a valid phone exists, so a lead who quits
   // before the email step is still captured in GHL. The later "complete"
   // call upserts the same contact (deduped by phone) with full answers.
-  const partial = String(body.stage ?? "") === "partial";
+  const stage = String(body.stage ?? "");
+  const partial = stage === "partial";
+  // 'slot': the lead chose a time on the calendar. Recorded so the team
+  // can see who reached the deposit step but never paid.
+  if (stage === "slot") {
+    if (!slug || !phone) return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
+    const svcSlot = createServiceClient();
+    await svcSlot
+      .from("onebox_leads")
+      .update({ picked_time_at: new Date().toISOString(), slot_iso: String(body.slotIso ?? "").slice(0, 40) })
+      .eq("slug", slug)
+      .eq("phone", phone)
+      .then(() => {});
+    return NextResponse.json({ ok: true });
+  }
   // Split-test attribution, passed through by the funnel page.
   const expIdRaw = String(body.experimentId ?? "").replace(/\D/g, "");
   const expId = expIdRaw ? Number(expIdRaw) : null;
