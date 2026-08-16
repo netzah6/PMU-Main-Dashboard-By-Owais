@@ -452,7 +452,7 @@ export default function FunnelsPage() {
                       </p>
                       {abMode === "original" ? (
                         <div className="grid md:grid-cols-2 gap-2">
-                          <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL (e.g. https://pmu-care.com/care-pmu-survey-test-old)"
+                          <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL at its -ab-test address (e.g. https://pmu-care.com/their-survey-ab-test)"
                             defaultValue={f.oldFunnelUrl || ""}
                             className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                           <button

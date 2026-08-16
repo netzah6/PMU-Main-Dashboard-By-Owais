@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
             {
               error:
                 `"${v.target}" redirects to the one-box funnel (${r.url}), so both sides would be identical. ` +
-                `Use the original funnel's own URL — after a cutover that is usually the same path with "-old".`,
+                `Use the original funnel's own URL — rename its page path with the "-ab-test" suffix first (the team convention: a path ending in -ab-test means a split test is running).`,
             },
             { status: 400 }
           );
