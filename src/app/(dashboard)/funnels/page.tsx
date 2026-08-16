@@ -28,6 +28,7 @@ type Funnel = {
   cvSyncedAt: string | null; url: string;
   hasCalendar: boolean; hasFanbasis: boolean; hasWidget: boolean; hasPixel: boolean;
   oldFunnelUrl: string;
+  cv: Record<string, string>;
   visitors: number;
   leads: number;
   paid: number; booked: number; lastLeadAt: string | null;
@@ -63,6 +64,8 @@ export default function FunnelsPage() {
   const [addForm, setAddForm] = useState({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
   const [addNote, setAddNote] = useState<string | null>(null);
   const [extrasFor, setExtrasFor] = useState<string | null>(null);
+  const [cvFor, setCvFor] = useState<string | null>(null);
+  const [cvForm, setCvForm] = useState<Record<string, string>>({});
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
   const [toast, setToast] = useState<string | null>(null);
   const [abFor, setAbFor] = useState<string | null>(null);
@@ -250,6 +253,10 @@ export default function FunnelsPage() {
                   className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
                   Extras
                 </button>
+                <button onClick={() => { const open = cvFor === f.slug; setCvFor(open ? null : f.slug); if (!open) setCvForm({ ...f.cv }); }}
+                  className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                  Values
+                </button>
                 <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) void loadAb(f.slug); }}
                   className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
                   Split test
@@ -271,6 +278,52 @@ export default function FunnelsPage() {
                       <span className="text-[#697a91]">— {c.note}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {cvFor === f.slug && (
+                <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
+                  <p className="text-[11px] text-[#697a91]">
+                    These save straight into the sub-account&rsquo;s GHL custom values and the funnel updates
+                    immediately — no need to open GHL.
+                  </p>
+                  <div className="grid md:grid-cols-2 gap-2">
+                    {([
+                      ["biz", "Business name"],
+                      ["phone", "Business phone"],
+                      ["address", "Full address"],
+                      ["offer", "Offer (e.g. $200 OFF All Packages)"],
+                      ["deposit", "Deposit amount (e.g. $50)"],
+                      ["calendarId", "Calendar ID"],
+                      ["fanbasisProductId", "Fanbasis product ID"],
+                      ["thankYouPath", "Thank-you page path (optional)"],
+                      ["igWidget", "Instagram widget link (elf.site)"],
+                      ["googleWidget", "Google reviews widget link (elf.site)"],
+                    ] as [string, string][]).map(([k, label]) => (
+                      <label key={k} className="grid gap-0.5">
+                        <span className="text-[10px] font-medium text-[#697a91]">{label}</span>
+                        <input value={cvForm[k] ?? ""}
+                          onChange={(e) => setCvForm((x) => ({ ...x, [k]: e.target.value }))}
+                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                      </label>
+                    ))}
+                  </div>
+                  <div>
+                    <button
+                      onClick={() => {
+                        const changed: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(cvForm)) {
+                          if ((f.cv[k] ?? "") !== v) changed[k] = v;
+                        }
+                        if (!Object.keys(changed).length) { setToast("Nothing changed"); return; }
+                        void act("cvs", f.slug, { values: JSON.stringify(changed) });
+                        setCvFor(null);
+                      }}
+                      disabled={busy === `cvs:${f.slug}`}
+                      className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
+                      {busy === `cvs:${f.slug}` ? "Saving…" : "Save to GHL"}
+                    </button>
+                  </div>
                 </div>
               )}
 

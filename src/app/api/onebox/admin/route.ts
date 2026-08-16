@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, ONEBOX_EDITABLE_CVS } from "@/lib/onebox";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
       hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
       hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
       oldFunnelUrl: extras.oldFunnelUrl ?? "",
+      cv: Object.fromEntries(Object.keys(ONEBOX_EDITABLE_CVS).map((k) => [k, config[k] ?? ""])),
       visitors: hitCounts[r.slug] ?? 0,
       leads: counts[r.slug]?.leads ?? 0,
       booked: counts[r.slug]?.booked ?? 0,
@@ -164,6 +165,24 @@ export async function POST(req: NextRequest) {
     if (body.ownerName !== undefined) extras.ownerName = String(body.ownerName).trim();
     await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
     return NextResponse.json({ ok: true, elfsightId: extras.elfsightId ?? "" });
+  }
+
+  if (action === "cvs") {
+    // Write the submitted values straight into the sub-account's custom
+    // values, then resync so the funnel reflects them immediately.
+    let values: Record<string, unknown> = {};
+    try { values = JSON.parse(String(body.values ?? "{}")); } catch { /* empty */ }
+    const entries: { name: string; value: string }[] = [];
+    for (const [key, cvName] of Object.entries(ONEBOX_EDITABLE_CVS)) {
+      if (key in values && typeof values[key] === "string") {
+        entries.push({ name: cvName, value: (values[key] as string).trim().slice(0, 2000) });
+      }
+    }
+    if (!entries.length) return NextResponse.json({ error: "no values" }, { status: 400 });
+    const res = await setOneboxCustomValues(row.location_id as string, entries);
+    if (res.error) return NextResponse.json({ error: `GHL write failed (${res.error})` }, { status: 502 });
+    const config = await refreshOneboxConfig(svc, slug, row.location_id as string);
+    return NextResponse.json({ ok: true, written: res.written.length, config });
   }
 
   if (action === "health") {
