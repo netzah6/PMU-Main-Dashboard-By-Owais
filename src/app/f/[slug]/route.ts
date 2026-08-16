@@ -134,7 +134,7 @@ export async function GET(
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap">
-<script src="/onebox.js?v=33" defer></script>
+<script src="/onebox.js?v=34" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
