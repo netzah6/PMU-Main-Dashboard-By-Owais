@@ -90,7 +90,10 @@
     "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(24px,3.4vw,30px);line-height:1.2;letter-spacing:-.01em;text-align:center;text-wrap:balance;margin:8px auto 0;max-width:24ch;color:#000}" +
     "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:18px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
     "#onebox-root .trust{text-align:center;padding:14px 20px 0}" +
-    "#onebox-root.nohero .lede,#onebox-root.nohero h1.page,#onebox-root.nohero .sub{display:none}" +
+    "#onebox-root.nohero .lede,#onebox-root.nohero h1.page,#onebox-root.nohero .sub,#onebox-root.nohero .biglogo{display:none}" +
+    "#onebox-root.nohero .wrap{padding-top:8px}" +
+    "#onebox-root.nohero .trust{padding-top:0}" +
+    "#onebox-root.nohero .box{margin-top:10px}" +
     "#onebox-root .trust p{margin:0;font-size:14px;color:var(--ink-soft)}" +
     "#onebox-root .stars{color:var(--gold);letter-spacing:.14em;font-size:15px;margin-top:3px}" +
     "#onebox-root .box{margin:20px auto 0;max-width:560px;background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 48px -20px rgba(17,19,21,.28),0 4px 14px -8px rgba(17,19,21,.14);overflow:hidden;font-family:var(--form)}" +
@@ -598,7 +601,17 @@
   function bootFanbasis(slot) {
     if (!slot || state.fbBooted) return;
     var tpl = document.getElementById("onebox-fanbasis-holder");
-    if (!tpl || !tpl.content) return;
+    if (!tpl || !tpl.content) {
+      /* No checkout is configured for this funnel (no product id and no
+         pasted block) — an honest message beats an endless spinner. */
+      slot.innerHTML = '<div style="text-align:center;padding:30px 16px;font-family:sans-serif">' +
+        '<p style="margin:0 0 6px;font-weight:700">We couldn\u2019t load the secure checkout.</p>' +
+        '<p style="margin:0;color:#667">Please refresh the page' +
+        (C.phone ? ' \u2014 or call us at <b>' + esc(C.phone) + '</b> and we\u2019ll reserve your spot' : '') +
+        ".</p></div>";
+      state.fbBooted = true;
+      return;
+    }
     state.fbBooted = true;
     window.OB_LEAD = { name: state.answers.full_name || "", email: state.answers.email || "" };
     /* The checkout calls this the moment the deposit clears — that's when
@@ -635,6 +648,15 @@
       if (n.tagName === "SCRIPT") scripts.push(n);
       else slot.appendChild(n.cloneNode(true));
     });
+    setTimeout(function () {
+      if (!slot.querySelector("iframe")) {
+        var note = document.createElement("p");
+        note.style.cssText = "text-align:center;font-size:12.5px;color:#667;font-family:sans-serif;margin:8px 0 0";
+        note.innerHTML = "Still loading\u2026 if it doesn\u2019t appear, refresh the page" +
+          (C.phone ? " or call <b>" + esc(C.phone) + "</b>" : "") + ".";
+        slot.appendChild(note);
+      }
+    }, 50000);
     (function runNext(i) {
       if (i >= scripts.length) return;
       var s = document.createElement("script");
