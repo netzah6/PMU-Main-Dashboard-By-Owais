@@ -210,6 +210,7 @@
     "#onebox-root .dephold{color:var(--ink-soft);font-weight:600}" +
     "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;font-size:17px;letter-spacing:-.01em;color:var(--ink)}" +
     "#onebox-root .dephead{font-size:15.5px;margin:0 0 7px}" +
+    "@media(min-width:768px){#onebox-root .dephead{font-size:19px}}" +
     "#onebox-root .fbslot{min-height:400px}" +
     "#onebox-root .done{text-align:center;padding:6px 0}" +
     "#onebox-root .done .tick{width:58px;height:58px;border-radius:50%;background:var(--mint-bg);border:1px solid var(--mint-line);color:var(--mint-ink);display:grid;place-items:center;margin:0 auto 14px;font-size:26px}" +
@@ -724,9 +725,8 @@
         '<strong>&#10004; 100% Guaranteed &mdash; Fully Refundable</strong>' +
         "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p>" +
       "</div>" +
-      '<div class="deprow">' +
-        '<span class="dephold">&#9203; Held for <b id="ob-clock-mini">10:00</b></span>' +
-      "</div>" +
+      '<p class="vlabel">&#9203; Your spot is held for:</p>' +
+      '<div class="chips" id="ob-clock"></div>' +
       '<div class="fbslot" id="ob-fbslot"></div>' +
       '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
   }
