@@ -119,8 +119,6 @@ export const ONEBOX_NEW_CVS = [
   "CC - Google Widget LINK",
   "CC - Fanbasis Product ID",
   "CC - Thank You Page Path",
-  "CC - Result Images",
-  "CC - Studio Images",
   "CC - Eyebrows Before & After 1",
   "CC - Eyebrows Before & After 2",
   "CC - Eyebrows Before & After 3",
@@ -177,8 +175,8 @@ export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
   thankYouPath: "CC - Thank You Page Path",
   igWidget: "CC - IG Widget LINK",
   googleWidget: "CC - Google Widget LINK",
-  resultImgs: "CC - Result Images",
-  studioImgs: "CC - Studio Images",
+  // Before/after + studio photos are managed ONLY in the GHL sub-account
+  // (the 12 template custom values) — deliberately not dashboard-editable.
 };
 
 // Write custom values straight to the sub-account — update when the

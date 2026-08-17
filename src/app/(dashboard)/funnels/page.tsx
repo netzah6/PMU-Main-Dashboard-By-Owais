@@ -455,8 +455,6 @@ export default function FunnelsPage() {
                       ["thankYouPath", "Thank-you page path (optional)"],
                       ["igWidget", "Instagram widget link (elf.site)"],
                       ["googleWidget", "Google reviews widget link (elf.site)"],
-                      ["resultImgs", "Before/after image URLs (comma-separated)"],
-                      ["studioImgs", "Studio photo URLs (comma-separated)"],
                     ] as [string, string][]).map(([k, label]) => (
                       <label key={k} className="grid gap-0.5">
                         <span className="text-[10px] font-medium text-[#697a91]">{label}</span>
