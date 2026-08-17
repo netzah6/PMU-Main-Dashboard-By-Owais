@@ -788,7 +788,7 @@
         (ADDR ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
         "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service at your visit.</p>" +
       "</div>" +
-      (IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
+      ((C.igWidget || C.elfsightId) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
         "&#128248; Follow us on Instagram for daily results</a>" : "") +
       '<p class="donenote">We&rsquo;ll be in touch shortly to prepare everything for your visit. Keep an eye on your phone! &#128241;</p>';
   }
