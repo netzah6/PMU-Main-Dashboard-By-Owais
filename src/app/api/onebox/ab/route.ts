@@ -217,6 +217,56 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, id: exp.id });
   }
 
+  /* Pre-flight for STARTING an original-vs-onebox test: live-checks the
+     three SOP steps so a test can only start on a wiring that actually
+     works. 1) the renamed original serves at its -ab-ghl address (and is
+     not a redirect back to us), 2) the ad URL redirects to the splitter,
+     3) the one-box side is live with calendar + checkout configured. */
+  if (action === "verifyStart") {
+    const slug = String(body.slug ?? "").trim();
+    const target = String(body.target ?? "").trim();
+    if (!slug || !target) return NextResponse.json({ error: "slug and target required" }, { status: 400 });
+    let tu: URL;
+    try { tu = new URL(target); } catch { return NextResponse.json({ error: "the original-funnel URL is not a valid URL" }, { status: 400 }); }
+    const namedRight = /-ab-ghl\/?$/.test(tu.pathname);
+
+    let originalReady = false, originalNote = "";
+    try {
+      const r = await fetch(tu.toString(), { redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(12000) });
+      if (/book\.pmu-care\.com|\/s\/|\/f\//.test(r.url)) originalNote = "that URL redirects to the one-box — paste the renamed original page itself";
+      else if (!r.ok) originalNote = `the page answered ${r.status} — check the renamed path`;
+      else originalReady = true;
+    } catch { originalNote = "could not reach it — try again"; }
+
+    const au = new URL(tu.toString());
+    au.pathname = au.pathname.replace(/(-ab-ghl|-old)\/?$/, "");
+    au.search = "";
+    const adUrl = au.toString();
+    let redirectLive = false, redirectNote = "";
+    try {
+      const r = await fetch(adUrl, { redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(12000) });
+      const loc = r.headers.get("location") ?? "";
+      if (r.status >= 300 && r.status < 400 && loc.includes("/s/")) redirectLive = true;
+      else if (r.status >= 300 && r.status < 400) redirectNote = `the ad URL redirects to ${loc.slice(0, 120)} — expected the splitter (…/s/${slug})`;
+      else if (r.status === 404) redirectNote = "the ad URL is a dead 404 — ad clicks are being wasted; create the URL Redirect now";
+      else redirectNote = "no redirect yet — the ad URL still serves a page directly";
+    } catch { redirectNote = "could not reach the ad URL — try again"; }
+
+    const { data: cRow } = await svc.from("onebox_clients").select("status, config").eq("slug", slug).maybeSingle();
+    const cCfg = (cRow?.config ?? {}) as Record<string, string>;
+    const oneboxReady = !!cRow && cRow.status === "live" && !!cCfg.calendarId && !!(cCfg.fanbasisProductId || cCfg.fanbasisCode);
+    const oneboxNote = !cRow ? "unknown funnel"
+      : cRow.status !== "live" ? "the one-box funnel is paused — set it live first"
+      : !cCfg.calendarId ? "no calendar ID in Values"
+      : !(cCfg.fanbasisProductId || cCfg.fanbasisCode) ? "no Fanbasis product ID in Values" : "";
+
+    return NextResponse.json({
+      ok: originalReady && redirectLive && oneboxReady,
+      adUrl, namedRight,
+      checks: { originalReady, originalNote, redirectLive, redirectNote, oneboxReady, oneboxNote },
+    });
+  }
+
   const id = Number(String(body.id ?? "").replace(/\D/g, ""));
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 

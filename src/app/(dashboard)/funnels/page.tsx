@@ -94,6 +94,11 @@ export default function FunnelsPage() {
   const [endChoice, setEndChoice] = useState<"onebox" | "original">("onebox");
   const [endVerify, setEndVerify] = useState<{ loading?: boolean; applicable?: boolean;
     redirectGone?: boolean; pageBack?: boolean; adUrl?: string; error?: string } | null>(null);
+  const [sop, setSop] = useState({ renamed: false, redirect: false, values: false });
+  const [startVerify, setStartVerify] = useState<{ loading?: boolean; ok?: boolean; adUrl?: string; namedRight?: boolean;
+    checks?: { originalReady: boolean; originalNote: string; redirectLive: boolean; redirectNote: string;
+      oneboxReady: boolean; oneboxNote: string };
+    error?: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -156,6 +161,29 @@ export default function FunnelsPage() {
       else setToast("Saved ✓");
       await loadAb(slug);
     } finally { setAbBusy(false); }
+  }
+
+  // Fresh SOP + verification every time the split panel opens or switches mode.
+  useEffect(() => {
+    setSop({ renamed: false, redirect: false, values: false });
+    setStartVerify(null);
+  }, [abFor, abMode]);
+
+  async function verifyStart(slug: string) {
+    const el = document.getElementById(`ab-orig-${slug}`) as HTMLInputElement | null;
+    const target = (el?.value ?? "").trim();
+    if (!target) { setToast("Add the original funnel URL first"); return; }
+    setStartVerify({ loading: true });
+    try {
+      const r = await fetch("/api/onebox/ab", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verifyStart", slug, target }),
+      });
+      const j = await r.json();
+      setStartVerify(j.error ? { error: j.error } : j);
+    } catch {
+      setStartVerify({ error: "network error — try again" });
+    }
   }
 
   async function verifyRevert(id: number) {
@@ -481,10 +509,64 @@ export default function FunnelsPage() {
                         forwards to the funnel, so it can stay pointed there permanently.
                       </p>
                       {abMode === "original" ? (
-                        <div className="grid md:grid-cols-2 gap-2">
+                        <div className="grid gap-2">
                           <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL at its -ab-ghl address (e.g. https://pmu-care.com/their-survey-ab-ghl)"
                             defaultValue={f.oldFunnelUrl || ""}
+                            onChange={() => setStartVerify(null)}
                             className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                          <div className="border border-[#e4ebf2] rounded-xl p-3 grid gap-1.5 text-xs">
+                            <b className="text-[11px] text-[#1c2b3a]">Start-test SOP — do each step in GHL, tick it, then run the check:</b>
+                            <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
+                              <input type="checkbox" className="mt-0.5" checked={sop.renamed}
+                                onChange={(e) => { setSop((x) => ({ ...x, renamed: e.target.checked })); setStartVerify(null); }} />
+                              <span>1. Renamed the original funnel page — added <code>-ab-ghl</code> to its path (click the END of the path and type the suffix; retyping the whole path silently breaks it)</span>
+                            </label>
+                            <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
+                              <input type="checkbox" className="mt-0.5" checked={sop.redirect}
+                                onChange={(e) => { setSop((x) => ({ ...x, redirect: e.target.checked })); setStartVerify(null); }} />
+                              <span>2. Created the URL Redirect: ad path → <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b> (Sites → URL Redirects)</span>
+                            </label>
+                            <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
+                              <input type="checkbox" className="mt-0.5" checked={sop.values}
+                                onChange={(e) => { setSop((x) => ({ ...x, values: e.target.checked })); setStartVerify(null); }} />
+                              <span>3. Values filled &amp; health check green (calendar ID + Fanbasis product ID)</span>
+                            </label>
+                            {!startVerify && (
+                              <button onClick={() => void verifyStart(f.slug)}
+                                disabled={!(sop.renamed && sop.redirect && sop.values)}
+                                className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] disabled:opacity-40 disabled:cursor-not-allowed">
+                                Run verification
+                              </button>
+                            )}
+                            {startVerify?.loading && <span className="text-[#697a91]">Checking the live wiring…</span>}
+                            {startVerify?.error && <span className="text-[#b91c1c]">{startVerify.error}</span>}
+                            {startVerify?.checks && !startVerify.loading && (
+                              <>
+                                <span className={startVerify.checks.originalReady ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                                  {startVerify.checks.originalReady
+                                    ? "✓ Original funnel is live at its renamed address"
+                                    : `✗ Original funnel: ${startVerify.checks.originalNote}`}
+                                </span>
+                                <span className={startVerify.checks.redirectLive ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                                  {startVerify.checks.redirectLive
+                                    ? "✓ Ad URL redirects to the splitter"
+                                    : `✗ Ad URL: ${startVerify.checks.redirectNote}`}
+                                </span>
+                                <span className={startVerify.checks.oneboxReady ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                                  {startVerify.checks.oneboxReady
+                                    ? "✓ One-box funnel is live and configured"
+                                    : `✗ One-box: ${startVerify.checks.oneboxNote}`}
+                                </span>
+                                {startVerify.ok && startVerify.namedRight === false && (
+                                  <span className="text-[#c2410c]">note: the path doesn&rsquo;t end in -ab-ghl — the team won&rsquo;t see the test marker</span>
+                                )}
+                                <button onClick={() => void verifyStart(f.slug)}
+                                  className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                                  Re-check
+                                </button>
+                              </>
+                            )}
+                          </div>
                           <button
                             onClick={() => {
                               const el = document.getElementById(`ab-orig-${f.slug}`) as HTMLInputElement | null;
@@ -498,9 +580,9 @@ export default function FunnelsPage() {
                                 ],
                               });
                             }}
-                            disabled={abBusy}
-                            className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
-                            Start 50/50 test
+                            disabled={abBusy || !startVerify?.ok}
+                            className="justify-self-start text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                            {startVerify?.ok ? "Verified — start 50/50 test" : "Start 50/50 test (verify first)"}
                           </button>
                         </div>
                       ) : (

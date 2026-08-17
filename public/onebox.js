@@ -841,13 +841,14 @@
     }
   }
 
-  /* below-the-box sections, mirroring the original template funnel:
-     results, reviews, studio+map on every step (the one-box is the whole
-     funnel on one page, so the proof lives below the box from the first
-     visit); FAQs with their educational videos everywhere but the deposit
-     step, which stays short so nothing competes with the checkout. */
+  /* below-the-box sections, phase by phase: the survey step is the quiz
+     alone — nothing below the box competes with finishing it. From the
+     booking step: results + reviews + studio/map + FAQs with their
+     educational videos. The deposit step drops the FAQs so nothing
+     competes with the checkout. */
   function renderExtras() {
     var el = document.getElementById("ob-extras");
+    if (phase === "survey") { el.innerHTML = ""; return; }
     var handle = IGLINK.replace(/\/+$/, "").split("/").pop() || "instagram";
     var IG = C.igWidget || C.elfsightId || "";
     var GOOG = C.googleWidget || "";
