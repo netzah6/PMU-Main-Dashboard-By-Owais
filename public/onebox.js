@@ -877,13 +877,17 @@
         '<div class="elfsight-app-' + esc(GOOG) + '" data-elfsight-app-lazy></div></div>';
       loadElfsight();
     }
-    htmlStr += '<div class="xsec"><h2 class="xhead">&#128205;We are located at ' + esc(ADDR) + "</h2>" +
-      (STUDIO.length ? '<div class="studio">' + STUDIO.map(function (u) {
-        return '<img src="' + esc(u) + '" alt="Our studio" loading="lazy">';
-      }).join("") + "</div>" : "") +
-      '<div class="mapcard"><iframe loading="lazy" src="https://www.google.com/maps?q=' +
-      encodeURIComponent(ADDR) + '&output=embed"></iframe></div></div>';
-    if (phase !== "deposit" && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
+    /* Location (studio photos + map) and the FAQ videos wait for the
+       booking step — the survey shows social proof only. */
+    if (phase !== "survey") {
+      htmlStr += '<div class="xsec"><h2 class="xhead">&#128205;We are located at ' + esc(ADDR) + "</h2>" +
+        (STUDIO.length ? '<div class="studio">' + STUDIO.map(function (u) {
+          return '<img src="' + esc(u) + '" alt="Our studio" loading="lazy">';
+        }).join("") + "</div>" : "") +
+        '<div class="mapcard"><iframe loading="lazy" src="https://www.google.com/maps?q=' +
+        encodeURIComponent(ADDR) + '&output=embed"></iframe></div></div>';
+    }
+    if (phase === "booking" && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
       htmlStr += '<div class="xsec"><h2 class="xhead">FAQs &#128071;</h2><div class="faqs">' +
         window.OB_FAQS.map(function (f) {
           return "<details><summary>" + esc(f.q) + '</summary><p class="fa">' + esc(f.a) + "</p>" +
