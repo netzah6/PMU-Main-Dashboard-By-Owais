@@ -90,6 +90,10 @@ export default function FunnelsPage() {
   const [abB, setAbB] = useState({ label: "Version B", headline: "", sub: "", congrats: "", offer: "", bookingHead: "", depositHead: "" });
   const [ab, setAb] = useState<Record<string, AbResult>>({});
   const [abBusy, setAbBusy] = useState(false);
+  const [endTest, setEndTest] = useState<{ slug: string; id: number } | null>(null);
+  const [endChoice, setEndChoice] = useState<"onebox" | "original">("onebox");
+  const [endVerify, setEndVerify] = useState<{ loading?: boolean; applicable?: boolean;
+    redirectGone?: boolean; pageBack?: boolean; adUrl?: string; error?: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,6 +156,20 @@ export default function FunnelsPage() {
       else setToast("Saved ✓");
       await loadAb(slug);
     } finally { setAbBusy(false); }
+  }
+
+  async function verifyRevert(id: number) {
+    setEndVerify({ loading: true });
+    try {
+      const r = await fetch("/api/onebox/ab", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verifyRevert", id }),
+      });
+      const j = await r.json();
+      setEndVerify(j.error ? { error: j.error } : j);
+    } catch {
+      setEndVerify({ error: "network error — try again" });
+    }
   }
 
   async function addFunnel() {
@@ -547,8 +565,16 @@ export default function FunnelsPage() {
                           className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
                           {abBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : "Refresh"}
                         </button>
-                        <button onClick={() => void abAct(f.slug, { action: "status", id: ab[f.slug].experiment!.id,
-                          status: ab[f.slug].experiment!.status === "running" ? "paused" : "running" })}
+                        <button onClick={() => {
+                          const exp = ab[f.slug].experiment!;
+                          if (exp.status === "running") {
+                            setEndTest({ slug: f.slug, id: exp.id });
+                            setEndChoice("onebox");
+                            setEndVerify(null);
+                          } else {
+                            void abAct(f.slug, { action: "status", id: exp.id, status: "running" });
+                          }
+                        }}
                           disabled={abBusy}
                           className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
                           {ab[f.slug].experiment!.status === "running" ? "Pause test" : "Resume"}
@@ -660,6 +686,94 @@ export default function FunnelsPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {endTest && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+          onClick={() => setEndTest(null)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 grid gap-3"
+            onClick={(e) => e.stopPropagation()}>
+            <b className="text-sm text-[#1c2b3a]">Pause this split test — where should traffic go?</b>
+
+            <label className={cn("flex items-start gap-2.5 border rounded-xl p-3 cursor-pointer",
+              endChoice === "onebox" ? "border-[#0e9c9c] bg-[#f0fafa]" : "border-[#e4ebf2]")}>
+              <input type="radio" className="mt-0.5" checked={endChoice === "onebox"}
+                onChange={() => { setEndChoice("onebox"); setEndVerify(null); }} />
+              <span className="text-xs text-[#697a91]">
+                <b className="block text-[#1c2b3a]">Everything to the one-box</b>
+                No GHL changes needed. With the test paused, the splitter sends 100% of visitors
+                (new and returning) to the one-box funnel — the ad link keeps working as is.
+              </span>
+            </label>
+
+            <label className={cn("flex items-start gap-2.5 border rounded-xl p-3 cursor-pointer",
+              endChoice === "original" ? "border-[#0e9c9c] bg-[#f0fafa]" : "border-[#e4ebf2]")}>
+              <input type="radio" className="mt-0.5" checked={endChoice === "original"}
+                onChange={() => { setEndChoice("original"); setEndVerify(null); }} />
+              <span className="text-xs text-[#697a91]">
+                <b className="block text-[#1c2b3a]">Back to the original GHL funnel</b>
+                Do the two GHL steps first — <b>1)</b> delete the URL Redirect on the ad path,
+                then <b>2)</b> rename the page back (remove <code>-ab-ghl</code>).
+                Both are checked live before you can pause.
+              </span>
+            </label>
+
+            {endChoice === "original" && (
+              <div className="border border-[#e4ebf2] rounded-xl p-3 grid gap-1.5 text-xs">
+                {!endVerify && (
+                  <button onClick={() => void verifyRevert(endTest.id)}
+                    className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                    Check GHL now
+                  </button>
+                )}
+                {endVerify?.loading && <span className="text-[#697a91]">Checking the ad link…</span>}
+                {endVerify?.error && <span className="text-[#b91c1c]">{endVerify.error}</span>}
+                {endVerify && !endVerify.loading && !endVerify.error && (
+                  endVerify.applicable === false ? (
+                    <span className="text-[#697a91]">
+                      This test has no original-funnel side (it compares two one-box versions) — nothing to verify in GHL.
+                    </span>
+                  ) : (
+                    <>
+                      <span className={endVerify.redirectGone ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                        {endVerify.redirectGone
+                          ? "✓ Step 1 — URL Redirect deleted"
+                          : "✗ Step 1 — the ad link still lands on the splitter. Delete the redirect in GHL → Sites → URL Redirects, then re-check."}
+                      </span>
+                      <span className={endVerify.pageBack ? "text-[#15803d]" : endVerify.redirectGone ? "text-[#b91c1c]" : "text-[#697a91]"}>
+                        {endVerify.pageBack
+                          ? "✓ Step 2 — the original page is back on the ad path"
+                          : endVerify.redirectGone
+                            ? "✗ Step 2 — the ad link is a dead 404: ad clicks are being wasted right now. Rename the page path back (remove -ab-ghl), then re-check."
+                            : "· Step 2 — checked once step 1 passes"}
+                      </span>
+                      <span className="text-[#697a91] break-all">checked: {endVerify.adUrl}</span>
+                      <button onClick={() => void verifyRevert(endTest.id)}
+                        className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                        Re-check
+                      </button>
+                    </>
+                  )
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setEndTest(null)}
+                className="text-xs border border-[#e4ebf2] rounded-lg px-3 py-1.5 hover:bg-[#f6f9fc]">
+                Cancel
+              </button>
+              <button
+                disabled={abBusy || (endChoice === "original"
+                  && !(endVerify && !endVerify.loading && !endVerify.error
+                    && (endVerify.applicable === false || (endVerify.redirectGone && endVerify.pageBack))))}
+                onClick={() => { void abAct(endTest.slug, { action: "status", id: endTest.id, status: "paused" }); setEndTest(null); }}
+                className="text-xs bg-[#0e9c9c] text-white rounded-lg px-3 py-1.5 hover:bg-[#0b8383] disabled:opacity-40 disabled:cursor-not-allowed">
+                Confirm &amp; pause
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

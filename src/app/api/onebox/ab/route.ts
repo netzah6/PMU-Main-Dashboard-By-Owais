@@ -238,5 +238,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  /* Live check of the two GHL revert steps before pausing a test whose
+     traffic should go back to the original funnel. The ad URL is derived
+     from the external variant's target by stripping the split-test suffix:
+     still redirecting to us = redirect not deleted; a 404 = redirect gone
+     but the page wasn't renamed back (ad clicks are dying). */
+  if (action === "verifyRevert") {
+    const { data: vars } = await svc.from("onebox_variants").select("kind, target").eq("experiment_id", id);
+    const ext = (vars ?? []).find((v) => v.kind === "external" && v.target);
+    if (!ext?.target) return NextResponse.json({ applicable: false });
+    let adUrl: string;
+    try {
+      const u = new URL(String(ext.target));
+      u.pathname = u.pathname.replace(/(-ab-ghl|-old)\/?$/, "");
+      u.search = "";
+      adUrl = u.toString();
+    } catch {
+      return NextResponse.json({ error: "external variant URL is invalid" }, { status: 500 });
+    }
+    try {
+      const r = await fetch(adUrl, { redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(12000) });
+      const toUs = /book\.pmu-care\.com|\/s\/|\/f\//.test(r.url);
+      const redirectGone = !toUs;
+      const pageBack = redirectGone && r.ok;
+      return NextResponse.json({ applicable: true, adUrl, finalUrl: r.url, httpStatus: r.status, redirectGone, pageBack });
+    } catch {
+      return NextResponse.json({ error: "could not reach the ad URL — try again" }, { status: 502 });
+    }
+  }
+
   return NextResponse.json({ error: "unknown action" }, { status: 400 });
 }
