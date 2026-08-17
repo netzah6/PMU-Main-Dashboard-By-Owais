@@ -114,7 +114,9 @@
     "#onebox-root .rail{margin:14px 16px 0;height:24px;border-radius:999px;background:#e9edef;overflow:hidden}" +
     "#onebox-root .rail span{display:grid;place-items:center;height:100%;border-radius:999px;background:repeating-linear-gradient(135deg,var(--teal) 0 11px,var(--teal-deep) 11px 22px);color:#fff;font-size:11px;font-weight:600;white-space:nowrap;transition:width .45s cubic-bezier(.4,0,.2,1);min-width:44px;animation:ob-railmove 1.1s linear infinite}" +
     "@keyframes ob-railmove{to{background-position:31.11px 0}}" +
-    "@media(min-width:768px){#onebox-root .wrap{padding-top:34px}#onebox-root .biglogo{max-height:86px;margin-bottom:22px}#onebox-root h1.page{margin-top:16px}#onebox-root .sub{margin-top:10px}#onebox-root .trust{margin-bottom:18px}#onebox-root .box{margin-top:32px}}" +
+    "@media(min-width:768px){#onebox-root .wrap{padding-top:34px}#onebox-root .biglogo{max-height:86px;margin-bottom:22px}#onebox-root h1.page{margin-top:16px}#onebox-root .sub{margin-top:10px}#onebox-root .trust{margin-bottom:18px}#onebox-root .box{margin-top:32px}" +
+    /* desktop: the 3 studio portraits share one cropped row - no tall gaps */
+    "#onebox-root .studio{grid-template-columns:repeat(3,1fr)}#onebox-root .studio img{aspect-ratio:3/4;object-fit:cover}}" +
     "#onebox-root .slide{padding:22px 26px 26px;min-height:210px}" +
     "#onebox-root .slide.anim-next{animation:ob-in-next .3s ease both}" +
     "#onebox-root .slide.anim-prev{animation:ob-in-prev .3s ease both}" +
@@ -191,7 +193,7 @@
     "#onebox-root .obslots{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;max-height:176px;overflow-y:auto;padding-bottom:6px}" +
     "#onebox-root .obfade{position:absolute;left:0;right:0;bottom:0;height:38px;background:linear-gradient(180deg,rgba(255,255,255,0),#fff 88%);pointer-events:none;opacity:0;transition:opacity .2s}" +
     "#onebox-root .obslotwrap.can .obfade{opacity:1}" +
-    "#onebox-root .obmore{margin:4px 0 0;text-align:center;font-size:12.5px;font-weight:600;color:var(--teal-deep);font-family:var(--form)}" +
+    "#onebox-root .obmore{margin:4px 0 0;text-align:center;font-size:14.5px;font-weight:600;color:var(--teal-deep);font-family:var(--form)}" +
     "#onebox-root .obslots button{padding:12px 4px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit;font-size:13.5px;color:var(--ink);font-weight:600;cursor:pointer;font-variant-numeric:tabular-nums;transition:border-color .15s,background .15s,box-shadow .15s;box-shadow:0 3px 8px -6px rgba(17,19,21,.18)}" +
     "#onebox-root .obslots button:hover:not(:disabled){border-color:var(--teal);background:#f2fbfb}" +
     "#onebox-root .obslots button.sel,#onebox-root .obslots button.sel:hover{background:linear-gradient(100deg,#3ed2cb,var(--teal) 55%,var(--teal-deep));color:#fff;border-color:transparent;box-shadow:0 8px 18px -8px rgba(23,195,195,.65)}" +
@@ -237,6 +239,12 @@
     "#onebox-root .studio{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;max-width:640px;margin:10px auto 0}" +
     "#onebox-root .results.solo{max-width:640px;margin:0 auto;border-radius:12px;overflow:hidden}" +
     "#onebox-root .igwrap{margin-top:14px}" +
+    /* Elfsight IG header: put the Follow button beside the stats row
+       (their CSS stacks the header as a column) to save a scroll. */
+    "#onebox-root .eapps-instagram-feed-header-inner{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center;justify-content:center;column-gap:12px;row-gap:6px}" +
+    "#onebox-root .eapps-instagram-feed-header-inner > :first-child{flex-basis:100%}" +
+    "#onebox-root .eapps-instagram-feed-header-stats{margin:0!important;flex:0 1 auto;min-width:0}" +
+    "#onebox-root .eapps-instagram-feed-header-follow-button-wrapper{margin:0!important;flex:0 0 auto}" +
     "#onebox-root .studio img{width:100%;display:block;border-radius:10px}" +
     "#onebox-root .vidbox{position:relative;cursor:pointer;margin:0 2px 14px;border-radius:10px;overflow:hidden;background:#000}" +
     "#onebox-root .vidbox img{width:100%;display:block;opacity:.92}" +
