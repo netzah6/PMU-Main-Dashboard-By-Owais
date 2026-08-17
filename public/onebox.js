@@ -36,8 +36,20 @@
   var LOGO = (C.logo || "").trim();
   var IGLINK = (C.igLink || "").trim();
   var CAL = (C.calendarId || "").trim();
-  var RESULTS = (C.resultImgs || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
-  var STUDIO = (C.studioImgs || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  function imgList() {
+    var seen = {}, out = [];
+    for (var i = 0; i < arguments.length; i++) {
+      (arguments[i] || "").split(",").forEach(function (s) {
+        s = s.trim();
+        if (s && !seen[s]) { seen[s] = 1; out.push(s); }
+      });
+    }
+    return out;
+  }
+  /* Template CV slots first (Eyebrows/Lip blush/Eyeliner B&A 1-3, Picture
+     of Studio 1-3, aggregated server-side), then dashboard extras, deduped. */
+  var RESULTS = imgList(C.resultCvImgs, C.resultImgs);
+  var STUDIO = imgList(C.studioCvImgs, C.studioImgs);
 
   /* Meta pixel: the client's own pixel id (harvested from their existing
      funnel or set via the "OB - Meta Pixel ID" custom value). Fires
@@ -222,7 +234,9 @@
     "#onebox-root .faqs summary::after{content:'+';font-size:18px;color:var(--muted);flex:none}" +
     "#onebox-root .faqs details[open] summary::after{content:'\\2212'}" +
     "#onebox-root .faqs .fa{margin:0;padding:0 2px 15px;font-family:var(--content);font-size:13.5px;line-height:1.6;color:var(--ink-soft)}" +
-    "#onebox-root .studio{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;max-width:640px;margin:0 auto 10px}" +
+    "#onebox-root .studio{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;max-width:640px;margin:10px auto 0}" +
+    "#onebox-root .results.solo{max-width:640px;margin:0 auto;border-radius:12px;overflow:hidden}" +
+    "#onebox-root .igwrap{margin-top:14px}" +
     "#onebox-root .studio img{width:100%;display:block;border-radius:10px}" +
     "#onebox-root .vidbox{position:relative;cursor:pointer;margin:0 2px 14px;border-radius:10px;overflow:hidden;background:#000}" +
     "#onebox-root .vidbox img{width:100%;display:block;opacity:.92}" +
@@ -849,7 +863,6 @@
   function renderExtras() {
     var el = document.getElementById("ob-extras");
     if (phase === "survey") { el.innerHTML = ""; return; }
-    var handle = IGLINK.replace(/\/+$/, "").split("/").pop() || "instagram";
     var IG = C.igWidget || C.elfsightId || "";
     var GOOG = C.googleWidget || "";
     function loadElfsight() {
@@ -860,34 +873,35 @@
       }
     }
     var htmlStr = "";
-    if (IG) {
-      htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>' +
-        '<div class="elfsight-app-' + esc(IG) + '" data-elfsight-app-lazy></div></div>';
-      loadElfsight();
-    } else if (RESULTS.length) {
-      htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2><div class="igcard">' +
-        '<div class="ighead"><span class="avatar"><img src="' + esc(LOGO) + '" alt=""></span>' +
-        '<span class="who"><b>' + esc(handle) + "</b><span>" + esc(BIZ) + "</span></span>" +
-        (IGLINK ? '<a href="' + esc(IGLINK) + '" target="_blank" rel="noopener">Follow</a>' : "") + "</div>" +
-        '<div class="results">' + RESULTS.map(function (u) {
+    /* Template order: the client's own before/after photos (the 9 CV
+       slots) first, the live Instagram widget right under them. */
+    if (RESULTS.length || IG) {
+      htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>';
+      if (RESULTS.length) {
+        htmlStr += '<div class="results solo">' + RESULTS.map(function (u) {
           return '<img src="' + esc(u) + '" alt="Client result" loading="lazy">';
-        }).join("") + "</div></div></div>";
+        }).join("") + "</div>";
+      }
+      if (IG) {
+        htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") +
+          '<div class="elfsight-app-' + esc(IG) + '" data-elfsight-app-lazy></div>' +
+          (RESULTS.length ? "</div>" : "");
+        loadElfsight();
+      }
+      htmlStr += "</div>";
     }
     if (GOOG) {
       htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say &#11088;</h2>' +
         '<div class="elfsight-app-' + esc(GOOG) + '" data-elfsight-app-lazy></div></div>';
       loadElfsight();
     }
-    /* Location (studio photos + map) and the FAQ videos wait for the
-       booking step — the survey shows social proof only. */
-    if (phase !== "survey") {
-      htmlStr += '<div class="xsec"><h2 class="xhead">&#128205;We are located at ' + esc(ADDR) + "</h2>" +
-        (STUDIO.length ? '<div class="studio">' + STUDIO.map(function (u) {
-          return '<img src="' + esc(u) + '" alt="Our studio" loading="lazy">';
-        }).join("") + "</div>" : "") +
-        '<div class="mapcard"><iframe loading="lazy" src="https://www.google.com/maps?q=' +
-        encodeURIComponent(ADDR) + '&output=embed"></iframe></div></div>';
-    }
+    /* Location: map first, the studio photos below it — template order. */
+    htmlStr += '<div class="xsec"><h2 class="xhead">&#128205;We are located at ' + esc(ADDR) + "</h2>" +
+      '<div class="mapcard"><iframe loading="lazy" src="https://www.google.com/maps?q=' +
+      encodeURIComponent(ADDR) + '&output=embed"></iframe></div>' +
+      (STUDIO.length ? '<div class="studio">' + STUDIO.map(function (u) {
+        return '<img src="' + esc(u) + '" alt="Our studio" loading="lazy">';
+      }).join("") + "</div>" : "") + "</div>";
     if (phase === "booking" && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
       htmlStr += '<div class="xsec"><h2 class="xhead">FAQs &#128071;</h2><div class="faqs">' +
         window.OB_FAQS.map(function (f) {

@@ -49,6 +49,23 @@ export function buildConfig(byName: Record<string, string>): Record<string, stri
   const config: Record<string, string> = {};
   for (const [key, ...names] of pickers) config[key] = pick(...names);
   if (!config.deposit) config.deposit = "$50";
+  /* The template's per-service photo slots — the exact custom values the
+     original GHL funnels render (9 before/after + 3 studio). Aggregated
+     into one list each, template order: eyebrows, lip blush, eyeliner. */
+  const ba: string[] = [];
+  for (const base of ["CC - Eyebrows Before & After", "CC - Lip blush Before & After", "CC - Eyeliner Before & After"]) {
+    for (const n of [1, 2, 3]) {
+      const v = byName[`${base} ${n}`]?.trim();
+      if (v) ba.push(v);
+    }
+  }
+  if (ba.length) config.resultCvImgs = ba.join(",");
+  const studio: string[] = [];
+  for (const n of [1, 2, 3]) {
+    const v = byName[`CC - Picture of Studio ${n}`]?.trim();
+    if (v) studio.push(v);
+  }
+  if (studio.length) config.studioCvImgs = studio.join(",");
   return config;
 }
 
@@ -104,6 +121,18 @@ export const ONEBOX_NEW_CVS = [
   "CC - Thank You Page Path",
   "CC - Result Images",
   "CC - Studio Images",
+  "CC - Eyebrows Before & After 1",
+  "CC - Eyebrows Before & After 2",
+  "CC - Eyebrows Before & After 3",
+  "CC - Lip blush Before & After 1",
+  "CC - Lip blush Before & After 2",
+  "CC - Lip blush Before & After 3",
+  "CC - Eyeliner Before & After 1",
+  "CC - Eyeliner Before & After 2",
+  "CC - Eyeliner Before & After 3",
+  "CC - Picture of Studio 1",
+  "CC - Picture of Studio 2",
+  "CC - Picture of Studio 3",
 ];
 
 export async function ensureOneboxCustomValues(locationId: string): Promise<{ created: string[]; error?: string }> {
