@@ -58,6 +58,42 @@ client_payments — what each client pays us (from the Financing sheet).
 client_activity — team log: client_key, action_date, note, created_by_email.
 v3_pricing / client_offers — per-client offer & pricing data.
 
+PAY-PER-APPOINTMENT ("PPA" / "PPS" / "pay per show" / auto bookings) — some V3
+clients pay per completed appointment instead of a retainer: we keep the $50
+deposit their customer pays, plus a per-show fee (usually $30–$45) charged to
+the client's card on Square.
+
+  ppa_config — the PPA roster: owner_key, is_ppa, fee_per_appt (FALLBACK only —
+    the real fee lives in the financing sheet's notes), auto_charge (bool:
+    enrolled in the Monday 10am Pacific auto-charge).
+  ppa_charges — ★ THE CHARGE LEDGER. One row PER APPOINTMENT: appt_id,
+    owner_key, charged (bool), amount, charged_at, charged_by,
+    square_payment_id (dispute tracing), note; excluded + exclude_reason +
+    excluded_by when an appointment was ruled not billable (voided, duplicate,
+    no-show...). "What/why was {client} charged" = rows with charged=true;
+    "what's pending" = charged=false and not excluded.
+  ppa_deposit_appointment — the appointment behind each charge for
+    deposit-derived ids: appt_id, start_time, appt_status, title — and title
+    usually carries the END-CUSTOMER's name and/or the service
+    ("Powder Brows ... for Nadine Hollingsworth"). ★ JOIN RULE: appt_ids
+    starting with 'd_' join HERE; other ids join ghl_appointments.id (then
+    contact_id → ghl_contacts for the customer). Try this table first — most
+    PPA charges use d_ ids. This answers "WHO did we charge her for".
+  ppa_autocharge_log — ONLY the automated runs (Monday auto-charge + daily
+    retry cron): run_at, owner_key, status, amount, shows, square_payment_id,
+    detail. Append-only and LIVE ONLY SINCE mid-Aug 2026 — it is NOT the full
+    history and was never "cleared". Manual charges by the team NEVER appear
+    here. For any charge-history question use ppa_charges, not this log.
+  ppa_charge_retries — declined-card retry queue (+1d/+3d/+3d): owner_key,
+    status, attempts, next_attempt_at, last_error.
+  ppa_card_prefs — which Square card an admin pinned for a client.
+
+  For "what were {client}'s PPA charges and why": ppa_charges (charged=true)
+  joined to ppa_deposit_appointment on appt_id, grouped by charged_at —
+  report date, amount, the appointment titles (customer names) + appointment
+  dates covered, and who ran it (charged_by). Mention exclusions with their
+  reasons, and anything sitting in ppa_charge_retries.
+
 JOIN KEY: owner_key = lower(trim(data->>'Owner Full Name')). Match loosely:
   lower(cm.data->>'Owner Full Name') LIKE '%' || gc.owner_key || '%' is NOT
   needed — owner_key is exactly the lowercased owner name in ghl_* tables.
