@@ -342,16 +342,19 @@ export default function FunnelsPage() {
                   {busy === `health:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />} Health check
                 </button>
                 <button onClick={() => { setExtrasFor(extrasFor === f.slug ? null : f.slug); setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); }}
-                  className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
-                  Extras
+                  className={cn("text-xs border rounded-lg px-2.5 py-1",
+                    extrasFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
+                  Extras {extrasFor === f.slug ? "▲" : ""}
                 </button>
                 <button onClick={() => { const open = cvFor === f.slug; setCvFor(open ? null : f.slug); if (!open) setCvForm({ ...f.cv }); }}
-                  className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
-                  Values
+                  className={cn("text-xs border rounded-lg px-2.5 py-1",
+                    cvFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
+                  Values {cvFor === f.slug ? "▲" : ""}
                 </button>
                 <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) void loadAb(f.slug); }}
-                  className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
-                  Split test
+                  className={cn("text-xs border rounded-lg px-2.5 py-1",
+                    abFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
+                  Split test {abFor === f.slug ? "▲" : ""}
                 </button>
                 <button onClick={() => void act("status", f.slug, { status: f.status === "live" ? "paused" : "live" })}
                   disabled={busy === `status:${f.slug}`}

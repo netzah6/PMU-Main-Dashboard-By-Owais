@@ -1006,10 +1006,15 @@
   window.scrollTo(0, 0);
   window.addEventListener("load", function () { if (!interacted) window.scrollTo(0, 0); });
 
+  /* Team preview: ?preview=thankyou jumps straight to the post-payment
+     celebration with sample data (&name= to personalize) — no lead is
+     created and no visit is counted. */
+  var PREVIEW = new URLSearchParams(location.search).get("preview") || "";
+
   /* Visit beacon: one report per visitor per day (the page itself is
      CDN-cached, so the server can't count views). localStorage id keeps
      refreshes from double counting; the server dedupes per day too. */
-  try {
+  if (!PREVIEW) try {
     var vid = localStorage.getItem("ob_vid");
     if (!vid) {
       vid = (crypto.randomUUID ? crypto.randomUUID() : "v-" + Date.now() + "-" + Math.floor(Math.random() * 1e9));
@@ -1033,5 +1038,13 @@
     }
   } catch (e) {}
 
-  show("survey");
+  if (PREVIEW === "thankyou") {
+    state.answers.full_name = new URLSearchParams(location.search).get("name") || "Gorgeous";
+    var pvd = new Date(Date.now() + 2 * 86400000);
+    var pad2 = function (n) { return (n < 10 ? "0" : "") + n; };
+    state.slotIso = pvd.getFullYear() + "-" + pad2(pvd.getMonth() + 1) + "-" + pad2(pvd.getDate()) + "T14:00:00";
+    show("done");
+  } else {
+    show("survey");
+  }
 })();
