@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -247,8 +247,18 @@ export default function FunnelsPage() {
         <div className="p-10 text-center text-[#697a91] text-sm">No funnels yet — add the first client.</div>
       ) : (
         <div className="space-y-3">
-          {funnels.map((f) => (
-            <div key={f.slug} className="border border-[#e4ebf2] rounded-xl bg-white p-4">
+          {[...funnels]
+            .sort((a, b) => Number(b.status === "live") - Number(a.status === "live"))
+            .map((f, i, arr) => (
+            <Fragment key={f.slug}>
+            {i > 0 && arr[i - 1].status === "live" && f.status !== "live" && (
+              <div className="flex items-center gap-3 pt-3">
+                <div className="h-px flex-1 bg-[#e4ebf2]" />
+                <span className="text-[11px] font-semibold tracking-wide text-[#c2410c]">PAUSED</span>
+                <div className="h-px flex-1 bg-[#e4ebf2]" />
+              </div>
+            )}
+            <div className="border border-[#e4ebf2] rounded-xl bg-white p-4">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -685,6 +695,7 @@ export default function FunnelsPage() {
                 </div>
               )}
             </div>
+            </Fragment>
           ))}
         </div>
       )}
