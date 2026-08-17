@@ -19,6 +19,7 @@
  *   fanbasisSelector  CSS selector of the (hidden) Fanbasis wrapper element on
  *               the page; the deposit step reveals it inside the box.
  *   resultImgs  comma-separated image URLs for "See Real Client Results"
+ *   studioImgs  comma-separated studio photo URLs (shown with the map)
  *   elfsightId  optional Elfsight app id for the real IG/reviews widget
  */
 (function () {
@@ -36,6 +37,7 @@
   var IGLINK = (C.igLink || "").trim();
   var CAL = (C.calendarId || "").trim();
   var RESULTS = (C.resultImgs || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  var STUDIO = (C.studioImgs || "").split(",").map(function (s) { return s.trim(); }).filter(Boolean);
 
   /* Meta pixel: the client's own pixel id (harvested from their existing
      funnel or set via the "OB - Meta Pixel ID" custom value). Fires
@@ -220,6 +222,12 @@
     "#onebox-root .faqs summary::after{content:'+';font-size:18px;color:var(--muted);flex:none}" +
     "#onebox-root .faqs details[open] summary::after{content:'\\2212'}" +
     "#onebox-root .faqs .fa{margin:0;padding:0 2px 15px;font-family:var(--content);font-size:13.5px;line-height:1.6;color:var(--ink-soft)}" +
+    "#onebox-root .studio{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;max-width:640px;margin:0 auto 10px}" +
+    "#onebox-root .studio img{width:100%;display:block;border-radius:10px}" +
+    "#onebox-root .vidbox{position:relative;cursor:pointer;margin:0 2px 14px;border-radius:10px;overflow:hidden;background:#000}" +
+    "#onebox-root .vidbox img{width:100%;display:block;opacity:.92}" +
+    "#onebox-root .vplay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:54px;height:54px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;padding-left:4px}" +
+    "#onebox-root .vidplayer{width:100%;display:block;border-radius:10px;margin:0 2px 14px}" +
     "#onebox-root .contactblock{text-align:center;padding:30px 20px 34px;border-top:1px solid var(--line)}" +
     "#onebox-root .contactblock img{max-height:70px;width:auto;margin:0 auto 12px;display:block}" +
     "#onebox-root .contactblock p{margin:2px 0;font-family:var(--headline);font-weight:700;font-size:16px;color:#000}" +
@@ -328,6 +336,18 @@
   var railEl = document.getElementById("ob-rail");
   var slideEl = document.getElementById("ob-slide");
   var boxEl = root.querySelector(".box");
+  /* FAQ videos are click-to-play: a poster + play button until tapped, so
+     six mp4s never weigh down the page load. */
+  document.getElementById("ob-extras").addEventListener("click", function (e) {
+    var t = e.target;
+    while (t && t !== document && !(t.className && String(t.className).indexOf("vidbox") > -1)) t = t.parentNode;
+    if (!t || t === document) return;
+    var v = document.createElement("video");
+    v.className = "vidplayer";
+    v.controls = true; v.autoplay = true; v.playsInline = true; v.preload = "metadata";
+    v.src = t.getAttribute("data-v");
+    t.parentNode.replaceChild(v, t);
+  });
   var firstShow = true;
   var interacted = false;
   root.addEventListener("pointerdown", function () { interacted = true; }, { passive: true });
@@ -821,11 +841,13 @@
     }
   }
 
-  /* stage-dependent sections: survey none; booking results+map+FAQs;
-     deposit results+map. FAQs come from OB_FAQS (per-funnel, optional). */
+  /* below-the-box sections, mirroring the original template funnel:
+     results, reviews, studio+map on every step (the one-box is the whole
+     funnel on one page, so the proof lives below the box from the first
+     visit); FAQs with their educational videos everywhere but the deposit
+     step, which stays short so nothing competes with the checkout. */
   function renderExtras() {
     var el = document.getElementById("ob-extras");
-    if (phase === "survey") { el.innerHTML = ""; return; }
     var handle = IGLINK.replace(/\/+$/, "").split("/").pop() || "instagram";
     var IG = C.igWidget || C.elfsightId || "";
     var GOOG = C.googleWidget || "";
@@ -856,12 +878,19 @@
       loadElfsight();
     }
     htmlStr += '<div class="xsec"><h2 class="xhead">&#128205;We are located at ' + esc(ADDR) + "</h2>" +
+      (STUDIO.length ? '<div class="studio">' + STUDIO.map(function (u) {
+        return '<img src="' + esc(u) + '" alt="Our studio" loading="lazy">';
+      }).join("") + "</div>" : "") +
       '<div class="mapcard"><iframe loading="lazy" src="https://www.google.com/maps?q=' +
       encodeURIComponent(ADDR) + '&output=embed"></iframe></div></div>';
-    if (phase === "booking" && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
+    if (phase !== "deposit" && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
       htmlStr += '<div class="xsec"><h2 class="xhead">FAQs &#128071;</h2><div class="faqs">' +
         window.OB_FAQS.map(function (f) {
-          return "<details><summary>" + esc(f.q) + '</summary><p class="fa">' + esc(f.a) + "</p></details>";
+          return "<details><summary>" + esc(f.q) + '</summary><p class="fa">' + esc(f.a) + "</p>" +
+            (f.v ? '<div class="vidbox" data-v="' + esc(f.v) + '">' +
+              (f.p ? '<img src="' + esc(f.p) + '" alt="" loading="lazy">' : "") +
+              '<span class="vplay">&#9654;</span></div>' : "") +
+            "</details>";
         }).join("") + "</div></div>";
     }
     el.innerHTML = htmlStr;
