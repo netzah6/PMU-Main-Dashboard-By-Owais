@@ -246,8 +246,20 @@
     "#onebox-root .eapps-instagram-feed-header-inner > :first-child{flex-basis:100%}" +
     "#onebox-root .eapps-instagram-feed-header-stats{margin:0!important;flex:0 1 auto;min-width:0}" +
     "#onebox-root .eapps-instagram-feed-header-follow-button-wrapper{margin:0!important;flex:0 0 auto}" +
-    "#onebox-root .doneburst{font-size:46px;text-align:center;margin:2px 0 4px;line-height:1}" +
+    "#onebox-root .doneburst{font-size:54px;text-align:center;margin:2px 0 4px;line-height:1;animation:obpop .45s cubic-bezier(.2,1.6,.4,1) both}" +
+    "@keyframes obpop{0%{transform:scale(.3);opacity:0}100%{transform:scale(1);opacity:1}}" +
+    "#onebox-root .donehead{font-size:clamp(22px,4vw,27px);color:var(--teal-deep)}" +
+    "#onebox-root .donesub{text-align:center;font-family:var(--form);font-size:14.5px;color:var(--ink-soft);margin:6px 0 14px}" +
+    "#onebox-root .donecard{border-color:var(--teal);background:#f0fbfa;box-shadow:0 10px 24px -14px rgba(18,181,176,.55)}" +
+    "#onebox-root .donecard h3{color:var(--teal-deep)}" +
+    "#onebox-root .donecard .confwhen{font-size:18px}" +
+    "#onebox-root .donefollow{display:block;text-align:center;margin:16px auto 0;max-width:340px;padding:12px 18px;border-radius:12px;color:#fff;font-family:var(--form);font-weight:700;font-size:14.5px;text-decoration:none;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);box-shadow:0 8px 18px -10px rgba(204,35,102,.6)}" +
     "#onebox-root .donenote{text-align:center;font-family:var(--form);font-size:13.5px;color:var(--ink-soft);margin:14px 0 0}" +
+    "#onebox-root .confetti{position:absolute;left:0;right:0;top:0;height:0;pointer-events:none}" +
+    "#onebox-root .confetti i{position:absolute;top:-14px;width:8px;height:14px;border-radius:2px;opacity:0;animation-name:obfall;animation-timing-function:linear;animation-fill-mode:forwards}" +
+    "@keyframes obfall{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(72vh) rotate(560deg);opacity:0}}" +
+    "@media(prefers-reduced-motion:reduce){#onebox-root .confetti{display:none}#onebox-root .doneburst{animation:none}}" +
+    "#onebox-root .slide{position:relative}" +
     "#onebox-root .studio img{width:100%;display:block;border-radius:10px}" +
     "#onebox-root .vidbox{position:relative;cursor:pointer;margin:0 2px 14px;border-radius:10px;overflow:hidden;background:#000}" +
     "#onebox-root .vidbox img{width:100%;display:block;opacity:.92}" +
@@ -369,6 +381,7 @@
      own popup-open handler still runs, so posts keep opening in the
      lightbox. Bound on document so the portaled popup is covered too. */
   document.addEventListener("click", function (e) {
+    if (phase === "done") return; // paid — following on Instagram is welcome now
     var a = e.target && e.target.closest
       ? e.target.closest('a[class*="eapps-"][href*="instagram.com"], [class*="eapps-"] a[href*="instagram.com"], [class*="es-popup"] a[href*="instagram.com"]')
       : null;
@@ -752,18 +765,32 @@
 
   /* In-funnel thank-you step, shown after the deposit clears when the
      funnel has no external thank-you page configured. */
+  function confettiHtml() {
+    var colors = ["#12b5b0", "#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#f4a261"];
+    var out = "";
+    for (var i = 0; i < 22; i++) {
+      out += '<i style="left:' + (2 + i * 4.4) + "%;background:" + colors[i % 6] +
+        ";animation-delay:" + ((i % 7) * 0.22).toFixed(2) + "s;animation-duration:" +
+        (2.4 + (i % 5) * 0.45).toFixed(2) + 's"></i>';
+    }
+    return '<div class="confetti" aria-hidden="true">' + out + "</div>";
+  }
   function slideDone() {
     var first = (state.answers.full_name || "").split(/\s+/)[0] || "";
-    return '<div class="doneburst">&#127881;</div>' +
-      '<h2 class="phead">' + (first ? esc(first) + ", you" : "You") + "&rsquo;re all set!</h2>" +
-      '<div class="confcard">' +
-        "<h3>Your appointment is confirmed</h3>" +
+    return confettiHtml() +
+      '<div class="doneburst">&#127881;</div>' +
+      '<h2 class="phead donehead">' + (first ? esc(first) + ", you" : "You") + "&rsquo;re booked!</h2>" +
+      '<p class="donesub">Get excited &mdash; your transformation is officially on the calendar.</p>' +
+      '<div class="confcard donecard">' +
+        "<h3>&#10004; Your appointment is confirmed</h3>" +
         (state.slotIso ? '<p class="confwhen">' + esc(fmtWhen(state.slotIso)) + "</p>" +
           '<p class="confrel">' + esc(relDay(state.slotIso)) + "</p>" : "") +
-        (ADDR ? '<p class="confaddr">' + esc(ADDR) + "</p>" : "") +
+        (ADDR ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
         "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service at your visit.</p>" +
       "</div>" +
-      '<p class="donenote">We&rsquo;ll be in touch shortly to prepare everything for your visit.</p>';
+      (IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
+        "&#128248; Follow us on Instagram for daily results</a>" : "") +
+      '<p class="donenote">We&rsquo;ll be in touch shortly to prepare everything for your visit. Keep an eye on your phone! &#128241;</p>';
   }
 
   /* One continuous hold countdown: starts on the confirmation screen and
