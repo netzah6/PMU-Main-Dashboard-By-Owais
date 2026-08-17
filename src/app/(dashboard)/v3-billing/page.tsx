@@ -163,7 +163,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
         {readyCount > 0 && (
           <button onClick={chargeAllReady}
             className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#e6f7f5] hover:bg-[#d6f0ed] text-[#0e8f88] border border-[#a7e3df]">
-            <Check size={11} /> Charge all as showed ({money(readyCount * client.fee)})
+            <Check size={11} /> Mark all charged manually ({money(readyCount * client.fee)})
           </button>
         )}
       </div>
@@ -219,12 +219,13 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                       ) : (
                         <div className="flex items-center gap-1.5">
                           <button onClick={() => toggleCharge(a, !a.charged)} disabled={b}
+                            title="Record this show as already collected — e.g. you charged her directly in Square. Marks the fee charged WITHOUT creating a new Square payment (the Charge button on the row is what moves money)."
                             className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors",
                               a.charged ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]"
                                 : ready ? "bg-white text-[#0e8f88] border-[#a7e3df] hover:bg-[#e6f7f5]"
                                 : "bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]")}>
                             {b ? <Loader2 size={11} className="animate-spin" /> : a.charged ? <Check size={11} /> : <DollarSign size={11} />}
-                            {a.charged ? `Charged ${a.chargedAmount != null ? money(a.chargedAmount) : ""}` : "Showed"}
+                            {a.charged ? `Charged ${a.chargedAmount != null ? money(a.chargedAmount) : ""}` : "Charged manually"}
                           </button>
                           {!a.charged && (
                             <div className="relative">
