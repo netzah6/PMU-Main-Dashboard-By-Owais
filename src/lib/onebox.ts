@@ -29,7 +29,9 @@ const pickers: [key: string, ...names: string[]][] = [
   ["igWidget", "CC - IG Widget LINK", "OB - IG Widget", "OB - Elfsight ID"],
   // Google reviews widget.
   ["googleWidget", "CC - Google Widget LINK", "OB - Google Widget"],
-  ["resultImgs", "OB - Result Images"],
+  ["resultImgs", "CC - Result Images", "OB - Result Images"],
+  // Studio photos shown with the location section (comma-separated URLs).
+  ["studioImgs", "CC - Studio Images", "OB - Studio Images"],
   // Fanbasis checkout — the simple way: just the product ID.
   ["fanbasisProductId", "CC - Fanbasis Product ID", "OB - Fanbasis Product ID"],
   ["thankYouPath", "CC - Thank You Page Path", "OB - Thank You Path"],
@@ -100,6 +102,8 @@ export const ONEBOX_NEW_CVS = [
   "CC - Google Widget LINK",
   "CC - Fanbasis Product ID",
   "CC - Thank You Page Path",
+  "CC - Result Images",
+  "CC - Studio Images",
 ];
 
 export async function ensureOneboxCustomValues(locationId: string): Promise<{ created: string[]; error?: string }> {
@@ -144,6 +148,8 @@ export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
   thankYouPath: "CC - Thank You Page Path",
   igWidget: "CC - IG Widget LINK",
   googleWidget: "CC - Google Widget LINK",
+  resultImgs: "CC - Result Images",
+  studioImgs: "CC - Studio Images",
 };
 
 // Write custom values straight to the sub-account — update when the

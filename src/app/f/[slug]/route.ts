@@ -26,6 +26,44 @@ type Row = {
   };
 };
 
+/* The agency template's six FAQs, each with its educational video from the
+   shared media library (same mp4s the original GHL funnels play). Used when
+   a funnel has no custom "OB - FAQs" value; `v` = video, `p` = poster. */
+const VID = "https://assets.cdn.filesafe.space/SfpNMJ5YU9lBkxss47lK/media/";
+const POSTER = "https://assets.cdn.filesafe.space/asaIf2fxizaCNJ71iywk/media/";
+const DEFAULT_FAQS = [
+  {
+    q: "What is permanent makeup❓",
+    a: "Permanent makeup is a beauty treatment that gently enhances your natural features — like your brows, eyeliner, or lips — so you can wake up looking polished every day without the hassle of applying makeup.",
+    v: `${VID}68c0184afbf3b661efb41406.mp4`, p: `${POSTER}68c1db88c6b38068da8f9581.png`,
+  },
+  {
+    q: "Is permanent makeup the same as tattooing❓",
+    a: "No. Permanent makeup is a much softer and more natural technique. Unlike traditional tattoos, the colors are designed to fade gradually over time, keeping the look fresh and allowing adjustments as your style changes.",
+    v: `${VID}68c0184ae123d76c6b6c6673.mp4`, p: `${POSTER}68c1db884ab6400a06e50aec.png`,
+  },
+  {
+    q: "Is it painless, or does it cause discomfort❓",
+    a: "Clients are pleasantly surprised at how comfortable the process is. A numbing cream is used to make the treatment as easy and relaxing as possible. Many say it feels more like light scratching than anything else.",
+    v: `${VID}68c0184af6b49a816f679b73.mp4`, p: `${POSTER}68c1db8848a4feab1bfea334.png`,
+  },
+  {
+    q: "How long does the procedure take to complete❓",
+    a: "The session usually takes 1.5–3 hours, which includes consultation, shaping, color selection, and the procedure itself. It's an unhurried, detailed process to make sure you leave with results you'll love.",
+    v: `${VID}68c016527f917b8ce68b5fca.mp4`, p: `${POSTER}68c1db8848a4fe6f9cfea333.png`,
+  },
+  {
+    q: "Is permanent makeup a safe procedure❓",
+    a: "Yes. When done by a trained professional, permanent makeup is a safe and hygienic procedure. Certified artists use high-quality products and follow strict safety standards, so you can feel completely at ease.",
+    v: `${VID}68c0165be123d775576bd606.mp4`, p: `${POSTER}68c1db8844a66348a21b9888.png`,
+  },
+  {
+    q: "Is any care required after the procedure❓",
+    a: "Yes, but it's simple! We'll guide you step by step. Typically, you'll just need to keep the area clean, avoid touching it too much, and let it heal naturally. Following these easy instructions helps ensure your results stay beautiful and long-lasting.",
+    v: `${VID}68c0165b32f3397225cd7e22.mp4`, p: `${POSTER}68c1db886880bf89fcdb88ea.png`,
+  },
+];
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { slug: string } }
@@ -95,6 +133,7 @@ export async function GET(
     igWidget: normalizeElfsight(row.config.igWidget || row.config.elfsightId || row.extras.elfsightId || ""),
     googleWidget: normalizeElfsight(row.config.googleWidget || ""),
     resultImgs: row.config.resultImgs || row.extras.resultImgs || "",
+    studioImgs: row.config.studioImgs || "",
     metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),
   };
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
@@ -119,7 +158,8 @@ export async function GET(
       );
     }
   }
-  const faqs = row.config.faqsRaw ? parseFaqs(row.config.faqsRaw) : row.extras.faqs ?? [];
+  const customFaqs = row.config.faqsRaw ? parseFaqs(row.config.faqsRaw) : row.extras.faqs ?? [];
+  const faqs = customFaqs.length ? customFaqs : DEFAULT_FAQS;
   const boot = (
     `window.OB_CONFIG=${JSON.stringify(cfg)};` +
     `window.OB_FAQS=${JSON.stringify(faqs)};`
@@ -134,7 +174,7 @@ export async function GET(
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap">
-<script src="/onebox.js?v=34" defer></script>
+<script src="/onebox.js?v=35" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
