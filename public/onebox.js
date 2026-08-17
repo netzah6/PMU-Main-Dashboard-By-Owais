@@ -246,6 +246,8 @@
     "#onebox-root .eapps-instagram-feed-header-inner > :first-child{flex-basis:100%}" +
     "#onebox-root .eapps-instagram-feed-header-stats{margin:0!important;flex:0 1 auto;min-width:0}" +
     "#onebox-root .eapps-instagram-feed-header-follow-button-wrapper{margin:0!important;flex:0 0 auto}" +
+    "#onebox-root .doneburst{font-size:46px;text-align:center;margin:2px 0 4px;line-height:1}" +
+    "#onebox-root .donenote{text-align:center;font-family:var(--form);font-size:13.5px;color:var(--ink-soft);margin:14px 0 0}" +
     "#onebox-root .studio img{width:100%;display:block;border-radius:10px}" +
     "#onebox-root .vidbox{position:relative;cursor:pointer;margin:0 2px 14px;border-radius:10px;overflow:hidden;background:#000}" +
     "#onebox-root .vidbox img{width:100%;display:block;opacity:.92}" +
@@ -361,6 +363,18 @@
   var boxEl = root.querySelector(".box");
   /* FAQ videos are click-to-play: a poster + play button until tapped, so
      six mp4s never weigh down the page load. */
+  /* Keep visitors in the funnel: any Instagram-bound link in the widget
+     (Follow button, username, post tiles, the post lightbox — which can
+     mount on <body>) stays visible but never navigates away. Elfsight's
+     own popup-open handler still runs, so posts keep opening in the
+     lightbox. Bound on document so the portaled popup is covered too. */
+  document.addEventListener("click", function (e) {
+    var a = e.target && e.target.closest
+      ? e.target.closest('a[class*="eapps-"][href*="instagram.com"], [class*="eapps-"] a[href*="instagram.com"], [class*="es-popup"] a[href*="instagram.com"]')
+      : null;
+    if (a) e.preventDefault();
+  }, true);
+
   document.getElementById("ob-extras").addEventListener("click", function (e) {
     var t = e.target;
     while (t && t !== document && !(t.className && String(t.className).indexOf("vidbox") > -1)) t = t.parentNode;
@@ -394,6 +408,7 @@
     if (phase === "booking") { pct = 85; label = "You’re Almost Done…"; }
     else if (phase === "confirm") { pct = 88; label = "You\u2019re Almost Done\u2026"; }
     else if (phase === "deposit") { pct = 90; label = "Last Step…"; }
+    else if (phase === "done") { pct = 100; label = "Confirmed ✓"; }
     else { pct = 100; label = "100%"; }
     railEl.style.width = pct + "%";
     railEl.textContent = label;
@@ -657,6 +672,10 @@
     }
     state.fbBooted = true;
     window.OB_LEAD = { name: state.answers.full_name || "", email: state.answers.email || "" };
+    /* Fallback landing when no external thank-you page is configured:
+       the checkout's success handler calls this to show the in-funnel
+       confirmation step (date, time, address). */
+    window.OB_DONE = function () { show("done", "next"); window.scrollTo(0, 0); };
     /* The checkout calls this the moment the deposit clears — that's when
        the appointment goes from held to confirmed. */
     window.OB_ONPAID = function () {
@@ -731,6 +750,22 @@
       '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
   }
 
+  /* In-funnel thank-you step, shown after the deposit clears when the
+     funnel has no external thank-you page configured. */
+  function slideDone() {
+    var first = (state.answers.full_name || "").split(/\s+/)[0] || "";
+    return '<div class="doneburst">&#127881;</div>' +
+      '<h2 class="phead">' + (first ? esc(first) + ", you" : "You") + "&rsquo;re all set!</h2>" +
+      '<div class="confcard">' +
+        "<h3>Your appointment is confirmed</h3>" +
+        (state.slotIso ? '<p class="confwhen">' + esc(fmtWhen(state.slotIso)) + "</p>" +
+          '<p class="confrel">' + esc(relDay(state.slotIso)) + "</p>" : "") +
+        (ADDR ? '<p class="confaddr">' + esc(ADDR) + "</p>" : "") +
+        "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service at your visit.</p>" +
+      "</div>" +
+      '<p class="donenote">We&rsquo;ll be in touch shortly to prepare everything for your visit.</p>';
+  }
+
   /* One continuous hold countdown: starts on the confirmation screen and
      keeps running into the deposit step, so the timers always agree. */
   var holdTimer = null, holdLeft = 600;
@@ -763,13 +798,14 @@
     var oldWrap = slideEl.querySelector(C.fanbasisSelector || "#fanbasis-checkout-wrapper");
     if (oldWrap) { oldWrap.remove(); state.fbBooted = false; }
     phase = p;
-    if (phase === "survey" || phase === "booking") stopHold();
+    if (phase === "survey" || phase === "booking" || phase === "done") stopHold();
     slideEl.className = "slide";
     void slideEl.offsetWidth;
     slideEl.classList.add(dir === "prev" ? "anim-prev" : "anim-next");
     slideEl.innerHTML = phase === "survey" ? slideSurvey()
       : phase === "booking" ? slideBooking()
       : phase === "confirm" ? slideConfirm()
+      : phase === "done" ? slideDone()
       : slideDeposit();
 
     var prev = document.getElementById("ob-prev");
