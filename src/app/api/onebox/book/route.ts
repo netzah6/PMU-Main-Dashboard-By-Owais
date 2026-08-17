@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
+import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -127,6 +128,19 @@ export async function POST(req: NextRequest) {
     .eq("slug", slug)
     .eq("phone", phone)
     .then(() => {});
+
+  /* The template's workflows read the booked slot from the contact's
+     "CC - Reserved Appointment Time" field — keep it filled here too. */
+  try {
+    const fieldMap = await getSurveyFieldMap(locationId, tok.token);
+    if (fieldMap.reserved_time) {
+      await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+        method: "PUT",
+        headers: { ...H, Version: "2021-07-28" },
+        body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(startTime) }] }),
+      });
+    }
+  } catch { /* best effort — the appointment itself is already booked */ }
 
   // Server-side Purchase — this endpoint only runs once the deposit has
   // cleared, so it is the honest signal for optimising on paying clients.

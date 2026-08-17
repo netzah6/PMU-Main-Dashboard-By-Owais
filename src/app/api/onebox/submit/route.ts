@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
+import { getSurveyFieldMap } from "@/lib/onebox";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -89,6 +90,13 @@ export async function POST(req: NextRequest) {
     const tok = await getAppLocationToken(locationId);
     if (!tok.token) throw new Error(tok.error ?? "no location token");
     const [firstName, ...rest] = fullName.split(/\s+/);
+    /* Survey answers also land in the contact's CUSTOM FIELDS — the
+       sub-account's workflows (internal notifications, AI scripts) read
+       those, not the note. Field ids matched by name per location. */
+    const fieldMap = partial ? {} : await getSurveyFieldMap(locationId, tok.token);
+    const customFields = Object.entries(answers)
+      .filter(([k, v]) => v && fieldMap[k])
+      .map(([k, v]) => ({ id: fieldMap[k], value: v }));
     const r = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
       method: "POST",
       headers: {
@@ -106,6 +114,7 @@ export async function POST(req: NextRequest) {
         ...(email ? { email } : {}),
         source: "One-Box Funnel",
         tags: ["onebox-survey"],
+        ...(customFields.length ? { customFields } : {}),
       }),
     });
     const j = (await r.json()) as { contact?: { id?: string } };

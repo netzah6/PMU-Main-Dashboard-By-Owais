@@ -297,3 +297,50 @@ export function buildFanbasisBlock(productId: string, redirectUrl: string): stri
     '})();</scr' + 'ipt>',
   ].join("\n");
 }
+
+/* ── Contact custom fields ─────────────────────────────────────────────
+   The template's GHL workflows (internal notifications, AI scripts) read
+   the survey answers and the reserved slot from CONTACT custom fields.
+   Field ids differ per sub-account, so we match the template's standard
+   field names and cache the map per location. */
+const SURVEY_FIELD_MATCHERS: [string, RegExp][] = [
+  ["area", /which area/i],
+  ["had_pmu", /ever had permanent makeup/i],
+  ["age", /age group/i],
+  ["commutable", /commutable/i],
+  ["seriousness", /how serious/i],
+  ["aftercare_kit", /aftercare kit/i],
+  ["reserved_time", /reserved appointment time/i],
+];
+const surveyFieldCache = new Map<string, { at: number; map: Record<string, string> }>();
+export async function getSurveyFieldMap(locationId: string, token: string): Promise<Record<string, string>> {
+  const hit = surveyFieldCache.get(locationId);
+  if (hit && Date.now() - hit.at < 3_600_000) return hit.map;
+  const map: Record<string, string> = {};
+  try {
+    const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customFields`, {
+      headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" },
+    });
+    if (r.ok) {
+      const { customFields } = (await r.json()) as { customFields?: { id?: string; name?: string }[] };
+      for (const [key, re] of SURVEY_FIELD_MATCHERS) {
+        const f = (customFields ?? []).find((x) => re.test(String(x.name ?? "")));
+        if (f?.id) map[key] = f.id;
+      }
+    }
+  } catch { /* degrade gracefully — the caller just skips the fields */ }
+  surveyFieldCache.set(locationId, { at: Date.now(), map });
+  return map;
+}
+
+// "2026-08-21T14:30:00-04:00" → "Friday, August 21, 2026 2:30 PM" (the
+// slot's wall-clock time, matching what the template funnels store).
+export function fmtReservedTime(iso: string): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return iso;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
+  return d.toLocaleString("en-US", {
+    timeZone: "UTC", weekday: "long", month: "long", day: "numeric",
+    year: "numeric", hour: "numeric", minute: "2-digit",
+  }).replace(" at ", " ");
+}
