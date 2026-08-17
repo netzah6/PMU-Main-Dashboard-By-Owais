@@ -499,3 +499,28 @@ CREATE TABLE IF NOT EXISTS ppa_charge_retries (
 ALTER TABLE ppa_charge_retries ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "PPA retries admin" ON ppa_charge_retries FOR ALL TO authenticated
   USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+
+-- ── Self-booked name fallback (2026-08-15) ───────────────────────────────────
+-- Contacts sync is partial — phone-only leads never land in ghl_contacts and
+-- showed blank names in the drill-down. Fall back to the opportunity's own
+-- name / raw contact payload (phone shown where no email exists).
+CREATE OR REPLACE VIEW ppa_selfbooked AS
+SELECT
+  'opp:' || o.id          AS appt_id,
+  o.owner_key,
+  o.id                    AS opp_id,
+  o.contact_id,
+  coalesce(nullif(c.contact_name, ''), nullif(o.name, ''), o.raw #>> '{contact,name}',
+           o.raw #>> '{contact,phone}')                    AS contact_name,
+  coalesce(nullif(c.email, ''), o.raw #>> '{contact,email}',
+           o.raw #>> '{contact,phone}')                    AS email,
+  m.stage_name,
+  o.last_stage_change_at  AS done_at
+FROM ghl_opportunities o
+JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+LEFT JOIN ghl_contacts c ON c.id = o.contact_id
+WHERE (m.stage_name ~* 'session[[:space:]]*(done|complete)'
+   OR  m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
+  AND o.contact_id IS NOT NULL
+  AND o.last_stage_change_at >= '2026-08-01'
+  AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts_mv dc WHERE dc.contact_id = o.contact_id);
