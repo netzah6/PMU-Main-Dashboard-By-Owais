@@ -55,11 +55,13 @@ export async function GET(req: NextRequest) {
   for (const hRow of hitRows ?? []) hitCounts[hRow.slug] = (hitCounts[hRow.slug] ?? 0) + 1;
 
   /* Reconcile against Fanbasis before counting: a deposit paid outside
-     our checkout callback (another device, the original funnel's page —
-     the Michele/Norma pattern) never updates the lead. Match the funnel
-     product's transactions by email to unpaid leads created before the
-     payment, mark them paid, and count from the corrected rows. */
-  const isPaid = (st: string | null) => st === "booked" || st === "paid" || st === "paid-not-booked";
+     our checkout callback is almost always the AI's SMS follow-up
+     converting a picked-no-deposit lead (the Michele/Norma pattern) —
+     a different channel, so it must NOT count as a funnel deposit, but
+     the team must see the lead as paid. Those leads get the distinct
+     status "paid-followup": shown in the lead journey, excluded from
+     the card's funnel-native deposit count. */
+  const isPaid = (st: string | null) => st === "booked" || st === "paid" || st === "paid-not-booked" || st === "paid-followup";
   await Promise.all((rows ?? []).map(async (r) => {
     const pid = String(((r.config ?? {}) as Record<string, string>).fanbasisProductId ?? "").trim();
     if (!pid) return;
@@ -79,22 +81,23 @@ export async function GET(req: NextRequest) {
           const ms = Date.parse(String(raw.transaction_date ?? raw.created_at ?? ""));
           return Number.isFinite(ms) && ms >= leadMs;
         });
-        if (hit) { paidIds.push(l.id as number); l.ghl_status = "paid"; }
+        if (hit) { paidIds.push(l.id as number); l.ghl_status = "paid-followup"; }
       }
-      if (paidIds.length) await svc.from("onebox_leads").update({ ghl_status: "paid" }).in("id", paidIds);
+      if (paidIds.length) await svc.from("onebox_leads").update({ ghl_status: "paid-followup" }).in("id", paidIds);
     } catch { /* Fanbasis unreachable — count from stored statuses */ }
   }));
 
-  // Funnel-stage counts: booked = picked a date+time (cumulative — paid
-  // leads picked too); paid = deposit collected (status "booked"/
-  // "paid-not-booked" are only set after a successful charge).
+  // Funnel-stage counts: booked = picked a date+time (cumulative — every
+  // payer picked too); paid = FUNNEL-NATIVE deposits only (statuses our
+  // checkout callback sets). "paid-followup" (AI-recovered) counts as
+  // picked but never as a funnel deposit.
   const counts: Record<string, { leads: number; booked: number; paid: number; lastLeadAt: string | null }> = {};
   for (const l of leads ?? []) {
     const c = (counts[l.slug] ??= { leads: 0, booked: 0, paid: 0, lastLeadAt: null });
     c.leads++;
     const depositPaid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
     if (depositPaid) c.paid++;
-    if (depositPaid || l.picked_time_at) c.booked++;
+    if (depositPaid || l.ghl_status === "paid-followup" || l.picked_time_at) c.booked++;
     if (!c.lastLeadAt || l.created_at > c.lastLeadAt) c.lastLeadAt = l.created_at;
   }
 

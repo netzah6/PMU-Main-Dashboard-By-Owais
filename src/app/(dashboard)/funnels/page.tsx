@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 
 type LeadRow = {
   id: number; name: string; phone: string; at: string;
-  stage: "lead_only" | "picked_no_deposit" | "paid_no_slot" | "paid_booked";
+  stage: "lead_only" | "picked_no_deposit" | "paid_no_slot" | "paid_booked" | "paid_followup";
   slot: string | null; variant: string | null;
 };
 
@@ -20,6 +20,7 @@ const STAGE_META: Record<LeadRow["stage"], { label: string; cls: string }> = {
   picked_no_deposit: { label: "Picked a time — no deposit", cls: "bg-[#fff3e6] text-[#c2410c] border-[#fdba74]" },
   paid_no_slot: { label: "PAID — booking failed, call them", cls: "bg-[#fee2e2] text-[#b91c1c] border-[#fca5a5]" },
   paid_booked: { label: "Paid & booked", cls: "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]" },
+  paid_followup: { label: "Paid via AI follow-up", cls: "bg-[#ede9fe] text-[#6d28d9] border-[#c4b5fd]" },
 };
 
 type AbVariant = {
@@ -410,7 +411,7 @@ export default function FunnelsPage() {
                       const rowsAll = leadRows[f.slug];
                       const rows = rowsAll.filter((l) =>
                         leadFilter === "all" ? true
-                        : leadFilter === "deposits" ? (l.stage === "paid_booked" || l.stage === "paid_no_slot")
+                        : leadFilter === "deposits" ? (l.stage === "paid_booked" || l.stage === "paid_no_slot" || l.stage === "paid_followup")
                         : l.stage === leadFilter);
                       return rows.length === 0 ? (
                         <div className="text-xs text-[#697a91]">No leads here yet.</div>
@@ -755,9 +756,10 @@ export default function FunnelsPage() {
                       <p className="text-[10px] text-[#697a91]">
                         The funnel: visitors → leads → picked a date &amp; time → paid the deposit. Both sides are
                         compared at &ldquo;picked a time&rdquo;: for the original funnel that&rsquo;s its GHL calendar
-                        appointments (booking happens before the deposit there); its leads and deposits live in
-                        GHL/Fanbasis, which is why those show &ldquo;—&rdquo;. Spend is this client&rsquo;s ad spend split
-                        by each side&rsquo;s share of visitors — the same ads feed both, so spend follows the traffic.
+                        appointments (booking happens before the deposit there). Deposits come from Fanbasis and
+                        include AI-follow-up recoveries on <i>both</i> sides — the same AI works both sides&rsquo;
+                        leads, so it cancels out. Spend is this client&rsquo;s ad spend split by each side&rsquo;s
+                        share of visitors — the same ads feed both, so spend follows the traffic.
                       </p>
                     </div>
                   )}

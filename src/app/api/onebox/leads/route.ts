@@ -39,9 +39,11 @@ export async function GET(req: NextRequest) {
         ? "paid_booked"
         : s === "paid-not-booked"
           ? "paid_no_slot"
-          : l.picked_time_at
-            ? "picked_no_deposit"
-            : "lead_only";
+          : s === "paid-followup"
+            ? "paid_followup"
+            : l.picked_time_at
+              ? "picked_no_deposit"
+              : "lead_only";
     return {
       id: l.id,
       name: l.full_name,
