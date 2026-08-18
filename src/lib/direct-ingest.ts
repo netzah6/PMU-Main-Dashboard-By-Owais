@@ -211,6 +211,28 @@ export function fingerprint(table: IngestTable, row: Record<string, unknown>): s
   return `${table}|${parts.join("|")}`;
 }
 
+/**
+ * Fingerprint WITHOUT the date, for date-tolerant matching. The exact-date
+ * fingerprint misses the same payment recorded on two different calendar days:
+ * a deposit paid in the evening Pacific gets stamped with the next day's date
+ * by the sheet (UTC), so the webhook copy said the 17th, the sheet said the
+ * 18th, and the two never merged — every near-midnight payment showed twice.
+ * Callers pair this with rowDate() and accept a small day gap.
+ */
+export function fingerprintLoose(table: IngestTable, row: Record<string, unknown>): string {
+  const n = (x: unknown) => String(x ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const parts = [n(row["Full Name"]), n(row["Email"]), n(row["Phone Number"]), n(row["Business Name"])];
+  if (table === "deposits") parts.push(n(row["Amount"]));
+  return `${table}|loose|${parts.join("|")}`;
+}
+
+/** Parse a row's Date (dd/mm/yyyy or ISO) to a timestamp; NaN when absent. */
+export function rowDate(row: Record<string, unknown>): number {
+  const s = String(row["Date"] ?? row["Signed Date"] ?? "");
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return (m ? new Date(`${m[3]}-${m[2]}-${m[1]}`) : new Date(s)).getTime();
+}
+
 export interface IngestResult {
   ok: boolean;
   action?: "recorded" | "matched-existing";
