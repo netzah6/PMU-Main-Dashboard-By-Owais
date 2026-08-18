@@ -89,30 +89,49 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  /* The original funnel's deposits: both funnels charge through the SAME
-     Fanbasis product, so its transactions since the test started, minus
-     any from emails we captured as one-box leads, are the external side's
-     deposits. A dead FANBASIS_API_KEY leaves this null and the UI shows
-     "in Fanbasis" instead of a number. */
+  /* Deposits, attributed from Fanbasis: both funnels charge through the
+     SAME product, so its transactions since the test started are the
+     ground truth. Each transaction is matched by email to a one-box lead:
+     matched + lead has a variant -> that variant's deposit (covers leads
+     who paid on the ORIGINAL funnel's checkout page after entering
+     through the one-box); matched but no variant (direct/test traffic) ->
+     ignored; unmatched -> the original funnel's deposit. A failed fetch
+     leaves nulls and the UI falls back to status-based counts. */
   let externalDeposits: number | null = null;
+  const fanDeposits: Record<string, number> = {};
+  let fanOk = false;
   const fanProductId = ((client?.config as Record<string, string>)?.fanbasisProductId ?? "").trim();
-  if (externalVariant && fanProductId) {
+  if (fanProductId) {
     try {
       const txns = await listCheckoutTransactions(fanProductId);
       const startMs = new Date(exp.created_at as string).getTime();
-      const ourEmails = new Set(
-        (leads ?? [])
-          .map((l) => String(((l.answers ?? {}) as { email?: string }).email ?? "").trim().toLowerCase())
-          .filter(Boolean)
-      );
-      externalDeposits = txns.filter((t) => {
+      const emailToVariant = new Map<string, string | null>();
+      for (const l of leads ?? []) {
+        const em = String(((l.answers ?? {}) as { email?: string }).email ?? "").trim().toLowerCase();
+        if (em && !emailToVariant.has(em)) emailToVariant.set(em, l.variant_key ?? null);
+      }
+      let ext = 0;
+      for (const t of txns) {
         const raw = (t.raw ?? {}) as Record<string, unknown>;
         const created = String(raw.transaction_date ?? raw.created_at ?? raw.createdAt ?? raw.date ?? "");
         const ms = created ? Date.parse(created) : NaN;
-        return Number.isFinite(ms) && ms >= startMs && !(t.email && ourEmails.has(t.email));
-      }).length;
+        if (!Number.isFinite(ms) || ms < startMs) continue;
+        /* Test purchases ("Nicolas Test015") pollute the counts once their
+           lead rows are cleaned up — skip any payer with "test" in the name. */
+        const fanName = String(((raw.fan ?? {}) as { name?: string }).name ?? "");
+        if (/test/i.test(fanName)) continue;
+        if (t.email && emailToVariant.has(t.email)) {
+          const vk = emailToVariant.get(t.email);
+          if (vk) fanDeposits[vk] = (fanDeposits[vk] ?? 0) + 1;
+          /* matched lead without a variant = direct/test traffic — not part of the test */
+        } else {
+          ext++;
+        }
+      }
+      externalDeposits = ext;
+      fanOk = true;
     } catch {
-      /* invalid key or Fanbasis down -> stays null */
+      /* Fanbasis unreachable -> status-based fallback below */
     }
   }
 
@@ -163,7 +182,8 @@ export async function GET(req: NextRequest) {
       visitors: vis,
       leads: v.kind === "external" ? null : (ours[v.vkey]?.leads ?? 0),
       picked,
-      deposits: v.kind === "external" ? externalDeposits : (ours[v.vkey]?.paid ?? 0),
+      deposits: v.kind === "external" ? externalDeposits
+        : fanOk ? Math.max(fanDeposits[v.vkey] ?? 0, ours[v.vkey]?.paid ?? 0) : (ours[v.vkey]?.paid ?? 0),
       pickRate: vis && picked != null ? +((picked / vis) * 100).toFixed(1) : null,
       spend: spend == null ? null : +spend.toFixed(2),
       costPerBooking: spend != null && picked ? +(spend / picked).toFixed(2) : null,

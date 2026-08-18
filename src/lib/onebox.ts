@@ -259,7 +259,10 @@ export async function refreshOneboxConfig(
 
 // Agency-shared Fanbasis credentials (publishable embed key + creator);
 // only the product id and thank-you page differ per client.
-const FANBASIS_API_KEY = "lKI2gJ56jiZtjQA08FKyzW8HmgLCvC5n";
+/* The checkout-embed key ships in the public HTML of every funnel page —
+   it is not a secret. Exported so fanbasis.ts can use it as the read-path
+   fallback since the Fanbasis→Commas migration broke the env key. */
+export const FANBASIS_PUBLIC_EMBED_KEY = "lKI2gJ56jiZtjQA08FKyzW8HmgLCvC5n";
 const FANBASIS_CREATOR = "pmubookingsondemand";
 
 // Build the full Fanbasis checkout block from just a product id — the
@@ -269,7 +272,7 @@ const FANBASIS_CREATOR = "pmubookingsondemand";
 export function buildFanbasisBlock(productId: string, redirectUrl: string): string {
   const pid = String(productId ?? "").replace(/[^A-Za-z0-9_-]/g, "");
   if (!pid) return "";
-  const K = JSON.stringify(FANBASIS_API_KEY);
+  const K = JSON.stringify(FANBASIS_PUBLIC_EMBED_KEY);
   const C = JSON.stringify(FANBASIS_CREATOR);
   const P = JSON.stringify(pid);
   const R = redirectUrl ? JSON.stringify(redirectUrl) : "null";
