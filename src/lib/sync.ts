@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { readSheetValues, rowsToObjects, SHEET_MAP } from "@/lib/sheets";
-import { fingerprint, resolveTable } from "@/lib/direct-ingest";
+import { fingerprint, fingerprintLoose, rowDate, resolveTable } from "@/lib/direct-ingest";
 
 /**
  * Drop direct-ingest rows that the sheet has now caught up on.
@@ -32,8 +32,27 @@ async function dropSupersededDirectRows(
   if (!direct || direct.length === 0) return 0;
 
   const inSheet = new Set(sheetObjects.map((o) => fingerprint(t, o)));
+  // Date-tolerant second pass: the sheet stamps UTC dates, the webhook stamps
+  // the payment moment, so the same deposit can carry two adjacent calendar
+  // days (paid in the evening Pacific = next day UTC). Match everything-but-
+  // the-date and allow the dates to differ by up to 3 days.
+  const DAY = 86_400_000;
+  const looseDates = new Map<string, number[]>();
+  for (const o of sheetObjects) {
+    const k = fingerprintLoose(t, o);
+    if (!looseDates.has(k)) looseDates.set(k, []);
+    const d = rowDate(o);
+    if (!Number.isNaN(d)) looseDates.get(k)!.push(d);
+  }
   const superseded = direct
-    .filter((r) => inSheet.has(fingerprint(t, (r.data ?? {}) as Record<string, unknown>)))
+    .filter((r) => {
+      const row = (r.data ?? {}) as Record<string, unknown>;
+      if (inSheet.has(fingerprint(t, row))) return true;
+      const d = rowDate(row);
+      if (Number.isNaN(d)) return false;
+      const near = looseDates.get(fingerprintLoose(t, row));
+      return !!near && near.some((sd) => Math.abs(sd - d) <= 3 * DAY);
+    })
     .map((r) => r.id);
   if (superseded.length === 0) return 0;
 
