@@ -2,7 +2,27 @@
 // Docs: https://apidocs.fan/ — auth via x-api-key; products are created
 // through checkout sessions (product.title + amount_cents + type).
 
+import { FANBASIS_PUBLIC_EMBED_KEY } from "@/lib/onebox";
+
 const BASE = "https://www.fanbasis.com/public-api";
+
+/* Read paths try FANBASIS_API_KEY first and fall back to the public
+   embed key on 401/403 — the env value has been rejected since the
+   Fanbasis→Commas migration, while the embed key still lists
+   transactions. Write paths (refunds, product creation) stay
+   env-key-only so nothing that works today changes behaviour. */
+function headersWith(key: string): Record<string, string> {
+  return { "x-api-key": key, "Content-Type": "application/json", Accept: "application/json" };
+}
+
+async function getWithFallback(url: string): Promise<Response> {
+  const envKey = process.env.FANBASIS_API_KEY ?? "";
+  if (envKey) {
+    const r = await fetch(url, { headers: headersWith(envKey) });
+    if (r.status !== 401 && r.status !== 403) return r;
+  }
+  return fetch(url, { headers: headersWith(FANBASIS_PUBLIC_EMBED_KEY) });
+}
 
 function headers(): Record<string, string> {
   const key = process.env.FANBASIS_API_KEY;
@@ -99,7 +119,7 @@ export async function listAllTransactions(sinceISO: string): Promise<FanTxn[]> {
   const since = Date.parse(sinceISO);
   const out: FanTxn[] = [];
   for (let page = 1; page <= 60; page++) {
-    const r = await fetch(`${BASE}/checkout-sessions/transactions?page=${page}&per_page=100`, { headers: headers() });
+    const r = await getWithFallback(`${BASE}/checkout-sessions/transactions?page=${page}&per_page=100`);
     const text = await r.text();
     if (!r.ok) throw new Error(`Fanbasis transactions HTTP ${r.status}: ${text.slice(0, 300)}`);
     const j = JSON.parse(text) as Record<string, unknown>;
@@ -142,9 +162,7 @@ type FanTransaction = { id: string; email: string; raw: Record<string, unknown> 
 export async function listCheckoutTransactions(checkoutSessionId: string): Promise<FanTransaction[]> {
   const out: FanTransaction[] = [];
   for (let page = 1; page <= 10; page++) {
-    const r = await fetch(`${BASE}/checkout-sessions/${encodeURIComponent(checkoutSessionId)}/transactions?page=${page}&per_page=100`, {
-      headers: headers(),
-    });
+    const r = await getWithFallback(`${BASE}/checkout-sessions/${encodeURIComponent(checkoutSessionId)}/transactions?page=${page}&per_page=100`);
     const text = await r.text();
     if (!r.ok) throw new Error(`Fanbasis transactions HTTP ${r.status}: ${text.slice(0, 300)}`);
     const j = JSON.parse(text) as Record<string, unknown>;
