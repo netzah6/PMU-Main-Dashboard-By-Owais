@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, ONEBOX_EDITABLE_CVS } from "@/lib/onebox";
+import { listCheckoutTransactions } from "@/lib/fanbasis";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -47,11 +48,42 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: true });
 
   const [{ data: leads }, { data: hitRows }] = await Promise.all([
-    svc.from("onebox_leads").select("slug, ghl_status, picked_time_at, created_at"),
+    svc.from("onebox_leads").select("id, slug, ghl_status, picked_time_at, answers, created_at"),
     svc.from("onebox_hits").select("slug"),
   ]);
   const hitCounts: Record<string, number> = {};
   for (const hRow of hitRows ?? []) hitCounts[hRow.slug] = (hitCounts[hRow.slug] ?? 0) + 1;
+
+  /* Reconcile against Fanbasis before counting: a deposit paid outside
+     our checkout callback (another device, the original funnel's page —
+     the Michele/Norma pattern) never updates the lead. Match the funnel
+     product's transactions by email to unpaid leads created before the
+     payment, mark them paid, and count from the corrected rows. */
+  const isPaid = (st: string | null) => st === "booked" || st === "paid" || st === "paid-not-booked";
+  await Promise.all((rows ?? []).map(async (r) => {
+    const pid = String(((r.config ?? {}) as Record<string, string>).fanbasisProductId ?? "").trim();
+    if (!pid) return;
+    const unpaid = (leads ?? []).filter((l) => l.slug === r.slug && !isPaid(l.ghl_status as string));
+    if (!unpaid.length) return;
+    try {
+      const txns = await listCheckoutTransactions(pid);
+      const paidIds: number[] = [];
+      for (const l of unpaid) {
+        const em = String(((l.answers ?? {}) as { email?: string }).email ?? "").trim().toLowerCase();
+        if (!em) continue;
+        const leadMs = new Date(l.created_at as string).getTime() - 3_600_000;
+        const hit = txns.some((t) => {
+          if (t.email !== em) return false;
+          const raw = (t.raw ?? {}) as Record<string, unknown>;
+          if (/test/i.test(String(((raw.fan ?? {}) as { name?: string }).name ?? ""))) return false;
+          const ms = Date.parse(String(raw.transaction_date ?? raw.created_at ?? ""));
+          return Number.isFinite(ms) && ms >= leadMs;
+        });
+        if (hit) { paidIds.push(l.id as number); l.ghl_status = "paid"; }
+      }
+      if (paidIds.length) await svc.from("onebox_leads").update({ ghl_status: "paid" }).in("id", paidIds);
+    } catch { /* Fanbasis unreachable — count from stored statuses */ }
+  }));
 
   // Funnel-stage counts: booked = picked a date+time (cumulative — paid
   // leads picked too); paid = deposit collected (status "booked"/

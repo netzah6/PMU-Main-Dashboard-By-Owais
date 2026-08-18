@@ -300,16 +300,16 @@ export default function FunnelsPage() {
             <div className="border border-[#e4ebf2] rounded-xl bg-white p-4">
               <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-[#1c2b3a]">{f.clientName || f.slug}</span>
                     <span className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5 border",
                       f.status === "live" ? "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]" : "bg-[#fff3e6] text-[#c2410c] border-[#fdba74]")}>
                       {f.status.toUpperCase()}
                     </span>
+                    <a href={f.url} target="_blank" rel="noopener" className="text-xs text-[#0e9c9c] hover:underline inline-flex items-center gap-1">
+                      {f.url} <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
-                  <a href={f.url} target="_blank" rel="noopener" className="text-xs text-[#0e9c9c] hover:underline inline-flex items-center gap-1">
-                    {f.url} <ExternalLink className="w-3 h-3" />
-                  </a>
                   {f.oldFunnelUrl && (
                     <div className="text-[11px] text-[#697a91]">
                       redirect: <a href={f.oldFunnelUrl} target="_blank" rel="noopener" className="hover:underline">{f.oldFunnelUrl}</a>
