@@ -116,6 +116,10 @@ export async function GET(req: NextRequest) {
         const created = String(raw.transaction_date ?? raw.created_at ?? raw.createdAt ?? raw.date ?? "");
         const ms = created ? Date.parse(created) : NaN;
         if (!Number.isFinite(ms) || ms < startMs) continue;
+        /* Test purchases ("Nicolas Test015") pollute the counts once their
+           lead rows are cleaned up — skip any payer with "test" in the name. */
+        const fanName = String(((raw.fan ?? {}) as { name?: string }).name ?? "");
+        if (/test/i.test(fanName)) continue;
         if (t.email && emailToVariant.has(t.email)) {
           const vk = emailToVariant.get(t.email);
           if (vk) fanDeposits[vk] = (fanDeposits[vk] ?? 0) + 1;
