@@ -523,10 +523,16 @@ export default function OnboardingPage() {
             </span>
             <span className="text-sm font-semibold text-[#1e2b3d]">clean accounts ready for a setup</span>
           </div>
-          <button onClick={loadPool} disabled={poolBusy}
-            className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] disabled:opacity-50">
-            {poolBusy ? "Checking…" : "Refresh"}
-          </button>
+          <div className="flex items-center gap-2">
+            <a href="/onboarding/make-routes"
+              className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
+              🔀 Make routes
+            </a>
+            <button onClick={loadPool} disabled={poolBusy}
+              className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] disabled:opacity-50">
+              {poolBusy ? "Checking…" : "Refresh"}
+            </button>
+          </div>
         </div>
 
         {poolInfo && poolInfo.ready.length > 0 && (
