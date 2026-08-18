@@ -53,15 +53,16 @@ export async function GET(req: NextRequest) {
   const hitCounts: Record<string, number> = {};
   for (const hRow of hitRows ?? []) hitCounts[hRow.slug] = (hitCounts[hRow.slug] ?? 0) + 1;
 
-  // booked = picked a date+time but never paid; paid = deposit collected
-  // (status "booked"/"paid-not-booked" are only set after a successful charge)
+  // Funnel-stage counts: booked = picked a date+time (cumulative — paid
+  // leads picked too); paid = deposit collected (status "booked"/
+  // "paid-not-booked" are only set after a successful charge).
   const counts: Record<string, { leads: number; booked: number; paid: number; lastLeadAt: string | null }> = {};
   for (const l of leads ?? []) {
     const c = (counts[l.slug] ??= { leads: 0, booked: 0, paid: 0, lastLeadAt: null });
     c.leads++;
     const depositPaid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
     if (depositPaid) c.paid++;
-    else if (l.picked_time_at) c.booked++;
+    if (depositPaid || l.picked_time_at) c.booked++;
     if (!c.lastLeadAt || l.created_at > c.lastLeadAt) c.lastLeadAt = l.created_at;
   }
 

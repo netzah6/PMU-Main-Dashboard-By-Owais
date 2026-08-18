@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { getAppLocationToken } from "@/lib/ghl-app";
+import { listCheckoutTransactions } from "@/lib/fanbasis";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 120;
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
   const [{ data: variants }, { data: assigns }, { data: leads }, { data: client }] = await Promise.all([
     svc.from("onebox_variants").select("vkey, label, kind, target, weight, config_override").eq("experiment_id", exp.id).order("vkey"),
     svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id),
-    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, picked_time_at, created_at").eq("slug", slug).gte("created_at", exp.created_at),
+    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, picked_time_at, answers, created_at").eq("slug", slug).gte("created_at", exp.created_at),
     svc.from("onebox_clients").select("location_id, config, client_name, extras").eq("slug", slug).single(),
   ]);
 
@@ -88,6 +89,33 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  /* The original funnel's deposits: both funnels charge through the SAME
+     Fanbasis product, so its transactions since the test started, minus
+     any from emails we captured as one-box leads, are the external side's
+     deposits. A dead FANBASIS_API_KEY leaves this null and the UI shows
+     "in Fanbasis" instead of a number. */
+  let externalDeposits: number | null = null;
+  const fanProductId = ((client?.config as Record<string, string>)?.fanbasisProductId ?? "").trim();
+  if (externalVariant && fanProductId) {
+    try {
+      const txns = await listCheckoutTransactions(fanProductId);
+      const startMs = new Date(exp.created_at as string).getTime();
+      const ourEmails = new Set(
+        (leads ?? [])
+          .map((l) => String(((l.answers ?? {}) as { email?: string }).email ?? "").trim().toLowerCase())
+          .filter(Boolean)
+      );
+      externalDeposits = txns.filter((t) => {
+        const raw = (t.raw ?? {}) as Record<string, unknown>;
+        const created = String(raw.transaction_date ?? raw.created_at ?? raw.createdAt ?? raw.date ?? "");
+        const ms = created ? Date.parse(created) : NaN;
+        return Number.isFinite(ms) && ms >= startMs && !(t.email && ourEmails.has(t.email));
+      }).length;
+    } catch {
+      /* invalid key or Fanbasis down -> stays null */
+    }
+  }
+
   // Ad spend for this client, split across variants by their share of
   // visitors: the same ads feed both sides, so spend follows the traffic.
   // The funnel's client name rarely matches the ad account's owner name
@@ -135,7 +163,7 @@ export async function GET(req: NextRequest) {
       visitors: vis,
       leads: v.kind === "external" ? null : (ours[v.vkey]?.leads ?? 0),
       picked,
-      deposits: v.kind === "external" ? null : (ours[v.vkey]?.paid ?? 0),
+      deposits: v.kind === "external" ? externalDeposits : (ours[v.vkey]?.paid ?? 0),
       pickRate: vis && picked != null ? +((picked / vis) * 100).toFixed(1) : null,
       spend: spend == null ? null : +spend.toFixed(2),
       costPerBooking: spend != null && picked ? +(spend / picked).toFixed(2) : null,
