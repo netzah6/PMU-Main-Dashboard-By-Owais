@@ -732,9 +732,15 @@ export default function FunnelsPage() {
                                     )}
                                   </td>
                                   <td className="py-1.5 pr-3">{v.visitors}</td>
-                                  <td className="py-1.5 pr-3">{v.leads ?? "—"}</td>
+                                  <td className="py-1.5 pr-3">
+                                    {v.leads != null ? v.leads
+                                      : v.kind === "external" ? <span className="text-[10px] text-[#97a5b8]" title="This side's form-fills live in GHL contacts — not visible from here (not zero)">in GHL</span> : "—"}
+                                  </td>
                                   <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
-                                  <td className="py-1.5 pr-3">{v.deposits ?? "—"}</td>
+                                  <td className="py-1.5 pr-3">
+                                    {v.deposits != null ? v.deposits
+                                      : v.kind === "external" ? <span className="text-[10px] text-[#97a5b8]" title="This side's deposits live in Fanbasis — not visible from here (not zero)">in Fanbasis</span> : "—"}
+                                  </td>
                                   <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
                                   <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">
