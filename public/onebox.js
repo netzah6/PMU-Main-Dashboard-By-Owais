@@ -860,6 +860,7 @@
     /* Survey-stage copy: hidden from the calendar onward so the booking,
        confirm and deposit steps sit as high as possible. */
     root.classList.toggle("nohero", phase !== "survey");
+    if (typeof cta !== "undefined" && cta && phase === "done") cta.classList.remove("on");
     rail(); renderExtras();
     if (firstShow) firstShow = false;
     else if (interacted) { focusBox(); setTimeout(focusBox, 700); }
@@ -994,6 +995,9 @@
   document.getElementById("ob-cta").onclick = focusBox;
   var hasScrolled = false;
   function ctaCheck() {
+    /* Nothing left to claim on the thank-you step — the voucher CTA
+       stays hidden once the deposit is paid. */
+    if (phase === "done") { cta.classList.remove("on"); return; }
     hasScrolled = true;
     var b = boxEl.getBoundingClientRect();
     var away = b.bottom < window.innerHeight * 0.35 || b.top > window.innerHeight * 0.85;
