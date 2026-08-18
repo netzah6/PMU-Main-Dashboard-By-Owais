@@ -757,8 +757,9 @@ export default function FunnelsPage() {
                         The funnel: visitors → leads → picked a date &amp; time → paid the deposit. Both sides are
                         compared at &ldquo;picked a time&rdquo;: for the original funnel that&rsquo;s its GHL calendar
                         appointments (booking happens before the deposit there). Deposits count <i>funnel-native</i>
-                        auto-bookings only: paid on the funnel page itself (one-box), or within an hour of the
-                        booking (original funnel). Deposits the AI collects later by text are excluded on both sides. Spend is this client&rsquo;s ad spend split by each side&rsquo;s
+                        auto-bookings only: paid on the funnel page itself (one-box), or while the 10-minute slot
+                        hold was alive (original funnel — within 15 min of booking). Deposits the AI collects later
+                        by text are excluded on both sides. Spend is this client&rsquo;s ad spend split by each side&rsquo;s
                         share of visitors — the same ads feed both, so spend follows the traffic.
                       </p>
                     </div>

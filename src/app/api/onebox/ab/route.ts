@@ -112,10 +112,11 @@ export async function GET(req: NextRequest) {
      and must not appear in this comparison.
      One-box side: statuses set by our on-page checkout callback (an
      AI-link payment becomes "paid-followup" and is excluded).
-     Original side: a Fanbasis transaction from an externally-booked
-     contact paid within 60 minutes of the appointment being created —
-     their funnel shows the deposit page right after booking, so a
-     same-hour payment is the native flow and a later one is the AI. */
+     Original side: their funnel holds the chosen slot for 10 minutes on
+     the deposit page — so a native payment can only land while that hold
+     is alive. A Fanbasis transaction from an externally-booked contact
+     within 15 minutes of the appointment's creation (hold + checkout
+     grace) is the funnel; anything later is the AI's SMS recovery. */
   let externalDeposits: number | null = null;
   const fanProductId = ((client?.config as Record<string, string>)?.fanbasisProductId ?? "").trim();
   if (fanProductId && externalVariant) {
@@ -127,7 +128,7 @@ export async function GET(req: NextRequest) {
           .map((l) => String(((l.answers ?? {}) as { email?: string }).email ?? "").trim().toLowerCase())
           .filter(Boolean)
       );
-      const NATIVE_WINDOW_MS = 60 * 60 * 1000;
+      const NATIVE_WINDOW_MS = 15 * 60 * 1000;
       let ext = 0;
       for (const t of txns) {
         const raw = (t.raw ?? {}) as Record<string, unknown>;
