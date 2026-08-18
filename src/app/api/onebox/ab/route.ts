@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
   // An "external" variant books straight into GHL, so its bookings are the
   // calendar's appointments since the test began minus the ones we made.
   let externalBooked: number | null = null;
+  const externalAppts: { email: string; addedMs: number }[] = [];
   const externalVariant = (variants ?? []).find((v) => v.kind === "external");
   const calendarId = (client?.config as Record<string, string>)?.calendarId;
   if (externalVariant && calendarId && client?.location_id) {
@@ -75,13 +76,30 @@ export async function GET(req: NextRequest) {
           { headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-04-15", Accept: "application/json" }, signal: AbortSignal.timeout(20000) }
         );
         if (r.ok) {
-          const j = (await r.json()) as { events?: { id?: string; dateAdded?: string; appointmentStatus?: string }[] };
+          const j = (await r.json()) as { events?: { id?: string; contactId?: string; dateAdded?: string; appointmentStatus?: string }[] };
           const all = (j.events ?? []).filter((e) => {
             if (e.appointmentStatus === "cancelled") return false;
             const added = e.dateAdded ? new Date(e.dateAdded).getTime() : startMs;
             return added >= startMs;
           });
-          externalBooked = all.filter((e) => !e.id || !ourApptIds.has(e.id)).length;
+          const ext = all.filter((e) => !e.id || !ourApptIds.has(e.id));
+          externalBooked = ext.length;
+          /* Emails of the externally-booked contacts, for the native-deposit
+             window check below (payment right after booking = the original
+             funnel's own flow; hours later = the AI's SMS recovery). */
+          await Promise.all(ext.slice(0, 40).map(async (e) => {
+            if (!e.contactId) return;
+            try {
+              const cr = await fetch(`https://services.leadconnectorhq.com/contacts/${e.contactId}`, {
+                headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" },
+                signal: AbortSignal.timeout(10000),
+              });
+              if (!cr.ok) return;
+              const cj = (await cr.json()) as { contact?: { email?: string } };
+              const em = String(cj.contact?.email ?? "").trim().toLowerCase();
+              if (em) externalAppts.push({ email: em, addedMs: e.dateAdded ? new Date(e.dateAdded).getTime() : startMs });
+            } catch { /* skip this appointment */ }
+          }));
         }
       }
     } catch {
@@ -89,49 +107,42 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  /* Deposits, attributed from Fanbasis: both funnels charge through the
-     SAME product, so its transactions since the test started are the
-     ground truth. Each transaction is matched by email to a one-box lead:
-     matched + lead has a variant -> that variant's deposit (covers leads
-     who paid on the ORIGINAL funnel's checkout page after entering
-     through the one-box); matched but no variant (direct/test traffic) ->
-     ignored; unmatched -> the original funnel's deposit. A failed fetch
-     leaves nulls and the UI falls back to status-based counts. */
+  /* Deposits = FUNNEL-NATIVE auto-bookings only, both sides. The AI's
+     SMS follow-up collects deposits too, but that is a different channel
+     and must not appear in this comparison.
+     One-box side: statuses set by our on-page checkout callback (an
+     AI-link payment becomes "paid-followup" and is excluded).
+     Original side: a Fanbasis transaction from an externally-booked
+     contact paid within 60 minutes of the appointment being created —
+     their funnel shows the deposit page right after booking, so a
+     same-hour payment is the native flow and a later one is the AI. */
   let externalDeposits: number | null = null;
-  const fanDeposits: Record<string, number> = {};
-  let fanOk = false;
   const fanProductId = ((client?.config as Record<string, string>)?.fanbasisProductId ?? "").trim();
-  if (fanProductId) {
+  if (fanProductId && externalVariant) {
     try {
       const txns = await listCheckoutTransactions(fanProductId);
       const startMs = new Date(exp.created_at as string).getTime();
-      const emailToVariant = new Map<string, string | null>();
-      for (const l of leads ?? []) {
-        const em = String(((l.answers ?? {}) as { email?: string }).email ?? "").trim().toLowerCase();
-        if (em && !emailToVariant.has(em)) emailToVariant.set(em, l.variant_key ?? null);
-      }
+      const oneboxEmails = new Set(
+        (leads ?? [])
+          .map((l) => String(((l.answers ?? {}) as { email?: string }).email ?? "").trim().toLowerCase())
+          .filter(Boolean)
+      );
+      const NATIVE_WINDOW_MS = 60 * 60 * 1000;
       let ext = 0;
       for (const t of txns) {
         const raw = (t.raw ?? {}) as Record<string, unknown>;
         const created = String(raw.transaction_date ?? raw.created_at ?? raw.createdAt ?? raw.date ?? "");
         const ms = created ? Date.parse(created) : NaN;
         if (!Number.isFinite(ms) || ms < startMs) continue;
-        /* Test purchases ("Nicolas Test015") pollute the counts once their
-           lead rows are cleaned up — skip any payer with "test" in the name. */
         const fanName = String(((raw.fan ?? {}) as { name?: string }).name ?? "");
         if (/test/i.test(fanName)) continue;
-        if (t.email && emailToVariant.has(t.email)) {
-          const vk = emailToVariant.get(t.email);
-          if (vk) fanDeposits[vk] = (fanDeposits[vk] ?? 0) + 1;
-          /* matched lead without a variant = direct/test traffic — not part of the test */
-        } else {
-          ext++;
-        }
+        if (!t.email || oneboxEmails.has(t.email)) continue; // one-box journeys count via their own statuses
+        const nativePay = externalAppts.some((a) => a.email === t.email && ms - a.addedMs >= -10 * 60 * 1000 && ms - a.addedMs <= NATIVE_WINDOW_MS);
+        if (nativePay) ext++;
       }
       externalDeposits = ext;
-      fanOk = true;
     } catch {
-      /* Fanbasis unreachable -> status-based fallback below */
+      /* Fanbasis unreachable -> external deposits unavailable */
     }
   }
 
@@ -182,8 +193,7 @@ export async function GET(req: NextRequest) {
       visitors: vis,
       leads: v.kind === "external" ? null : (ours[v.vkey]?.leads ?? 0),
       picked,
-      deposits: v.kind === "external" ? externalDeposits
-        : fanOk ? Math.max(fanDeposits[v.vkey] ?? 0, ours[v.vkey]?.paid ?? 0) : (ours[v.vkey]?.paid ?? 0),
+      deposits: v.kind === "external" ? externalDeposits : (ours[v.vkey]?.paid ?? 0),
       pickRate: vis && picked != null ? +((picked / vis) * 100).toFixed(1) : null,
       spend: spend == null ? null : +spend.toFixed(2),
       costPerBooking: spend != null && picked ? +(spend / picked).toFixed(2) : null,
