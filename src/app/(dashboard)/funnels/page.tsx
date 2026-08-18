@@ -48,6 +48,16 @@ type Funnel = {
 };
 type HealthCheck = { name: string; ok: boolean; note: string };
 
+// The ad's real URL, derived from the renamed page's URL: same address
+// minus the -ab-ghl (or legacy -old) suffix. Shown verbatim in the SOP so
+// the redirect gets created on exactly the right path.
+function adUrlFromRenamed(u: string): string {
+  try {
+    const x = new URL(u.trim());
+    return x.origin + x.pathname.replace(/(-ab-ghl|-old)\/?$/, "");
+  } catch { return ""; }
+}
+
 function ago(iso: string | null): string {
   if (!iso) return "never";
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -95,6 +105,7 @@ export default function FunnelsPage() {
   const [endVerify, setEndVerify] = useState<{ loading?: boolean; applicable?: boolean;
     redirectGone?: boolean; pageBack?: boolean; adUrl?: string; error?: string } | null>(null);
   const [sop, setSop] = useState({ renamed: false, redirect: false, values: false });
+  const [abOrigUrl, setAbOrigUrl] = useState("");
   const [startVerify, setStartVerify] = useState<{ loading?: boolean; ok?: boolean; adUrl?: string; namedRight?: boolean;
     checks?: { originalReady: boolean; originalNote: string; redirectLive: boolean; redirectNote: string;
       oneboxReady: boolean; oneboxNote: string };
@@ -351,7 +362,7 @@ export default function FunnelsPage() {
                     cvFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Values {cvFor === f.slug ? "▲" : ""}
                 </button>
-                <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) void loadAb(f.slug); }}
+                <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
                   className={cn("text-xs border rounded-lg px-2.5 py-1",
                     abFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Split test {abFor === f.slug ? "▲" : ""}
@@ -512,8 +523,8 @@ export default function FunnelsPage() {
                       {abMode === "original" ? (
                         <div className="grid gap-2">
                           <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL at its -ab-ghl address (e.g. https://pmu-care.com/their-survey-ab-ghl)"
-                            defaultValue={f.oldFunnelUrl || ""}
-                            onChange={() => setStartVerify(null)}
+                            value={abOrigUrl}
+                            onChange={(e) => { setAbOrigUrl(e.target.value); setStartVerify(null); }}
                             className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                           <div className="border border-[#e4ebf2] rounded-xl p-3 grid gap-1.5 text-xs">
                             <b className="text-[11px] text-[#1c2b3a]">Start-test SOP — do each step in GHL, tick it, then run the check:</b>
@@ -525,7 +536,16 @@ export default function FunnelsPage() {
                             <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
                               <input type="checkbox" className="mt-0.5" checked={sop.redirect}
                                 onChange={(e) => { setSop((x) => ({ ...x, redirect: e.target.checked })); setStartVerify(null); }} />
-                              <span>2. Created the URL Redirect: ad path → <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b> (Sites → URL Redirects)</span>
+                              <span>2. Created the URL Redirect (Sites → URL Redirects) — source path{" "}
+                                {adUrlFromRenamed(abOrigUrl) ? (
+                                  <>
+                                    <b className="text-[#0e9c9c]">{adUrlFromRenamed(abOrigUrl).replace(/^https?:\/\/[^/]+/, "")}</b>{" "}
+                                    (your ad link&rsquo;s path — the URL above without <code>-ab-ghl</code>, copied letter for letter)
+                                  </>
+                                ) : (
+                                  <i>— paste the -ab-ghl URL above to see the exact path —</i>
+                                )}{" "}
+                                → destination <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b></span>
                             </label>
                             <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
                               <input type="checkbox" className="mt-0.5" checked={sop.values}
@@ -558,6 +578,9 @@ export default function FunnelsPage() {
                                     ? "✓ One-box funnel is live and configured"
                                     : `✗ One-box: ${startVerify.checks.oneboxNote}`}
                                 </span>
+                                {startVerify.adUrl && (
+                                  <span className="text-[#697a91] break-all">ad link tested: {startVerify.adUrl}</span>
+                                )}
                                 {startVerify.ok && startVerify.namedRight === false && (
                                   <span className="text-[#c2410c]">note: the path doesn&rsquo;t end in -ab-ghl — the team won&rsquo;t see the test marker</span>
                                 )}
