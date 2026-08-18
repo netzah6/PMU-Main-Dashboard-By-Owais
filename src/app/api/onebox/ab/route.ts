@@ -35,22 +35,25 @@ export async function GET(req: NextRequest) {
   const [{ data: variants }, { data: assigns }, { data: leads }, { data: client }] = await Promise.all([
     svc.from("onebox_variants").select("vkey, label, kind, target, weight, config_override").eq("experiment_id", exp.id).order("vkey"),
     svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id),
-    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, created_at").eq("slug", slug).gte("created_at", exp.created_at),
+    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, picked_time_at, created_at").eq("slug", slug).gte("created_at", exp.created_at),
     svc.from("onebox_clients").select("location_id, config, client_name, extras").eq("slug", slug).single(),
   ]);
 
   const visitors: Record<string, number> = {};
   for (const a of assigns ?? []) visitors[a.vkey] = (visitors[a.vkey] ?? 0) + 1;
 
-  // Our own funnel's leads/bookings, by variant.
-  const ours: Record<string, { leads: number; booked: number; paid: number }> = {};
+  /* Netzah's funnel stages, per variant: leads → picked a date & time →
+     paid the deposit. "picked" is cumulative (a paid lead also picked),
+     which matches how the original funnel's calendar counts it. */
+  const ours: Record<string, { leads: number; picked: number; paid: number }> = {};
   const ourApptIds = new Set<string>();
   for (const l of leads ?? []) {
     const k = l.variant_key ?? "?";
-    const c = (ours[k] ??= { leads: 0, booked: 0, paid: 0 });
+    const c = (ours[k] ??= { leads: 0, picked: 0, paid: 0 });
     c.leads++;
-    if (l.ghl_status === "booked") c.booked++;
-    if (l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked") c.paid++;
+    const depositPaid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
+    if (depositPaid) c.paid++;
+    if (depositPaid || l.picked_time_at) c.picked++;
     if (l.ghl_appointment_id) ourApptIds.add(l.ghl_appointment_id);
   }
 
@@ -114,8 +117,12 @@ export async function GET(req: NextRequest) {
 
   const totalVisitors = Object.values(visitors).reduce((a, b) => a + b, 0);
   const rows = (variants ?? []).map((v) => {
+    /* Same funnel stage on both sides: "picked a date & time". For the
+       original funnel that's its GHL calendar appointments (booking
+       happens before the deposit there); for the one-box it's leads with
+       a chosen slot. Cost/booking compares this stage apples-to-apples. */
     const vis = visitors[v.vkey] ?? 0;
-    const booked = v.kind === "external" ? externalBooked : (ours[v.vkey]?.booked ?? 0);
+    const picked = v.kind === "external" ? externalBooked : (ours[v.vkey]?.picked ?? 0);
     const share = totalVisitors ? vis / totalVisitors : 0;
     const spend = spend7 != null ? spend7 * share : null;
     return {
@@ -127,11 +134,11 @@ export async function GET(req: NextRequest) {
       overrides: Object.keys((v as { config_override?: Record<string, string> }).config_override ?? {}),
       visitors: vis,
       leads: v.kind === "external" ? null : (ours[v.vkey]?.leads ?? 0),
+      picked,
       deposits: v.kind === "external" ? null : (ours[v.vkey]?.paid ?? 0),
-      booked,
-      bookRate: vis && booked != null ? +((booked / vis) * 100).toFixed(1) : null,
+      pickRate: vis && picked != null ? +((picked / vis) * 100).toFixed(1) : null,
       spend: spend == null ? null : +spend.toFixed(2),
-      costPerBooking: spend != null && booked ? +(spend / booked).toFixed(2) : null,
+      costPerBooking: spend != null && picked ? +(spend / picked).toFixed(2) : null,
     };
   });
 

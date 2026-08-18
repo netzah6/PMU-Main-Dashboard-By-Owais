@@ -26,8 +26,8 @@ type AbVariant = {
   vkey: string; label: string; kind: string; target: string | null; weight: number;
   overrides?: string[];
   deposits: number | null;
-  visitors: number; leads: number | null; booked: number | null;
-  bookRate: number | null; spend: number | null; costPerBooking: number | null;
+  visitors: number; leads: number | null; picked: number | null;
+  pickRate: number | null; spend: number | null; costPerBooking: number | null;
 };
 type AbResult = {
   experiment: { id: number; name: string; status: string; startedAt: string } | null;
@@ -705,9 +705,9 @@ export default function FunnelsPage() {
                               <th className="py-1 pr-3 font-medium">Variant</th>
                               <th className="py-1 pr-3 font-medium">Visitors</th>
                               <th className="py-1 pr-3 font-medium">Leads</th>
+                              <th className="py-1 pr-3 font-medium">Picked time</th>
                               <th className="py-1 pr-3 font-medium">Deposits</th>
-                              <th className="py-1 pr-3 font-medium">Booked</th>
-                              <th className="py-1 pr-3 font-medium">Book rate</th>
+                              <th className="py-1 pr-3 font-medium">Pick rate</th>
                               <th className="py-1 pr-3 font-medium">Spend</th>
                               <th className="py-1 pr-3 font-medium">Cost / booking</th>
                             </tr>
@@ -733,9 +733,9 @@ export default function FunnelsPage() {
                                   </td>
                                   <td className="py-1.5 pr-3">{v.visitors}</td>
                                   <td className="py-1.5 pr-3">{v.leads ?? "—"}</td>
+                                  <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
                                   <td className="py-1.5 pr-3">{v.deposits ?? "—"}</td>
-                                  <td className="py-1.5 pr-3">{v.booked ?? "—"}</td>
-                                  <td className="py-1.5 pr-3">{v.bookRate != null ? `${v.bookRate}%` : "—"}</td>
+                                  <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
                                   <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">
                                     {v.costPerBooking != null ? `$${v.costPerBooking}` : "—"}
@@ -747,10 +747,11 @@ export default function FunnelsPage() {
                         </table>
                       </div>
                       <p className="text-[10px] text-[#697a91]">
-                        Spend is this client&rsquo;s ad spend split by each side&rsquo;s share of visitors — the same ads
-                        feed both, so spend follows the traffic. The original funnel&rsquo;s bookings are counted from the
-                        GHL calendar (appointments the one-box didn&rsquo;t create); its leads and deposits live in
-                        GHL/Fanbasis, which is why those show &ldquo;—&rdquo;.
+                        The funnel: visitors → leads → picked a date &amp; time → paid the deposit. Both sides are
+                        compared at &ldquo;picked a time&rdquo;: for the original funnel that&rsquo;s its GHL calendar
+                        appointments (booking happens before the deposit there); its leads and deposits live in
+                        GHL/Fanbasis, which is why those show &ldquo;—&rdquo;. Spend is this client&rsquo;s ad spend split
+                        by each side&rsquo;s share of visitors — the same ads feed both, so spend follows the traffic.
                       </p>
                     </div>
                   )}
