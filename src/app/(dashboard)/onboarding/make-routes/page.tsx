@@ -13,6 +13,7 @@ export default function MakeRoutesPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [onlyProblems, setOnlyProblems] = useState(false);
 
   async function load() {
     setBusy(true);
@@ -32,13 +33,14 @@ export default function MakeRoutesPage() {
 
   const dupIdx = useMemo(() => new Set((report?.duplicates ?? []).flatMap((d) => d.routeIdxs)), [report]);
   const rows = useMemo(() => {
-    const list = report?.routes ?? [];
+    let list = report?.routes ?? [];
+    if (onlyProblems) list = list.filter((r) => dupIdx.has(r.idx) || !r.webhook || !r.matchedBusiness);
     const needle = q.trim().toLowerCase();
     if (!needle) return list;
     return list.filter((r) =>
       [r.matchedBusiness, r.label, r.filterText, r.webhook, String(r.idx)].join(" ").toLowerCase().includes(needle)
     );
-  }, [report, q]);
+  }, [report, q, onlyProblems, dupIdx]);
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
@@ -86,24 +88,40 @@ export default function MakeRoutesPage() {
           </div>
 
           {report.duplicates.length > 0 && (
-            <div className="rounded-xl border border-[#f0b9b9] bg-[#fdf3f3] p-3 mb-4 text-sm text-[#8a3a3a]">
+            <div className="rounded-xl border border-[#f0b9b9] bg-[#fdf3f3] p-3 mb-3 text-sm text-[#8a3a3a]">
               <span className="font-semibold">Duplicates — each extra route writes the deposit twice:</span>{" "}
               {report.duplicates.map((d) => `${d.business} (routes ${d.routeIdxs.join(" + ")})`).join(" · ")}
             </div>
           )}
           {report.missingClients.length > 0 && (
-            <div className="rounded-xl border border-[#ecd3a8] bg-[#fbf7f1] p-3 mb-4 text-sm text-[#6b4d16]">
-              <span className="font-semibold">Live clients with no route (deposits can’t reach the sheet):</span>{" "}
-              {report.missingClients.join(" · ")}
-            </div>
+            <details className="rounded-xl border border-[#ecd3a8] bg-[#fbf7f1] p-3 mb-3 text-sm text-[#6b4d16]">
+              <summary className="font-semibold cursor-pointer select-none">
+                {report.missingClients.length} Live clients without a route — click to see the list
+              </summary>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {report.missingClients.map((c) => (
+                  <span key={c} className="px-2 py-0.5 rounded-md text-[12px] bg-white border border-[#ecd3a8]">{c}</span>
+                ))}
+              </div>
+              <p className="text-[11px] mt-2 text-[#a08850]">
+                A Live client with no route means their funnel deposits never reach the sheet. Some entries here are
+                name-spelling mismatches between Clients Master and the route filter rather than truly missing routes.
+              </p>
+            </details>
           )}
 
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search client, business, route number, or webhook…"
-            className="w-full rounded-lg border border-[#e4ebf2] p-2.5 text-sm text-[#1f3559] outline-none focus:border-[#15B7AE] mb-3"
-          />
+          <div className="flex items-center gap-3 mb-3">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search client, business, route number, or webhook…"
+              className="flex-1 rounded-lg border border-[#e4ebf2] p-2.5 text-sm text-[#1f3559] outline-none focus:border-[#15B7AE]"
+            />
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-[#34568a] whitespace-nowrap cursor-pointer">
+              <input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} className="accent-[#15B7AE]" />
+              Problems only
+            </label>
+          </div>
 
           <div className="rounded-xl border border-[#e4ebf2] overflow-hidden bg-white">
             <table className="w-full text-sm">
@@ -121,8 +139,13 @@ export default function MakeRoutesPage() {
                   <tr key={r.idx} className="border-b border-[#f1f5f9] last:border-0">
                     <td className="px-3 py-2 text-[#8595a8]">{r.idx}</td>
                     <td className="px-3 py-2">
-                      <div className="font-medium text-[#1f3559]">{r.matchedBusiness ?? <span className="text-[#a3adbb]">unmatched</span>}</div>
-                      {r.label && <div className="text-[11px] text-[#a3adbb]">{r.label}</div>}
+                      {r.matchedBusiness ? (
+                        <div className="font-medium text-[#1f3559]">{r.matchedBusiness}</div>
+                      ) : (
+                        <div className="font-medium text-[#697a91]">{r.label || r.filterText.split(" · ")[0] || "—"}</div>
+                      )}
+                      {r.matchedBusiness && r.label && <div className="text-[11px] text-[#a3adbb]">{r.label}</div>}
+                      {!r.matchedBusiness && <div className="text-[11px] text-[#b58324]">not in Clients Master</div>}
                       {r.matchedStatus && r.matchedStatus !== "Live" && (
                         <div className="text-[11px] text-[#8595a8]">{r.matchedStatus}</div>
                       )}
