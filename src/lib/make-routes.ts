@@ -137,9 +137,23 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
     business: String(r.data?.["Business Name"] ?? "").trim(),
     owner: String(r.data?.["Owner Full Name"] ?? "").trim(),
     status: String(r.data?.["col_1"] ?? "").trim(),
+    version: String(r.data?.["Version"] ?? "").replace(/[^A-Za-z0-9.]/g, ""),
     nb: norm(r.data?.["Business Name"]),
     no: norm(r.data?.["Owner Full Name"]),
-  })).filter((c) => c.nb || c.no);
+  })).filter((c) => c.nb || c.no)
+    // Longest names first, so "Sabby Beauty Brows Studio" wins over a generic
+    // short row like "A beauty" when both appear as substrings.
+    .sort((a, b) => b.nb.length - a.nb.length);
+
+  // Some route filters match ONLY on the Fanbasis product id (e.g. "M96NA").
+  // The deposits table knows productId -> business, so resolve those too.
+  const { data: dep } = await svc.from("deposits").select("data").limit(2000);
+  const productToBiz = new Map<string, string>();
+  for (const d of ((dep ?? []) as Array<{ data: Record<string, unknown> }>)) {
+    const pid = String(d.data?.["Product ID"] ?? "").trim();
+    const biz = String(d.data?.["Business Name"] ?? "").trim();
+    if (pid && biz && !productToBiz.has(pid)) productToBiz.set(pid, biz);
+  }
 
   const routes: RouteInfo[] = rawRoutes.map((r, i) => {
     const { label, values } = filterStrings(r);
@@ -150,7 +164,15 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
     // client name in a module label or URL instead of the filter.
     const blob = norm(raw);
     let matched: { business: string; status: string } | null = null;
-    for (const c of clients) {
+    for (const v of values) {
+      const biz = productToBiz.get(v);
+      if (biz) {
+        const c = clients.find((x) => x.nb === norm(biz));
+        matched = { business: biz, status: c?.status ?? "" };
+        break;
+      }
+    }
+    if (!matched) for (const c of clients) {
       if ((c.nb.length > 5 && blob.includes(c.nb)) || (c.no.length > 5 && blob.includes(c.no))) {
         matched = { business: c.business || c.owner, status: c.status };
         break;
@@ -183,56 +205,10 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
   // Live clients with no route: deposits from their funnel never reach the sheet.
   const routedBiz = new Set(routes.filter((r) => r.matchedBusiness).map((r) => norm(r.matchedBusiness!)));
   const missingClients = clients
-    .filter((c) => c.status === "Live" && c.nb && !routedBiz.has(c.nb))
+    .filter((c) => c.status === "Live" && /^v(3|2\.3)/i.test(c.version) && c.nb && !routedBiz.has(c.nb))
     .map((c) => c.business)
     .filter((v, i, a) => a.indexOf(v) === i)
     .sort();
 
   return { scenarioName, scenarioId, zone, fetchedAt: new Date().toISOString(), routes, duplicates, noWebhook, missingClients };
-}
-
-/** TEMP: first raw routes for blueprint-shape debugging. Removed before merge. */
-export async function debugRawRoutes(): Promise<unknown> {
-  const token = process.env.MAKE_API_TOKEN;
-  if (!token) return { error: "no token" };
-  const zones = process.env.MAKE_ZONE ? [process.env.MAKE_ZONE] : ["us1", "us2", "eu1", "eu2"];
-  let zone = zones[0];
-  const mk = async (path: string) => {
-    const r = await fetch(`https://${zone}.make.com/api/v2${path}`, { headers: { Authorization: `Token ${token}`, Accept: "application/json" } });
-    return { ok: r.ok, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
-  };
-  const candidates: Array<{ id: string; name: string }> = [];
-  for (const z of zones) {
-    zone = z;
-    const orgs = await mk(`/organizations`);
-    const orgList = (orgs.json.organizations as Array<Record<string, unknown>> | undefined) ?? [];
-    if (!orgs.ok || !orgList.length) continue;
-    for (const o of orgList) {
-      const teams = await mk(`/teams?organizationId=${o.id}`);
-      for (const t of ((teams.json.teams as Array<Record<string, unknown>> | undefined) ?? [])) {
-        const sc = await mk(`/scenarios?teamId=${t.id}`);
-        for (const s of ((sc.json.scenarios as Array<Record<string, unknown>> | undefined) ?? []))
-          if (/fanbasis/i.test(String(s.name ?? ""))) candidates.push({ id: String(s.id), name: String(s.name) });
-      }
-    }
-    if (candidates.length) break;
-  }
-  const out: Record<string, unknown> = { zone, candidates };
-  for (const c of candidates) {
-    const bp = await mk(`/scenarios/${c.id}/blueprint`);
-    const blueprint = ((bp.json.response as Record<string, unknown> | undefined)?.blueprint ?? bp.json) as unknown;
-    const routes: unknown[] = [];
-    const walk = (n: unknown) => {
-      if (Array.isArray(n)) { n.forEach(walk); return; }
-      if (n && typeof n === "object") {
-        const o = n as Record<string, unknown>;
-        if (Array.isArray(o.routes)) for (const r of o.routes) routes.push(r);
-        for (const v of Object.values(o)) walk(v);
-      }
-    };
-    walk(blueprint);
-    out[c.name] = { routeCount: routes.length, sample: JSON.stringify(routes[1] ?? routes[0] ?? null).slice(0, 4000) };
-    if (routes.length) break;
-  }
-  return out;
 }
