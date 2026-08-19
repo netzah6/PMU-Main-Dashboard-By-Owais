@@ -175,3 +175,49 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
 
   return { scenarioName, scenarioId, zone, fetchedAt: new Date().toISOString(), routes, duplicates, noWebhook, missingClients };
 }
+
+/** TEMP: first raw routes for blueprint-shape debugging. Removed before merge. */
+export async function debugRawRoutes(): Promise<unknown> {
+  const token = process.env.MAKE_API_TOKEN;
+  if (!token) return { error: "no token" };
+  const zones = process.env.MAKE_ZONE ? [process.env.MAKE_ZONE] : ["us1", "us2", "eu1", "eu2"];
+  let zone = zones[0];
+  const mk = async (path: string) => {
+    const r = await fetch(`https://${zone}.make.com/api/v2${path}`, { headers: { Authorization: `Token ${token}`, Accept: "application/json" } });
+    return { ok: r.ok, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
+  };
+  const candidates: Array<{ id: string; name: string }> = [];
+  for (const z of zones) {
+    zone = z;
+    const orgs = await mk(`/organizations`);
+    const orgList = (orgs.json.organizations as Array<Record<string, unknown>> | undefined) ?? [];
+    if (!orgs.ok || !orgList.length) continue;
+    for (const o of orgList) {
+      const teams = await mk(`/teams?organizationId=${o.id}`);
+      for (const t of ((teams.json.teams as Array<Record<string, unknown>> | undefined) ?? [])) {
+        const sc = await mk(`/scenarios?teamId=${t.id}`);
+        for (const s of ((sc.json.scenarios as Array<Record<string, unknown>> | undefined) ?? []))
+          if (/fanbasis/i.test(String(s.name ?? ""))) candidates.push({ id: String(s.id), name: String(s.name) });
+      }
+    }
+    if (candidates.length) break;
+  }
+  const out: Record<string, unknown> = { zone, candidates };
+  for (const c of candidates) {
+    const bp = await mk(`/scenarios/${c.id}/blueprint`);
+    const blueprint = ((bp.json.response as Record<string, unknown> | undefined)?.blueprint ?? bp.json) as unknown;
+    const routes: unknown[] = [];
+    const walk = (n: unknown) => {
+      if (Array.isArray(n)) { n.forEach(walk); return; }
+      if (n && typeof n === "object") {
+        const o = n as Record<string, unknown>;
+        if (Array.isArray(o.routes)) for (const r of o.routes) routes.push(r);
+        for (const v of Object.values(o)) walk(v);
+      }
+    };
+    walk(blueprint);
+    out[c.name] = { routeCount: routes.length, sample: JSON.stringify(routes[1] ?? routes[0] ?? null).slice(0, 4000) };
+    if (routes.length) break;
+  }
+  return out;
+}
