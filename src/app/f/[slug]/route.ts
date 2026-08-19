@@ -136,6 +136,13 @@ export async function GET(
     studioImgs: row.config.studioImgs || "",
     metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),
   };
+  /* Same URL the engine will render (its fastImg proxies media-library
+     files) so the preload warms the right resource, never a second one. */
+  const logoRaw = (cfg.logo || "").replace(/["\\]/g, "");
+  const logoPreload = !logoRaw ? ""
+    : /^https:\/\/(assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr)\//.test(logoRaw)
+      ? `https://images.leadconnectorhq.com/image/f_webp/q_80/r_320/u_${logoRaw}`
+      : logoRaw;
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
   // </script> inside the JSON payloads must not terminate the script tag.
   // Fanbasis block, in order of preference:
@@ -174,7 +181,8 @@ export async function GET(
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap">
-<script src="/onebox.js?v=46" defer></script>
+${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
+<script src="/onebox.js?v=47" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
