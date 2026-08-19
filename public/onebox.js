@@ -110,8 +110,8 @@
     "#onebox-root .callbar{border-bottom:1px solid var(--line);padding:11px 20px;text-align:center;font-size:15px;font-weight:700;font-family:var(--headline)}" +
     "#onebox-root .wrap{padding:20px 20px 44px;max-width:720px;margin:0 auto;min-height:calc(100vh - 74px);min-height:calc(100svh - 74px)}" +
     "#onebox-root .biglogo{display:block;margin:0 auto 12px;max-height:64px;width:auto}" +
-    "#onebox-root .lede{text-align:center;margin:0 auto;max-width:30ch;font-family:var(--headline);font-weight:700;font-size:clamp(17px,4.9vw,26px);line-height:1.25;letter-spacing:-.01em;text-wrap:balance;color:var(--teal)}" +
-    "#onebox-root .ledeoffer{color:inherit}" +
+    "#onebox-root .lede{text-align:center;margin:0 auto;max-width:30ch;font-family:var(--headline);font-weight:700;font-size:clamp(17px,4.9vw,26px);line-height:1.25;letter-spacing:-.01em;text-wrap:balance;color:#000}" +
+    "#onebox-root .ledeoffer{color:var(--teal)}" +
     "#onebox-root h1.page{font-family:var(--headline);font-weight:600;font-size:clamp(13px,3.75vw,19px);line-height:1.3;text-align:center;margin:10px auto 0;max-width:none;color:#000}" +
     "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:18px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
     "#onebox-root .trust{text-align:center;padding:0 20px;margin-bottom:12px}" +
