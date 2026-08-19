@@ -222,7 +222,7 @@ export default function FunnelsPage() {
       });
       const j = await r.json();
       if (j.error) { setAddNote(`Error: ${j.error}`); return; }
-      setAddNote(`Created ${j.url} — ${[j.pixelNote, j.cvNote].filter(Boolean).join(" · ")}${j.calendarId ? "" : " · ⚠ no calendar id in custom values"}`);
+      setAddNote(`Created ${j.url} — ${[j.pixelNote, j.photoNote, j.cvNote].filter(Boolean).join(" · ")}${j.calendarId ? "" : " · ⚠ no calendar id in custom values"}`);
       setAddForm({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
       await load();
     } finally { setBusy(null); }
