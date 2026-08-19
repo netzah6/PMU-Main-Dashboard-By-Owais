@@ -182,7 +182,7 @@ export async function GET(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap">
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
-<script src="/onebox.js?v=49" defer></script>
+<script src="/onebox.js?v=50" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
