@@ -36,6 +36,16 @@
   var LOGO = (C.logo || "").trim();
   var IGLINK = (C.igLink || "").trim();
   var CAL = (C.calendarId || "").trim();
+  /* GHL's image proxy serves resized webps for media-library files (it
+     rejects documents/download URLs, so those pass through untouched).
+     Keeps 1MB client uploads from stalling the page on cellular. */
+  function fastImg(u, w) {
+    if (/^https:\/\/(assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr)\//.test(u)) {
+      return "https://images.leadconnectorhq.com/image/f_webp/q_80/r_" + w + "/u_" + u;
+    }
+    return u;
+  }
+
   function imgList() {
     var seen = {}, out = [];
     for (var i = 0; i < arguments.length; i++) {
@@ -100,9 +110,9 @@
     "#onebox-root .callbar{border-bottom:1px solid var(--line);padding:11px 20px;text-align:center;font-size:15px;font-weight:700;font-family:var(--headline)}" +
     "#onebox-root .wrap{padding:20px 20px 44px;max-width:720px;margin:0 auto;min-height:calc(100vh - 74px);min-height:calc(100svh - 74px)}" +
     "#onebox-root .biglogo{display:block;margin:0 auto 12px;max-height:64px;width:auto}" +
-    "#onebox-root .lede{text-align:center;margin:0 auto;max-width:26ch;font-family:var(--headline);font-weight:700;font-size:clamp(21px,5.4vw,30px);line-height:1.22;letter-spacing:-.01em;text-wrap:balance;color:#000}" +
-    "#onebox-root .ledeoffer{color:var(--teal-deep)}" +
-    "#onebox-root h1.page{font-family:var(--headline);font-weight:600;font-size:clamp(13px,3.75vw,19px);line-height:1.3;text-align:center;margin:10px auto 0;max-width:none;color:var(--ink-soft)}" +
+    "#onebox-root .lede{text-align:center;margin:0 auto;max-width:30ch;font-family:var(--headline);font-weight:700;font-size:clamp(17px,4.9vw,26px);line-height:1.25;letter-spacing:-.01em;text-wrap:balance;color:var(--teal)}" +
+    "#onebox-root .ledeoffer{color:inherit}" +
+    "#onebox-root h1.page{font-family:var(--headline);font-weight:600;font-size:clamp(13px,3.75vw,19px);line-height:1.3;text-align:center;margin:10px auto 0;max-width:none;color:#000}" +
     "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:18px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
     "#onebox-root .trust{text-align:center;padding:0 20px;margin-bottom:12px}" +
     "#onebox-root.nohero .lede,#onebox-root.nohero h1.page,#onebox-root.nohero .sub,#onebox-root.nohero .biglogo{display:none}" +
@@ -354,7 +364,7 @@
     '<div class="topbar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg><span>' + esc(ADDR) + "</span></div>" +
     '<div class="callbar">Call Us Today:' + (PHONE ? " " + esc(PHONE) : "") + "</div>" +
     '<div class="wrap">' +
-    (LOGO ? '<img class="biglogo" src="' + esc(LOGO) + '" alt="' + esc(BIZ) + ' logo">' : "") +
+    (LOGO ? '<img class="biglogo" src="' + esc(fastImg(LOGO, 320)) + '" fetchpriority="high" alt="' + esc(BIZ) + ' logo">' : "") +
     '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     '<p class="lede">' + (C.congrats ? esc(C.congrats)
       : "Congrats on claiming " + (OFFERR ? '<b class="ledeoffer">' + esc(OFFERR) + "</b> " : "") + "All Permanent Makeup Packages!") + "</p>" +
@@ -952,7 +962,7 @@
       htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>';
       if (RESULTS.length) {
         htmlStr += '<div class="results solo">' + RESULTS.map(function (u) {
-          return '<img src="' + esc(u) + '" alt="Client result" loading="lazy">';
+          return '<img src="' + esc(fastImg(u, 640)) + '" alt="Client result" loading="lazy">';
         }).join("") + "</div>";
       }
       if (IG) {
@@ -973,7 +983,7 @@
       '<div class="mapcard"><iframe loading="lazy" src="https://www.google.com/maps?q=' +
       encodeURIComponent(ADDR) + '&output=embed"></iframe></div>' +
       (STUDIO.length ? '<div class="studio">' + STUDIO.map(function (u) {
-        return '<img src="' + esc(u) + '" alt="Our studio" loading="lazy">';
+        return '<img src="' + esc(fastImg(u, 640)) + '" alt="Our studio" loading="lazy">';
       }).join("") + "</div>" : "") + "</div>";
     if (phase === "booking" && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
       htmlStr += '<div class="xsec"><h2 class="xhead">FAQs &#128071;</h2><div class="faqs">' +
