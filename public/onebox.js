@@ -112,7 +112,7 @@
     "#onebox-root .biglogo{display:block;margin:0 auto 12px;max-height:64px;width:auto}" +
     "#onebox-root .lede{text-align:center;margin:0 auto;max-width:30ch;font-family:var(--headline);font-weight:700;font-size:clamp(17px,4.9vw,26px);line-height:1.25;letter-spacing:-.01em;text-wrap:balance;color:#000}" +
     "#onebox-root .ledeoffer{color:var(--teal)}" +
-    "#onebox-root h1.page{font-family:var(--headline);font-weight:600;font-size:clamp(13px,3.75vw,19px);line-height:1.3;text-align:center;margin:10px auto 0;max-width:none;color:#000}" +
+    "#onebox-root h1.page{font-family:var(--headline);font-weight:600;font-size:clamp(12px,3.4vw,17px);line-height:1.3;text-align:center;margin:10px auto 0;max-width:none;color:#000}" +
     "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:18px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
     "#onebox-root .trust{text-align:center;padding:0 20px;margin-bottom:12px}" +
     "#onebox-root.nohero .lede,#onebox-root.nohero h1.page,#onebox-root.nohero .sub,#onebox-root.nohero .biglogo{display:none}" +
@@ -367,7 +367,7 @@
     (LOGO ? '<img class="biglogo" src="' + esc(fastImg(LOGO, 320)) + '" fetchpriority="high" alt="' + esc(BIZ) + ' logo">' : "") +
     '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     '<p class="lede">' + (C.congrats ? esc(C.congrats)
-      : "Congrats on claiming " + (OFFERR ? '<b class="ledeoffer">' + esc(OFFERR) + "</b> " : "") + "All Permanent Makeup Packages!") + "</p>" +
+      : "Get " + (OFFERR ? '<b class="ledeoffer">' + esc(OFFERR) + "</b> " : "") + "All Permanent Makeup Packages!") + "</p>" +
     '<h1 class="page">' + esc(C.headline || "Fill Out Our Quiz To See If You Qualify") + "</h1>" +
     '<p class="sub">' + esc(C.sub || "(30 Seconds)") + "</p>" +
     '<div class="box"><div class="rail"><span id="ob-rail">&nbsp;</span></div>' +
