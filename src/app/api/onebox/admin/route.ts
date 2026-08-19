@@ -47,10 +47,17 @@ export async function GET(req: NextRequest) {
     .select("slug, location_id, client_name, status, cv_synced_at, config, extras, created_at")
     .order("created_at", { ascending: true });
 
-  const [{ data: leads }, { data: hitRows }] = await Promise.all([
+  const [{ data: leads }, { data: hitRows }, { data: expRows }] = await Promise.all([
     svc.from("onebox_leads").select("id, slug, ghl_status, picked_time_at, answers, created_at"),
     svc.from("onebox_hits").select("slug"),
+    svc.from("onebox_experiments").select("slug, status"),
   ]);
+  /* One word per card: is a split test live right now? "running" beats
+     any number of old paused/ended experiments for the same slug. */
+  const abStatus: Record<string, string> = {};
+  for (const e of expRows ?? []) {
+    if (e.status === "running" || !abStatus[e.slug]) abStatus[e.slug] = e.status as string;
+  }
   const hitCounts: Record<string, number> = {};
   for (const hRow of hitRows ?? []) hitCounts[hRow.slug] = (hitCounts[hRow.slug] ?? 0) + 1;
 
@@ -122,6 +129,7 @@ export async function GET(req: NextRequest) {
       booked: counts[r.slug]?.booked ?? 0,
       paid: counts[r.slug]?.paid ?? 0,
       lastLeadAt: counts[r.slug]?.lastLeadAt ?? null,
+      abStatus: abStatus[r.slug] ?? null,
     };
   });
   return NextResponse.json({ funnels: out });

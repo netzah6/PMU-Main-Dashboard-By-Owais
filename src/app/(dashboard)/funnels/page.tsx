@@ -46,6 +46,7 @@ type Funnel = {
   visitors: number;
   leads: number;
   paid: number; booked: number; lastLeadAt: string | null;
+  abStatus: string | null;
 };
 type HealthCheck = { name: string; ok: boolean; note: string };
 
@@ -307,6 +308,19 @@ export default function FunnelsPage() {
                       f.status === "live" ? "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]" : "bg-[#fff3e6] text-[#c2410c] border-[#fdba74]")}>
                       {f.status.toUpperCase()}
                     </span>
+                    {f.abStatus === "running" && (
+                      <button title="Split test is live — click for details"
+                        onClick={() => { if (abFor !== f.slug) { setAbFor(f.slug); setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
+                        className="text-[11px] font-semibold rounded-full px-2 py-0.5 border bg-[#f3e8ff] text-[#7c3aed] border-[#d8b4fe] inline-flex items-center gap-1.5 hover:bg-[#ead9fe]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#7c3aed] animate-pulse" />
+                        A/B TEST LIVE
+                      </button>
+                    )}
+                    {f.abStatus === "paused" && (
+                      <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 border bg-[#f6f9fc] text-[#697a91] border-[#e4ebf2]">
+                        A/B PAUSED
+                      </span>
+                    )}
                     <a href={f.url} target="_blank" rel="noopener" className="text-xs text-[#0e9c9c] hover:underline inline-flex items-center gap-1">
                       {f.url} <ExternalLink className="w-3 h-3" />
                     </a>
