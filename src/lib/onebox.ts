@@ -102,6 +102,51 @@ export async function harvestPixelId(funnelUrl: string): Promise<string> {
   }
 }
 
+/* Photos, harvested from the client's original booking page: its layout
+   is fixed — "See Real Client Results" heading, then the before/after
+   photos, then the map, then the studio photos — so images from the
+   client's own media library classify by position. Returns full-res
+   URLs in page order. */
+export async function harvestFunnelPhotos(bookingUrl: string, locationId: string): Promise<{ ba: string[]; studio: string[] }> {
+  const empty = { ba: [] as string[], studio: [] as string[] };
+  try {
+    const r = await fetch(bookingUrl, { headers: { "User-Agent": "Mozilla/5.0 (photo-harvest)" }, signal: AbortSignal.timeout(20000) });
+    if (!r.ok) return empty;
+    const html = await r.text();
+    const resultsAt = html.indexOf("See Real Client Results");
+    const mapAt = html.indexOf("firebasestorage");
+    if (resultsAt < 0 || mapAt < 0 || mapAt < resultsAt) return empty;
+    const re = new RegExp(
+      `https://(?:assets\\.cdn\\.filesafe\\.space|storage\\.googleapis\\.com/msgsndr)/${locationId}/media/[a-zA-Z0-9.-]+\\.(?:png|jpe?g|webp)`,
+      "g"
+    );
+    const seen = new Set<string>();
+    const ba: { url: string; at: number }[] = [];
+    const studio: { url: string; at: number }[] = [];
+    for (const m of html.matchAll(re)) {
+      const url = m[0];
+      const id = url.slice(url.lastIndexOf("/") + 1);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const at = m.index ?? 0;
+      if (at > resultsAt && at < mapAt) ba.push({ url, at });
+      else if (at > mapAt) studio.push({ url, at });
+    }
+    ba.sort((a, b) => a.at - b.at);
+    studio.sort((a, b) => a.at - b.at);
+    return { ba: ba.slice(0, 9).map((x) => x.url), studio: studio.slice(0, 3).map((x) => x.url) };
+  } catch {
+    return empty;
+  }
+}
+
+// The 9 before/after CV slots, in the order harvested photos fill them.
+export const BA_CV_SLOTS = [
+  "CC - Eyebrows Before & After 1", "CC - Eyebrows Before & After 2", "CC - Eyebrows Before & After 3",
+  "CC - Lip blush Before & After 1", "CC - Lip blush Before & After 2", "CC - Lip blush Before & After 3",
+  "CC - Eyeliner Before & After 1", "CC - Eyeliner Before & After 2", "CC - Eyeliner Before & After 3",
+];
+
 // "OB - FAQs" custom value: one FAQ per line, "Question | Answer".
 export function parseFaqs(raw: string): { q: string; a: string }[] {
   return raw

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, ONEBOX_EDITABLE_CVS } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS } from "@/lib/onebox";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
@@ -169,9 +169,27 @@ export async function POST(req: NextRequest) {
     // Older sub-accounts miss the one-box custom values — create the
     // absent ones (empty) so the team only has to fill values in GHL.
     const ensured = await ensureOneboxCustomValues(locationId);
-    const config = await refreshOneboxConfig(svc, slug, locationId);
+    let config = await refreshOneboxConfig(svc, slug, locationId);
+    /* Photos come along automatically: when the photo CVs are empty and
+       we know the client's original funnel, harvest the before/after and
+       studio pictures from its booking page and fill the CVs. */
+    let photoNote = "";
+    if (oldUrl && !(config?.resultCvImgs || config?.studioCvImgs)) {
+      const bookingUrl = oldUrl.replace(/-survey[a-z0-9-]*\/?$/i, "-booking");
+      const photos = await harvestFunnelPhotos(bookingUrl, locationId);
+      const entries: { name: string; value: string }[] = [];
+      photos.ba.forEach((u, i) => { if (BA_CV_SLOTS[i]) entries.push({ name: BA_CV_SLOTS[i], value: u }); });
+      photos.studio.forEach((u, i) => { if (i < 3) entries.push({ name: `CC - Picture of Studio ${i + 1}`, value: u }); });
+      if (entries.length) {
+        await setOneboxCustomValues(locationId, entries);
+        config = await refreshOneboxConfig(svc, slug, locationId);
+        photoNote = `${photos.ba.length} before/after + ${photos.studio.length} studio photos harvested from ${bookingUrl}`;
+      } else {
+        photoNote = `no photos found on ${bookingUrl} — fill the photo custom values in GHL`;
+      }
+    }
     return NextResponse.json({
-      ok: true, slug, url: funnelUrl(req, slug), pixelNote,
+      ok: true, slug, url: funnelUrl(req, slug), pixelNote, photoNote,
       cvNote: ensured.created.length
         ? `created ${ensured.created.length} missing custom values: ${ensured.created.join(", ")} — fill them in GHL`
         : "all one-box custom values already existed",
