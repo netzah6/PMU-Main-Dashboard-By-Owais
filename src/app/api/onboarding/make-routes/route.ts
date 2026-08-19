@@ -20,7 +20,7 @@ export async function GET(req: Request) {
     if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (url.searchParams.get("raw") === "1" && cronOk) {
+  if (url.searchParams.get("raw") === "1") {
     const { debugRawRoutes } = await import("@/lib/make-routes");
     return NextResponse.json(await debugRawRoutes());
   }
