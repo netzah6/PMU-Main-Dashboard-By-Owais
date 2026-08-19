@@ -148,16 +148,22 @@ export async function POST(req: NextRequest) {
     const { data: existing } = await svc.from("onebox_clients").select("slug").eq("slug", slug).maybeSingle();
     if (existing) return NextResponse.json({ error: `slug "${slug}" already exists` }, { status: 409 });
 
-    // Meta pixel: harvest from the client's existing live funnel page.
+    /* Meta pixel: GHL injects it on the BOOKING page, not always on the
+       survey page — so harvest tries the given URL, then the derived
+       booking page, then a slug-guessed booking page when no URL given. */
     const extras: Extras = {};
-    let pixelNote = "no old funnel URL given — add the pixel later";
+    let pixelNote = "";
     const oldUrl = String(body.oldFunnelUrl ?? "").trim();
-    if (oldUrl) {
-      extras.oldFunnelUrl = oldUrl;
-      const pixel = await harvestPixelId(oldUrl);
-      if (pixel) { extras.metaPixelId = pixel; pixelNote = `pixel ${pixel} harvested from ${oldUrl}`; }
-      else pixelNote = `no pixel found on ${oldUrl} — set it manually`;
+    if (oldUrl) extras.oldFunnelUrl = oldUrl;
+    const pixelCandidates = [
+      ...(oldUrl ? [oldUrl, oldUrl.replace(/-survey[a-z0-9-]*\/?$/i, "-booking")] : []),
+      `https://pmu-care.com/${slug}-booking`,
+    ];
+    for (const u of [...new Set(pixelCandidates)]) {
+      const pixel = await harvestPixelId(u);
+      if (pixel) { extras.metaPixelId = pixel; pixelNote = `pixel ${pixel} harvested from ${u}`; break; }
     }
+    if (!extras.metaPixelId) pixelNote = "no pixel found on the funnel pages — set OB - Meta Pixel ID or Extras";
 
     await svc.from("onebox_clients").insert({
       slug,
@@ -174,8 +180,10 @@ export async function POST(req: NextRequest) {
        we know the client's original funnel, harvest the before/after and
        studio pictures from its booking page and fill the CVs. */
     let photoNote = "";
-    if (oldUrl && !(config?.resultCvImgs || config?.studioCvImgs)) {
-      const bookingUrl = oldUrl.replace(/-survey[a-z0-9-]*\/?$/i, "-booking");
+    if (!(config?.resultCvImgs || config?.studioCvImgs)) {
+      const bookingUrl = oldUrl
+        ? oldUrl.replace(/-survey[a-z0-9-]*\/?$/i, "-booking")
+        : `https://pmu-care.com/${slug}-booking`;
       const photos = await harvestFunnelPhotos(bookingUrl, locationId);
       const entries: { name: string; value: string }[] = [];
       photos.ba.forEach((u, i) => { if (BA_CV_SLOTS[i]) entries.push({ name: BA_CV_SLOTS[i], value: u }); });
