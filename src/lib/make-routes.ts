@@ -33,27 +33,39 @@ export interface MakeRoutesReport {
 
 const norm = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-/** Collect the string literals a route's filter conditions match on. */
+/**
+ * Collect the filter name and the literal values a route matches on.
+ * Make stores the filter on the FIRST MODULE inside the route's flow (not on
+ * the route object), so walk the whole route for every `filter` object and
+ * harvest condition literals (skip `{{…}}` variable references).
+ */
 function filterStrings(route: Record<string, unknown>): { label: string; values: string[] } {
   const values: string[] = [];
-  let label = "";
-  const flt = route.filter as Record<string, unknown> | undefined;
-  if (flt) {
-    if (typeof flt.name === "string") label = flt.name;
-    const walk = (n: unknown) => {
-      if (Array.isArray(n)) { n.forEach(walk); return; }
-      if (n && typeof n === "object") {
-        const o = n as Record<string, unknown>;
-        for (const k of ["a", "b"]) {
-          const v = o[k];
-          if (typeof v === "string" && v.trim() && !v.includes("{{")) values.push(v.trim());
-        }
-        for (const v of Object.values(o)) walk(v);
+  const labels: string[] = [];
+  const walk = (n: unknown) => {
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    if (n && typeof n === "object") {
+      const o = n as Record<string, unknown>;
+      const flt = o.filter as Record<string, unknown> | undefined;
+      if (flt) {
+        if (typeof flt.name === "string" && flt.name.trim()) labels.push(flt.name.trim());
+        const harvest = (c: unknown) => {
+          if (Array.isArray(c)) { c.forEach(harvest); return; }
+          if (c && typeof c === "object") {
+            const cc = c as Record<string, unknown>;
+            for (const k of ["a", "b"]) {
+              const v = cc[k];
+              if (typeof v === "string" && v.trim() && !v.includes("{{")) values.push(v.trim());
+            }
+          }
+        };
+        harvest(flt.conditions);
       }
-    };
-    walk(flt.conditions);
-  }
-  return { label, values };
+      for (const v of Object.values(o)) walk(v);
+    }
+  };
+  walk(route);
+  return { label: labels[0] ?? "", values: [...new Set(values)] };
 }
 
 export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
@@ -133,7 +145,10 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
     const { label, values } = filterStrings(r);
     const raw = JSON.stringify(r);
     const hook = raw.match(/https:\\?\/\\?\/(?:services|backend)\.leadconnectorhq\.com\\?\/hooks\\?\/[A-Za-z0-9/_-]+/);
-    const blob = norm(values.join(" ") + " " + label);
+    // Match against the WHOLE route JSON — the same proven approach as the
+    // Check-Setup detector. Filter literals alone miss routes that carry the
+    // client name in a module label or URL instead of the filter.
+    const blob = norm(raw);
     let matched: { business: string; status: string } | null = null;
     for (const c of clients) {
       if ((c.nb.length > 5 && blob.includes(c.nb)) || (c.no.length > 5 && blob.includes(c.no))) {
@@ -144,7 +159,7 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
     return {
       idx: i + 1,
       label,
-      filterText: values.slice(0, 6).join(" · ") || "(no filter values)",
+      filterText: values.slice(0, 6).join(" · ") || label || "—",
       webhook: hook ? hook[0].replace(/\\\//g, "/") : null,
       matchedBusiness: matched?.business ?? null,
       matchedStatus: matched?.status ?? null,
