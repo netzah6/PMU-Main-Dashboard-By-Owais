@@ -71,12 +71,24 @@ export async function POST(req: NextRequest) {
   }
 
   /* Additive tag endpoint only — tags in the upsert body REPLACE the
-     contact's whole tag list and were wiping workflow-added tags. */
-  await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
-    method: "POST",
-    headers: { ...H, Version: "2021-07-28" },
-    body: JSON.stringify({ tags: ["onebox-survey"] }),
-  }).catch(() => {});
+     contact's whole tag list and were wiping workflow-added tags. A lead
+     marked disqualified at submit stays untagged here too. */
+  const { data: leadPre } = await svc
+    .from("onebox_leads")
+    .select("answers")
+    .eq("slug", slug)
+    .eq("phone", phone)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const disqualified = Boolean((leadPre?.answers as { disqualified?: boolean } | null)?.disqualified);
+  if (!disqualified) {
+    await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+      method: "POST",
+      headers: { ...H, Version: "2021-07-28" },
+      body: JSON.stringify({ tags: ["onebox-survey"] }),
+    }).catch(() => {});
+  }
 
   // Calendar meta for duration + title.
   let durationMin = 30;

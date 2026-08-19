@@ -70,6 +70,12 @@ export async function POST(req: NextRequest) {
     seriousness: String(body.seriousness ?? ""),
     aftercare_kit: String(body.aftercare_kit ?? ""),
   };
+  /* The template survey's two "Disqualify after submit" rules (decoded
+     from the original GHL survey's logic): not commutable, or seriousness
+     0-2. Disqualified leads still land in GHL with fields + note, but
+     never get the onebox-survey tag - the survey workflows must not fire
+     for them (the GHL-side triggers filter on "Disqualified is false"). */
+  const disqualified = answers.commutable === "No" || answers.seriousness === "0-2";
 
   const { data: leadRow } = partial
     ? { data: null }
@@ -77,7 +83,7 @@ export async function POST(req: NextRequest) {
         .from("onebox_leads")
         .insert({
           slug, location_id: locationId, full_name: fullName, phone,
-          answers: { ...answers, email },
+          answers: { ...answers, email, ...(disqualified ? { disqualified: true } : {}) },
           experiment_id: expId, variant_key: variantKey, visitor_id: visitorId,
         })
         .select("id")
@@ -125,7 +131,7 @@ export async function POST(req: NextRequest) {
        REPLACES the whole tag array, which silently stripped tags other
        workflows had added (Browology's "(v3)"/"ai off", Aug 19 audit log).
        This endpoint only ever adds. */
-    if (contactId) {
+    if (contactId && !disqualified) {
       await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
         method: "POST",
         headers: {
