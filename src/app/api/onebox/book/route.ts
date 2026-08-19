@@ -62,7 +62,6 @@ export async function POST(req: NextRequest) {
       phone,
       ...(email ? { email } : {}),
       source: "One-Box Funnel",
-      tags: ["onebox-survey"],
     }),
   });
   const cj = (await cr.json()) as { contact?: { id?: string } };
@@ -70,6 +69,14 @@ export async function POST(req: NextRequest) {
   if (!cr.ok || !contactId) {
     return NextResponse.json({ ok: false, error: "contact upsert failed" }, { status: 502 });
   }
+
+  /* Additive tag endpoint only — tags in the upsert body REPLACE the
+     contact's whole tag list and were wiping workflow-added tags. */
+  await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+    method: "POST",
+    headers: { ...H, Version: "2021-07-28" },
+    body: JSON.stringify({ tags: ["onebox-survey"] }),
+  }).catch(() => {});
 
   // Calendar meta for duration + title.
   let durationMin = 30;

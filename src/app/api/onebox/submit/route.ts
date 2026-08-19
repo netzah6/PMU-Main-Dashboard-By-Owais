@@ -113,7 +113,6 @@ export async function POST(req: NextRequest) {
         phone,
         ...(email ? { email } : {}),
         source: "One-Box Funnel",
-        tags: ["onebox-survey"],
         ...(customFields.length ? { customFields } : {}),
       }),
     });
@@ -121,6 +120,22 @@ export async function POST(req: NextRequest) {
     if (!r.ok) throw new Error(`contacts/upsert ${r.status}`);
     contactId = j.contact?.id ?? null;
     ghlStatus = "created";
+
+    /* Tag through the ADD endpoint, never through the upsert body: upsert
+       REPLACES the whole tag array, which silently stripped tags other
+       workflows had added (Browology's "(v3)"/"ai off", Aug 19 audit log).
+       This endpoint only ever adds. */
+    if (contactId) {
+      await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tok.token}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tags: ["onebox-survey"] }),
+      }).catch(() => {});
+    }
 
     // Survey answers as a note on the contact (visible in the timeline).
     if (contactId && !partial) {
