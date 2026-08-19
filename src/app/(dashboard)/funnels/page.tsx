@@ -106,7 +106,7 @@ export default function FunnelsPage() {
   const [endChoice, setEndChoice] = useState<"onebox" | "original">("onebox");
   const [endVerify, setEndVerify] = useState<{ loading?: boolean; applicable?: boolean;
     redirectGone?: boolean; pageBack?: boolean; adUrl?: string; error?: string } | null>(null);
-  const [sop, setSop] = useState({ renamed: false, redirect: false, values: false });
+  const [sop, setSop] = useState({ renamed: false, redirect: false, values: false, workflow: false });
   const [abOrigUrl, setAbOrigUrl] = useState("");
   const [startVerify, setStartVerify] = useState<{ loading?: boolean; ok?: boolean; adUrl?: string; namedRight?: boolean;
     checks?: { originalReady: boolean; originalNote: string; redirectLive: boolean; redirectNote: string;
@@ -178,7 +178,7 @@ export default function FunnelsPage() {
 
   // Fresh SOP + verification every time the split panel opens or switches mode.
   useEffect(() => {
-    setSop({ renamed: false, redirect: false, values: false });
+    setSop({ renamed: false, redirect: false, values: false, workflow: false });
     setStartVerify(null);
   }, [abFor, abMode]);
 
@@ -567,9 +567,20 @@ export default function FunnelsPage() {
                                 onChange={(e) => { setSop((x) => ({ ...x, values: e.target.checked })); setStartVerify(null); }} />
                               <span>3. Values filled &amp; health check green (calendar ID + Fanbasis product ID)</span>
                             </label>
+                            <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
+                              <input type="checkbox" className="mt-0.5" checked={sop.workflow}
+                                onChange={(e) => { setSop((x) => ({ ...x, workflow: e.target.checked })); setStartVerify(null); }} />
+                              <span>4. Workflow catches one-box leads — in the sub-account&rsquo;s workflow{" "}
+                                <b>CC- Funnel Survey &rarr; (V1 / V2 / V3)</b>: add a <b>Contact Tag</b> trigger
+                                (tag added includes <code>onebox-survey</code>), and in the <b>Survey (V3)</b> branch
+                                add an OR condition <b>Tags &rarr; Includes &rarr; onebox-survey</b>, then Publish.
+                                One-box leads never submit a GHL survey — this tag is what routes them into the
+                                automations. (Manual step: GHL&rsquo;s API can&rsquo;t read workflow internals, so
+                                the check below can&rsquo;t verify it.)</span>
+                            </label>
                             {!startVerify && (
                               <button onClick={() => void verifyStart(f.slug)}
-                                disabled={!(sop.renamed && sop.redirect && sop.values)}
+                                disabled={!(sop.renamed && sop.redirect && sop.values && sop.workflow)}
                                 className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] disabled:opacity-40 disabled:cursor-not-allowed">
                                 Run verification
                               </button>
