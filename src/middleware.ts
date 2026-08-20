@@ -15,6 +15,16 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     if (m && !RESERVED.has(m[1].toLowerCase())) {
       const url = request.nextUrl.clone();
       url.pathname = `/f/${m[1].toLowerCase()}`;
+      /* Ad clicks carry unique junk params (fbclid & friends), which made
+         every paid visit its own CDN cache key — the funnel edge-cache
+         missed on exactly the traffic we pay for (594ms vs 240ms TTFB).
+         The server only reads ob_e/ob_v (+ the team's thank-you preview
+         params); the pixel reads fbclid from the browser URL, which a
+         rewrite doesn't touch. Everything else is dropped from the key. */
+      const KEEP = new Set(["ob_e", "ob_v", "preview", "name"]);
+      for (const k of [...url.searchParams.keys()]) {
+        if (!KEEP.has(k)) url.searchParams.delete(k);
+      }
       return NextResponse.rewrite(url);
     }
   }

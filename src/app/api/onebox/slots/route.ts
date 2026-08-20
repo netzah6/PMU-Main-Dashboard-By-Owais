@@ -46,5 +46,13 @@ export async function GET(req: NextRequest) {
   for (const [k, v] of Object.entries(j)) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(k) && Array.isArray(v?.slots)) dates[k] = v.slots;
   }
-  return NextResponse.json({ ok: true, dates });
+  /* Availability barely moves within a minute and double-booking is
+     already prevented at appointment creation — let the edge absorb the
+     1.2s GHL round trip for everyone after the first visitor. (The
+     engine rounds its range start to 5-minute buckets so concurrent
+     visitors share this cache key.) */
+  return NextResponse.json(
+    { ok: true, dates },
+    { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120" } }
+  );
 }
