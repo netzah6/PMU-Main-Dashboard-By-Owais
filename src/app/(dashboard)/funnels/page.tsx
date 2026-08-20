@@ -28,7 +28,7 @@ type AbVariant = {
   overrides?: string[];
   deposits: number | null;
   visitors: number; leads: number | null; picked: number | null;
-  pickRate: number | null; spend: number | null; costPerBooking: number | null;
+  leadRate: number | null; pickRate: number | null; spend: number | null; costPerBooking: number | null;
 };
 type AbResult = {
   experiment: { id: number; name: string; status: string; startedAt: string } | null;
@@ -731,6 +731,7 @@ export default function FunnelsPage() {
                               <th className="py-1 pr-3 font-medium">Variant</th>
                               <th className="py-1 pr-3 font-medium">Visitors</th>
                               <th className="py-1 pr-3 font-medium">Leads</th>
+                              <th className="py-1 pr-3 font-medium">Lead rate</th>
                               <th className="py-1 pr-3 font-medium">Picked time</th>
                               <th className="py-1 pr-3 font-medium">Deposits</th>
                               <th className="py-1 pr-3 font-medium">Pick rate</th>
@@ -762,6 +763,7 @@ export default function FunnelsPage() {
                                     {v.leads != null ? v.leads
                                       : v.kind === "external" ? <span className="text-[10px] text-[#97a5b8]" title="This side's form-fills live in GHL contacts — not visible from here (not zero)">in GHL</span> : "—"}
                                   </td>
+                                  <td className="py-1.5 pr-3">{v.leadRate != null ? `${v.leadRate}%` : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
                                   <td className="py-1.5 pr-3">
                                     {v.deposits != null ? v.deposits
