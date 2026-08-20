@@ -256,7 +256,7 @@ export default function PerformancePage() {
       {accountProblems.length > 0 && (
         <div className="rounded-xl border border-[#ecd3a8] bg-[#fbf7f1] px-4 py-3 text-sm text-[#6b4d16]">
           <span className="font-semibold">⚠ {accountProblems.length} Live client{accountProblems.length === 1 ? "" : "s"} may be pointed at the wrong ad account</span>
-          <span className="text-[#8a7442]"> — the Ad Account Name on the Clients tab matches a disabled account or nothing in the reporting data. Fix the name there (it must match the account's name exactly) and the numbers correct on the next sync.</span>
+          <span className="text-[#8a7442]"> — the Ad Account Name on the Clients tab matches a disabled account or nothing in the reporting data. Fix the name there (it must match the account&apos;s name exactly) and the numbers correct on the next sync.</span>
           <div className="flex flex-wrap gap-1.5 mt-2">
             {accountProblems.map((r) => (
               <span key={r.sheet_row} className="px-2 py-0.5 rounded-md text-[12px] bg-white border border-[#ecd3a8]" title={`Ad Account Name: ${r.ad_account_name ?? "—"} · status: ${r.campaign_status ?? "not found in reporting"}`}>
