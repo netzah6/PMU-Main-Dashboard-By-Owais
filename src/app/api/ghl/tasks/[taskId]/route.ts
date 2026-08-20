@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getPmuTasksAccount, GHL_BASE, GHL_VERSION } from "@/lib/ghl-tasks";
+import { getPmuTasksAccount, ghlUserIdForEmail, GHL_BASE, GHL_VERSION } from "@/lib/ghl-tasks";
 
 export const maxDuration = 30;
 
@@ -26,6 +26,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { taskId: st
   if (!contactId) return NextResponse.json({ error: "contactId required" }, { status: 400 });
 
   const H = { Authorization: `Bearer ${acct.token}`, Version: GHL_VERSION, Accept: "application/json", "Content-Type": "application/json" };
+
+  // Non-admins only see their own tasks, and this enforces the same rule on
+  // writes: the task must currently be assigned to the caller's GHL user.
+  const { data: roleRow } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
+  if (roleRow?.role !== "admin") {
+    const myGhlId = await ghlUserIdForEmail(acct, user.email);
+    const tr = await fetch(`${GHL_BASE}/contacts/${contactId}/tasks/${params.taskId}`, { headers: H });
+    const tj = tr.ok ? ((await tr.json()) as { task?: { assignedTo?: string | null } }) : null;
+    if (!myGhlId || !tj?.task || tj.task.assignedTo !== myGhlId) {
+      return NextResponse.json({ error: "You can only update tasks assigned to you" }, { status: 403 });
+    }
+  }
 
   // Marking done (or re-opening) with no other edits → use GHL's dedicated
   // task-complete endpoint. It only needs { completed }, so we don't have to
