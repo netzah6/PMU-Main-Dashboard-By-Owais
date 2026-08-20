@@ -14,6 +14,10 @@ export interface RouteInfo {
   webhook: string | null;    // the GHL webhook URL the route posts to
   matchedBusiness: string | null; // client business matched from the filter text
   matchedStatus: string | null;   // that client's status in Clients Master
+  /** which evidence produced the match — shown so weak matches are visible */
+  matchSource: "route label" | "product id" | "name in route" | null;
+  /** set when the route label and the deposits history DISAGREE — check it */
+  conflict: string | null;
 }
 
 export interface MakeRoutesReport {
@@ -174,6 +178,7 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
     // client name in a module label or URL instead of the filter.
     const blob = norm(raw);
     let matched: { business: string; status: string } | null = null;
+    let matchSource: RouteInfo["matchSource"] = null;
     // The route's filter LABEL is the team's explicit statement of whose route
     // this is ("Alysha Aganon - The Boujee Ink Studio PMU") — it outranks the
     // deposits-derived product map, which inherits any historical mislabeling.
@@ -182,6 +187,7 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
       for (const c of clients) {
         if ((c.nb.length > 5 && ln.includes(c.nb)) || (c.no.length > 5 && ln.includes(c.no))) {
           matched = { business: c.business || c.owner, status: c.status };
+          matchSource = "route label";
           break;
         }
       }
@@ -191,13 +197,28 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
       if (biz) {
         const c = clients.find((x) => x.nb === norm(biz));
         matched = { business: biz, status: c?.status ?? "" };
+        matchSource = "product id";
         break;
       }
     }
     if (!matched) for (const c of clients) {
       if ((c.nb.length > 5 && blob.includes(c.nb)) || (c.no.length > 5 && blob.includes(c.no))) {
         matched = { business: c.business || c.owner, status: c.status };
+        matchSource = "name in route";
         break;
+      }
+    }
+    // Self-audit: if the deposits history says this route's product belongs to
+    // a DIFFERENT business than we matched, say so on the row instead of
+    // silently picking a side (this is how the R8AYL mislabel was caught).
+    let conflict: string | null = null;
+    if (matched) {
+      for (const v of values) {
+        const depBiz = productToBiz.get(v);
+        if (depBiz && norm(depBiz) !== norm(matched.business)) {
+          conflict = `deposits under product ${v} are labeled "${depBiz}" — history may need correcting`;
+          break;
+        }
       }
     }
     return {
@@ -207,6 +228,8 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
       webhook: hook ? hook[0].replace(/\\\//g, "/") : null,
       matchedBusiness: matched?.business ?? null,
       matchedStatus: matched?.status ?? null,
+      matchSource,
+      conflict,
     };
   });
 

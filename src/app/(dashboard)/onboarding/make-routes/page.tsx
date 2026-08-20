@@ -145,6 +145,10 @@ export default function MakeRoutesPage() {
                         <div className="font-medium text-[#697a91]">{r.label || r.filterText.split(" · ")[0] || "—"}</div>
                       )}
                       {r.matchedBusiness && r.label && <div className="text-[11px] text-[#a3adbb]">{r.label}</div>}
+                      {r.matchedBusiness && r.matchSource && r.matchSource !== "route label" && (
+                        <div className="text-[11px] text-[#a3adbb]">matched by {r.matchSource}</div>
+                      )}
+                      {r.conflict && <div className="text-[11px] text-[#b58324]">⚠ {r.conflict}</div>}
                       {!r.matchedBusiness && <div className="text-[11px] text-[#b58324]">not in Clients Master</div>}
                       {r.matchedStatus && r.matchedStatus !== "Live" && (
                         <div className="text-[11px] text-[#8595a8]">{r.matchedStatus}</div>
