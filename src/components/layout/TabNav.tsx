@@ -17,7 +17,8 @@ const TABS: Tab[] = [
   { label: "📞 Calls", href: "/calls" },
   { label: "✅ Tasks", href: "/tasks" },
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
-  { label: "📝 Agreements", href: "/agreements" },
+  // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
+  // { label: "📝 Agreements", href: "/agreements" },
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "💎 LTV", href: "/ltv", adminOnly: true }, // admins only
   { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
@@ -28,7 +29,7 @@ const TABS: Tab[] = [
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true }, // one-box funnels on Vercel — existence, health, leads/bookings
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "👑 CEO", href: "/ceo", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
-  { label: "🕵️ Activity", href: "/activity", adminOnly: true }, // team-member change log
+  { label: "🕵️ Logs", href: "/activity", adminOnly: true }, // team-member change log
   { label: "🗺️ Map", href: "/map" },
   { label: "🤖 AI", href: "/ask" },
   { label: "📊 Reports", href: "/reports" },
