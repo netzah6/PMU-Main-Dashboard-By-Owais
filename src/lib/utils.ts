@@ -117,9 +117,21 @@ export function userColor(name: string | undefined | null): ColorTrio | null {
  * puts the freshest data on top — robust across tabs with inconsistent date formats.
  */
 export function sortNewestFirst<T extends Record<string, unknown>>(rows: T[]): T[] {
-  return [...rows].sort(
-    (a, b) => Number(b._row_number ?? 0) - Number(a._row_number ?? 0)
-  );
+  // Sort by the row's actual Date — NOT by sheet position. Position lied on
+  // 2026-08-20: new deposits were inserted mid-sheet (rows 61-71) by Google's
+  // table detection, and position-sorting buried that day's payments among
+  // March rows. Date formats seen: dd/mm/yyyy (current era) and ISO strings
+  // (spring era). Rows without a parseable date fall back to sheet position.
+  const ts = (r: Record<string, unknown>): number => {
+    const s = String(r["Date"] ?? r["Signed Date"] ?? "");
+    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    const d = m ? new Date(`${m[3]}-${m[2]}-${m[1]}`) : new Date(s);
+    return Number.isNaN(d.getTime()) ? Number(r._row_number ?? 0) : d.getTime();
+  };
+  return [...rows].sort((a, b) => {
+    const diff = ts(b) - ts(a);
+    return diff !== 0 ? diff : Number(b._row_number ?? 0) - Number(a._row_number ?? 0);
+  });
 }
 
 export function exportToCsv(filename: string, rows: Record<string, unknown>[]) {

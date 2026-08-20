@@ -121,7 +121,16 @@ export async function syncOneSheet(
   try {
     // 1. Read from Google Sheets (auto-resolves tab name if needed)
     const rawRows = await readSheetValues(spreadsheetId, sheetName, fallbackIndex);
-    const objects = rowsToObjects(rawRows);
+    // Drop rows with no identifying content: fully-blank rows and rows marked
+    // VOID. Blank rows are how deleted duplicates were neutralized after the
+    // 2026-08-20 lesson — a fully-empty row makes Google's table detection end
+    // the table there, so appends INSERT mid-sheet; the fix is a VOID marker in
+    // column A, and the sync must not ingest those markers as data.
+    const objects = rowsToObjects(rawRows).filter((o) =>
+      [o["Email"], o["Full Name"], o["Business Name"], o["Name"]].some(
+        (v) => String(v ?? "").trim() !== ""
+      )
+    );
 
     if (objects.length === 0) {
       return {
