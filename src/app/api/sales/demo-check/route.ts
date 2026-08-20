@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getAuth } from "@/lib/ppa";
 import { checkDemos } from "@/lib/demo-check";
 
 export const maxDuration = 300; // a long paste hits GHL twice per name
 
 export async function POST(req: NextRequest) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Sales is an admin-only tab (hidden from Client Success Coaches and VAs),
+  // so the API refuses everyone else too — hiding the tab alone isn't access control.
+  const auth = await getAuth();
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as { names?: string[]; raw?: string };
   const names = (body.names ?? String(body.raw ?? "").split(/[\n,]/))

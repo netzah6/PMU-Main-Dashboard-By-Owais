@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { UserPlus, Settings, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import type { UserRoleRecord, UserRole } from "@/lib/types";
+import { ROLE_LABELS, type UserRoleRecord, type UserRole } from "@/lib/types";
 
 export default function SettingsPage() {
   const { user, role, loading: userLoading } = useUser();
@@ -18,7 +18,7 @@ export default function SettingsPage() {
   const [users, setUsers] = useState<UserRoleRecord[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<UserRole>("viewer");
+  const [inviteRole, setInviteRole] = useState<UserRole>("editor");
   const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
@@ -89,6 +89,7 @@ export default function SettingsPage() {
 
   const roleVariant = (r: UserRole) =>
     r === "admin" ? "teal" : r === "editor" ? "blue" : "gray";
+  const roleLabel = (r: UserRole) => ROLE_LABELS[r] ?? r;
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -126,9 +127,9 @@ export default function SettingsPage() {
               onChange={(e) => setInviteRole(e.target.value as UserRole)}
               className="px-3 py-2 bg-[#eef2f7] border border-[#d7e0ea] rounded-lg text-sm text-[#34568a] focus:outline-none focus:border-[#15B7AE]"
             >
-              <option value="viewer">Viewer</option>
-              <option value="editor">Editor</option>
               <option value="admin">Admin</option>
+              <option value="editor">Client Success Coach</option>
+              <option value="va">Virtual Assistant</option>
             </select>
             <button
               type="submit"
@@ -161,16 +162,16 @@ export default function SettingsPage() {
                     <p className="text-xs text-[#8595a8] font-mono">{u.user_id}</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Badge variant={roleVariant(u.role)}>{u.role}</Badge>
+                    <Badge variant={roleVariant(u.role)}>{roleLabel(u.role)}</Badge>
                     {u.user_id !== user?.id && (
                       <select
                         value={u.role}
                         onChange={(e) => handleRoleChange(u.user_id, e.target.value as UserRole)}
                         className="px-2 py-1 bg-[#eef2f7] border border-[#d7e0ea] rounded text-xs text-[#34568a] focus:outline-none"
                       >
-                        <option value="viewer">Viewer</option>
-                        <option value="editor">Editor</option>
                         <option value="admin">Admin</option>
+                        <option value="editor">Client Success Coach</option>
+                        <option value="va">Virtual Assistant</option>
                       </select>
                     )}
                   </div>
@@ -185,16 +186,16 @@ export default function SettingsPage() {
           <h3 className="text-sm font-medium text-[#34568a]">Role Permissions</h3>
           <div className="space-y-2 text-xs text-[#697a91]">
             <div className="flex gap-3">
-              <Badge variant="teal">admin</Badge>
-              <span>Full access — invite users, edit all data, manage roles</span>
+              <Badge variant="teal">Admin</Badge>
+              <span>Full access — every tab, invite users, manage roles</span>
             </div>
             <div className="flex gap-3">
-              <Badge variant="blue">editor</Badge>
-              <span>Can edit client data, notes, and step trackers</span>
+              <Badge variant="blue">Client Success Coach</Badge>
+              <span>Can edit client data, notes, and step trackers — no admin tabs, no Sales</span>
             </div>
             <div className="flex gap-3">
-              <Badge variant="gray">viewer</Badge>
-              <span>Read-only access to all dashboards</span>
+              <Badge variant="gray">Virtual Assistant</Badge>
+              <span>Clients and Onboarding tabs only</span>
             </div>
           </div>
         </div>

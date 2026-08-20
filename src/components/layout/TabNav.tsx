@@ -3,6 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/useUser";
+import type { UserRole } from "@/lib/types";
 
 type Tab = { label: string; href: string; adminOnly?: boolean };
 
@@ -24,7 +25,7 @@ const TABS: Tab[] = [
   { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
   { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true }, // Square disputes + evidence prep — admins only
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true }, // pay-per-show tracking — admins only
-  { label: "💼 Sales", href: "/sales" }, // demo checker — paste contacts, get showed/no-show from the pipeline stage
+  { label: "💼 Sales", href: "/sales", adminOnly: true }, // demo checker — hidden from Client Success Coaches per 2026-08-21 request
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true }, // one-box funnels on Vercel — existence, health, leads/bookings
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
@@ -38,6 +39,19 @@ const TABS: Tab[] = [
 // A VA sees only these two. The real enforcement is in src/middleware.ts —
 // this just keeps the tab bar honest about what they can reach.
 const VA_TABS = new Set(["/clients", "/onboarding"]);
+
+// Which pages each role may actually OPEN. Hiding a tab is not access
+// control — RoleGate in DashboardShell calls this on every navigation and
+// bounces a disallowed URL to /clients. Kept next to TABS so the tab list
+// and the gate can never disagree.
+export function pathAllowedFor(role: UserRole | null, pathname: string): boolean {
+  const hit = TABS.find((t) => pathname === t.href || pathname.startsWith(t.href + "/"));
+  // A Virtual Assistant gets a strict allowlist: their two tabs and nothing else.
+  if (role === "va") return !!hit && VA_TABS.has(hit.href);
+  // Pages outside the tab list guard themselves (/settings is admin-gated).
+  if (!hit) return true;
+  return !hit.adminOnly || role === "admin";
+}
 
 export function TabNav() {
   const pathname = usePathname();
