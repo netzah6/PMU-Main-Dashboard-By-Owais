@@ -16,6 +16,7 @@ export default function SalesPage() {
   const [results, setResults] = useState<DemoResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const names = raw.split(/[\n,]/).map((n) => n.trim()).filter(Boolean);
 
@@ -41,6 +42,24 @@ export default function SalesPage() {
 
   const shown = results?.filter((r) => r.status === "showed").length ?? 0;
   const resolved = results?.filter((r) => r.status !== "not_yet" && r.status !== "not_in_system").length ?? 0;
+
+  // The exact message the team posts in Slack after a check — same sections,
+  // same emojis, "Showed" counted against everything checked.
+  function copyForSlack() {
+    if (!results) return;
+    const blocks: string[] = [];
+    for (const sec of SECTIONS) {
+      const rows = results.filter((r) => r.status === sec.key);
+      if (!rows.length) continue;
+      const count = sec.key === "showed" ? `(${rows.length}/${results.length})` : `${rows.length}`;
+      const lines = rows.map((r) => (r.note ? `${r.query} — ${r.note}` : r.query));
+      blocks.push(`${sec.emoji} ${sec.label} — ${count}\n${lines.join("\n")}`);
+    }
+    navigator.clipboard.writeText(blocks.join("\n\n")).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -78,10 +97,18 @@ export default function SalesPage() {
 
       {results && (
         <>
-          <div className="mt-6 rounded-xl border border-[#e4ebf2] bg-white px-4 py-3 text-sm text-[#1f3559]">
-            <strong>{shown}</strong> showed out of <strong>{resolved}</strong> resolved
-            {resolved > 0 && <> — <strong>{Math.round((shown / resolved) * 100)}%</strong> show rate</>}
-            <span className="text-[#8595a8]"> · {results.length} checked</span>
+          <div className="mt-6 rounded-xl border border-[#e4ebf2] bg-white px-4 py-3 text-sm text-[#1f3559] flex items-center gap-3 flex-wrap">
+            <span>
+              <strong>{shown}</strong> showed out of <strong>{resolved}</strong> resolved
+              {resolved > 0 && <> — <strong>{Math.round((shown / resolved) * 100)}%</strong> show rate</>}
+              <span className="text-[#8595a8]"> · {results.length} checked</span>
+            </span>
+            <button
+              onClick={copyForSlack}
+              className="ml-auto rounded-lg border border-[#15B7AE] bg-[#f0fbfa] px-4 py-1.5 text-xs font-bold text-[#0e8f88] hover:bg-[#e0f6f4]"
+            >
+              {copied ? "Copied ✓ — paste it in Slack" : "📋 Copy for Slack"}
+            </button>
           </div>
 
           {SECTIONS.map((s) => {
