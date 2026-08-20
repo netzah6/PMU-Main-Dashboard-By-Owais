@@ -219,6 +219,7 @@ export async function GET(req: NextRequest) {
        a chosen slot. Cost/booking compares this stage apples-to-apples. */
     const vis = visitors[v.vkey] ?? 0;
     const picked = v.kind === "external" ? externalBooked : (ours[v.vkey]?.picked ?? 0);
+    const leadsVal = v.kind === "external" ? externalLeads : (ours[v.vkey]?.leads ?? 0);
     const share = totalVisitors ? vis / totalVisitors : 0;
     const spend = spend7 != null ? spend7 * share : null;
     return {
@@ -229,9 +230,10 @@ export async function GET(req: NextRequest) {
       weight: v.weight,
       overrides: Object.keys((v as { config_override?: Record<string, string> }).config_override ?? {}),
       visitors: vis,
-      leads: v.kind === "external" ? externalLeads : (ours[v.vkey]?.leads ?? 0),
+      leads: leadsVal,
       picked,
       deposits: v.kind === "external" ? externalDeposits : (ours[v.vkey]?.paid ?? 0),
+      leadRate: vis && leadsVal != null ? +((leadsVal / vis) * 100).toFixed(1) : null,
       pickRate: vis && picked != null ? +((picked / vis) * 100).toFixed(1) : null,
       spend: spend == null ? null : +spend.toFixed(2),
       costPerBooking: spend != null && picked ? +(spend / picked).toFixed(2) : null,
