@@ -121,7 +121,7 @@
     "#onebox-root.nohero .box{margin-top:10px}" +
     "#onebox-root .trust p{margin:0;font-size:14px;color:var(--ink-soft)}" +
     "#onebox-root .stars{color:var(--gold);letter-spacing:.14em;font-size:15px;margin-top:3px}" +
-    "#onebox-root .box{margin:20px auto 0;max-width:560px;background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 48px -20px rgba(17,19,21,.28),0 4px 14px -8px rgba(17,19,21,.14);overflow:hidden;font-family:var(--form)}" +
+    "#onebox-root .box{position:relative;margin:20px auto 0;max-width:560px;background:#fff;border-radius:12px;border:1px solid var(--line);box-shadow:0 24px 48px -20px rgba(17,19,21,.28),0 4px 14px -8px rgba(17,19,21,.14);overflow:hidden;font-family:var(--form)}" +
     "#onebox-root .rail{margin:14px 16px 0;height:24px;border-radius:999px;background:#e9edef;overflow:hidden}" +
     "#onebox-root .rail span{display:grid;place-items:center;height:100%;border-radius:999px;background:repeating-linear-gradient(135deg,var(--teal) 0 11px,var(--teal-deep) 11px 22px);color:#fff;font-size:11px;font-weight:600;white-space:nowrap;transition:width .45s cubic-bezier(.4,0,.2,1);min-width:44px;animation:ob-railmove 1.1s linear infinite}" +
     "@keyframes ob-railmove{to{background-position:31.11px 0}}" +
@@ -179,6 +179,8 @@
     "#onebox-root .confalt{display:block;width:100%;border:1.5px solid var(--line);border-radius:12px;padding:12px;background:#fff;cursor:pointer;font-family:var(--form);font-size:13.5px;font-weight:600;color:var(--ink-soft);transition:border-color .15s}" +
     "#onebox-root .confalt:hover{border-color:var(--teal)}" +
     "#onebox-root .fbslot{position:relative;min-height:400px}" +
+    "#onebox-root .fbhost{position:absolute;left:-9999px;top:0;width:100%;visibility:hidden}" +
+    "#onebox-root .fbhost.on{position:static;left:auto;visibility:visible;padding:0 26px}" +
     "#onebox-root .fbslot::before{content:'';position:absolute;top:56px;left:50%;margin-left:-14px;width:28px;height:28px;border:3px solid #e4e7e9;border-top-color:var(--teal);border-radius:50%;animation:ob-spin .8s linear infinite}" +
     "#onebox-root .fbslot::after{content:'Loading secure checkout\u2026';position:absolute;top:98px;left:0;right:0;text-align:center;font-family:var(--form);font-size:12.5px;color:var(--muted)}" +
     "#onebox-root .fbslot>*{position:relative;z-index:1}" +
@@ -385,6 +387,36 @@
   var slideEl = document.getElementById("ob-slide");
   var boxEl = root.querySelector(".box");
 
+  /* The Fanbasis checkout boots into a persistent host OUTSIDE the slide
+     (the slide's innerHTML is wiped on every phase change, and moving an
+     iframe reloads it — killing its one-time session). Booting starts at
+     the CONFIRM step, so the visitor's read-and-decide dwell time overlaps
+     the vendor's slow boot; the deposit step just reveals it. Backing out
+     to confirm/booking keeps it warm — only returning to the survey (where
+     name/email can change) tears it down. */
+  var fbHost = document.createElement("div");
+  fbHost.className = "fbslot fbhost";
+  if (boxEl) boxEl.appendChild(fbHost);
+  var fbBack = document.createElement("button");
+  fbBack.type = "button";
+  fbBack.className = "backlink";
+  fbBack.innerHTML = "&larr; Back";
+  fbBack.style.display = "none";
+  fbBack.style.marginBottom = "20px";
+  fbBack.onclick = function () { show("confirm", "prev"); };
+  if (boxEl) boxEl.appendChild(fbBack);
+  var fbPreconnected = false;
+  function fbPreconnect() {
+    if (fbPreconnected) return;
+    fbPreconnected = true;
+    ["https://cdn.embedded.fanbasis.io", "https://www.fanbasis.com", "https://embedded.fanbasis.io"].forEach(function (h) {
+      var l = document.createElement("link");
+      l.rel = "preconnect";
+      l.href = h;
+      document.head.appendChild(l);
+    });
+  }
+
   /* FAQ videos are click-to-play: a poster + play button until tapped, so
      six mp4s never weigh down the page load. */
   /* Keep visitors in the funnel: any Instagram-bound link in the widget
@@ -469,7 +501,7 @@
      (our /api/onebox/slots proxy of GHL free-slots). Picking a time books
      the appointment server-side with the survey's data — no extra form —
      and only a confirmed booking advances to the deposit step. */
-  var calState = { y: 0, m: 0, day: null, dates: {}, loading: false, error: "", booking: false };
+  var calState = { y: 0, m: 0, day: null, dates: {}, loading: false, error: "", booking: false, memo: {}, hopped: false };
 
   function monthKeyDates() {
     var out = [];
@@ -555,32 +587,65 @@
     bindCal();
   }
 
-  function loadMonth() {
-    var y = calState.y, m = calState.m;
+  function fetchMonth(y, m, cb) {
     var start = new Date(y, m, 1).getTime();
     var now = Date.now();
-    if (start < now) start = now;
+    /* Round "now" up to a 5-minute bucket so concurrent visitors share
+       the same slots URL — the server edge-caches each key for 30s. */
+    if (start < now) start = Math.ceil(now / 300000) * 300000;
     var end = new Date(y, m + 1, 1).getTime();
-    calState.loading = true; calState.error = ""; calState.day = null; calState.dates = {}; calState.selIso = null;
-    paintCal();
+    if (end <= start) { cb(null); return; }
     fetch((C.submitUrl || "").replace(/submit$/, "slots") + "?slug=" + encodeURIComponent(C.slug || "") +
       "&start=" + start + "&end=" + end)
       .then(function (r) { return r.json(); })
       .then(function (j) {
-        calState.loading = false;
-        if (!j.ok) { calState.error = "Couldn’t load available times."; }
-        else {
-          calState.dates = j.dates || {};
-          var ks = monthKeyDates().sort();
-          calState.day = ks.length ? ks[0] : null;
-        }
-        paintCal();
+        if (!j.ok) { cb(null); return; }
+        calState.memo[y + "-" + m] = { ts: Date.now(), dates: j.dates || {} };
+        cb(j.dates || {});
       })
-      .catch(function () {
-        calState.loading = false;
+      .catch(function () { cb(null); });
+  }
+
+  function applyMonth(dates) {
+    calState.dates = dates;
+    var ks = monthKeyDates().sort();
+    calState.day = ks.length ? ks[0] : null;
+    /* Nothing open this month (common late in a month): hop forward once
+       instead of stranding the visitor on a fully-disabled grid. */
+    if (!ks.length && !calState.hopped) {
+      calState.hopped = true;
+      calState.m++; if (calState.m > 11) { calState.m = 0; calState.y++; }
+      loadMonth();
+      return;
+    }
+    paintCal();
+    // Warm the following month in the background — the arrows feel instant.
+    var ny = calState.y, nm = calState.m + 1;
+    if (nm > 11) { nm = 0; ny++; }
+    if (!calState.memo[ny + "-" + nm]) fetchMonth(ny, nm, function () {});
+  }
+
+  function loadMonth() {
+    var y = calState.y, m = calState.m;
+    calState.error = ""; calState.day = null; calState.selIso = null;
+    var memo = calState.memo[y + "-" + m];
+    if (memo && Date.now() - memo.ts < 120000) {
+      // Prefetched during the quiz (or a month already visited) — instant.
+      calState.loading = false;
+      applyMonth(memo.dates);
+      return;
+    }
+    calState.loading = true; calState.dates = {};
+    paintCal();
+    fetchMonth(y, m, function (dates) {
+      calState.loading = false;
+      if (dates === null) {
         calState.error = "Couldn’t load available times.";
         paintCal();
-      });
+      } else {
+        applyMonth(dates);
+      }
+    });
   }
 
   function bindCal() {
@@ -770,9 +835,7 @@
         "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p>" +
       "</div>" +
       '<p class="vlabel">&#9203; Your spot is held for:</p>' +
-      '<div class="chips" id="ob-clock"></div>' +
-      '<div class="fbslot" id="ob-fbslot"></div>' +
-      '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
+      '<div class="chips" id="ob-clock"></div>';
   }
 
   /* In-funnel thank-you step, shown after the deposit clears when the
@@ -834,9 +897,15 @@
   }
 
   function show(p, dir) {
-    var oldWrap = slideEl.querySelector(C.fanbasisSelector || "#fanbasis-checkout-wrapper");
-    if (oldWrap) { oldWrap.remove(); state.fbBooted = false; }
+    if (p === "survey" && state.fbBooted) {
+      /* Back on the survey the name/email can change, which makes the
+         prefilled checkout session stale — rebuild it on the next pass. */
+      fbHost.innerHTML = "";
+      state.fbBooted = false;
+    }
     phase = p;
+    fbHost.classList.toggle("on", phase === "deposit");
+    fbBack.style.display = phase === "deposit" ? "" : "none";
     if (phase === "survey" || phase === "booking" || phase === "done") stopHold();
     slideEl.className = "slide";
     void slideEl.offsetWidth;
@@ -861,13 +930,21 @@
         book(state.pendingIso);
       };
       document.getElementById("ob-alt").onclick = function () { show("booking", "prev"); };
+      /* Start the vendor checkout NOW, hidden — its session mint + iframe
+         boot run while the visitor reads the confirm card, so the deposit
+         step opens with the checkout already (or nearly) ready. */
+      bootFanbasis(fbHost);
     }
 
     if (phase === "survey") bindSurvey();
-    if (phase === "booking") { bindCal(); if (!calState.loading && !monthKeyDates().length && !calState.error) loadMonth(); }
+    if (phase === "booking") {
+      fbPreconnect();
+      bindCal();
+      if (!calState.loading && !monthKeyDates().length && !calState.error) loadMonth();
+    }
     if (phase === "deposit") {
       ensureHold(false);
-      bootFanbasis(document.getElementById("ob-fbslot"));
+      bootFanbasis(fbHost);
     }
     /* Survey-stage copy: hidden from the calendar onward so the booking,
        confirm and deposit steps sit as high as possible. */
@@ -991,7 +1068,7 @@
         window.OB_FAQS.map(function (f) {
           return "<details><summary>" + esc(f.q) + '</summary><p class="fa">' + esc(f.a) + "</p>" +
             (f.v ? '<div class="vidbox" data-v="' + esc(f.v) + '">' +
-              (f.p ? '<img src="' + esc(f.p) + '" alt="" loading="lazy">' : "") +
+              (f.p ? '<img src="' + esc(fastImg(f.p, 640)) + '" alt="" loading="lazy">' : "") +
               '<span class="vplay">&#9654;</span></div>' : "") +
             "</details>";
         }).join("") + "</div></div>";
@@ -1062,5 +1139,19 @@
     show("done");
   } else {
     show("survey");
+    /* Warm the calendar during the quiz: by the time the visitor finishes
+       (~30s), the month is memoized and the booking step paints with zero
+       wait. The 2.5s delay keeps it off the first-paint critical path. */
+    setTimeout(function () {
+      if (phase !== "survey") return;
+      if (!calState.y) {
+        var seedNow = new Date();
+        calState.y = seedNow.getFullYear();
+        calState.m = seedNow.getMonth();
+      }
+      if (!calState.memo[calState.y + "-" + calState.m]) {
+        fetchMonth(calState.y, calState.m, function () {});
+      }
+    }, 2500);
   }
 })();
