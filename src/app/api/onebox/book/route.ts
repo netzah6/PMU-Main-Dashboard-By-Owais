@@ -51,19 +51,37 @@ export async function POST(req: NextRequest) {
 
   // Contact (idempotent with the survey submit's upsert).
   const [firstName, ...rest] = fullName.split(/\s+/);
-  const cr = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
-    method: "POST",
-    headers: { ...H, Version: "2021-07-28" },
-    body: JSON.stringify({
-      locationId,
-      firstName,
-      lastName: rest.join(" "),
-      name: fullName,
-      phone,
-      ...(email ? { email } : {}),
-      source: "One-Box Funnel",
+  /* Post-payment path: every sequential round trip here widens the window
+     in which a crash leaves a PAYING client without an appointment. The
+     upsert, the lead lookup and the calendar meta are independent — run
+     them together. */
+  const [cr, leadPreRes, calR] = await Promise.all([
+    fetch("https://services.leadconnectorhq.com/contacts/upsert", {
+      method: "POST",
+      headers: { ...H, Version: "2021-07-28" },
+      body: JSON.stringify({
+        locationId,
+        firstName,
+        lastName: rest.join(" "),
+        name: fullName,
+        phone,
+        ...(email ? { email } : {}),
+        source: "One-Box Funnel",
+      }),
     }),
-  });
+    svc
+      .from("onebox_leads")
+      .select("answers")
+      .eq("slug", slug)
+      .eq("phone", phone)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    fetch(
+      `https://services.leadconnectorhq.com/calendars/${encodeURIComponent(calendarId)}`,
+      { headers: { ...H, Version: "2021-04-15" } }
+    ),
+  ]);
   const cj = (await cr.json()) as { contact?: { id?: string } };
   const contactId = cj.contact?.id;
   if (!cr.ok || !contactId) {
@@ -73,15 +91,7 @@ export async function POST(req: NextRequest) {
   /* Additive tag endpoint only — tags in the upsert body REPLACE the
      contact's whole tag list and were wiping workflow-added tags. A lead
      marked disqualified at submit stays untagged here too. */
-  const { data: leadPre } = await svc
-    .from("onebox_leads")
-    .select("answers")
-    .eq("slug", slug)
-    .eq("phone", phone)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const disqualified = Boolean((leadPre?.answers as { disqualified?: boolean } | null)?.disqualified);
+  const disqualified = Boolean((leadPreRes.data?.answers as { disqualified?: boolean } | null)?.disqualified);
   if (!disqualified) {
     await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
       method: "POST",
@@ -93,10 +103,6 @@ export async function POST(req: NextRequest) {
   // Calendar meta for duration + title.
   let durationMin = 30;
   let title = "Appointment";
-  const calR = await fetch(
-    `https://services.leadconnectorhq.com/calendars/${encodeURIComponent(calendarId)}`,
-    { headers: { ...H, Version: "2021-04-15" } }
-  );
   if (calR.ok) {
     const calJ = (await calR.json()) as { calendar?: { slotDuration?: number; name?: string } };
     if (calJ.calendar?.slotDuration) durationMin = calJ.calendar.slotDuration;
@@ -140,48 +146,54 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Reflect the booking on the stored lead row (best effort).
-  await svc
-    .from("onebox_leads")
-    .update({ ghl_status: "booked", ghl_contact_id: contactId, ghl_appointment_id: aj.id ?? null })
-    .eq("slug", slug)
-    .eq("phone", phone)
-    .then(() => {});
-
-  /* The template's workflows read the booked slot from the contact's
-     "CC - Reserved Appointment Time" field — keep it filled here too. */
-  try {
-    const fieldMap = await getSurveyFieldMap(locationId, tok.token);
-    if (fieldMap.reserved_time) {
-      await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
-        method: "PUT",
-        headers: { ...H, Version: "2021-07-28" },
-        body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(startTime) }] }),
-      });
-    }
-  } catch { /* best effort — the appointment itself is already booked */ }
-
-  // Server-side Purchase — this endpoint only runs once the deposit has
-  // cleared, so it is the honest signal for optimising on paying clients.
+  /* The appointment exists — everything left is bookkeeping on
+     independent systems (lead row, reserved-time field, Meta CAPI).
+     Run the three together; each is individually best-effort. */
   const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string };
   const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
   const token = capiToken(ex);
   const eventId = String(body.eventId ?? "");
-  if (pixelId && token && eventId) {
-    const amount = parseFloat(String(cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
-    await sendCapiEvent({
-      pixelId, token, eventName: "Purchase", eventId,
-      eventSourceUrl: String(body.pageUrl ?? "") || undefined,
-      value: Number.isFinite(amount) ? amount : undefined,
-      currency: "USD",
-      user: {
-        email, phone, fullName,
-        fbp: String(body.fbp ?? ""), fbc: String(body.fbc ?? ""),
-        clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
-        userAgent: req.headers.get("user-agent"),
-      },
-    });
-  }
+  await Promise.all([
+    // Reflect the booking on the stored lead row.
+    svc
+      .from("onebox_leads")
+      .update({ ghl_status: "booked", ghl_contact_id: contactId, ghl_appointment_id: aj.id ?? null })
+      .eq("slug", slug)
+      .eq("phone", phone)
+      .then(() => {}),
+    /* The template's workflows read the booked slot from the contact's
+       "CC - Reserved Appointment Time" field — keep it filled here too. */
+    (async () => {
+      try {
+        const fieldMap = await getSurveyFieldMap(locationId, tok.token!);
+        if (fieldMap.reserved_time) {
+          await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+            method: "PUT",
+            headers: { ...H, Version: "2021-07-28" },
+            body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(startTime) }] }),
+          });
+        }
+      } catch { /* best effort — the appointment itself is already booked */ }
+    })(),
+    // Server-side Purchase — this endpoint only runs once the deposit has
+    // cleared, so it is the honest signal for optimising on paying clients.
+    (async () => {
+      if (!pixelId || !token || !eventId) return;
+      const amount = parseFloat(String(cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
+      await sendCapiEvent({
+        pixelId, token, eventName: "Purchase", eventId,
+        eventSourceUrl: String(body.pageUrl ?? "") || undefined,
+        value: Number.isFinite(amount) ? amount : undefined,
+        currency: "USD",
+        user: {
+          email, phone, fullName,
+          fbp: String(body.fbp ?? ""), fbc: String(body.fbc ?? ""),
+          clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+          userAgent: req.headers.get("user-agent"),
+        },
+      }).catch(() => {});
+    })(),
+  ]);
 
   return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
 }
