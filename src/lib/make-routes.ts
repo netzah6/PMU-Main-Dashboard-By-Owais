@@ -188,7 +188,17 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
     };
   });
 
-  // Duplicates: same matched business on more than one route.
+  // Duplicates: same business on more than one route — but ONLY when the
+  // routes overlap on product. A business with two funnels has two Fanbasis
+  // products and legitimately needs one route per product (Inkredible Glow,
+  // Tha Beaute Hub), so disjoint known-product routes are NOT duplicates.
+  // Overlap = a shared product id, or a route with no recognizable product
+  // (its filter could match anything of that business).
+  const routePids = new Map<number, string[]>();
+  for (const r of routes) {
+    const pids = (r.filterText || "").split(" · ").filter((v) => productToBiz.has(v));
+    routePids.set(r.idx, pids);
+  }
   const byBiz = new Map<string, number[]>();
   for (const r of routes) {
     if (!r.matchedBusiness) continue;
@@ -196,9 +206,15 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
     if (!byBiz.has(k)) byBiz.set(k, []);
     byBiz.get(k)!.push(r.idx);
   }
-  const duplicates = [...byBiz.entries()]
-    .filter(([, idxs]) => idxs.length > 1)
-    .map(([k, idxs]) => ({ business: routes.find((r) => norm(r.matchedBusiness ?? "") === k)?.matchedBusiness ?? k, routeIdxs: idxs }));
+  const duplicates: Array<{ business: string; routeIdxs: number[] }> = [];
+  for (const [k, idxs] of byBiz) {
+    if (idxs.length < 2) continue;
+    const sets = idxs.map((i) => routePids.get(i) ?? []);
+    const seen = new Set<string>();
+    let overlap = sets.some((set) => set.length === 0);
+    for (const set of sets) for (const pid of set) { if (seen.has(pid)) overlap = true; seen.add(pid); }
+    if (overlap) duplicates.push({ business: routes.find((r) => norm(r.matchedBusiness ?? "") === k)?.matchedBusiness ?? k, routeIdxs: idxs });
+  }
 
   const noWebhook = routes.filter((r) => !r.webhook).map((r) => r.idx);
 
