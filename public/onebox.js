@@ -180,7 +180,8 @@
     "#onebox-root .confalt:hover{border-color:var(--teal)}" +
     "#onebox-root .fbslot{position:relative;min-height:400px}" +
     "#onebox-root .fbhost{position:absolute;left:-9999px;top:0;width:100%;visibility:hidden}" +
-    "#onebox-root .fbhost.on{position:static;left:auto;visibility:visible;padding:0 26px}" +
+    "#onebox-root .fbhost.on{position:relative;left:auto;top:auto;visibility:visible;padding:0 26px;margin-top:-36px}" +
+    "#onebox-root .fbhost.ready::before,#onebox-root .fbhost.ready::after{display:none}" +
     "#onebox-root .fbslot::before{content:'';position:absolute;top:56px;left:50%;margin-left:-14px;width:28px;height:28px;border:3px solid #e4e7e9;border-top-color:var(--teal);border-radius:50%;animation:ob-spin .8s linear infinite}" +
     "#onebox-root .fbslot::after{content:'Loading secure checkout\u2026';position:absolute;top:98px;left:0;right:0;text-align:center;font-family:var(--form);font-size:12.5px;color:var(--muted)}" +
     "#onebox-root .fbslot>*{position:relative;z-index:1}" +
@@ -218,11 +219,11 @@
     "#onebox-root .depwhen{margin:0;font-size:14.5px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
     "#onebox-root .deprow{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;margin:0 0 10px;font-family:var(--form);font-size:17px}" +
     "#onebox-root .depsafe{background:var(--mint-bg);border:1px solid var(--mint-line);border-radius:7px;padding:7px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
-    "#onebox-root .depsafe strong{display:block;color:var(--mint-ink);font-size:14px;font-family:var(--headline);line-height:1.3}" +
+    "#onebox-root .depsafe strong{display:block;color:var(--mint-ink);font-size:clamp(10.5px,3.3vw,14px);font-family:var(--headline);line-height:1.3;white-space:nowrap}" +
     "#onebox-root .depsafe p{margin:2px 0 0;font-size:12.5px;color:#2c5c39;line-height:1.4}" +
     "#onebox-root .dephold{color:var(--ink-soft);font-weight:600}" +
     "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;font-size:17px;letter-spacing:-.01em;color:var(--ink)}" +
-    "#onebox-root .dephead{font-size:15.5px;margin:0 0 7px}" +
+    "#onebox-root .dephead{font-size:clamp(10px,3.25vw,17px);margin:0 0 7px;white-space:nowrap}" +
     "@media(min-width:768px){#onebox-root .dephead{font-size:19px}}" +
     "#onebox-root .fbslot{min-height:400px}" +
     "#onebox-root .done{text-align:center;padding:6px 0}" +
@@ -800,6 +801,10 @@
       if (n.tagName === "SCRIPT") scripts.push(n);
       else slot.appendChild(n.cloneNode(true));
     });
+    var readyPoll = setInterval(function () {
+      if (slot.querySelector("iframe")) { slot.classList.add("ready"); clearInterval(readyPoll); }
+    }, 400);
+    setTimeout(function () { clearInterval(readyPoll); }, 60000);
     setTimeout(function () {
       if (!slot.querySelector("iframe")) {
         var note = document.createElement("p");
@@ -901,6 +906,7 @@
       /* Back on the survey the name/email can change, which makes the
          prefilled checkout session stale — rebuild it on the next pass. */
       fbHost.innerHTML = "";
+      fbHost.classList.remove("ready");
       state.fbBooted = false;
     }
     phase = p;
