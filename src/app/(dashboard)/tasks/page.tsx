@@ -48,6 +48,7 @@ export default function TasksPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [userFilter, setUserFilter] = useState("All");
+  const [scoped, setScoped] = useState(false); // non-admin: own tasks only
   const [savingId, setSavingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpand = useCallback((id: string) => {
@@ -67,6 +68,7 @@ export default function TasksPage() {
       setTasks(json.tasks ?? []);
       setUsers(json.users ?? []);
       setLocationId(json.locationId ?? "");
+      setScoped(!!json.scoped);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -162,7 +164,7 @@ export default function TasksPage() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Tasks</h1>
-          <p className="text-sm text-[#697a91]">GHL tasks for PMU Bookings On Demand · {tasks.length} open · edits sync to GHL</p>
+          <p className="text-sm text-[#697a91]">{scoped ? "Your open tasks" : "GHL tasks for PMU Bookings On Demand"} · {tasks.length} open · edits sync to GHL</p>
         </div>
         <button onClick={load} disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
@@ -176,10 +178,12 @@ export default function TasksPage() {
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search task, contact or person…"
             className="w-full pl-8 pr-3 py-2 bg-[#eef2f7] border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
         </div>
-        <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)}
-          className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
-          {userOptions.map((u) => <option key={u} value={u}>{u === "All" ? "All people" : u}</option>)}
-        </select>
+        {!scoped && (
+          <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)}
+            className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+            {userOptions.map((u) => <option key={u} value={u}>{u === "All" ? "All people" : u}</option>)}
+          </select>
+        )}
       </div>
 
       {error ? (
@@ -187,7 +191,7 @@ export default function TasksPage() {
       ) : loading ? (
         <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center"><Loader2 size={15} className="animate-spin" /> Loading tasks from GHL…</div>
       ) : groups.length === 0 ? (
-        <div className="py-12 text-center text-[#8595a8]">No open tasks.</div>
+        <div className="py-12 text-center text-[#8595a8]">{scoped ? "No open tasks assigned to you." : "No open tasks."}</div>
       ) : (
         <div className="space-y-3">
           {groups.map(([person, list]) => (

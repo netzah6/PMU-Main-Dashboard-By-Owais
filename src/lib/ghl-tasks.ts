@@ -29,3 +29,22 @@ export async function getPmuTasksAccount(): Promise<{ locationId: string; token:
 
 export const GHL_BASE = "https://services.leadconnectorhq.com";
 export const GHL_VERSION = "2021-07-28";
+
+// The GHL user whose email matches a dashboard login, for scoping the Tasks
+// tab: non-admins only see (and may only update) tasks assigned to their own
+// GHL user. Matching is by email, case-insensitively — the coaches log in to
+// the dashboard and to GHL with the same address.
+export async function ghlUserIdForEmail(
+  acct: { locationId: string; token: string },
+  email: string | null | undefined
+): Promise<string | null> {
+  if (!email) return null;
+  const r = await fetch(`${GHL_BASE}/users/?locationId=${acct.locationId}`, {
+    headers: { Authorization: `Bearer ${acct.token}`, Version: GHL_VERSION, Accept: "application/json" },
+  });
+  if (!r.ok) return null;
+  const j = (await r.json()) as { users?: Array<{ id?: string; email?: string }> };
+  const want = email.trim().toLowerCase();
+  const hit = (j.users ?? []).find((u) => String(u.email ?? "").trim().toLowerCase() === want);
+  return hit?.id ? String(hit.id) : null;
+}
