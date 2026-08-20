@@ -223,8 +223,8 @@
     "#onebox-root .depsafe p{margin:2px 0 0;font-size:12.5px;color:#2c5c39;line-height:1.4}" +
     "#onebox-root .dephold{color:var(--ink-soft);font-weight:600}" +
     "#onebox-root .dephold b{font-variant-numeric:tabular-nums;font-weight:800;font-size:17px;letter-spacing:-.01em;color:var(--ink)}" +
-    "#onebox-root .dephead{font-size:clamp(10px,3.25vw,17px);margin:0 0 7px;white-space:nowrap}" +
-    "@media(min-width:768px){#onebox-root .dephead{font-size:19px}}" +
+    "#onebox-root .dephead{font-size:clamp(12px,4.4vw,20px);margin:0 0 7px;white-space:nowrap}" +
+    "@media(min-width:768px){#onebox-root .dephead{font-size:22px}}" +
     "#onebox-root .fbslot{min-height:400px}" +
     "#onebox-root .done{text-align:center;padding:6px 0}" +
     "#onebox-root .done .tick{width:58px;height:58px;border-radius:50%;background:var(--mint-bg);border:1px solid var(--mint-line);color:var(--mint-ink);display:grid;place-items:center;margin:0 auto 14px;font-size:26px}" +
@@ -832,7 +832,7 @@
 
   function slideDeposit() {
     return '<h2 class="phead dephead">' + (C.depositHead ? esc(C.depositHead)
-      : "Last Step - " + esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
+      : esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
       (state.slotIso ? '<div class="depmeta"><p class="depwhen">&#128197; ' +
         esc(fmtWhen(state.slotIso)) + "</p></div>" : "") +
       '<div class="depsafe">' +
