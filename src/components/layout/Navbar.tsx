@@ -42,14 +42,9 @@ export function Navbar({ userEmail, syncing }: NavbarProps) {
 
       {/* Logo + Title + the viewer's role */}
       <div className="flex items-center gap-3 flex-1 min-w-0">
-        <div
-          className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 p-[5px]"
-          style={{ background: "linear-gradient(135deg, #15B7AE, #34568a)" }}
-        >
-          {/* the brand mark is white-on-transparent, so it needs this dark square behind it */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brand-logo.png" alt="PMU Bookings On Demand" className="w-full h-full object-contain" />
-        </div>
+        {/* the brand mark in its original colors — black art, teal shield — sits directly on the white bar */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand-logo.png" alt="PMU Bookings On Demand" className="w-10 h-9 object-contain flex-shrink-0" />
         <div className="min-w-0">
           <p className="hidden sm:block text-[11px] font-extrabold tracking-[0.12em] uppercase text-[#0e8f88] leading-none">
             PMU Bookings On Demand
