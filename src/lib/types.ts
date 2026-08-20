@@ -2,6 +2,16 @@
 // src/middleware.ts (pages AND api routes), not merely hidden in the tab bar.
 export type UserRole = "admin" | "editor" | "viewer" | "va";
 
+// What each stored role value is called in the UI. "editor" predates the
+// Client Success Coach title and stays as the stored value so every existing
+// role === "editor" check (and every user_roles row) keeps working.
+export const ROLE_LABELS: Record<UserRole, string> = {
+  admin: "Admin",
+  editor: "Client Success Coach",
+  viewer: "Viewer",
+  va: "Virtual Assistant",
+};
+
 export interface UserRoleRecord {
   id: string;
   user_id: string;
