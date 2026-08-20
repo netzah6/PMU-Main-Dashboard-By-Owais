@@ -110,7 +110,7 @@
     "#onebox-root .callbar{border-bottom:1px solid var(--line);padding:11px 20px;text-align:center;font-size:15px;font-weight:700;font-family:var(--headline)}" +
     "#onebox-root .wrap{padding:20px 20px 44px;max-width:720px;margin:0 auto;min-height:calc(100vh - 74px);min-height:calc(100svh - 74px)}" +
     "#onebox-root .biglogo{display:block;margin:0 auto 12px;max-height:64px;width:auto}" +
-    "#onebox-root .lede{text-align:center;margin:0 auto;max-width:30ch;font-family:var(--headline);font-weight:400;font-size:clamp(15px,4.5vw,22px);line-height:1.3;letter-spacing:-.01em;text-wrap:balance;color:#000}" +
+    "#onebox-root .lede{text-align:center;margin:0 auto;max-width:none;font-family:var(--headline);font-weight:400;font-size:clamp(15px,4.5vw,22px);line-height:1.3;letter-spacing:-.01em;color:#000}" +
     "#onebox-root .ledeoffer{color:inherit;font-weight:inherit}" +
     "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(22px,6.2vw,32px);line-height:1.25;text-align:center;margin:10px auto 0;max-width:22ch;text-wrap:balance;color:#000}" +
     "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:20px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
@@ -370,7 +370,7 @@
     (LOGO ? '<img class="biglogo" src="' + esc(fastImg(LOGO, 320)) + '" fetchpriority="high" alt="' + esc(BIZ) + ' logo">' : "") +
     '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     '<p class="lede">' + (C.congrats ? esc(C.congrats)
-      : "Congrats on claiming " + (OFFERR ? '<b class="ledeoffer">' + esc(OFFERR) + "</b> " : "") + "All Permanent Makeup Packages!") + "</p>" +
+      : "Congrats on claiming " + (OFFERR ? '<b class="ledeoffer">' + esc(OFFERR) + "</b>" : "") + "<br>All Permanent Makeup Packages!") + "</p>" +
     '<h1 class="page">' + esc(C.headline || "Fill Out Our Quiz To See If You Qualify") + "</h1>" +
     '<p class="sub">' + esc(C.sub || "(30 Seconds)") + "</p>" +
     '<div class="box"><div class="rail"><span id="ob-rail">&nbsp;</span></div>' +
@@ -406,6 +406,26 @@
   fbBack.style.marginBottom = "20px";
   fbBack.onclick = function () { show("confirm", "prev"); };
   if (boxEl) boxEl.appendChild(fbBack);
+  /* The congrats headline is a forced two-liner ("Congrats on claiming
+     <offer>" / "All Permanent Makeup Packages!"). A long offer custom
+     value or a narrow phone would wrap a third line - shrink the font
+     until both halves hold their line (re-run after webfont load, since
+     metrics shift). */
+  (function fitLede() {
+    var el = root.querySelector(".lede");
+    if (!el) return;
+    function fit() {
+      el.style.fontSize = "";
+      var fs = parseFloat(getComputedStyle(el).fontSize);
+      while (fs > 11 && el.getBoundingClientRect().height / (fs * 1.3) > 2.1) {
+        fs -= 1;
+        el.style.fontSize = fs + "px";
+      }
+    }
+    fit();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+  })();
+
   var fbPreconnected = false;
   function fbPreconnect() {
     if (fbPreconnected) return;
