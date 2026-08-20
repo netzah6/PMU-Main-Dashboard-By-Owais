@@ -148,11 +148,21 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
   // Some route filters match ONLY on the Fanbasis product id (e.g. "M96NA").
   // The deposits table knows productId -> business, so resolve those too.
   const { data: dep } = await svc.from("deposits").select("data").limit(2000);
-  const productToBiz = new Map<string, string>();
+  // Majority vote per product id — a route whose business-name text was edited
+  // mid-life leaves a few deposits under the old name (R8AYL case), so the
+  // first row seen is not trustworthy; the most frequent label is.
+  const pidVotes = new Map<string, Map<string, number>>();
   for (const d of ((dep ?? []) as Array<{ data: Record<string, unknown> }>)) {
     const pid = String(d.data?.["Product ID"] ?? "").trim();
     const biz = String(d.data?.["Business Name"] ?? "").trim();
-    if (pid && biz && !productToBiz.has(pid)) productToBiz.set(pid, biz);
+    if (!pid || !biz) continue;
+    if (!pidVotes.has(pid)) pidVotes.set(pid, new Map());
+    const m = pidVotes.get(pid)!;
+    m.set(biz, (m.get(biz) ?? 0) + 1);
+  }
+  const productToBiz = new Map<string, string>();
+  for (const [pid, m] of pidVotes) {
+    productToBiz.set(pid, [...m.entries()].sort((a, b) => b[1] - a[1])[0][0]);
   }
 
   const routes: RouteInfo[] = rawRoutes.map((r, i) => {
@@ -164,7 +174,19 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
     // client name in a module label or URL instead of the filter.
     const blob = norm(raw);
     let matched: { business: string; status: string } | null = null;
-    for (const v of values) {
+    // The route's filter LABEL is the team's explicit statement of whose route
+    // this is ("Alysha Aganon - The Boujee Ink Studio PMU") — it outranks the
+    // deposits-derived product map, which inherits any historical mislabeling.
+    if (label) {
+      const ln = norm(label);
+      for (const c of clients) {
+        if ((c.nb.length > 5 && ln.includes(c.nb)) || (c.no.length > 5 && ln.includes(c.no))) {
+          matched = { business: c.business || c.owner, status: c.status };
+          break;
+        }
+      }
+    }
+    if (!matched) for (const v of values) {
       const biz = productToBiz.get(v);
       if (biz) {
         const c = clients.find((x) => x.nb === norm(biz));
