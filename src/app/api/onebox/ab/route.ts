@@ -147,6 +147,43 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  /* External LEADS = contacts the ORIGINAL funnel's survey created since
+     the test began — counted straight from GHL by creation date + source
+     ("CC - PMU Survey ..."). One-box contacts carry source "One-Box
+     Funnel" and are excluded by the filter; a null (API hiccup) renders
+     as the old "in GHL" note rather than a wrong number. */
+  let externalLeads: number | null = null;
+  if (externalVariant && client?.location_id) {
+    try {
+      const tok = await getAppLocationToken(client.location_id as string);
+      if (tok.token) {
+        const r = await fetch("https://services.leadconnectorhq.com/contacts/search", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${tok.token}`,
+            Version: "2021-07-28",
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            locationId: client.location_id,
+            page: 1,
+            pageLimit: 1,
+            filters: [
+              { field: "dateAdded", operator: "range", value: { gte: new Date(exp.created_at as string).toISOString() } },
+              { field: "source", operator: "contains", value: "PMU Survey" },
+            ],
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (r.ok) {
+          const j = (await r.json()) as { total?: number };
+          if (typeof j.total === "number") externalLeads = j.total;
+        }
+      }
+    } catch { /* leave null — shown as unavailable, never wrong */ }
+  }
+
   // Ad spend for this client, split across variants by their share of
   // visitors: the same ads feed both sides, so spend follows the traffic.
   // The funnel's client name rarely matches the ad account's owner name
@@ -192,7 +229,7 @@ export async function GET(req: NextRequest) {
       weight: v.weight,
       overrides: Object.keys((v as { config_override?: Record<string, string> }).config_override ?? {}),
       visitors: vis,
-      leads: v.kind === "external" ? null : (ours[v.vkey]?.leads ?? 0),
+      leads: v.kind === "external" ? externalLeads : (ours[v.vkey]?.leads ?? 0),
       picked,
       deposits: v.kind === "external" ? externalDeposits : (ours[v.vkey]?.paid ?? 0),
       pickRate: vis && picked != null ? +((picked / vis) * 100).toFixed(1) : null,
