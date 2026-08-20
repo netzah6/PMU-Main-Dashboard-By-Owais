@@ -8,12 +8,24 @@ export const fetchCache = "force-no-store";
 // Real availability for a one-box funnel's calendar: proxies GHL's
 // free-slots API (the same source the booking widget uses) so the page
 // can render its own date & time picker with zero extra form steps.
+
+/* 30s in-process memo: warm lambdas answer repeat range requests from
+   memory instead of re-running the Supabase -> token -> GHL chain. The
+   engine rounds range starts to 5-min buckets, so keys actually repeat. */
+const slotsMemo = new Map<string, { ts: number; body: { ok: true; dates: Record<string, string[]> } }>();
+
 export async function GET(req: NextRequest) {
   const slug = req.nextUrl.searchParams.get("slug") ?? "";
   const start = Number(req.nextUrl.searchParams.get("start") ?? 0);
   const end = Number(req.nextUrl.searchParams.get("end") ?? 0);
   if (!slug || !start || !end || end <= start || end - start > 45 * 86400000) {
     return NextResponse.json({ ok: false, error: "bad range" }, { status: 400 });
+  }
+
+  const memoKey = `${slug}:${start}:${end}`;
+  const hit = slotsMemo.get(memoKey);
+  if (hit && Date.now() - hit.ts < 30_000) {
+    return NextResponse.json(hit.body, { headers: CACHE_HEADERS });
   }
 
   const svc = createServiceClient();
@@ -46,13 +58,18 @@ export async function GET(req: NextRequest) {
   for (const [k, v] of Object.entries(j)) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(k) && Array.isArray(v?.slots)) dates[k] = v.slots;
   }
-  /* Availability barely moves within a minute and double-booking is
-     already prevented at appointment creation — let the edge absorb the
-     1.2s GHL round trip for everyone after the first visitor. (The
-     engine rounds its range start to 5-minute buckets so concurrent
-     visitors share this cache key.) */
-  return NextResponse.json(
-    { ok: true, dates },
-    { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120" } }
-  );
+  const body = { ok: true as const, dates };
+  slotsMemo.set(memoKey, { ts: Date.now(), body });
+  if (slotsMemo.size > 500) {
+    for (const [k, v] of slotsMemo) if (Date.now() - v.ts > 30_000) slotsMemo.delete(k);
+  }
+  return NextResponse.json(body, { headers: CACHE_HEADERS });
 }
+
+/* Availability barely moves within a minute and double-booking is already
+   prevented at appointment creation. Next.js overwrites a plain
+   Cache-Control on dynamic route handlers (verified live), so the edge
+   TTL rides the Vercel-specific header instead. */
+const CACHE_HEADERS = {
+  "Vercel-CDN-Cache-Control": "max-age=30, stale-while-revalidate=120",
+};
