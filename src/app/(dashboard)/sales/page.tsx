@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DemoResult, DemoStatus } from "@/lib/demo-check";
 
 const SECTIONS: Array<{ key: DemoStatus; label: string; emoji: string; tint: string; border: string }> = [
@@ -11,7 +11,88 @@ const SECTIONS: Array<{ key: DemoStatus; label: string; emoji: string; tint: str
   { key: "not_in_system", label: "Not in the system",emoji: "❓", tint: "#f7f7f9", border: "#a3adbb" },
 ];
 
+type CoachRow = {
+  coach: string;
+  live: number; paused: number; offboarded: number;
+  prevLive: number; prevPaused: number; prevOffboarded: number;
+  churned: { name: string; to: string }[];
+  newLive: string[];
+};
+
+function delta(now: number, prev: number, hasPrev: boolean) {
+  if (!hasPrev) return null;
+  const d = now - prev;
+  if (d === 0) return <span className="text-[#8595a8]"> (=)</span>;
+  return <span className={d > 0 ? "text-[#0e8f88]" : "text-[#b4485c]"}> ({d > 0 ? "+" : ""}{d})</span>;
+}
+
+function CoachTracker() {
+  const [rows, setRows] = useState<CoachRow[] | null>(null);
+  const [prevDate, setPrevDate] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/sales/coaches").then(async (r) => {
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      setRows(j.coaches); setPrevDate(j.prevDate);
+    }).catch((e) => setErr(String(e)));
+  }, []);
+
+  if (err) return <div className="mt-6 rounded-lg border border-[#d97070] bg-[#fdf3f3] p-3 text-sm text-[#8a3a3a]">{err}</div>;
+  if (!rows) return <div className="mt-8 text-sm text-[#697a91]">Loading coach numbers…</div>;
+  const hasPrev = !!prevDate;
+  return (
+    <div className="mt-5">
+      <p className="text-sm text-[#697a91]">
+        Live client counts per Client Success Coach, compared to the last snapshot
+        {prevDate ? <> (taken <strong>{prevDate}</strong>)</> : " — no previous snapshot yet"}.
+        A new snapshot is saved automatically on the <strong>20th of every month</strong>.
+        Churned = was Live at the snapshot, isn&apos;t Live today.
+      </p>
+      <div className="mt-3 rounded-xl border border-[#e4ebf2] overflow-hidden bg-white">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-[#f5f8fc] text-left text-xs uppercase tracking-wide text-[#697a91]">
+              <th className="px-4 py-2.5">Coach</th>
+              <th className="px-4 py-2.5">Live</th>
+              <th className="px-4 py-2.5">Paused</th>
+              <th className="px-4 py-2.5">Offboarded</th>
+              <th className="px-4 py-2.5">Churned</th>
+              <th className="px-4 py-2.5">New live</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#eef3f8]">
+            {rows.map((c) => (
+              <tr key={c.coach}>
+                <td className="px-4 py-2.5 font-semibold text-[#1f3559]">{c.coach}</td>
+                <td className="px-4 py-2.5"><strong>{c.live}</strong>{delta(c.live, c.prevLive, hasPrev)}{hasPrev && <span className="text-xs text-[#8595a8]"> · was {c.prevLive}</span>}</td>
+                <td className="px-4 py-2.5">{c.paused}{delta(c.paused, c.prevPaused, hasPrev)}</td>
+                <td className="px-4 py-2.5">{c.offboarded}{delta(c.offboarded, c.prevOffboarded, hasPrev)}</td>
+                <td className="px-4 py-2.5">
+                  {c.churned.length === 0 ? <span className="text-[#8595a8]">0</span> : (
+                    <details><summary className="cursor-pointer font-semibold text-[#b4485c]">{c.churned.length}</summary>
+                      <ul className="mt-1 ml-4 list-disc text-xs text-[#697a91]">{c.churned.map((x, i) => <li key={i}>{x.name} → {x.to}</li>)}</ul>
+                    </details>
+                  )}
+                </td>
+                <td className="px-4 py-2.5">
+                  {c.newLive.length === 0 ? <span className="text-[#8595a8]">0</span> : (
+                    <details><summary className="cursor-pointer font-semibold text-[#0e8f88]">{c.newLive.length}</summary>
+                      <ul className="mt-1 ml-4 list-disc text-xs text-[#697a91]">{c.newLive.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                    </details>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function SalesPage() {
+  const [view, setView] = useState<"demos" | "coaches">("demos");
   const [raw, setRaw] = useState("");
   const [results, setResults] = useState<DemoResult[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -63,8 +144,17 @@ export default function SalesPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-[#1f3559] tracking-tight">💼 Sales — Demo Checker</h1>
-      <p className="mt-1 text-sm text-[#697a91]">
+      <h1 className="text-2xl font-bold text-[#1f3559] tracking-tight">💼 Team</h1>
+      <div className="mt-3 flex gap-1 rounded-lg bg-[#eef2f7] p-1 w-fit">
+        {([["demos", "Closer — Demo Checker"], ["coaches", "Coach Tracker"]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setView(k)}
+            className={`px-4 py-1.5 rounded-md text-sm font-semibold ${view === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "coaches" ? <CoachTracker /> : (<>
+      <p className="mt-4 text-sm text-[#697a91]">
         Paste contact names (one per line). Each is checked against its sales-pipeline stage — the stage is what proves
         whether the demo actually happened, since a past demo stays &ldquo;confirmed&rdquo; on the calendar either way.
       </p>
@@ -161,6 +251,7 @@ export default function SalesPage() {
           })}
         </>
       )}
+      </>)}
     </div>
   );
 }
