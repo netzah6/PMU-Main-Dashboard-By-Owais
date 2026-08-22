@@ -26,7 +26,7 @@ const STAGE_META: Record<LeadRow["stage"], { label: string; cls: string }> = {
 type AbVariant = {
   vkey: string; label: string; kind: string; target: string | null; weight: number;
   overrides?: string[];
-  deposits: number | null;
+  deposits: number | null; aiDeposits: number | null;
   visitors: number; leads: number | null; picked: number | null;
   leadRate: number | null; pickRate: number | null; spend: number | null; costPerBooking: number | null;
 };
@@ -308,13 +308,14 @@ export default function FunnelsPage() {
               {overviewOpen && (() => {
                 const running = funnels.filter((f) => f.abStatus === "running");
                 /* All-clients totals per side — the "is the one-box working overall" row. */
-                const tot: Record<string, { vis: number; leads: number; picked: number; dep: number; spend: number }> = {};
+                const tot: Record<string, { vis: number; leads: number; picked: number; dep: number; aiDep: number; spend: number }> = {};
                 for (const f of running) {
                   for (const v of ab[f.slug]?.variants ?? []) {
                     const k = v.kind === "external" ? "All Original funnels" : "All One-Box funnels";
-                    const t = (tot[k] ??= { vis: 0, leads: 0, picked: 0, dep: 0, spend: 0 });
+                    const t = (tot[k] ??= { vis: 0, leads: 0, picked: 0, dep: 0, aiDep: 0, spend: 0 });
                     t.vis += v.visitors ?? 0; t.leads += v.leads ?? 0;
-                    t.picked += v.picked ?? 0; t.dep += v.deposits ?? 0; t.spend += v.spend ?? 0;
+                    t.picked += v.picked ?? 0; t.dep += v.deposits ?? 0;
+                    t.aiDep += v.aiDeposits ?? 0; t.spend += v.spend ?? 0;
                   }
                 }
                 return (
@@ -330,6 +331,7 @@ export default function FunnelsPage() {
                             <th className="py-1 pr-3 font-medium">Lead rate</th>
                             <th className="py-1 pr-3 font-medium">Picked time</th>
                             <th className="py-1 pr-3 font-medium">Deposits</th>
+                            <th className="py-1 pr-3 font-medium">AI deposits</th>
                             <th className="py-1 pr-3 font-medium">Pick rate</th>
                             <th className="py-1 pr-3 font-medium">Spend</th>
                             <th className="py-1 pr-3 font-medium">Cost / booking</th>
@@ -342,7 +344,7 @@ export default function FunnelsPage() {
                               return (
                                 <tr key={f.slug} className="border-t border-[#eef2f6]">
                                   <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{f.clientName || f.slug}</td>
-                                  <td className="py-1.5 pr-3 text-[#97a5b8]" colSpan={9}>loading…</td>
+                                  <td className="py-1.5 pr-3 text-[#97a5b8]" colSpan={10}>loading…</td>
                                 </tr>
                               );
                             }
@@ -363,6 +365,7 @@ export default function FunnelsPage() {
                                 <td className="py-1.5 pr-3">{v.leadRate != null ? `${v.leadRate}%` : "—"}</td>
                                 <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
                                 <td className="py-1.5 pr-3">{v.deposits != null ? v.deposits : <span className="text-[10px] text-[#97a5b8]">—</span>}</td>
+                                <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{v.aiDeposits != null ? v.aiDeposits : "—"}</td>
                                 <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
                                 <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
                                 <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">{v.costPerBooking != null ? `$${v.costPerBooking}` : "—"}</td>
@@ -377,6 +380,7 @@ export default function FunnelsPage() {
                               <td className="py-1.5 pr-3">{t.vis ? `${((t.leads / t.vis) * 100).toFixed(1)}%` : "—"}</td>
                               <td className="py-1.5 pr-3">{t.picked}</td>
                               <td className="py-1.5 pr-3">{t.dep}</td>
+                              <td className="py-1.5 pr-3 text-[#7c3aed]">{t.aiDep}</td>
                               <td className="py-1.5 pr-3">{t.vis ? `${((t.picked / t.vis) * 100).toFixed(1)}%` : "—"}</td>
                               <td className="py-1.5 pr-3">{t.spend ? `$${t.spend.toFixed(2)}` : "—"}</td>
                               <td className="py-1.5 pr-3">{t.spend && t.picked ? `$${(t.spend / t.picked).toFixed(2)}` : "—"}</td>
@@ -387,8 +391,9 @@ export default function FunnelsPage() {
                     </div>
                     <p className="mt-2 text-[10px] text-[#697a91]">
                       Same numbers as each card&rsquo;s Split test panel, all clients at once. The totals rows sum
-                      every running test per side — deposits count funnel-native payments only (AI text-link
-                      recoveries excluded on both sides).
+                      every running test per side — deposits count funnel-native payments only; the purple
+                      AI-deposits column counts payments the AI collected by text afterwards, attributed to the
+                      funnel that produced the lead.
                     </p>
                   </div>
                 );
@@ -841,6 +846,7 @@ export default function FunnelsPage() {
                               <th className="py-1 pr-3 font-medium">Lead rate</th>
                               <th className="py-1 pr-3 font-medium">Picked time</th>
                               <th className="py-1 pr-3 font-medium">Deposits</th>
+                              <th className="py-1 pr-3 font-medium">AI deposits</th>
                               <th className="py-1 pr-3 font-medium">Pick rate</th>
                               <th className="py-1 pr-3 font-medium">Spend</th>
                               <th className="py-1 pr-3 font-medium">Cost / booking</th>
@@ -876,6 +882,7 @@ export default function FunnelsPage() {
                                     {v.deposits != null ? v.deposits
                                       : v.kind === "external" ? <span className="text-[10px] text-[#97a5b8]" title="This side's deposits live in Fanbasis — not visible from here (not zero)">in Fanbasis</span> : "—"}
                                   </td>
+                                  <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{v.aiDeposits != null ? v.aiDeposits : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
                                   <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">
