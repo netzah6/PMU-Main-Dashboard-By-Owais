@@ -404,7 +404,7 @@
   fbBack.innerHTML = "&larr; Back";
   fbBack.style.display = "none";
   fbBack.style.marginBottom = "20px";
-  fbBack.onclick = function () { show("confirm", "prev"); };
+  fbBack.onclick = function () { show("booking", "prev"); };
   if (boxEl) boxEl.appendChild(fbBack);
   /* The congrats headline is a forced two-liner ("Congrats on claiming
      <offer>" / "All Permanent Makeup Packages!"). A long offer custom
@@ -695,11 +695,11 @@
       if (!b || calState.booking) return;
       calState.selIso = b.getAttribute("data-slot");
       paintCal();
-      // straight to the confirm step — no extra Reserve tap
+      // straight to the deposit step — no confirm interstitial, matching
+      // the original funnel's pick -> pay shape (Netzah, 2026-08-22)
       setTimeout(function () {
         if (calState.booking || !calState.selIso) return;
-        state.pendingIso = calState.selIso;
-        show("confirm");
+        book(calState.selIso);
       }, 250);
     };
     var more = document.getElementById("ob-more");
@@ -938,7 +938,6 @@
     slideEl.classList.add(dir === "prev" ? "anim-prev" : "anim-next");
     slideEl.innerHTML = phase === "survey" ? slideSurvey()
       : phase === "booking" ? slideBooking()
-      : phase === "confirm" ? slideConfirm()
       : phase === "done" ? slideDone()
       : slideDeposit();
 
@@ -946,30 +945,23 @@
     if (prev) prev.onclick = function () {
       if (phase === "survey") { if (qi > 0) { qi--; show("survey", "prev"); } }
       else if (phase === "booking") { qi = N - 1; show("survey", "prev"); }
-      else if (phase === "deposit") show("confirm", "prev");
+      else if (phase === "deposit") show("booking", "prev");
       else show("booking", "prev");
     };
-    if (phase === "confirm") {
-      ensureHold(state.holdFor !== state.pendingIso);
-      state.holdFor = state.pendingIso;
-      document.getElementById("ob-yes").onclick = function () {
-        book(state.pendingIso);
-      };
-      document.getElementById("ob-alt").onclick = function () { show("booking", "prev"); };
-      /* Start the vendor checkout NOW, hidden — its session mint + iframe
-         boot run while the visitor reads the confirm card, so the deposit
-         step opens with the checkout already (or nearly) ready. */
-      bootFanbasis(fbHost);
-    }
-
     if (phase === "survey") bindSurvey();
     if (phase === "booking") {
       fbPreconnect();
+      /* With no confirm interstitial the checkout warms here instead:
+         session mint + iframe boot run while the visitor browses the
+         calendar, so the deposit step still opens (nearly) ready. Name
+         and email are already complete — the quiz precedes booking. */
+      bootFanbasis(fbHost);
       bindCal();
       if (!calState.loading && !monthKeyDates().length && !calState.error) loadMonth();
     }
     if (phase === "deposit") {
-      ensureHold(false);
+      ensureHold(state.holdFor !== state.slotIso);
+      state.holdFor = state.slotIso;
       bootFanbasis(fbHost);
     }
     /* Survey-stage copy: hidden from the calendar onward so the booking,
