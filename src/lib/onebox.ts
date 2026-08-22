@@ -324,6 +324,12 @@ export function buildFanbasisBlock(productId: string, redirectUrl: string): stri
   return [
     '<style>#fanbasis-checkout-wrapper{width:100%}#fanbasis-checkout-wrapper iframe{width:100%!important;height:800px!important;border:none!important;overflow:hidden!important}@media(max-width:768px){#fanbasis-checkout-wrapper iframe{height:900px!important}}</style>',
     '<div id="fanbasis-checkout-wrapper"></div>',
+    // Trust lines under the pay button (2026-08-22, from the V3 audit's
+    // scam-fear findings) — several leads balked at paying online.
+    '<div style="margin:10px auto 0;max-width:520px;text-align:center;font-family:-apple-system,Segoe UI,Roboto,sans-serif">',
+    '<div style="font-size:13px;color:#34568a;line-height:1.5">\uD83D\uDD12 <b>Secure, encrypted checkout.</b> Your card details are processed by our certified payment provider.</div>',
+    '<div style="font-size:13px;color:#34568a;margin-top:4px"><span style="color:#f5a623;letter-spacing:1px">\u2605\u2605\u2605\u2605\u2605</span> <b>Rated 5.0 by real clients.</b></div>',
+    '</div>',
     '<script src="https://cdn.embedded.fanbasis.io/embed/index.js"></scr' + 'ipt>',
     '<script>(function(){',
     'var API_KEY=' + K + ',CREATOR_ID=' + C + ',PRODUCT_ID=' + P + ',REDIRECT_URL=' + R + ';',
