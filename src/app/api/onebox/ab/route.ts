@@ -46,14 +46,15 @@ export async function GET(req: NextRequest) {
   /* Netzah's funnel stages, per variant: leads → picked a date & time →
      paid the deposit. "picked" is cumulative (a paid lead also picked),
      which matches how the original funnel's calendar counts it. */
-  const ours: Record<string, { leads: number; picked: number; paid: number }> = {};
+  const ours: Record<string, { leads: number; picked: number; paid: number; aiPaid: number }> = {};
   const ourApptIds = new Set<string>();
   for (const l of leads ?? []) {
     const k = l.variant_key ?? "?";
-    const c = (ours[k] ??= { leads: 0, picked: 0, paid: 0 });
+    const c = (ours[k] ??= { leads: 0, picked: 0, paid: 0, aiPaid: 0 });
     c.leads++;
     const depositPaid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
     if (depositPaid) c.paid++;
+    if (l.ghl_status === "paid-followup") c.aiPaid++;
     if (depositPaid || l.picked_time_at) c.picked++;
     if (l.ghl_appointment_id) ourApptIds.add(l.ghl_appointment_id);
   }
@@ -118,6 +119,7 @@ export async function GET(req: NextRequest) {
      within 15 minutes of the appointment's creation (hold + checkout
      grace) is the funnel; anything later is the AI's SMS recovery. */
   let externalDeposits: number | null = null;
+  let externalAiDeposits: number | null = null;
   const fanProductId = ((client?.config as Record<string, string>)?.fanbasisProductId ?? "").trim();
   if (fanProductId && externalVariant) {
     try {
@@ -130,6 +132,7 @@ export async function GET(req: NextRequest) {
       );
       const NATIVE_WINDOW_MS = 15 * 60 * 1000;
       let ext = 0;
+      let extAi = 0;
       for (const t of txns) {
         const raw = (t.raw ?? {}) as Record<string, unknown>;
         const created = String(raw.transaction_date ?? raw.created_at ?? raw.createdAt ?? raw.date ?? "");
@@ -140,8 +143,13 @@ export async function GET(req: NextRequest) {
         if (!t.email || oneboxEmails.has(t.email)) continue; // one-box journeys count via their own statuses
         const nativePay = externalAppts.some((a) => a.email === t.email && ms - a.addedMs >= -10 * 60 * 1000 && ms - a.addedMs <= NATIVE_WINDOW_MS);
         if (nativePay) ext++;
+        /* Same externally-booked contact paying OUTSIDE the hold window:
+           that's the AI's text-link recovery, the funnel-experience echo
+           Netzah wants measured per side. */
+        else if (externalAppts.some((a) => a.email === t.email)) extAi++;
       }
       externalDeposits = ext;
+      externalAiDeposits = extAi;
     } catch {
       /* Fanbasis unreachable -> external deposits unavailable */
     }
@@ -233,6 +241,7 @@ export async function GET(req: NextRequest) {
       leads: leadsVal,
       picked,
       deposits: v.kind === "external" ? externalDeposits : (ours[v.vkey]?.paid ?? 0),
+      aiDeposits: v.kind === "external" ? externalAiDeposits : (ours[v.vkey]?.aiPaid ?? 0),
       leadRate: vis && leadsVal != null ? +((leadsVal / vis) * 100).toFixed(1) : null,
       pickRate: vis && picked != null ? +((picked / vis) * 100).toFixed(1) : null,
       spend: spend == null ? null : +spend.toFixed(2),
