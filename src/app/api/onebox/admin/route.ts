@@ -219,7 +219,36 @@ export async function POST(req: NextRequest) {
 
   if (action === "resync") {
     const config = await refreshOneboxConfig(svc, slug, row.location_id as string);
-    return NextResponse.json({ ok: !!config, config });
+    /* Pixel self-heal: harvesting only ran at Add-client, so clients
+       added before that automation (or whose harvest failed that day)
+       stayed pixel-less forever. Sync now retries it whenever the
+       pixel is still missing — same candidates as Add-client. */
+    const ex = (row.extras ?? {}) as { metaPixelId?: string; oldFunnelUrl?: string };
+    const havePixel = ((config?.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "")).length > 0;
+    let pixelNote: string | undefined;
+    if (!havePixel) {
+      const candidates = new Set<string>();
+      const oldUrl = (ex.oldFunnelUrl ?? "").trim();
+      if (oldUrl) {
+        candidates.add(oldUrl);
+        candidates.add(oldUrl.replace(/-survey(?:-ab-ghl)?\/?$/, "-booking"));
+      }
+      candidates.add(`https://pmu-care.com/${slug}-booking`);
+      candidates.add(`https://pmu-care.com/${slug}-survey`);
+      for (const url of candidates) {
+        const id = await harvestPixelId(url);
+        if (id) {
+          await svc
+            .from("onebox_clients")
+            .update({ extras: { ...(row.extras ?? {}), metaPixelId: id } })
+            .eq("slug", slug);
+          pixelNote = `pixel found (${id})`;
+          break;
+        }
+      }
+      if (!pixelNote) pixelNote = "pixel still not found on the original pages";
+    }
+    return NextResponse.json({ ok: !!config, config, pixelNote });
   }
 
   if (action === "status") {
