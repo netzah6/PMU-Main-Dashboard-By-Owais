@@ -50,6 +50,20 @@ type Funnel = {
 };
 type HealthCheck = { name: string; ok: boolean; note: string };
 
+/* Click-to-copy pill for SOP values — the exact string, one click. */
+function CopyChip({ text, label, onCopied }: { text: string; label?: string; onCopied: () => void }) {
+  return (
+    <button
+      type="button"
+      title={`Copy: ${text}`}
+      onClick={(e) => { e.preventDefault(); void navigator.clipboard.writeText(text).then(onCopied); }}
+      className="inline-flex items-center gap-1 align-middle font-mono text-[11px] bg-[#f0f6f6] text-[#0b7285] border border-[#bfe3e3] rounded-md px-1.5 py-0.5 hover:bg-[#e2f1f1] cursor-copy max-w-[300px]">
+      <span className="truncate">{label ?? text}</span>
+      <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    </button>
+  );
+}
+
 // The ad's real URL, derived from the renamed page's URL: same address
 // minus the -ab-ghl (or legacy -old) suffix. Shown verbatim in the SOP so
 // the redirect gets created on exactly the right path.
@@ -658,37 +672,34 @@ export default function FunnelsPage() {
                             <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
                               <input type="checkbox" className="mt-0.5" checked={sop.renamed}
                                 onChange={(e) => { setSop((x) => ({ ...x, renamed: e.target.checked })); setStartVerify(null); }} />
-                              <span>1. Renamed the original funnel page — added <code>-ab-ghl</code> to its path (click the END of the path and type the suffix; retyping the whole path silently breaks it)</span>
+                              <span>1. Rename the original page: add{" "}
+                                <CopyChip text="-ab-ghl" onCopied={() => setToast("Copied ✓")} /> to the END of its path
+                                (don&rsquo;t retype the whole path)</span>
                             </label>
                             <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
                               <input type="checkbox" className="mt-0.5" checked={sop.redirect}
                                 onChange={(e) => { setSop((x) => ({ ...x, redirect: e.target.checked })); setStartVerify(null); }} />
-                              <span>2. Created the URL Redirect (Sites → URL Redirects) — source path{" "}
+                              <span>2. URL Redirect (Sites → URL Redirects):{" "}
                                 {adUrlFromRenamed(abOrigUrl) ? (
-                                  <>
-                                    <b className="text-[#0e9c9c]">{adUrlFromRenamed(abOrigUrl).replace(/^https?:\/\/[^/]+/, "")}</b>{" "}
-                                    (your ad link&rsquo;s path — the URL above without <code>-ab-ghl</code>, copied letter for letter)
-                                  </>
+                                  <CopyChip text={adUrlFromRenamed(abOrigUrl).replace(/^https?:\/\/[^/]+/, "")} onCopied={() => setToast("Copied ✓")} />
                                 ) : (
-                                  <i>— paste the -ab-ghl URL above to see the exact path —</i>
+                                  <i>paste the -ab-ghl URL above first</i>
                                 )}{" "}
-                                → destination <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b></span>
+                                →{" "}
+                                <CopyChip text={f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)} onCopied={() => setToast("Copied ✓")} /></span>
                             </label>
                             <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
                               <input type="checkbox" className="mt-0.5" checked={sop.values}
                                 onChange={(e) => { setSop((x) => ({ ...x, values: e.target.checked })); setStartVerify(null); }} />
-                              <span>3. Values filled &amp; health check green (calendar ID + Fanbasis product ID)</span>
+                              <span>3. Values filled &amp; health check green</span>
                             </label>
                             <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
                               <input type="checkbox" className="mt-0.5" checked={sop.workflow}
                                 onChange={(e) => { setSop((x) => ({ ...x, workflow: e.target.checked })); setStartVerify(null); }} />
-                              <span>4. Workflow catches one-box leads — in the sub-account&rsquo;s workflow{" "}
-                                <b>CC- Funnel Survey &rarr; (V1 / V2 / V3)</b>: add a <b>Contact Tag</b> trigger
-                                (tag added includes <code>onebox-survey</code>), and in the <b>Survey (V3)</b> branch
-                                add an OR condition <b>Tags &rarr; Includes &rarr; onebox-survey</b>, then Publish.
-                                One-box leads never submit a GHL survey — this tag is what routes them into the
-                                automations. (Manual step: GHL&rsquo;s API can&rsquo;t read workflow internals, so
-                                the check below can&rsquo;t verify it.)</span>
+                              <span>4. Workflow <b>CC- Funnel Survey &rarr; (V1/V2/V3)</b>: add a Contact Tag trigger{" "}
+                                <CopyChip text="onebox-survey" onCopied={() => setToast("Copied ✓")} />
+                                {" "}+ the same tag as an OR condition in the <b>(V3)</b> branch, then Publish
+                                (manual — the check can&rsquo;t verify this one)</span>
                             </label>
                             {!startVerify && (
                               <button onClick={() => void verifyStart(f.slug)}
