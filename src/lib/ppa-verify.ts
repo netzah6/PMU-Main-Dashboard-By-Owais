@@ -218,7 +218,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
 
   const [masterRes, cfgRes, billRes, chgRes, depRes, sbRes, calRes] = await Promise.all([
     svc.from("clients_master").select("data"),
-    svc.from("ppa_config").select("owner_key, fee_per_appt, auto_charge").in("owner_key", ownerKeys),
+    svc.from("ppa_config").select("owner_key, fee_per_appt, auto_charge, billing_exempt").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_billing").select("owner_key, appt_id, charge_status, start_time").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("appt_id, owner_key, charged, excluded, square_payment_id, charged_at, note").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_rows").select("appt_id, biz_norm, contact_name").in("biz_norm", bizNorms),
@@ -241,9 +241,11 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
 
   const feeBy = new Map<string, number>();
   const autoBy = new Map<string, boolean>();
-  for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; fee_per_appt: number; auto_charge: boolean | null }>) {
+  const exemptBy = new Map<string, boolean>();
+  for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; fee_per_appt: number; auto_charge: boolean | null; billing_exempt?: boolean }>) {
     feeBy.set(r.owner_key, Number(r.fee_per_appt));
     autoBy.set(r.owner_key, !!r.auto_charge);
+    exemptBy.set(r.owner_key, !!r.billing_exempt);
   }
 
   const chgBy = new Map<string, ChargeRow>();
@@ -356,7 +358,10 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     // The financing sheet's latest month states the fee; dashboard fee is the
     // fallback when the notes don't parse to one.
     const fee = c.sheetFee ?? feeBy.get(c.ownerKey) ?? 30;
-    const shows = (showsBy.get(c.ownerKey) ?? []).sort((a, b) =>
+    // Deposit-only client: keeps deposits, owes no per-show fee. No shows are
+    // ever billable, so the auto-charge and Charge button have nothing to take.
+    const exempt = exemptBy.get(c.ownerKey) ?? false;
+    const shows = (exempt ? [] : showsBy.get(c.ownerKey) ?? []).sort((a, b) =>
       String(b.apptDate ?? "").localeCompare(String(a.apptDate ?? "")));
     const pastDue = pastDueBy.get(c.ownerKey) ?? 0;
     const flags: VerifyFlag[] = [];
@@ -531,7 +536,9 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
         message: `Couldn't read a per-show fee from the financing sheet notes ("${c.sheetNotes ?? "no notes"}") — using the dashboard fee ${"$" + fee}. State it in the sheet to be sure.`,
       });
     }
-    if (shows.length === 0) {
+    if (exempt) {
+      flags.push({ key: "billing_exempt", level: "info", message: "No service fee — deposit-only client. Never charged." });
+    } else if (shows.length === 0) {
       flags.push({ key: "nothing_to_charge", level: "info", message: "No shows waiting to be charged." });
     }
 

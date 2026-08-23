@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   const [sumRes, depRes, cfgRes, chgRes, refRes, sbRes, calRes] = await Promise.all([
     svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
-    svc.from("ppa_config").select("*").in("owner_key", ownerKeys),
+    svc.from("ppa_config").select("*, billing_exempt").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount, square_payment_id").in("owner_key", ownerKeys),
     svc.from("deposit_refunds").select("business, email, contact_name").eq("status", "refunded"),
     svc.from("ppa_selfbooked").select("appt_id, owner_key").in("owner_key", ownerKeys),
@@ -60,9 +60,9 @@ export async function GET(req: NextRequest) {
   for (const r of (depRes.data ?? []) as Array<{ biz_norm: string; deposits: number; deposit_total: number }>)
     depBy.set(r.biz_norm, { deposits: Number(r.deposits) || 0, deposit_total: Number(r.deposit_total) || 0 });
 
-  const cfgBy = new Map<string, { is_ppa: boolean; fee_per_appt: number; note: string | null }>();
-  for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; is_ppa: boolean; fee_per_appt: number; note: string | null }>)
-    cfgBy.set(r.owner_key, { is_ppa: !!r.is_ppa, fee_per_appt: Number(r.fee_per_appt), note: r.note });
+  const cfgBy = new Map<string, { is_ppa: boolean; fee_per_appt: number; note: string | null; billing_exempt: boolean }>();
+  for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; is_ppa: boolean; fee_per_appt: number; note: string | null; billing_exempt?: boolean }>)
+    cfgBy.set(r.owner_key, { is_ppa: !!r.is_ppa, fee_per_appt: Number(r.fee_per_appt), note: r.note, billing_exempt: !!r.billing_exempt });
 
   type ChgRow = { owner_key: string; appt_id: string; charged: boolean; excluded: boolean | null; amount: number | null; square_payment_id: string | null };
   const chgAmtBy = new Map<string, number>();
@@ -110,14 +110,15 @@ export async function GET(req: NextRequest) {
   const clients = roster.map((c) => {
     const s = sumBy.get(c.ownerKey);
     const dep = depBy.get(c.bizNorm) ?? { deposits: 0, deposit_total: 0 };
-    const cfg = cfgBy.get(c.ownerKey) ?? { is_ppa: false, fee_per_appt: 30, note: null };
+    const cfg = cfgBy.get(c.ownerKey) ?? { is_ppa: false, fee_per_appt: 30, note: null, billing_exempt: false };
     // The financing sheet's latest month is the source of truth for the fee;
     // the dashboard-entered fee only fills in when the notes don't state one.
     const fee = c.sheetFee ?? cfg.fee_per_appt;
     const selfBookedReady = sbReadyBy.get(c.ownerKey) ?? 0;
     // Ready = deposit-linked shows waiting + self-booked shows waiting; both
     // bill at the same fee, and the verify report's shows list matches this.
-    const readyToCharge = (s?.ready_to_charge ?? 0) + selfBookedReady + (chatReadyBy.get(c.ownerKey) ?? 0);
+    // Deposit-only clients owe no service fee — nothing is ever "ready".
+    const readyToCharge = cfg.billing_exempt ? 0 : (s?.ready_to_charge ?? 0) + selfBookedReady + (chatReadyBy.get(c.ownerKey) ?? 0);
     const showed = s?.showed ?? 0;
     const noShowMarked = s?.no_show_marked ?? 0;
     const reviewed = showed + noShowMarked;
@@ -147,6 +148,7 @@ export async function GET(req: NextRequest) {
       chargedCount: chgCountBy.get(c.ownerKey) ?? 0,
       chargedAmount: chgAmtBy.get(c.ownerKey) ?? 0,
       readyOwed: readyToCharge * fee,
+      billingExempt: cfg.billing_exempt,
       // Show rate = showed / (showed + marked no-show), from our review decisions.
       showed,
       noShowMarked,
