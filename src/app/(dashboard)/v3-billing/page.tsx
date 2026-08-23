@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardCell, StatusCell, ActionsCell, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
@@ -10,7 +10,7 @@ interface ClientRow {
   isPpa: boolean; fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null; note: string | null;
   deposits: number; depositTotal: number;
   served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; selfBookedReady?: number;
-  readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number;
+  readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number; billingExempt?: boolean;
   showed: number; noShowMarked: number; excludedCount: number; refundedCount?: number; showRate: number | null;
 }
 interface Appt {
@@ -299,7 +299,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
   const owed = v ? v.amount : c.readyOwed;
   const split = v ? showSplit(v) : null;
 
-  const saveConfig = async (patch: { fee?: number }) => {
+  const saveConfig = async (patch: { fee?: number; billing_exempt?: boolean }) => {
     try {
       await fetch("/api/ppa/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_key: c.ownerKey, ...patch }) });
       onChange();
@@ -367,7 +367,24 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
 
         {/* Card · status · actions */}
         <td className="px-2 py-2.5 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
-        <td className="px-2 py-2.5 text-center align-middle"><StatusCell v={v} /></td>
+        <td className="px-2 py-2.5 text-center align-middle">
+          {c.billingExempt ? (
+            <button onClick={() => saveConfig({ billing_exempt: false })}
+              title="Deposit-only client — no per-show service fee, never charged. Click to make billable again."
+              className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0] hover:border-[#94a3b8]">
+              💤 No fee
+            </button>
+          ) : (
+            <div className="flex flex-col items-center gap-0.5">
+              <StatusCell v={v} />
+              <button onClick={() => saveConfig({ billing_exempt: true })}
+                title="Mark as deposit-only: no per-show service fee, excluded from all charging, moved to the bottom section."
+                className="text-[9px] text-[#b6c2d0] hover:text-[#64748b] underline decoration-dotted">
+                no fee?
+              </button>
+            </div>
+          )}
+        </td>
         <td className="pl-2 pr-3 py-2.5 align-middle whitespace-nowrap"><ActionsCell v={v} onMsg={setPayMsg} onReload={reloadBoth} /></td>
       </tr>
 
@@ -735,10 +752,19 @@ export default function V3BillingPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => (
-                <ClientTableRow key={c.ownerKey} c={c} v={vBy.get(c.ownerKey)} verifyLoading={verifyLoading}
-                  onChange={() => load()} onVerifyReload={() => loadVerify()}
-                  open={openKey === c.ownerKey} onToggle={() => setOpenKey((k) => (k === c.ownerKey ? null : c.ownerKey))} />
+              {[...filtered.filter((c) => !c.billingExempt), ...filtered.filter((c) => c.billingExempt)].map((c, i, arr) => (
+                <Fragment key={c.ownerKey}>
+                  {c.billingExempt && (i === 0 || !arr[i - 1].billingExempt) && (
+                    <tr className="bg-[#f8fafc] border-y border-[#e4ebf2]">
+                      <td colSpan={12} className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#8595a8]">
+                        💤 No service fee — deposit-only clients (never charged)
+                      </td>
+                    </tr>
+                  )}
+                  <ClientTableRow c={c} v={vBy.get(c.ownerKey)} verifyLoading={verifyLoading}
+                    onChange={() => load()} onVerifyReload={() => loadVerify()}
+                    open={openKey === c.ownerKey} onToggle={() => setOpenKey((k) => (k === c.ownerKey ? null : c.ownerKey))} />
+                </Fragment>
               ))}
             </tbody>
           </table>

@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as {
-    owner_key?: string; is_ppa?: boolean; fee?: number; note?: string; auto_charge?: boolean;
+    owner_key?: string; is_ppa?: boolean; fee?: number; note?: string; auto_charge?: boolean; billing_exempt?: boolean;
   };
   const ownerKey = String(body.owner_key ?? "").trim().toLowerCase();
   if (!ownerKey) return NextResponse.json({ error: "owner_key required" }, { status: 400 });
@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     fee_per_appt: body.fee != null ? Number(body.fee) : (existing?.fee_per_appt ?? 30),
     note: body.note !== undefined ? body.note : (existing?.note ?? null),
     auto_charge: body.auto_charge !== undefined ? !!body.auto_charge : (existing?.auto_charge ?? false),
+    billing_exempt: body.billing_exempt !== undefined ? !!body.billing_exempt : (existing?.billing_exempt ?? false),
     updated_at: new Date().toISOString(),
     updated_by: auth.email,
   };
