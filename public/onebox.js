@@ -1069,18 +1069,20 @@
       }
       htmlStr += "</div>";
     }
-    if (GOOG) {
-      htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say &#11088;</h2>' +
-        '<div class="elfsight-app-' + esc(GOOG) + '" data-elfsight-app-lazy></div></div>';
-      loadElfsight();
-    }
-    /* Location: map first, the studio photos below it — template order. */
+    /* Location: map first, the studio photos below it — template order,
+       and the Google-reviews widget only AFTER the studio (matches the
+       original GHL pages; Netzah 2026-08-23). */
     htmlStr += '<div class="xsec"><h2 class="xhead">&#128205;We are located at ' + esc(ADDR) + "</h2>" +
       '<div class="mapcard"><iframe loading="lazy" src="https://www.google.com/maps?q=' +
       encodeURIComponent(ADDR) + '&output=embed"></iframe></div>' +
       (STUDIO.length ? '<div class="studio">' + STUDIO.map(function (u) {
         return '<img src="' + esc(fastImg(u, 640)) + '" alt="Our studio" loading="lazy">';
       }).join("") + "</div>" : "") + "</div>";
+    if (GOOG) {
+      htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say &#11088;</h2>' +
+        '<div class="elfsight-app-' + esc(GOOG) + '" data-elfsight-app-lazy></div></div>';
+      loadElfsight();
+    }
     if (phase === "booking" && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
       htmlStr += '<div class="xsec"><h2 class="xhead">FAQs &#128071;</h2><div class="faqs">' +
         window.OB_FAQS.map(function (f) {
