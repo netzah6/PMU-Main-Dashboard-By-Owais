@@ -72,8 +72,6 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [menuFor, setMenuFor] = useState<string | null>(null);
-  // One client expanded at a time — every dropdown open at once was unreadable.
-  const [openKey, setOpenKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -543,6 +541,8 @@ export default function V3BillingPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  // One client expanded at a time — every dropdown open at once was unreadable.
+  const [openKey, setOpenKey] = useState<string | null>(null);
   // Payment verification (Square match/cards/flags) loads separately — it's
   // slower than the billing overview, so cards render first and the payment
   // cluster fills in when this arrives.
