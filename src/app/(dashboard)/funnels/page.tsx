@@ -289,24 +289,24 @@ export default function FunnelsPage() {
         <div className="p-10 text-center text-[#697a91] text-sm">No funnels yet — add the first client.</div>
       ) : (
         <div className="space-y-3">
-          {funnels.some((f) => f.abStatus === "running") && (
+          {funnels.some((f) => f.abStatus === "running" && f.slug !== "demo-v3") && (
             <div className="border border-[#d8b4fe] rounded-xl bg-white p-4">
               <button
                 onClick={() => {
                   const open = !overviewOpen;
                   setOverviewOpen(open);
-                  if (open) funnels.filter((f) => f.abStatus === "running").forEach((f) => void loadAb(f.slug));
+                  if (open) funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3").forEach((f) => void loadAb(f.slug));
                 }}
                 className="w-full flex items-center gap-2 text-sm font-medium text-[#1c2b3a]">
                 <span className="w-2 h-2 rounded-full bg-[#7c3aed] animate-pulse" />
                 Split tests overview — all clients
                 <span className="text-xs text-[#697a91]">
-                  ({funnels.filter((f) => f.abStatus === "running").length} running)
+                  ({funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3").length} running)
                 </span>
                 <span className="ml-auto text-[#697a91]">{overviewOpen ? "▲" : "▼"}</span>
               </button>
               {overviewOpen && (() => {
-                const running = funnels.filter((f) => f.abStatus === "running");
+                const running = funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3");
                 /* All-clients totals per side — the "is the one-box working overall" row. */
                 const tot: Record<string, { vis: number; leads: number; picked: number; dep: number; aiDep: number; spend: number }> = {};
                 for (const f of running) {
