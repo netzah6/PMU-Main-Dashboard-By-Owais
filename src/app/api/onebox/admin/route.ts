@@ -254,8 +254,26 @@ export async function POST(req: NextRequest) {
     if (!entries.length) return NextResponse.json({ error: "no values" }, { status: 400 });
     const res = await setOneboxCustomValues(row.location_id as string, entries);
     if (res.error) return NextResponse.json({ error: `GHL write failed (${res.error})` }, { status: 502 });
-    const config = await refreshOneboxConfig(svc, slug, row.location_id as string);
-    return NextResponse.json({ ok: true, written: res.written.length, config });
+    /* Write-through instead of read-after-write: GHL's custom-values list
+       can lag a just-made write, so an immediate resync sometimes came
+       back with the OLD values and clobbered the stored config — the
+       Values panel then reopened empty even though GHL saved fine
+       (Netzah hit this repeatedly with the IG-widget link). What GHL
+       just accepted IS the truth; merge it in ourselves and let the
+       regular 5-minute resync reconcile once their list catches up. */
+    const writtenNames = new Set(res.written);
+    const cfg = { ...((row.config ?? {}) as Record<string, string>) };
+    for (const [key, cvName] of Object.entries(ONEBOX_EDITABLE_CVS)) {
+      if (key in values && typeof values[key] === "string" && writtenNames.has(cvName)) {
+        cfg[key] = (values[key] as string).trim().slice(0, 2000);
+      }
+    }
+    await svc
+      .from("onebox_clients")
+      .update({ config: cfg, cv_synced_at: new Date().toISOString() })
+      .eq("slug", slug);
+    const failed = entries.filter((e) => !writtenNames.has(e.name)).map((e) => e.name);
+    return NextResponse.json({ ok: true, written: res.written.length, failed, config: cfg });
   }
 
   if (action === "health") {
