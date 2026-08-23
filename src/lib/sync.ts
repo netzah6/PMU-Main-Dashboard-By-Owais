@@ -26,7 +26,7 @@ async function dropSupersededDirectRows(
   const supabase = createServiceClient();
   const { data: direct } = await supabase
     .from(table)
-    .select("id, data")
+    .select("id, data, synced_at")
     .not("external_id", "is", null)
     .is("sheet_row", null);
   if (!direct || direct.length === 0) return 0;
@@ -48,10 +48,16 @@ async function dropSupersededDirectRows(
     .filter((r) => {
       const row = (r.data ?? {}) as Record<string, unknown>;
       if (inSheet.has(fingerprint(t, row))) return true;
-      const d = rowDate(row);
-      if (Number.isNaN(d)) return false;
       const near = looseDates.get(fingerprintLoose(t, row));
-      return !!near && near.some((sd) => Math.abs(sd - d) <= 3 * DAY);
+      if (!near) return false;
+      // Two candidate dates for a direct row: the payload's Date field, and
+      // the row's ARRIVAL time. Make's webhook sometimes fills Date with the
+      // lead's signup date, months before the payment (17 Commas-verified
+      // cases on 2026-08-23) — but the webhook always FIRES seconds after the
+      // charge, so synced_at is the trustworthy payment moment.
+      const cands = [rowDate(row), r.synced_at ? Date.parse(String(r.synced_at)) : NaN]
+        .filter((d) => !Number.isNaN(d));
+      return cands.some((d) => near.some((sd) => Math.abs(sd - d) <= 3 * DAY));
     })
     .map((r) => r.id);
   if (superseded.length === 0) return 0;
