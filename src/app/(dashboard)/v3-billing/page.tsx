@@ -72,6 +72,8 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // One client expanded at a time — every dropdown open at once was unreadable.
+  const [openKey, setOpenKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -281,11 +283,10 @@ function NumCell({ value, sub, tone, title }: { value: string | number; sub?: st
   );
 }
 
-function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, defaultOpen }: {
+function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, onToggle }: {
   c: ClientRow; v: VRow | undefined; verifyLoading: boolean;
-  onChange: () => void; onVerifyReload: () => void; defaultOpen?: boolean;
+  onChange: () => void; onVerifyReload: () => void; open: boolean; onToggle: () => void;
 }) {
-  const [open, setOpen] = useState(!!defaultOpen);
   const [fee, setFee] = useState(String(c.fee));
   const [payMsg, setPayMsg] = useState<PayMsgData | null>(null);
   useEffect(() => { setFee(String(c.fee)); }, [c.fee]);
@@ -312,7 +313,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, default
         {/* Client */}
         <td className="pl-3 pr-2 py-2.5 align-middle">
           <div className="flex items-center gap-2">
-            <button onClick={() => setOpen((o) => !o)} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
+            <button onClick={onToggle} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
               {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
             </button>
             <div className="min-w-[150px] max-w-[190px]">
@@ -734,7 +735,8 @@ export default function V3BillingPage() {
             <tbody>
               {filtered.map((c) => (
                 <ClientTableRow key={c.ownerKey} c={c} v={vBy.get(c.ownerKey)} verifyLoading={verifyLoading}
-                  onChange={() => load()} onVerifyReload={() => loadVerify()} defaultOpen={filter === "ready"} />
+                  onChange={() => load()} onVerifyReload={() => loadVerify()}
+                  open={openKey === c.ownerKey} onToggle={() => setOpenKey((k) => (k === c.ownerKey ? null : c.ownerKey))} />
               ))}
             </tbody>
           </table>
