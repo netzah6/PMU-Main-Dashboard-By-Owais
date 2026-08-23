@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { refreshOneboxConfig, parseFaqs, normalizeElfsight, buildFanbasisBlock, SYNC_TTL_MS } from "@/lib/onebox";
 
@@ -92,7 +93,13 @@ export async function GET(
       const fresh = await refresh;
       if (fresh) row.config = fresh;
     } else {
-      refresh.catch(() => {});
+      /* Vercel freezes the lambda once the response returns, killing a
+         bare fire-and-forget promise — custom-value edits then never
+         reached the funnel until some lucky warm invocation finished
+         the job (bitten 2026-08-23: deleted photo CVs kept serving).
+         waitUntil keeps the function alive until the refresh lands,
+         still off the visitor's clock. */
+      waitUntil(refresh.then(() => {}).catch(() => {}));
     }
   }
 
