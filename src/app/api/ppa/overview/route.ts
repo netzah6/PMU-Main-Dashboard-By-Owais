@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*").in("owner_key", ownerKeys),
-    svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount").in("owner_key", ownerKeys),
+    svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount, square_payment_id").in("owner_key", ownerKeys),
     svc.from("deposit_refunds").select("business, email, contact_name").eq("status", "refunded"),
     svc.from("ppa_selfbooked").select("appt_id, owner_key").in("owner_key", ownerKeys),
     svc.from("ppa_calendar_booked").select("appt_id, owner_key, start_time").in("owner_key", ownerKeys),
@@ -64,15 +64,22 @@ export async function GET(req: NextRequest) {
   for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; is_ppa: boolean; fee_per_appt: number; note: string | null }>)
     cfgBy.set(r.owner_key, { is_ppa: !!r.is_ppa, fee_per_appt: Number(r.fee_per_appt), note: r.note });
 
-  type ChgRow = { owner_key: string; appt_id: string; charged: boolean; excluded: boolean | null; amount: number | null };
+  type ChgRow = { owner_key: string; appt_id: string; charged: boolean; excluded: boolean | null; amount: number | null; square_payment_id: string | null };
   const chgAmtBy = new Map<string, number>();
   const chgByApptId = new Map<string, ChgRow>();
   // Charged count comes from ppa_charges directly (not the deposit-based
   // summary view) so charged self-booked shows are counted too.
   const chgCountBy = new Map<string, number>();
+  // Chat-billed rows without a Square payment id are DECIDED but not yet
+  // COLLECTED — they count as ready-to-charge, not as charged.
+  const chatReadyBy = new Map<string, number>();
   for (const r of (chgRes.data ?? []) as ChgRow[]) {
     chgByApptId.set(r.appt_id, r);
     if (!r.charged) continue;
+    if (r.appt_id.startsWith("chat:") && !r.square_payment_id && !r.excluded) {
+      chatReadyBy.set(r.owner_key, (chatReadyBy.get(r.owner_key) ?? 0) + 1);
+      continue;
+    }
     chgAmtBy.set(r.owner_key, (chgAmtBy.get(r.owner_key) ?? 0) + (Number(r.amount) || 0));
     chgCountBy.set(r.owner_key, (chgCountBy.get(r.owner_key) ?? 0) + 1);
   }
@@ -110,7 +117,7 @@ export async function GET(req: NextRequest) {
     const selfBookedReady = sbReadyBy.get(c.ownerKey) ?? 0;
     // Ready = deposit-linked shows waiting + self-booked shows waiting; both
     // bill at the same fee, and the verify report's shows list matches this.
-    const readyToCharge = (s?.ready_to_charge ?? 0) + selfBookedReady;
+    const readyToCharge = (s?.ready_to_charge ?? 0) + selfBookedReady + (chatReadyBy.get(c.ownerKey) ?? 0);
     const showed = s?.showed ?? 0;
     const noShowMarked = s?.no_show_marked ?? 0;
     const reviewed = showed + noShowMarked;
