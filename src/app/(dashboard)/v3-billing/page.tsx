@@ -52,9 +52,11 @@ const CS: Record<string, { label: string; cls: string }> = {
   // her GHL calendar and its date has passed.
   self_booked: { label: "Self-booked", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
   calendar_booked: { label: "Calendar", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
+  // Billed from the Booked-in-chat panel; collected by the next charge run.
+  chat_booked: { label: "Chat", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
 };
 const isReady = (a: Appt) => !a.charged && !a.excluded && !a.refunded &&
-  (a.chargeStatus === "served" || a.chargeStatus === "past_due" || a.chargeStatus === "self_booked" || a.chargeStatus === "calendar_booked");
+  (a.chargeStatus === "served" || a.chargeStatus === "past_due" || a.chargeStatus === "self_booked" || a.chargeStatus === "calendar_booked" || a.chargeStatus === "chat_booked");
 
 function money(n: number): string {
   return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });

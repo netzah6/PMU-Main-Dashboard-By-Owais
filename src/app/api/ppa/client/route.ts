@@ -18,6 +18,7 @@ type ChargeRow = {
   charged_at: string | null; charged_by: string | null;
   excluded: boolean | null; exclude_reason: string | null;
   excluded_at: string | null; excluded_by: string | null;
+  square_payment_id?: string | null;
 };
 type BillingRow = {
   appt_id: string; stage_name: string | null; is_session_done: boolean; is_five_star: boolean;
@@ -150,6 +151,44 @@ export async function GET(req: NextRequest) {
       chargeNote: c?.note ?? null,
     });
   }
+  // Chat-billed bookings ("Bill $X" on the Booked-in-chat panel). A row with
+  // no Square payment id yet is decided-but-uncollected: it shows here as
+  // ready so the client (e.g. Zuleika, 2026-08-23) doesn't vanish after the
+  // flag is cleared; once the charge run collects it, it flips to charged.
+  for (const c of (chgRes.data ?? []) as ChargeRow[]) {
+    if (!c.appt_id.startsWith("chat:")) continue;
+    if (!c.charged && !c.excluded) continue;
+    const collected = !!c.square_payment_id;
+    const name = (c.note ?? "").split("— ").pop()?.trim() || null;
+    summary.selfBooked++;
+    if (c.excluded) summary.excluded++;
+    else if (collected) summary.showed++;
+    else summary.readyToCharge++;
+    appointments.push({
+      apptId: c.appt_id,
+      contactName: name,
+      email: null,
+      depositDate: null,
+      amount: null,
+      status: null,
+      notes: null,
+      source: "chat",
+      currentStage: null,
+      appointmentDate: c.charged_at,
+      appointmentStatus: null,
+      chargeStatus: "chat_booked",
+      charged: collected,
+      excluded: !!c.excluded,
+      excludeReason: c.exclude_reason,
+      refunded: false,
+      refundedAt: null,
+      chargedAmount: c.amount,
+      chargedAt: c.charged_at,
+      chargedBy: c.charged_by,
+      chargeNote: c.note,
+    });
+  }
+
   // Calendar-booked shows: the artist put a NO-DEPOSIT lead on her GHL
   // calendar. Past ones bill by default (same policy as past-due deposits);
   // future ones are upcoming info. The view excludes deposit and done-stage

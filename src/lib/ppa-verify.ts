@@ -203,7 +203,10 @@ async function matchCustomer(
 }
 
 type BillingRow = { owner_key: string; appt_id: string; charge_status: string; start_time: string | null };
-type ChargeRow = { appt_id: string; charged: boolean | null; excluded: boolean | null };
+type ChargeRow = {
+  appt_id: string; owner_key?: string; charged: boolean | null; excluded: boolean | null;
+  square_payment_id?: string | null; charged_at?: string | null; note?: string | null;
+};
 type DepRow = { appt_id: string; biz_norm: string; contact_name: string | null };
 
 export async function buildVerifyReport(ownerKeyFilter?: string): Promise<VerifyReport> {
@@ -217,7 +220,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     svc.from("clients_master").select("data"),
     svc.from("ppa_config").select("owner_key, fee_per_appt, auto_charge").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_billing").select("owner_key, appt_id, charge_status, start_time").in("owner_key", ownerKeys),
-    svc.from("ppa_charges").select("appt_id, charged, excluded").in("owner_key", ownerKeys),
+    svc.from("ppa_charges").select("appt_id, owner_key, charged, excluded, square_payment_id, charged_at, note").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_rows").select("appt_id, biz_norm, contact_name").in("biz_norm", bizNorms),
     svc.from("ppa_selfbooked").select("appt_id, owner_key, contact_name, done_at").in("owner_key", ownerKeys),
     svc.from("ppa_calendar_booked").select("appt_id, owner_key, contact_name, start_time").in("owner_key", ownerKeys),
@@ -297,6 +300,21 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       chargeStatus: "calendar_booked",
     });
     showsBy.set(s.owner_key, list);
+  }
+
+  // Chat-billed bookings awaiting collection: the "Bill $X" button on the
+  // Booked-in-chat panel records the decision as a ppa_charges row, but no
+  // Square payment exists yet (square_payment_id is null). Those join the
+  // ready list here so the Monday auto-charge (or the manual Charge button)
+  // actually collects the money — before 2026-08-23 they were silently
+  // recorded as "charged" and never billed to anyone.
+  for (const r of (chgRes.data ?? []) as ChargeRow[]) {
+    if (!r.appt_id?.startsWith("chat:") || !r.owner_key) continue;
+    if (!r.charged || r.excluded || r.square_payment_id) continue;
+    const name = (r.note ?? "").split("— ").pop()?.trim() || null;
+    const list = showsBy.get(r.owner_key) ?? [];
+    list.push({ apptId: r.appt_id, contactName: name, apptDate: r.charged_at ?? null, chargeStatus: "chat_booked" });
+    showsBy.set(r.owner_key, list);
   }
 
   // One list fetch, matched locally — never a per-client Square search.
@@ -605,6 +623,7 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
   // any later dispute can be traced back to the exact shows it covered.
   const now = new Date().toISOString();
   const svc = createServiceClient();
+  const nameByApptId = new Map(row.shows.map((sh) => [sh.apptId, sh.contactName]));
   const { error } = await svc.from("ppa_charges").upsert(
     apptIds.map((apptId) => ({
       appt_id: apptId,
@@ -614,7 +633,7 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
       charged_at: now,
       charged_by: chargedBy,
       square_payment_id: payment.id,
-      note: `Square ${payment.id}`,
+      note: `Square ${payment.id}${nameByApptId.get(apptId) ? ` — ${nameByApptId.get(apptId)}` : ""}`,
       excluded: false,
       exclude_reason: null,
       updated_at: now,
