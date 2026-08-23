@@ -230,7 +230,13 @@ export function fingerprintLoose(table: IngestTable, row: Record<string, unknown
 export function rowDate(row: Record<string, unknown>): number {
   const s = String(row["Date"] ?? row["Signed Date"] ?? "");
   const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  return (m ? new Date(`${m[3]}-${m[2]}-${m[1]}`) : new Date(s)).getTime();
+  if (m) return new Date(`${m[3]}-${m[2]}-${m[1]}`).getTime();
+  // Google Sheets day-number (e.g. 46255 = 21/08/2026) — the sheet briefly
+  // stored dates as raw serials in Aug 2026; parse them so dedupe never goes
+  // blind again even if the column's text lock is ever undone.
+  const serial = s.match(/^(4\d{4})(\.\d+)?$/);
+  if (serial) return Date.UTC(1899, 11, 30) + Number(serial[1]) * 86_400_000;
+  return new Date(s).getTime();
 }
 
 export interface IngestResult {
