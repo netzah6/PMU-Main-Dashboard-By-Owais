@@ -128,7 +128,63 @@ function ExpandText({ value }: { value: string | null }) {
 
 const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "L 30", "L 14", "L 7", "L 3", "Conv% 30", "Conv% 14", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
 
+type DroppedLead = {
+  business_name: string; owner_name: string; contact_name: string; phone: string | null;
+  location_id: string; contact_id: string; last_message_date: string; hours_waiting: number; message: string;
+};
+
+// Hot leads waiting for a reply — from the dropped_hot_leads view (live V3/V2.3
+// accounts, booking/price intent in the client's last message, unanswered 2h–7d).
+function DroppedLeads() {
+  const [rows, setRows] = useState<DroppedLead[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    createClient().from("dropped_hot_leads").select("*").then(({ data, error }) => {
+      if (error) setErr(error.message); else setRows((data as DroppedLead[]) ?? []);
+    });
+  }, []);
+  if (err) return <div className="rounded-lg border border-[#d97070] bg-[#fdf3f3] p-3 text-sm text-[#8a3a3a]">{err}</div>;
+  if (!rows) return <div className="py-10 text-center text-sm text-[#697a91]">Loading dropped leads…</div>;
+  const fmtWait = (h: number) => (h >= 48 ? `${Math.floor(h / 24)}d ${Math.round(h % 24)}h` : `${Math.round(h)}h`);
+  return (
+    <div>
+      <p className="text-sm text-[#697a91]">
+        Clients who asked something booking- or price-related and are still waiting for an answer
+        (2 hours to 7 days, live V3/V2.3 accounts). Longest-waiting first — every one of these is a
+        deposit sitting on the table.
+      </p>
+      {rows.length === 0 ? (
+        <div className="mt-6 py-10 text-center text-[#8595a8]">No dropped leads right now 🎉</div>
+      ) : (
+        <div className="mt-3 rounded-xl border border-[#e4ebf2] overflow-hidden bg-white divide-y divide-[#eef3f8]">
+          {rows.map((r, i) => (
+            <div key={`${r.contact_id}-${i}`} className="px-4 py-3 flex items-start gap-3">
+              <span className={`mt-0.5 px-2 py-0.5 rounded-md text-xs font-bold whitespace-nowrap ${r.hours_waiting >= 24 ? "bg-[#fdf3f3] text-[#b4485c]" : "bg-[#fbf7f1] text-[#8a6d3b]"}`}>
+                ⏳ {fmtWait(r.hours_waiting)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm">
+                  <span className="font-semibold text-[#1f3559] capitalize">{r.contact_name}</span>
+                  <span className="text-[#8595a8]"> · {r.business_name}</span>
+                </div>
+                <div className="text-sm text-[#34568a] mt-0.5">&ldquo;{r.message.length > 220 ? r.message.slice(0, 220) + "…" : r.message}&rdquo;</div>
+              </div>
+              <a href={`https://app.gohighlevel.com/v2/location/${r.location_id}/contacts/detail/${r.contact_id}`}
+                target="_blank" rel="noreferrer"
+                className="text-xs font-semibold text-[#0e8f88] whitespace-nowrap hover:underline mt-1">
+                Open in GHL ↗
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CostPerDepositPage() {
+  const [view, setView] = useState<"costs" | "dropped">("costs");
+  const [droppedCount, setDroppedCount] = useState<number | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -207,9 +263,23 @@ export default function CostPerDepositPage() {
     });
   }, [rows, search, assignee, versionFilter, sortMode]);
 
+  useEffect(() => {
+    createClient().from("dropped_hot_leads").select("*", { count: "exact", head: true })
+      .then(({ count }) => setDroppedCount(count ?? 0));
+  }, []);
+
   return (
     <div className="p-3 md:p-4 space-y-3">
       <SyncHealthBanner />
+      <div className="flex gap-1 rounded-lg bg-[#eef2f7] p-1 w-fit">
+        {([["costs", "Cost / Deposit"], ["dropped", `🚨 Dropped Leads${droppedCount != null ? ` (${droppedCount})` : ""}`]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setView(k)}
+            className={`px-4 py-1.5 rounded-md text-sm font-semibold ${view === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === "dropped" ? <DroppedLeads /> : (<>
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold text-[#1f3559]">Cost Per Deposit</h1>
@@ -390,6 +460,7 @@ export default function CostPerDepositPage() {
         <EmojiLegend />
         </>
       )}
+    </>)}
     </div>
   );
 }
