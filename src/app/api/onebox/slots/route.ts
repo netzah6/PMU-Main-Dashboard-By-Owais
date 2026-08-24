@@ -31,10 +31,13 @@ export async function GET(req: NextRequest) {
   const svc = createServiceClient();
   const { data: client } = await svc
     .from("onebox_clients")
-    .select("slug, location_id, status, config")
+    .select("slug, location_id, status, config, extras")
     .eq("slug", slug)
     .single();
-  const calendarId = (client?.config as Record<string, string>)?.calendarId;
+  const extras = (client?.extras ?? {}) as { template?: string; b2b?: { calendarId?: string } };
+  const calendarId = extras.template === "b2b"
+    ? extras.b2b?.calendarId
+    : (client?.config as Record<string, string>)?.calendarId;
   if (!client || client.status === "draft" || !calendarId) {
     return NextResponse.json({ ok: false, error: "unknown funnel" }, { status: 404 });
   }

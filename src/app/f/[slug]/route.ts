@@ -24,6 +24,12 @@ type Row = {
     elfsightId?: string;
     resultImgs?: string;
     metaPixelId?: string;
+    /* "b2b" = the agency's own artist-acquisition funnel: config lives in
+       extras.b2b (the CV sync must never overwrite it) and the page runs
+       the dedicated onebox-b2b.js engine — no Fanbasis, booking a free
+       discovery call is the conversion. */
+    template?: string;
+    b2b?: Record<string, string>;
   };
 };
 
@@ -86,8 +92,10 @@ export async function GET(
      wait out a full GHL round trip; they now get the current config and
      the refresh lands for the next request. Only a funnel that has never
      synced blocks, because it has nothing to show otherwise. */
+  const isB2B = row.extras?.template === "b2b";
   const age = row.cv_synced_at ? Date.now() - new Date(row.cv_synced_at).getTime() : Infinity;
-  if (age > SYNC_TTL_MS) {
+  // B2B content lives in extras.b2b, not in GHL custom values — never sync.
+  if (age > SYNC_TTL_MS && !isB2B) {
     const refresh = refreshOneboxConfig(svc, row.slug, row.location_id);
     if (!row.cv_synced_at) {
       const fresh = await refresh;
@@ -109,6 +117,7 @@ export async function GET(
      experiment must belong to this slug — otherwise ignore. */
   const obE = req.nextUrl.searchParams.get("ob_e") ?? "";
   const obV = req.nextUrl.searchParams.get("ob_v") ?? "";
+  const variantOverrides: Record<string, string> = {};
   if (/^\d+$/.test(obE) && obV) {
     const { data: ex } = await svc
       .from("onebox_experiments")
@@ -124,10 +133,15 @@ export async function GET(
         .maybeSingle();
       const override = (variant?.config_override ?? {}) as Record<string, unknown>;
       for (const [k, v] of Object.entries(override)) {
-        if (typeof v === "string" && v.trim()) row.config[k] = v;
+        if (typeof v === "string" && v.trim()) {
+          row.config[k] = v;
+          variantOverrides[k] = v;
+        }
       }
     }
   }
+
+  if (isB2B) return serveB2B(row, req, variantOverrides);
 
   const cfg: Record<string, string> = {
     ...row.config,
@@ -205,6 +219,45 @@ ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</templat
          background — visitors get an edge hit instead of a database
          round trip, and a custom-value edit still appears within the
          same ~5 minutes as before. */
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+    },
+  });
+}
+
+/* The agency's B2B (artist-acquisition) funnel. Content and settings come
+   from extras.b2b — dashboard-managed, out of the CV sync's reach — and
+   the page runs its own engine. Split-test overrides still apply, so
+   copy variants work the same way as on client funnels. */
+function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, string>) {
+  const cfg: Record<string, string> = {
+    ...(row.extras.b2b ?? {}),
+    ...variantOverrides,
+    slug: row.slug,
+    locationId: row.location_id,
+    submitUrl: "/api/onebox/submit",
+    experimentId: req.nextUrl.searchParams.get("ob_e") ?? "",
+    variantKey: req.nextUrl.searchParams.get("ob_v") ?? "",
+  };
+  const boot = `window.OB_CONFIG=${JSON.stringify(cfg)};`.replace(/<\//g, "<\\/");
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>PMU Bookings On Demand — Check Availability</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Lato:wght@400;700&display=swap">
+<script src="/onebox-b2b.js?v=1" defer></script>
+</head>
+<body style="margin:0">
+<div id="onebox-root"></div>
+<script>${boot}</script>
+</body>
+</html>`;
+  return new Response(html, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
     },
   });
