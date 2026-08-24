@@ -128,6 +128,76 @@ function ExpandText({ value }: { value: string | null }) {
 
 const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "L 30", "L 14", "L 7", "L 3", "Conv% 30", "Conv% 14", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
 
+type Issue = {
+  fingerprint: string; kind: string; who: string; detail: string;
+  location_id: string | null; contact_id: string | null; seen_at: string;
+};
+
+// Daily problems dropdown: data errors (e.g. swapped original/discounted
+// price) + fresh chat complaints, from the cpd_issues view. Ignore hides an
+// issue for everyone (issue_dismissals).
+function IssuesPanel() {
+  const [issues, setIssues] = useState<Issue[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const sb = createClient();
+    Promise.all([
+      sb.from("cpd_issues").select("*"),
+      sb.from("issue_dismissals").select("fingerprint"),
+    ]).then(([i, d]) => {
+      const dismissed = new Set(((d.data ?? []) as { fingerprint: string }[]).map((x) => x.fingerprint));
+      setIssues(((i.data ?? []) as Issue[]).filter((x) => !dismissed.has(x.fingerprint))
+        .sort((a, b) => String(b.seen_at).localeCompare(String(a.seen_at))));
+    });
+  }, []);
+  const ignore = async (f: Issue) => {
+    setIssues((cur) => (cur ?? []).filter((x) => x.fingerprint !== f.fingerprint));
+    await createClient().from("issue_dismissals").insert({ fingerprint: f.fingerprint, kind: f.kind });
+  };
+  if (!issues || issues.length === 0) return null;
+  const KIND: Record<string, { chip: string; cls: string }> = {
+    price_swap: { chip: "\ud83d\udcb8 Price swapped", cls: "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]" },
+    complaint: { chip: "\ud83d\udcac Client complaint", cls: "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]" },
+  };
+  return (
+    <div className="rounded-xl border border-[#ecd3a8] bg-[#fbf7f1]">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
+        <span className="text-sm font-bold text-[#6b4d16]">\u26a0 {issues.length} problem{issues.length === 1 ? "" : "s"} found</span>
+        <span className="text-xs text-[#8a7442]">data errors &amp; client-chat issues from the daily check &mdash; click to review</span>
+        <span className="ml-auto text-[#8a7442]">{open ? "\u25b2" : "\u25bc"}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-1.5">
+          {issues.map((f) => (
+            <div key={f.fingerprint} className="rounded-lg border border-[#e4ebf2] bg-white px-3 py-2 flex items-start gap-2 flex-wrap">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${KIND[f.kind]?.cls ?? "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]"}`}>
+                {KIND[f.kind]?.chip ?? f.kind}
+              </span>
+              <div className="min-w-[200px] flex-1">
+                <div className="text-[12px] font-bold text-[#1f3559]">{f.who}</div>
+                <div className="text-[12px] text-[#34568a]">{f.detail}</div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {f.location_id && f.contact_id && (
+                  <a href={`https://app.gohighlevel.com/v2/location/${f.location_id}/contacts/detail/${f.contact_id}`}
+                    target="_blank" rel="noreferrer"
+                    className="px-2 py-1 rounded-lg text-[11px] font-semibold text-[#0e8f88] border border-[#a7e3df] bg-[#e6f7f5] hover:bg-[#d6f0ed]">
+                    Open in GHL \u2197
+                  </a>
+                )}
+                <button onClick={() => ignore(f)}
+                  className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#94a3b8] border-[#e4ebf2] hover:border-[#94a3b8]">
+                  Ignore
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CostPerDepositPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,6 +280,7 @@ export default function CostPerDepositPage() {
   return (
     <div className="p-3 md:p-4 space-y-3">
       <SyncHealthBanner />
+      <IssuesPanel />
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold text-[#1f3559]">Cost Per Deposit</h1>
