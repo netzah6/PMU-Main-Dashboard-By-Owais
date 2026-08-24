@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { getAppLocationToken } from "@/lib/ghl-app";
+import { PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 
 export const fetchCache = "force-no-store";
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
   const [{ data: variants }, { data: assigns }, { data: leads }, { data: client }] = await Promise.all([
     svc.from("onebox_variants").select("vkey, label, kind, target, weight, config_override").eq("experiment_id", exp.id).order("vkey"),
     svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id),
-    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, picked_time_at, answers, created_at").eq("slug", slug).gte("created_at", exp.created_at),
+    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, picked_time_at, answers, created_at, phone, full_name").eq("slug", slug).gte("created_at", exp.created_at),
     svc.from("onebox_clients").select("location_id, config, client_name, extras").eq("slug", slug).single(),
   ]);
 
@@ -48,15 +49,33 @@ export async function GET(req: NextRequest) {
      which matches how the original funnel's calendar counts it. */
   const ours: Record<string, { leads: number; picked: number; paid: number; aiPaid: number }> = {};
   const ourApptIds = new Set<string>();
-  for (const l of leads ?? []) {
-    const k = l.variant_key ?? "?";
-    const c = (ours[k] ??= { leads: 0, picked: 0, paid: 0, aiPaid: 0 });
-    c.leads++;
-    const depositPaid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
-    if (depositPaid) c.paid++;
-    if (l.ghl_status === "paid-followup") c.aiPaid++;
-    if (depositPaid || l.picked_time_at) c.picked++;
+  /* Unique clients: repeat submissions/payments by the same person within
+     21 days merge into one counted journey (Gina paid twice, 7 min apart,
+     under two emails — one deposit). After 3+ weeks they count anew. */
+  type Journey = { ms: number; vkey: string; picked: boolean; paid: boolean; aiPaid: boolean };
+  const journeys = new Map<string, Journey>();
+  const sorted = [...(leads ?? [])].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  for (const l of sorted) {
     if (l.ghl_appointment_id) ourApptIds.add(l.ghl_appointment_id);
+    const ms = new Date(l.created_at as string).getTime();
+    const keys = personKeys(l.full_name as string, ((l.answers ?? {}) as { email?: string }).email, l.phone as string);
+    let j: Journey | undefined;
+    for (const key of keys) {
+      const hit = journeys.get(key);
+      if (hit && ms - hit.ms < PERSON_DEDUPE_MS) { j = hit; break; }
+    }
+    const depositPaid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
+    const aiPaid = l.ghl_status === "paid-followup";
+    const picked = depositPaid || aiPaid || !!l.picked_time_at;
+    if (!j) {
+      j = { ms, vkey: (l.variant_key as string) ?? "?", picked: false, paid: false, aiPaid: false };
+      (ours[j.vkey] ??= { leads: 0, picked: 0, paid: 0, aiPaid: 0 }).leads++;
+    }
+    const c = (ours[j.vkey] ??= { leads: 0, picked: 0, paid: 0, aiPaid: 0 });
+    if (picked && !j.picked) { c.picked++; j.picked = true; }
+    if (depositPaid && !j.paid) { c.paid++; j.paid = true; }
+    if (aiPaid && !j.aiPaid) { c.aiPaid++; j.aiPaid = true; }
+    for (const key of keys) journeys.set(key, j);
   }
 
   // An "external" variant books straight into GHL, so its bookings are the
@@ -133,19 +152,34 @@ export async function GET(req: NextRequest) {
       const NATIVE_WINDOW_MS = 15 * 60 * 1000;
       let ext = 0;
       let extAi = 0;
-      for (const t of txns) {
-        const raw = (t.raw ?? {}) as Record<string, unknown>;
-        const created = String(raw.transaction_date ?? raw.created_at ?? raw.createdAt ?? raw.date ?? "");
-        const ms = created ? Date.parse(created) : NaN;
-        if (!Number.isFinite(ms) || ms < startMs) continue;
-        const fanName = String(((raw.fan ?? {}) as { name?: string }).name ?? "");
-        if (/test/i.test(fanName)) continue;
+      /* Unique clients here too: an accidental double-charge (same person
+         minutes apart, possibly under different emails) counts once; the
+         same client counts again only after 21 days. Oldest-first so the
+         FIRST payment decides native-vs-AI. */
+      const parsed = txns
+        .map((t) => {
+          const raw = (t.raw ?? {}) as Record<string, unknown>;
+          const created = String(raw.transaction_date ?? raw.created_at ?? raw.createdAt ?? raw.date ?? "");
+          const ms = created ? Date.parse(created) : NaN;
+          const fanName = String(((raw.fan ?? {}) as { name?: string }).name ?? "");
+          return { email: t.email, ms, fanName };
+        })
+        .filter((t) => Number.isFinite(t.ms) && t.ms >= startMs - PERSON_DEDUPE_MS)
+        .sort((a, b) => a.ms - b.ms);
+      const paidSeen = new Map<string, number>();
+      for (const t of parsed) {
+        if (/test/i.test(t.fanName)) continue;
         if (!t.email || oneboxEmails.has(t.email)) continue; // one-box journeys count via their own statuses
-        const nativePay = externalAppts.some((a) => a.email === t.email && ms - a.addedMs >= -10 * 60 * 1000 && ms - a.addedMs <= NATIVE_WINDOW_MS);
+        const keys = personKeys(t.fanName, t.email);
+        const dup = keys.some((k) => {
+          const prev = paidSeen.get(k);
+          return prev !== undefined && t.ms - prev < PERSON_DEDUPE_MS;
+        });
+        for (const k of keys) paidSeen.set(k, t.ms);
+        if (dup || t.ms < startMs) continue;
+        const nativePay = externalAppts.some((a) => a.email === t.email && t.ms - a.addedMs >= -10 * 60 * 1000 && t.ms - a.addedMs <= NATIVE_WINDOW_MS);
         if (nativePay) ext++;
-        /* Same externally-booked contact paying OUTSIDE the hold window:
-           that's the AI's text-link recovery, the funnel-experience echo
-           Netzah wants measured per side. */
+        /* Outside the hold window = the AI's text-link recovery. */
         else if (externalAppts.some((a) => a.email === t.email)) extAi++;
       }
       externalDeposits = ext;
