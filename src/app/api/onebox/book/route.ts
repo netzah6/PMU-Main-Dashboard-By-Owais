@@ -35,11 +35,16 @@ export async function POST(req: NextRequest) {
     .eq("slug", slug)
     .single();
   const cfg = (client?.config ?? {}) as Record<string, string>;
-  const calendarId = cfg.calendarId;
+  /* B2B funnel: config lives in extras.b2b (the CV sync owns `config`),
+     its own tag, no deposit — a booked call IS the conversion. */
+  const extrasAll = (client?.extras ?? {}) as { template?: string; b2b?: { tag?: string; calendarId?: string } };
+  const isB2B = extrasAll.template === "b2b";
+  const calendarId = isB2B ? (extrasAll.b2b?.calendarId ?? "") : cfg.calendarId;
   if (!client || client.status === "draft" || !calendarId) {
     return NextResponse.json({ ok: false, error: "unknown funnel" }, { status: 404 });
   }
   const locationId = client.location_id as string;
+  const surveyTag = isB2B ? (extrasAll.b2b?.tag || "b2b-onebox-survey") : "onebox-survey";
 
   const tok = await getAppLocationToken(locationId);
   if (!tok.token) return NextResponse.json({ ok: false, error: "no token" }, { status: 502 });
@@ -91,12 +96,12 @@ export async function POST(req: NextRequest) {
   /* Additive tag endpoint only — tags in the upsert body REPLACE the
      contact's whole tag list and were wiping workflow-added tags. A lead
      marked disqualified at submit stays untagged here too. */
-  const disqualified = Boolean((leadPreRes.data?.answers as { disqualified?: boolean } | null)?.disqualified);
+  const disqualified = !isB2B && Boolean((leadPreRes.data?.answers as { disqualified?: boolean } | null)?.disqualified);
   if (!disqualified) {
     await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
       method: "POST",
       headers: { ...H, Version: "2021-07-28" },
-      body: JSON.stringify({ tags: ["onebox-survey"] }),
+      body: JSON.stringify({ tags: [surveyTag] }),
     }).catch(() => {});
   }
 
@@ -162,8 +167,10 @@ export async function POST(req: NextRequest) {
       .eq("phone", phone)
       .then(() => {}),
     /* The template's workflows read the booked slot from the contact's
-       "CC - Reserved Appointment Time" field — keep it filled here too. */
+       "CC - Reserved Appointment Time" field — keep it filled here too.
+       (B2C only: the agency's B2B workflows read the appointment itself.) */
     (async () => {
+      if (isB2B) return;
       try {
         const fieldMap = await getSurveyFieldMap(locationId, tok.token!);
         if (fieldMap.reserved_time) {
@@ -177,8 +184,10 @@ export async function POST(req: NextRequest) {
     })(),
     // Server-side Purchase — this endpoint only runs once the deposit has
     // cleared, so it is the honest signal for optimising on paying clients.
+    // B2B books a free call (no purchase); the agency workflow's own
+    // appointment-status CAPI covers Meta, same as the original funnel.
     (async () => {
-      if (!pixelId || !token || !eventId) return;
+      if (isB2B || !pixelId || !token || !eventId) return;
       const amount = parseFloat(String(cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
       await sendCapiEvent({
         pixelId, token, eventName: "Purchase", eventId,

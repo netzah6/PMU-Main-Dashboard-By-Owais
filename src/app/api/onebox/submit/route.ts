@@ -61,21 +61,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unknown funnel" }, { status: 404 });
   }
   const locationId = client.location_id as string;
+  /* B2B (agency artist-acquisition) funnel: different questions, its own
+     tag, contact fields addressed by id from extras.b2b.fieldMap, and no
+     disqualify rules — the agency's own workflows do the routing. */
+  const extras = (client.extras ?? {}) as { template?: string; b2b?: { tag?: string; fieldMap?: Record<string, string> } };
+  const isB2B = extras.template === "b2b";
 
-  const answers = {
-    area: String(body.area ?? ""),
-    had_pmu: String(body.had_pmu ?? ""),
-    age: String(body.age ?? ""),
-    commutable: String(body.commutable ?? ""),
-    seriousness: String(body.seriousness ?? ""),
-    aftercare_kit: String(body.aftercare_kit ?? ""),
-  };
+  const answers: Record<string, string> = isB2B
+    ? {
+        area: String(body.area ?? ""),
+        spots: String(body.spots ?? ""),
+        weekly: String(body.weekly ?? ""),
+        start: String(body.start ?? ""),
+        exp: String(body.exp ?? ""),
+        rev: String(body.rev ?? ""),
+        want: String(body.want ?? ""),
+        edge: String(body.edge ?? "").slice(0, 1500),
+        utm_ad: String(body.utm_ad ?? "").slice(0, 200),
+        utm_adset: String(body.utm_adset ?? "").slice(0, 200),
+      }
+    : {
+        area: String(body.area ?? ""),
+        had_pmu: String(body.had_pmu ?? ""),
+        age: String(body.age ?? ""),
+        commutable: String(body.commutable ?? ""),
+        seriousness: String(body.seriousness ?? ""),
+        aftercare_kit: String(body.aftercare_kit ?? ""),
+      };
   /* The template survey's two "Disqualify after submit" rules (decoded
      from the original GHL survey's logic): not commutable, or seriousness
      0-2. Disqualified leads still land in GHL with fields + note, but
      never get the onebox-survey tag - the survey workflows must not fire
      for them (the GHL-side triggers filter on "Disqualified is false"). */
-  const disqualified = answers.commutable === "No" || answers.seriousness === "0-2";
+  const disqualified = !isB2B && (answers.commutable === "No" || answers.seriousness === "0-2");
+  const surveyTag = isB2B ? (extras.b2b?.tag || "b2b-onebox-survey") : "onebox-survey";
 
   const { data: leadRow } = partial
     ? { data: null }
@@ -99,7 +118,7 @@ export async function POST(req: NextRequest) {
     /* Survey answers also land in the contact's CUSTOM FIELDS — the
        sub-account's workflows (internal notifications, AI scripts) read
        those, not the note. Field ids matched by name per location. */
-    const fieldMap = partial ? {} : await getSurveyFieldMap(locationId, tok.token);
+    const fieldMap = partial ? {} : isB2B ? (extras.b2b?.fieldMap ?? {}) : await getSurveyFieldMap(locationId, tok.token);
     const customFields = Object.entries(answers)
       .filter(([k, v]) => v && fieldMap[k])
       .map(([k, v]) => ({ id: fieldMap[k], value: v }));
@@ -139,13 +158,25 @@ export async function POST(req: NextRequest) {
           Version: "2021-07-28",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ tags: ["onebox-survey"] }),
+        body: JSON.stringify({ tags: [surveyTag] }),
       }).catch(() => {});
     }
 
     // Survey answers as a note on the contact (visible in the timeline).
     if (contactId && !partial) {
-      const note = [
+      const note = isB2B
+        ? [
+            "One-Box application:",
+            `Area: ${answers.area}`,
+            `Spots needed: ${answers.spots}`,
+            `Weekly capacity: ${answers.weekly}`,
+            `Ready to start: ${answers.start}`,
+            `Experience: ${answers.exp}`,
+            `Current revenue: ${answers.rev}`,
+            `Desired revenue: ${answers.want}`,
+            `What sets them apart: ${answers.edge}`,
+          ].join("\n")
+        : [
         "One-Box survey:",
         `Area: ${answers.area}`,
         `Had PMU before: ${answers.had_pmu}`,
@@ -180,7 +211,9 @@ export async function POST(req: NextRequest) {
 
   // Server-side Lead: the browser pixel already fired this with the same
   // event_id, so Meta keeps one and gains the events blockers ate.
-  if (!partial) {
+  // B2B: the agency's own GHL workflow sends the Lead CAPI (same as the
+  // original funnel's survey trigger) — sending here would double count.
+  if (!partial && !isB2B) {
     const cfg = (client.config ?? {}) as Record<string, string>;
     const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string };
     const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
