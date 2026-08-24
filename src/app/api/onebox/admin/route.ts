@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: true });
 
   const [{ data: leads }, { data: hitRows }, { data: expRows }] = await Promise.all([
-    svc.from("onebox_leads").select("id, slug, ghl_status, picked_time_at, answers, created_at"),
+    svc.from("onebox_leads").select("id, slug, ghl_status, picked_time_at, answers, created_at, phone, full_name"),
     svc.from("onebox_hits").select("slug"),
     svc.from("onebox_experiments").select("slug, status"),
   ]);
@@ -99,13 +99,28 @@ export async function GET(req: NextRequest) {
   // checkout callback sets). "paid-followup" (AI-recovered) counts as
   // picked but never as a funnel deposit.
   const counts: Record<string, { leads: number; booked: number; paid: number; lastLeadAt: string | null }> = {};
-  for (const l of leads ?? []) {
+  /* Unique clients: same person re-submitting/re-paying within 21 days is
+     ONE journey (see personKeys); they count again after 3+ weeks. */
+  type CardJourney = { ms: number; booked: boolean; paid: boolean };
+  const cardJourneys = new Map<string, CardJourney>();
+  const sortedLeads = [...(leads ?? [])].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  for (const l of sortedLeads) {
     const c = (counts[l.slug] ??= { leads: 0, booked: 0, paid: 0, lastLeadAt: null });
-    c.leads++;
-    const depositPaid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
-    if (depositPaid) c.paid++;
-    if (depositPaid || l.ghl_status === "paid-followup" || l.picked_time_at) c.booked++;
     if (!c.lastLeadAt || l.created_at > c.lastLeadAt) c.lastLeadAt = l.created_at;
+    const ms = new Date(l.created_at as string).getTime();
+    const keys = personKeys(l.full_name as string, ((l.answers ?? {}) as { email?: string }).email, l.phone as string)
+      .map((k) => `${l.slug}|${k}`);
+    let j: CardJourney | undefined;
+    for (const key of keys) {
+      const hit = cardJourneys.get(key);
+      if (hit && ms - hit.ms < PERSON_DEDUPE_MS) { j = hit; break; }
+    }
+    const depositPaid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
+    const booked = depositPaid || l.ghl_status === "paid-followup" || !!l.picked_time_at;
+    if (!j) { j = { ms, booked: false, paid: false }; c.leads++; }
+    if (depositPaid && !j.paid) { c.paid++; j.paid = true; }
+    if (booked && !j.booked) { c.booked++; j.booked = true; }
+    for (const key of keys) cardJourneys.set(key, j);
   }
 
   const out = (rows ?? []).map((r) => {

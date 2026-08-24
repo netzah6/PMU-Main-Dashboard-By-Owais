@@ -307,6 +307,23 @@ export async function refreshOneboxConfig(
 /* The checkout-embed key ships in the public HTML of every funnel page —
    it is not a secret. Exported so fanbasis.ts can use it as the read-path
    fallback since the Fanbasis→Commas migration broke the env key. */
+/* One person = one count. Payments/submissions repeat by accident (Gina
+   Vecchio paid twice 7 minutes apart, second time under a different
+   email), so counting dedupes by PERSON — phone first, then email, then
+   normalized name — inside a 21-day window. The same client counts again
+   after 3+ weeks (a genuine new booking). */
+export const PERSON_DEDUPE_MS = 21 * 24 * 3600 * 1000;
+export function personKeys(name?: string, email?: string, phone?: string): string[] {
+  const keys: string[] = [];
+  const ph = String(phone ?? "").replace(/\D/g, "").slice(-10);
+  if (ph.length === 10) keys.push("p:" + ph);
+  const em = String(email ?? "").trim().toLowerCase();
+  if (em) keys.push("e:" + em);
+  const nm = String(name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (nm) keys.push("n:" + nm);
+  return keys;
+}
+
 export const FANBASIS_PUBLIC_EMBED_KEY = "lKI2gJ56jiZtjQA08FKyzW8HmgLCvC5n";
 const FANBASIS_CREATOR = "pmubookingsondemand";
 
