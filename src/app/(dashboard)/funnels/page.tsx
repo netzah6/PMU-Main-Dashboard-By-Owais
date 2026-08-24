@@ -47,6 +47,7 @@ type Funnel = {
   leads: number;
   paid: number; booked: number; lastLeadAt: string | null;
   abStatus: string | null;
+  template: string;
 };
 type HealthCheck = { name: string; ok: boolean; note: string };
 
@@ -93,6 +94,103 @@ function Dot({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+/* Shared results table for the split-test overview boxes — the all-clients
+   B2C box and the agency's B2B box render the same columns, so the totals
+   stay comparable with each card's own Split panel. */
+function SplitOverviewTable({ rows, ab, showTotals, footnote }: {
+  rows: Funnel[];
+  ab: Record<string, AbResult>;
+  showTotals: boolean;
+  footnote: string;
+}) {
+  const tot: Record<string, { vis: number; leads: number; picked: number; dep: number; aiDep: number; spend: number }> = {};
+  if (showTotals) {
+    for (const f of rows) {
+      for (const v of ab[f.slug]?.variants ?? []) {
+        const k = v.kind === "external" ? "All Original funnels" : "All One-Box funnels";
+        const t = (tot[k] ??= { vis: 0, leads: 0, picked: 0, dep: 0, aiDep: 0, spend: 0 });
+        t.vis += v.visitors ?? 0; t.leads += v.leads ?? 0;
+        t.picked += v.picked ?? 0; t.dep += v.deposits ?? 0;
+        t.aiDep += v.aiDeposits ?? 0; t.spend += v.spend ?? 0;
+      }
+    }
+  }
+  return (
+    <div className="mt-3">
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-[#697a91]">
+            <tr className="text-left">
+              <th className="py-1 pr-3 font-medium">Client</th>
+              <th className="py-1 pr-3 font-medium">Variant</th>
+              <th className="py-1 pr-3 font-medium">Visitors</th>
+              <th className="py-1 pr-3 font-medium">Leads</th>
+              <th className="py-1 pr-3 font-medium">Lead rate</th>
+              <th className="py-1 pr-3 font-medium">Picked time</th>
+              <th className="py-1 pr-3 font-medium">Deposits</th>
+              <th className="py-1 pr-3 font-medium">AI deposits</th>
+              <th className="py-1 pr-3 font-medium">Pick rate</th>
+              <th className="py-1 pr-3 font-medium">Spend</th>
+              <th className="py-1 pr-3 font-medium">Cost / booking</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((f) => {
+              const d = ab[f.slug];
+              if (!d?.variants) {
+                return (
+                  <tr key={f.slug} className="border-t border-[#eef2f6]">
+                    <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{f.clientName || f.slug}</td>
+                    <td className="py-1.5 pr-3 text-[#97a5b8]" colSpan={10}>loading…</td>
+                  </tr>
+                );
+              }
+              const best = d.variants
+                .filter((x) => x.costPerBooking != null)
+                .sort((a, b) => (a.costPerBooking! - b.costPerBooking!))[0];
+              return d.variants.map((v, i) => (
+                <tr key={f.slug + v.vkey} className={i === 0 ? "border-t-2 border-[#e0e7f0]" : "border-t border-[#f4f7fa]"}>
+                  <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{i === 0 ? (f.clientName || f.slug) : ""}</td>
+                  <td className="py-1.5 pr-3">
+                    {v.label}
+                    {best && best.vkey === v.vkey && d.variants.filter((x) => x.costPerBooking != null).length > 1 && (
+                      <span className="ml-1.5 text-[10px] font-semibold text-[#15803d]">best</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-3">{v.visitors}</td>
+                  <td className="py-1.5 pr-3">{v.leads != null ? v.leads : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}</td>
+                  <td className="py-1.5 pr-3">{v.leadRate != null ? `${v.leadRate}%` : "—"}</td>
+                  <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
+                  <td className="py-1.5 pr-3">{v.deposits != null ? v.deposits : <span className="text-[10px] text-[#97a5b8]">—</span>}</td>
+                  <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{v.aiDeposits != null ? v.aiDeposits : "—"}</td>
+                  <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
+                  <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
+                  <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">{v.costPerBooking != null ? `$${v.costPerBooking}` : "—"}</td>
+                </tr>
+              ));
+            })}
+            {Object.entries(tot).map(([label, t]) => (
+              <tr key={label} className="border-t-2 border-[#d8b4fe] bg-[#faf7ff] font-semibold text-[#1c2b3a]">
+                <td className="py-1.5 pr-3" colSpan={2}>{label}</td>
+                <td className="py-1.5 pr-3">{t.vis}</td>
+                <td className="py-1.5 pr-3">{t.leads}</td>
+                <td className="py-1.5 pr-3">{t.vis ? `${((t.leads / t.vis) * 100).toFixed(1)}%` : "—"}</td>
+                <td className="py-1.5 pr-3">{t.picked}</td>
+                <td className="py-1.5 pr-3">{t.dep}</td>
+                <td className="py-1.5 pr-3 text-[#7c3aed]">{t.aiDep}</td>
+                <td className="py-1.5 pr-3">{t.vis ? `${((t.picked / t.vis) * 100).toFixed(1)}%` : "—"}</td>
+                <td className="py-1.5 pr-3">{t.spend ? `$${t.spend.toFixed(2)}` : "—"}</td>
+                <td className="py-1.5 pr-3">{t.spend && t.picked ? `$${(t.spend / t.picked).toFixed(2)}` : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[10px] text-[#697a91]">{footnote}</p>
+    </div>
+  );
+}
+
 export default function FunnelsPage() {
   const { role, loading: userLoading } = useUser();
   const [funnels, setFunnels] = useState<Funnel[]>([]);
@@ -123,6 +221,7 @@ export default function FunnelsPage() {
   const [sop, setSop] = useState({ renamed: false, redirect: false, values: false, workflow: false });
   const [abOrigUrl, setAbOrigUrl] = useState("");
   const [overviewOpen, setOverviewOpen] = useState(false);
+  const [b2bOverviewOpen, setB2bOverviewOpen] = useState(false);
   const [startVerify, setStartVerify] = useState<{ loading?: boolean; ok?: boolean; adUrl?: string; namedRight?: boolean;
     checks?: { originalReady: boolean; originalNote: string; redirectLive: boolean; redirectNote: string;
       oneboxReady: boolean; oneboxNote: string };
@@ -304,115 +403,56 @@ export default function FunnelsPage() {
         <div className="p-10 text-center text-[#697a91] text-sm">No funnels yet — add the first client.</div>
       ) : (
         <div className="space-y-3">
-          {funnels.some((f) => f.abStatus === "running" && f.slug !== "demo-v3") && (
+          {funnels.some((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b") && (
             <div className="border border-[#d8b4fe] rounded-xl bg-white p-4">
               <button
                 onClick={() => {
                   const open = !overviewOpen;
                   setOverviewOpen(open);
-                  if (open) funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3").forEach((f) => void loadAb(f.slug));
+                  if (open) funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b").forEach((f) => void loadAb(f.slug));
                 }}
                 className="w-full flex items-center gap-2 text-sm font-medium text-[#1c2b3a]">
                 <span className="w-2 h-2 rounded-full bg-[#7c3aed] animate-pulse" />
                 Split tests overview — all clients
                 <span className="text-xs text-[#697a91]">
-                  ({funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3").length} running)
+                  ({funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b").length} running)
                 </span>
                 <span className="ml-auto text-[#697a91]">{overviewOpen ? "▲" : "▼"}</span>
               </button>
-              {overviewOpen && (() => {
-                const running = funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3");
-                /* All-clients totals per side — the "is the one-box working overall" row. */
-                const tot: Record<string, { vis: number; leads: number; picked: number; dep: number; aiDep: number; spend: number }> = {};
-                for (const f of running) {
-                  for (const v of ab[f.slug]?.variants ?? []) {
-                    const k = v.kind === "external" ? "All Original funnels" : "All One-Box funnels";
-                    const t = (tot[k] ??= { vis: 0, leads: 0, picked: 0, dep: 0, aiDep: 0, spend: 0 });
-                    t.vis += v.visitors ?? 0; t.leads += v.leads ?? 0;
-                    t.picked += v.picked ?? 0; t.dep += v.deposits ?? 0;
-                    t.aiDep += v.aiDeposits ?? 0; t.spend += v.spend ?? 0;
-                  }
-                }
-                return (
-                  <div className="mt-3">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="text-[#697a91]">
-                          <tr className="text-left">
-                            <th className="py-1 pr-3 font-medium">Client</th>
-                            <th className="py-1 pr-3 font-medium">Variant</th>
-                            <th className="py-1 pr-3 font-medium">Visitors</th>
-                            <th className="py-1 pr-3 font-medium">Leads</th>
-                            <th className="py-1 pr-3 font-medium">Lead rate</th>
-                            <th className="py-1 pr-3 font-medium">Picked time</th>
-                            <th className="py-1 pr-3 font-medium">Deposits</th>
-                            <th className="py-1 pr-3 font-medium">AI deposits</th>
-                            <th className="py-1 pr-3 font-medium">Pick rate</th>
-                            <th className="py-1 pr-3 font-medium">Spend</th>
-                            <th className="py-1 pr-3 font-medium">Cost / booking</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {running.map((f) => {
-                            const d = ab[f.slug];
-                            if (!d?.variants) {
-                              return (
-                                <tr key={f.slug} className="border-t border-[#eef2f6]">
-                                  <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{f.clientName || f.slug}</td>
-                                  <td className="py-1.5 pr-3 text-[#97a5b8]" colSpan={10}>loading…</td>
-                                </tr>
-                              );
-                            }
-                            const best = d.variants
-                              .filter((x) => x.costPerBooking != null)
-                              .sort((a, b) => (a.costPerBooking! - b.costPerBooking!))[0];
-                            return d.variants.map((v, i) => (
-                              <tr key={f.slug + v.vkey} className={i === 0 ? "border-t-2 border-[#e0e7f0]" : "border-t border-[#f4f7fa]"}>
-                                <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{i === 0 ? (f.clientName || f.slug) : ""}</td>
-                                <td className="py-1.5 pr-3">
-                                  {v.label}
-                                  {best && best.vkey === v.vkey && d.variants.filter((x) => x.costPerBooking != null).length > 1 && (
-                                    <span className="ml-1.5 text-[10px] font-semibold text-[#15803d]">best</span>
-                                  )}
-                                </td>
-                                <td className="py-1.5 pr-3">{v.visitors}</td>
-                                <td className="py-1.5 pr-3">{v.leads != null ? v.leads : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}</td>
-                                <td className="py-1.5 pr-3">{v.leadRate != null ? `${v.leadRate}%` : "—"}</td>
-                                <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
-                                <td className="py-1.5 pr-3">{v.deposits != null ? v.deposits : <span className="text-[10px] text-[#97a5b8]">—</span>}</td>
-                                <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{v.aiDeposits != null ? v.aiDeposits : "—"}</td>
-                                <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
-                                <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
-                                <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">{v.costPerBooking != null ? `$${v.costPerBooking}` : "—"}</td>
-                              </tr>
-                            ));
-                          })}
-                          {Object.entries(tot).map(([label, t]) => (
-                            <tr key={label} className="border-t-2 border-[#d8b4fe] bg-[#faf7ff] font-semibold text-[#1c2b3a]">
-                              <td className="py-1.5 pr-3" colSpan={2}>{label}</td>
-                              <td className="py-1.5 pr-3">{t.vis}</td>
-                              <td className="py-1.5 pr-3">{t.leads}</td>
-                              <td className="py-1.5 pr-3">{t.vis ? `${((t.leads / t.vis) * 100).toFixed(1)}%` : "—"}</td>
-                              <td className="py-1.5 pr-3">{t.picked}</td>
-                              <td className="py-1.5 pr-3">{t.dep}</td>
-                              <td className="py-1.5 pr-3 text-[#7c3aed]">{t.aiDep}</td>
-                              <td className="py-1.5 pr-3">{t.vis ? `${((t.picked / t.vis) * 100).toFixed(1)}%` : "—"}</td>
-                              <td className="py-1.5 pr-3">{t.spend ? `$${t.spend.toFixed(2)}` : "—"}</td>
-                              <td className="py-1.5 pr-3">{t.spend && t.picked ? `$${(t.spend / t.picked).toFixed(2)}` : "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className="mt-2 text-[10px] text-[#697a91]">
-                      Same numbers as each card&rsquo;s Split test panel, all clients at once. The totals rows sum
-                      every running test per side — deposits count funnel-native payments only; the purple
-                      AI-deposits column counts payments the AI collected by text afterwards, attributed to the
-                      funnel that produced the lead.
-                    </p>
-                  </div>
-                );
-              })()}
+              {overviewOpen && (
+                <SplitOverviewTable
+                  rows={funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b")}
+                  ab={ab}
+                  showTotals
+                  footnote="Same numbers as each card's Split test panel, all clients at once. The totals rows sum every running test per side — deposits count funnel-native payments only; the purple AI-deposits column counts payments the AI collected by text afterwards, attributed to the funnel that produced the lead. B2C clients only — the agency's B2B funnel has its own box below."
+                />
+              )}
+            </div>
+          )}
+          {funnels.some((f) => f.abStatus === "running" && f.template === "b2b") && (
+            <div className="border border-[#9fd8d4] rounded-xl bg-white p-4">
+              <button
+                onClick={() => {
+                  const open = !b2bOverviewOpen;
+                  setB2bOverviewOpen(open);
+                  if (open) funnels.filter((f) => f.abStatus === "running" && f.template === "b2b").forEach((f) => void loadAb(f.slug));
+                }}
+                className="w-full flex items-center gap-2 text-sm font-medium text-[#1c2b3a]">
+                <span className="w-2 h-2 rounded-full bg-[#0e9c9c] animate-pulse" />
+                B2B split test — agency funnel
+                <span className="text-xs text-[#697a91]">
+                  ({funnels.filter((f) => f.abStatus === "running" && f.template === "b2b").length} running)
+                </span>
+                <span className="ml-auto text-[#697a91]">{b2bOverviewOpen ? "▲" : "▼"}</span>
+              </button>
+              {b2bOverviewOpen && (
+                <SplitOverviewTable
+                  rows={funnels.filter((f) => f.abStatus === "running" && f.template === "b2b")}
+                  ab={ab}
+                  showTotals={false}
+                  footnote="The agency's own B2B funnel (PMU Bookings On Demand) — the win here is a booked strategy call, so read Visitors → Leads → Picked time and ignore the deposit columns. Kept out of the client totals above because it's a different business."
+                />
+              )}
             </div>
           )}
           {[...funnels]
