@@ -25,6 +25,7 @@ type Extras = {
   metaPixelId?: string;
   oldFunnelUrl?: string;
   ownerName?: string;
+  template?: string;
 };
 
 // Public funnel URL on the branded domain (book.pmu-care.com is a
@@ -138,6 +139,7 @@ export async function GET(req: NextRequest) {
       hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
       hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
       oldFunnelUrl: extras.oldFunnelUrl ?? "",
+      template: extras.template ?? "",
       cv: Object.fromEntries(Object.keys(ONEBOX_EDITABLE_CVS).map((k) => [k, config[k] ?? ""])),
       visitors: hitCounts[r.slug] ?? 0,
       leads: counts[r.slug]?.leads ?? 0,
