@@ -64,7 +64,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   // PWA metadata (manifest + generated icons) must be reachable before login,
   // so the phone can install the app and show its icon.
   const p = request.nextUrl.pathname;
-  const isPublicMeta = p === "/manifest.webmanifest" || p.startsWith("/icon") || p.startsWith("/apple-icon");
+  const isPublicMeta = p === "/manifest.webmanifest" || p.startsWith("/icon") || p.startsWith("/apple-icon")
+    /* Apple Pay domain verification: Apple fetches this anonymously and
+       the URL must answer 200 with no redirect. */
+    || p.startsWith("/.well-known");
   // One-Box funnel pages are client-facing marketing pages — public by design.
   const isPublicFunnel = p.startsWith("/f/") || p.startsWith("/s/");
 
