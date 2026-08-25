@@ -1,5 +1,6 @@
 "use client";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { DataFreshness } from "@/components/freshness/DataFreshness";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, userColor, cn } from "@/lib/utils";
 import { Search, ChevronRight, Copy, X } from "lucide-react";
@@ -283,7 +284,10 @@ export default function CostPerDepositPage() {
       <IssuesPanel />
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-[#1f3559]">Cost Per Deposit</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-lg font-semibold text-[#1f3559]">Cost Per Deposit</h1>
+            <DataFreshness />
+          </div>
           <p className="text-xs text-[#697a91]">V3 &amp; V2.3 clients · deposits &amp; cost-per-deposit</p>
         </div>
         <div className="flex items-center gap-2">

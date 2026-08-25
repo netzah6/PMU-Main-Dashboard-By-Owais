@@ -1,5 +1,6 @@
 "use client";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { DataFreshness } from "@/components/freshness/DataFreshness";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, formatDate, userColor, cn } from "@/lib/utils";
 import { Search, ChevronDown, ChevronRight } from "lucide-react";
@@ -268,7 +269,10 @@ export default function PerformancePage() {
       )}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-[#1f3559]">Performance</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-lg font-semibold text-[#1f3559]">Performance</h1>
+            <DataFreshness />
+          </div>
           <p className="text-xs text-[#697a91]">Live clients & campaign data</p>
         </div>
         <div className="flex items-center gap-2">
