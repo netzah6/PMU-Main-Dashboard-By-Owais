@@ -276,7 +276,7 @@ const COLS = 12; // for colSpan on the message/drill-down rows
 function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray"; title?: string }) {
   const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : "text-[#1f3559]";
   return (
-    <td className="px-2 py-2.5 text-center align-middle" title={title}>
+    <td className="px-2 py-1.5 text-center align-middle" title={title}>
       <div className={cn("text-sm font-bold leading-none tabular-nums", color)}>{value}</div>
       {sub && <div className="text-[9px] text-[#8595a8] mt-0.5 whitespace-nowrap">{sub}</div>}
     </td>
@@ -308,16 +308,21 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
 
   return (
     <>
+      {/* Paused clients sink to the bottom (page-level sort) and render muted
+          — same live-on-top, faded-paused treatment as the Performance tab. */}
       <tr className={cn("border-b border-[#eef3f8] transition-colors hover:bg-[#f8fafc]",
-        ready > 0 && "bg-[#fffdf7]", open && "bg-[#f8fafc]")}>
+        ready > 0 && "bg-[#fffdf7]", open && "bg-[#f8fafc]",
+        c.status === "paused" && "opacity-50 saturate-50 hover:opacity-90")}>
         {/* Client */}
-        <td className="pl-3 pr-2 py-2.5 align-middle">
+        <td className="pl-3 pr-2 py-1.5 align-middle">
           <div className="flex items-center gap-2">
             <button onClick={onToggle} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
               {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
             </button>
             <div className="min-w-[150px] max-w-[190px]">
               <div className="font-bold text-[13px] text-[#1f3559] leading-tight truncate flex items-center gap-1" title={c.ownerName}>
+                <span className={cn("shrink-0 w-1.5 h-1.5 rounded-full", c.status === "paused" ? "bg-[#d97706]" : "bg-[#22c55e]")}
+                  title={c.status === "paused" ? "Paused (Clients Master)" : "Live (Clients Master)"} />
                 <span className="truncate">{c.ownerName}</span>
                 {notOrganizing && (
                   <span title={`${c.pastDue} past appointments left in "confirmed" — not organizing their dashboard. Billed as shown by default per agreement.`}
@@ -332,7 +337,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         </td>
 
         {/* Fee */}
-        <td className="px-2 py-2.5 text-center align-middle">
+        <td className="px-2 py-1.5 text-center align-middle">
           {c.feeSource === "sheet" ? (
             <span title={`From the financing sheet's notes: "${c.sheetNotes ?? ""}" — edit the sheet to change it.`}
               className="inline-block px-2 py-0.5 text-xs font-bold rounded-lg bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] cursor-help whitespace-nowrap">
@@ -366,8 +371,8 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         <NumCell value={c.noAppt} sub={c.noAppt > 0 ? "not booked" : undefined} tone={c.noAppt > 0 ? "amber" : "gray"} />
 
         {/* Card · status · actions */}
-        <td className="px-2 py-2.5 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
-        <td className="px-2 py-2.5 text-center align-middle">
+        <td className="px-2 py-1.5 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
+        <td className="px-2 py-1.5 text-center align-middle">
           {c.billingExempt ? (
             <button onClick={() => saveConfig({ billing_exempt: false })}
               title="Deposit-only client — no per-show service fee, never charged. Click to make billable again."
@@ -385,7 +390,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
             </div>
           )}
         </td>
-        <td className="pl-2 pr-3 py-2.5 align-middle whitespace-nowrap"><ActionsCell v={v} onMsg={setPayMsg} onReload={reloadBoth} /></td>
+        <td className="pl-2 pr-3 py-1.5 align-middle whitespace-nowrap"><ActionsCell v={v} onMsg={setPayMsg} onReload={reloadBoth} /></td>
       </tr>
 
       {payMsg && (
@@ -637,7 +642,9 @@ export default function V3BillingPage() {
       if (filter === "auto" && !v?.autoCharge) return false;
       if (q && !`${c.ownerName} ${c.business}`.toLowerCase().includes(q)) return false;
       return true;
-    });
+    // Live clients first, paused sink to the bottom (alphabetical within each
+    // group — the sort is stable). Mirrors the Performance tab's ordering.
+    }).sort((a, b) => (a.status === "paused" ? 1 : 0) - (b.status === "paused" ? 1 : 0));
   }, [clients, search, filter, vBy]);
 
   return (
@@ -744,7 +751,7 @@ export default function V3BillingPage() {
                   ["Upcoming", "center"], ["Ready", "center"], ["Charged", "center"], ["Self-booked", "center"],
                   ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
                 ].map(([h, align]) => (
-                  <th key={h} className={cn("px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
+                  <th key={h} className={cn("px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
                     align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
                     {h}
                   </th>
