@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/sync-cpl",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 12,13 * * *"
     },
     {
       "path": "/api/cron/sync-deposits",
