@@ -356,6 +356,8 @@ export type RecentPayment = {
   cardId: string | null;
   cardFingerprint: string | null;
   createdAt: string;
+  amountCents: number;
+  note: string | null;
 };
 
 let recentPaymentsCache: { ts: number; list: RecentPayment[] } | null = null;
@@ -389,12 +391,15 @@ export async function listRecentPayments(): Promise<RecentPayment[]> {
     for (const p of j.payments ?? []) {
       if (String(p.status ?? "") !== "COMPLETED") continue;
       const card = (p.card_details as { card?: { id?: string; fingerprint?: string } } | undefined)?.card;
+      const amt = p.amount_money as { amount?: number } | undefined;
       list.push({
         id: String(p.id),
         customerId: (p.customer_id as string) ?? null,
         cardId: card?.id ?? null,
         cardFingerprint: card?.fingerprint ?? null,
         createdAt: String(p.created_at ?? ""),
+        amountCents: amt?.amount ?? 0,
+        note: (p.note as string) ?? null,
       });
     }
     cursor = j.cursor;
