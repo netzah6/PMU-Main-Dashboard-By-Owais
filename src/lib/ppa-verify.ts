@@ -542,7 +542,19 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       flags.push({ key: "nothing_to_charge", level: "info", message: "No shows waiting to be charged." });
     }
 
-    const blocking = flags.some((f) => f.level === "block" || f.level === "warn");
+    // The admin picking a default card IS the identity confirmation: the pick
+    // pins one Square profile + card, so match-quality warnings (phone-only
+    // match, name-only match, ambiguous candidates) stop applying — and stop
+    // permanently blocking Monday's auto-charge for that client.
+    const chosenInEffect = cards.some((k) => k.isChosenDefault && k.wouldCharge);
+    const resolvedByPick = new Set(["phone_match", "name_match_only", "ambiguous_match"]);
+    const effectiveFlags = chosenInEffect ? flags.filter((f) => !resolvedByPick.has(f.key)) : flags;
+
+    // NOT ORGANIZED never gates auto-charge: the agreement bills unorganized
+    // "confirmed" appointments as shown BY DEFAULT, and most artists never
+    // touch their pipeline — treating the nudge chip as a blocker would mean
+    // Monday almost never charges anyone. It stays visible as a warning.
+    const blocking = effectiveFlags.some((f) => (f.level === "block" || f.level === "warn") && f.key !== "not_organized");
     return {
       ownerKey: c.ownerKey,
       ownerName: c.ownerName,
@@ -562,7 +574,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       shows,
       match,
       cards,
-      flags,
+      flags: effectiveFlags,
       safeToAutoCharge: shows.length > 0 && !blocking,
     };
   });
