@@ -215,19 +215,6 @@ export default function PerformancePage() {
   const PAUSED_CAMPAIGNS = "Paused campaigns";
   const statuses = ["All", "Active", PAUSED_CAMPAIGNS, UNSETTLED_EMPTY];
 
-  // Ad-account watchdog: a Live client whose chosen Ad Account Name matches a
-  // DISABLED account, or matches nothing in the reporting data at all, is
-  // showing wrong/empty numbers — usually because the team switched ad
-  // accounts (old one disabled) and the Clients-tab field wasn't updated to
-  // the new account's exact name. Surfaced here so it's caught the same day
-  // instead of when someone notices CPL looks off (the "Spot On" case).
-  const accountProblems = useMemo(() =>
-    rows.filter((r) =>
-      r.client_status === "Live" &&
-      (r.campaign_status === "DISABLED" ||
-        (!r.campaign_status && Number(r.spent_all ?? 0) === 0))
-    ), [rows]);
-
   const filtered = useMemo(() => {
     const list = rows.filter((r) => {
       if (assignee !== "All" && r.assigned !== assignee) return false;
@@ -254,19 +241,6 @@ export default function PerformancePage() {
 
   return (
     <div className="p-3 md:p-4 space-y-3">
-      {accountProblems.length > 0 && (
-        <div className="rounded-xl border border-[#ecd3a8] bg-[#fbf7f1] px-4 py-3 text-sm text-[#6b4d16]">
-          <span className="font-semibold">⚠ {accountProblems.length} Live client{accountProblems.length === 1 ? "" : "s"} may be pointed at the wrong ad account</span>
-          <span className="text-[#8a7442]"> — the Ad Account Name on the Clients tab matches a disabled account or nothing in the reporting data. Fix the name there (it must match the account&apos;s name exactly) and the numbers correct on the next sync.</span>
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {accountProblems.map((r) => (
-              <span key={r.sheet_row} className="px-2 py-0.5 rounded-md text-[12px] bg-white border border-[#ecd3a8]" title={`Ad Account Name: ${r.ad_account_name ?? "—"} · status: ${r.campaign_status ?? "not found in reporting"}`}>
-                {r.business_name || r.owner_name}{r.campaign_status === "DISABLED" ? " (disabled)" : " (no data)"}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
