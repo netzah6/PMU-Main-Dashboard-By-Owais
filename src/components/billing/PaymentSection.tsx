@@ -131,14 +131,14 @@ export function StatusCell({ v }: { v: VRow | undefined }) {
     const notes = warnings.map((f) => f.message).join(" ");
     return (
       <span title={notes || undefined}
-        className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#e6f7ee] text-[#15803d] border-[#86efac] whitespace-nowrap", notes && "cursor-help")}>
+        className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold border bg-[#e6f7ee] text-[#15803d] border-[#86efac] whitespace-nowrap", notes && "cursor-help")}>
         <ShieldCheck size={12} /> Verified
       </span>
     );
   }
   return (
     <span title={[...blocking, ...warnings].map((f) => f.message).join(" ")}
-      className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border whitespace-nowrap cursor-help",
+      className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold border whitespace-nowrap cursor-help",
         blocking.length ? "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"
           : warnings.length ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]"
           : "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]")}>
@@ -233,17 +233,17 @@ export function ActionsCell({ v, onMsg, onReload }: {
         return confirming ? (
           <span className="flex items-center gap-1.5">
             <button onClick={runCharge} disabled={busy} title={breakdown}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74]">
+              className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74]">
               {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
               Yes, charge {money(v.amount)} ({ours}{hers ? `+${hers}` : ""} shows) to ••{card!.last4}
             </button>
             <button onClick={() => setConfirming(false)} disabled={busy}
-              className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
+              className="px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
           </span>
         ) : (
           <button onClick={() => setConfirming(true)} disabled={busy}
             title={`${breakdown}${warnings.length ? ` — charges despite ${warnings.length} warning${warnings.length === 1 ? "" : "s"}, read them first` : ""}`}
-            className={cn("flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border",
+            className={cn("flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold border",
               warnings.length
                 ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]"
                 : "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]")}>
@@ -264,13 +264,13 @@ export function ActionsCell({ v, onMsg, onReload }: {
             } finally { setBusy(false); }
           }} disabled={busy}
           title={`Card declined (${v.retry.lastError ?? "decline"}). Retry #${v.retry.attempts + 1} runs ${v.retry.nextAttemptAt ? new Date(v.retry.nextAttemptAt).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "soon"} at 10am Pacific — schedule is +1 day, then +3, then +3. Click to STOP the automatic retries.`}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]">
+          className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold border bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]">
           ↻ retry {v.retry.nextAttemptAt ? new Date(v.retry.nextAttemptAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "pending"}
         </button>
       )}
       {v.retry && v.retry.status === "exhausted" && (
         <span title={`All ${3} automatic retries declined (last: ${v.retry.lastError ?? "decline"}). Send a payment link or get a new card on file.`}
-          className="px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]">
+          className="px-2 py-0.5 rounded-lg text-[11px] font-bold border bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]">
           ↻ retries exhausted
         </span>
       )}
@@ -281,7 +281,7 @@ export function ActionsCell({ v, onMsg, onReload }: {
       {v.readyToCharge > 0 && (
         <button onClick={makePaymentLink} disabled={busy}
           title={`Create a Square payment page for ${money(v.amount)} and copy the link — for when the card on file declines or there is no usable card. Shows stay in Ready until she pays and you mark them charged.`}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]">
+          className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]">
           <Link2 size={11} /> Payment link
         </button>
       )}
@@ -292,7 +292,7 @@ export function ActionsCell({ v, onMsg, onReload }: {
         title={v.autoCharge
           ? "Auto-charge is ON: every Monday 10:00 AM Pacific this client is charged automatically — but only if fully Verified (any warning = skipped and reported)."
           : "Auto-charge is OFF: turn on to charge this client automatically every Monday 10:00 AM Pacific when fully Verified."}
-        className={cn("flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border transition-colors",
+        className={cn("flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors",
           v.autoCharge ? "bg-[#0e8f88] text-white border-[#0e8f88]" : "bg-white text-[#94a3b8] border-[#e4ebf2] hover:border-[#a7e3df] hover:text-[#0e8f88]")}>
         <span className={cn("w-2 h-2 rounded-full", v.autoCharge ? "bg-white" : "bg-[#cbd5e1]")} />
         Auto{v.autoCharge ? " ON" : ""}

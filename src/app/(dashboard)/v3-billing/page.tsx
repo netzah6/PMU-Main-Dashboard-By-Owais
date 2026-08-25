@@ -279,9 +279,9 @@ const COLS = 15; // for colSpan on the message/drill-down rows
 function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray"; title?: string }) {
   const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : "text-[#1f3559]";
   return (
-    <td className="px-2 py-1.5 text-center align-middle" title={title}>
-      <div className={cn("text-sm font-bold leading-none tabular-nums", color)}>{value}</div>
-      {sub && <div className="text-[9px] text-[#8595a8] mt-0.5 whitespace-nowrap">{sub}</div>}
+    <td className="px-2 py-1 text-center align-middle" title={title}>
+      <div className={cn("text-[13px] font-bold leading-none tabular-nums", color)}>{value}</div>
+      {sub && <div className="text-[9px] text-[#8595a8] leading-tight whitespace-nowrap">{sub}</div>}
     </td>
   );
 }
@@ -317,7 +317,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         ready > 0 && "bg-[#fffdf7]", open && "bg-[#f8fafc]",
         c.status === "paused" && "opacity-50 saturate-50 hover:opacity-90")}>
         {/* Client */}
-        <td className="pl-3 pr-2 py-1.5 align-middle">
+        <td className="pl-3 pr-2 py-1 align-middle">
           <div className="flex items-center gap-2">
             <button onClick={onToggle} className="text-[#8595a8] hover:text-[#0e8f88] shrink-0">
               {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
@@ -340,7 +340,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         </td>
 
         {/* Fee */}
-        <td className="px-2 py-1.5 text-center align-middle">
+        <td className="px-2 py-1 text-center align-middle">
           {c.feeSource === "sheet" ? (
             <span title={`From the financing sheet's notes: "${c.sheetNotes ?? ""}" — edit the sheet to change it.`}
               className="inline-block px-2 py-0.5 text-xs font-bold rounded-lg bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] cursor-help whitespace-nowrap">
@@ -368,23 +368,17 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           tone={ready > 0 ? "amber" : "gray"}
           title={split ? `${split.ours} we booked · ${split.hers} she booked (no deposit)` : undefined} />
         <NumCell value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
-        {/* Profitability: deposits taken this calendar month, lifetime value
-            (fees + deposits − refunds), and the monthly average since the
-            client's first deposit. */}
+        {/* Deposits taken this calendar month. */}
         <NumCell value={c.depositsThisMonth ?? 0} sub={money(c.depositsThisMonthUsd ?? 0)}
           tone={(c.depositsThisMonth ?? 0) > 0 ? "green" : "gray"} />
-        <NumCell value={money(c.ltv ?? 0)} sub={`${c.monthsActive ?? 1} mo`} tone="teal"
-          title={`${money(c.ltvFees ?? 0)} service fees + ${money(c.ltvDeposits ?? 0)} deposits − ${money(c.ltvRefunded ?? 0)} refunded`} />
-        <NumCell value={money(c.avgPerMonth ?? 0)} sub="per month" tone="teal"
-          title={`${money(c.ltv ?? 0)} lifetime ÷ ${c.monthsActive ?? 1} month${(c.monthsActive ?? 1) === 1 ? "" : "s"} since first deposit`} />
         <NumCell value={c.selfBooked ?? 0}
           sub={(c.selfBookedReady ?? 0) > 0 ? `${c.selfBookedReady} to charge` : "their end"}
           tone={(c.selfBookedReady ?? 0) > 0 ? "amber" : "gray"} />
         <NumCell value={c.noAppt} sub={c.noAppt > 0 ? "not booked" : undefined} tone={c.noAppt > 0 ? "amber" : "gray"} />
 
         {/* Card · status · actions */}
-        <td className="px-2 py-1.5 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
-        <td className="px-2 py-1.5 text-center align-middle">
+        <td className="px-2 py-1 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
+        <td className="px-2 py-1 text-center align-middle">
           {c.billingExempt ? (
             <button onClick={() => saveConfig({ billing_exempt: false })}
               title="Deposit-only client — no per-show service fee, never charged. Click to make billable again."
@@ -402,7 +396,16 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
             </div>
           )}
         </td>
-        <td className="pl-2 pr-3 py-1.5 align-middle whitespace-nowrap"><ActionsCell v={v} onMsg={setPayMsg} onReload={reloadBoth} /></td>
+        <td className="pl-2 pr-2 py-1 align-middle whitespace-nowrap"><ActionsCell v={v} onMsg={setPayMsg} onReload={reloadBoth} /></td>
+
+        {/* Profitability, at the far right per request: lifetime value
+            (COLLECTED fees + deposits − refunds; owed money is shown in the
+            tooltip but not counted until it lands) and the monthly average
+            since the client's first deposit. */}
+        <NumCell value={money(c.ltv ?? 0)} sub={`${c.monthsActive ?? 1} mo`} tone="teal"
+          title={`${money(c.ltvFees ?? 0)} service fees + ${money(c.ltvDeposits ?? 0)} deposits − ${money(c.ltvRefunded ?? 0)} refunded${owed > 0 ? ` · (${money(owed)} still owed — counted once collected)` : ""}`} />
+        <NumCell value={money(c.avgPerMonth ?? 0)} sub="per month" tone="teal"
+          title={`${money(c.ltv ?? 0)} lifetime ÷ ${c.monthsActive ?? 1} month${(c.monthsActive ?? 1) === 1 ? "" : "s"} since first deposit`} />
       </tr>
 
       {payMsg && (
@@ -761,8 +764,9 @@ export default function V3BillingPage() {
                 {[
                   ["Client", "left"], ["Fee", "center"], ["Deposits", "center"], ["Show %", "center"],
                   ["Upcoming", "center"], ["Ready", "center"], ["Charged", "center"],
-                  ["Dep this mo", "center"], ["LTV", "center"], ["Avg / mo", "center"], ["Self-booked", "center"],
+                  ["Dep this mo", "center"], ["Self-booked", "center"],
                   ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
+                  ["LTV", "center"], ["Avg / mo", "center"],
                 ].map(([h, align]) => (
                   <th key={h} className={cn("px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
                     align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
