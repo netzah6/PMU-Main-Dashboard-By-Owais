@@ -4,6 +4,7 @@ import { getPpaRoster } from "@/lib/ppa";
 import {
   listAllCustomers,
   listCards,
+  listRecentPayments,
   searchCustomersByEmail,
   searchCustomersByPhone,
   squareConfigured,
@@ -70,10 +71,21 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // Recent Square payments on any of this client's profiles — for reconciling
+  // "charged directly in Square" against the dashboard's charge records
+  // before Monday bills anyone twice.
+  const days = Math.min(Number(req.nextUrl.searchParams.get("payment_days") ?? 14) || 14, 90);
+  const since = Date.now() - days * 24 * 3600 * 1000;
+  const ids = new Set(candidates.keys());
+  const recentPayments = (await listRecentPayments().catch(() => []))
+    .filter((p) => p.customerId && ids.has(p.customerId) && new Date(p.createdAt).getTime() >= since)
+    .map((p) => ({ paymentId: p.id, profileId: p.customerId, amount: p.amountCents / 100, at: p.createdAt, note: p.note }));
+
   return NextResponse.json({
     ownerKey,
     sheet: { email, phone, name: client.ownerName, business: client.business },
     bulkList: { size: customers.length, truncated },
     candidates: out,
+    recentPayments,
   });
 }
