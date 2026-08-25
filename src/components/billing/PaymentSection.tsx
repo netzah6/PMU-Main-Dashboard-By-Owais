@@ -126,7 +126,15 @@ export function StatusCell({ v }: { v: VRow | undefined }) {
   const blocking = v.flags.filter((f) => f.level === "block");
   const warnings = v.flags.filter((f) => f.level === "warn");
   if (v.safeToAutoCharge) {
-    return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#e6f7ee] text-[#15803d] border-[#86efac] whitespace-nowrap"><ShieldCheck size={12} /> Verified</span>;
+    // A client can be Verified (will auto-charge) while still carrying the
+    // NOT ORGANIZED nudge — keep remaining warnings readable via the tooltip.
+    const notes = warnings.map((f) => f.message).join(" ");
+    return (
+      <span title={notes || undefined}
+        className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#e6f7ee] text-[#15803d] border-[#86efac] whitespace-nowrap", notes && "cursor-help")}>
+        <ShieldCheck size={12} /> Verified
+      </span>
+    );
   }
   return (
     <span title={[...blocking, ...warnings].map((f) => f.message).join(" ")}

@@ -23,13 +23,9 @@ const TAB = "Clients Master";
 
 // businessName -> { from: current wrong value, to: name used by the CPL sheet }
 const FIXES = [
-  // Christy Ray's row is titled "CC Styling N." in Business Name too — the CPL
-  // sheet knows her account as "CC Styling Studio". Only the ad account name is
-  // corrected here; the business name is left as the team wrote it.
-  { business: "CC Styling N.",                       from: "CC Styling N.",             to: "CC Styling Studio" },
-  { business: "VY Tatlock Beauty Studio",            from: "Vy Tatlock Studio",         to: "VY Tatlock Beauty Studio" },
-  { business: "Nu You Spa By Vicky Le - ad account", from: "Nu You Spa By Vicky Le",     to: "Nu You Spa By Vicky Le - ad account" },
-  { business: "Beauty Ink by Carmen LLC",            from: "Beauty Ink by Carmen, LLC",  to: "Beauty Ink by Carmen LLC" },
+  // 2026-08-21: the dashboard pointed at the UNSETTLED middle account ("- Ad");
+  // the ACTIVE account's name is the business name with a trailing dot.
+  { business: "PMU Spot On Brows Microblading.", from: "PMU Spot On Brows Microblading - Ad", to: "PMU Spot On Brows Microblading." },
 ];
 
 const auth = new google.auth.JWT({
