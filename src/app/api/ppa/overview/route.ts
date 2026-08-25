@@ -39,18 +39,67 @@ export async function GET(req: NextRequest) {
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*, billing_exempt").in("owner_key", ownerKeys),
     svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount, square_payment_id").in("owner_key", ownerKeys),
-    svc.from("deposit_refunds").select("business, email, contact_name").eq("status", "refunded"),
+    svc.from("deposit_refunds").select("business, email, contact_name, amount").eq("status", "refunded"),
     svc.from("ppa_selfbooked").select("appt_id, owner_key").in("owner_key", ownerKeys),
     svc.from("ppa_calendar_booked").select("appt_id, owner_key, start_time").in("owner_key", ownerKeys),
   ]);
+
+  // Every deposit row (amount + date) for the profitability columns — paged
+  // past Supabase's 1,000-row cap. Sheet dates arrive as DD/MM/YYYY, webhook
+  // dates as ISO timestamps; parse both, skip the unparseable.
+  type DepRowLite = { biz_norm: string; amount: string | null; deposit_date: string | null };
+  const depRows: DepRowLite[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data } = await svc.from("ppa_deposit_rows")
+      .select("biz_norm, amount, deposit_date").in("biz_norm", bizNorms).range(from, from + 999);
+    const page = (data ?? []) as DepRowLite[];
+    depRows.push(...page);
+    if (page.length < 1000) break;
+  }
 
   // Executed refunds per business (normalized) — a refunded deposit is not
   // billable, so it's surfaced as its own bucket on the row.
   const refNorm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "");
   const refundsByBiz = new Map<string, number>();
-  for (const r of (refRes.data ?? []) as Array<{ business: string | null }>) {
+  const refundUsdByBiz = new Map<string, number>();
+  const parseUsd = (v: unknown) => Number(String(v ?? "").replace(/[^0-9.]/g, "")) || 0;
+  for (const r of (refRes.data ?? []) as Array<{ business: string | null; amount: string | null }>) {
     const k = refNorm(String(r.business ?? ""));
-    if (k) refundsByBiz.set(k, (refundsByBiz.get(k) ?? 0) + 1);
+    if (!k) continue;
+    refundsByBiz.set(k, (refundsByBiz.get(k) ?? 0) + 1);
+    refundUsdByBiz.set(k, (refundUsdByBiz.get(k) ?? 0) + parseUsd(r.amount));
+  }
+
+  // ── Profitability: deposits per month + lifetime value ─────────────────────
+  // Sheet dates are DD/MM/YYYY, webhook dates ISO — parse both; a row with an
+  // unparseable date still counts toward lifetime totals, just not toward the
+  // monthly buckets.
+  const parseDepositDate = (v: string | null): Date | null => {
+    const s = String(v ?? "").trim();
+    if (!s) return null;
+    const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dmy) {
+      const d = new Date(Date.UTC(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1])));
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  };
+  const now = new Date();
+  const thisMonthKey = now.getUTCFullYear() * 12 + now.getUTCMonth();
+  type LtvAgg = { depUsd: number; monthCount: number; monthUsd: number; firstMonthKey: number | null };
+  const ltvByBiz = new Map<string, LtvAgg>();
+  for (const r of depRows) {
+    const agg = ltvByBiz.get(r.biz_norm) ?? { depUsd: 0, monthCount: 0, monthUsd: 0, firstMonthKey: null };
+    const usd = parseUsd(r.amount);
+    agg.depUsd += usd;
+    const d = parseDepositDate(r.deposit_date);
+    if (d) {
+      const mk = d.getUTCFullYear() * 12 + d.getUTCMonth();
+      if (mk === thisMonthKey) { agg.monthCount++; agg.monthUsd += usd; }
+      if (agg.firstMonthKey == null || mk < agg.firstMonthKey) agg.firstMonthKey = mk;
+    }
+    ltvByBiz.set(r.biz_norm, agg);
   }
 
   const sumBy = new Map<string, SummaryRow>();
@@ -122,6 +171,15 @@ export async function GET(req: NextRequest) {
     const showed = s?.showed ?? 0;
     const noShowMarked = s?.no_show_marked ?? 0;
     const reviewed = showed + noShowMarked;
+    // ── Profitability ────────────────────────────────────────────────────────
+    // LTV = every service fee collected + every deposit taken − refunds given
+    // back. Average per month spreads that over the months since the client's
+    // first deposit (minimum 1, current month counts as a full month).
+    const ltvAgg = ltvByBiz.get(c.bizNorm) ?? { depUsd: 0, monthCount: 0, monthUsd: 0, firstMonthKey: null };
+    const feesLtv = chgAmtBy.get(c.ownerKey) ?? 0;
+    const refundUsd = refundUsdByBiz.get(c.bizNorm) ?? 0;
+    const ltv = feesLtv + ltvAgg.depUsd - refundUsd;
+    const monthsActive = ltvAgg.firstMonthKey != null ? Math.max(1, thisMonthKey - ltvAgg.firstMonthKey + 1) : 1;
     return {
       ownerKey: c.ownerKey,
       ownerName: c.ownerName,
@@ -155,6 +213,14 @@ export async function GET(req: NextRequest) {
       excludedCount: s?.excluded_count ?? 0,
       refundedCount: refundsByBiz.get(c.bizNorm) ?? 0,
       showRate: reviewed > 0 ? Math.round((showed / reviewed) * 100) : null,
+      depositsThisMonth: ltvAgg.monthCount,
+      depositsThisMonthUsd: ltvAgg.monthUsd,
+      ltv: Math.round(ltv * 100) / 100,
+      ltvFees: feesLtv,
+      ltvDeposits: ltvAgg.depUsd,
+      ltvRefunded: refundUsd,
+      monthsActive,
+      avgPerMonth: Math.round((ltv / monthsActive) * 100) / 100,
     };
   });
 
