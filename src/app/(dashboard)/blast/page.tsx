@@ -25,7 +25,9 @@ export default function BlastPage() {
   const [senderName, setSenderName] = useState("");
   const [serviceWord, setServiceWord] = useState("");
   const [template, setTemplate] = useState("");
-  const [preview, setPreview] = useState<{ recipients: Recipient[]; noPhone: number } | null>(null);
+  const [preview, setPreview] = useState<{ recipients: Recipient[]; noPhone: number; eligible: number; excludedRecent: number } | null>(null);
+  const [excludeDays, setExcludeDays] = useState(10);
+  const [maxContacts, setMaxContacts] = useState(250);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -71,16 +73,16 @@ export default function BlastPage() {
     if (!client || selStages.size === 0) return;
     setPreviewLoading(true); setPreview(null);
     try {
-      const r = await fetch(`/api/blast?locationId=${client.locationId}&stages=${[...selStages].join(",")}`);
+      const r = await fetch(`/api/blast?locationId=${client.locationId}&stages=${[...selStages].join(",")}&excludeDays=${excludeDays}&maxContacts=${maxContacts}`);
       const j = await r.json();
       if (j.error) throw new Error(j.error);
-      setPreview({ recipients: j.recipients ?? [], noPhone: j.noPhone ?? 0 });
+      setPreview({ recipients: j.recipients ?? [], noPhone: j.noPhone ?? 0, eligible: j.eligible ?? (j.recipients ?? []).length, excludedRecent: j.excludedRecent ?? 0 });
     } catch (e) {
       toast.error(`${e}`.replace("Error: ", ""));
     } finally {
       setPreviewLoading(false);
     }
-  }, [client, selStages]);
+  }, [client, selStages, excludeDays, maxContacts]);
 
   const sampleMessage = useMemo(() => {
     const first = preview?.recipients[0];
@@ -102,6 +104,7 @@ export default function BlastPage() {
           senderName, serviceWord, stageIds: [...selStages], stageNames, template,
           sendAt: when === "later" && sendAt ? new Date(sendAt).toISOString() : undefined,
           expectedCount: preview.recipients.length,
+          excludeDays, maxContacts,
         }),
       });
       const j = await r.json();
@@ -114,7 +117,7 @@ export default function BlastPage() {
     } finally {
       setScheduling(false);
     }
-  }, [client, preview, senderName, serviceWord, template, when, sendAt, stages, selStages]);
+  }, [client, preview, senderName, serviceWord, template, when, sendAt, stages, selStages, excludeDays, maxContacts]);
 
   const cancelJob = async (id: string) => {
     await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel", jobId: id }) });
@@ -183,6 +186,22 @@ export default function BlastPage() {
               ))}
             </div>
           )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-bold text-[#34568a] mb-1">Skip anyone we engaged with in the last … days</label>
+              <input type="number" min={0} max={90} value={excludeDays}
+                onChange={(e) => { setExcludeDays(Math.max(0, Math.min(90, Number(e.target.value) || 0))); setPreview(null); }}
+                className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 text-[#1f3559]" />
+              <p className="text-[10px] text-[#8595a8] mt-0.5">Any message in the conversation (theirs or ours) counts as engagement.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-[#34568a] mb-1">Max contacts (up to 250)</label>
+              <input type="number" min={1} max={250} value={maxContacts}
+                onChange={(e) => { setMaxContacts(Math.max(1, Math.min(250, Number(e.target.value) || 1))); setPreview(null); }}
+                className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 text-[#1f3559]" />
+              <p className="text-[10px] text-[#8595a8] mt-0.5">If more are eligible, the most recently engaged (outside the skip window) are kept.</p>
+            </div>
+          </div>
           <button onClick={loadPreview} disabled={selStages.size === 0 || previewLoading}
             className="px-3 py-2 rounded-lg bg-[#34568a] hover:bg-[#1f3559] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
             {previewLoading ? <Loader2 size={13} className="animate-spin" /> : <Users size={13} />} Preview exact recipient list
@@ -191,7 +210,12 @@ export default function BlastPage() {
 
           {preview && (
             <div className="rounded-lg border border-[#a7e3df] bg-[#f7fdfc] p-3 space-y-2">
-              <p className="text-sm font-bold text-[#0e8f88]">{preview.recipients.length} recipients{preview.noPhone > 0 ? ` · ${preview.noPhone} skipped (no phone)` : ""}</p>
+              <p className="text-sm font-bold text-[#0e8f88]">
+                {preview.recipients.length} recipients
+                {preview.eligible > preview.recipients.length ? ` (capped from ${preview.eligible} eligible)` : ""}
+                {preview.excludedRecent > 0 ? ` · ${preview.excludedRecent} skipped (engaged in last ${excludeDays}d)` : ""}
+                {preview.noPhone > 0 ? ` · ${preview.noPhone} skipped (no phone)` : ""}
+              </p>
               <div className="max-h-48 overflow-y-auto text-xs text-[#1f3559] space-y-0.5">
                 {preview.recipients.map((r) => <div key={r.contactId}>{r.name} — {r.phone}</div>)}
               </div>
