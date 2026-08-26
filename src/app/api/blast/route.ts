@@ -47,7 +47,9 @@ export async function GET(req: NextRequest) {
   const stageIds = stagesParam.split(",").filter(Boolean);
   const pipelineId = stages.find((s) => stageIds.includes(s.stage_id))?.pipeline_id;
   if (!pipelineId) return NextResponse.json({ error: "unknown stages" }, { status: 400 });
-  const audience = await fetchAudience(locationId, pipelineId, stageIds);
+  const excludeDays = Math.max(0, Number(sp.get("excludeDays") ?? 10) || 0);
+  const maxContacts = Number(sp.get("maxContacts") ?? 250) || 250;
+  const audience = await fetchAudience(locationId, pipelineId, stageIds, excludeDays, maxContacts);
   return NextResponse.json(audience);
 }
 
@@ -68,9 +70,10 @@ export async function POST(req: NextRequest) {
 
   if (body.action !== "schedule") return NextResponse.json({ error: "unknown action" }, { status: 400 });
 
-  const { locationId, ownerKey, clientLabel, senderName, serviceWord, stageIds, stageNames, template, sendAt, expectedCount } = body as {
+  const { locationId, ownerKey, clientLabel, senderName, serviceWord, stageIds, stageNames, template, sendAt, expectedCount, excludeDays, maxContacts } = body as {
     locationId: string; ownerKey: string; clientLabel: string; senderName: string; serviceWord: string;
     stageIds: string[]; stageNames: string[]; template: string; sendAt?: string; expectedCount: number;
+    excludeDays?: number; maxContacts?: number;
   };
   if (!locationId || !senderName?.trim() || !template?.trim() || !stageIds?.length) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
@@ -82,7 +85,7 @@ export async function POST(req: NextRequest) {
   const { data: stageRows } = await svc2.from("ghl_stage_map").select("pipeline_id,stage_id").eq("location_id", locationId);
   const pipelineId = (stageRows ?? []).find((s) => stageIds.includes(s.stage_id))?.pipeline_id;
   if (!pipelineId) return NextResponse.json({ error: "unknown stages" }, { status: 400 });
-  const audience = await fetchAudience(locationId, pipelineId, stageIds);
+  const audience = await fetchAudience(locationId, pipelineId, stageIds, Math.max(0, Number(excludeDays ?? 10) || 0), Number(maxContacts ?? 250) || 250);
   if (audience.error) return NextResponse.json({ error: `audience fetch failed: ${audience.error}` }, { status: 502 });
   if (audience.recipients.length !== expectedCount) {
     return NextResponse.json({

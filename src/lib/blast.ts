@@ -26,17 +26,53 @@ export function renderTemplate(tpl: string, vars: { firstName: string; senderNam
 
 export interface BlastRecipient { contactId: string; name: string; firstName: string; phone: string }
 
+export const MAX_BLAST_CONTACTS = 250;
+
+/** Map contactId -> last conversation activity (ms epoch), from the live
+ * conversations list (any direction — "we engaged" includes their replies). */
+async function lastEngagement(locationId: string, token: string): Promise<Map<string, number>> {
+  const H = { Authorization: `Bearer ${token}`, Version: "2021-04-15", Accept: "application/json" };
+  const out = new Map<string, number>();
+  let startAfter: number | null = null;
+  for (let p = 0; p < 30; p++) {
+    const u: string = `${GHL}/conversations/search?locationId=${locationId}&limit=100&sortBy=last_message_date&sort=desc${startAfter ? `&startAfterDate=${startAfter}` : ""}`;
+    const res: Response = await fetch(u, { headers: H });
+    if (!res.ok) break;
+    const j: Record<string, unknown> = await res.json();
+    const convos = (j.conversations as Array<Record<string, unknown>>) ?? [];
+    if (!convos.length) break;
+    for (const c of convos) {
+      const cid = String(c.contactId ?? "");
+      const at = Number(c.lastMessageDate ?? 0);
+      if (cid && at && (out.get(cid) ?? 0) < at) out.set(cid, at);
+    }
+    const lmd = Number(convos[convos.length - 1].lastMessageDate);
+    if (!lmd || convos.length < 100) break;
+    startAfter = lmd;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return out;
+}
+
 /** Live audience fetch: contacts holding an opportunity in any selected stage,
- * phone required, deduped by phone. */
+ * phone required, deduped by phone, anyone with conversation activity in the
+ * last `excludeDays` days excluded, capped at `maxContacts` keeping the most
+ * recently engaged (outside the window) first — never-contacted leads last. */
 export async function fetchAudience(
   locationId: string,
   pipelineId: string,
   stageIds: string[],
-): Promise<{ recipients: BlastRecipient[]; noPhone: number; error?: string }> {
+  excludeDays = 10,
+  maxContacts = MAX_BLAST_CONTACTS,
+): Promise<{ recipients: BlastRecipient[]; noPhone: number; eligible: number; excludedRecent: number; error?: string }> {
+  const cap = Math.max(1, Math.min(MAX_BLAST_CONTACTS, Math.floor(maxContacts) || MAX_BLAST_CONTACTS));
   const tok = await getAppLocationToken(locationId);
-  if (!tok.token) return { recipients: [], noPhone: 0, error: tok.error ?? "no token" };
+  if (!tok.token) return { recipients: [], noPhone: 0, eligible: 0, excludedRecent: 0, error: tok.error ?? "no token" };
   const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" };
-  const out: BlastRecipient[] = [];
+  const engaged = await lastEngagement(locationId, tok.token);
+  const cutoff = Date.now() - excludeDays * 86400000;
+  let excludedRecent = 0;
+  const out: Array<BlastRecipient & { lastAt: number }> = [];
   const seenPhones = new Set<string>();
   const seenContacts = new Set<string>();
   let noPhone = 0;
@@ -44,7 +80,7 @@ export async function fetchAudience(
     let page = `${GHL}/opportunities/search?location_id=${locationId}&pipeline_id=${pipelineId}&pipeline_stage_id=${stageId}&limit=100`;
     for (let p = 0; p < 10 && page; p++) {
       const res = await fetch(page, { headers: H });
-      if (!res.ok) return { recipients: out, noPhone, error: `opportunities HTTP ${res.status}` };
+      if (!res.ok) return { recipients: [], noPhone, eligible: out.length, excludedRecent, error: `opportunities HTTP ${res.status}` };
       const j = await res.json();
       const opps = (j.opportunities as Array<Record<string, unknown>>) ?? [];
       for (const o of opps) {
@@ -70,13 +106,19 @@ export async function fetchAudience(
         if (seenPhones.has(phone)) continue;
         seenPhones.add(phone);
         if (!firstName) firstName = name.split(/\s+/)[0] ?? "";
-        out.push({ contactId, name: name || firstName || "(no name)", firstName, phone });
+        const lastAt = engaged.get(contactId) ?? 0;
+        if (lastAt >= cutoff) { excludedRecent++; continue; }
+        out.push({ contactId, name: name || firstName || "(no name)", firstName, phone, lastAt });
       }
       page = ((j.meta as Record<string, unknown>)?.nextPageUrl as string) ?? null;
       await new Promise((r) => setTimeout(r, 100));
     }
   }
-  return { recipients: out, noPhone };
+  // Warmest first: most recent engagement outside the window; never-contacted
+  // (lastAt 0) land at the end. Then apply the cap.
+  out.sort((a, b) => b.lastAt - a.lastAt);
+  const recipients = out.slice(0, cap).map((r) => ({ contactId: r.contactId, name: r.name, firstName: r.firstName, phone: r.phone }));
+  return { recipients, noPhone, eligible: out.length, excludedRecent };
 }
 
 /** Send one SMS through the conversations API. Needs the
