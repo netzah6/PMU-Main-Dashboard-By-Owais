@@ -15,6 +15,9 @@ export const APP_SCOPES = [
   "conversations.readonly",
   "conversations.write", // Cleanup tab — delete conversations when wiping an offboarded sub-account
   "conversations/message.readonly",
+  // Blast tab sends SMS through the API. Tick this scope on the app in the
+  // developer portal (Advanced Settings -> Auth) BEFORE re-authorizing.
+  "conversations/message.write",
   "opportunities.readonly",
   "opportunities.write", // Cleanup tab — delete pipelines when wiping an offboarded sub-account
   "calendars.readonly",
