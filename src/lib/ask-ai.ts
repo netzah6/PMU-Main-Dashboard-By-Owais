@@ -252,7 +252,7 @@ const queryTool: Anthropic.Tool = {
 };
 
 export type AskMessage = { role: "user" | "assistant"; content: string };
-export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string };
+export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId: string };
 export type AskResult = { answer: string; queries: string[]; drafts?: AskDraft[]; reports?: string[] };
 
 // Find the conversation in the agency account that best matches a lead name
@@ -321,6 +321,7 @@ async function runDraftReply(leadName: string, instructions: string | undefined,
   return {
     contactName: found.contactName,
     channel: found.channel,
+    conversationId: found.conversationId,
     lastMessage: { direction: last.direction, body: last.body.slice(0, 300), at: last.dateAdded },
     draft,
     draftVoice: agentName,
@@ -392,6 +393,7 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
             drafts.push({
               contactName: String(r.contactName ?? ""), channel: String(r.channel ?? ""),
               draft: r.draft, voice: String(r.draftVoice ?? ""), conversationUrl: r.conversationUrl,
+              conversationId: String(r.conversationId ?? ""),
             });
           }
           content = JSON.stringify(r).slice(0, 30000);

@@ -309,8 +309,16 @@ export async function buildClientReport(nameQuery: string): Promise<Record<strin
   // note, percentages) is computed here, and the model prints these verbatim.
   const totalLeads = pipeline.reduce((s, p) => s + p.leads, 0);
   const stageSum = (re: RegExp) => pipeline.filter((p) => re.test(p.stage)).reduce((s, p) => s + p.leads, 0);
-  const depCollected = stageSum(/deposit/i);
-  const depSessions = stageSum(/session/i);
+  // Stage-name matching, calibrated against the real ghl_stage_map names
+  // across all ~200 accounts (2026-08-26):
+  //  - "Deposit Collected😍" must NOT be confused with "Deposit Reminder
+  //    (Auto Follow-Up)🔔" (193 accounts have it) or "Booked / Waiting for
+  //    Deposit" — a bare /deposit/ counted unpaid reminder-stage leads as
+  //    collected.
+  //  - The session stage is "Session Done✅" on most accounts but some were
+  //    renamed to "Service done✅", which /session/ missed (Sessions: 0 bug).
+  const depCollected = stageSum(/deposit\s*collected/i);
+  const depSessions = stageSum(/session|service\s*done/i);
   const depStars = stageSum(/5 ?star|review|google/i);
   const D = depCollected + depSessions + depStars;
   const bookingPct = totalLeads > 0 ? Math.round((D / totalLeads) * 100) : 0;
