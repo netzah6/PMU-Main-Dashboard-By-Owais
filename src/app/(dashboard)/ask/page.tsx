@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check, MessageCircle, RefreshCw, X } from "lucide-react";
+import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check, MessageCircle, RefreshCw, X, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string };
+type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId?: string };
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[]; reports?: string[] };
 type Conv = {
   id: string;
@@ -141,7 +141,7 @@ export default function AskPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to draft a reply");
       const voice = json.voice?.name ?? "";
-      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, conversationUrl: chatUrl(c) };
+      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, conversationUrl: chatUrl(c), conversationId: c.id };
       setMsgs((m) => [...m, { role: "assistant", content: `Here's a draft for ${c.contactName}${voice ? ` in ${voice}'s style` : ""} — use the buttons below to copy it and open the chat.`, drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
@@ -150,6 +150,34 @@ export default function AskPage() {
       setBusy(false);
     }
   }, [busy, chatUrl]);
+
+  // "Edit" on a draft card: regenerate the SAME draft with the user's change
+  // notes applied. The previous draft text is sent along so the AI revises it
+  // instead of starting over.
+  const editDraft = useCallback(async (d: Draft, editNote: string) => {
+    const change = editNote.trim();
+    if (!change || busy || !d.conversationId) return;
+    setMsgs((m) => [...m, { role: "user", content: `Edit the draft for ${d.contactName} — ${change}` }]);
+    setBusy(true); setError(null);
+    try {
+      const instructions = `You already wrote this draft:\n"""\n${d.draft}\n"""\nRewrite it, applying these changes: ${change}\nKeep everything that wasn't asked to change.`;
+      const res = await fetch("/api/ghl/reply/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: d.conversationId, contactName: d.contactName, instructions }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update the draft");
+      const voice = json.voice?.name ?? d.voice;
+      const draft: Draft = { ...d, draft: json.draft, voice };
+      setMsgs((m) => [...m, { role: "assistant", content: `Updated draft for ${d.contactName} — your changes are in. Edit again if it still needs work.`, drafts: [draft] }]);
+    } catch (e) {
+      setError(`${e}`.replace("Error: ", ""));
+      setMsgs((m) => m.slice(0, -1));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy]);
 
   // Admin-only client-side filter (members are already server-filtered).
   const shownConvs = role === "admin" && filterUser !== "all"
@@ -247,7 +275,7 @@ export default function AskPage() {
                 // never touches these numbers.
                 <pre key={"r" + j} className="mt-2 p-3 rounded-lg bg-[#f8fafc] border border-[#e4ebf2] text-[12px] leading-relaxed whitespace-pre-wrap font-sans text-[#1f3559]">{r}</pre>
               ))}
-              {m.role === "assistant" && (m.drafts ?? []).map((d, j) => <DraftCard key={j} d={d} />)}
+              {m.role === "assistant" && (m.drafts ?? []).map((d, j) => <DraftCard key={j} d={d} busy={busy} onEdit={editDraft} />)}
               {m.role === "assistant" && (m.queries?.length ?? 0) > 0 && <QueryDetails queries={m.queries!} />}
             </div>
           </div>
@@ -341,20 +369,29 @@ export default function AskPage() {
   );
 }
 
-function DraftCard({ d }: { d: Draft }) {
+function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d: Draft, note: string) => void }) {
   const [copied, setCopied] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editNote, setEditNote] = useState("");
   const copy = useCallback(() => {
     navigator.clipboard.writeText(d.draft);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   }, [d.draft]);
+  const canEdit = !!(onEdit && d.conversationId);
+  const submitEdit = () => {
+    if (!editNote.trim() || !onEdit) return;
+    onEdit(d, editNote);
+    setEditOpen(false);
+    setEditNote("");
+  };
   return (
     <div className="mt-2.5 rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-3">
       <p className="text-[10px] font-bold uppercase tracking-wide text-[#0e8f88] mb-1.5">
         Draft for {d.contactName}{d.channel ? ` · ${d.channel}` : ""}{d.voice ? ` · in ${d.voice}'s style` : ""}
       </p>
       <p className="text-sm text-[#1f3559] whitespace-pre-wrap">{d.draft}</p>
-      <div className="flex items-center gap-2 mt-2.5">
+      <div className="flex items-center gap-2 mt-2.5 flex-wrap">
         <button
           onClick={() => { copy(); window.open(d.conversationUrl, "_blank", "noopener"); toast.success("Draft copied — paste it in the chat"); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold">
@@ -364,8 +401,37 @@ function DraftCard({ d }: { d: Draft }) {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-white text-xs font-semibold">
           {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
         </button>
+        {canEdit && (
+          <button onClick={() => setEditOpen((o) => !o)} disabled={busy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#f0d9ae] text-[#c2620a] hover:bg-[#fffaf2] text-xs font-semibold disabled:opacity-50">
+            <Pencil size={12} /> Edit
+          </button>
+        )}
         <span className="text-[10px] text-[#8595a8]">draft only — you send it</span>
       </div>
+      {editOpen && canEdit && (
+        <div className="mt-2.5 rounded-lg border border-[#ffd8a8] bg-[#fffaf2] p-2">
+          <label className="flex items-center gap-1.5 text-[11px] font-bold text-[#c2620a] mb-1">
+            📝 What should change? <span className="font-medium text-[#a1783f]">— the AI rewrites this draft with your notes applied</span>
+          </label>
+          <textarea
+            value={editNote}
+            onChange={(e) => setEditNote(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitEdit(); } }}
+            rows={2}
+            autoFocus
+            placeholder="e.g. 'mention the price is $50' or 'make it shorter and add a booking link'"
+            className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#f0d9ae] rounded-lg focus:outline-none focus:border-[#f0a742] resize-none"
+          />
+          <div className="flex items-center gap-2 mt-1.5">
+            <button onClick={submitEdit} disabled={busy || !editNote.trim()}
+              className="px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+              {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Regenerate draft
+            </button>
+            <span className="text-[10px] text-[#8595a8]">⌘/Ctrl+Enter</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
