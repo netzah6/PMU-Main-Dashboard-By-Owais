@@ -127,16 +127,23 @@ export async function syncOneSheet(
   try {
     // 1. Read from Google Sheets (auto-resolves tab name if needed)
     const rawRows = await readSheetValues(spreadsheetId, sheetName, fallbackIndex);
-    // Drop rows with no identifying content: fully-blank rows and rows marked
-    // VOID. Blank rows are how deleted duplicates were neutralized after the
-    // 2026-08-20 lesson — a fully-empty row makes Google's table detection end
-    // the table there, so appends INSERT mid-sheet; the fix is a VOID marker in
-    // column A, and the sync must not ingest those markers as data.
-    const objects = rowsToObjects(rawRows).filter((o) =>
-      [o["Email"], o["Full Name"], o["Business Name"], o["Name"]].some(
-        (v) => String(v ?? "").trim() !== ""
-      )
-    );
+    // Drop rows with no content: fully-blank rows and rows marked VOID in
+    // column A. Blank rows are how deleted duplicates were neutralized after
+    // the 2026-08-20 lesson — a fully-empty row makes Google's table detection
+    // end the table there, so appends INSERT mid-sheet; the fix is a VOID
+    // marker in column A, and the sync must not ingest those markers as data.
+    // This must NOT require any specific column: an earlier version kept only
+    // rows with an Email/Name-style value, which silently emptied every table
+    // whose sheet has no such column (the CPL tabs, campaign_spent, ltv_sheet2,
+    // v3_pricing) — their syncs returned "ok, 0 rows" from Aug 20 onward.
+    const objects = rowsToObjects(rawRows).filter((o) => {
+      const values = Object.entries(o)
+        .filter(([k]) => k !== "row_number")
+        .map(([, v]) => String(v ?? "").trim());
+      if (!values.some((v) => v !== "")) return false; // fully blank
+      if ((values[0] ?? "").toUpperCase() === "VOID") return false; // dedupe marker
+      return true;
+    });
 
     if (objects.length === 0) {
       return {
