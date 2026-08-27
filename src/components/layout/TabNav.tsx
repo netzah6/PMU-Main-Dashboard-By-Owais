@@ -14,13 +14,13 @@ type Tab = { label: string; href: string; adminOnly?: boolean; collapsed?: boole
 const TABS: Tab[] = [
   // Hidden from the menu (page still exists at /overview): Overview
   { label: "👥 Clients", href: "/clients" },
+  { label: "✅ Tasks", href: "/tasks" }, // second, next to Clients — user request 2026-08-27
   { label: "📈 Performance", href: "/performance" },
   { label: "💰 Cost / Deposit", href: "/cost-per-deposit" },
   { label: "💵 Deposits", href: "/deposits" },
   { label: "📅 Bookings", href: "/bookings", collapsed: true },
   { label: "🧲 Leads", href: "/leads", collapsed: true },
   { label: "📞 Calls", href: "/calls", collapsed: true },
-  { label: "✅ Tasks", href: "/tasks" },
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
   // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
   // { label: "📝 Agreements", href: "/agreements" },
@@ -80,47 +80,38 @@ export function TabNav() {
       : "border-transparent text-[#34568a] hover:text-[#0e8f88] hover:border-[#d7e0ea]"
   );
 
-  // Build the bar: collapsed tabs render in place when shown; when hidden, a
-  // single "⋯ More" chip stands where the group was.
-  const items: React.ReactNode[] = [];
-  let toggleRendered = false;
-  for (const tab of tabs) {
-    if (tab.collapsed && !showCollapsed) {
-      if (!toggleRendered) {
-        toggleRendered = true;
-        items.push(
-          <button key="more" onClick={() => setMoreOpen(true)}
-            title={`Show ${collapsedTabs.map((t) => t.label.replace(/^\S+\s/, "")).join(", ")}`}
-            className={linkCls(false)}>
-            ⋯ More
-          </button>
-        );
-      }
-      continue;
-    }
-    items.push(
-      <Link key={tab.href} href={tab.href} className={linkCls(isActive(tab))}>
-        {tab.label}
-      </Link>
-    );
-    // Close chip right after the group (only when it CAN close — hiding the
-    // page you're standing on would drop its highlight).
-    if (tab.collapsed && showCollapsed && !onCollapsed && tab.href === collapsedTabs[collapsedTabs.length - 1].href) {
-      items.push(
-        <button key="less" onClick={() => setMoreOpen(false)} title="Hide these tabs again"
-          className={cn(linkCls(false), "text-[#8595a8]")}>
-          ✕
-        </button>
-      );
-    }
-  }
-
+  // The bar: main tabs in order, then the collapsed group at the VERY RIGHT —
+  // a "⋯ More" chip when hidden, the tabs (+ a ✕ to re-hide) when shown.
   return (
     <nav
       className="flex overflow-x-auto border-b border-[#e4ebf2] bg-white px-2 gap-0 flex-shrink-0"
       style={{ scrollbarWidth: "none" }}
     >
-      {items}
+      {tabs.filter((t) => !t.collapsed).map((tab) => (
+        <Link key={tab.href} href={tab.href} className={linkCls(isActive(tab))}>
+          {tab.label}
+        </Link>
+      ))}
+      {collapsedTabs.length > 0 && !showCollapsed && (
+        <button key="more" onClick={() => setMoreOpen(true)}
+          title={`Show ${collapsedTabs.map((t) => t.label.replace(/^\S+\s/, "")).join(", ")}`}
+          className={linkCls(false)}>
+          ⋯ More
+        </button>
+      )}
+      {showCollapsed && collapsedTabs.map((tab) => (
+        <Link key={tab.href} href={tab.href} className={linkCls(isActive(tab))}>
+          {tab.label}
+        </Link>
+      ))}
+      {/* ✕ only when the group CAN close — hiding the page you're standing on
+          would drop its highlight. */}
+      {showCollapsed && !onCollapsed && (
+        <button key="less" onClick={() => setMoreOpen(false)} title="Hide these tabs again"
+          className={cn(linkCls(false), "text-[#8595a8]")}>
+          ✕
+        </button>
+      )}
     </nav>
   );
 }

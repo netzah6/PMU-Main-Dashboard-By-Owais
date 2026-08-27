@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/layout/Navbar";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { UserPlus, Settings, Loader2 } from "lucide-react";
+import { UserPlus, Settings, Loader2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { ROLE_LABELS, type UserRoleRecord, type UserRole } from "@/lib/types";
 
@@ -68,6 +68,27 @@ export default function SettingsPage() {
       toast.error(String(err));
     } finally {
       setInviting(false);
+    }
+  }
+
+  // Email a set-a-new-password link — for expired invites or forgotten
+  // passwords (members set their own password; nobody ever knows theirs).
+  const [resetting, setResetting] = useState<string | null>(null);
+  async function handleResetPassword(email: string) {
+    setResetting(email);
+    try {
+      const res = await fetch("/api/users/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      toast.success(`Password-reset email sent to ${email}`);
+    } catch (err) {
+      toast.error(String(err).replace("Error: ", ""));
+    } finally {
+      setResetting(null);
     }
   }
 
@@ -174,6 +195,15 @@ export default function SettingsPage() {
                         <option value="va">Virtual Assistant</option>
                       </select>
                     )}
+                    <button
+                      onClick={() => handleResetPassword(u.email)}
+                      disabled={resetting === u.email}
+                      title="Email this member a link to set a new password (use when the invite link expired or the password was forgotten)"
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border border-[#d7e0ea] text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88] disabled:opacity-50"
+                    >
+                      {resetting === u.email ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
+                      Reset password
+                    </button>
                   </div>
                 </div>
               ))}
