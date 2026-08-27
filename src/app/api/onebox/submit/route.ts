@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap } from "@/lib/onebox";
+import { ingestRow } from "@/lib/direct-ingest";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -207,6 +208,30 @@ export async function POST(req: NextRequest) {
       .from("onebox_leads")
       .update({ ghl_status: ghlStatus, ghl_contact_id: contactId })
       .eq("id", leadRow.id);
+  }
+
+  // Feed the LEADS pipeline the sheet path never sees. The original GHL
+  // funnels write every lead to the leads sheet via the workflow's Make
+  // webhook; one-box submissions bypass that entirely, so from a cutover on
+  // the client silently vanished from the Leads tab (Modern Artistry,
+  // Aug 19–27: 35 leads in GHL, zero on the dashboard). ingestRow shapes the
+  // row exactly like a sheet row (dedupe fingerprints included) and the
+  // stable external id makes retried submissions idempotent. B2B goes
+  // through the agency's own pipeline; partials are half-leads — skip both.
+  if (!partial && !isB2B) {
+    const cfg = (client.config ?? {}) as Record<string, string>;
+    const biz = String(cfg.biz ?? "").trim();
+    if (biz) {
+      const r = await ingestRow("leads_master", {
+        full_name: fullName,
+        phone,
+        email,
+        business_name: biz,
+        date: new Date().toISOString(),
+        external_id: leadRow?.id ? `onebox:${leadRow.id}` : undefined,
+      }).catch((e) => ({ ok: false, error: e instanceof Error ? e.message : "ingest failed" }));
+      if (!r.ok) console.error("[onebox/submit] leads ingest failed:", "error" in r ? r.error : r);
+    }
   }
 
   // Server-side Lead: the browser pixel already fired this with the same
