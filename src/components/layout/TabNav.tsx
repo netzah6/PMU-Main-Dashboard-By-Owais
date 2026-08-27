@@ -1,11 +1,15 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/useUser";
 import type { UserRole } from "@/lib/types";
 
-type Tab = { label: string; href: string; adminOnly?: boolean };
+// `collapsed` tabs stay off the bar behind a "⋯ More" toggle — their data
+// already shows on the Clients tab, but the pages stay reachable for manual
+// digging (user request 2026-08-27).
+type Tab = { label: string; href: string; adminOnly?: boolean; collapsed?: boolean };
 
 const TABS: Tab[] = [
   // Hidden from the menu (page still exists at /overview): Overview
@@ -13,9 +17,9 @@ const TABS: Tab[] = [
   { label: "📈 Performance", href: "/performance" },
   { label: "💰 Cost / Deposit", href: "/cost-per-deposit" },
   { label: "💵 Deposits", href: "/deposits" },
-  { label: "📅 Bookings", href: "/bookings" },
-  { label: "🧲 Leads", href: "/leads" },
-  { label: "📞 Calls", href: "/calls" },
+  { label: "📅 Bookings", href: "/bookings", collapsed: true },
+  { label: "🧲 Leads", href: "/leads", collapsed: true },
+  { label: "📞 Calls", href: "/calls", collapsed: true },
   { label: "✅ Tasks", href: "/tasks" },
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
   // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
@@ -61,28 +65,62 @@ export function TabNav() {
     role === "va" ? VA_TABS.has(t.href) : !t.adminOnly || role === "admin"
   );
 
+  const isActive = (t: Tab) => pathname === t.href || pathname.startsWith(t.href + "/");
+  const collapsedTabs = tabs.filter((t) => t.collapsed);
+  // Being ON one of the hidden pages keeps the group visible — otherwise the
+  // active tab would have no highlight anywhere on the bar.
+  const onCollapsed = collapsedTabs.some(isActive);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const showCollapsed = moreOpen || onCollapsed;
+
+  const linkCls = (active: boolean) => cn(
+    "px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors tracking-tight",
+    active
+      ? "border-[#15B7AE] text-[#0e8f88]"
+      : "border-transparent text-[#34568a] hover:text-[#0e8f88] hover:border-[#d7e0ea]"
+  );
+
+  // Build the bar: collapsed tabs render in place when shown; when hidden, a
+  // single "⋯ More" chip stands where the group was.
+  const items: React.ReactNode[] = [];
+  let toggleRendered = false;
+  for (const tab of tabs) {
+    if (tab.collapsed && !showCollapsed) {
+      if (!toggleRendered) {
+        toggleRendered = true;
+        items.push(
+          <button key="more" onClick={() => setMoreOpen(true)}
+            title={`Show ${collapsedTabs.map((t) => t.label.replace(/^\S+\s/, "")).join(", ")}`}
+            className={linkCls(false)}>
+            ⋯ More
+          </button>
+        );
+      }
+      continue;
+    }
+    items.push(
+      <Link key={tab.href} href={tab.href} className={linkCls(isActive(tab))}>
+        {tab.label}
+      </Link>
+    );
+    // Close chip right after the group (only when it CAN close — hiding the
+    // page you're standing on would drop its highlight).
+    if (tab.collapsed && showCollapsed && !onCollapsed && tab.href === collapsedTabs[collapsedTabs.length - 1].href) {
+      items.push(
+        <button key="less" onClick={() => setMoreOpen(false)} title="Hide these tabs again"
+          className={cn(linkCls(false), "text-[#8595a8]")}>
+          ✕
+        </button>
+      );
+    }
+  }
+
   return (
     <nav
       className="flex overflow-x-auto border-b border-[#e4ebf2] bg-white px-2 gap-0 flex-shrink-0"
       style={{ scrollbarWidth: "none" }}
     >
-      {tabs.map((tab) => {
-        const active = pathname === tab.href || pathname.startsWith(tab.href + "/");
-        return (
-          <Link
-            key={tab.href}
-            href={tab.href}
-            className={cn(
-              "px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors tracking-tight",
-              active
-                ? "border-[#15B7AE] text-[#0e8f88]"
-                : "border-transparent text-[#34568a] hover:text-[#0e8f88] hover:border-[#d7e0ea]"
-            )}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
+      {items}
     </nav>
   );
 }

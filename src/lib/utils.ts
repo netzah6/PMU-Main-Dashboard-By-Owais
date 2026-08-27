@@ -120,12 +120,21 @@ export function sortNewestFirst<T extends Record<string, unknown>>(rows: T[]): T
   // Sort by the row's actual Date — NOT by sheet position. Position lied on
   // 2026-08-20: new deposits were inserted mid-sheet (rows 61-71) by Google's
   // table detection, and position-sorting buried that day's payments among
-  // March rows. Date formats seen: dd/mm/yyyy (current era) and ISO strings
-  // (spring era). Rows without a parseable date fall back to sheet position.
+  // March rows. Date formats seen: dd/mm/yyyy (current era), d/m/yyyy with
+  // single digits (Jan-2026 era of the LTV sheet), and ISO strings (spring
+  // era). Slash dates resolve day-first like formatDate — leaving single-digit
+  // dates to new Date() read them US-style, so "10/1/2026" (Jan 10) became
+  // Oct 1 and the whole January era floated above August. Rows without a
+  // parseable date fall back to sheet position.
   const ts = (r: Record<string, unknown>): number => {
     const s = String(r["Date"] ?? r["Signed Date"] ?? "");
-    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-    const d = m ? new Date(`${m[3]}-${m[2]}-${m[1]}`) : new Date(s);
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    let d: Date;
+    if (m) {
+      const a = parseInt(m[1], 10), b = parseInt(m[2], 10), y = parseInt(m[3], 10);
+      const [day, mon] = b > 12 ? [b, a] : [a, b]; // day-first unless impossible
+      d = mon <= 12 ? new Date(Date.UTC(y, mon - 1, day)) : new Date(NaN);
+    } else d = new Date(s);
     return Number.isNaN(d.getTime()) ? Number(r._row_number ?? 0) : d.getTime();
   };
   return [...rows].sort((a, b) => {
