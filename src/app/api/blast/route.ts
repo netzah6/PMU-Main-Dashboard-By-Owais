@@ -13,15 +13,17 @@ export const maxDuration = 300;
 //   POST {action:"schedule", ...}    → queue a blast (recipients frozen now)
 //   POST {action:"cancel", jobId}    → cancel a scheduled/sending job
 
+// Admins and Client Success Coaches (editors) may run blasts — user request
+// 2026-08-27. VAs stay out (their allowlist never reaches /blast anyway).
 async function requireAdmin() {
   const auth = await getAuth();
-  if (!auth || auth.role !== "admin") return null;
+  if (!auth || (auth.role !== "admin" && auth.role !== "editor")) return null;
   return auth;
 }
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin();
-  if (!auth) return NextResponse.json({ error: "Admins only" }, { status: 403 });
+  if (!auth) return NextResponse.json({ error: "Admins and coaches only" }, { status: 403 });
   const svc = createServiceClient();
   const sp = req.nextUrl.searchParams;
 
@@ -55,7 +57,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin();
-  if (!auth) return NextResponse.json({ error: "Admins only" }, { status: 403 });
+  if (!auth) return NextResponse.json({ error: "Admins and coaches only" }, { status: 403 });
   const svc = createServiceClient();
   const body = await req.json();
 

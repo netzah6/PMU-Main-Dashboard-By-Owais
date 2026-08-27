@@ -35,7 +35,7 @@ const TABS: Tab[] = [
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "👑 CEO", href: "/ceo", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "🕵️ Logs", href: "/activity", adminOnly: true }, // team-member change log
-  { label: "📣 Blast", href: "/blast", adminOnly: true }, // text blasts — human-confirmed, admins only
+  { label: "📣 Blast", href: "/blast" }, // text blasts — human-confirmed; admins + coaches (user request 2026-08-27)
   { label: "🗺️ Map", href: "/map" },
   { label: "🤖 AI", href: "/ask" },
   { label: "📊 Reports", href: "/reports" },
