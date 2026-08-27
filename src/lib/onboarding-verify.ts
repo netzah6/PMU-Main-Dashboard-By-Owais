@@ -434,8 +434,10 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     if (!fmtIssues.length) push("form_contact_format", "pass", `${phoneV} · ${addrV}`);
     else checks.push({ key: "form_contact_format", status: "fail", detail: fmtIssues.join(" | "), copy: fmtCopies });
 
-    // Charm pricing: the funnel prices must NOT be round numbers — they should
-    // end in 7 or 9 ($397 / $399 / $349 / $299…), never $400 / $350.
+    // Charm pricing: the funnel prices must NOT be round numbers. Anything not
+    // ending in 0 is fine ($397, $375, $389…) — only $400 / $500 / $450-style
+    // prices fail (user rule 2026-08-27; the old check demanded a 7/9 ending
+    // and red-flagged perfectly acceptable prices like $375).
     //
     // Gate on the VALUES, not on the plan. The custom values are named
     // "(V3)" but V2 sub-accounts carry and use them too, and gating on isV3
@@ -450,12 +452,9 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         const m = raw.replace(/,/g, "").match(/(\d+)(?:\.\d+)?/);
         if (!m) return `${label} "${raw}" has no number in it`;
         const num = parseInt(m[1], 10);
-        const last = num % 10;
-        if (last === 7 || last === 9) return null;
-        // Suggest same-decade charm prices; a fully round number ($400, $350)
-        // drops to the decade below ($397/$399, $347/$349).
-        const decade = last === 0 ? num - 10 : num - last;
-        return `${label} "${raw}" is a round number — use charm pricing like $${decade + 7} or $${decade + 9}`;
+        if (num % 10 !== 0) return null; // not round — acceptable
+        // Suggest dropping just below the round number ($400 → $397 / $399).
+        return `${label} "${raw}" is a round number — use something like $${num - 3} or $${num - 1}`;
       };
       const pIssues = [priceIssue("Original price", origV), priceIssue("Discounted price", discV)].filter(Boolean) as string[];
       // The discount has to actually be a discount. Swapped values still look
