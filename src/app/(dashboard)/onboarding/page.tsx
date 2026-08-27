@@ -128,7 +128,7 @@ export default function OnboardingPage() {
   // Which check to run: "" = auto (the client's status on the dashboard);
   // "(V3)" / "(V2.3)" / "(V1)" force that version's rule set — so the FULL
   // check can run BEFORE the client's status is updated on the dashboard.
-  const [checkVersion, setCheckVersion] = useState("");
+  const [checkVersion, setCheckVersion] = useState("(V3)"); // no Auto — always an explicit check type, V3 (full) by default
   const [checkRunning, setCheckRunning] = useState(false);
   const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; forcedVersion?: string | null; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string; copy?: string[] }[] } | null>(null);
   const runCheck = useCallback(async (query: string, version: string) => {
@@ -719,13 +719,12 @@ export default function OnboardingPage() {
 }
 
 // The check types the panel can run. Auto follows the client's status on the
-// dashboard (Master sheet Version); the V options force that rule set so the
-// team can run the full check BEFORE flipping the client's status.
+// dashboard: you always pick which rule set to run (no Auto — the client's
+// dashboard status can be stale, and silently following it skipped checks).
 const CHECK_TYPES: { value: string; label: string; title: string }[] = [
-  { value: "", label: "Auto", title: "Use the client's current status on the dashboard (Master sheet Version). Unknown status runs ALL checks." },
-  { value: "(V3)", label: "V3 · full", title: "Force the FULL V3 check — incl. timezone, Make.com routes and the CloseBot section — even if the client's status isn't V3 yet" },
-  { value: "(V2.3)", label: "V2.3", title: "Force the V2.3 check — skips the V3-only steps (timezone, CloseBot)" },
-  { value: "(V1)", label: "V1", title: "Force the V1 check — skips the V3-only steps" },
+  { value: "(V3)", label: "V3", title: "The FULL V3 check — incl. timezone, Make.com routes and the CloseBot section — regardless of the client's status on the dashboard" },
+  { value: "(V2.3)", label: "V2.3", title: "The V2.3 check — skips the V3-only steps (timezone, CloseBot) — regardless of the client's status" },
+  { value: "(V1)", label: "V1", title: "The V1 check — skips the V3-only steps — regardless of the client's status" },
 ];
 
 // ── Check Setup panel: verify any client by name or sub-account id ────────────
@@ -764,12 +763,12 @@ function CheckPanel({ query, setQuery, version, setVersion, running, result, onR
             ))}
           </div>
           <p className="text-[10px] text-[#8595a8] mt-1">
-            {version ? `Runs the ${CHECK_TYPES.find((t) => t.value === version)?.label.replace(" · full", "")} check even if the client's status on the dashboard is different or not set yet.` : "Follows the client's status on the dashboard — pick a version to run that check regardless of the status."}
+            Runs the {CHECK_TYPES.find((t) => t.value === version)?.label ?? "V3"} check even if the client&apos;s status on the dashboard is different or not set yet.
           </p>
         </div>
         <button onClick={() => onRun(query, version)} disabled={running || !query.trim()}
           className="w-full flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
-          {running ? <Loader2 size={14} className="animate-spin" /> : "🤖"} Run {version ? CHECK_TYPES.find((t) => t.value === version)?.label.replace(" · full", "") + " check" : "check"}
+          {running ? <Loader2 size={14} className="animate-spin" /> : "🤖"} Run {CHECK_TYPES.find((t) => t.value === version)?.label ?? "V3"} check
         </button>
       </div>
 
