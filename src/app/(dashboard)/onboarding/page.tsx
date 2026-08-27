@@ -125,13 +125,17 @@ export default function OnboardingPage() {
 
   // Right-side "Check Setup" panel: verify any client by name or sub-account id.
   const [checkQuery, setCheckQuery] = useState("");
+  // Which check to run: "" = auto (the client's status on the dashboard);
+  // "(V3)" / "(V2.3)" / "(V1)" force that version's rule set — so the FULL
+  // check can run BEFORE the client's status is updated on the dashboard.
+  const [checkVersion, setCheckVersion] = useState("");
   const [checkRunning, setCheckRunning] = useState(false);
-  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string; copy?: string[] }[] } | null>(null);
-  const runCheck = useCallback(async (query: string) => {
+  const [checkResult, setCheckResult] = useState<{ business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; forcedVersion?: string | null; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string; copy?: string[] }[] } | null>(null);
+  const runCheck = useCallback(async (query: string, version: string) => {
     if (!query.trim()) return;
     setCheckRunning(true); setCheckResult(null);
     try {
-      const res = await fetch("/api/onboarding/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query }) });
+      const res = await fetch("/api/onboarding/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, version: version || undefined }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Check failed");
       setCheckResult(json);
@@ -707,18 +711,28 @@ export default function OnboardingPage() {
 
       {/* RIGHT — Check Setup */}
       <div className={SHOW_ONBOARDING_LIST ? "lg:sticky lg:top-4" : undefined}>
-        <CheckPanel query={checkQuery} setQuery={setCheckQuery} running={checkRunning} result={checkResult} onRun={runCheck} businesses={list.map((o) => o.form.business_name).filter(Boolean)} />
+        <CheckPanel query={checkQuery} setQuery={setCheckQuery} version={checkVersion} setVersion={setCheckVersion} running={checkRunning} result={checkResult} onRun={runCheck} businesses={list.map((o) => o.form.business_name).filter(Boolean)} />
       </div>
       </div>{/* /grid */}
     </div>
   );
 }
 
+// The check types the panel can run. Auto follows the client's status on the
+// dashboard (Master sheet Version); the V options force that rule set so the
+// team can run the full check BEFORE flipping the client's status.
+const CHECK_TYPES: { value: string; label: string; title: string }[] = [
+  { value: "", label: "Auto", title: "Use the client's current status on the dashboard (Master sheet Version). Unknown status runs ALL checks." },
+  { value: "(V3)", label: "V3 · full", title: "Force the FULL V3 check — incl. timezone, Make.com routes and the CloseBot section — even if the client's status isn't V3 yet" },
+  { value: "(V2.3)", label: "V2.3", title: "Force the V2.3 check — skips the V3-only steps (timezone, CloseBot)" },
+  { value: "(V1)", label: "V1", title: "Force the V1 check — skips the V3-only steps" },
+];
+
 // ── Check Setup panel: verify any client by name or sub-account id ────────────
-function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
-  query: string; setQuery: (s: string) => void; running: boolean;
-  result: { business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string; copy?: string[] }[] } | null;
-  onRun: (q: string) => void; businesses: string[];
+function CheckPanel({ query, setQuery, version, setVersion, running, result, onRun, businesses }: {
+  query: string; setQuery: (s: string) => void; version: string; setVersion: (s: string) => void; running: boolean;
+  result: { business: string; query?: string; ranAt: string; locationId?: string | null; version?: string; forcedVersion?: string | null; depositUrl: string | null; funnelUrls?: { survey: string; booking: string; lastStep: string; thankYou: string } | null; productId?: string | null; checkoutUrl?: string | null; usersInfo?: { name: string; role: string; permissions: string[] }[]; checks: { key: string; status: string; detail: string; copy?: string[] }[] } | null;
+  onRun: (q: string, version: string) => void; businesses: string[];
 }) {
   const byKey = new Map((result?.checks ?? []).map((c) => [c.key, c]));
   const all = result?.checks ?? [];
@@ -733,12 +747,29 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
       </div>
       <div className="space-y-2">
         <input list="ob-biz-list" value={query} onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && onRun(query)}
+          onKeyDown={(e) => e.key === "Enter" && onRun(query, version)}
           placeholder="Business name or sub-account ID" className="w-full px-3 py-2 bg-white border border-[#c9dbfb] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#4f46e5]" />
         <datalist id="ob-biz-list">{businesses.map((b) => <option key={b} value={b} />)}</datalist>
-        <button onClick={() => onRun(query)} disabled={running || !query.trim()}
+        {/* Check type — which rule set to run. Forcing V3 runs the full check
+            even when the client's dashboard status hasn't been updated yet. */}
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] px-0.5 mb-1">Check to run</div>
+          <div className="flex gap-1.5">
+            {CHECK_TYPES.map((t) => (
+              <button key={t.value} onClick={() => setVersion(t.value)} title={t.title}
+                className={cn("flex-1 px-2 py-1.5 rounded-lg border text-[11px] font-semibold transition-colors",
+                  version === t.value ? "bg-[#4f46e5] border-[#4f46e5] text-white" : "bg-white border-[#c9dbfb] text-[#4f46e5] hover:bg-[#eef2ff]")}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[10px] text-[#8595a8] mt-1">
+            {version ? `Runs the ${CHECK_TYPES.find((t) => t.value === version)?.label.replace(" · full", "")} check even if the client's status on the dashboard is different or not set yet.` : "Follows the client's status on the dashboard — pick a version to run that check regardless of the status."}
+          </p>
+        </div>
+        <button onClick={() => onRun(query, version)} disabled={running || !query.trim()}
           className="w-full flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
-          {running ? <Loader2 size={14} className="animate-spin" /> : "🤖"} Run check
+          {running ? <Loader2 size={14} className="animate-spin" /> : "🤖"} Run {version ? CHECK_TYPES.find((t) => t.value === version)?.label.replace(" · full", "") + " check" : "check"}
         </button>
       </div>
 
@@ -750,7 +781,7 @@ function CheckPanel({ query, setQuery, running, result, onRun, businesses }: {
             <div className="text-[13px] font-bold text-[#1f3559] truncate">
               {result.business || result.query}
               {result.version
-                ? <span className={cn("ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold align-middle", verBadge(result.version))}>{result.version}</span>
+                ? <span className={cn("ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold align-middle", verBadge(result.version))} title={result.forcedVersion ? "You chose this check type — it may differ from the client's status on the dashboard (the \"Update the V status\" row still grades the real status)" : "The client's status on the dashboard"}>{result.version}{result.forcedVersion ? " · chosen" : ""}</span>
                 : <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold align-middle bg-[#eef2f7] text-[#697a91]" title="No Version found in the Master sheet or onboarding form — showing ALL checks incl. V3-only">version unknown</span>}
             </div>
             <div className="text-[11px]">

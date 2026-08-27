@@ -13,9 +13,14 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = (await req.json().catch(() => ({}))) as { query?: string };
+  const body = (await req.json().catch(() => ({}))) as { query?: string; version?: string };
   const query = String(body.query ?? "").trim();
   if (!query) return NextResponse.json({ error: "Enter a client name or sub-account ID" }, { status: 400 });
+  // Optional forced check type ("(V3)" / "(V2.3)" / "(V1)"). Empty = auto: use
+  // the client's Version from the Master sheet. Forcing lets the team run the
+  // FULL check before they flip the client's status on the dashboard —
+  // otherwise a stale/empty status silently skips the V3-only checks.
+  const version = String(body.version ?? "").trim().slice(0, 12);
 
   let business = query;
   let locationId: string | null = null;
@@ -32,6 +37,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const result = await verifyOnboarding({ business_name: business }, { locationId });
-  return NextResponse.json({ ranAt: new Date().toISOString(), query, business, ...result });
+  const result = await verifyOnboarding({ business_name: business, version }, { locationId });
+  return NextResponse.json({ ranAt: new Date().toISOString(), query, business, forcedVersion: version || null, ...result });
 }
