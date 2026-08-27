@@ -16,7 +16,7 @@ const TABS: Tab[] = [
   { label: "👥 Clients", href: "/clients" },
   { label: "✅ Tasks", href: "/tasks" }, // second, next to Clients — user request 2026-08-27
   { label: "📈 Performance", href: "/performance" },
-  { label: "💰 Cost / Deposit", href: "/cost-per-deposit" },
+  { label: "💰 Cost / Deposit", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27
   { label: "💵 Deposits", href: "/deposits" },
   { label: "📅 Bookings", href: "/bookings", collapsed: true },
   { label: "🧲 Leads", href: "/leads", collapsed: true },
@@ -25,16 +25,16 @@ const TABS: Tab[] = [
   // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
   // { label: "📝 Agreements", href: "/agreements" },
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
-  { label: "💎 LTV", href: "/ltv", adminOnly: true }, // admins only
-  { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true }, // Square billing — admins only
-  { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true }, // Square disputes + evidence prep — admins only
+  { label: "💎 LTV", href: "/ltv", adminOnly: true, collapsed: true }, // admins only
+  { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true, collapsed: true }, // Square billing — admins only
+  { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true, collapsed: true }, // Square disputes + evidence prep — admins only
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true }, // pay-per-show tracking — admins only
-  { label: "💼 Team", href: "/sales", adminOnly: true }, // sales-team salary tracking: closer demo checker + coach tracker
+  { label: "💼 Team", href: "/sales", adminOnly: true, collapsed: true }, // sales-team salary tracking: closer demo checker + coach tracker
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true }, // one-box funnels on Vercel — existence, health, leads/bookings
-  { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
+  { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true, collapsed: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "👑 CEO", href: "/ceo", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
-  { label: "🕵️ Logs", href: "/activity", adminOnly: true }, // team-member change log
+  { label: "🕵️ Logs", href: "/activity", adminOnly: true, collapsed: true }, // team-member change log
   { label: "📣 Blast", href: "/blast" }, // text blasts — human-confirmed; admins + coaches (user request 2026-08-27)
   { label: "🗺️ Map", href: "/map" },
   { label: "🤖 AI", href: "/ask" },
