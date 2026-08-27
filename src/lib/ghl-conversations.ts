@@ -111,6 +111,30 @@ export async function getThread(acct: PmuAccount, conversationId: string): Promi
   return msgs.reverse();
 }
 
+// Friendly channel label → the GHL send-API message type. Email is excluded
+// on purpose (it needs subject/html and shouldn't be fired from a quick box).
+const SEND_TYPE: Record<string, string> = {
+  SMS: "SMS", FB: "FB", IG: "IG", WhatsApp: "WhatsApp", Chat: "Live_Chat", GMB: "GMB",
+};
+
+// Send one outbound message into an existing conversation's channel. Manual
+// use only — every call is a human clicking Send (or approving the agent's
+// proposal); nothing loops over this.
+export async function sendConversationMessage(
+  acct: PmuAccount,
+  opts: { contactId: string; message: string; channel?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const type = SEND_TYPE[opts.channel ?? "SMS"] ?? "SMS";
+  const r = await fetch(`${GHL_BASE}/conversations/messages`, {
+    method: "POST",
+    headers: { ...authHeaders(acct.token, CONV_VERSION), "Content-Type": "application/json" },
+    body: JSON.stringify({ type, contactId: opts.contactId, message: opts.message }),
+  });
+  if (r.ok) return { ok: true };
+  const text = await r.text().catch(() => "");
+  return { ok: false, error: `HTTP ${r.status}: ${text.slice(0, 200)}` };
+}
+
 export type RosterUser = { id: string; name: string; email: string };
 
 // The team roster for the account (id + name + email), used to match the

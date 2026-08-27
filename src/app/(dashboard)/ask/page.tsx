@@ -4,7 +4,7 @@ import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink,
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId?: string };
+type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId?: string; contactId?: string | null };
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[]; reports?: string[] };
 type Conv = {
   id: string;
@@ -48,6 +48,12 @@ export default function AskPage() {
   const [note, setNote] = useState("");                       // optional steer for the AI
   const [thread, setThread] = useState<ThreadMsg[]>([]);      // full conversation shown in the composer
   const [threadLoading, setThreadLoading] = useState(false);
+  // Manual send — YOU type it, YOU click Send; nothing automated.
+  const [sendText, setSendText] = useState("");
+  const [sending, setSending] = useState(false);
+  // Admin-only agent inbox view toggle.
+  const [view, setView] = useState<"chat" | "agent">("chat");
+  const [agentPending, setAgentPending] = useState(0);
 
   const loadConvs = useCallback(async () => {
     setConvsLoading(true); setConvsError(null);
@@ -73,6 +79,37 @@ export default function AskPage() {
       : locationId ? `https://app.gohighlevel.com/v2/location/${locationId}/conversations/conversations/${c.id}` : "",
   [locationId]);
   useEffect(() => { loadConvs(); }, [loadConvs]);
+
+  const sendManual = useCallback(async () => {
+    if (!pending?.contactId || !sendText.trim() || sending) return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/ghl/reply/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: pending.contactId, message: sendText.trim(), channel: pending.channel }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Send failed");
+      toast.success(`Message sent to ${pending.contactName}`);
+      setSendText("");
+      setPending(null);
+      loadConvs();
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally {
+      setSending(false);
+    }
+  }, [pending, sendText, sending, loadConvs]);
+
+  // Badge count for the Agent toggle, fetched once the role is known.
+  useEffect(() => {
+    if (role !== "admin") return;
+    fetch("/api/agent/proposals")
+      .then((r) => r.json())
+      .then((j) => setAgentPending(j.pending ?? 0))
+      .catch(() => {});
+  }, [role]);
 
   // Load the full conversation whenever the composer opens for a chat.
   useEffect(() => {
@@ -120,6 +157,7 @@ export default function AskPage() {
   const clickConv = useCallback((c: Conv) => {
     setShowChats(false);
     setNote("");
+    setSendText("");
     setPending(c);
   }, []);
 
@@ -141,7 +179,7 @@ export default function AskPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to draft a reply");
       const voice = json.voice?.name ?? "";
-      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, conversationUrl: chatUrl(c), conversationId: c.id };
+      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, conversationUrl: chatUrl(c), conversationId: c.id, contactId: c.contactId };
       setMsgs((m) => [...m, { role: "assistant", content: `Here's a draft for ${c.contactName}${voice ? ` in ${voice}'s style` : ""} — use the buttons below to copy it and open the chat.`, drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
@@ -212,14 +250,16 @@ export default function AskPage() {
             <button key={c.id} onClick={() => clickConv(c)} disabled={busy}
               className="w-full text-left px-3 py-2.5 border-b border-[#f1f5f9] hover:bg-[#f7fdfc] disabled:opacity-50 transition-colors">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-[#1f3559] truncate">{c.contactName}</span>
+                <span className="text-[13px] font-bold text-[#1f3559] truncate">
+                  {c.contactName}
+                  {c.assignedToName && <span className="ml-1.5 font-medium text-[11px] text-[#8595a8]">👤 {c.assignedToName}</span>}
+                </span>
                 <span className="shrink-0 text-[10px] text-[#8595a8]">{timeAgo(c.lastMessageDate)}</span>
               </div>
               <p className="text-[11px] text-[#697a91] truncate mt-0.5">{c.lastMessageBody || "(no text)"}</p>
               <div className="flex items-center gap-1.5 mt-1">
                 <span className="text-[9px] font-semibold uppercase text-[#0e8f88]">{c.channel}</span>
                 {c.unreadCount > 0 && <span className="px-1 rounded-full bg-[#e11d48] text-white text-[9px] font-bold">{c.unreadCount}</span>}
-                {c.assignedToName && <span className="text-[9px] text-[#8595a8]">· {c.assignedToName}</span>}
               </div>
             </button>
           ))
@@ -231,8 +271,8 @@ export default function AskPage() {
 
   return (
     <div className="flex h-full w-full">
-      {/* Chats sidebar — desktop */}
-      <aside className="hidden md:flex flex-col w-72 shrink-0 border-r border-[#e4ebf2] bg-white">
+      {/* Chats sidebar — desktop (wider so client names + assignee fit) */}
+      <aside className="hidden md:flex flex-col w-80 xl:w-96 shrink-0 border-r border-[#e4ebf2] bg-white">
         {chatList}
       </aside>
       {/* Chats drawer — mobile */}
@@ -255,6 +295,26 @@ export default function AskPage() {
         </button>
       </div>
 
+      {/* Owner-only agent inbox toggle */}
+      {role === "admin" && (
+        <div className="mb-3 flex gap-1 rounded-lg border border-[#e4ebf2] bg-white p-1 w-fit">
+          {(["chat", "agent"] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)}
+              className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1.5",
+                view === v ? "bg-[#15B7AE] text-white" : "text-[#34568a] hover:bg-[#f7fdfc]")}>
+              {v === "chat" ? "💬 Chat" : "🕵️ Agent"}
+              {v === "agent" && agentPending > 0 && (
+                <span className={cn("px-1.5 rounded-full text-[10px] font-bold", view === v ? "bg-white text-[#0e8f88]" : "bg-[#e11d48] text-white")}>{agentPending}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view === "agent" && role === "admin" ? (
+        <AgentPanel onCount={setAgentPending} />
+      ) : (
+      <>
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
         {msgs.length === 0 && (
           <div className="pt-16 text-center text-sm text-[#8595a8]">
@@ -348,6 +408,29 @@ export default function AskPage() {
             </button>
             <span className="text-[10px] text-[#8595a8]">⌘/Ctrl+Enter to generate</span>
           </div>
+
+          {/* Manual send — goes straight into the GHL chat, only when YOU click Send */}
+          <div className="mt-2.5 rounded-lg border border-[#c9dbfb] bg-[#f7faff] p-2">
+            <label htmlFor="manual-send" className="flex items-center gap-1.5 text-[11px] font-bold text-[#34568a] mb-1">
+              ✍️ Send a message yourself <span className="font-medium text-[#8595a8]">— sends in GHL as-is when you click Send ({pending.channel || "SMS"})</span>
+            </label>
+            <textarea
+              id="manual-send"
+              value={sendText}
+              onChange={(e) => setSendText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendManual(); } }}
+              rows={2}
+              placeholder={`Type the exact message to send to ${pending.contactName}…`}
+              className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none"
+            />
+            <div className="flex items-center gap-2 mt-1.5">
+              <button onClick={sendManual} disabled={sending || !sendText.trim() || !pending.contactId}
+                className="px-3 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+                {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Send to {pending.contactName}
+              </button>
+              <span className="text-[10px] text-[#8595a8]">{pending.contactId ? "⌘/Ctrl+Enter to send" : "no contact id — open the chat in GHL"}</span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -364,7 +447,137 @@ export default function AskPage() {
           {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
         </button>
       </form>
+      </>
+      )}
     </div>
+    </div>
+  );
+}
+
+// ── CEO Agent inbox (admin only) ─────────────────────────────────────────────
+// Client requests the scanner detected, waiting for an explicit Approve/Deny.
+// Approve sends the (editable) reply; account changes queue for the browser
+// worker. Nothing ever executes without a click here.
+type AgentProposal = {
+  id: string; created_at: string; contact_name: string; channel: string | null;
+  client_message: string; summary: string; action_type: "reply" | "account_change";
+  proposed_reply: string | null; action_detail: string | null;
+  status: string; decided_by: string | null; result: string | null;
+};
+
+function AgentPanel({ onCount }: { onCount: (n: number) => void }) {
+  const [proposals, setProposals] = useState<AgentProposal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const res = await fetch("/api/agent/proposals");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to load proposals");
+      setProposals(json.proposals ?? []);
+      onCount(json.pending ?? 0);
+    } catch (e) {
+      setErr(`${e}`.replace("Error: ", ""));
+    } finally {
+      setLoading(false);
+    }
+  }, [onCount]);
+  useEffect(() => { load(); }, [load]);
+
+  const pending = proposals.filter((p) => p.status === "pending");
+  const history = proposals.filter((p) => p.status !== "pending");
+
+  return (
+    <div className="flex-1 overflow-y-auto space-y-3 pb-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-[#697a91]">
+          The agent reads incoming client messages every 10 minutes and files requests here. <b>Nothing runs without your Approve.</b>
+        </p>
+        <button onClick={load} title="Refresh" className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88]">
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+        </button>
+      </div>
+      {err && <div className="px-3 py-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-xs">{err}</div>}
+      {loading && proposals.length === 0 ? (
+        <p className="text-xs text-[#8595a8] flex items-center gap-1.5 py-8 justify-center"><Loader2 size={13} className="animate-spin" /> Loading the agent inbox…</p>
+      ) : pending.length === 0 ? (
+        <div className="text-center py-8 text-sm text-[#8595a8]">No pending requests — the agent found nothing that needs you right now 🎉</div>
+      ) : (
+        pending.map((p) => <ProposalCard key={p.id} p={p} onDecided={load} />)
+      )}
+      {history.length > 0 && (
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] mb-1 mt-4">History</div>
+          <div className="space-y-1">
+            {history.map((p) => (
+              <div key={p.id} className="rounded-lg border border-[#eef3f8] bg-white px-3 py-2 text-[11px] text-[#697a91]">
+                <span className={cn("font-bold mr-1.5", p.status === "denied" ? "text-[#e11d48]" : p.status === "failed" ? "text-[#c2620a]" : "text-[#15803d]")}>
+                  {p.status === "queued_browser" ? "queued for browser" : p.status}
+                </span>
+                <span className="font-semibold text-[#1f3559]">{p.contact_name}</span> — {p.summary}
+                {p.result && <span className="text-[#8595a8]"> · {p.result}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProposalCard({ p, onDecided }: { p: AgentProposal; onDecided: () => void }) {
+  const [reply, setReply] = useState(p.proposed_reply ?? "");
+  const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
+  const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
+
+  const decide = useCallback(async (decision: "approve" | "deny") => {
+    if (busy) return;
+    setBusy(decision);
+    try {
+      const res = await fetch("/api/agent/decide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: p.id, decision, reply: decision === "approve" ? reply : undefined }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed");
+      toast.success(decision === "deny" ? "Denied — nothing sent" : json.status === "queued_browser" ? "Reply sent · account change queued for the browser worker" : "Approved — reply sent");
+      onDecided();
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+      setBusy(null);
+    }
+  }, [busy, p.id, reply, onDecided]);
+
+  return (
+    <div className={cn("rounded-xl border p-3", sensitive ? "border-[#f5c2cf] bg-[#fffafb]" : "border-[#c9dbfb] bg-[#f7faff]")}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] font-bold text-[#1f3559]">{p.contact_name}</span>
+        <span className="text-[10px] text-[#8595a8]">{timeAgo(p.created_at)} ago{p.channel ? ` · ${p.channel}` : ""}</span>
+      </div>
+      <p className="mt-1.5 text-[12px] text-[#697a91] border-l-2 border-[#d7e0ea] pl-2 whitespace-pre-wrap">&ldquo;{p.client_message}&rdquo;</p>
+      <p className="mt-2 text-sm text-[#1f3559]"><b>Wants:</b> {p.summary}</p>
+      {p.action_type === "account_change" && (
+        <div className={cn("mt-1.5 rounded-lg border px-2.5 py-1.5 text-[12px]", sensitive ? "border-[#f5c2cf] bg-[#fde8ee] text-[#9f1239]" : "border-[#ffd8a8] bg-[#fffaf2] text-[#c2620a]")}>
+          {sensitive ? "⚠️ SENSITIVE — " : "🔧 "}Account change: {(p.action_detail ?? "").replace(/^SENSITIVE:\s*/, "")}
+          <span className="block text-[10px] mt-0.5 opacity-80">Approve sends the reply below and queues this change for the browser worker — it is NOT auto-executed.</span>
+        </div>
+      )}
+      <label className="block mt-2 text-[11px] font-bold text-[#34568a]">Reply to send (edit freely — empty = send nothing):</label>
+      <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2}
+        className="w-full mt-1 px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none" />
+      <div className="flex items-center gap-2 mt-2">
+        <button onClick={() => decide("approve")} disabled={!!busy}
+          className="px-3 py-1.5 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+          {busy === "approve" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Approve{reply.trim() ? " & send" : ""}
+        </button>
+        <button onClick={() => decide("deny")} disabled={!!busy}
+          className="px-3 py-1.5 rounded-lg border border-[#f5c2cf] text-[#e11d48] hover:bg-[#fde8ee] text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+          {busy === "deny" ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} Deny
+        </button>
+      </div>
     </div>
   );
 }
@@ -373,12 +586,33 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
   const [copied, setCopied] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editNote, setEditNote] = useState("");
+  const [sendState, setSendState] = useState<"idle" | "sending" | "sent">("idle");
   const copy = useCallback(() => {
     navigator.clipboard.writeText(d.draft);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   }, [d.draft]);
   const canEdit = !!(onEdit && d.conversationId);
+  // Manual send of THIS exact draft text — one explicit click, no automation.
+  const canSend = !!d.contactId && d.channel !== "Email" && d.channel !== "Call";
+  const sendDraft = useCallback(async () => {
+    if (!d.contactId || sendState !== "idle") return;
+    setSendState("sending");
+    try {
+      const res = await fetch("/api/ghl/reply/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: d.contactId, message: d.draft, channel: d.channel }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Send failed");
+      setSendState("sent");
+      toast.success(`Sent to ${d.contactName}`);
+    } catch (e) {
+      setSendState("idle");
+      toast.error(`${e}`.replace("Error: ", ""));
+    }
+  }, [d, sendState]);
   const submitEdit = () => {
     if (!editNote.trim() || !onEdit) return;
     onEdit(d, editNote);
@@ -392,6 +626,13 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
       </p>
       <p className="text-sm text-[#1f3559] whitespace-pre-wrap">{d.draft}</p>
       <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+        {canSend && (
+          <button onClick={sendDraft} disabled={sendState !== "idle"}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-xs font-semibold disabled:opacity-60">
+            {sendState === "sending" ? <Loader2 size={12} className="animate-spin" /> : sendState === "sent" ? <Check size={12} /> : <Send size={12} />}
+            {sendState === "sent" ? "Sent ✓" : `Send to ${d.contactName}`}
+          </button>
+        )}
         <button
           onClick={() => { copy(); window.open(d.conversationUrl, "_blank", "noopener"); toast.success("Draft copied — paste it in the chat"); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold">
