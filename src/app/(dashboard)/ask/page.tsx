@@ -587,22 +587,26 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
   const [editOpen, setEditOpen] = useState(false);
   const [editNote, setEditNote] = useState("");
   const [sendState, setSendState] = useState<"idle" | "sending" | "sent">("idle");
+  // Manual text editing: `text` is the live draft — Send/Copy/AI-edit all use
+  // it, so hand-typed changes carry through everywhere.
+  const [text, setText] = useState(d.draft);
+  const [manualOpen, setManualOpen] = useState(false);
   const copy = useCallback(() => {
-    navigator.clipboard.writeText(d.draft);
+    navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
-  }, [d.draft]);
+  }, [text]);
   const canEdit = !!(onEdit && d.conversationId);
   // Manual send of THIS exact draft text — one explicit click, no automation.
   const canSend = !!d.contactId && d.channel !== "Email" && d.channel !== "Call";
   const sendDraft = useCallback(async () => {
-    if (!d.contactId || sendState !== "idle") return;
+    if (!d.contactId || sendState !== "idle" || !text.trim()) return;
     setSendState("sending");
     try {
       const res = await fetch("/api/ghl/reply/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contactId: d.contactId, message: d.draft, channel: d.channel }),
+        body: JSON.stringify({ contactId: d.contactId, message: text.trim(), channel: d.channel }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Send failed");
@@ -612,10 +616,10 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
       setSendState("idle");
       toast.error(`${e}`.replace("Error: ", ""));
     }
-  }, [d, sendState]);
+  }, [d, sendState, text]);
   const submitEdit = () => {
     if (!editNote.trim() || !onEdit) return;
-    onEdit(d, editNote);
+    onEdit({ ...d, draft: text }, editNote); // AI revises the CURRENT text, manual edits included
     setEditOpen(false);
     setEditNote("");
   };
@@ -624,7 +628,18 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
       <p className="text-[10px] font-bold uppercase tracking-wide text-[#0e8f88] mb-1.5">
         Draft for {d.contactName}{d.channel ? ` · ${d.channel}` : ""}{d.voice ? ` · in ${d.voice}'s style` : ""}
       </p>
-      <p className="text-sm text-[#1f3559] whitespace-pre-wrap">{d.draft}</p>
+      {manualOpen ? (
+        <div>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={Math.min(8, Math.max(3, text.split("\n").length + 1))} autoFocus
+            className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#a7e3df] rounded-lg focus:outline-none focus:border-[#15B7AE] resize-y" />
+          <button onClick={() => setManualOpen(false)} disabled={!text.trim()}
+            className="mt-1 px-3 py-1 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold disabled:opacity-50">
+            Done
+          </button>
+        </div>
+      ) : (
+        <p className="text-sm text-[#1f3559] whitespace-pre-wrap">{text}</p>
+      )}
       <div className="flex items-center gap-2 mt-2.5 flex-wrap">
         {canSend && (
           <button onClick={sendDraft} disabled={sendState !== "idle"}
@@ -642,10 +657,14 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-white text-xs font-semibold">
           {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
         </button>
+        <button onClick={() => setManualOpen((o) => !o)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#c9dbfb] text-[#34568a] hover:bg-[#f7faff] text-xs font-semibold">
+          <Pencil size={12} /> {manualOpen ? "Close editor" : "Edit text"}
+        </button>
         {canEdit && (
           <button onClick={() => setEditOpen((o) => !o)} disabled={busy}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#f0d9ae] text-[#c2620a] hover:bg-[#fffaf2] text-xs font-semibold disabled:opacity-50">
-            <Pencil size={12} /> Edit
+            <Sparkles size={12} /> AI edit
           </button>
         )}
         <span className="text-[10px] text-[#8595a8]">draft only — you send it</span>
