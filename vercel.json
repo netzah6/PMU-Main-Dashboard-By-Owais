@@ -21,6 +21,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/alerts-scan",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/ghl-ingest",
       "schedule": "0 */3 * * *"
     },
