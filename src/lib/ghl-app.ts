@@ -39,10 +39,15 @@ export const APP_SCOPES = [
   // redirect that sends ad traffic at the one-box funnel (or the split
   // tester) without anyone opening GHL. Tick these in the developer
   // portal before re-authorizing.
-  "funnels/redirect.readonly",
-  "funnels/redirect.write",
-  "funnels/funnel.readonly",
-  "funnels/page.readonly",
+  // TEMPORARILY NOT REQUESTED (2026-08-28): the app's published version 2.0.0
+  // no longer carries the funnels scopes (changed accidentally in the dev
+  // portal), and requesting un-ticked scopes fails the WHOLE authorize with
+  // "Invalid scope(s)" — which was blocking conversations/message.write.
+  // Re-add these once the portal scopes are re-ticked, then re-authorize.
+  // "funnels/redirect.readonly",
+  // "funnels/redirect.write",
+  // "funnels/funnel.readonly",
+  // "funnels/page.readonly",
   // NOTE: funnels/funnel.readonly + funnels/page.readonly are NOT requested —
   // GHL rejects the authorize call ("Invalid scope(s)") until those two are
   // ticked on the app itself (developer portal → Advanced Settings → Auth →
