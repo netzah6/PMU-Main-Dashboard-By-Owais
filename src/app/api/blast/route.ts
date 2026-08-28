@@ -70,6 +70,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // Re-queue a failed/errored blast: failed recipients go back to queued
+  // (already-sent ones are NOT re-texted) and the job re-enters the cron's
+  // pickup immediately.
+  if (body.action === "retry") {
+    const { data: job } = await svc.from("blast_jobs").select("status").eq("id", body.jobId).single();
+    if (!job) return NextResponse.json({ error: "job not found" }, { status: 404 });
+    if (!["failed", "error", "done"].includes(job.status)) return NextResponse.json({ error: "job is still active" }, { status: 400 });
+    await svc.from("blast_recipients").update({ status: "queued", error: null }).eq("job_id", body.jobId).eq("status", "failed");
+    await svc.from("blast_jobs").update({
+      status: "scheduled", error: null, send_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq("id", body.jobId);
+    return NextResponse.json({ ok: true });
+  }
+
+  // Remove a finished job from the list entirely (recipients first, then job).
+  if (body.action === "remove") {
+    const { data: job } = await svc.from("blast_jobs").select("status").eq("id", body.jobId).single();
+    if (!job) return NextResponse.json({ error: "job not found" }, { status: 404 });
+    if (["scheduled", "sending"].includes(job.status)) return NextResponse.json({ error: "cancel it first — job is still active" }, { status: 400 });
+    await svc.from("blast_recipients").delete().eq("job_id", body.jobId);
+    await svc.from("blast_jobs").delete().eq("id", body.jobId);
+    return NextResponse.json({ ok: true });
+  }
+
   if (body.action !== "schedule") return NextResponse.json({ error: "unknown action" }, { status: 400 });
 
   const { locationId, ownerKey, clientLabel, senderName, serviceWord, stageIds, stageNames, template, sendAt, expectedCount, excludeDays, maxContacts } = body as {

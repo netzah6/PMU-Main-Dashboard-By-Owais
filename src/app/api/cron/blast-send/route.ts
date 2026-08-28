@@ -65,9 +65,13 @@ export async function GET(req: NextRequest) {
     const { count: failedTotal } = await svc
       .from("blast_recipients").select("*", { count: "exact", head: true })
       .eq("job_id", job.id).eq("status", "failed");
+    // Finished with zero deliveries = FAILED, never a green "done" (the
+    // Danielle Palomo 250/250-failed job wore a done badge — misleading).
+    const finished = (remaining ?? 0) === 0;
+    const finalStatus = !finished ? "sending" : (sentTotal ?? 0) === 0 && (failedTotal ?? 0) > 0 ? "failed" : "done";
     await svc.from("blast_jobs").update({
       sent: sentTotal ?? 0, failed: failedTotal ?? 0,
-      status: (remaining ?? 0) === 0 ? "done" : "sending",
+      status: finalStatus,
       updated_at: new Date().toISOString(),
     }).eq("id", job.id);
     results.push({ job: job.id, batchSent: sent, batchFailed: failed, remaining });
