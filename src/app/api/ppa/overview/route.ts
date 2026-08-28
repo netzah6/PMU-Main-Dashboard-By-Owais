@@ -38,8 +38,8 @@ export async function GET(req: NextRequest) {
     svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*, billing_exempt").in("owner_key", ownerKeys),
-    svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount, square_payment_id").in("owner_key", ownerKeys),
-    svc.from("deposit_refunds").select("business, email, contact_name, amount").eq("status", "refunded"),
+    svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount, square_payment_id, charged_at").in("owner_key", ownerKeys),
+    svc.from("deposit_refunds").select("business, email, contact_name, amount, decided_at").eq("status", "refunded"),
     svc.from("ppa_selfbooked").select("appt_id, owner_key").in("owner_key", ownerKeys),
     svc.from("ppa_calendar_booked").select("appt_id, owner_key, start_time").in("owner_key", ownerKeys),
   ]);
@@ -60,14 +60,19 @@ export async function GET(req: NextRequest) {
   // Executed refunds per business (normalized) — a refunded deposit is not
   // billable, so it's surfaced as its own bucket on the row.
   const refNorm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  // Rolling 30-day window for the "worth in the last 30 days" column.
+  const last30Cutoff = Date.now() - 30 * 24 * 3600 * 1000;
   const refundsByBiz = new Map<string, number>();
   const refundUsdByBiz = new Map<string, number>();
+  const refund30UsdByBiz = new Map<string, number>();
   const parseUsd = (v: unknown) => Number(String(v ?? "").replace(/[^0-9.]/g, "")) || 0;
-  for (const r of (refRes.data ?? []) as Array<{ business: string | null; amount: string | null }>) {
+  for (const r of (refRes.data ?? []) as Array<{ business: string | null; amount: string | null; decided_at: string | null }>) {
     const k = refNorm(String(r.business ?? ""));
     if (!k) continue;
     refundsByBiz.set(k, (refundsByBiz.get(k) ?? 0) + 1);
     refundUsdByBiz.set(k, (refundUsdByBiz.get(k) ?? 0) + parseUsd(r.amount));
+    if (r.decided_at && new Date(r.decided_at).getTime() >= last30Cutoff)
+      refund30UsdByBiz.set(k, (refund30UsdByBiz.get(k) ?? 0) + parseUsd(r.amount));
   }
 
   // ── Profitability: deposits per month + lifetime value ─────────────────────
@@ -87,16 +92,17 @@ export async function GET(req: NextRequest) {
   };
   const now = new Date();
   const thisMonthKey = now.getUTCFullYear() * 12 + now.getUTCMonth();
-  type LtvAgg = { depUsd: number; monthCount: number; monthUsd: number; firstMonthKey: number | null };
+  type LtvAgg = { depUsd: number; monthCount: number; monthUsd: number; d30Count: number; d30Usd: number; firstMonthKey: number | null };
   const ltvByBiz = new Map<string, LtvAgg>();
   for (const r of depRows) {
-    const agg = ltvByBiz.get(r.biz_norm) ?? { depUsd: 0, monthCount: 0, monthUsd: 0, firstMonthKey: null };
+    const agg = ltvByBiz.get(r.biz_norm) ?? { depUsd: 0, monthCount: 0, monthUsd: 0, d30Count: 0, d30Usd: 0, firstMonthKey: null };
     const usd = parseUsd(r.amount);
     agg.depUsd += usd;
     const d = parseDepositDate(r.deposit_date);
     if (d) {
       const mk = d.getUTCFullYear() * 12 + d.getUTCMonth();
       if (mk === thisMonthKey) { agg.monthCount++; agg.monthUsd += usd; }
+      if (d.getTime() >= last30Cutoff) { agg.d30Count++; agg.d30Usd += usd; }
       if (agg.firstMonthKey == null || mk < agg.firstMonthKey) agg.firstMonthKey = mk;
     }
     ltvByBiz.set(r.biz_norm, agg);
@@ -113,12 +119,13 @@ export async function GET(req: NextRequest) {
   for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; is_ppa: boolean; fee_per_appt: number; note: string | null; billing_exempt?: boolean }>)
     cfgBy.set(r.owner_key, { is_ppa: !!r.is_ppa, fee_per_appt: Number(r.fee_per_appt), note: r.note, billing_exempt: !!r.billing_exempt });
 
-  type ChgRow = { owner_key: string; appt_id: string; charged: boolean; excluded: boolean | null; amount: number | null; square_payment_id: string | null };
+  type ChgRow = { owner_key: string; appt_id: string; charged: boolean; excluded: boolean | null; amount: number | null; square_payment_id: string | null; charged_at: string | null };
   const chgAmtBy = new Map<string, number>();
   const chgByApptId = new Map<string, ChgRow>();
   // Charged count comes from ppa_charges directly (not the deposit-based
   // summary view) so charged self-booked shows are counted too.
   const chgCountBy = new Map<string, number>();
+  const chg30AmtBy = new Map<string, number>();
   // Chat-billed rows without a Square payment id are DECIDED but not yet
   // COLLECTED — they count as ready-to-charge, not as charged.
   const chatReadyBy = new Map<string, number>();
@@ -131,6 +138,8 @@ export async function GET(req: NextRequest) {
     }
     chgAmtBy.set(r.owner_key, (chgAmtBy.get(r.owner_key) ?? 0) + (Number(r.amount) || 0));
     chgCountBy.set(r.owner_key, (chgCountBy.get(r.owner_key) ?? 0) + 1);
+    if (r.charged_at && new Date(r.charged_at).getTime() >= last30Cutoff)
+      chg30AmtBy.set(r.owner_key, (chg30AmtBy.get(r.owner_key) ?? 0) + (Number(r.amount) || 0));
   }
 
   // "Their end" shows (both views apply the Aug 1 cutoff): done-stage leads
@@ -175,7 +184,7 @@ export async function GET(req: NextRequest) {
     // LTV = every service fee collected + every deposit taken − refunds given
     // back. Average per month spreads that over the months since the client's
     // first deposit (minimum 1, current month counts as a full month).
-    const ltvAgg = ltvByBiz.get(c.bizNorm) ?? { depUsd: 0, monthCount: 0, monthUsd: 0, firstMonthKey: null };
+    const ltvAgg = ltvByBiz.get(c.bizNorm) ?? { depUsd: 0, monthCount: 0, monthUsd: 0, d30Count: 0, d30Usd: 0, firstMonthKey: null };
     const feesLtv = chgAmtBy.get(c.ownerKey) ?? 0;
     const refundUsd = refundUsdByBiz.get(c.bizNorm) ?? 0;
     const ltv = feesLtv + ltvAgg.depUsd - refundUsd;
@@ -221,6 +230,13 @@ export async function GET(req: NextRequest) {
       ltvRefunded: refundUsd,
       monthsActive,
       avgPerMonth: Math.round((ltv / monthsActive) * 100) / 100,
+      // Rolling 30-day worth: fees charged + deposits taken − refunds given
+      // back, all within the last 30 days.
+      last30Fees: chg30AmtBy.get(c.ownerKey) ?? 0,
+      last30Deposits: ltvAgg.d30Usd,
+      last30DepositCount: ltvAgg.d30Count,
+      last30Refunded: refund30UsdByBiz.get(c.bizNorm) ?? 0,
+      last30: Math.round(((chg30AmtBy.get(c.ownerKey) ?? 0) + ltvAgg.d30Usd - (refund30UsdByBiz.get(c.bizNorm) ?? 0)) * 100) / 100,
     };
   });
 
