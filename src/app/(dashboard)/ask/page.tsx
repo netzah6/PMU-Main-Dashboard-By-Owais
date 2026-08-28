@@ -62,8 +62,8 @@ export default function AskPage() {
   const [view, setView] = useState<"chat" | "agent">("chat");
   const [agentPending, setAgentPending] = useState(0);
 
-  const loadConvs = useCallback(async () => {
-    setConvsLoading(true); setConvsError(null);
+  const loadConvs = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) { setConvsLoading(true); setConvsError(null); }
     try {
       const res = await fetch("/api/ghl/reply/conversations");
       const json = await res.json();
@@ -86,6 +86,15 @@ export default function AskPage() {
       : locationId ? `https://app.gohighlevel.com/v2/location/${locationId}/conversations/conversations/${c.id}` : "",
   [locationId]);
   useEffect(() => { loadConvs(); }, [loadConvs]);
+
+  // Keep the inbox fresh for the team: silently re-fetch every 45s while the
+  // page is visible, so new client messages appear without a manual refresh.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") loadConvs({ silent: true });
+    }, 45_000);
+    return () => clearInterval(t);
+  }, [loadConvs]);
 
   const sendManual = useCallback(async () => {
     if (!pending?.contactId || !sendText.trim() || sending) return;
@@ -233,7 +242,7 @@ export default function AskPage() {
     <>
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#eef3f8]">
         <span className="text-xs font-bold text-[#1f3559] flex items-center gap-1.5"><MessageCircle size={13} className="text-[#15B7AE]" /> {role === "member" ? "Your unread chats" : "Unread chats"} {shownConvs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{shownConvs.length}</span>}</span>
-        <button onClick={loadConvs} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading ? "animate-spin" : ""} /></button>
+        <button onClick={() => loadConvs()} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading ? "animate-spin" : ""} /></button>
       </div>
       {role === "admin" && (
         <div className="px-3 py-1.5 border-b border-[#eef3f8]">
@@ -259,7 +268,15 @@ export default function AskPage() {
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[13px] font-bold text-[#1f3559] truncate">
                   {c.contactName}
-                  {c.assignedToName && <span className="ml-1.5 font-medium text-[11px]" style={{ color: userColor(c.assignedToName)?.text ?? "#8595a8" }}>👤 {c.assignedToName}</span>}
+                  {c.assignedToName && (() => {
+                    const uc = userColor(c.assignedToName);
+                    return (
+                      <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap border align-middle"
+                        style={{ background: uc?.bg, color: uc?.text, borderColor: uc?.border }}>
+                        {c.assignedToName.split(" ")[0]}
+                      </span>
+                    );
+                  })()}
                 </span>
                 <span className="shrink-0 text-[10px] text-[#8595a8]">{timeAgo(c.lastMessageDate)}</span>
               </div>
