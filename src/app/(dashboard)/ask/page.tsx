@@ -268,7 +268,15 @@ export default function AskPage() {
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[13px] font-bold text-[#1f3559] truncate">
                   {c.contactName}
-                  {c.assignedToName && <span className="ml-1.5 font-bold text-[13px]" style={{ color: userColor(c.assignedToName)?.text ?? "#8595a8" }}>👤 {c.assignedToName.split(" ")[0]}</span>}
+                  {c.assignedToName && (() => {
+                    const uc = userColor(c.assignedToName);
+                    return (
+                      <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap border align-middle"
+                        style={{ background: uc?.bg, color: uc?.text, borderColor: uc?.border }}>
+                        {c.assignedToName.split(" ")[0]}
+                      </span>
+                    );
+                  })()}
                 </span>
                 <span className="shrink-0 text-[10px] text-[#8595a8]">{timeAgo(c.lastMessageDate)}</span>
               </div>
