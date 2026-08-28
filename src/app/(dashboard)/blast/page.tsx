@@ -336,7 +336,7 @@ export default function BlastPage() {
                     <button onClick={confirmResched} disabled={!reschedAt}
                       className="px-2.5 py-1 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-[10px] font-bold disabled:opacity-50">Confirm</button>
                     <button onClick={() => setReschedId(null)} className="px-2 py-1 rounded-lg text-[10px] font-semibold text-[#8595a8] hover:text-[#e11d48]">Cancel</button>
-                    <span className="text-[9px] text-[#8595a8]">only people who haven't received it will get the text</span>
+                    <span className="text-[9px] text-[#8595a8]">only people who haven&apos;t received it will get the text</span>
                   </div>
                 )}
               </div>
