@@ -158,12 +158,12 @@ export async function scanComplianceDeep(svc: Svc): Promise<{ accounts: number; 
         .limit(DEEP_CONVS_PER_ACCOUNT);
       if (!convs?.length) continue;
 
-      let token = acct.token;
-      if (acct.viaAgency) {
-        const app = await getAppLocationToken(acct.locationId);
-        if (!app.token) continue;
-        token = app.token;
-      }
+      // Always prefer the marketplace-app token: keys-sheet private tokens
+      // often lack conversations/message.readonly, and getThread then returns
+      // [] — the account would look clean while sending footers all day.
+      const app = await getAppLocationToken(acct.locationId);
+      const token = app.token ?? (acct.viaAgency ? null : acct.token);
+      if (!token) continue;
       for (const c of convs as Array<{ id: string }>) {
         const thread = await getThread({ locationId: acct.locationId, token }, c.id);
         const hit = thread.find((m) => m.direction === "outbound" && COMPLIANCE_RE.test(m.body));
