@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/useUser";
 import type { UserRole } from "@/lib/types";
@@ -15,6 +15,7 @@ const TABS: Tab[] = [
   // Hidden from the menu (page still exists at /overview): Overview
   { label: "👥 Clients", href: "/clients" },
   { label: "✅ Tasks", href: "/tasks" }, // second, next to Clients — user request 2026-08-27
+  { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
   { label: "📈 Performance", href: "/performance" },
   { label: "💰 Cost / Deposit", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27
   { label: "💵 Deposits", href: "/deposits" },
@@ -73,6 +74,22 @@ export function TabNav() {
   const [moreOpen, setMoreOpen] = useState(false);
   const showCollapsed = moreOpen || onCollapsed;
 
+  // Open-alert count for the 🚨 tab's red badge — admins only, refreshed
+  // every minute so a new alert shows up without touching the page.
+  const [alertCount, setAlertCount] = useState(0);
+  useEffect(() => {
+    if (role !== "admin") return;
+    let stop = false;
+    const poll = () =>
+      fetch("/api/alerts?count=1")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (!stop && j) setAlertCount(Number(j.open) || 0); })
+        .catch(() => {});
+    poll();
+    const t = setInterval(() => { if (document.visibilityState === "visible") poll(); }, 60_000);
+    return () => { stop = true; clearInterval(t); };
+  }, [role]);
+
   const linkCls = (active: boolean) => cn(
     "px-4 py-3 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors tracking-tight",
     active
@@ -90,6 +107,11 @@ export function TabNav() {
       {tabs.filter((t) => !t.collapsed).map((tab) => (
         <Link key={tab.href} href={tab.href} className={linkCls(isActive(tab))}>
           {tab.label}
+          {tab.href === "/alerts" && alertCount > 0 && (
+            <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold align-middle">
+              {alertCount > 99 ? "99+" : alertCount}
+            </span>
+          )}
         </Link>
       ))}
       {collapsedTabs.length > 0 && !showCollapsed && (

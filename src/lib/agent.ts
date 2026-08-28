@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
+import { fileAlert } from "@/lib/alerts";
 import {
   getReplyAccount,
   getRecentConversations,
@@ -43,6 +44,9 @@ type Classification = {
   action_type?: "reply" | "account_change";
   proposed_reply?: string;
   action_detail?: string;
+  // Churn-risk read of the SAME conversation — independent of actionable.
+  upset?: boolean;
+  upset_reason?: string;
 };
 
 // One conversation's tail → does the client want something done? The model
@@ -68,14 +72,17 @@ Reply with ONLY a JSON object, no other text:
   "summary": "<one sentence: what the client wants>",
   "action_type": "reply" | "account_change",
   "proposed_reply": "<a short, warm reply in the agency's casual texting style, confirming what will be done or answering the question>",
-  "action_detail": "<for account_change: exactly what to change, where (which setting/page), so a teammate could do it>"
+  "action_detail": "<for account_change: exactly what to change, where (which setting/page), so a teammate could do it>",
+  "upset": true/false,
+  "upset_reason": "<only when upset: one sentence on why this client is a churn risk>"
 }
 
 Rules:
 - "reply" = a message back fully handles it (a question, confirmation, scheduling info).
 - "account_change" = something in their account/funnel/ads must actually be changed. Still include proposed_reply (an acknowledgment).
 - Refunds, payments, cancellations of the agency service: action_type "account_change", and START action_detail with "SENSITIVE:".
-- If the last message is from the Agency (already handled) or nothing is being asked: {"actionable": false}.`;
+- If the last message is from the Agency (already handled) or nothing is being asked: {"actionable": false}.
+- "upset" is SEPARATE from actionable: set it true when the client sounds like a churn risk — wants to leave or cancel the service, asks for a refund or compensation, says they're frustrated/disappointed/not seeing results, or keeps repeating the same complaint. Normal questions, small fix requests, or neutral chatting are NOT upset. Always include "upset" (false when calm).`;
 
   const res = await client.messages.create({
     model: MODEL,
@@ -122,6 +129,17 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       scanned++;
       const tail = thread.slice(-10).map((m) => ({ direction: m.direction, body: m.body }));
       const cls = await classify(anthropic, c.contactName, tail);
+      // Churn-risk clients hit the Alerts board whether or not there's a
+      // concrete ask to act on — the CEO wants to know either way.
+      if (cls?.upset) {
+        await fileAlert(svc, {
+          type: "upset_client",
+          title: `${c.contactName} sounds unhappy — churn risk`,
+          detail: `${cls.upset_reason ?? ""}\n\nTheir message: "${last.body.slice(0, 500)}"`.trim(),
+          source_key: `msg:${c.id}:${last.id}`,
+          meta: { conversation_id: c.id, contact_id: c.contactId, contact_name: c.contactName, channel: c.channel },
+        });
+      }
       if (!cls?.actionable || !cls.summary) continue;
 
       const { error } = await svc.from("agent_proposals").insert({
