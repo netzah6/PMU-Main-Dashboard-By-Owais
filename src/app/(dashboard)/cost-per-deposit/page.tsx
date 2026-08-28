@@ -65,6 +65,10 @@ const leadCellTone = (v: number, g: number, a: number, paused: boolean): Vivid =
 const depCellTone = (v: number, g: number, a: number, paused: boolean): Vivid =>
   paused ? (v !== 0 ? V.orange : V.gray) : depVivid(v, g, a);
 // Cost per deposit: lower is better; $0 / none = gray
+// CPL: lower is better; thresholds match the Performance tab so the colors
+// read the same across both pages.
+const cplVivid = (v: number | null): Vivid =>
+  v == null || v <= 0 ? V.gray : v < 6 ? V.green : v < 8 ? V.yellow : v < 10 ? V.orange : V.red;
 const cpdVivid = (v: number | null): Vivid =>
   v == null || v <= 0 ? V.gray : v < 75 ? V.green : v < 150 ? V.yellow : v < 250 ? V.orange : V.red;
 // Lead→deposit conversion %: higher is better; no leads = gray (mirrors ratioTone bands)
@@ -127,7 +131,7 @@ function ExpandText({ value }: { value: string | null }) {
   );
 }
 
-const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "L 30", "L 14", "L 7", "L 3", "Conv% 30", "Conv% 14", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
+const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
 
 type Issue = {
   fingerprint: string; kind: string; who: string; detail: string;
@@ -375,7 +379,7 @@ export default function CostPerDepositPage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 8 || idx === 12 || idx === 16 || idx === 18 || idx === 21; // after Deposit $, D 3, L 3, Conv% 14, CPD 7
+                  const divider = idx === 8 || idx === 12 || idx === 14 || idx === 18 || idx === 21 || idx === 24; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7
                   return (
                     <th key={h} className={cn("sticky top-0 px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
                       idx === 0 || idx === 1 ? "z-30" : "z-20", divider && "border-r-2 border-[#9fb0c4]")}
@@ -391,6 +395,14 @@ export default function CostPerDepositPage() {
             <tbody>
               {filtered.map((r, i) => {
                 const cpd30 = num(r.cpd30), cpd14 = num(r.cpd14), cpd7 = num(r.cpd7);
+                // CPL = ad spend ÷ leads for the same window (same math as the
+                // Performance tab's sheet-fed CPL, computed from this view's
+                // spend + lead counts so both live on one row here).
+                const cplOf = (spent: unknown, leads: number | null) => {
+                  const sp = num(spent);
+                  return sp != null && sp > 0 && leads && leads > 0 ? sp / leads : null;
+                };
+                const cpl30 = cplOf(r.spent30, r.l30), cpl14 = cplOf(r.spent14, r.l14), cpl7 = cplOf(r.spent7, r.l7);
                 const conv30 = r.l30 && r.l30 > 0 ? (r.d30 / r.l30) * 100 : null;
                 const conv14 = r.l14 && r.l14 > 0 ? (r.d14 / r.l14) * 100 : null;
                 const paused = String(r.client_status ?? "").toLowerCase() === "paused";
@@ -427,12 +439,15 @@ export default function CostPerDepositPage() {
                     <td className="px-3 py-1 text-center font-bold" style={{ background: depCellTone(r.d14, 5, 2, paused).bg, color: depCellTone(r.d14, 5, 2, paused).fg }}>{r.d14}</td>
                     <td className="px-3 py-1 text-center font-bold" style={{ background: depCellTone(r.d7, 3, 1, paused).bg, color: depCellTone(r.d7, 3, 1, paused).fg }}>{r.d7}</td>
                     <td className="px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: depCellTone(r.d3, 2, 1, paused).bg, color: depCellTone(r.d3, 2, 1, paused).fg }}>{r.d3}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: convTone(conv30).bg, color: convTone(conv30).fg }} title={conv30 == null ? "No leads in 30d" : `${r.d30} deposits / ${r.l30} leads (30d)`}>{conv30 == null ? "—" : conv30.toFixed(1) + "%"}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: convTone(conv14).bg, color: convTone(conv14).fg }} title={conv14 == null ? "No leads in 14d" : `${r.d14} deposits / ${r.l14} leads (14d)`}>{conv14 == null ? "—" : conv14.toFixed(1) + "%"}</td>
                     <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l30 ?? 0, 86, 65, paused).bg, color: leadCellTone(r.l30 ?? 0, 86, 65, paused).fg }}>{r.l30 ?? 0}</td>
                     <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l14 ?? 0, 43, 33, paused).bg, color: leadCellTone(r.l14 ?? 0, 43, 33, paused).fg }}>{r.l14 ?? 0}</td>
                     <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l7 ?? 0, 22, 17, paused).bg, color: leadCellTone(r.l7 ?? 0, 22, 17, paused).fg }}>{r.l7 ?? 0}</td>
                     <td className="px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3 ?? 0, 11, 8, paused).bg, color: leadCellTone(r.l3 ?? 0, 11, 8, paused).fg }}>{r.l3 ?? 0}</td>
-                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: convTone(conv30).bg, color: convTone(conv30).fg }} title={conv30 == null ? "No leads in 30d" : `${r.d30} deposits / ${r.l30} leads (30d)`}>{conv30 == null ? "—" : conv30.toFixed(1) + "%"}</td>
-                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: convTone(conv14).bg, color: convTone(conv14).fg }} title={conv14 == null ? "No leads in 14d" : `${r.d14} deposits / ${r.l14} leads (14d)`}>{conv14 == null ? "—" : conv14.toFixed(1) + "%"}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl30).bg, color: cplVivid(cpl30).fg }} title={cpl30 == null ? "No spend or no leads in 30d" : `${formatCurrency(num(r.spent30))} spent / ${r.l30} leads (30d)`}>{cpl30 == null ? "—" : formatCurrency(cpl30)}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl14).bg, color: cplVivid(cpl14).fg }} title={cpl14 == null ? "No spend or no leads in 14d" : `${formatCurrency(num(r.spent14))} spent / ${r.l14} leads (14d)`}>{cpl14 == null ? "—" : formatCurrency(cpl14)}</td>
+                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cplVivid(cpl7).bg, color: cplVivid(cpl7).fg }} title={cpl7 == null ? "No spend or no leads in 7d" : `${formatCurrency(num(r.spent7))} spent / ${r.l7} leads (7d)`}>{cpl7 == null ? "—" : formatCurrency(cpl7)}</td>
                     <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd30).bg, color: cpdVivid(cpd30).fg }}>{cpd30 == null ? "—" : formatCurrency(cpd30)}</td>
                     <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cpdVivid(cpd14).bg, color: cpdVivid(cpd14).fg }}>{cpd14 == null ? "—" : formatCurrency(cpd14)}</td>
                     <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cpdVivid(cpd7).bg, color: cpdVivid(cpd7).fg }}>{cpd7 == null ? "—" : formatCurrency(cpd7)}</td>
