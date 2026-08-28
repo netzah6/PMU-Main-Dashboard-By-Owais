@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -12,6 +12,21 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  // A dead invite/reset link redirects here with ?error=… — without showing
+  // it, the member sees a plain sign-in form and reports "the reset doesn't
+  // work" with no clue why (this happened: the message sat invisibly in the
+  // URL). window.location instead of useSearchParams so no Suspense boundary
+  // is needed.
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("error");
+    if (!raw) return;
+    const linkProblem = /invalid|expired|invite_link|otp|access_denied/i.test(raw);
+    setLinkError(linkProblem
+      ? "That sign-in link has expired or was already used — links work only once, and some email apps \"pre-open\" them. Ask an admin to send a fresh reset email, then open it right away."
+      : raw);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,6 +68,12 @@ export default function LoginPage() {
         {/* Card */}
         <div className="bg-white border border-[#e4ebf2] rounded-2xl p-8 shadow-2xl">
           <h2 className="text-lg font-semibold text-[#1f3559] mb-6">Sign In</h2>
+
+          {linkError && (
+            <div className="mb-5 px-3 py-2.5 bg-[#fff7ec] border border-[#fcd9a8] rounded-lg text-xs text-[#b45309] leading-relaxed">
+              {linkError}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>

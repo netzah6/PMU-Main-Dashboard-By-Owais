@@ -20,7 +20,9 @@ export default function SetPasswordPage() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (!data.user) {
-        router.replace("/login");
+        // Carry a reason so the login page can explain what happened instead
+        // of silently showing a sign-in form.
+        router.replace("/login?error=invite_link");
         return;
       }
       setEmail(data.user.email ?? null);
