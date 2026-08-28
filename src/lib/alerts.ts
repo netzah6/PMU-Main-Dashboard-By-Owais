@@ -47,7 +47,9 @@ export type NewAlert = {
 
 // File an alert unless the same problem is already on the board. Dedupe is by
 // (type, source_key): an OPEN twin always suppresses; a RESOLVED twin
-// suppresses unless it's older than resurfaceAfterDays.
+// suppresses unless it's older than resurfaceAfterDays. The read-then-insert
+// is additionally backstopped by the alerts_open_uniq partial unique index —
+// a conflict there means the alert already exists, not a failure.
 export async function fileAlert(svc: Svc, a: NewAlert): Promise<boolean> {
   const { data: existing } = await svc
     .from("alerts")
