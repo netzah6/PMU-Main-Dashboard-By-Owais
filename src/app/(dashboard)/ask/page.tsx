@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check, MessageCircle, RefreshCw, X, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, userColor } from "@/lib/utils";
 
 type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId?: string; contactId?: string | null };
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[]; reports?: string[] };
@@ -48,6 +48,13 @@ export default function AskPage() {
   const [note, setNote] = useState("");                       // optional steer for the AI
   const [thread, setThread] = useState<ThreadMsg[]>([]);      // full conversation shown in the composer
   const [threadLoading, setThreadLoading] = useState(false);
+  const threadRef = useRef<HTMLDivElement>(null);
+  // Open conversations at the BOTTOM (latest message) — scrolling down from
+  // the top by hand on every chat was the #1 annoyance.
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [thread]);
   // Manual send — YOU type it, YOU click Send; nothing automated.
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
@@ -252,7 +259,7 @@ export default function AskPage() {
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[13px] font-bold text-[#1f3559] truncate">
                   {c.contactName}
-                  {c.assignedToName && <span className="ml-1.5 font-medium text-[11px] text-[#8595a8]">👤 {c.assignedToName}</span>}
+                  {c.assignedToName && <span className="ml-1.5 font-medium text-[11px]" style={{ color: userColor(c.assignedToName)?.text ?? "#8595a8" }}>👤 {c.assignedToName}</span>}
                 </span>
                 <span className="shrink-0 text-[10px] text-[#8595a8]">{timeAgo(c.lastMessageDate)}</span>
               </div>
@@ -283,21 +290,12 @@ export default function AskPage() {
         </div>
       )}
 
-    <div className="flex flex-col h-full flex-1 min-w-0 max-w-3xl mx-auto w-full p-4 sm:p-6">
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-bold text-[#1f3559] flex items-center gap-2"><Sparkles size={18} className="text-[#15B7AE]" /> AI</h1>
-          <p className="text-sm text-[#697a91]">Ask about clients, leads and payments · get client reports · draft replies in your voice.</p>
-        </div>
-        <button onClick={() => setShowChats(true)}
-          className="md:hidden shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#d7e0ea] text-xs font-semibold text-[#34568a]">
-          <MessageCircle size={13} /> Chats{convs.length > 0 ? ` (${convs.length})` : ""}
-        </button>
-      </div>
-
-      {/* Owner-only agent inbox toggle */}
-      {role === "admin" && (
-        <div className="mb-3 flex gap-1 rounded-lg border border-[#e4ebf2] bg-white p-1 w-fit">
+    <div className="flex flex-col h-full flex-1 min-w-0 max-w-3xl mx-auto w-full p-2 sm:p-3">
+      {/* Slim top row: agent toggle (admins) + mobile chats button — the old
+          "AI" headline was removed to give the conversation more height. */}
+      <div className="mb-2 flex items-center justify-between gap-2">
+      {role === "admin" ? (
+        <div className="flex gap-1 rounded-lg border border-[#e4ebf2] bg-white p-1 w-fit">
           {(["chat", "agent"] as const).map((v) => (
             <button key={v} onClick={() => setView(v)}
               className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1.5",
@@ -309,7 +307,12 @@ export default function AskPage() {
             </button>
           ))}
         </div>
-      )}
+      ) : <span />}
+        <button onClick={() => setShowChats(true)}
+          className="md:hidden shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#d7e0ea] text-xs font-semibold text-[#34568a]">
+          <MessageCircle size={13} /> Chats{convs.length > 0 ? ` (${convs.length})` : ""}
+        </button>
+      </div>
 
       {view === "agent" && role === "admin" ? (
         <AgentPanel onCount={setAgentPending} />
@@ -364,7 +367,7 @@ export default function AskPage() {
           </div>
 
           {/* Full conversation thread */}
-          <div className="mb-2.5 max-h-56 overflow-y-auto rounded-lg border border-[#e4ebf2] bg-white p-2 space-y-1.5">
+          <div ref={threadRef} className="mb-2.5 max-h-[55vh] overflow-y-auto rounded-lg border border-[#e4ebf2] bg-white p-2 space-y-1.5">
             {threadLoading ? (
               <p className="text-[11px] text-[#8595a8] flex items-center gap-1.5 py-1"><Loader2 size={11} className="animate-spin" /> Loading conversation…</p>
             ) : thread.length === 0 ? (

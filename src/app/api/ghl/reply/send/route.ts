@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getReplyAccount, sendConversationMessage } from "@/lib/ghl-conversations";
+import { getAppLocationToken } from "@/lib/ghl-app";
 
 export const maxDuration = 30;
 
@@ -25,7 +26,19 @@ export async function POST(req: NextRequest) {
   const acct = await getReplyAccount();
   if (!acct) return NextResponse.json({ error: "PMU Bookings On Demand token not found" }, { status: 404 });
 
-  const r = await sendConversationMessage(acct, { contactId, message, channel });
+  let r = await sendConversationMessage(acct, { contactId, message, channel });
+  // The keys-sheet private token can lack the conversations-write scope
+  // ("The token is not authorized for this scope"). Fall back to the
+  // marketplace app's location token, which carries conversations/message.write
+  // once the app is (re)authorized.
+  if (!r.ok && /not authorized for this scope|401/i.test(r.error ?? "")) {
+    const tok = await getAppLocationToken(acct.locationId);
+    if (tok.token) {
+      const retry = await sendConversationMessage({ locationId: acct.locationId, token: tok.token }, { contactId, message, channel });
+      if (retry.ok) return NextResponse.json({ success: true, via: "app-token" });
+      r = { ok: false, error: `private token: ${r.error} · app token: ${retry.error}` };
+    }
+  }
   if (!r.ok) return NextResponse.json({ error: r.error ?? "Send failed" }, { status: 502 });
   return NextResponse.json({ success: true });
 }

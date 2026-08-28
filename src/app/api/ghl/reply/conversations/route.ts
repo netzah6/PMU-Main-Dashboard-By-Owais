@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getReplyAccount, getRecentConversations, getRoster } from "@/lib/ghl-conversations";
 
 export const maxDuration = 60;
@@ -46,11 +46,23 @@ export async function GET() {
   const isAdmin = (roleRow as { role?: string } | null)?.role === "admin";
   const visible = isAdmin ? enriched : me.ghlUserId ? enriched.filter((c) => c.assignedTo === me.ghlUserId) : [];
 
+  // The assignee filter should list only DASHBOARD team members (admin +
+  // coaches), not every GHL user on the sub-account — match by email.
+  const svc = createServiceClient();
+  const { data: teamRows } = await svc.from("user_roles").select("email, role");
+  const teamEmails = new Set(
+    ((teamRows ?? []) as Array<{ email: string | null; role: string }>)
+      .filter((r) => r.role === "admin" || r.role === "editor")
+      .map((r) => String(r.email ?? "").toLowerCase())
+      .filter(Boolean)
+  );
+  const teamRoster = roster.filter((u) => teamEmails.has(u.email));
+
   return NextResponse.json({
     me,
     role: isAdmin ? "admin" : "member",
     conversations: visible,
     locationId: acct.locationId,
-    roster: isAdmin ? roster.map((u) => ({ id: u.id, name: u.name })) : undefined,
+    roster: isAdmin ? (teamRoster.length ? teamRoster : roster).map((u) => ({ id: u.id, name: u.name })) : undefined,
   });
 }
