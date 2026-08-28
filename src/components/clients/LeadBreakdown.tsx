@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, ChevronRight, Sparkles } from "lucide-react";
+import { Loader2, ChevronRight, Sparkles, MessageCircle } from "lucide-react";
 
 interface Lead {
   id: string;
+  contact_id: string | null;
+  location_id: string | null;
   contact_name: string | null;
   email: string | null;
   date_added: string | null;
@@ -72,7 +74,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       // the rows are sitting in the table — retry once, then show an error.
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const { data, error } = await supabase.from("ghl_lead_status").select("id,contact_name,email,date_added,status,priority,ai_off,price_signal,activity_date,booked,offer_made,fanbasis")
+          const { data, error } = await supabase.from("ghl_lead_status").select("id,contact_id,location_id,contact_name,email,date_added,status,priority,ai_off,price_signal,activity_date,booked,offer_made,fanbasis")
             .eq("owner_key", ownerKey).order("priority").order("date_added", { ascending: false });
           if (cancelled) return;
           if (!error) { setLeads((data as Lead[]) ?? []); setLoading(false); return; }
@@ -496,6 +498,14 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                           <li key={l.id} className="flex items-center gap-2 text-sm flex-wrap">
                             <span title={cfg.legend}>{cfg.emoji}</span>
                             <span className="font-medium text-[#1f3559]">{l.contact_name || l.email || "—"}</span>
+                            {l.contact_id && l.location_id && (
+                              <a href={`https://app.gohighlevel.com/v2/location/${l.location_id}/conversations/conversations/${l.contact_id}`}
+                                target="_blank" rel="noreferrer"
+                                title="Open this lead's conversation in GoHighLevel"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border bg-white text-[#0e8f88] border-[#a7e3df] hover:bg-[#e6f7f5]">
+                                <MessageCircle size={10} /> chat
+                              </a>
+                            )}
                             <span className="text-[#697a91]">— {cfg.short(l.ai_off)}</span>
                             {l.price_signal === "silent" && (
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#fff1e8] text-[#ea580c] border border-[#fed0b0]" title="Got the offer (knows the price), then stopped replying — possible price pushback">🔇 silent after offer</span>
