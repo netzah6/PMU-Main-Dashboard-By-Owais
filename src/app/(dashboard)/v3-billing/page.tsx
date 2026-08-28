@@ -15,6 +15,7 @@ interface ClientRow {
   depositsThisMonth?: number; depositsThisMonthUsd?: number;
   ltv?: number; ltvFees?: number; ltvDeposits?: number; ltvRefunded?: number;
   monthsActive?: number; avgPerMonth?: number;
+  last30?: number; last30Fees?: number; last30Deposits?: number; last30DepositCount?: number; last30Refunded?: number;
 }
 interface Appt {
   apptId: string; contactName: string | null; email: string | null; depositDate: string | null;
@@ -404,8 +405,8 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
             since the client's first deposit. */}
         <NumCell value={money(c.ltv ?? 0)} sub={`${c.monthsActive ?? 1} mo`} tone="teal"
           title={`${money(c.ltvFees ?? 0)} service fees + ${money(c.ltvDeposits ?? 0)} deposits − ${money(c.ltvRefunded ?? 0)} refunded${owed > 0 ? ` · (${money(owed)} still owed — counted once collected)` : ""}`} />
-        <NumCell value={money(c.avgPerMonth ?? 0)} sub="per month" tone="teal"
-          title={`${money(c.ltv ?? 0)} lifetime ÷ ${c.monthsActive ?? 1} month${(c.monthsActive ?? 1) === 1 ? "" : "s"} since first deposit`} />
+        <NumCell value={money(c.last30 ?? 0)} sub="last 30 days" tone={(c.last30 ?? 0) > 0 ? "teal" : "gray"}
+          title={`Rolling 30 days: ${money(c.last30Fees ?? 0)} service fees + ${money(c.last30Deposits ?? 0)} deposits (${c.last30DepositCount ?? 0})${(c.last30Refunded ?? 0) > 0 ? ` − ${money(c.last30Refunded ?? 0)} refunded` : ""}`} />
       </tr>
 
       {payMsg && (
@@ -766,7 +767,7 @@ export default function V3BillingPage() {
                   ["Upcoming", "center"], ["Ready", "center"], ["Charged", "center"],
                   ["Dep this mo", "center"], ["Self-booked", "center"],
                   ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
-                  ["LTV", "center"], ["Avg / mo", "center"],
+                  ["LTV", "center"], ["Last 30d", "center"],
                 ].map(([h, align]) => (
                   <th key={h} className={cn("px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
                     align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
