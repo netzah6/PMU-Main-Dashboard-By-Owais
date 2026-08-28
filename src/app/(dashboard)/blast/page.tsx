@@ -119,8 +119,23 @@ export default function BlastPage() {
     }
   }, [client, preview, senderName, serviceWord, template, when, sendAt, stages, selStages, excludeDays, maxContacts]);
 
-  const retryJob = async (id: string) => {
-    await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "retry", jobId: id }) });
+  // Reschedule flow: pick date+time, then confirm — nothing sends until then.
+  const [reschedId, setReschedId] = useState<string | null>(null);
+  const [reschedAt, setReschedAt] = useState("");
+  const openResched = (id: string) => {
+    const d = new Date(Date.now() + 24 * 3600 * 1000); // default: tomorrow, same time
+    d.setMinutes(0, 0, 0);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setReschedAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`);
+    setReschedId(id);
+  };
+  const confirmResched = async () => {
+    if (!reschedId || !reschedAt) return;
+    const res = await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "retry", jobId: reschedId, sendAt: new Date(reschedAt).toISOString() }) });
+    const j = await res.json();
+    if (!res.ok) toast.error(j.error ?? "Reschedule failed");
+    else toast.success(`Rescheduled for ${new Date(reschedAt).toLocaleString()} — sends only to people who haven't received it`);
+    setReschedId(null);
     loadJobs();
   };
   const removeJob = async (id: string) => {
@@ -286,7 +301,7 @@ export default function BlastPage() {
         {jobs.length === 0 ? <p className="text-xs text-[#8595a8]">No blasts yet.</p> : (
           <div className="space-y-2">
             {jobs.map((j) => (
-              <div key={j.id} className="flex items-center justify-between gap-2 rounded-lg border border-[#eef3f8] px-3 py-2">
+              <div key={j.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#eef3f8] px-3 py-2">
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-[#1f3559] truncate">{j.client_label ?? j.id}</p>
                   <p className="text-[10px] text-[#8595a8]">
@@ -305,14 +320,25 @@ export default function BlastPage() {
                   {(j.status === "scheduled" || j.status === "sending") && (
                     <button onClick={() => cancelJob(j.id)} title="Cancel" className="p-1 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={13} /></button>
                   )}
-                  {(j.status === "failed" || j.status === "error" || (j.status === "done" && j.failed > 0)) && (
-                    <button onClick={() => retryJob(j.id)} title="Send again to the failed recipients"
+                  {(j.status === "failed" || j.status === "error" || j.status === "cancelled" || (j.status === "done" && j.failed > 0)) && (
+                    <button onClick={() => openResched(j.id)} title="Pick a date & time to send to everyone who hasn't received it"
                       className="px-2 py-0.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc] text-[10px] font-semibold">Reschedule</button>
                   )}
                   {!["scheduled", "sending"].includes(j.status) && (
                     <button onClick={() => removeJob(j.id)} title="Remove from the list" className="p-1 rounded text-[#8595a8] hover:text-[#e11d48]"><Trash2 size={13} /></button>
                   )}
                 </div>
+                {reschedId === j.id && (
+                  <div className="w-full mt-2 flex items-center gap-2 rounded-lg border border-[#a7e3df] bg-[#f7fdfc] px-2 py-2">
+                    <span className="text-[10px] font-bold text-[#0e8f88]">Send on:</span>
+                    <input type="datetime-local" value={reschedAt} onChange={(e) => setReschedAt(e.target.value)}
+                      className="px-2 py-1 bg-white border border-[#a7e3df] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
+                    <button onClick={confirmResched} disabled={!reschedAt}
+                      className="px-2.5 py-1 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-[10px] font-bold disabled:opacity-50">Confirm</button>
+                    <button onClick={() => setReschedId(null)} className="px-2 py-1 rounded-lg text-[10px] font-semibold text-[#8595a8] hover:text-[#e11d48]">Cancel</button>
+                    <span className="text-[9px] text-[#8595a8]">only people who haven't received it will get the text</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>

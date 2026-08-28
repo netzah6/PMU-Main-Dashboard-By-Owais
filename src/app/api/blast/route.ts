@@ -76,10 +76,16 @@ export async function POST(req: NextRequest) {
   if (body.action === "retry") {
     const { data: job } = await svc.from("blast_jobs").select("status").eq("id", body.jobId).single();
     if (!job) return NextResponse.json({ error: "job not found" }, { status: 404 });
-    if (!["failed", "error", "done"].includes(job.status)) return NextResponse.json({ error: "job is still active" }, { status: 400 });
-    await svc.from("blast_recipients").update({ status: "queued", error: null }).eq("job_id", body.jobId).eq("status", "failed");
+    if (!["failed", "error", "done", "cancelled"].includes(job.status)) return NextResponse.json({ error: "job is still active" }, { status: 400 });
+    // The picker's chosen moment — required so a reschedule is always a
+    // deliberate, dated decision (no accidental immediate sends).
+    const sendAt = body.sendAt ? new Date(body.sendAt) : null;
+    if (!sendAt || isNaN(sendAt.getTime())) return NextResponse.json({ error: "sendAt (date+time) required" }, { status: 400 });
+    // Re-queue everyone who has NOT received the text (failed + skipped);
+    // already-sent recipients are never re-texted.
+    await svc.from("blast_recipients").update({ status: "queued", error: null }).eq("job_id", body.jobId).in("status", ["failed", "skipped"]);
     await svc.from("blast_jobs").update({
-      status: "scheduled", error: null, send_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      status: "scheduled", error: null, send_at: sendAt.toISOString(), updated_at: new Date().toISOString(),
     }).eq("id", body.jobId);
     return NextResponse.json({ ok: true });
   }
