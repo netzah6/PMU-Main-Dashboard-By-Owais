@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle } from "lucide-react";
+import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -119,6 +119,15 @@ export default function BlastPage() {
     }
   }, [client, preview, senderName, serviceWord, template, when, sendAt, stages, selStages, excludeDays, maxContacts]);
 
+  const retryJob = async (id: string) => {
+    await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "retry", jobId: id }) });
+    loadJobs();
+  };
+  const removeJob = async (id: string) => {
+    if (!window.confirm("Remove this blast from the list? (Nothing is sent or unsent — it just deletes the record.)")) return;
+    await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove", jobId: id }) });
+    loadJobs();
+  };
   const cancelJob = async (id: string) => {
     await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel", jobId: id }) });
     loadJobs();
@@ -286,12 +295,22 @@ export default function BlastPage() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold",
-                    j.status === "done" ? "bg-[#e6f7f5] text-[#0e8f88]"
-                      : j.status === "sending" ? "bg-[#fff7e6] text-[#c2620a]"
-                        : j.status === "cancelled" ? "bg-[#f1f5f9] text-[#8595a8]"
-                          : j.status === "error" ? "bg-[#fde8ee] text-[#e11d48]" : "bg-[#eef2ff] text-[#4f46e5]")}>{j.status}</span>
+                    j.status === "done" && j.failed > 0 ? "bg-[#fff7e6] text-[#c2620a]"
+                      : j.status === "done" ? "bg-[#e6f7f5] text-[#0e8f88]"
+                        : j.status === "sending" ? "bg-[#fff7e6] text-[#c2620a]"
+                          : j.status === "cancelled" ? "bg-[#f1f5f9] text-[#8595a8]"
+                            : j.status === "failed" || j.status === "error" ? "bg-[#fde8ee] text-[#e11d48]" : "bg-[#eef2ff] text-[#4f46e5]")}>
+                    {j.status === "done" && j.failed > 0 ? "done, some failed" : j.status}
+                  </span>
                   {(j.status === "scheduled" || j.status === "sending") && (
                     <button onClick={() => cancelJob(j.id)} title="Cancel" className="p-1 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={13} /></button>
+                  )}
+                  {(j.status === "failed" || j.status === "error" || (j.status === "done" && j.failed > 0)) && (
+                    <button onClick={() => retryJob(j.id)} title="Send again to the failed recipients"
+                      className="px-2 py-0.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc] text-[10px] font-semibold">Reschedule</button>
+                  )}
+                  {!["scheduled", "sending"].includes(j.status) && (
+                    <button onClick={() => removeJob(j.id)} title="Remove from the list" className="p-1 rounded text-[#8595a8] hover:text-[#e11d48]"><Trash2 size={13} /></button>
                   )}
                 </div>
               </div>
