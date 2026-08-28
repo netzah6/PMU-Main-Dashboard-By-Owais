@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Loader2, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap, Link2 } from "lucide-react";
+import { Loader2, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap, Link2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Payment-method pieces of the merged PPS Billing card ─────────────────────
@@ -18,7 +18,7 @@ export interface VCard {
 }
 export interface VMatch {
   customerId: string; customerName: string; customerEmail: string | null; customerPhone: string | null;
-  method: "email" | "phone" | "name" | "business" | null;
+  method: "email" | "phone" | "name" | "business" | "manual" | null;
   confidence: "high" | "medium" | "low" | "none";
   otherCandidates: Array<{ id: string; name: string; email: string | null }>;
 }
@@ -60,6 +60,7 @@ const fmtDate = (d: string | null | undefined) => {
 const expLabel = (c: VCard) => (c.expMonth && c.expYear ? `${String(c.expMonth).padStart(2, "0")}/${String(c.expYear).slice(-2)}` : "—");
 
 const METHOD: Record<string, { label: string; cls: string; icon: typeof Mail }> = {
+  manual:   { label: "linked by you",       cls: "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]", icon: Star },
   email:    { label: "matched by email",    cls: "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]", icon: Mail },
   phone:    { label: "matched by phone",    cls: "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]", icon: Phone },
   name:     { label: "matched by name",     cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]", icon: User },
@@ -302,6 +303,74 @@ export function ActionsCell({ v, onMsg, onReload }: {
 }
 
 // ── Drill-down: Square customer + cards with pick-a-default ──────────────────
+// Search Square customers and pin one to this client — the self-serve fix
+// for "she's in Square but the tab doesn't match her".
+function CustomerLinkSearch({ v, busy, onLink }: {
+  v: VRow; busy: boolean; onLink: (customerId: string, label: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<Array<{ id: string; name: string; email: string | null; phone: string | null; company: string | null }> | null>(null);
+
+  const search = async () => {
+    if (q.trim().length < 3) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/ppa/customer-search?q=${encodeURIComponent(q.trim())}`);
+      const json = await res.json();
+      setResults(res.ok ? (json.customers ?? []) : []);
+    } catch { setResults([]); }
+    finally { setSearching(false); }
+  };
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="mt-2 flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold border bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]">
+        <Search size={10} /> {v.match ? "Wrong person? Link a different Square profile" : "Find & link her Square profile"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <div className="flex items-center gap-1.5">
+        <input value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") search(); }}
+          placeholder="Name, email or phone…" autoFocus
+          className="flex-1 px-2 py-1 text-[11px] rounded-lg border border-[#e4ebf2] bg-white text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
+        <button onClick={search} disabled={searching || q.trim().length < 3}
+          className="px-2 py-1 rounded-lg text-[10px] font-semibold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] disabled:opacity-50">
+          {searching ? <Loader2 size={10} className="animate-spin" /> : "Search"}
+        </button>
+        <button onClick={() => { setOpen(false); setResults(null); setQ(""); }}
+          className="px-1.5 py-1 rounded-lg text-[10px] border bg-white text-[#94a3b8] border-[#e4ebf2]">✕</button>
+      </div>
+      {results !== null && (
+        results.length === 0
+          ? <div className="text-[10px] text-[#8595a8]">No Square customers match &ldquo;{q}&rdquo;.</div>
+          : (
+            <div className="space-y-1 max-h-[140px] overflow-auto">
+              {results.map((r) => (
+                <div key={r.id} className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg border border-[#e4ebf2] bg-white">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-semibold text-[#1f3559] truncate">{r.name}{r.company ? ` · ${r.company}` : ""}</div>
+                    <div className="text-[10px] text-[#8595a8] truncate">{r.email ?? "no email"} · {r.phone ?? "no phone"}</div>
+                  </div>
+                  <button onClick={() => onLink(r.id, r.name)} disabled={busy}
+                    className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]">
+                    Link
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+      )}
+    </div>
+  );
+}
+
 export function PaymentDetails({ v, onMsg, onReload }: {
   v: VRow | undefined;
   onMsg: (m: PayMsgData | null) => void;
@@ -332,6 +401,24 @@ export function PaymentDetails({ v, onMsg, onReload }: {
     } finally { setBusy(false); }
   };
 
+  const setLink = async (customerId: string | null, label?: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/ppa/customer-link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(customerId
+          ? { owner_key: v.ownerKey, customer_id: customerId, customer_label: label }
+          : { owner_key: v.ownerKey, clear: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save link");
+      onMsg({ ok: true, text: customerId ? `Linked to ${label ?? customerId} — this profile is now used for all charges.` : "Manual link removed — back to automatic matching." });
+      onReload();
+    } catch (e) {
+      onMsg({ ok: false, text: `${e}`.replace("Error: ", "") });
+    } finally { setBusy(false); }
+  };
+
   return (
     <div className="space-y-2">
       {visibleFlags.length > 0 && (
@@ -352,10 +439,19 @@ export function PaymentDetails({ v, onMsg, onReload }: {
                 <div className="text-[#be123c]">Also matched: {v.match.otherCandidates.map((o) => `${o.name}${o.email ? ` (${o.email})` : ""}`).join(", ")}</div>
               )}
               <div className="text-[10px] text-[#8595a8] pt-1">Sheet has: {v.email ?? "no email"} · {v.phone ?? "no phone"}</div>
+              {v.match.method === "manual" && (
+                <button onClick={() => setLink(null)} disabled={busy}
+                  className="mt-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-white text-[#94a3b8] border-[#e4ebf2] hover:border-[#94a3b8]">
+                  unlink — back to automatic matching
+                </button>
+              )}
             </div>
           ) : (
             <div className="text-[11px] text-[#be123c]">No Square customer found for {v.email ?? "(no email in Clients Master)"} — they may not have been charged through Square before.</div>
           )}
+          {/* Self-serve fix for a wrong or missing match: search Square by
+              name/email/phone and pin the right profile. */}
+          <CustomerLinkSearch v={v} busy={busy} onLink={setLink} />
         </div>
         <div>
           <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#697a91] mb-1">Cards on file (newest first)</h4>

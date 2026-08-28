@@ -50,7 +50,7 @@ export interface VerifyShow {
   chargeStatus: string;    // served | past_due | self_booked
 }
 
-export type MatchMethod = "email" | "phone" | "name" | "business" | null;
+export type MatchMethod = "email" | "phone" | "name" | "business" | "manual" | null;
 export type MatchConfidence = "high" | "medium" | "low" | "none";
 
 export interface VerifyMatch {
@@ -322,12 +322,13 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
   // One list fetch, matched locally — never a per-client Square search.
   // Recent payments feed each card's "last used"; if that call fails the
   // report still renders, just without last-used info.
-  const [{ customers, truncated }, recentPayments, prefRes, retryRes] = await Promise.all([
+  const [{ customers, truncated }, recentPayments, prefRes, retryRes, linkRes] = await Promise.all([
     listAllCustomers(),
     listRecentPayments().catch(() => []),
     svc.from("ppa_card_prefs").select("owner_key, customer_id, card_id").in("owner_key", ownerKeys),
     svc.from("ppa_charge_retries").select("owner_key, status, attempts, next_attempt_at, last_error")
       .in("owner_key", ownerKeys).in("status", ["active", "exhausted"]),
+    svc.from("ppa_customer_links").select("owner_key, customer_id").in("owner_key", ownerKeys),
   ]);
   const index = new CustomerIndex(customers);
 
@@ -343,6 +344,12 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
   const prefBy = new Map<string, { customer_id: string; card_id: string }>();
   for (const r of (prefRes.data ?? []) as Array<{ owner_key: string; customer_id: string; card_id: string }>)
     prefBy.set(r.owner_key, { customer_id: r.customer_id, card_id: r.card_id });
+
+  // Admin-made links (drill-down "link this profile") — they override the
+  // automatic matcher entirely.
+  const linkBy = new Map<string, string>();
+  for (const r of (linkRes.data ?? []) as Array<{ owner_key: string; customer_id: string }>)
+    linkBy.set(r.owner_key, r.customer_id);
 
   const retryBy = new Map<string, { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null }>();
   for (const r of (retryRes.data ?? []) as Array<{ owner_key: string; status: string; attempts: number; next_attempt_at: string | null; last_error: string | null }>)
@@ -371,7 +378,24 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     const pref = prefBy.get(c.ownerKey);
     let prefMissing = false;
     try {
-      match = await matchCustomer(c, contact.email, contact.phone, index);
+      const linkedId = linkBy.get(c.ownerKey);
+      if (linkedId) {
+        // Manual link: the human already said WHO gets charged — find the
+        // profile in the bulk list for display details (fall back to a bare
+        // record if it's beyond the cap; cards still load by id).
+        const prof = customers.find((x) => x.id === linkedId);
+        match = {
+          customerId: linkedId,
+          customerName: prof?.name ?? "(linked profile)",
+          customerEmail: prof?.email ?? null,
+          customerPhone: prof?.phone ?? null,
+          method: "manual",
+          confidence: "high",
+          otherCandidates: [],
+        };
+      } else {
+        match = await matchCustomer(c, contact.email, contact.phone, index);
+      }
       if (match) {
         const usable = (k: SquareCard) => k.enabled && !expiryState(k, now).expired;
         let raw = await listCards(match.customerId);

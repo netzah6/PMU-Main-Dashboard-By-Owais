@@ -524,3 +524,17 @@ WHERE (m.stage_name ~* 'session[[:space:]]*(done|complete)'
   AND o.contact_id IS NOT NULL
   AND o.last_stage_change_at >= '2026-08-01'
   AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts_mv dc WHERE dc.contact_id = o.contact_id);
+
+-- ── Manual Square-customer link (2026-08-26) ─────────────────────────────────
+-- Admin-made link between a PPS client and a Square customer profile —
+-- overrides automatic matching entirely. Self-serve from the drill-down.
+CREATE TABLE IF NOT EXISTS ppa_customer_links (
+  owner_key      text PRIMARY KEY,
+  customer_id    text NOT NULL,
+  customer_label text,
+  linked_by      text,
+  linked_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE ppa_customer_links ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "PPA customer links admin" ON ppa_customer_links FOR ALL TO authenticated
+  USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
