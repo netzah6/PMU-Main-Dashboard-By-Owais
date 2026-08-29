@@ -38,12 +38,17 @@ export async function GET(req: NextRequest) {
     if (job.status === "scheduled") {
       await svc.from("blast_jobs").update({ status: "sending", updated_at: now }).eq("id", job.id);
     }
-    const { data: queued } = await svc
-      .from("blast_recipients")
-      .select("id,contact_id,rendered_message")
-      .eq("job_id", job.id)
-      .eq("status", "queued")
-      .limit(BATCH);
+    // Recover recipients stranded in 'sending' by a crashed run (10+ min old).
+    await svc.rpc("reset_stale_blast_claims");
+    // ATOMIC claim (SKIP LOCKED): rows flip to 'sending' before any SMS goes
+    // out, so an overlapping cron run can never hold the same recipient. The
+    // old select-then-send raced with the next minute's run and double-texted
+    // leads (Shariyah Morris blast, 2026-08-29).
+    const { data: queued, error: claimErr } = await svc.rpc("claim_blast_recipients", { p_job: job.id, p_limit: BATCH });
+    if (claimErr) {
+      results.push({ job: job.id, error: `claim: ${claimErr.message}` });
+      continue;
+    }
     let sent = 0, failed = 0;
     for (const r of queued ?? []) {
       const res = await sendSms(tok.token, r.contact_id, r.rendered_message);
@@ -56,9 +61,11 @@ export async function GET(req: NextRequest) {
       await new Promise((rr) => setTimeout(rr, 400)); // ~2.5 msg/sec
     }
     // Progress + completion
+    // "Remaining" counts queued AND rows another concurrent run is still
+    // sending — the job is only done when neither exists.
     const { count: remaining } = await svc
       .from("blast_recipients").select("*", { count: "exact", head: true })
-      .eq("job_id", job.id).eq("status", "queued");
+      .eq("job_id", job.id).in("status", ["queued", "sending"]);
     const { count: sentTotal } = await svc
       .from("blast_recipients").select("*", { count: "exact", head: true })
       .eq("job_id", job.id).eq("status", "sent");
