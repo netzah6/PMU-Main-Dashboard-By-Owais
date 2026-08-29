@@ -35,6 +35,9 @@ export default function BlastPage() {
   const [sendAt, setSendAt] = useState("");
   const [scheduling, setScheduling] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
+  // Type-to-find instead of scrolling ~100 clients — matches business name AND
+  // owner first/last name (labels carry both: "Business — Owner Name").
+  const [clientSearch, setClientSearch] = useState("");
 
   useEffect(() => {
     fetch("/api/blast").then((r) => r.json()).then((j) => {
@@ -158,11 +161,29 @@ export default function BlastPage() {
       {/* 1. Client + message */}
       <div className="rounded-xl border border-[#e4ebf2] bg-white p-4 space-y-3">
         <label className="block text-xs font-bold text-[#34568a]">Client</label>
-        <select value={client?.locationId ?? ""} onChange={(e) => pickClient(e.target.value)}
-          className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 bg-white text-[#1f3559]">
-          <option value="">Select a client…</option>
-          {clients.map((c) => <option key={c.locationId} value={c.locationId}>{c.label}</option>)}
-        </select>
+        {(() => {
+          const q = clientSearch.trim().toLowerCase();
+          const filtered = q ? clients.filter((c) => c.label.toLowerCase().includes(q)) : clients;
+          return (
+            <div className="space-y-2">
+              <input
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                placeholder="🔍 Search by business or client name…"
+                className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 bg-white text-[#1f3559]"
+              />
+              <select value={client?.locationId ?? ""} onChange={(e) => pickClient(e.target.value)}
+                className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 bg-white text-[#1f3559]">
+                <option value="">{q ? `Select a client… (${filtered.length} match${filtered.length === 1 ? "" : "es"})` : "Select a client…"}</option>
+                {/* Keep the picked client visible even if the search text no longer matches it */}
+                {client && !filtered.some((c) => c.locationId === client.locationId) && (
+                  <option value={client.locationId}>{client.label}</option>
+                )}
+                {filtered.map((c) => <option key={c.locationId} value={c.locationId}>{c.label}</option>)}
+              </select>
+            </div>
+          );
+        })()}
 
         {client && (
           <>

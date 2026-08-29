@@ -311,7 +311,8 @@ export function ClientProfile({
   return (
     <div className="h-full overflow-y-auto">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-10 px-4 sm:px-6 pt-5 pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
+      {/* Compact on phones — the header alone used to fill the first screen */}
+      <div className="sticky top-0 z-10 px-3 sm:px-6 pt-3 sm:pt-5 pb-2.5 sm:pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -333,13 +334,21 @@ export function ClientProfile({
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {ghlUrl && (
-              // On mobile, navigate in the SAME context (no new tab) so the OS
-              // hands the gohighlevel.com link to the installed GHL app —
-              // universal links don't fire from JS-opened tabs. Desktop keeps
-              // the new-tab behavior.
+              // Mobile: try the LeadConnector APP first (custom scheme); if the
+              // app doesn't take over within ~1.6s, fall back to the website —
+              // worst case behaves exactly like before. Desktop keeps the tab.
               <a href={ghlUrl}
                 {...(typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-                  ? {}
+                  ? {
+                      onClick: (e: React.MouseEvent) => {
+                        e.preventDefault();
+                        const fallback = setTimeout(() => {
+                          if (document.visibilityState === "visible") window.location.href = ghlUrl;
+                        }, 1600);
+                        window.addEventListener("pagehide", () => clearTimeout(fallback), { once: true });
+                        window.location.href = `leadconnector://v2/location/${GHL_LOCATION}/contacts/detail/${ghlContactId}`;
+                      },
+                    }
                   : { target: "_blank", rel: "noopener noreferrer" })}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] hover:bg-[#e6f7f5] transition-colors">
                 <MessageSquare size={12} /> Click To Chat
@@ -381,7 +390,7 @@ export function ClientProfile({
             <p className="sm:col-span-2 text-[11px] text-[#8595a8] -mt-1">Scroll down to edit the rest of the details, then click <strong>Save All</strong>.</p>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-2 mt-3">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2 sm:mt-3">
             {canEdit ? (
               <span className="inline-flex items-center gap-1.5">
                 <span className="text-xs text-[#697a91]">Status:</span>
@@ -521,7 +530,7 @@ export function ClientProfile({
       </div>
 
       {/* ── Body ── */}
-      <div className="px-4 sm:px-6 py-4 space-y-5">
+      <div className="px-3 sm:px-6 py-3 sm:py-4 space-y-3 sm:space-y-5">
 
         {/* GHL Notes (top) */}
         {ghlContactId && <GhlNotes contactId={ghlContactId} />}

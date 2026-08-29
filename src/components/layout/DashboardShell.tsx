@@ -33,7 +33,9 @@ export function DashboardShell({ children, userEmail, syncing }: DashboardShellP
     <div className="flex flex-col h-screen overflow-hidden">
       <Navbar userEmail={userEmail} syncing={syncing} />
       <TabNav />
-      <main className="flex-1 overflow-auto">
+      {/* overflow-x-hidden: pages must never scroll sideways into dead space —
+          wide tables scroll inside their own overflow-x-auto containers */}
+      <main className="flex-1 overflow-y-auto overflow-x-hidden">
         <RoleGate>{children}</RoleGate>
       </main>
     </div>
