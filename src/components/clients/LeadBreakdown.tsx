@@ -42,8 +42,12 @@ const LEGEND_ORDER = ["confirmed", "ai_booked_pending", "funnel_drop", "offer_no
 type DaySlots = { slots: number; hours: number };
 type AvailInfo = {
   openSlots: number; openHours: number; pctFree: number | null;
-  // Thu/Fri/Sat availability — the days people actually book on.
-  prime?: DaySlots & { thu: DaySlots; fri: DaySlots; sat: DaySlots };
+  // Thu/Fri/Sat availability — the days people actually book on — plus how
+  // that capacity covers the account's actual Thu-Sat demand (1.5-2x = healthy).
+  prime?: DaySlots & {
+    thu: DaySlots; fri: DaySlots; sat: DaySlots;
+    weeklyBooked?: number; weeklyOpen?: number; coverage?: number | null; shortHours?: number;
+  };
   lookBusy?: { on: boolean; percentage: number };
 };
 
@@ -170,6 +174,19 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     if (pct(activeNoOffer) >= 30) out.push({ emoji: "🟡", title: "Conversations stall before the offer", body: `${pct(activeNoOffer)}% are active but no offer yet — the AI may need to present the offer sooner.` });
     if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 14 days. Consider increasing budget or broadening the audience.` });
     if (pct(confirmed) >= 15) out.push({ emoji: "✅", title: "Healthy deposit rate", body: `${pct(confirmed)}% confirmed deposits — momentum is good. Consider scaling budget while it converts.` });
+
+    // Thu-Sat coverage: the fleet's top earners keep prime-day open slots at
+    // 1.5-2x their booked prime-day demand. Below 1.5x, Thu-Sat sells out and
+    // leads who only want those days bounce — the fix is on the CLIENT's side
+    // (ask them to open more hours), so surface it loudly with the ask ready.
+    const p = avail?.prime;
+    if (p?.coverage != null && p.weeklyBooked != null && p.weeklyBooked >= 3 && p.coverage < 1.5) {
+      out.unshift({
+        emoji: "📅",
+        title: "Not enough Thu–Sat hours — ask the client to open more",
+        body: `They get ~${p.weeklyBooked} Thu–Sat appointments/week but only offer ~${p.weeklyOpen} open slots/week (${p.coverage}× coverage; healthy is 1.5–2×). Prime days are selling out. Ask them to add ~${p.shortHours && p.shortHours > 0 ? p.shortHours : 1}h of availability on Thursday/Friday/Saturday.`,
+      });
+    }
 
     // Lots of availability but few people picking a time → it's the funnel, not the calendar.
     if (avail && avail.pctFree != null && avail.pctFree >= 50) {
@@ -361,6 +378,12 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                 <div>
                   🔥 <span className="font-semibold">Thu–Sat (when people book):</span> {avail.prime.slots} open slots · ~{avail.prime.hours}h
                   <span className="text-[#697a91]"> — Thu {avail.prime.thu.slots} (~{avail.prime.thu.hours}h) · Fri {avail.prime.fri.slots} (~{avail.prime.fri.hours}h) · Sat {avail.prime.sat.slots} (~{avail.prime.sat.hours}h)</span>
+                  {avail.prime.coverage != null && (
+                    <span className={avail.prime.coverage < 1.5 ? "ml-1 font-bold text-[#e11d48]" : "ml-1 font-semibold text-[#15803d]"}
+                      title={`Open Thu–Sat slots vs booked Thu–Sat demand (~${avail.prime.weeklyBooked}/wk booked). 1.5–2× = healthy.`}>
+                      · {avail.prime.coverage}× coverage
+                    </span>
+                  )}
                 </div>
               )}
               <div>📅 <span className="font-semibold">Next 2 weeks:</span> {avail.openSlots} open slots · ~{avail.openHours}h{avail.pctFree != null ? ` · ${avail.pctFree}% free` : ""}</div>
