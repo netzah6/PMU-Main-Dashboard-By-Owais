@@ -110,6 +110,32 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
   let filed = 0;
   let scanned = 0;
 
+  // Owner name -> business name, so alerts can say WHO the client is
+  // ("Christy Ray (Ink & Ivory Beauty)") — user request 2026-08-30.
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+  const bizByOwner = new Map<string, string>();
+  try {
+    const { data: cm } = await svc.from("clients_master").select("data");
+    for (const row of (cm ?? []) as Array<{ data: Record<string, unknown> }>) {
+      const owner = norm(String(row.data?.["Owner Full Name"] ?? ""));
+      const biz = String(row.data?.["Business Name"] ?? "").trim();
+      if (owner && biz && !bizByOwner.has(owner)) bizByOwner.set(owner, biz);
+    }
+  } catch { /* alerts still file without the business name */ }
+  const businessFor = (contactName: string): string | null => {
+    const n = norm(contactName);
+    if (!n) return null;
+    if (bizByOwner.has(n)) return bizByOwner.get(n)!;
+    // Loose match: every token of the shorter name inside the longer one.
+    const toks = n.split(" ").filter((t) => t.length >= 2);
+    for (const [owner, biz] of bizByOwner) {
+      const ot = owner.split(" ").filter((t) => t.length >= 2);
+      const [small, big] = toks.length <= ot.length ? [toks, ot] : [ot, toks];
+      if (small.length >= 2 && small.every((t) => big.includes(t))) return biz;
+    }
+    return null;
+  };
+
   for (const c of convs) {
     if (scanned >= 20) break; // stay well inside the cron's time budget
     try {
@@ -130,14 +156,19 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       const tail = thread.slice(-10).map((m) => ({ direction: m.direction, body: m.body }));
       const cls = await classify(anthropic, c.contactName, tail);
       // Churn-risk clients hit the Alerts board whether or not there's a
-      // concrete ask to act on — the CEO wants to know either way.
+      // concrete ask to act on — the CEO wants to know either way. The alert
+      // carries the business name and the client's actual recent messages so
+      // the CEO can judge for himself (user request 2026-08-30).
       if (cls?.upset) {
+        const biz = businessFor(c.contactName);
+        const recentInbound = thread.filter((m) => m.direction === "inbound").slice(-3);
+        const msgs = recentInbound.map((m) => `• "${m.body.slice(0, 400)}"`).join("\n");
         await fileAlert(svc, {
           type: "upset_client",
-          title: `${c.contactName} sounds unhappy — churn risk`,
-          detail: `${cls.upset_reason ?? ""}\n\nTheir message: "${last.body.slice(0, 500)}"`.trim(),
+          title: `${c.contactName}${biz ? ` (${biz})` : ""} sounds unhappy — churn risk`,
+          detail: `${cls.upset_reason ?? ""}\n\nTheir last message${recentInbound.length > 1 ? "s" : ""}:\n${msgs}`.trim(),
           source_key: `msg:${c.id}:${last.id}`,
-          meta: { conversation_id: c.id, contact_id: c.contactId, contact_name: c.contactName, channel: c.channel },
+          meta: { conversation_id: c.id, contact_id: c.contactId, contact_name: c.contactName, business_name: biz, channel: c.channel },
         });
       }
       if (!cls?.actionable || !cls.summary) continue;
