@@ -26,7 +26,12 @@ interface Appt {
   excluded: boolean; excludeReason: string | null;
   refunded?: boolean; refundedAt?: string | null;
 }
+interface PaymentGroup {
+  paymentId: string | null; chargedAt: string | null; chargedBy: string | null;
+  shows: number; total: number; manual: boolean; receiptUrl: string | null;
+}
 interface Drill {
+  payments?: PaymentGroup[];
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
   summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; readyToCharge: number; excluded: number; refunded?: number; showed: number; noShowMarked: number; showRate: number | null };
   appointments: Appt[];
@@ -163,6 +168,31 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
         {s.noshow > 0 && <Pill label="No-show" value={s.noshow} tone="gray" />}
         {s.noAppt > 0 && <Pill label="No appt booked" value={s.noAppt} tone="gray" />}
       </div>
+
+      {/* Every charge that actually went through — the keep-track trail the
+          user asked for: date, amount, shows covered, who ran it, receipt. */}
+      {(drill.payments?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-[#c7edd4] bg-[#f4fbf7] px-2.5 py-2">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#15803d] mb-1">✅ Charged &amp; went through</div>
+          <div className="space-y-0.5">
+            {drill.payments!.map((p, i) => (
+              <div key={i} className="flex items-center gap-2 text-[11px] text-[#1f3559] flex-wrap">
+                <span className="font-semibold text-[#15803d]">{money(p.total)}</span>
+                <span className="text-[#697a91]">{p.shows} show{p.shows === 1 ? "" : "s"}</span>
+                <span className="text-[#8595a8]">{p.chargedAt ? new Date(p.chargedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
+                {p.chargedBy && <span className="text-[#8595a8]">by {p.chargedBy}</span>}
+                {p.manual ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0]" title="Recorded in the dashboard as collected outside it (e.g. charged directly in Square)">recorded manually</span>
+                ) : (
+                  <a href={p.receiptUrl!} target="_blank" rel="noreferrer"
+                    className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#e6f7ee] text-[#15803d] border border-[#c7edd4] hover:bg-[#d9f2e4]"
+                    title={`Square payment ${p.paymentId}`}>Square receipt ↗</a>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] text-[#697a91]">{drill.appointments.length} deposit{drill.appointments.length === 1 ? "" : "s"} · <strong className="text-[#0e8f88]">{readyCount} to review</strong></span>

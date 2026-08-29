@@ -243,7 +243,34 @@ export async function GET(req: NextRequest) {
 
   const cfg = (cfgRes.data ?? null) as { is_ppa: boolean; fee_per_appt: number; note: string | null } | null;
 
+  // ── Payment history: every charge that went through, grouped per payment ──
+  // One Square payment covers several shows (same square_payment_id); manual
+  // marks batch by minute + marker. Receipt URLs derive from the payment id.
+  const payGroups = new Map<string, {
+    paymentId: string | null; chargedAt: string | null; chargedBy: string | null;
+    shows: number; total: number; manual: boolean;
+  }>();
+  for (const r of (chgRes.data ?? []) as ChargeRow[]) {
+    if (!r.charged) continue;
+    const key = r.square_payment_id ?? `manual:${(r.charged_at ?? "").slice(0, 16)}:${r.charged_by ?? ""}`;
+    const g = payGroups.get(key) ?? {
+      paymentId: r.square_payment_id ?? null, chargedAt: r.charged_at, chargedBy: r.charged_by,
+      shows: 0, total: 0, manual: !r.square_payment_id,
+    };
+    g.shows++;
+    g.total += Number(r.amount) || 0;
+    if ((r.charged_at ?? "") > (g.chargedAt ?? "")) g.chargedAt = r.charged_at;
+    payGroups.set(key, g);
+  }
+  const payments = [...payGroups.values()]
+    .sort((a, b) => String(b.chargedAt ?? "").localeCompare(String(a.chargedAt ?? "")))
+    .map((g) => ({
+      ...g,
+      receiptUrl: g.paymentId ? `https://squareup.com/receipt/preview/${g.paymentId}` : null,
+    }));
+
   return NextResponse.json({
+    payments,
     client: {
       ownerKey: client.ownerKey,
       ownerName: client.ownerName,
