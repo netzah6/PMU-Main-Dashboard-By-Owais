@@ -47,3 +47,10 @@ html, body {
 @layer utilities {
   .text-balance { text-wrap: balance; }
 }
+
+/* iOS Safari auto-zooms when a focused input's font-size is under 16px.
+   Force 16px on touch-sized screens so tapping a search box never zooms
+   the page (user request 2026-08-30). Desktop keeps the compact sizes. */
+@media (max-width: 640px) {
+  input, select, textarea { font-size: 16px !important; }
+}

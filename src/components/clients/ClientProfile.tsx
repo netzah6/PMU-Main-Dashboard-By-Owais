@@ -390,7 +390,9 @@ export function ClientProfile({
             <p className="sm:col-span-2 text-[11px] text-[#8595a8] -mt-1">Scroll down to edit the rest of the details, then click <strong>Save All</strong>.</p>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2 sm:mt-3">
+          // One horizontally-scrollable chip line on phones (2-3 header lines
+          // total, user request 2026-08-30); wraps normally on bigger screens.
+          <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 sm:gap-2 mt-2 sm:mt-3 overflow-x-auto sm:overflow-visible pb-1 sm:pb-0 [&>*]:shrink-0">
             {canEdit ? (
               <span className="inline-flex items-center gap-1.5">
                 <span className="text-xs text-[#697a91]">Status:</span>

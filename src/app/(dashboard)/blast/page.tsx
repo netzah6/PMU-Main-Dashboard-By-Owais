@@ -162,25 +162,53 @@ export default function BlastPage() {
       <div className="rounded-xl border border-[#e4ebf2] bg-white p-4 space-y-3">
         <label className="block text-xs font-bold text-[#34568a]">Client</label>
         {(() => {
+          // Search results render as a CLICKABLE LIST, not a native <select> —
+          // the phone select showed a stale, unfiltered option wheel.
           const q = clientSearch.trim().toLowerCase();
-          const filtered = q ? clients.filter((c) => c.label.toLowerCase().includes(q)) : clients;
+          const filtered = q ? clients.filter((c) => c.label.toLowerCase().includes(q)) : [];
           return (
             <div className="space-y-2">
-              <input
-                value={clientSearch}
-                onChange={(e) => setClientSearch(e.target.value)}
-                placeholder="🔍 Search by business or client name…"
-                className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 bg-white text-[#1f3559]"
-              />
-              <select value={client?.locationId ?? ""} onChange={(e) => pickClient(e.target.value)}
-                className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 bg-white text-[#1f3559]">
-                <option value="">{q ? `Select a client… (${filtered.length} match${filtered.length === 1 ? "" : "es"})` : "Select a client…"}</option>
-                {/* Keep the picked client visible even if the search text no longer matches it */}
-                {client && !filtered.some((c) => c.locationId === client.locationId) && (
-                  <option value={client.locationId}>{client.label}</option>
-                )}
-                {filtered.map((c) => <option key={c.locationId} value={c.locationId}>{c.label}</option>)}
-              </select>
+              {client ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-[#a7e3df] bg-[#e6f7f5] px-3 py-2">
+                  <span className="text-sm font-semibold text-[#0e8f88] truncate">{client.label}</span>
+                  <button onClick={() => { pickClient(""); setClientSearch(""); }}
+                    className="shrink-0 text-xs font-bold text-[#34568a] px-2 py-1 rounded-md border border-[#d7e0ea] bg-white">
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    value={clientSearch}
+                    onChange={(e) => setClientSearch(e.target.value)}
+                    placeholder="🔍 Search by business or client name…"
+                    className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 bg-white text-[#1f3559]"
+                  />
+                  {q ? (
+                    filtered.length ? (
+                      <div className="rounded-lg border border-[#d7e0ea] divide-y divide-[#eef3f8] max-h-64 overflow-y-auto">
+                        {filtered.slice(0, 30).map((c) => (
+                          <button key={c.locationId} onClick={() => { pickClient(c.locationId); setClientSearch(""); }}
+                            className="block w-full text-left px-3 py-2 text-sm text-[#1f3559] hover:bg-[#f0fbfa] active:bg-[#e6f7f5]">
+                            {c.label}
+                          </button>
+                        ))}
+                        {filtered.length > 30 && (
+                          <div className="px-3 py-2 text-xs text-[#8595a8]">{filtered.length - 30} more — keep typing to narrow it down</div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[#8595a8] px-1">No client matches &ldquo;{clientSearch.trim()}&rdquo;.</p>
+                    )
+                  ) : (
+                    <select value="" onChange={(e) => pickClient(e.target.value)}
+                      className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 bg-white text-[#1f3559]">
+                      <option value="">…or pick from the full list</option>
+                      {clients.map((c) => <option key={c.locationId} value={c.locationId}>{c.label}</option>)}
+                    </select>
+                  )}
+                </>
+              )}
             </div>
           );
         })()}
