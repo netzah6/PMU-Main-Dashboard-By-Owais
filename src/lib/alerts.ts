@@ -231,7 +231,11 @@ export async function scanMakeScenarios(svc: Svc): Promise<{ checked: number; fi
         detail: "The scenario is not running — anything it automates (deposits to the sheet, lead routing, notifications) is silently stopped. Turn it back on in the Make editor, or resolve this alert if it is off on purpose.",
         source_key: `make-off:${id}`,
         meta: { scenario_id: id, name, zone },
-        resurfaceAfterDays: 7,
+        // No resurface: resolving means "off on purpose" — many scenarios
+        // (Make's auto-created Integration testers, retired experiments) stay
+        // off forever and must not nag weekly. A scenario that gets turned ON
+        // and later OFF again is a new problem, but a rare one; the DLQ alert
+        // below still catches anything that breaks while running.
       });
       if (ok) filed++;
     }
