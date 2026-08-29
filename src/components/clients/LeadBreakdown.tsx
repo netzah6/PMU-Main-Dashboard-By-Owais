@@ -51,6 +51,65 @@ type AvailInfo = {
   lookBusy?: { on: boolean; percentage: number };
 };
 
+// A real funnel: trapezoid segments that narrow with the numbers (like the
+// classic purchase-funnel diagram), with the biggest leak flagged between
+// stages — user request 2026-08-28 (was bars in lines before).
+type FunnelStage = { emoji: string; label: string; n: number; color: string; connText?: string; healthyPct?: number };
+function FunnelViz({ title, stages }: { title: string; stages: FunnelStage[] }) {
+  const base = stages[0]?.n ?? 0;
+  if (base <= 0) return null;
+  // Segment width tracks the share of the base, but never collapses below 30%
+  // so the label stays readable.
+  const widths = stages.map((s) => Math.max(30, Math.round((s.n / base) * 100)));
+  // Biggest leak = the transition losing the most leads.
+  let leakIdx = -1, leakMax = 0;
+  stages.forEach((s, i) => {
+    if (i === 0) return;
+    const lost = stages[i - 1].n - s.n;
+    if (lost > leakMax) { leakMax = lost; leakIdx = i; }
+  });
+  const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
+  return (
+    <div>
+      <div className="text-[10px] font-bold uppercase tracking-wide text-[#34568a] mb-1">{title}</div>
+      {stages.map((s, i) => {
+        const topW = widths[i];
+        const botW = widths[i + 1] ?? Math.max(24, Math.round(topW * 0.72));
+        const stepPct = i > 0 ? pct(s.n, stages[i - 1].n) : null;
+        const lost = i > 0 ? stages[i - 1].n - s.n : 0;
+        const unhealthy = i > 0 && s.healthyPct != null && stepPct != null && stepPct < s.healthyPct;
+        return (
+          <div key={s.label}>
+            {i > 0 && (
+              <div className={`flex items-center justify-center gap-1.5 py-0.5 text-[10px] flex-wrap text-center ${i === leakIdx || unhealthy ? "text-[#e11d48] font-bold" : "text-[#8595a8]"}`}>
+                <span>↓ {stepPct}%{s.connText ? ` ${s.connText}` : ""}{lost > 0 ? ` · ${lost} lost` : ""}</span>
+                {unhealthy && <span className="px-1.5 py-0.5 rounded bg-[#fde8ee] border border-[#f5c2cf] leading-none">🚨 below healthy ({s.healthyPct}%+)</span>}
+                {i > 0 && s.healthyPct != null && stepPct != null && stepPct >= s.healthyPct && (
+                  <span className="px-1.5 py-0.5 rounded bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] font-semibold leading-none">✓ healthy</span>
+                )}
+                {i === leakIdx && lost > 0 && <span className="px-1.5 py-0.5 rounded bg-[#fde8ee] border border-[#f5c2cf] leading-none">⚠ biggest leak</span>}
+              </div>
+            )}
+            <div
+              className="mx-auto flex items-center justify-center gap-1.5 text-white"
+              style={{
+                height: 34,
+                width: "100%",
+                background: s.color,
+                clipPath: `polygon(${(100 - topW) / 2}% 0, ${(100 + topW) / 2}% 0, ${(100 + botW) / 2}% 100%, ${(100 - botW) / 2}% 100%)`,
+              }}
+              title={`${s.label}: ${s.n} (${pct(s.n, base)}% of ${stages[0].label.toLowerCase()})`}
+            >
+              <span className="text-[11px] font-semibold whitespace-nowrap drop-shadow-sm">{s.emoji} {s.label}</span>
+              <span className="text-[11px] font-bold whitespace-nowrap drop-shadow-sm">{s.n} · {pct(s.n, base)}%</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function dayMeta(iso: string) {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
@@ -221,14 +280,30 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         if (l.fanbasis) p.dep++;
       }
     });
+    // Tag combos for the two funnels (last 14 days):
+    //   A (booking path):  leads → chose a date & time → paid deposit
+    //   B (chat path):     didn't pay right away → engaged → got offer → paid
+    // "Paid right away" = fanbasis with NO chat offer (straight through the
+    // funnel); everyone else is chat-pipeline territory.
+    let bookedAll = 0, paidBooked = 0, paidNoOffer = 0, offerMade = 0, paidViaChat = 0, engagedChat = 0;
     byDay.forEach((arr) => arr.forEach((l) => {
       c[l.status] = (c[l.status] ?? 0) + 1; total++;
+      if (l.booked) bookedAll++;
+      if (l.fanbasis && l.booked) paidBooked++;
+      if (l.fanbasis && !l.offer_made) paidNoOffer++;
+      if (l.offer_made) offerMade++;
+      if (l.offer_made && l.fanbasis) paidViaChat++;
+      if (l.status !== "v3_only" && !(l.fanbasis && !l.offer_made)) engagedChat++;
     }));
     const engaged = total - (c.v3_only ?? 0);
     const booked = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0) + (c.confirmed ?? 0);
     const deposit = c.confirmed ?? 0;
     const offerNoBook = c.offer_not_booked ?? 0;
-    return { total, engaged, booked, deposit, offerNoBook, path };
+    return {
+      total, engaged, booked, deposit, offerNoBook, path,
+      bookedAll, paidBooked, offerMade, paidViaChat, engagedChat,
+      noDeposit: total - paidNoOffer,
+    };
   }, [byDay, leads]);
 
   // ── Conversion trend, last 30 days ──────────────────────────────────────────
@@ -249,14 +324,17 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       if (l.status === "confirmed") b.dep++;
       byDate.set(d, b);
     });
-    const points: { date: string; n: number; book: number | null; dep: number | null }[] = [];
+    // One number the user actually steers by: Conv% = deposits / leads
+    // (rolling 7-day, cohorted by lead creation date) — the timeline exists to
+    // show how each logged action moved THIS rate.
+    const points: { date: string; n: number; conv: number | null }[] = [];
     for (let i = 29; i >= 0; i--) {
-      let n = 0, bk = 0, dp = 0;
+      let n = 0, dp = 0;
       for (let w = 0; w < 7; w++) {
         const d = byDate.get(dayISO(i + w));
-        if (d) { n += d.n; bk += d.booked; dp += d.dep; }
+        if (d) { n += d.n; dp += d.dep; }
       }
-      points.push({ date: dayISO(i), n, book: n > 0 ? (bk / n) * 100 : null, dep: bk > 0 ? (dp / bk) * 100 : null });
+      points.push({ date: dayISO(i), n, conv: n > 0 ? (dp / n) * 100 : null });
     }
     return { points };
   }, [leads]);
@@ -282,61 +360,31 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       {/* On wide screens the three analysis boxes sit side by side */}
       <div className="min-w-0 md:order-2 space-y-2 xl:col-span-3 xl:grid xl:grid-cols-3 xl:gap-3 xl:items-start xl:space-y-0">
       {funnel.total > 0 && (() => {
-        // Ordered the way the client journey actually runs: everyone signs up
-        // as a lead, some book a time right away, the rest we chase in chat
-        // (so "engaged" counts booked AND not-booked), and finally deposits.
-        // Steps aren't nested (more leads engage than book) — each connector
-        // carries its own comparison instead of a blind "% continue".
-        const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
-        const stages: { emoji: string; label: string; n: number; color: string; conn: { pct: number; text: string; lost: number; lostText: string } | null }[] = [
-          { emoji: "🆕", label: "New leads", n: funnel.total, color: "#15B7AE", conn: null },
-          { emoji: "📅", label: "Booked a time", n: funnel.booked, color: "#34568a",
-            conn: { pct: pct(funnel.booked, funnel.total), text: "booked a time", lost: funnel.total - funnel.booked, lostText: "didn't book" } },
-          { emoji: "💬", label: "Engaged in conversation", n: funnel.engaged, color: "#2d8fa0",
-            conn: { pct: pct(funnel.engaged, funnel.total), text: "of all leads engaged (booked or not)", lost: funnel.total - funnel.engaged, lostText: "never engaged" } },
-          { emoji: "💰", label: "Paid deposit", n: funnel.deposit, color: "#15803d",
-            conn: { pct: pct(funnel.deposit, funnel.engaged), text: "of engaged paid", lost: funnel.engaged - funnel.deposit, lostText: "engaged but never paid" } },
-        ];
-        // Biggest leak = the connector losing the most leads.
-        let leakIdx = -1, leakMax = 0;
-        stages.forEach((s, i) => { if (s.conn && s.conn.lost > leakMax) { leakMax = s.conn.lost; leakIdx = i; } });
-        const pctOf = (n: number) => pct(n, funnel.total);
         return (
           <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-2">
-              🪜 Lead funnel <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 14 days</span>
+              🪜 Lead funnels <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 14 days</span>
             </div>
-            <div className="space-y-0.5">
-              {stages.map((s, i) => {
-                // Health check on the booking step: below 35% booked is under target.
-                const isBookStep = s.label === "Booked a time";
-                const unhealthyBooking = isBookStep && s.conn != null && s.conn.pct < HEALTHY_BOOK_PCT;
-                return (
-                  <div key={s.label}>
-                    {s.conn && (
-                      <div className={`flex items-center gap-1.5 pl-1 py-0.5 text-[10px] flex-wrap ${i === leakIdx || unhealthyBooking ? "text-[#e11d48] font-bold" : "text-[#8595a8]"}`}>
-                        <span>↓ {s.conn.pct}% {s.conn.text}{s.conn.lost > 0 ? ` · ${s.conn.lost} ${s.conn.lostText}` : ""}</span>
-                        {unhealthyBooking && (
-                          <span className="px-1.5 py-0.5 rounded bg-[#fde8ee] border border-[#f5c2cf] leading-none">🚨 below healthy ({HEALTHY_BOOK_PCT}%+)</span>
-                        )}
-                        {isBookStep && s.conn.pct >= HEALTHY_BOOK_PCT && (
-                          <span className="px-1.5 py-0.5 rounded bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] font-semibold leading-none">✓ healthy</span>
-                        )}
-                        {i === leakIdx && s.conn.lost > 0 && (
-                          <span className="px-1.5 py-0.5 rounded bg-[#fde8ee] border border-[#f5c2cf] leading-none">⚠ biggest leak — stuck here</span>
-                        )}
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-[#1f3559]">
-                      <span className="font-semibold whitespace-nowrap">{s.emoji} {s.label}</span>
-                      <span className="text-[#697a91] whitespace-nowrap">{s.n} · <strong className="text-[#1f3559]">{pctOf(s.n)}%</strong></span>
-                    </div>
-                    <div className="h-3.5 rounded bg-[#f1f5f9] overflow-hidden">
-                      <div className="h-full rounded transition-all" style={{ width: `${Math.max(pctOf(s.n), s.n > 0 ? 4 : 0)}%`, background: s.color }} />
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="space-y-3">
+              {/* Funnel 1 — the direct booking path */}
+              <FunnelViz
+                title="📅 Booking path"
+                stages={[
+                  { emoji: "🆕", label: "New leads", n: funnel.total, color: "#7c3aed" },
+                  { emoji: "📅", label: "Chose date & time", n: funnel.bookedAll, color: "#1e3a8a", connText: "picked a time", healthyPct: HEALTHY_BOOK_PCT },
+                  { emoji: "💰", label: "Paid deposit", n: funnel.paidBooked, color: "#15803d", connText: "of booked paid" },
+                ]}
+              />
+              {/* Funnel 2 — chasing everyone who didn't pay right away */}
+              <FunnelViz
+                title="💬 Chat path (no deposit yet)"
+                stages={[
+                  { emoji: "⏳", label: "No deposit right away", n: funnel.noDeposit, color: "#7c3aed" },
+                  { emoji: "💬", label: "Engaged in chat", n: funnel.engagedChat, color: "#1e3a8a", connText: "engaged" },
+                  { emoji: "🔥", label: "Got an offer", n: funnel.offerMade, color: "#dc2626", connText: "got an offer" },
+                  { emoji: "💰", label: "Paid deposit", n: funnel.paidViaChat, color: "#15803d", connText: "of offers paid" },
+                ]}
+              />
             </div>
             {funnel.offerNoBook > 0 && (
               <p className="mt-1.5 text-[10px] text-[#8595a8]">🔥 {funnel.offerNoBook} more got an offer in chat but never booked a time.</p>
@@ -434,44 +482,48 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
           if (g) g.notes.push(label);
           else pinGroups.push({ date: c.action_date, idx, notes: [label], num: pinGroups.length + 1 });
         }
-        const vals = trend.points.flatMap((p) => [p.book, p.dep]).filter((v): v is number => v != null);
+        const vals = trend.points.map((p) => p.conv).filter((v): v is number => v != null);
         const yMax = Math.max(10, Math.ceil(Math.max(...vals, 0) / 10) * 10);
         const px = (i: number) => X0 + (i * W) / (trend.points.length - 1);
         const py = (v: number) => Y0 + H - (v / yMax) * H;
-        const path = (key: "book" | "dep") => {
+        const convPath = (() => {
           let d = "", pen = false;
           trend.points.forEach((p, i) => {
-            const v = p[key];
-            if (v == null) { pen = false; return; }
-            d += `${pen ? "L" : "M"}${px(i).toFixed(1)},${py(v).toFixed(1)}`;
+            if (p.conv == null) { pen = false; return; }
+            d += `${pen ? "L" : "M"}${px(i).toFixed(1)},${py(p.conv).toFixed(1)}`;
             pen = true;
           });
           return d;
-        };
-        const lastVal = (key: "book" | "dep") => {
-          for (let i = trend.points.length - 1; i >= 0; i--) { const v = trend.points[i][key]; if (v != null) return v; }
-          return null;
+        })();
+        let convNow: number | null = null;
+        for (let i = trend.points.length - 1; i >= 0; i--) { if (trend.points[i].conv != null) { convNow = trend.points[i].conv; break; } }
+        // For each pin: conv at the change vs ~a week later — did the action move it?
+        const convAround = (idx: number) => {
+          const at = trend.points[idx]?.conv ?? null;
+          let after: number | null = null;
+          for (let i = Math.min(idx + 7, trend.points.length - 1); i > idx; i--) {
+            const v = trend.points[i]?.conv;
+            if (v != null) { after = v; break; }
+          }
+          return { at, after };
         };
         const fmtD = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
-        const bookNow = lastVal("book"), depNow = lastVal("dep");
         return (
           <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">
               📈 Conversion timeline <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 30 days · 📌 = logged change</span>
             </div>
             <div className="mt-1 flex items-center gap-3 flex-wrap text-[11px]">
-              <span><span className="inline-block w-2.5 h-[3px] rounded align-middle mr-1" style={{ background: "#34568a" }} />📅 Booked {bookNow == null ? "—" : `${Math.round(bookNow)}%`} <span className="text-[#8595a8]">of leads</span></span>
-              <span><span className="inline-block w-2.5 h-[3px] rounded align-middle mr-1" style={{ background: "#15803d" }} />💰 Deposit {depNow == null ? "—" : `${Math.round(depNow)}%`} <span className="text-[#8595a8]">of booked</span></span>
+              <span><span className="inline-block w-2.5 h-[3px] rounded align-middle mr-1" style={{ background: "#15803d" }} />💰 Conv {convNow == null ? "—" : `${Math.round(convNow)}%`} <span className="text-[#8595a8]">leads → deposits (rolling 7-day)</span></span>
             </div>
-            <svg viewBox="0 0 300 84" className="w-full mt-1" role="img" aria-label="Booking and deposit conversion trend, last 30 days">
+            <svg viewBox="0 0 300 84" className="w-full mt-1" role="img" aria-label="Lead-to-deposit conversion trend, last 30 days">
               {[0, 0.5, 1].map((f) => (
                 <g key={f}>
                   <line x1={X0} x2={X0 + W} y1={Y0 + H - f * H} y2={Y0 + H - f * H} stroke="#eef3f8" strokeWidth={1} />
                   <text x={X0 + W} y={Y0 + H - f * H - 2} fontSize={7} fill="#a6b3c4" textAnchor="end">{Math.round(f * yMax)}%</text>
                 </g>
               ))}
-              <path d={path("book")} fill="none" stroke="#34568a" strokeWidth={1.8} strokeLinecap="round" />
-              <path d={path("dep")} fill="none" stroke="#15803d" strokeWidth={1.8} strokeLinecap="round" />
+              <path d={convPath} fill="none" stroke="#15803d" strokeWidth={1.8} strokeLinecap="round" />
               {pinGroups.map((g) => (
                 <g key={g.date}>
                   <title>{`${fmtD(g.date)} — ${g.notes.join(" · ")}`}</title>
@@ -485,12 +537,23 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
             </svg>
             {pinGroups.length > 0 ? (
               <ul className="mt-1 space-y-0.5">
-                {pinGroups.map((g) => (
-                  <li key={g.date} className="flex items-start gap-1.5 text-[11px] leading-snug">
-                    <span className="shrink-0 mt-[1px] w-4 h-4 rounded-full bg-[#ea580c] text-white text-[9px] font-bold flex items-center justify-center">{g.num}</span>
-                    <span className="text-[#34568a]"><strong className="text-[#1f3559]">{fmtD(g.date)}</strong> — {g.notes.join(" · ")}</span>
-                  </li>
-                ))}
+                {pinGroups.map((g) => {
+                  const { at, after } = convAround(g.idx);
+                  const delta = at != null && after != null ? Math.round(after) - Math.round(at) : null;
+                  return (
+                    <li key={g.date} className="flex items-start gap-1.5 text-[11px] leading-snug">
+                      <span className="shrink-0 mt-[1px] w-4 h-4 rounded-full bg-[#ea580c] text-white text-[9px] font-bold flex items-center justify-center">{g.num}</span>
+                      <span className="text-[#34568a]">
+                        <strong className="text-[#1f3559]">{fmtD(g.date)}</strong> — {g.notes.join(" · ")}
+                        {at != null && after != null && (
+                          <span className={`ml-1 font-semibold whitespace-nowrap ${delta != null && delta > 0 ? "text-[#15803d]" : delta != null && delta < 0 ? "text-[#e11d48]" : "text-[#8595a8]"}`}>
+                            · conv {Math.round(at)}% → {Math.round(after)}%{delta != null && delta !== 0 ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
               <p className="mt-1 text-[10px] text-[#8595a8]">No changes logged in this window — add them in the <strong>Activity &amp; Changes Log</strong> below and they&apos;ll show as 📌 pins on the timeline.</p>
