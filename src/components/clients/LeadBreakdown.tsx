@@ -247,8 +247,23 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       });
     }
 
+    // Scarcity rule (2026-08-29 top-11 analysis): accounts showing 10+ open
+    // slots/day convert leads→deposits at ~6.5% vs ~9.7% for tighter calendars
+    // — a wall of open times reads as "not in demand". Fix is Look Busy, which
+    // hides a % of REAL openings without cutting actual capacity.
+    const visPerDay = avail ? avail.openSlots / 14 : 0;
+    const tooAvailable = !!avail && visPerDay >= 10 && avail.lookBusy != null && !avail.lookBusy.on;
+    if (tooAvailable && avail) {
+      out.unshift({
+        emoji: "🗓️",
+        title: "Calendar looks TOO available — turn on Look Busy",
+        body: `Leads see ~${Math.round(visPerDay)} open slots/day, which reads as "not in demand" (our top-11 data: calendars this open convert ~6.5% vs ~9.7% for tighter ones). Turn on Look Busy at 60–70% in this calendar's settings — real capacity stays, leads just see fewer times. Log it in the Activity Log to watch the conv% move.`,
+      });
+    }
+
     // Lots of availability but few people picking a time → it's the funnel, not the calendar.
-    if (avail && avail.pctFree != null && avail.pctFree >= 50) {
+    // (Skipped when the Look Busy card already covers the too-available case.)
+    if (avail && avail.pctFree != null && avail.pctFree >= 50 && !tooAvailable) {
       const bookingish = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0) + (c.confirmed ?? 0);
       if (pct(bookingish) < 15) {
         out.unshift({ emoji: "📅", title: "Calendar is wide open", body: `~${avail.openHours}h free (${avail.pctFree}% of capacity) over the next 2 weeks, but few leads are picking a time. Availability isn't the blocker — fix the funnel/offer so they choose a date.` });
