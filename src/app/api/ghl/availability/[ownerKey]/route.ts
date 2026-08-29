@@ -39,6 +39,11 @@ export async function GET(
     let capacitySlots = 0;
     let lookBusyOn = false;
     let lookBusyPct = 0;
+    // Thu/Fri/Sat get their own numbers — fleet-wide, appointments land
+    // overwhelmingly on those days, so their availability is what matters.
+    const primeByDow: Record<number, { slots: number; minutes: number }> = {
+      4: { slots: 0, minutes: 0 }, 5: { slots: 0, minutes: 0 }, 6: { slots: 0, minutes: 0 },
+    };
 
     for (const cal of cals) {
       const cfg = (((await (await fetch(`${BASE}/calendars/${cal.id}`, { headers: H })).json()).calendar) ?? {}) as Record<string, unknown>;
@@ -75,17 +80,28 @@ export async function GET(
             const n = (fj[k].slots ?? []).length * factor;
             openSlots += n;
             openMinutes += n * slotDur;
+            const [y, mo, d] = k.split("-").map(Number);
+            const dow = new Date(y, mo - 1, d).getDay();
+            if (primeByDow[dow]) { primeByDow[dow].slots += n; primeByDow[dow].minutes += n * slotDur; }
           }
         }
       }
     }
 
     openSlots = Math.round(openSlots);
+    const hrs = (m: number) => Math.round((m / 60) * 10) / 10;
+    const day = (d: number) => ({ slots: Math.round(primeByDow[d].slots), hours: hrs(primeByDow[d].minutes) });
+    const prime = { thu: day(4), fri: day(5), sat: day(6) };
     return NextResponse.json({
       available: true,
       openSlots,
-      openHours: Math.round((openMinutes / 60) * 10) / 10,
+      openHours: hrs(openMinutes),
       pctFree: capacitySlots > 0 ? Math.round((openSlots / capacitySlots) * 100) : null,
+      prime: {
+        ...prime,
+        slots: prime.thu.slots + prime.fri.slots + prime.sat.slots,
+        hours: Math.round((prime.thu.hours + prime.fri.hours + prime.sat.hours) * 10) / 10,
+      },
       lookBusy: { on: lookBusyOn, percentage: lookBusyPct },
     });
   } catch (e) {
