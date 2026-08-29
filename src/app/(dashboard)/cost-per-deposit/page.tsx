@@ -517,11 +517,11 @@ function EmojiLegend() {
     {
       title: "Inside the analysis boxes",
       items: [
-        { e: "🪜", t: "Lead funnel: 🆕 new → 📅 booked → 💬 engaged → 💰 paid" },
+        { e: "🪜", t: "Two funnels — 📅 booking path (leads → picked a time → paid) · 💬 chat path (no deposit yet → engaged → offer → paid)" },
         { e: "🚨", t: "Booking rate below the 35% healthy target (✓ = at/above)" },
         { e: "⚠", t: "Biggest leak — the step losing the most leads" },
         { e: "📋/🤖", t: "Where bookings come from: funnel vs AI chat" },
-        { e: "📌", t: "Timeline pin = a change logged in the Activity log" },
+        { e: "📌", t: "Timeline pin = a logged change, with conv% before → after" },
         { e: "✨", t: "AI recommendation based on the last 14 days" },
       ],
     },
