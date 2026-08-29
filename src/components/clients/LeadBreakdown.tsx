@@ -39,6 +39,14 @@ const STATUS: Record<string, { emoji: string; legend: string; short: (aiOff: boo
 };
 const LEGEND_ORDER = ["confirmed", "ai_booked_pending", "funnel_drop", "offer_not_booked", "ai_active_no_offer", "ai_off_stalled", "v3_only"];
 
+type DaySlots = { slots: number; hours: number };
+type AvailInfo = {
+  openSlots: number; openHours: number; pctFree: number | null;
+  // Thu/Fri/Sat availability — the days people actually book on.
+  prime?: DaySlots & { thu: DaySlots; fri: DaySlots; sat: DaySlots };
+  lookBusy?: { on: boolean; percentage: number };
+};
+
 function dayMeta(iso: string) {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
@@ -53,7 +61,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   const [retryTick, setRetryTick] = useState(0);
   const [openDay, setOpenDay] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(false);
-  const [avail, setAvail] = useState<{ openSlots: number; openHours: number; pctFree: number | null; lookBusy?: { on: boolean; percentage: number } } | null>(null);
+  const [avail, setAvail] = useState<AvailInfo | null>(null);
 
   // Calendar availability for the next 2 weeks (open slots, hours, % free).
   useEffect(() => {
@@ -61,7 +69,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     setAvail(null);
     fetch(`/api/ghl/availability/${encodeURIComponent(ownerKey)}`)
       .then((r) => r.json())
-      .then((j) => { if (!cancelled && j?.available) setAvail({ openSlots: j.openSlots, openHours: j.openHours, pctFree: j.pctFree, lookBusy: j.lookBusy }); })
+      .then((j) => { if (!cancelled && j?.available) setAvail({ openSlots: j.openSlots, openHours: j.openHours, pctFree: j.pctFree, prime: j.prime, lookBusy: j.lookBusy }); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [ownerKey]);
@@ -183,24 +191,28 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     // so booked+offer = booked through the AI conversation, booked without an
     // offer = picked a time straight in the funnel. Works for confirmed leads
     // too (the status collapses to "confirmed" but the raw tags survive).
+    // Computed over ALL leads (all time), not the 14-day window — the split is
+    // a property of the account, and 14 days is too little data to trust it.
     const path = {
       funnel: { booked: 0, dep: 0 },
       ai: { booked: 0, dep: 0 },
     };
-    byDay.forEach((arr) => arr.forEach((l) => {
-      c[l.status] = (c[l.status] ?? 0) + 1; total++;
+    leads.forEach((l) => {
       if (l.booked) {
         const p = l.offer_made ? path.ai : path.funnel;
         p.booked++;
         if (l.fanbasis) p.dep++;
       }
+    });
+    byDay.forEach((arr) => arr.forEach((l) => {
+      c[l.status] = (c[l.status] ?? 0) + 1; total++;
     }));
     const engaged = total - (c.v3_only ?? 0);
     const booked = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0) + (c.confirmed ?? 0);
     const deposit = c.confirmed ?? 0;
     const offerNoBook = c.offer_not_booked ?? 0;
     return { total, engaged, booked, deposit, offerNoBook, path };
-  }, [byDay]);
+  }, [byDay, leads]);
 
   // ── Conversion trend, last 30 days ──────────────────────────────────────────
   // Rolling 7-day rates per day (cohorted by lead creation date).
@@ -322,7 +334,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                 ? (rows[0].rate > rows[1].rate ? 0 : 1) : -1;
               return (
                 <div className="mt-2 pt-2 border-t border-[#eef3f8]">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#34568a] mb-1">📅 Where the bookings come from</div>
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#34568a] mb-1">📅 Where the bookings come from <span className="font-medium normal-case text-[#697a91] tracking-normal">· all time</span></div>
                   {rows.map((r, i) => (
                     <div key={r.label} className="flex items-center justify-between gap-2 text-[11px] text-[#1f3559] py-0.5">
                       <span className="whitespace-nowrap">{r.emoji} {r.label}</span>
@@ -345,6 +357,12 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
           </div>
           {avail && (
             <div className="text-[11px] text-[#34568a] space-y-0.5">
+              {avail.prime && (
+                <div>
+                  🔥 <span className="font-semibold">Thu–Sat (when people book):</span> {avail.prime.slots} open slots · ~{avail.prime.hours}h
+                  <span className="text-[#697a91]"> — Thu {avail.prime.thu.slots} (~{avail.prime.thu.hours}h) · Fri {avail.prime.fri.slots} (~{avail.prime.fri.hours}h) · Sat {avail.prime.sat.slots} (~{avail.prime.sat.hours}h)</span>
+                </div>
+              )}
               <div>📅 <span className="font-semibold">Next 2 weeks:</span> {avail.openSlots} open slots · ~{avail.openHours}h{avail.pctFree != null ? ` · ${avail.pctFree}% free` : ""}</div>
               {avail.lookBusy && (
                 avail.lookBusy.on ? (
