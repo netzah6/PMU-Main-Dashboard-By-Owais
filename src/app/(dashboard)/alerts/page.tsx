@@ -140,22 +140,25 @@ export default function AlertsPage() {
           <RefreshCw size={14} className={cn(loading && "animate-spin")} />
         </button>
       </div>
-      <p className="mt-1 text-xs text-[#8595a8]">
+      {/* Explainer stays off phones — it ate a whole line of scroll space. */}
+      <p className="mt-1 text-xs text-[#8595a8] hidden sm:block">
         Auto-checks every few minutes: bot-looking &quot;Reply STOP&quot; texts to leads, clients who sound like they want to leave, and Make.com automations that stopped running.
       </p>
 
+      {/* One compact dropdown instead of a row of filter chips. */}
       {types.length > 1 && (
-        <div className="mt-3 flex gap-1.5 flex-wrap">
-          {["all", ...types].map((t) => (
-            <button key={t} onClick={() => setFilter(t)}
-              className={cn(
-                "px-2.5 py-1 rounded-full text-xs font-semibold border",
-                filter === t ? "bg-[#15B7AE] text-white border-[#15B7AE]" : "bg-white text-[#34568a] border-[#d7e0ea]"
-              )}>
-              {t === "all" ? `All (${open.length})` : `${typeMeta(t).icon} ${typeMeta(t).label} (${open.filter((a) => a.type === t).length})`}
-            </button>
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="mt-2 sm:mt-3 w-full sm:w-auto text-sm border border-[#d7e0ea] rounded-lg px-3 py-1.5 bg-white text-[#34568a] font-semibold"
+        >
+          <option value="all">All alerts ({open.length})</option>
+          {types.map((t) => (
+            <option key={t} value={t}>
+              {typeMeta(t).icon} {typeMeta(t).label} ({open.filter((a) => a.type === t).length})
+            </option>
           ))}
-        </div>
+        </select>
       )}
 
       <div className="mt-3 space-y-2">
