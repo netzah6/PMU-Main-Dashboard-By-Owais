@@ -88,10 +88,35 @@ export async function GET(
       }
     }
 
+    // Demand side: Thu-Sat appointments booked in the last 30 days. Coverage =
+    // weekly open prime slots / weekly booked prime appts. Fleet analysis
+    // (2026-08-28): top earners sit at 1.5-2x; below 1.5x prime days sell out
+    // and leads who only want Thu-Sat see nothing; above ~2x extra hours add no
+    // deposits. shortHours = hours to ask the client to add to reach 1.5x.
+    let primeBooked30 = 0;
+    for (const cal of cals) {
+      const er = await fetch(`${BASE}/calendars/events?locationId=${acct.locationId}&calendarId=${cal.id}&startTime=${start - 30 * 86400000}&endTime=${start}`, { headers: H });
+      if (!er.ok) continue;
+      const evs = (((await er.json()).events ?? []) as Array<Record<string, unknown>>)
+        .filter((e) => !/cancel|no.?show|invalid/i.test(String(e.appointmentStatus ?? "")));
+      for (const e of evs) {
+        const dw = new Date(String(e.startTime)).getDay();
+        if (dw >= 4 && dw <= 6) primeBooked30++;
+      }
+    }
+
     openSlots = Math.round(openSlots);
     const hrs = (m: number) => Math.round((m / 60) * 10) / 10;
     const day = (d: number) => ({ slots: Math.round(primeByDow[d].slots), hours: hrs(primeByDow[d].minutes) });
     const prime = { thu: day(4), fri: day(5), sat: day(6) };
+    const primeSlotsTotal = prime.thu.slots + prime.fri.slots + prime.sat.slots;
+    const primeMinutesTotal = primeByDow[4].minutes + primeByDow[5].minutes + primeByDow[6].minutes;
+    const weeklyBooked = Math.round((primeBooked30 / 30) * 7 * 10) / 10;
+    const weeklyOpen = Math.round((primeSlotsTotal / DAYS) * 7 * 10) / 10;
+    const coverage = weeklyBooked > 0 ? Math.round((weeklyOpen / weeklyBooked) * 100) / 100 : null;
+    const avgSlotMin = primeSlotsTotal > 0 ? primeMinutesTotal / primeSlotsTotal : 30;
+    const shortSlots = weeklyBooked > 0 ? Math.max(0, weeklyBooked * 1.5 - weeklyOpen) : 0;
+    const shortHours = Math.round(((shortSlots * avgSlotMin) / 60) * 10) / 10;
     return NextResponse.json({
       available: true,
       openSlots,
@@ -99,8 +124,12 @@ export async function GET(
       pctFree: capacitySlots > 0 ? Math.round((openSlots / capacitySlots) * 100) : null,
       prime: {
         ...prime,
-        slots: prime.thu.slots + prime.fri.slots + prime.sat.slots,
+        slots: primeSlotsTotal,
         hours: Math.round((prime.thu.hours + prime.fri.hours + prime.sat.hours) * 10) / 10,
+        weeklyBooked,
+        weeklyOpen,
+        coverage,
+        shortHours,
       },
       lookBusy: { on: lookBusyOn, percentage: lookBusyPct },
     });
