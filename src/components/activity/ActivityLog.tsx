@@ -41,7 +41,11 @@ function prettyDate(iso: string) {
 
 // Per-client change/activity log. Keyed by `clientKey` so the same client's
 // history shows up in every tab that renders it (Performance, Cost/Deposit…).
-export function ActivityLog({ clientKey, clientLabel }: { clientKey: string; clientLabel?: string }) {
+// Routine payment-status notes ("payment failed", "all good") are data for the
+// Performance tab, not the Cost/Deposit analysis — hideRoutine filters them.
+const ROUTINE_NOTE = /payment\s*failed|all\s*good/i;
+
+export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey: string; clientLabel?: string; hideRoutine?: boolean }) {
   const [supabase] = useState(() => createClient());
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,7 +125,7 @@ export function ActivityLog({ clientKey, clientLabel }: { clientKey: string; cli
         <p className="text-xs text-[#8595a8] py-2">No changes logged yet. Add the first one above.</p>
       ) : (
         <ul className="divide-y divide-[#eef3f8] border border-[#eef3f8] rounded-lg overflow-hidden">
-          {entries.map((en) => (
+          {(hideRoutine ? entries.filter((en) => !ROUTINE_NOTE.test(en.note)) : entries).map((en) => (
             <li key={en.id} className="flex items-start gap-3 px-3 py-2 hover:bg-[#fafcfe]">
               <span className="mt-0.5 shrink-0 inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap">
                 {prettyDate(en.action_date)}
