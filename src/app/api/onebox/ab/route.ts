@@ -103,11 +103,18 @@ export async function GET(req: NextRequest) {
             return added >= startMs;
           });
           const ext = all.filter((e) => !e.id || !ourApptIds.has(e.id));
-          externalBooked = ext.length;
-          /* Emails of the externally-booked contacts, for the native-deposit
-             window check below (payment right after booking = the original
-             funnel's own flow; hours later = the AI's SMS recovery). */
-          await Promise.all(ext.slice(0, 40).map(async (e) => {
+          /* Only appointments whose CONTACT came through the original
+             funnel's survey count as its bookings. The calendar also
+             collects manual entries, AI text-thread bookings (for either
+             side's leads) and reschedules — which made "picked" exceed
+             "leads" on busy calendars and flattered the original side.
+             The source check mirrors the external-leads filter below;
+             an unfetchable contact stays uncounted (undercounting beats
+             crediting the funnel with someone else's booking). The same
+             filtered list drives the deposit-window check, so off-funnel
+             payers no longer count for either side there. */
+          let verifiedBooked = 0;
+          await Promise.all(ext.slice(0, 60).map(async (e) => {
             if (!e.contactId) return;
             try {
               const cr = await fetch(`https://services.leadconnectorhq.com/contacts/${e.contactId}`, {
@@ -115,11 +122,14 @@ export async function GET(req: NextRequest) {
                 signal: AbortSignal.timeout(10000),
               });
               if (!cr.ok) return;
-              const cj = (await cr.json()) as { contact?: { email?: string } };
+              const cj = (await cr.json()) as { contact?: { email?: string; source?: string } };
+              if (!String(cj.contact?.source ?? "").toLowerCase().includes("pmu survey")) return;
+              verifiedBooked++;
               const em = String(cj.contact?.email ?? "").trim().toLowerCase();
               if (em) externalAppts.push({ email: em, addedMs: e.dateAdded ? new Date(e.dateAdded).getTime() : startMs });
             } catch { /* skip this appointment */ }
           }));
+          externalBooked = verifiedBooked;
         }
       }
     } catch {
