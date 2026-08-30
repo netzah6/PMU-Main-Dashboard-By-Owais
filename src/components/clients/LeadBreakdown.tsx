@@ -444,29 +444,6 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
             {funnel.offerNoBook > 0 && (
               <p className="mt-1.5 text-[10px] text-[#8595a8]">🔥 {funnel.offerNoBook} more got an offer in chat but never booked a time.</p>
             )}
-            {(funnel.path.funnel.booked > 0 || funnel.path.ai.booked > 0) && (() => {
-              // Which path books better AND which converts its bookings to money.
-              const rows = [
-                { emoji: "📋", label: "Through the funnel", ...funnel.path.funnel },
-                { emoji: "🤖", label: "Through the AI chat", ...funnel.path.ai },
-              ].map((r) => ({ ...r, rate: r.booked > 0 ? Math.round((r.dep / r.booked) * 100) : null }));
-              const best = rows[0].rate != null && rows[1].rate != null && rows[0].rate !== rows[1].rate
-                ? (rows[0].rate > rows[1].rate ? 0 : 1) : -1;
-              return (
-                <div className="mt-2 pt-2 border-t border-[#eef3f8]">
-                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#34568a] mb-1">📅 Where the bookings come from <span className="font-medium normal-case text-[#697a91] tracking-normal">· all time</span></div>
-                  {rows.map((r, i) => (
-                    <div key={r.label} className="flex items-center justify-between gap-2 text-[11px] text-[#1f3559] py-0.5">
-                      <span className="whitespace-nowrap">{r.emoji} {r.label}</span>
-                      <span className="text-[#697a91] whitespace-nowrap">
-                        <strong className="text-[#1f3559]">{r.booked}</strong> booked · {r.dep} paid{r.rate != null ? ` (${r.rate}%)` : ""}
-                        {best === i && <span className="ml-1 px-1 py-0.5 rounded bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] text-[9px] font-bold">converts better</span>}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
           </div>
         );
       })()}
@@ -634,6 +611,30 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
             ) : (
               <p className="mt-1 text-[10px] text-[#8595a8]">No changes logged in this window — add them in the <strong>Activity &amp; Changes Log</strong> below and they&apos;ll show as 📌 pins on the timeline.</p>
             )}
+            {(funnel.path.funnel.booked > 0 || funnel.path.ai.booked > 0) && (() => {
+              // Which path books better AND which converts its bookings to
+              // money — lives under the timeline (user request 2026-08-30).
+              const rows = [
+                { emoji: "📋", label: "Through the funnel", ...funnel.path.funnel },
+                { emoji: "🤖", label: "Through the AI chat", ...funnel.path.ai },
+              ].map((r) => ({ ...r, rate: r.booked > 0 ? Math.round((r.dep / r.booked) * 100) : null }));
+              const best = rows[0].rate != null && rows[1].rate != null && rows[0].rate !== rows[1].rate
+                ? (rows[0].rate > rows[1].rate ? 0 : 1) : -1;
+              return (
+                <div className="mt-2 pt-2 border-t border-[#eef3f8]">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#34568a] mb-1">📅 Where the bookings come from <span className="font-medium normal-case text-[#697a91] tracking-normal">· all time</span></div>
+                  {rows.map((r, i) => (
+                    <div key={r.label} className="flex items-center justify-between gap-2 text-[11px] text-[#1f3559] py-0.5">
+                      <span className="whitespace-nowrap">{r.emoji} {r.label}</span>
+                      <span className="text-[#697a91] whitespace-nowrap">
+                        <strong className="text-[#1f3559]">{r.booked}</strong> booked · {r.dep} paid{r.rate != null ? ` (${r.rate}%)` : ""}
+                        {best === i && <span className="ml-1 px-1 py-0.5 rounded bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] text-[9px] font-bold">converts better</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
