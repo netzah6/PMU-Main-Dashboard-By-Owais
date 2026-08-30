@@ -164,7 +164,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     let cancelled = false;
     setChanges([]);
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 29);
+    cutoff.setDate(cutoff.getDate() - 59);
     supabase.from("client_activity").select("action_date,note,created_by_email")
       .eq("client_key", ownerKey)
       .gte("action_date", cutoff.toISOString().slice(0, 10))
@@ -321,7 +321,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     };
   }, [byDay, leads]);
 
-  // ── Conversion trend, last 30 days ──────────────────────────────────────────
+  // ── Conversion trend, last 60 days ──────────────────────────────────────────
   // Rolling 7-day rates per day (cohorted by lead creation date).
   // Booked% = booked / leads. Deposit% = deposits / BOOKED leads — of the
   // people who picked a time, how many paid. (As a share of all leads the
@@ -343,7 +343,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     // (rolling 7-day, cohorted by lead creation date) — the timeline exists to
     // show how each logged action moved THIS rate.
     const points: { date: string; n: number; conv: number | null }[] = [];
-    for (let i = 29; i >= 0; i--) {
+    for (let i = 59; i >= 0; i--) {
       let n = 0, dp = 0;
       for (let w = 0; w < 7; w++) {
         const d = byDate.get(dayISO(i + w));
@@ -480,7 +480,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         </div>
       )}
 
-      {/* Conversion timeline — rolling 7-day rates over the last 30 days,
+      {/* Conversion timeline — rolling 7-day rates over the last 60 days,
           with the Activity & Changes Log entries pinned at their dates. */}
       {trend.points.some((p) => p.n > 0) && (() => {
         const W = 292, H = 52, X0 = 4, Y0 = 16;
@@ -526,12 +526,12 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         return (
           <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">
-              📈 Conversion timeline <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 30 days · 📌 = logged change</span>
+              📈 Conversion timeline <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 60 days · 📌 = logged change</span>
             </div>
             <div className="mt-1 flex items-center gap-3 flex-wrap text-[11px]">
               <span><span className="inline-block w-2.5 h-[3px] rounded align-middle mr-1" style={{ background: "#15803d" }} />💰 Conv {convNow == null ? "—" : `${Math.round(convNow)}%`} <span className="text-[#8595a8]">leads → deposits (rolling 7-day)</span></span>
             </div>
-            <svg viewBox="0 0 300 84" className="w-full mt-1" role="img" aria-label="Lead-to-deposit conversion trend, last 30 days">
+            <svg viewBox="0 0 300 84" className="w-full mt-1" role="img" aria-label="Lead-to-deposit conversion trend, last 60 days">
               {[0, 0.5, 1].map((f) => (
                 <g key={f}>
                   <line x1={X0} x2={X0 + W} y1={Y0 + H - f * H} y2={Y0 + H - f * H} stroke="#eef3f8" strokeWidth={1} />
