@@ -222,7 +222,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     pool30.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; total++; if (l.price_signal) priceSignals++; });
     const out: { emoji: string; title: string; body: string; steps?: string[] }[] = [];
     if (total === 0) {
-      out.push({ emoji: "📉", title: "No new leads in 30 days", body: "Check the campaign is live, then consider increasing budget or broadening the audience." });
+      out.push({ emoji: "📉", title: "No new leads in 30 days", body: "Check the campaign is live; raise budget or broaden the audience." });
       return out;
     }
     const pct = (n: number) => Math.round((n / total) * 100);
@@ -233,25 +233,24 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     const activeNoOffer = c.ai_active_no_offer ?? 0;
     const confirmed = c.confirmed ?? 0;
 
-    if (pct(v3) >= 35) out.push({ emoji: "⚪", title: "Lots of leads aren't engaging", body: `${pct(v3)}% never started a conversation. Tighten the follow-up cadence and refresh the audience/creative — these signups are going cold.` });
-    if (pct(bookedNoDep) >= 25) out.push({ emoji: "📋", title: "Booking but not depositing", body: `${pct(bookedNoDep)}% picked a date/time but didn't pay the deposit — interested, not committing. Try:`, steps: [
-      "Improve the audience (tighter buyer-intent targeting)",
-      "Add trust factors — reviews, guarantee, credentials",
-      "Test the Instagram widget (add it, or remove if it distracts)",
-      "Refresh before/after photos and posted hours on the funnel",
-      "Try a different deposit amount",
-      "Update the offer and add urgency to claim it now",
+    if (pct(v3) >= 35) out.push({ emoji: "⚪", title: "Lots of leads aren't engaging", body: `${pct(v3)}% never replied. Refresh audience/creative + tighten follow-ups.` });
+    if (pct(bookedNoDep) >= 25) out.push({ emoji: "📋", title: "Booking but not depositing", body: `${pct(bookedNoDep)}% booked but didn't pay. Try:`, steps: [
+      "Tighter buyer-intent audience",
+      "Add reviews / trust factors",
+      "Fresh before-after photos",
+      "Different deposit amount",
+      "Add urgency to the offer",
     ] });
-    if (pct(offerNoBook) >= 25) out.push({ emoji: "🔥", title: "Offers aren't converting to bookings", body: `${pct(offerNoBook)}% got an offer but didn't book. Try:`, steps: [
+    if (pct(offerNoBook) >= 25) out.push({ emoji: "🔥", title: "Offers aren't converting to bookings", body: `${pct(offerNoBook)}% got an offer, didn't book. Try:`, steps: [
       "Update the offer or price",
-      "Add urgency / a deadline on the special offer",
+      "Add a deadline",
       "Check audience quality",
     ] });
-    if (priceSignals >= 3) out.push({ emoji: "💸", title: "Price may be too high", body: `${priceSignals} leads got the offer, then went quiet or pushed back on price (last 30 days). Test a lower deposit/price, or build more value before showing the price.` });
-    if (pct(aiOff) >= 20) out.push({ emoji: "🔴", title: "AI off and stalled", body: `${pct(aiOff)}% have AI off and went quiet. Re-enable AI or have the team follow up manually.` });
-    if (pct(activeNoOffer) >= 30) out.push({ emoji: "🟡", title: "Conversations stall before the offer", body: `${pct(activeNoOffer)}% are active but no offer yet — the AI may need to present the offer sooner.` });
-    if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 30 days. Consider increasing budget or broadening the audience.` });
-    if (pct(confirmed) >= 15) out.push({ emoji: "✅", title: "Healthy deposit rate", body: `${pct(confirmed)}% confirmed deposits — momentum is good. Consider scaling budget while it converts.` });
+    if (priceSignals >= 3) out.push({ emoji: "💸", title: "Price may be too high", body: `${priceSignals} leads went quiet at the price. Test a lower deposit, or build value before showing it.` });
+    if (pct(aiOff) >= 20) out.push({ emoji: "🔴", title: "AI off and stalled", body: `${pct(aiOff)}% have AI off and went quiet. Re-enable AI or follow up manually.` });
+    if (pct(activeNoOffer) >= 30) out.push({ emoji: "🟡", title: "Conversations stall before the offer", body: `${pct(activeNoOffer)}% chat but never see the offer — have the AI present it sooner.` });
+    if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 30 days — raise budget or broaden the audience.` });
+    if (pct(confirmed) >= 15) out.push({ emoji: "✅", title: "Healthy deposit rate", body: `${pct(confirmed)}% paid — consider scaling budget while it converts.` });
 
     // Thu-Sat coverage: the fleet's top earners keep prime-day open slots at
     // 1.5-2x their booked prime-day demand. Below 1.5x, Thu-Sat sells out and
@@ -262,7 +261,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       out.unshift({
         emoji: "📅",
         title: "Not enough Thu–Sat hours — ask the client to open more",
-        body: `They get ~${p.weeklyBooked} Thu–Sat appointments/week but only offer ~${p.weeklyOpen} open slots/week (${p.coverage}× coverage; healthy is 1.5–2×). Prime days are selling out. Ask them to add ~${p.shortHours && p.shortHours > 0 ? p.shortHours : 1}h of availability on Thursday/Friday/Saturday.`,
+        body: `~${p.weeklyBooked} Thu–Sat appts/week vs ~${p.weeklyOpen} open slots (${p.coverage}×; healthy 1.5–2×). Ask them to add ~${p.shortHours && p.shortHours > 0 ? p.shortHours : 1}h on Thu/Fri/Sat.`,
       });
     }
 
@@ -276,7 +275,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       out.unshift({
         emoji: "🗓️",
         title: "Calendar looks TOO available — turn on Look Busy",
-        body: `Leads see ~${Math.round(visPerDay)} open slots/day, which reads as "not in demand" (our top-11 data: calendars this open convert ~6.5% vs ~9.7% for tighter ones). Turn on Look Busy at 60–70% in this calendar's settings — real capacity stays, leads just see fewer times. Log it in the Activity Log to watch the conv% move.`,
+        body: `Leads see ~${Math.round(visPerDay)} open slots/day — reads as "not in demand" (converts ~6.5% vs ~9.7% for tighter calendars). Turn on Look Busy at 60–70% and log it.`,
       });
     }
 
@@ -285,11 +284,11 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     if (avail && avail.pctFree != null && avail.pctFree >= 50 && !tooAvailable) {
       const bookingish = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0) + (c.confirmed ?? 0);
       if (pct(bookingish) < 15) {
-        out.unshift({ emoji: "📅", title: "Calendar is wide open", body: `~${avail.openHours}h free (${avail.pctFree}% of capacity) over the next 2 weeks, but few leads are picking a time. Availability isn't the blocker — fix the funnel/offer so they choose a date.` });
+        out.unshift({ emoji: "📅", title: "Calendar is wide open", body: `~${avail.openHours}h free (${avail.pctFree}% of capacity) but few book. The blocker is the funnel/offer, not availability.` });
       }
     }
 
-    if (!out.length) out.push({ emoji: "👍", title: "Balanced funnel", body: "No single drop-off stands out in the last 30 days — keep the current follow-up and audience." });
+    if (!out.length) out.push({ emoji: "👍", title: "Balanced funnel", body: "No big leak in the last 30 days — keep the current setup." });
     return out.slice(0, 4);
   }, [pool30, avail]);
 
