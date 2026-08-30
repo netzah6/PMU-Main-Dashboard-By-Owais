@@ -172,7 +172,14 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       .eq("client_key", ownerKey)
       .gte("action_date", cutoff.toISOString().slice(0, 10))
       .order("action_date", { ascending: true })
-      .then(({ data }) => { if (!cancelled) setChanges((data as { action_date: string; note: string; created_by_email: string | null }[]) ?? []); });
+      .then(({ data }) => {
+        if (cancelled) return;
+        // Routine payment-status notes don't belong on the Cost/Deposit
+        // analysis (pins + action verdicts) — same filter as ActivityLog.
+        const rows = ((data as { action_date: string; note: string; created_by_email: string | null }[]) ?? [])
+          .filter((r) => !/payment\s*failed|all\s*good/i.test(r.note));
+        setChanges(rows);
+      });
     return () => { cancelled = true; };
   }, [supabase, ownerKey]);
 

@@ -463,7 +463,7 @@ export default function CostPerDepositPage() {
                             <h3 className="text-sm font-semibold text-[#1f3559] mb-2">V3 Leads &amp; Conversations</h3>
                             <LeadBreakdown ownerKey={(r.owner_name ?? "").toLowerCase().trim()} />
                           </div>
-                          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
+                          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} hideRoutine />
                         </div>
                       </td>
                     </tr>
@@ -601,7 +601,7 @@ function DepositCard({ r, open, ghl, showHealth, onToggle }: { r: Row; open: boo
             <h3 className="text-sm font-semibold text-[#1f3559] mb-2">V3 Leads &amp; Conversations</h3>
             <LeadBreakdown ownerKey={(r.owner_name ?? "").toLowerCase().trim()} />
           </div>
-          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
+          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} hideRoutine />
         </div>
       )}
     </div>
