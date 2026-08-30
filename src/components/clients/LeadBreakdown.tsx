@@ -198,15 +198,24 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     return m;
   }, [leads, days]);
 
-  // ── AI recommendation, from the last-14-day status mix ────────────────────────
+  // 30-day lead pool for the funnel + AI recommendation (the day-by-day list
+  // below stays at 14 days) — user request 2026-08-30.
+  const pool30 = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 29);
+    const iso = cutoff.toISOString().slice(0, 10);
+    return leads.filter((l) => (l.date_added ?? "").slice(0, 10) >= iso);
+  }, [leads]);
+
+  // ── AI recommendation, from the last-30-day status mix ────────────────────────
   const recommendations = useMemo(() => {
     const c: Record<string, number> = {};
     let total = 0;
     let priceSignals = 0;
-    byDay.forEach((arr) => arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; total++; if (l.price_signal) priceSignals++; }));
+    pool30.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; total++; if (l.price_signal) priceSignals++; });
     const out: { emoji: string; title: string; body: string; steps?: string[] }[] = [];
     if (total === 0) {
-      out.push({ emoji: "📉", title: "No new leads in 14 days", body: "Check the campaign is live, then consider increasing budget or broadening the audience." });
+      out.push({ emoji: "📉", title: "No new leads in 30 days", body: "Check the campaign is live, then consider increasing budget or broadening the audience." });
       return out;
     }
     const pct = (n: number) => Math.round((n / total) * 100);
@@ -231,10 +240,10 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       "Add urgency / a deadline on the special offer",
       "Check audience quality",
     ] });
-    if (priceSignals >= 3) out.push({ emoji: "💸", title: "Price may be too high", body: `${priceSignals} leads got the offer, then went quiet or pushed back on price (last 14 days). Test a lower deposit/price, or build more value before showing the price.` });
+    if (priceSignals >= 3) out.push({ emoji: "💸", title: "Price may be too high", body: `${priceSignals} leads got the offer, then went quiet or pushed back on price (last 30 days). Test a lower deposit/price, or build more value before showing the price.` });
     if (pct(aiOff) >= 20) out.push({ emoji: "🔴", title: "AI off and stalled", body: `${pct(aiOff)}% have AI off and went quiet. Re-enable AI or have the team follow up manually.` });
     if (pct(activeNoOffer) >= 30) out.push({ emoji: "🟡", title: "Conversations stall before the offer", body: `${pct(activeNoOffer)}% are active but no offer yet — the AI may need to present the offer sooner.` });
-    if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 14 days. Consider increasing budget or broadening the audience.` });
+    if (total < 7) out.push({ emoji: "📉", title: "Low lead volume", body: `Only ${total} leads in 30 days. Consider increasing budget or broadening the audience.` });
     if (pct(confirmed) >= 15) out.push({ emoji: "✅", title: "Healthy deposit rate", body: `${pct(confirmed)}% confirmed deposits — momentum is good. Consider scaling budget while it converts.` });
 
     // Thu-Sat coverage: the fleet's top earners keep prime-day open slots at
@@ -273,11 +282,11 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       }
     }
 
-    if (!out.length) out.push({ emoji: "👍", title: "Balanced funnel", body: "No single drop-off stands out in the last 14 days — keep the current follow-up and audience." });
+    if (!out.length) out.push({ emoji: "👍", title: "Balanced funnel", body: "No single drop-off stands out in the last 30 days — keep the current follow-up and audience." });
     return out.slice(0, 4);
-  }, [byDay, avail]);
+  }, [pool30, avail]);
 
-  // ── Funnel stages, last 14 days (each stage = reached at least this far) ────
+  // ── Funnel stages, last 30 days (each stage = reached at least this far) ────
   const funnel = useMemo(() => {
     const c: Record<string, number> = {};
     let total = 0;
@@ -298,13 +307,13 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         if (l.fanbasis) p.dep++;
       }
     });
-    // Tag combos for the two funnels (last 14 days):
+    // Tag combos for the two funnels (last 30 days):
     //   A (booking path):  leads → chose a date & time → paid deposit
     //   B (chat path):     didn't pay right away → engaged → got offer → paid
     // "Paid right away" = fanbasis with NO chat offer (straight through the
     // funnel); everyone else is chat-pipeline territory.
     let bookedAll = 0, paidBooked = 0, paidNoOffer = 0, offerMade = 0, paidViaChat = 0, engagedChat = 0;
-    byDay.forEach((arr) => arr.forEach((l) => {
+    pool30.forEach((l) => {
       c[l.status] = (c[l.status] ?? 0) + 1; total++;
       if (l.booked) bookedAll++;
       if (l.fanbasis && l.booked) paidBooked++;
@@ -312,7 +321,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       if (l.offer_made) offerMade++;
       if (l.offer_made && l.fanbasis) paidViaChat++;
       if (l.status !== "v3_only" && !(l.fanbasis && !l.offer_made)) engagedChat++;
-    }));
+    });
     const engaged = total - (c.v3_only ?? 0);
     const booked = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0) + (c.confirmed ?? 0);
     const deposit = c.confirmed ?? 0;
@@ -322,7 +331,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       bookedAll, paidBooked, offerMade, paidViaChat, engagedChat,
       noDeposit: total - paidNoOffer,
     };
-  }, [byDay, leads]);
+  }, [pool30, leads]);
 
   // ── Conversion trend, last 60 days ──────────────────────────────────────────
   // Rolling 7-day rates per day (cohorted by lead creation date).
@@ -357,6 +366,28 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     return { points };
   }, [leads]);
 
+  // Did each logged action HELP? conv% at the change vs ~a week later, with a
+  // keep / reverse / wait verdict — shown inside the AI Recommendation box
+  // (user request 2026-08-30).
+  const actionImpacts = useMemo(() => {
+    if (!changes.length) return [] as { date: string; note: string; at: number; after: number; delta: number }[];
+    const idxOf = new Map(trend.points.map((p, i) => [p.date, i]));
+    const out: { date: string; note: string; at: number; after: number; delta: number }[] = [];
+    for (const c of changes) {
+      const idx = idxOf.get(c.action_date);
+      if (idx == null) continue;
+      const at = trend.points[idx]?.conv;
+      let after: number | null = null;
+      for (let i = Math.min(idx + 7, trend.points.length - 1); i > idx; i--) {
+        const v = trend.points[i]?.conv;
+        if (v != null) { after = v; break; }
+      }
+      if (at == null || after == null) continue;
+      out.push({ date: c.action_date, note: c.note, at, after, delta: Math.round(after) - Math.round(at) });
+    }
+    return out;
+  }, [changes, trend]);
+
   const emojiSummary = (arr: Lead[]) => {
     const c: Record<string, number> = {};
     arr.forEach((l) => { c[l.status] = (c[l.status] ?? 0) + 1; });
@@ -376,12 +407,12 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 md:items-start">
       {/* Funnel + AI recommendation (right on desktop) */}
       {/* On wide screens the three analysis boxes sit side by side */}
-      <div className="min-w-0 md:order-2 space-y-2 xl:col-span-3 xl:grid xl:grid-cols-3 xl:gap-3 xl:items-start xl:space-y-0">
+      <div className="min-w-0 md:order-2 flex flex-col gap-2 xl:col-span-3 xl:grid xl:grid-cols-3 xl:gap-3 xl:items-start">
       {funnel.total > 0 && (() => {
         return (
-          <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
+          <div className="order-2 rounded-lg border border-[#e4ebf2] bg-white p-2.5">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-2">
-              🪜 Lead funnels <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 14 days</span>
+              🪜 Lead funnels <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 30 days</span>
             </div>
             <div className="space-y-3">
               {/* Funnel 1 — the direct booking path */}
@@ -434,9 +465,9 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         );
       })()}
       {recommendations.length > 0 && (
-        <div className="rounded-lg border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-2.5 space-y-2">
+        <div className="order-3 rounded-lg border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-2.5 space-y-2">
           <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#0e8f88]">
-            <Sparkles size={12} /> AI Recommendation <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 14 days</span>
+            <Sparkles size={12} /> AI Recommendation <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 30 days</span>
           </div>
           {avail && (
             <div className="text-[11px] text-[#34568a] space-y-0.5">
@@ -480,6 +511,27 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
               </div>
             </div>
           ))}
+          {actionImpacts.length > 0 && (
+            <div className="pt-2 border-t border-[#d6ece9]">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-[#0e8f88] mb-1">📌 Did your actions work?</div>
+              <ul className="space-y-1">
+                {actionImpacts.map((a) => {
+                  const d = new Date(a.date + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                  const verdict = a.delta >= 2
+                    ? { t: "✓ working — keep it", c: "text-[#15803d]" }
+                    : a.delta <= -2
+                      ? { t: "✗ conv dropped — consider reversing", c: "text-[#e11d48]" }
+                      : { t: "≈ no clear effect yet — give it a few more days", c: "text-[#8595a8]" };
+                  return (
+                    <li key={a.date + a.note} className="text-[11px] leading-snug text-[#56678a]">
+                      <strong className="text-[#1f3559]">{d}</strong> — {a.note}: conv {Math.round(a.at)}% → {Math.round(a.after)}%{" "}
+                      <span className={`font-semibold ${verdict.c}`}>{verdict.t}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -527,7 +579,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         };
         const fmtD = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
         return (
-          <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
+          <div className="order-1 rounded-lg border border-[#e4ebf2] bg-white p-2.5">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">
               📈 Conversion timeline <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 60 days · 📌 = logged change</span>
             </div>

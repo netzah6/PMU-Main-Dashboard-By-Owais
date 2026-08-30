@@ -522,7 +522,7 @@ function EmojiLegend() {
         { e: "⚠", t: "Biggest leak — the step losing the most leads" },
         { e: "📋/🤖", t: "Where bookings come from: funnel vs AI chat" },
         { e: "📌", t: "Timeline pin = a logged change, with conv% before → after" },
-        { e: "✨", t: "AI recommendation based on the last 14 days" },
+        { e: "✨", t: "AI recommendation based on the last 30 days (📌 shows if your logged actions worked)" },
       ],
     },
   ];
