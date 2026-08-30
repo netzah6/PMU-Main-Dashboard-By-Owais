@@ -90,19 +90,22 @@ function FunnelViz({ title, stages }: { title: string; stages: FunnelStage[] }) 
                 {i === leakIdx && lost > 0 && <span className="px-1.5 py-0.5 rounded bg-[#fde8ee] border border-[#f5c2cf] leading-none">⚠ biggest leak</span>}
               </div>
             )}
+            {/* Label sits ABOVE the shape so the trapezoid can never clip it
+                (narrow segments were cutting the text off). */}
+            <div className="flex items-center justify-between gap-2 text-[11px] leading-tight mb-0.5"
+              title={`${s.label}: ${s.n} (${pct(s.n, base)}% of ${stages[0].label.toLowerCase()})`}>
+              <span className="font-semibold text-[#1f3559] whitespace-nowrap">{s.emoji} {s.label}</span>
+              <span className="font-bold whitespace-nowrap" style={{ color: s.color }}>{s.n} · {pct(s.n, base)}%</span>
+            </div>
             <div
-              className="mx-auto flex items-center justify-center gap-1.5 text-white"
+              className="mx-auto"
               style={{
-                height: 34,
+                height: 22,
                 width: "100%",
                 background: s.color,
                 clipPath: `polygon(${(100 - topW) / 2}% 0, ${(100 + topW) / 2}% 0, ${(100 + botW) / 2}% 100%, ${(100 - botW) / 2}% 100%)`,
               }}
-              title={`${s.label}: ${s.n} (${pct(s.n, base)}% of ${stages[0].label.toLowerCase()})`}
-            >
-              <span className="text-[11px] font-semibold whitespace-nowrap drop-shadow-sm">{s.emoji} {s.label}</span>
-              <span className="text-[11px] font-bold whitespace-nowrap drop-shadow-sm">{s.n} · {pct(s.n, base)}%</span>
-            </div>
+            />
           </div>
         );
       })}
