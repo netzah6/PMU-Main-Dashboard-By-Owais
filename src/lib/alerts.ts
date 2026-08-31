@@ -338,6 +338,9 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
   for (const e of events) {
     const start = String(e.startTime ?? "");
     if (!start || new Date(start).getTime() > now) continue;
+    // Only recent launches (21 days): an old call belongs to a client who
+    // already launched and later paused/offboarded — not an onboarding case.
+    if (now - new Date(start).getTime() > 21 * 86400_000) continue;
     const bd = businessDaysSince(start);
     if (bd < 3) continue;
     const contactId = String(e.contactId ?? "");
@@ -353,9 +356,21 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
         if (full) cname = full;
       }
     } catch { /* fall back to the event title */ }
-    const match = clients.find((c) => nameMatches(c.owner, cname));
-    const isLive = match ? match.status === "live" : false;
-    if (isLive) continue;
+    // Match by 2-token overlap first; fall back to a UNIQUE long-token match
+    // (handles GHL-vs-sheet name drift like "Henry Nordenflycht" vs
+    // "Henry Von Norden").
+    let match = clients.find((c) => nameMatches(c.owner, cname));
+    if (!match) {
+      const toks = nameNorm(cname).split(" ").filter((t) => t.length >= 4);
+      for (const t of toks) {
+        const hits = clients.filter((c) => nameNorm(c.owner).split(" ").includes(t));
+        if (hits.length === 1) { match = hits[0]; break; }
+      }
+    }
+    // Any non-blank status (live/paused/offboarded/lost) means the account
+    // was set up at some point — only blank/"onboarding" is truly stuck.
+    const stuck = !match || match.status === "" || match.status === "onboarding";
+    if (!stuck) continue;
     const ok = await fileAlert(svc, {
       type: "onboarding",
       title: `${cname}: not LIVE ${bd} business days after the launch call`,
