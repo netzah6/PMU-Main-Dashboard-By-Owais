@@ -316,7 +316,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
 
   // Launch-call events: past 45d (for overdue checks) + next 60d (scheduled).
   const evR = await fetch(
-    `${GHL}/calendars/events?locationId=${MAIN_LOC}&calendarId=${LAUNCH_CAL_ID}&startTime=${now - 45 * 86400_000}&endTime=${now + 60 * 86400_000}`,
+    `${GHL}/calendars/events?locationId=${MAIN_LOC}&calendarId=${LAUNCH_CAL_ID}&startTime=${now - 90 * 86400_000}&endTime=${now + 60 * 86400_000}`,
     { headers: ghlHeaders(tok, "2021-04-15") }
   );
   const events = evR.ok
@@ -385,12 +385,13 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     const entered = String(o.lastStageChangeAt ?? o.updatedAt ?? "");
     if (!entered) continue;
     const daysIn = (now - new Date(entered).getTime()) / 86400_000;
-    // Only recent entries: >7d overdue but <60d old (older ones predate the
-    // event window and would false-positive).
-    if (daysIn < 7 || daysIn > 60) continue;
+    // Only entries the 90-day event window fully covers: >7d overdue but
+    // <45d old (older entries' launch calls can predate the window).
+    if (daysIn < 7 || daysIn > 45) continue;
     const contactId = String(o.contactId ?? (o.contact as Record<string, unknown> | undefined)?.id ?? "");
     if (contactId && eventContactIds.has(contactId)) continue;
     const oname = String(o.name ?? (o.contact as Record<string, unknown> | undefined)?.name ?? "unknown");
+    if (/test/i.test(oname)) continue; // internal test contacts
     // Name-level fallback (launch call sometimes booked under a second contact record).
     const byName = events.some((e) => nameMatches(String(e.title ?? ""), oname));
     if (byName) continue;
