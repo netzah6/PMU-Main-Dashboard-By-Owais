@@ -22,11 +22,12 @@ interface ClientProfileProps {
 }
 
 // Selectable client statuses (written back to the sheet's col_1).
-const STATUS_OPTIONS = ["Live", "Paused", "Offboarded", "Lost"];
+const STATUS_OPTIONS = ["Onboarding", "Live", "Paused", "Offboarded", "Lost"];
 const VERSION_OPTIONS = ["(V3)", "(V2.3)", "(V1)", "Not Interested"];
 const TEAM_OPTIONS = ["Francisco", "Stephanie", "Nicolas", "Dana", "Marie"];
 function statusColors(s: string): { bg: string; color: string; border: string } {
   const u = s.toLowerCase();
+  if (u === "onboarding") return { bg: "#e8f0fe", color: "#1d4ed8", border: "#bfdbfe" };
   if (u === "live") return { bg: "#e6f7ee", color: "#15803d", border: "#86efac" };
   if (u === "paused") return { bg: "#fff7ec", color: "#d97706", border: "#fcd9a8" };
   if (u === "lost") return { bg: "#fde8ee", color: "#e11d48", border: "#f5c2cf" };

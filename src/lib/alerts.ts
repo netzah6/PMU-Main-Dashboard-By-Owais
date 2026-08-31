@@ -33,7 +33,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -270,4 +270,140 @@ export async function scanMakeScenarios(svc: Svc): Promise<{ checked: number; fi
     if (ok) filed++;
   }
   return { checked: scenarios.length, filed };
+}
+
+// ── Onboarding pipeline alerts (main sub-account) ───────────────────────────
+// 1. onboarding_overdue: launch call happened 3+ BUSINESS days ago and the
+//    client still isn't Live in Clients Master.
+// 2. launch_call_missing: moved into 🎉 Closed Paying Client / 🧾 Pay Per
+//    Appointment 7+ days ago with NO launch call on the 🚀 Launch Call
+//    calendar (past or future).
+const MAIN_LOC = "SfpNMJ5YU9lBkxss47lK";
+const LAUNCH_CAL_ID = "cxvzMMBnJvcp0LK6CYsy";
+const SALES_PIPELINE_ID = "YA9eFBz6BVKNN8381dbx";
+const STAGE_CLOSED_PAYING = "7b9d4113-8bbb-4394-a736-024dea2c11bb";
+const STAGE_PAY_PER_APPT = "867aa647-7ce0-48e1-90a9-c7d3674544c5";
+
+const nameNorm = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+function nameMatches(a: string, b: string): boolean {
+  const at = nameNorm(a).split(" ").filter((t) => t.length >= 2);
+  const bt = nameNorm(b).split(" ").filter((t) => t.length >= 2);
+  if (!at.length || !bt.length) return false;
+  const [small, big] = at.length <= bt.length ? [at, bt] : [bt, at];
+  const hits = small.filter((t) => big.includes(t)).length;
+  return hits >= Math.min(2, small.length);
+}
+function businessDaysSince(iso: string): number {
+  let n = 0;
+  const cur = new Date(iso);
+  const now = new Date();
+  while (cur < now) {
+    cur.setDate(cur.getDate() + 1);
+    const w = cur.getDay();
+    if (w !== 0 && w !== 6) n++;
+  }
+  return n;
+}
+
+const GHL = "https://services.leadconnectorhq.com";
+const ghlHeaders = (token: string, v: string) => ({ Authorization: `Bearer ${token}`, Version: v, Accept: "application/json" });
+
+export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: number; missingCall: number; error?: string }> {
+  const app = await getAppLocationToken(MAIN_LOC);
+  if (!app.token) return { overdue: 0, missingCall: 0, error: `main token: ${app.error}` };
+  const tok = app.token;
+  const now = Date.now();
+
+  // Launch-call events: past 45d (for overdue checks) + next 60d (scheduled).
+  const evR = await fetch(
+    `${GHL}/calendars/events?locationId=${MAIN_LOC}&calendarId=${LAUNCH_CAL_ID}&startTime=${now - 45 * 86400_000}&endTime=${now + 60 * 86400_000}`,
+    { headers: ghlHeaders(tok, "2021-04-15") }
+  );
+  const events = evR.ok
+    ? (((await evR.json()).events ?? []) as Array<Record<string, unknown>>).filter(
+        (e) => !/cancel/i.test(String(e.appointmentStatus ?? ""))
+      )
+    : [];
+
+  // Clients Master snapshot (owner -> status), for the "is it Live yet" check.
+  const { data: cm } = await svc.from("clients_master").select("data");
+  const clients = ((cm ?? []) as Array<{ data: Record<string, unknown> }>).map((r) => ({
+    owner: String(r.data?.["Owner Full Name"] ?? "").trim(),
+    status: String(r.data?.["col_1"] ?? "").trim().toLowerCase(),
+  })).filter((c) => c.owner);
+
+  // 1. Overdue onboarding: confirmed launch call 3+ business days past, client not Live.
+  let overdue = 0;
+  const seenContacts = new Set<string>();
+  for (const e of events) {
+    const start = String(e.startTime ?? "");
+    if (!start || new Date(start).getTime() > now) continue;
+    const bd = businessDaysSince(start);
+    if (bd < 3) continue;
+    const contactId = String(e.contactId ?? "");
+    if (!contactId || seenContacts.has(contactId)) continue;
+    seenContacts.add(contactId);
+    // Resolve the contact's name for the clients-master match.
+    let cname = String(e.title ?? "").replace(/launch call( with)?( -)?/i, "").trim();
+    try {
+      const cr = await fetch(`${GHL}/contacts/${contactId}`, { headers: ghlHeaders(tok, "2021-07-28") });
+      if (cr.ok) {
+        const cj = (await cr.json()) as { contact?: { firstName?: string; lastName?: string } };
+        const full = `${cj.contact?.firstName ?? ""} ${cj.contact?.lastName ?? ""}`.trim();
+        if (full) cname = full;
+      }
+    } catch { /* fall back to the event title */ }
+    const match = clients.find((c) => nameMatches(c.owner, cname));
+    const isLive = match ? match.status === "live" : false;
+    if (isLive) continue;
+    const ok = await fileAlert(svc, {
+      type: "onboarding",
+      title: `${cname}: not LIVE ${bd} business days after the launch call`,
+      detail: `Launch call was ${start.slice(0, 10)}. The 3-business-day launch window has passed and Clients Master ${match ? `still shows status "${match.status || "(blank)"}"` : "has no row for them"}. Get the account live or update the status.`,
+      source_key: `launch-overdue:${contactId}`,
+      meta: { contact_id: contactId, contact_name: cname, launch_call: start, clients_master_status: match?.status ?? null },
+      resurfaceAfterDays: 3, // nags every few days until they're Live
+    });
+    if (ok) overdue++;
+  }
+
+  // 2. Missing launch call: 7+ days in Closed Paying Client / Pay Per Appointment, no launch call at all.
+  let missingCall = 0;
+  const eventContactIds = new Set(events.map((e) => String(e.contactId ?? "")));
+  let page: string | null = `${GHL}/opportunities/search?location_id=${MAIN_LOC}&pipeline_id=${SALES_PIPELINE_ID}&limit=100`;
+  const opps: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < 5 && page; i++) {
+    const r = await fetch(page, { headers: ghlHeaders(tok, "2021-07-28") });
+    if (!r.ok) break;
+    const j = (await r.json()) as { opportunities?: Array<Record<string, unknown>>; meta?: { nextPageUrl?: string } };
+    opps.push(...(j.opportunities ?? []));
+    page = j.meta?.nextPageUrl ?? null;
+  }
+  for (const o of opps) {
+    const stageId = String(o.pipelineStageId ?? "");
+    if (stageId !== STAGE_CLOSED_PAYING && stageId !== STAGE_PAY_PER_APPT) continue;
+    const entered = String(o.lastStageChangeAt ?? o.updatedAt ?? "");
+    if (!entered) continue;
+    const daysIn = (now - new Date(entered).getTime()) / 86400_000;
+    // Only recent entries: >7d overdue but <60d old (older ones predate the
+    // event window and would false-positive).
+    if (daysIn < 7 || daysIn > 60) continue;
+    const contactId = String(o.contactId ?? (o.contact as Record<string, unknown> | undefined)?.id ?? "");
+    if (contactId && eventContactIds.has(contactId)) continue;
+    const oname = String(o.name ?? (o.contact as Record<string, unknown> | undefined)?.name ?? "unknown");
+    // Name-level fallback (launch call sometimes booked under a second contact record).
+    const byName = events.some((e) => nameMatches(String(e.title ?? ""), oname));
+    if (byName) continue;
+    const stageName = stageId === STAGE_CLOSED_PAYING ? "🎉 Closed Paying Client" : "🧾 Pay Per Appointment";
+    const ok = await fileAlert(svc, {
+      type: "onboarding",
+      title: `${oname}: no launch call ${Math.floor(daysIn)} days after moving to ${stageName}`,
+      detail: `They entered "${stageName}" on ${entered.slice(0, 10)} and there is NO 🚀 Launch Call booked for them (past or upcoming). Get their launch call scheduled.`,
+      source_key: `launch-missing:${contactId || oname}`,
+      meta: { contact_id: contactId, contact_name: oname, stage: stageName, entered },
+      resurfaceAfterDays: 7,
+    });
+    if (ok) missingCall++;
+  }
+  return { overdue, missingCall };
 }
