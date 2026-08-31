@@ -131,7 +131,13 @@ function ExpandText({ value }: { value: string | null }) {
   );
 }
 
-const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
+const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Sched", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
+
+/* One row per sub-account where the Meta "Schedule" event was installed on
+   the funnel's deposit page — written by the rollout, read here so the team
+   can see at a glance which accounts have the conversion (and whether the
+   rest of that funnel's tracking is healthy enough for it to matter). */
+type SchedFlag = { owner_name: string; schedule_installed_at: string | null; lead_status: string | null; notes: string | null };
 
 type Issue = {
   fingerprint: string; kind: string; who: string; detail: string;
@@ -218,18 +224,25 @@ export default function CostPerDepositPage() {
   // everyone; a Map means we know exactly who has GHL data and whether their
   // leads carry the (v3) tag.
   const [ghlStatus, setGhlStatus] = useState<Map<string, "ok" | "untagged"> | null>(null);
+  const [schedFlags, setSchedFlags] = useState<Map<string, SchedFlag> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
     (async () => {
       // booking_stats is a tiny pre-aggregated view (one row per GHL owner) —
       // much cheaper than scanning ghl_lead_status for the "No GHL" flags.
-      const [ovRes, bkRes] = await Promise.all([
+      const [ovRes, bkRes, sfRes] = await Promise.all([
         supabase.from("deposit_overview").select("*"),
         supabase.from("booking_stats").select("owner_key, leads_total, contacts_total"),
+        supabase.from("funnel_tracking_flags").select("owner_name, schedule_installed_at, lead_status, notes"),
       ]);
       if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
       setRows(((ovRes.data as Row[]) ?? []));
+      if (!sfRes.error && sfRes.data) {
+        const m = new Map<string, SchedFlag>();
+        for (const f of sfRes.data as SchedFlag[]) m.set(f.owner_name.toLowerCase().trim(), f);
+        setSchedFlags(m);
+      }
       // leads_total > 0 → (v3)-tagged leads flowing ("ok"); contacts but zero
       // tagged leads → the (v3) tag workflow is broken in that sub-account
       // ("untagged"). Absent from the map entirely → no GHL data at all.
@@ -379,7 +392,7 @@ export default function CostPerDepositPage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 8 || idx === 12 || idx === 14 || idx === 18 || idx === 21 || idx === 24; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7
+                  const divider = idx === 9 || idx === 13 || idx === 15 || idx === 19 || idx === 22 || idx === 25; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7 (all +1 for the Sched column)
                   return (
                     <th key={h} className={cn("sticky top-0 px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
                       idx === 0 || idx === 1 ? "z-30" : "z-20", divider && "border-r-2 border-[#9fb0c4]")}
@@ -431,6 +444,22 @@ export default function CostPerDepositPage() {
                     <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
                     <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
                     <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
+                    <td className="px-3 py-1 text-center">
+                      {(() => {
+                        const f = schedFlags?.get((r.owner_name ?? "").toLowerCase().trim());
+                        if (!f || !f.schedule_installed_at) return <span className="text-[#c3cdd9]">—</span>;
+                        /* Installed everywhere it was rolled out; amber when the
+                           funnel can't actually fire it (no pixel / traffic on
+                           the old V1 funnel) so a ✓ never lies. */
+                        const cantFire = f.lead_status === "no-pixel" || f.lead_status === "v1-funnel";
+                        return (
+                          <span className={cn("font-bold text-[13px] cursor-default", cantFire ? "text-[#d97706]" : "text-[#15803d]")}
+                            title={`Schedule event installed ${new Date(f.schedule_installed_at).toLocaleDateString()}${f.notes ? ` — ${f.notes}` : ""}`}>
+                            {cantFire ? "⚠" : "✓"}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td className="px-3 py-1 whitespace-nowrap text-[#8595a8] line-through">{r.original_price || "—"}</td>
                     <td className="px-3 py-1 font-semibold text-[#0e8f88]"><ExpandText value={r.discounted_price} /></td>
                     <td className="px-3 py-1 max-w-[130px] truncate text-[#34568a]" title={r.current_offer ?? ""}>{r.current_offer || <span className="text-[#a6b3c4]">—</span>}</td>
