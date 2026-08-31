@@ -231,13 +231,17 @@ export async function GET(req: NextRequest) {
   }
   const reviewed = summary.showed + summary.noShowMarked;
   summary.showRate = reviewed > 0 ? Math.round((summary.showed / reviewed) * 100) : null;
-  // Ready-to-review first, then upcoming, then the rest; charged/excluded sink
-  // to the bottom. Newest deposit within a group.
-  const rank: Record<string, number> = { served: 0, self_booked: 0, calendar_booked: 0, past_due: 1, upcoming: 2, no_appt: 3, noshow: 4 };
-  const order = (a: (typeof appointments)[number]) => (a.charged ? 9 : a.excluded || a.refunded ? 8 : (rank[a.chargeStatus] ?? 5));
+  // Chronological by appointment date (user request: "organize by the Appt
+  // date column") — oldest first so past sessions read top-down into future
+  // bookings; rows with no appointment sink to the bottom (newest deposit
+  // first among those).
+  const apptTime = (a: (typeof appointments)[number]) => {
+    const t = a.appointmentDate ? new Date(a.appointmentDate).getTime() : NaN;
+    return isNaN(t) ? Number.POSITIVE_INFINITY : t;
+  };
   appointments.sort((a, b) => {
-    const ca = order(a), cb = order(b);
-    if (ca !== cb) return ca - cb;
+    const ta = apptTime(a), tb = apptTime(b);
+    if (ta !== tb) return ta - tb;
     return String(b.depositDate ?? "").localeCompare(String(a.depositDate ?? ""));
   });
 
