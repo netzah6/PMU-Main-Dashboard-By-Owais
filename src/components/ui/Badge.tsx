@@ -20,7 +20,7 @@ export function statusVariant(status: string | undefined): Variant {
   if (s === "live" || s === "active") return "green";
   if (s === "paused") return "yellow";
   if (s === "lost" || s === "inactive" || s === "unsettled") return "red";
-  if (s === "pending") return "blue";
+  if (s === "pending" || s === "onboarding") return "blue";
   return "gray";
 }
 

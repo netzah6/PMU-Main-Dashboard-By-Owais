@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { scanComplianceSynced, scanComplianceDeep, scanMakeScenarios } from "@/lib/alerts";
+import { scanComplianceSynced, scanComplianceDeep, scanMakeScenarios, scanOnboardingPipeline } from "@/lib/alerts";
 
 export const maxDuration = 300;
 
@@ -13,10 +13,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const svc = createServiceClient();
-  const [synced, deep, make] = [
+  const [synced, deep, make, onboarding] = [
     await scanComplianceSynced(svc).catch((e) => ({ error: String(e) })),
     await scanComplianceDeep(svc).catch((e) => ({ error: String(e) })),
     await scanMakeScenarios(svc).catch((e) => ({ error: String(e) })),
+    await scanOnboardingPipeline(svc).catch((e) => ({ error: String(e) })),
   ];
-  return NextResponse.json({ timestamp: new Date().toISOString(), synced, deep, make });
+  return NextResponse.json({ timestamp: new Date().toISOString(), synced, deep, make, onboarding });
 }

@@ -13,6 +13,7 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   compliance_text: { label: "Bot-looking texts", icon: "🤖", chip: "bg-rose-50 text-rose-700 border-rose-200" },
   upset_client: { label: "Upset client", icon: "🔥", chip: "bg-orange-50 text-orange-700 border-orange-200" },
   make_scenario: { label: "Make.com automation", icon: "⚙️", chip: "bg-amber-50 text-amber-800 border-amber-200" },
+  onboarding: { label: "Onboarding", icon: "🚀", chip: "bg-blue-50 text-blue-700 border-blue-200" },
 };
 
 function typeMeta(t: string) {
