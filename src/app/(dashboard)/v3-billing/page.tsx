@@ -234,7 +234,20 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                       <span className={cn("font-semibold", a.excluded ? "text-[#94a3b8]" : "text-[#0e8f88]")}>{a.amount ? (a.amount.startsWith("$") ? a.amount : "$" + a.amount) : "—"}</span>
                       <div className="text-[10px] text-[#a6b3c4]">{fmtDate(a.depositDate)}</div>
                     </td>
-                    <td className="px-2.5 py-1.5 text-[#697a91] whitespace-nowrap">{fmtDate(a.appointmentDate)}</td>
+                    {/* The date is the lead's LATEST appointment. A served
+                        lead with a FUTURE date means: the session already
+                        happened (stage = Session Done) and this is her next
+                        booking — usually the touch-up. Label it so a future
+                        date next to "Served" doesn't read as a bug. */}
+                    <td className="px-2.5 py-1.5 text-[#697a91] whitespace-nowrap">
+                      {fmtDate(a.appointmentDate)}
+                      {a.chargeStatus === "served" && a.appointmentDate && new Date(a.appointmentDate).getTime() > Date.now() && (
+                        <span className="ml-1 px-1 py-0.5 rounded text-[9px] font-semibold bg-[#eef4ff] text-[#3b6fd4] border border-[#c9dbfb]"
+                          title='"Served" comes from the Session Done stage — the billed session already happened on an earlier appointment. This future date is the lead&apos;s NEXT booking (usually the touch-up).'>
+                          next appt
+                        </span>
+                      )}
+                    </td>
                     <td className="px-2.5 py-1.5 whitespace-nowrap">
                       {a.currentStage ? <span className="text-[#697a91]">{a.currentStage}</span> : <span className="text-[10px] text-[#b9c3d0]">no lead match</span>}
                     </td>
