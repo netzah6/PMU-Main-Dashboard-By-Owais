@@ -84,7 +84,14 @@ export default function SettingsPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
-      toast.success(`Password-reset email sent to ${email}`);
+      // The API returns a one-time reset LINK (works on any device). Copy it
+      // for the admin to send directly — emailed PKCE links broke cross-device.
+      try {
+        await navigator.clipboard.writeText(json.link);
+        toast.success(`Reset link for ${email} copied — paste it to them (valid 24h, one use).`, { duration: 9000 });
+      } catch {
+        window.prompt(`Copy this reset link and send it to ${email} (valid 24h, one use):`, json.link);
+      }
     } catch (err) {
       toast.error(String(err).replace("Error: ", ""));
     } finally {
