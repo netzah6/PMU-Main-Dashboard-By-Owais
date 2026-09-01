@@ -45,6 +45,29 @@ function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, 
         </span>
       </div>
       <div className="mt-2 text-sm font-semibold text-[#1c2f4a]">{a.title}</div>
+      {/* Who takes care of this client + one-click jump to the contact in GHL. */}
+      {(() => {
+        const team = typeof a.meta?.team === "string" ? a.meta.team : "";
+        const link = typeof a.meta?.link === "string" ? a.meta.link : "";
+        const contact = typeof a.meta?.contact_name === "string" ? a.meta.contact_name : "";
+        if (!team && !link) return null;
+        return (
+          <div className="mt-1 flex items-center gap-2 flex-wrap">
+            {team && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#eef2f7] text-[#34568a] border-[#d7e0ea]"
+                title="Who takes care of this client (assigned · media buyer)">
+                👤 {team}
+              </span>
+            )}
+            {link && (
+              <a href={link} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d5f0ee]">
+                {contact ? `Open ${contact} in GHL` : "Open contact in GHL"} ↗
+              </a>
+            )}
+          </div>
+        );
+      })()}
       {a.detail && (
         <div className={cn("mt-1 text-[13px] text-[#5a6b82] whitespace-pre-wrap", !expanded && "line-clamp-3")}>
           {a.detail}

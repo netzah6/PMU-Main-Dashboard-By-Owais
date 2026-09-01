@@ -76,6 +76,64 @@ export async function fileAlert(svc: Svc, a: NewAlert): Promise<boolean> {
   return !error;
 }
 
+// One box per client: like fileAlert, but when an OPEN twin exists the new
+// complaint is APPENDED to that box as a dated note instead of a second alert
+// (user request 2026-09-01 — "one notification for one client"). `appendNote`
+// is skipped when the box already contains it (same message seen twice).
+export async function fileOrAppendAlert(
+  svc: Svc,
+  a: NewAlert,
+  appendNote?: string
+): Promise<"filed" | "appended" | "skipped"> {
+  const { data: twin } = await svc
+    .from("alerts")
+    .select("id, detail")
+    .eq("type", a.type)
+    .eq("source_key", a.source_key)
+    .eq("status", "open")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (twin) {
+    const note = (appendNote ?? "").trim();
+    // Dedupe on the note's first quoted line — the message body itself.
+    const probe = note.split("\n").find((l) => l.includes("“") || l.includes('"')) ?? note;
+    if (!note || (probe && (twin.detail ?? "").includes(probe))) return "skipped";
+    const detail = `${twin.detail ?? ""}\n\n${note}`.trim().slice(0, 2000);
+    const { error } = await svc.from("alerts").update({ detail }).eq("id", twin.id);
+    return error ? "skipped" : "appended";
+  }
+  return (await fileAlert(svc, a)) ? "filed" : "skipped";
+}
+
+// One-click deep link to a contact inside a GHL (sub-)account.
+export function ghlContactUrl(locationId: string, contactId: string): string {
+  return `https://app.gohighlevel.com/v2/location/${locationId}/contacts/detail/${contactId}`;
+}
+
+// Who takes care of a client — "Assigned · Media buyer" from the Performance
+// data, matched loosely by owner or business name. Loaded once per scan.
+export async function loadTeamLookup(svc: Svc): Promise<(name: string | null | undefined) => string | null> {
+  type Row = { owner_name: string | null; business_name: string | null; assigned: string | null; media_buyer: string | null };
+  let rows: Row[] = [];
+  try {
+    const { data } = await svc.from("performance_overview").select("owner_name, business_name, assigned, media_buyer");
+    rows = (data as Row[]) ?? [];
+  } catch { /* alerts still file without the team chip */ }
+  return (name) => {
+    const want = String(name ?? "").trim();
+    if (!want || !rows.length) return null;
+    const hit =
+      rows.find((r) => nameMatches(r.owner_name ?? "", want)) ??
+      rows.find((r) => nameMatches(r.business_name ?? "", want));
+    if (!hit) return null;
+    const a = (hit.assigned ?? "").trim();
+    const mb = (hit.media_buyer ?? "").trim();
+    const parts = [a, mb && mb !== a ? mb : ""].filter(Boolean);
+    return parts.length ? parts.join(" · ") : null;
+  };
+}
+
 // The footer GHL appends when a sub-account's SMS-compliance toggles are on.
 const COMPLIANCE_RE = /(reply|txt|text)\s+"?stop"?\s+to\s+(unsubscribe|opt[\s-]*out|cancel)/i;
 
@@ -313,6 +371,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
   if (!app.token) return { overdue: 0, missingCall: 0, error: `main token: ${app.error}` };
   const tok = app.token;
   const now = Date.now();
+  const teamFor = await loadTeamLookup(svc);
 
   // Launch-call events: past 45d (for overdue checks) + next 60d (scheduled).
   const evR = await fetch(
@@ -342,7 +401,9 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     // already launched and later paused/offboarded — not an onboarding case.
     if (now - new Date(start).getTime() > 21 * 86400_000) continue;
     const bd = businessDaysSince(start);
-    if (bd < 3) continue;
+    // They get THREE FULL business days (Mon–Fri) after the launch call — the
+    // alert fires on business day 4, not during day 3 (user request 2026-09-01).
+    if (bd < 4) continue;
     const contactId = String(e.contactId ?? "");
     if (!contactId || seenContacts.has(contactId)) continue;
     seenContacts.add(contactId);
@@ -376,7 +437,12 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
       title: `${cname}: not LIVE ${bd} business days after the launch call`,
       detail: `Launch call was ${start.slice(0, 10)}. The 3-business-day launch window has passed and Clients Master ${match ? `still shows status "${match.status || "(blank)"}"` : "has no row for them"}. Get the account live or update the status.`,
       source_key: `launch-overdue:${contactId}`,
-      meta: { contact_id: contactId, contact_name: cname, launch_call: start, clients_master_status: match?.status ?? null },
+      meta: {
+        contact_id: contactId, contact_name: cname, launch_call: start,
+        clients_master_status: match?.status ?? null,
+        link: ghlContactUrl(MAIN_LOC, contactId),
+        team: teamFor(cname),
+      },
       resurfaceAfterDays: 3, // nags every few days until they're Live
     });
     if (ok) overdue++;
@@ -416,7 +482,11 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
       title: `${oname}: no launch call ${Math.floor(daysIn)} days after moving to ${stageName}`,
       detail: `They entered "${stageName}" on ${entered.slice(0, 10)} and there is NO 🚀 Launch Call booked for them (past or upcoming). Get their launch call scheduled.`,
       source_key: `launch-missing:${contactId || oname}`,
-      meta: { contact_id: contactId, contact_name: oname, stage: stageName, entered },
+      meta: {
+        contact_id: contactId, contact_name: oname, stage: stageName, entered,
+        link: contactId ? ghlContactUrl(MAIN_LOC, contactId) : null,
+        team: teamFor(oname),
+      },
       resurfaceAfterDays: 7,
     });
     if (ok) missingCall++;
