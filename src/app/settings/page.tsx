@@ -158,6 +158,7 @@ export default function SettingsPage() {
               <option value="admin">Admin</option>
               <option value="editor">Client Success Coach</option>
               <option value="va">Virtual Assistant</option>
+              <option value="media_buyer">Media Buyer</option>
             </select>
             <button
               type="submit"
@@ -200,6 +201,7 @@ export default function SettingsPage() {
                         <option value="admin">Admin</option>
                         <option value="editor">Client Success Coach</option>
                         <option value="va">Virtual Assistant</option>
+                        <option value="media_buyer">Media Buyer</option>
                       </select>
                     )}
                     <button

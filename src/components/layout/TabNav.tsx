@@ -43,9 +43,16 @@ const TABS: Tab[] = [
   { label: "📊 Reports", href: "/reports" },
 ];
 
-// A VA sees only these two. The real enforcement is in src/middleware.ts —
-// this just keeps the tab bar honest about what they can reach.
+// Strict per-role allowlists — these roles see ONLY the listed tabs.
 const VA_TABS = new Set(["/clients", "/onboarding"]);
+const MEDIA_BUYER_TABS = new Set([
+  "/clients", "/tasks", "/performance", "/onboarding", "/leads", "/pixel-checking",
+]); // user request 2026-09-01
+
+const ALLOWLISTS: Partial<Record<NonNullable<UserRole>, Set<string>>> = {
+  va: VA_TABS,
+  media_buyer: MEDIA_BUYER_TABS,
+};
 
 // Which pages each role may actually OPEN. Hiding a tab is not access
 // control — RoleGate in DashboardShell calls this on every navigation and
@@ -53,8 +60,10 @@ const VA_TABS = new Set(["/clients", "/onboarding"]);
 // and the gate can never disagree.
 export function pathAllowedFor(role: UserRole | null, pathname: string): boolean {
   const hit = TABS.find((t) => pathname === t.href || pathname.startsWith(t.href + "/"));
-  // A Virtual Assistant gets a strict allowlist: their two tabs and nothing else.
-  if (role === "va") return !!hit && VA_TABS.has(hit.href);
+  // Allowlist roles (VA, Media Buyer): their tabs and nothing else — the
+  // allowlist wins over adminOnly (e.g. Pixel Checking for media buyers).
+  const allow = role ? ALLOWLISTS[role] : undefined;
+  if (allow) return !!hit && allow.has(hit.href);
   // Pages outside the tab list guard themselves (/settings is admin-gated).
   if (!hit) return true;
   return !hit.adminOnly || role === "admin";
@@ -63,9 +72,13 @@ export function pathAllowedFor(role: UserRole | null, pathname: string): boolean
 export function TabNav() {
   const pathname = usePathname();
   const { role } = useUser();
+  const allow = role ? ALLOWLISTS[role] : undefined;
   const tabs = TABS.filter((t) =>
-    role === "va" ? VA_TABS.has(t.href) : !t.adminOnly || role === "admin"
-  );
+    allow ? allow.has(t.href) : !t.adminOnly || role === "admin"
+  )
+    // An allowlist role's bar is short — show every tab directly instead of
+    // hiding some (e.g. Leads) behind "⋯ More".
+    .map((t) => (allow ? { ...t, collapsed: false } : t));
 
   const isActive = (t: Tab) => pathname === t.href || pathname.startsWith(t.href + "/");
   const collapsedTabs = tabs.filter((t) => t.collapsed);
