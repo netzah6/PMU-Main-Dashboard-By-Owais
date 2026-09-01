@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { userColor } from "@/lib/utils";
-import { Loader2, Plus, Trash2, CalendarClock, Pin, PinOff, Pencil, Check, X } from "lucide-react";
+import { Loader2, Plus, Trash2, CalendarClock, Pin, PinOff, Pencil, Check, X, ClipboardList } from "lucide-react";
 
 interface Entry {
   id: string;
@@ -62,6 +62,33 @@ export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [taskSaving, setTaskSaving] = useState(false);
+  const [taskMsg, setTaskMsg] = useState<string | null>(null);
+
+  // "Task" instead of "Add": the typed line becomes a GHL task for the person
+  // clicking (self-assigned, shows on their Tasks tab and in the tasks box).
+  async function addTask() {
+    if (!note.trim() || taskSaving || !clientLabel) return;
+    setTaskSaving(true);
+    setTaskMsg(null);
+    try {
+      const r = await fetch("/api/ghl/client-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clientLabel, title: note.trim() }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Task creation failed");
+      setNote("");
+      setTaskMsg("✓ Task added");
+      window.dispatchEvent(new CustomEvent("client-tasks-changed", { detail: clientLabel }));
+      setTimeout(() => setTaskMsg(null), 4000);
+    } catch (e) {
+      setTaskMsg(e instanceof Error ? e.message : "Task creation failed");
+    } finally {
+      setTaskSaving(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -189,7 +216,18 @@ export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
           Add
         </button>
+        {clientLabel && (
+          <button type="button" onClick={addTask} disabled={taskSaving || !note.trim()}
+            title="Turn this line into a task for yourself — it lands on your Tasks tab and in the tasks box"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border bg-[#eef2f7] text-[#34568a] border-[#d7e0ea] hover:border-[#15B7AE] hover:text-[#0e8f88] transition-all disabled:opacity-50">
+            {taskSaving ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
+            Task
+          </button>
+        )}
       </form>
+      {taskMsg && (
+        <p className={`text-[11px] ${taskMsg.startsWith("✓") ? "text-[#15803d]" : "text-[#e11d48]"}`}>{taskMsg}</p>
+      )}
 
       {/* List */}
       {loading ? (

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, formatDate, userColor, cn } from "@/lib/utils";
 import { Search, ChevronDown, ChevronRight } from "lucide-react";
 import { ActivityLog } from "@/components/activity/ActivityLog";
+import { ClientTasks } from "@/components/activity/ClientTasks";
 
 interface PerfRow {
   sheet_row: number;
@@ -378,8 +379,14 @@ export default function PerformancePage() {
                   {isOpen && (
                     <tr className="bg-[#f3f7fb]">
                       <td colSpan={HEADERS.length} className="p-0 border-b border-[#e4ebf2]">
-                        <div className="sticky left-0 p-3" style={{ width: "min(960px, 100vw - 2rem)" }}>
-                          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
+                        <div className="sticky left-0 p-3" style={{ width: "min(1240px, 100vw - 2rem)" }}>
+                          {/* Log on the left, this client's tasks on the right (stacks on small screens). */}
+                          <div className="grid gap-3 lg:grid-cols-3">
+                            <div className="lg:col-span-2">
+                              <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
+                            </div>
+                            <ClientTasks clientLabel={r.owner_name ?? ""} />
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -465,6 +472,7 @@ function PerfCard({ r, open, onToggle, onChanged }: { r: PerfRow; open: boolean;
           )}
           <CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={onChanged} />
           <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
+          <ClientTasks clientLabel={r.owner_name ?? ""} />
         </div>
       )}
     </div>
