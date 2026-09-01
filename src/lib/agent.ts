@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
-import { fileAlert } from "@/lib/alerts";
+import { fileOrAppendAlert, ghlContactUrl, loadTeamLookup } from "@/lib/alerts";
 import {
   getReplyAccount,
   getRecentConversations,
@@ -112,6 +112,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
 
   // Owner name -> business name, so alerts can say WHO the client is
   // ("Christy Ray (Ink & Ivory Beauty)") — user request 2026-08-30.
+  const teamFor = await loadTeamLookup(svc); // "Assigned · Media buyer" chip on alerts
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, " ").trim();
   const bizByOwner = new Map<string, string>();
   try {
@@ -163,13 +164,25 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
         const biz = businessFor(c.contactName);
         const recentInbound = thread.filter((m) => m.direction === "inbound").slice(-3);
         const msgs = recentInbound.map((m) => `• "${m.body.slice(0, 400)}"`).join("\n");
-        await fileAlert(svc, {
+        // ONE box per client (keyed by contact, not message): a fresh complaint
+        // while the box is open lands inside it as a dated note instead of a
+        // second alert (user request 2026-09-01).
+        const day = new Date().toISOString().slice(0, 10);
+        await fileOrAppendAlert(svc, {
           type: "upset_client",
           title: `${c.contactName}${biz ? ` (${biz})` : ""} sounds unhappy — churn risk`,
           detail: `${cls.upset_reason ?? ""}\n\nTheir last message${recentInbound.length > 1 ? "s" : ""}:\n${msgs}`.trim(),
-          source_key: `msg:${c.id}:${last.id}`,
-          meta: { conversation_id: c.id, contact_id: c.contactId, contact_name: c.contactName, business_name: biz, channel: c.channel },
-        });
+          source_key: `upset:${c.contactId || c.id}`,
+          meta: {
+            conversation_id: c.id, contact_id: c.contactId, contact_name: c.contactName,
+            business_name: biz, channel: c.channel,
+            link: c.contactId ? ghlContactUrl(acct.locationId, c.contactId) : null,
+            team: teamFor(c.contactName) ?? teamFor(biz),
+          },
+          // After the CEO resolves a client's box, a complaint 2+ days later
+          // opens a fresh one; a same-day rescan of old messages stays quiet.
+          resurfaceAfterDays: 2,
+        }, `— New (${day}): ${cls.upset_reason ?? "another complaint"}\n${msgs}`);
       }
       if (!cls?.actionable || !cls.summary) continue;
 
