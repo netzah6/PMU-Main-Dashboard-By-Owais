@@ -187,6 +187,45 @@ export async function listCheckoutTransactions(checkoutSessionId: string): Promi
   return out;
 }
 
+// Fallback lookup when the per-product routes come up empty (old
+// agency-checkout products list ZERO transactions on both
+// /checkout-sessions/{id}/transactions and /products/{id}/transactions even
+// though the payment exists — Mimi Tran / Aimee Cruz, 2026-09-01). The GLOBAL
+// feed filtered by customer_id still returns them: resolve the buyer via
+// /customers?search={email}, then GET /checkout-sessions/transactions?customer_id=.
+// CAUTION (documented): an unrecognized customer_id is silently ignored and the
+// feed returns EVERYONE's transactions — so every row is re-checked against the
+// buyer's email before use.
+export async function listTransactionsByCustomerEmail(email: string): Promise<FanTransaction[]> {
+  const want = String(email ?? "").trim().toLowerCase();
+  if (!want) return [];
+  const cr = await getWithFallback(`${BASE}/customers?search=${encodeURIComponent(want)}&per_page=25`);
+  const ctext = await cr.text();
+  if (!cr.ok) throw new Error(`Fanbasis customers HTTP ${cr.status}: ${ctext.slice(0, 300)}`);
+  const cj = JSON.parse(ctext) as Record<string, unknown>;
+  const customers = (((cj.data ?? {}) as Record<string, unknown>).customers ?? []) as Array<Record<string, unknown>>;
+  const customer = customers.find((c) => String(c.email ?? "").trim().toLowerCase() === want);
+  const customerId = customer?.id;
+  if (customerId == null) return [];
+
+  const out: FanTransaction[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const r = await getWithFallback(`${BASE}/checkout-sessions/transactions?customer_id=${encodeURIComponent(String(customerId))}&page=${page}&per_page=100`);
+    const text = await r.text();
+    if (!r.ok) throw new Error(`Fanbasis transactions HTTP ${r.status}: ${text.slice(0, 300)}`);
+    const j = JSON.parse(text) as Record<string, unknown>;
+    const list = (((j.data ?? {}) as Record<string, unknown>).transactions ?? []) as Array<Record<string, unknown>>;
+    for (const t of list) {
+      const fan = (t.fan ?? {}) as Record<string, unknown>;
+      const tEmail = String(fan.email ?? t.email ?? "").trim().toLowerCase();
+      const tid = String(t.id ?? t.transaction_id ?? "");
+      if (tid && tEmail === want) out.push({ id: tid, email: tEmail, raw: t });
+    }
+    if (list.length < 100) break;
+  }
+  return out;
+}
+
 // Refund a single transaction by its id:
 //   POST /public-api/checkout-sessions/transactions/:transactionId/refund
 //   x-api-key auth; requires the key's `refunds` scope (dashboard → API Keys).
@@ -301,7 +340,17 @@ export async function refundDepositByProduct(
     const want = String(email ?? "").trim().toLowerCase();
     const txns = await listCheckoutTransactions(productId);
     // Prefer an exact email match; fall back to the only transaction if unambiguous.
-    const match = (want && txns.find((t) => t.email === want)) || (txns.length === 1 ? txns[0] : null);
+    let match = (want && txns.find((t) => t.email === want)) || (txns.length === 1 ? txns[0] : null);
+    // Per-product routes can list zero rows for old agency-checkout products —
+    // resolve via the customer's global feed and pin it to THIS product id.
+    if (!match && want) {
+      const byCustomer = await listTransactionsByCustomerEmail(want);
+      const forProduct = byCustomer.filter((t) => {
+        const prod = ((t.raw.product ?? t.raw.service ?? {}) as Record<string, unknown>);
+        return String(prod.id ?? "") === String(productId);
+      });
+      match = forProduct.length >= 1 ? forProduct[0] : (byCustomer.length === 1 ? byCustomer[0] : null);
+    }
     const diagnostic = { productId, want, amountCents: opts.amountCents ?? null, found: txns.map((t) => ({ id: t.id, email: t.email })) };
     if (!match) {
       return { ok: false, diagnostic, error: want ? `no transaction found for ${want} on product ${productId} (${txns.length} on file)` : "no email to match the transaction" };
