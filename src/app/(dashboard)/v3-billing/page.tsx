@@ -28,7 +28,7 @@ interface Appt {
 }
 interface PaymentGroup {
   paymentId: string | null; chargedAt: string | null; chargedBy: string | null;
-  shows: number; total: number; manual: boolean; receiptUrl: string | null;
+  shows: number; total: number; manual: boolean; receiptUrl: string | null; contacts?: string[];
 }
 interface Drill {
   payments?: PaymentGroup[];
@@ -169,6 +169,23 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
         {s.noAppt > 0 && <Pill label="No appt booked" value={s.noAppt} tone="gray" />}
       </div>
 
+      {/* Exactly WHO is ready to charge — names, path, and date — so the
+          Ready number on the card is never a mystery. */}
+      {readyCount > 0 && (
+        <div className="rounded-lg border border-[#fcd9a8] bg-[#fffdf7] px-2.5 py-2">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-[#b45309] mb-1">🟡 Ready to charge ({readyCount} × {money(client.fee)} = {money(readyCount * client.fee)})</div>
+          <div className="space-y-0.5">
+            {drill.appointments.filter(isReady).map((a) => (
+              <div key={a.apptId} className="flex items-center gap-2 text-[11px] text-[#1f3559] flex-wrap">
+                <span className="font-semibold">{a.contactName || a.email || "—"}</span>
+                <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-semibold border", (CS[a.chargeStatus] ?? CS.no_appt).cls)}>{(CS[a.chargeStatus] ?? CS.no_appt).label}</span>
+                <span className="text-[#8595a8]">{fmtDate(a.appointmentDate ?? a.depositDate)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Every charge that actually went through — the keep-track trail the
           user asked for: date, amount, shows covered, who ran it, receipt. */}
       {(drill.payments?.length ?? 0) > 0 && (
@@ -187,6 +204,9 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                   <a href={p.receiptUrl!} target="_blank" rel="noreferrer"
                     className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#e6f7ee] text-[#15803d] border border-[#c7edd4] hover:bg-[#d9f2e4]"
                     title={`Square payment ${p.paymentId}`}>Square receipt ↗</a>
+                )}
+                {(p.contacts?.length ?? 0) > 0 && (
+                  <span className="basis-full text-[10px] text-[#697a91] pl-1">↳ {p.contacts!.join(" · ")}</span>
                 )}
               </div>
             ))}
@@ -410,7 +430,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         <NumCell value={ready}
           sub={split && split.hers > 0 ? `${money(owed)} · ${split.ours}+${split.hers} her` : money(owed)}
           tone={ready > 0 ? "amber" : "gray"}
-          title={split ? `${split.ours} we booked · ${split.hers} she booked (no deposit)` : undefined} />
+          title={v ? `${split!.ours} we booked · ${split!.hers} she booked (no deposit)\n${v.shows.map((sh) => `• ${sh.contactName ?? "—"}`).join("\n")}` : undefined} />
         <NumCell value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
         {/* Deposits taken this calendar month. */}
         <NumCell value={c.depositsThisMonth ?? 0} sub={money(c.depositsThisMonthUsd ?? 0)}

@@ -538,3 +538,30 @@ CREATE TABLE IF NOT EXISTS ppa_customer_links (
 ALTER TABLE ppa_customer_links ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "PPA customer links admin" ON ppa_customer_links FOR ALL TO authenticated
   USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+
+-- ── Initial-session-only calendar billing (2026-09-01) ───────────────────────
+-- Policy: PPS bills the INITIAL session only — touch-ups / 2nd appointments
+-- never bill. Calendar path deduped to one row per contact (EARLIEST appt).
+CREATE OR REPLACE VIEW ppa_calendar_booked AS
+SELECT DISTINCT ON (a.contact_id)
+  'cal:' || a.id  AS appt_id,
+  a.owner_key,
+  a.contact_id,
+  a.start_time,
+  a.status,
+  a.title,
+  c.contact_name,
+  c.email
+FROM ghl_appointments a
+LEFT JOIN ghl_contacts c ON c.id = a.contact_id
+WHERE a.start_time >= '2026-08-01'
+  AND coalesce(a.status,'') ~* '^(confirmed|showed|new)$'
+  AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts_mv dc WHERE dc.contact_id = a.contact_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM ghl_opportunities o
+    JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+    WHERE o.contact_id = a.contact_id
+      AND (m.stage_name ~* 'session[[:space:]]*(done|complete)'
+        OR m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
+  )
+ORDER BY a.contact_id, a.start_time ASC;
