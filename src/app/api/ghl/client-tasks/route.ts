@@ -39,18 +39,25 @@ function headers(token: string) {
 // initials), then last and first name alone. Among hits, an exact normalized
 // match wins, then one containing both first and last name, then GHL's top hit.
 async function findContact(acct: { locationId: string; token: string }, name: string): Promise<{ id: string; name: string } | null> {
-  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  // Dashboard labels carry decorations the contact never has: "(Dez)" style
+  // nicknames and "A / B" alternates. Strip them for tokenizing, but keep the
+  // nickname as an alternate first name for scoring and as its own query.
+  const nick = (name.match(/\(([^)]+)\)/)?.[1] ?? "").trim();
+  const clean = name.replace(/\([^)]*\)/g, " ").split("/")[0].replace(/\s+/g, " ").trim();
+  const tokens = clean.split(/\s+/).filter(Boolean);
   if (!tokens.length) return null;
   const first = tokens[0], last = tokens[tokens.length - 1];
   const queries = [...new Set([
-    name.trim(),
+    clean,
     tokens.length > 2 ? `${first} ${last}` : "",
+    nick && tokens.length > 1 ? `${nick} ${last}` : "",
     tokens.length > 1 ? last : "",
     first,
+    nick,
   ].filter(Boolean))];
 
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-  const want = norm(name);
+  const want = norm(clean);
 
   for (const q of queries) {
     const r = await fetch(
@@ -68,7 +75,9 @@ async function findContact(acct: { locationId: string; token: string }, name: st
     if (exact) return exact;
     const both = list.find((c) => {
       const n = norm(c.name);
-      return n.includes(norm(first)) && n.includes(norm(last));
+      // The nickname counts as an alternate first name ("Desirie Crowe (Dez)"
+      // may live in GHL as "Dez Crowe").
+      return n.includes(norm(last)) && (n.includes(norm(first)) || (nick && n.includes(norm(nick))));
     });
     if (both) return both;
     // A loose single-token query easily hits the wrong person — only trust
