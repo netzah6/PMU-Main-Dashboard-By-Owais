@@ -250,19 +250,22 @@ export async function GET(req: NextRequest) {
   // ── Payment history: every charge that went through, grouped per payment ──
   // One Square payment covers several shows (same square_payment_id); manual
   // marks batch by minute + marker. Receipt URLs derive from the payment id.
+  const nameByApptId = new Map<string, string>();
+  for (const a of appointments) if (a.contactName) nameByApptId.set(a.apptId, a.contactName);
   const payGroups = new Map<string, {
     paymentId: string | null; chargedAt: string | null; chargedBy: string | null;
-    shows: number; total: number; manual: boolean;
+    shows: number; total: number; manual: boolean; contacts: string[];
   }>();
   for (const r of (chgRes.data ?? []) as ChargeRow[]) {
     if (!r.charged) continue;
     const key = r.square_payment_id ?? `manual:${(r.charged_at ?? "").slice(0, 16)}:${r.charged_by ?? ""}`;
     const g = payGroups.get(key) ?? {
       paymentId: r.square_payment_id ?? null, chargedAt: r.charged_at, chargedBy: r.charged_by,
-      shows: 0, total: 0, manual: !r.square_payment_id,
+      shows: 0, total: 0, manual: !r.square_payment_id, contacts: [],
     };
     g.shows++;
     g.total += Number(r.amount) || 0;
+    g.contacts.push(nameByApptId.get(r.appt_id) ?? "(unknown)");
     if ((r.charged_at ?? "") > (g.chargedAt ?? "")) g.chargedAt = r.charged_at;
     payGroups.set(key, g);
   }
