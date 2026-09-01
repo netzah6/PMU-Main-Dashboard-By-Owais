@@ -61,14 +61,20 @@ const EXCLUDE_HOSTS = [
   "bit.ly",
 ];
 
-async function fetchPage(url: string): Promise<{ finalUrl: string; html: string } | null> {
-  try {
-    const res = await fetch(url, { headers: { "User-Agent": UA }, cache: "no-store", redirect: "follow" });
-    if (!res.ok) return null;
-    return { finalUrl: res.url, html: await res.text() };
-  } catch {
-    return null;
+// One transient GHL hiccup must not silently drop a step from the audit
+// (caught live 2026-09-01: a re-check lost the thank-you page and the checks
+// shifted) — so retry once before giving up.
+async function fetchPage(url: string, tries = 2): Promise<{ finalUrl: string; html: string } | null> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": UA }, cache: "no-store", redirect: "follow" });
+      if (res.ok) return { finalUrl: res.url, html: await res.text() };
+    } catch {
+      /* retry */
+    }
+    if (i < tries - 1) await new Promise((r) => setTimeout(r, 1200));
   }
+  return null;
 }
 
 // ---------- __NUXT_DATA__ decoding (flat devalue array with index refs) ----------
@@ -373,15 +379,21 @@ export async function auditClient(opts: {
 
   const steps = extractSteps(entryPage.html).slice(0, 8);
   const audits: Array<{ path: string; a: RawAnalysis }> = [];
+  const failed: string[] = [];
   for (const path of steps) {
     const pg = await fetchPage(`${origin}/${path}`);
-    if (!pg) continue;
+    if (!pg) {
+      failed.push(path);
+      continue;
+    }
     audits.push({ path, a: analyzePage(pg.html) });
   }
   if (!audits.length) {
-    base.notes = "Funnel steps could not be crawled (all step pages failed to load).";
+    base.notes = "Funnel steps could not be crawled (all step pages failed to load). Try ↻ again.";
     return base;
   }
+  if (failed.length)
+    base.notes = `⚠ ${failed.length} step page(s) failed to load and are NOT reflected in the checks: /${failed.join(", /")}. Hit ↻ again for a complete pass.`;
 
   // canonical page per role = the copy that fires the most events (renamed
   // duplicates from GHL conflict-renames stay listed as extras)
