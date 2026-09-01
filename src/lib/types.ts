@@ -1,6 +1,8 @@
-// "va" = virtual assistant: Clients + Onboarding only. Enforced in
-// src/middleware.ts (pages AND api routes), not merely hidden in the tab bar.
-export type UserRole = "admin" | "editor" | "viewer" | "va";
+// Allowlist roles: "va" (Clients + Onboarding) and "media_buyer" (Clients,
+// Tasks, Performance, Onboarding, Leads, Pixel Checking). Page gating lives in
+// TabNav's pathAllowedFor (enforced by RoleGate on every navigation);
+// sensitive APIs re-check the role server-side.
+export type UserRole = "admin" | "editor" | "viewer" | "va" | "media_buyer";
 
 // What each stored role value is called in the UI. "editor" predates the
 // Client Success Coach title and stays as the stored value so every existing
@@ -10,6 +12,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   editor: "Client Success Coach",
   viewer: "Viewer",
   va: "Virtual Assistant",
+  media_buyer: "Media Buyer",
 };
 
 export interface UserRoleRecord {

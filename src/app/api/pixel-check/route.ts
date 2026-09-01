@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { auditClient, type PixelCheckRow } from "@/lib/pixel-check";
 
-// Pixel Checking — per-client funnel pixel/conversion audit. Admin only.
+// Pixel Checking — per-client funnel pixel/conversion audit. Admins and
+// media buyers (pixel health is the media buyer's job — role added 2026-09-01).
 // GET → all rows. POST {locationId} → live re-crawl of that client's funnel
 // pages (writes the fresh result back). POST {discover:true} → audit Live
 // clients that have no row yet (new sign-ups), a few per call.
@@ -15,7 +16,9 @@ async function requireAdmin() {
   if (!user) return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   const svc = createServiceClient();
   const { data: role } = await svc.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
-  if (role?.role !== "admin") return { error: NextResponse.json({ error: "Admins only" }, { status: 403 }) };
+  if (role?.role !== "admin" && role?.role !== "media_buyer") {
+    return { error: NextResponse.json({ error: "Admins and media buyers only" }, { status: 403 }) };
+  }
   return { user, svc };
 }
 
