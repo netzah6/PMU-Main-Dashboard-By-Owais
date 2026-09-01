@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { userColor } from "@/lib/utils";
-import { Loader2, Plus, Trash2, CalendarClock } from "lucide-react";
+import { Loader2, Plus, Trash2, CalendarClock, Pin, PinOff, Pencil, Check, X } from "lucide-react";
 
 interface Entry {
   id: string;
@@ -11,6 +11,7 @@ interface Entry {
   note: string;
   created_at: string;
   created_by_email: string | null;
+  pinned: boolean;
 }
 
 // "nicolas@pmu-bookings.com" → "Nicolas", shown in the user's dashboard color.
@@ -43,6 +44,12 @@ function prettyDate(iso: string) {
 // history shows up in every tab that renders it (Performance, Cost/Deposit…).
 // Routine payment-status notes ("payment failed", "all good") are data for the
 // Performance tab, not the Cost/Deposit analysis — hideRoutine filters them.
+//
+// Entries come in two kinds: dated timeline rows (default) and PINNED notes —
+// standing facts about the client ("prefers WhatsApp", "on vacation till Oct")
+// that stay stuck at the top of the box instead of scrolling away with time.
+// Any row can be pinned/unpinned; pinned notes are editable in place and are
+// excluded from the Cost/Deposit timeline pins (they're not dated actions).
 const ROUTINE_NOTE = /payment\s*failed|all\s*good/i;
 
 export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey: string; clientLabel?: string; hideRoutine?: boolean }) {
@@ -51,7 +58,10 @@ export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(todayISO());
   const [note, setNote] = useState("");
+  const [addPinned, setAddPinned] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,17 +87,36 @@ export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey
       client_label: clientLabel ?? null,
       action_date: date,
       note: note.trim(),
+      pinned: addPinned,
       created_by: user?.id ?? null,
       created_by_email: user?.email ?? null,
     });
     setSaving(false);
-    if (!error) { setNote(""); setDate(todayISO()); load(); }
+    if (!error) { setNote(""); setDate(todayISO()); setAddPinned(false); load(); }
   }
 
   async function remove(id: string) {
     await supabase.from("client_activity").delete().eq("id", id);
     setEntries((e) => e.filter((x) => x.id !== id));
   }
+
+  async function setPinned(id: string, pinned: boolean) {
+    setEntries((e) => e.map((x) => (x.id === id ? { ...x, pinned } : x)));
+    const { error } = await supabase.from("client_activity").update({ pinned }).eq("id", id);
+    if (error) load();
+  }
+
+  async function saveEdit(id: string) {
+    const text = editText.trim();
+    if (!text) return;
+    setEntries((e) => e.map((x) => (x.id === id ? { ...x, note: text } : x)));
+    setEditingId(null);
+    const { error } = await supabase.from("client_activity").update({ note: text }).eq("id", id);
+    if (error) load();
+  }
+
+  const pinnedNotes = entries.filter((en) => en.pinned);
+  const timeline = entries.filter((en) => !en.pinned && (!hideRoutine || !ROUTINE_NOTE.test(en.note)));
 
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white p-4 space-y-3 shadow-sm">
@@ -96,6 +125,43 @@ export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey
         <h3 className="text-sm font-semibold">Activity &amp; Changes Log</h3>
         {clientLabel && <span className="text-xs text-[#697a91]">· {clientLabel}</span>}
       </div>
+
+      {/* Pinned notes — standing client facts, always stuck at the top. */}
+      {pinnedNotes.length > 0 && (
+        <div className="space-y-1.5">
+          {pinnedNotes.map((en) => (
+            <div key={en.id} className="flex items-start gap-2 rounded-lg border border-[#f5dfa0] bg-[#fffbeb] px-3 py-2">
+              <Pin size={13} className="mt-1 shrink-0 text-[#b45309]" />
+              {editingId === en.id ? (
+                <>
+                  <input
+                    autoFocus
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveEdit(en.id); if (e.key === "Escape") setEditingId(null); }}
+                    className="flex-1 px-2 py-1 bg-white border border-[#f5dfa0] rounded-md text-sm text-[#1f3559] focus:outline-none focus:border-[#b45309]"
+                  />
+                  <button onClick={() => saveEdit(en.id)} title="Save note"
+                    className="shrink-0 mt-0.5 text-[#15803d] hover:text-[#166534]"><Check size={15} /></button>
+                  <button onClick={() => setEditingId(null)} title="Cancel"
+                    className="shrink-0 mt-0.5 text-[#b6c0cd] hover:text-[#697a91]"><X size={15} /></button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm text-[#713f12] whitespace-pre-wrap break-words">{en.note}</span>
+                  <AuthorChip email={en.created_by_email} />
+                  <button onClick={() => { setEditingId(en.id); setEditText(en.note); }} title="Edit note"
+                    className="shrink-0 mt-0.5 text-[#b6c0cd] hover:text-[#0e8f88] transition-colors"><Pencil size={13} /></button>
+                  <button onClick={() => setPinned(en.id, false)} title="Unpin — move back into the dated log"
+                    className="shrink-0 mt-0.5 text-[#b6c0cd] hover:text-[#b45309] transition-colors"><PinOff size={13} /></button>
+                  <button onClick={() => remove(en.id)} title="Delete note"
+                    className="shrink-0 mt-0.5 text-[#b6c0cd] hover:text-[#e11d48] transition-colors"><Trash2 size={13} /></button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Add form */}
       <form onSubmit={add} className="flex flex-wrap items-end gap-2">
@@ -107,9 +173,16 @@ export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey
         <div className="flex-1 min-w-[220px]">
           <label className="block text-[10px] font-medium uppercase tracking-wide text-[#8595a8] mb-1">What changed / action taken</label>
           <input type="text" value={note} onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. Raised daily budget to $40, paused Campaign B"
+            placeholder={addPinned ? "e.g. Prefers WhatsApp · husband handles billing" : "e.g. Raised daily budget to $40, paused Campaign B"}
             className="w-full px-3 py-1.5 bg-[#eef2f7] border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE]" />
         </div>
+        <button type="button" onClick={() => setAddPinned((p) => !p)}
+          title={addPinned ? "Will be pinned to the top — click to add as a normal dated entry" : "Pin to top — a standing note that never scrolls away"}
+          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+            addPinned ? "bg-[#fffbeb] text-[#b45309] border-[#f5dfa0]" : "bg-[#eef2f7] text-[#697a91] border-[#d7e0ea] hover:text-[#b45309]"
+          }`}>
+          <Pin size={13} /> {addPinned ? "Pinned" : "Pin"}
+        </button>
         <button type="submit" disabled={saving || !note.trim()}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-[#1f3559] transition-all disabled:opacity-50"
           style={{ background: "#15B7AE" }}>
@@ -123,15 +196,19 @@ export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey
         <div className="flex items-center gap-2 text-xs text-[#697a91] py-3"><Loader2 size={13} className="animate-spin" />Loading…</div>
       ) : entries.length === 0 ? (
         <p className="text-xs text-[#8595a8] py-2">No changes logged yet. Add the first one above.</p>
-      ) : (
+      ) : timeline.length === 0 ? null : (
         <ul className="divide-y divide-[#eef3f8] border border-[#eef3f8] rounded-lg overflow-hidden">
-          {(hideRoutine ? entries.filter((en) => !ROUTINE_NOTE.test(en.note)) : entries).map((en) => (
+          {timeline.map((en) => (
             <li key={en.id} className="flex items-start gap-3 px-3 py-2 hover:bg-[#fafcfe]">
               <span className="mt-0.5 shrink-0 inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap">
                 {prettyDate(en.action_date)}
               </span>
               <span className="flex-1 text-sm text-[#1f3559] whitespace-pre-wrap break-words">{en.note}</span>
               <AuthorChip email={en.created_by_email} />
+              <button onClick={() => setPinned(en.id, true)} title="Pin to top — keep this visible as a standing note"
+                className="shrink-0 text-[#b6c0cd] hover:text-[#b45309] transition-colors">
+                <Pin size={14} />
+              </button>
               <button onClick={() => remove(en.id)} title="Delete entry"
                 className="shrink-0 text-[#b6c0cd] hover:text-[#e11d48] transition-colors">
                 <Trash2 size={14} />
