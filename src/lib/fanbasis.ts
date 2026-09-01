@@ -161,8 +161,16 @@ type FanTransaction = { id: string; email: string; raw: Record<string, unknown> 
 // List the transactions (paid checkouts) for a checkout session / product.
 export async function listCheckoutTransactions(checkoutSessionId: string): Promise<FanTransaction[]> {
   const out: FanTransaction[] = [];
+  const id = encodeURIComponent(checkoutSessionId);
+  // Two product generations: checkout-session slugs (wRLJR) answer on
+  // /checkout-sessions/{id}/transactions; older agency-checkout products
+  // (numeric ids like 93313) 401 there but answer on
+  // /products/{id}/transactions. Try both (Mimi Tran refund, 2026-09-01).
   for (let page = 1; page <= 10; page++) {
-    const r = await getWithFallback(`${BASE}/checkout-sessions/${encodeURIComponent(checkoutSessionId)}/transactions?page=${page}&per_page=100`);
+    let r = await getWithFallback(`${BASE}/checkout-sessions/${id}/transactions?page=${page}&per_page=100`);
+    if (r.status === 401 || r.status === 403 || r.status === 404) {
+      r = await getWithFallback(`${BASE}/products/${id}/transactions?page=${page}&per_page=100`);
+    }
     const text = await r.text();
     if (!r.ok) throw new Error(`Fanbasis transactions HTTP ${r.status}: ${text.slice(0, 300)}`);
     const j = JSON.parse(text) as Record<string, unknown>;
