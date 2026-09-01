@@ -33,22 +33,49 @@ function headers(token: string) {
   return { Authorization: `Bearer ${token}`, Version: GHL_VERSION, Accept: "application/json", "Content-Type": "application/json" };
 }
 
-// Client name → contact in the main account. Exact case-insensitive name match
-// wins; otherwise the first search hit (GHL's own relevance order).
+// Client name → contact in the main account. GHL's query match is LITERAL —
+// "Lucinda S Brooks" finds nothing while "Lucinda Brooks" does — so try
+// progressively looser variants: full name, first+last word (drops middle
+// initials), then last and first name alone. Among hits, an exact normalized
+// match wins, then one containing both first and last name, then GHL's top hit.
 async function findContact(acct: { locationId: string; token: string }, name: string): Promise<{ id: string; name: string } | null> {
-  const r = await fetch(
-    `${GHL_BASE}/contacts/?locationId=${acct.locationId}&query=${encodeURIComponent(name)}&limit=10`,
-    { headers: headers(acct.token), cache: "no-store" }
-  );
-  if (!r.ok) return null;
-  const j = (await r.json()) as { contacts?: Array<{ id: string; contactName?: string; firstName?: string; lastName?: string }> };
-  const list = (j.contacts ?? []).map((c) => ({
-    id: c.id,
-    name: (c.contactName || `${c.firstName ?? ""} ${c.lastName ?? ""}`).trim(),
-  }));
-  if (!list.length) return null;
-  const want = name.trim().toLowerCase();
-  return list.find((c) => c.name.toLowerCase() === want) ?? list[0];
+  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return null;
+  const first = tokens[0], last = tokens[tokens.length - 1];
+  const queries = [...new Set([
+    name.trim(),
+    tokens.length > 2 ? `${first} ${last}` : "",
+    tokens.length > 1 ? last : "",
+    first,
+  ].filter(Boolean))];
+
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  const want = norm(name);
+
+  for (const q of queries) {
+    const r = await fetch(
+      `${GHL_BASE}/contacts/?locationId=${acct.locationId}&query=${encodeURIComponent(q)}&limit=10`,
+      { headers: headers(acct.token), cache: "no-store" }
+    );
+    if (!r.ok) continue;
+    const j = (await r.json()) as { contacts?: Array<{ id: string; contactName?: string; firstName?: string; lastName?: string }> };
+    const list = (j.contacts ?? []).map((c) => ({
+      id: c.id,
+      name: (c.contactName || `${c.firstName ?? ""} ${c.lastName ?? ""}`).trim(),
+    }));
+    if (!list.length) continue;
+    const exact = list.find((c) => norm(c.name) === want);
+    if (exact) return exact;
+    const both = list.find((c) => {
+      const n = norm(c.name);
+      return n.includes(norm(first)) && n.includes(norm(last));
+    });
+    if (both) return both;
+    // A loose single-token query easily hits the wrong person — only trust
+    // GHL's top hit when the query still carried the (near-)full name.
+    if (q === queries[0] || (tokens.length > 2 && q === `${first} ${last}`)) return list[0];
+  }
+  return null;
 }
 
 export async function GET(req: NextRequest) {
