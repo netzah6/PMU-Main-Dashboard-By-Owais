@@ -170,6 +170,9 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     cutoff.setDate(cutoff.getDate() - 59);
     supabase.from("client_activity").select("action_date,note,created_by_email")
       .eq("client_key", ownerKey)
+      // Sticky notes (pinned=true) are standing client facts, not dated
+      // actions — keep them off the timeline pins and action verdicts.
+      .eq("pinned", false)
       .gte("action_date", cutoff.toISOString().slice(0, 10))
       .order("action_date", { ascending: true })
       .then(({ data }) => {
