@@ -172,7 +172,7 @@ export default function MyClientsPage() {
                       <td className="px-2 sm:px-3 py-1.5 whitespace-nowrap">
                         {credit > 0
                           ? <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#e6f7ee] text-[#15803d] border border-[#c7edd4]">{money2(credit)}</span>
-                          : <span className="text-[#b6c0cd]">\u2014</span>}
+                          : <span className="text-[#b6c0cd]">&mdash;</span>}
                       </td>
                     </tr>
                     {open && (
