@@ -261,7 +261,7 @@ export default function DepositsPage() {
       </div>
 
       {/* Deposits table with a Refund column */}
-      <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-auto">
+      <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-x-auto sm:overflow-auto">
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center"><Loader2 size={15} className="animate-spin" /> Loading deposits…</div>
         ) : error ? (
@@ -272,8 +272,12 @@ export default function DepositsPage() {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-[#e4ebf2] bg-[#f8fafc]">
-                {["Business", "Contact", "Amount", "Date", "Source", "Refund"].map((h) => (
-                  <th key={h} className="px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
+                {/* On a phone only Contact / Amount / Refund are shown — business,
+                    date and source ride along inside the Contact cell, so the
+                    table fits the screen with no sideways scrolling. */}
+                {([["Business", "hidden sm:table-cell"], ["Contact", ""], ["Amount", ""],
+                   ["Date", "hidden sm:table-cell"], ["Source", "hidden sm:table-cell"], ["Refund", ""]] as const).map(([h, cls]) => (
+                  <th key={h} className={cn("px-2 sm:px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap", cls)}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -283,15 +287,18 @@ export default function DepositsPage() {
                 const rf = refundByKey.get(key);
                 return (
                   <tr key={i} className={cn("border-b border-[#eef3f8]", i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
-                    <td className="px-3 py-1 text-[#1f3559]">{String(r["Business Name"] ?? r.client_name ?? "—")}</td>
-                    <td className="px-3 py-1">
-                      <div className="text-[#1f3559]">{String(r["Full Name"] ?? "—")}</div>
-                      {r["Email"] ? <div className="text-[11px] text-[#8595a8]">{String(r["Email"])}</div> : null}
+                    <td className="hidden sm:table-cell px-3 py-1 text-[#1f3559]">{String(r["Business Name"] ?? r.client_name ?? "—")}</td>
+                    <td className="px-2 sm:px-3 py-1 max-w-[46vw] sm:max-w-none">
+                      <div className="text-[#1f3559] truncate">{String(r["Full Name"] ?? "—")}</div>
+                      {r["Email"] ? <div className="text-[11px] text-[#8595a8] truncate">{String(r["Email"])}</div> : null}
+                      <div className="sm:hidden text-[11px] text-[#8595a8] truncate">
+                        {String(r["Business Name"] ?? r.client_name ?? "—")} · {fmtDate(dateStr(r))}
+                      </div>
                     </td>
-                    <td className="px-3 py-1 font-semibold text-[#0e8f88] whitespace-nowrap">{money(r["Amount"])}</td>
-                    <td className="px-3 py-1 text-[#697a91] whitespace-nowrap">{fmtDate(dateStr(r))}</td>
-                    <td className="px-3 py-1 text-[#697a91]">{String(r["Source"] ?? "—")}</td>
-                    <td className="px-3 py-1 whitespace-nowrap">
+                    <td className="px-2 sm:px-3 py-1 font-semibold text-[#0e8f88] whitespace-nowrap">{money(r["Amount"])}</td>
+                    <td className="hidden sm:table-cell px-3 py-1 text-[#697a91] whitespace-nowrap">{fmtDate(dateStr(r))}</td>
+                    <td className="hidden sm:table-cell px-3 py-1 text-[#697a91]">{String(r["Source"] ?? "—")}</td>
+                    <td className="px-2 sm:px-3 py-1 whitespace-nowrap">
                       {rf ? (
                         <div className="flex items-center gap-1.5">
                           <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold border", (STATUS[rf.status] ?? STATUS.denied).cls)}>{(STATUS[rf.status] ?? STATUS.denied).label}</span>

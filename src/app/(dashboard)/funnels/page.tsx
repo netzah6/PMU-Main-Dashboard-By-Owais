@@ -101,7 +101,7 @@ function SplitOverviewTable({ rows, ab, showTotals, footnote }: {
   rows: Funnel[];
   ab: Record<string, AbResult>;
   showTotals: boolean;
-  footnote: string;
+  footnote?: string;
 }) {
   const tot: Record<string, { vis: number; leads: number; picked: number; dep: number; aiDep: number; spend: number }> = {};
   if (showTotals) {
@@ -186,7 +186,7 @@ function SplitOverviewTable({ rows, ab, showTotals, footnote }: {
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[10px] text-[#697a91]">{footnote}</p>
+      {footnote && <p className="mt-2 text-[10px] text-[#697a91]">{footnote}</p>}
     </div>
   );
 }
@@ -348,22 +348,19 @@ export default function FunnelsPage() {
   if (role !== "admin") return <div className="p-8 text-[#697a91]">Admins only.</div>;
 
   return (
-    <div className="p-4 md:p-6 max-w-[1200px] mx-auto">
-      <div className="flex items-center justify-between mb-1">
-        <h1 className="text-lg font-semibold text-[#1c2b3a]">🧪 One-Box Funnels</h1>
-        <div className="flex gap-2">
-          <button onClick={() => void load()} className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-3 py-1.5 hover:bg-[#f6f9fc]">
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> Refresh
+    <div className="p-3 md:p-6 max-w-[1200px] mx-auto">
+      {/* One line on a phone: compact title, buttons collapse to their icons. */}
+      <div className="flex items-center justify-between gap-2 mb-3 flex-nowrap">
+        <h1 className="text-base sm:text-lg font-semibold text-[#1c2b3a] truncate">🧪 One-Box Funnels</h1>
+        <div className="flex gap-2 shrink-0">
+          <button onClick={() => void load()} title="Refresh" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> <span className="hidden sm:inline">Refresh</span>
           </button>
-          <button onClick={() => setShowAdd((s) => !s)} className="flex items-center gap-1.5 text-sm bg-[#0e9c9c] text-white rounded-lg px-3 py-1.5 hover:bg-[#0b8383]">
-            <Plus className="w-4 h-4" /> Add client
+          <button onClick={() => setShowAdd((s) => !s)} title="Add client" className="flex items-center gap-1.5 text-sm bg-[#0e9c9c] text-white rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#0b8383]">
+            <Plus className="w-4 h-4" /> <span className="hidden sm:inline">Add client</span>
           </button>
         </div>
       </div>
-      <p className="text-xs text-[#697a91] mb-4">
-        Funnel content is edited in each sub-account&apos;s GHL <b>custom values</b> (changes go live within ~5 minutes, or hit Sync now).
-        This tab manages which funnels exist, their status, health and per-client extras.
-      </p>
 
       {toast && <div className="mb-3 text-sm bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] rounded-lg px-3 py-2">{toast}</div>}
 
@@ -424,7 +421,6 @@ export default function FunnelsPage() {
                   rows={funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b")}
                   ab={ab}
                   showTotals
-                  footnote="Same numbers as each card's Split test panel, all clients at once. The totals rows sum every running test per side — deposits count funnel-native payments only; the purple AI-deposits column counts payments the AI collected by text afterwards, attributed to the funnel that produced the lead. B2C clients only — the agency's B2B funnel has its own box below."
                 />
               )}
             </div>
