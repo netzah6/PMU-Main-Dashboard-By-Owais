@@ -206,6 +206,14 @@ export async function blastClients(): Promise<Array<{ locationId: string; ownerK
   }
   return [...best.values()]
     .filter((c) => !dead(c.status))
-    .map(({ status: _status, lastSync: _lastSync, ...c }) => c)
+    // status/lastSync were only for picking the surviving row — the caller
+    // gets the same shape it always did.
+    .map((c) => ({
+      locationId: c.locationId,
+      ownerKey: c.ownerKey,
+      label: c.label,
+      senderFirstName: c.senderFirstName,
+      serviceWord: c.serviceWord,
+    }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
