@@ -259,6 +259,10 @@ SELECT
   CASE
     WHEN f.is_session_done OR f.is_five_star THEN 'served'
     WHEN f.start_time IS NOT NULL AND lower(coalesce(f.appt_status,'')) ~ 'cancel|noshow|no-show|invalid' THEN 'noshow'
+    -- A lead in Declining is not proceeding, so no service fee is charged for
+    -- them (2026-09-05). Below 'served' and 'noshow' on purpose: a session that
+    -- happened is still owed, and a no-show still counts against the show rate.
+    WHEN f.stage_name ~* 'declin' THEN 'declining'
     WHEN f.start_time IS NOT NULL AND f.start_time > now() THEN 'upcoming'
     WHEN f.start_time IS NOT NULL AND f.start_time <= now() THEN 'past_due'
     ELSE 'no_appt'
