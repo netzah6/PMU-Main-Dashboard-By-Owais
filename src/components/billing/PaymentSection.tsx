@@ -30,6 +30,8 @@ export interface VRow {
   autoCharge: boolean;
   retry?: { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null } | null;
   readyToCharge: number; amount: number;
+  /** Fees before credit, and the approved credit coming off this charge. */
+  grossAmount: number; creditApplied: number;
   shows: VShow[];
   match: VMatch | null; cards: VCard[]; flags: VFlag[]; safeToAutoCharge: boolean;
 }
@@ -236,7 +238,7 @@ export function ActionsCell({ v, onMsg, onReload }: {
             <button onClick={runCharge} disabled={busy} title={breakdown}
               className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74]">
               {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
-              Yes, charge {money(v.amount)} ({ours}{hers ? `+${hers}` : ""} shows) to ••{card!.last4}
+              Yes, charge {money(v.amount)} ({ours}{hers ? `+${hers}` : ""} shows{v.creditApplied ? `, less ${money(v.creditApplied)} credit` : ""}) to ••{card!.last4}
             </button>
             <button onClick={() => setConfirming(false)} disabled={busy}
               className="px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
@@ -249,6 +251,12 @@ export function ActionsCell({ v, onMsg, onReload }: {
                 ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]"
                 : "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]")}>
             {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />} Charge {money(v.amount)}
+            {v.creditApplied > 0 && (
+              <span title={`${money(v.grossAmount)} in fees less ${money(v.creditApplied)} approved account credit`}
+                className="ml-1 px-1 py-0.5 rounded text-[9px] font-bold bg-[#eff6ff] text-[#1d4ed8] border border-[#bfdbfe]">
+                −{money(v.creditApplied)}
+              </span>
+            )}
           </button>
         );
       })()}

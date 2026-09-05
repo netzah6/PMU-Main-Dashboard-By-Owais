@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardCell, StatusCell, ActionsCell, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
+import { CreditsPanel } from "@/components/billing/CreditsPanel";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
 interface ClientRow {
@@ -750,6 +751,13 @@ export default function V3BillingPage() {
 
       {/* Latest Monday auto-charge run (only shows once a run has happened) */}
       <AutoRunBanner />
+
+      {/* Account credit: coaches request, admin approves, approved balance comes
+          off the client's next service-fee charge automatically. */}
+      <CreditsPanel
+        clients={clients.map((c) => ({ ownerKey: c.ownerKey, label: `${c.ownerName}${c.business ? ` — ${c.business}` : ""}` }))}
+        onChanged={() => { load(); loadVerify(); }}
+      />
 
       {/* Chat-detected bookings — reviewed by a human, then billed via the
           normal charge record (appt_id chat:<conversation>). */}
