@@ -138,12 +138,31 @@ export async function sendSms(
   return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 180)}` };
 }
 
+/** Pipeline ids the sub-account actually has RIGHT NOW. The cached stage map
+ * can still hold a previous owner's pipeline on a recycled sub-account, so the
+ * stage picker is filtered against this before anyone builds an audience.
+ * Returns null when GHL can't be reached — callers then trust the cache. */
+export async function livePipelineIds(locationId: string): Promise<Set<string> | null> {
+  const tok = await getAppLocationToken(locationId);
+  if (!tok.token) return null;
+  try {
+    const r = await fetch(`https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${locationId}`, {
+      headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { pipelines?: Array<{ id?: string }> };
+    const ids = (j.pipelines ?? []).map((p) => String(p.id ?? "")).filter(Boolean);
+    return ids.length ? new Set(ids) : null;
+  } catch { return null; }
+}
+
 /** Clients an admin can blast for: synced sub-accounts joined to the master
  * sheet for business name + PMU services. */
 export async function blastClients(): Promise<Array<{ locationId: string; ownerKey: string; label: string; senderFirstName: string; serviceWord: string }>> {
   const svc = createServiceClient();
   const [{ data: sync }, { data: master }] = await Promise.all([
-    svc.from("ghl_sync_status").select("owner_key,location_id").not("location_id", "is", null),
+    svc.from("ghl_sync_status").select("owner_key,location_id,last_success_at").not("location_id", "is", null),
     svc.from("clients_master").select("data"),
   ]);
   const rows = (master ?? []) as Array<{ data: Record<string, unknown> }>;
@@ -152,18 +171,41 @@ export async function blastClients(): Promise<Array<{ locationId: string; ownerK
     const key = String(r.data["Owner Full Name"] ?? "").trim().toLowerCase();
     if (key) byOwner.set(key, r.data);
   }
-  return (sync ?? [])
-    .map((s) => {
-      const m = byOwner.get(String(s.owner_key).trim().toLowerCase());
-      const biz = String(m?.["Business Name"] ?? "").trim();
-      const owner = String(m?.["Owner Full Name"] ?? s.owner_key).trim();
-      return {
-        locationId: s.location_id as string,
-        ownerKey: s.owner_key as string,
-        label: biz ? `${biz} — ${owner}` : owner,
-        senderFirstName: owner.split(/\s+/)[0] ?? "",
-        serviceWord: serviceWordFor(String(m?.["PMU Services"] ?? "")),
-      };
-    })
+  const built = (sync ?? []).map((s) => {
+    const m = byOwner.get(String(s.owner_key).trim().toLowerCase());
+    const biz = String(m?.["Business Name"] ?? "").trim();
+    const owner = String(m?.["Owner Full Name"] ?? s.owner_key).trim();
+    return {
+      locationId: s.location_id as string,
+      ownerKey: s.owner_key as string,
+      label: biz ? `${biz} — ${owner}` : owner,
+      senderFirstName: owner.split(/\s+/)[0] ?? "",
+      serviceWord: serviceWordFor(String(m?.["PMU Services"] ?? "")),
+      status: String(m?.col_1 ?? "").trim().toLowerCase(),
+      lastSync: String(s.last_success_at ?? ""),
+    };
+  });
+
+  // Sub-accounts get recycled: an offboarded client's account is wiped, renamed
+  // and handed to a new client, but the OLD owner's ghl_sync_status row still
+  // points at it. That put two entries on the same location in the picker
+  // ("Daniela Bell" and "Orna Weisberg" — user report 2026-09-05), so choosing
+  // one could blast through the other's identity. Keep one entry per location:
+  // a still-active client wins over an offboarded/lost one, then the most
+  // recently synced.
+  const dead = (s: string) => s === "offboarded" || s === "lost";
+  const best = new Map<string, (typeof built)[number]>();
+  for (const c of built) {
+    const prev = best.get(c.locationId);
+    if (!prev) { best.set(c.locationId, c); continue; }
+    const better =
+      dead(prev.status) !== dead(c.status)
+        ? !dead(c.status)
+        : c.lastSync.localeCompare(prev.lastSync) > 0;
+    if (better) best.set(c.locationId, c);
+  }
+  return [...best.values()]
+    .filter((c) => !dead(c.status))
+    .map(({ status: _status, lastSync: _lastSync, ...c }) => c)
     .sort((a, b) => a.label.localeCompare(b.label));
 }

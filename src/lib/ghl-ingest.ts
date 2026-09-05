@@ -322,7 +322,20 @@ export async function ingestAccount(acct: V3Account, opts: IngestOpts = {}): Pro
           position: idx, updated_at: now,
         }));
       }
-      if (stageRows.length) await supabase.from("ghl_stage_map").upsert(stageRows, { onConflict: "location_id,stage_id" });
+      if (stageRows.length) {
+        await supabase.from("ghl_stage_map").upsert(stageRows, { onConflict: "location_id,stage_id" });
+        // PRUNE what GHL no longer has. Upsert-only left every deleted stage —
+        // and every pipeline belonging to a PREVIOUS owner of a recycled
+        // sub-account — in the map forever, so the Blast tab offered stages
+        // from a dead pipeline (Orna/Daniela, user report 2026-09-05).
+        // Safe: this table is a mirror, rebuilt from GHL on every sync.
+        const liveIds = stageRows.map((r) => String(r.stage_id));
+        await supabase
+          .from("ghl_stage_map")
+          .delete()
+          .eq("location_id", locationId)
+          .not("stage_id", "in", `(${liveIds.map((id) => `"${id}"`).join(",")})`);
+      }
     }
   } catch (err) {
     stat.error = String(err);
