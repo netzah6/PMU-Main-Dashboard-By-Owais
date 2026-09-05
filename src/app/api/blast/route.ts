@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { blastClients, fetchAudience, renderTemplate, DEFAULT_TEMPLATE } from "@/lib/blast";
+import { livePipelineIds, blastClients, fetchAudience, renderTemplate, DEFAULT_TEMPLATE } from "@/lib/blast";
 
 export const maxDuration = 300;
 
@@ -42,7 +42,12 @@ export async function GET(req: NextRequest) {
     .select("pipeline_id,stage_id,stage_name,position")
     .eq("location_id", locationId)
     .order("position");
-  const stages = stageRows ?? [];
+  // Drop stages belonging to a pipeline the sub-account no longer has — a
+  // recycled account keeps its previous owner's pipeline in the cached map
+  // until the next full sync prunes it (Orna/Daniela, user report 2026-09-05).
+  let stages = stageRows ?? [];
+  const live = await livePipelineIds(locationId);
+  if (live) stages = stages.filter((s) => live.has(String(s.pipeline_id)));
   const stagesParam = sp.get("stages");
   if (!stagesParam) return NextResponse.json({ stages });
 
@@ -115,7 +120,10 @@ export async function POST(req: NextRequest) {
   // must match what the admin saw, or we refuse (audience changed under them).
   const svc2 = createServiceClient();
   const { data: stageRows } = await svc2.from("ghl_stage_map").select("pipeline_id,stage_id").eq("location_id", locationId);
-  const pipelineId = (stageRows ?? []).find((s) => stageIds.includes(s.stage_id))?.pipeline_id;
+  const liveAtSchedule = await livePipelineIds(locationId);
+  const pipelineId = (stageRows ?? [])
+    .filter((s) => !liveAtSchedule || liveAtSchedule.has(String(s.pipeline_id)))
+    .find((s) => stageIds.includes(s.stage_id))?.pipeline_id;
   if (!pipelineId) return NextResponse.json({ error: "unknown stages" }, { status: 400 });
   const audience = await fetchAudience(locationId, pipelineId, stageIds, Math.max(0, Number(excludeDays ?? 10) || 0), Number(maxContacts ?? 250) || 250);
   if (audience.error) return NextResponse.json({ error: `audience fetch failed: ${audience.error}` }, { status: 502 });
