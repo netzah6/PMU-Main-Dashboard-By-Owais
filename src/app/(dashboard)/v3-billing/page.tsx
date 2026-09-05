@@ -55,6 +55,10 @@ const CS: Record<string, { label: string; cls: string }> = {
   upcoming: { label: "Upcoming",     cls: "bg-[#eef4ff] text-[#3b6fd4] border-[#c9dbfb]" },
   noshow:   { label: "No-show",      cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]" },
   no_appt:  { label: "No appt",      cls: "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]" },
+  // Lead moved to Declining — they are not proceeding, so no service fee is
+  // charged for them (user request 2026-09-05). A session that already happened
+  // still bills as "served"; a no-show still counts against the show rate.
+  declining: { label: "Declining", cls: "bg-[#fdf2f4] text-[#be123c] border-[#f5c2cf]" },
   // Booked on the artist's end (no deposit through us) — still our lead, so
   // the show fee applies. Billable since Aug 1, 2026. "Self-booked" = she
   // marked the lead done in the pipeline; "Calendar" = the appointment sits on
@@ -726,6 +730,35 @@ export default function V3BillingPage() {
     }).sort((a, b) => (a.status === "paused" ? 1 : 0) - (b.status === "paused" ? 1 : 0));
   }, [clients, search, filter, vBy]);
 
+  // Who owes what, in reading order: money to collect first, settled next,
+  // write-offs last (user request 2026-09-05). Deposit-only clients keep their
+  // own group at the very bottom — they are never charged a service fee.
+  const sections = useMemo(() => {
+    const need: ClientRow[] = [], charged: ClientRow[] = [], nothing: ClientRow[] = [],
+          voided: ClientRow[] = [], exempt: ClientRow[] = [];
+    for (const c of filtered) {
+      if (c.billingExempt) { exempt.push(c); continue; }
+      if (readyOf(c).ready > 0) { need.push(c); continue; }
+      if (c.chargedCount > 0 || c.chargedAmount > 0) { charged.push(c); continue; }
+      if (c.excludedCount > 0) { voided.push(c); continue; }
+      nothing.push(c);
+    }
+    const owed = (c: ClientRow) => readyOf(c).owed;
+    need.sort((a, b) => owed(b) - owed(a)); // biggest money at the top
+    return [
+      { key: "need",    title: "\ud83d\udcb3 Need to be charged", hint: "shows are billable now", rows: need,
+        tone: "bg-[#fff7ec] text-[#b45309]" },
+      { key: "charged", title: "\u2705 Charged", hint: "already paid this month", rows: charged,
+        tone: "bg-[#e6f7ee] text-[#15803d]" },
+      { key: "nothing", title: "\u2014 Nothing due", hint: "no billable shows right now", rows: nothing,
+        tone: "bg-[#f1f5f9] text-[#64748b]" },
+      { key: "voided",  title: "\ud83d\udeab Voided", hint: "written off \u2014 no-shows, cancellations, refunds", rows: voided,
+        tone: "bg-[#fdf2f4] text-[#be123c]" },
+      { key: "exempt",  title: "\ud83d\udca4 No service fee", hint: "deposit-only clients, never charged", rows: exempt,
+        tone: "bg-[#f8fafc] text-[#8595a8]" },
+    ].filter((g) => g.rows.length > 0);
+  }, [filtered, readyOf]);
+
   return (
     <div className="p-3 sm:p-4 space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -840,18 +873,24 @@ export default function V3BillingPage() {
               </tr>
             </thead>
             <tbody>
-              {[...filtered.filter((c) => !c.billingExempt), ...filtered.filter((c) => c.billingExempt)].map((c, i, arr) => (
-                <Fragment key={c.ownerKey}>
-                  {c.billingExempt && (i === 0 || !arr[i - 1].billingExempt) && (
-                    <tr className="bg-[#f8fafc] border-y border-[#e4ebf2]">
-                      <td colSpan={12} className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#8595a8]">
-                        💤 No service fee — deposit-only clients (never charged)
-                      </td>
-                    </tr>
-                  )}
-                  <ClientTableRow c={c} v={vBy.get(c.ownerKey)} verifyLoading={verifyLoading}
-                    onChange={() => load()} onVerifyReload={() => loadVerify()}
-                    open={openKey === c.ownerKey} onToggle={() => setOpenKey((k) => (k === c.ownerKey ? null : c.ownerKey))} />
+              {sections.map((g) => (
+                <Fragment key={g.key}>
+                  <tr className={cn("border-y border-[#e4ebf2]", g.tone)}>
+                    <td colSpan={COLS} className="px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider">
+                      {g.title}
+                      <span className="ml-2 font-semibold normal-case opacity-70">({g.rows.length}) &middot; {g.hint}</span>
+                      {g.key === "need" && (
+                        <span className="ml-2 font-bold normal-case">
+                          ${Math.round(g.rows.reduce((t, c) => t + readyOf(c).owed, 0)).toLocaleString()} to collect
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                  {g.rows.map((c) => (
+                    <ClientTableRow key={c.ownerKey} c={c} v={vBy.get(c.ownerKey)} verifyLoading={verifyLoading}
+                      onChange={() => load()} onVerifyReload={() => loadVerify()}
+                      open={openKey === c.ownerKey} onToggle={() => setOpenKey((k) => (k === c.ownerKey ? null : c.ownerKey))} />
+                  ))}
                 </Fragment>
               ))}
             </tbody>
