@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/server";
+import { creditBalances, consumeCredit } from "@/lib/credits";
 import { getPpaRoster, type V3Client } from "@/lib/ppa";
 import {
   listCards,
@@ -80,7 +81,12 @@ export interface VerifyRow {
   /** Pending decline-retry loop, if a charge attempt failed on this client. */
   retry: { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null } | null;
   readyToCharge: number;
+  /** What is actually charged: gross fees minus any approved account credit. */
   amount: number;
+  /** Fees before credit — equal to `amount` when the client has no credit. */
+  grossAmount: number;
+  /** Approved credit being applied to this charge (0 when there is none). */
+  creditApplied: number;
   pastDue: number;
   shows: VerifyShow[];
   match: VerifyMatch | null;
@@ -225,6 +231,9 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
     svc.from("ppa_selfbooked").select("appt_id, owner_key, contact_name, done_at").in("owner_key", ownerKeys),
     svc.from("ppa_calendar_booked").select("appt_id, owner_key, contact_name, start_time").in("owner_key", ownerKeys),
   ]);
+
+  // Approved-but-unused account credit knocks money off what we charge.
+  const creditBy = await creditBalances(svc, ownerKeys);
 
   // Contact details come from Clients Master, the same sheet the roster is
   // built from — so a mismatch here is a sheet problem, visible in the report.
@@ -593,7 +602,11 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
       autoCharge: autoBy.get(c.ownerKey) ?? false,
       retry: retryBy.get(c.ownerKey) ?? null,
       readyToCharge: shows.length,
-      amount: shows.length * fee,
+      ...(() => {
+        const gross = shows.length * fee;
+        const credit = Math.min(creditBy.get(c.ownerKey) ?? 0, gross);
+        return { amount: Math.max(0, gross - credit), grossAmount: gross, creditApplied: credit };
+      })(),
       pastDue,
       shows,
       match,
@@ -628,7 +641,8 @@ export async function buildVerifyReport(ownerKeyFilter?: string): Promise<Verify
 export class ChargeRefused extends Error {}
 
 export interface ChargeOutcome {
-  paymentId: string;
+  /** null when account credit covered the whole bill and no card was charged. */
+  paymentId: string | null;
   receiptUrl: string | null;
   amount: number;
   shows: number;
@@ -641,15 +655,38 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
   if (row.readyToCharge === 0) throw new ChargeRefused("Nothing to charge — no ready shows.");
   const blocks = row.flags.filter((f) => f.level === "block");
   if (blocks.length) throw new ChargeRefused(blocks.map((b) => b.message).join(" "));
+  const apptIds = row.shows.map((s) => s.apptId).sort();
+
+  // Approved credit covers the whole bill: settle the shows against the credit
+  // and never touch the card. Square rejects $0 payments anyway.
+  if (row.amount <= 0 && row.creditApplied > 0) {
+    const svcFree = createServiceClient();
+    const nowFree = new Date().toISOString();
+    const namesFree = new Map(row.shows.map((sh) => [sh.apptId, sh.contactName]));
+    const { error: freeErr } = await svcFree.from("ppa_charges").upsert(
+      apptIds.map((apptId) => ({
+        appt_id: apptId, owner_key: row.ownerKey, charged: true, amount: row.fee,
+        charged_at: nowFree, charged_by: chargedBy, square_payment_id: null,
+        note: `Covered by account credit${namesFree.get(apptId) ? ` — ${namesFree.get(apptId)}` : ""}`,
+        excluded: false, exclude_reason: null, updated_at: nowFree,
+      })),
+      { onConflict: "appt_id" }
+    );
+    await consumeCredit(svcFree, row.ownerKey, row.creditApplied);
+    return {
+      paymentId: null, receiptUrl: null, amount: 0, shows: row.readyToCharge,
+      card: `account credit ($${row.creditApplied})`,
+      ...(freeErr ? { warning: `Credit applied but recording it failed: ${freeErr.message}` } : {}),
+    };
+  }
+
   if (!row.match) throw new ChargeRefused("No Square customer matched.");
   const card = row.cards.find((c) => c.wouldCharge);
   if (!card) throw new ChargeRefused("No usable card to charge.");
-
-  const apptIds = row.shows.map((s) => s.apptId).sort();
   // Same client + same exact show set → same key → Square returns the one
   // existing payment instead of creating another. Max 45 chars for Square.
   const idempotencyKey = createHash("sha256")
-    .update(`pps:${row.ownerKey}:${apptIds.join(",")}`)
+    .update(`pps:${row.ownerKey}:${apptIds.join(",")}:${row.amount}`)
     .digest("hex")
     .slice(0, 45);
 
@@ -658,7 +695,7 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
     cardId: card.id,
     amountCents: Math.round(row.amount * 100),
     idempotencyKey,
-    note: `PPS ${row.readyToCharge} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee} — ${row.ownerName} (${row.business})`,
+    note: `PPS ${row.readyToCharge} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee}${row.creditApplied > 0 ? ` less $${row.creditApplied} credit` : ""} — ${row.ownerName} (${row.business})`,
     referenceId: row.ownerKey,
   });
 
@@ -683,6 +720,9 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
     })),
     { onConflict: "appt_id" }
   );
+
+  // The charge was reduced by this much, so the credit is now spent.
+  if (row.creditApplied > 0) await consumeCredit(svc, row.ownerKey, row.creditApplied);
 
   return {
     paymentId: payment.id,
