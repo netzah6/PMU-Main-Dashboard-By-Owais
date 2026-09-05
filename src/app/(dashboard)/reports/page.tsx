@@ -102,7 +102,7 @@ function AreaChart({ values, dates, color, yFmt }: {
   const xIdx = want <= 1 ? [0] : Array.from({ length: want }, (_, k) => Math.round((k * (n - 1)) / (want - 1)));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 170 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 112 }}>
       {ticks.map((t, k) => (
         <g key={k}>
           <line x1={mL} x2={W - mR} y1={Y(t)} y2={Y(t)} stroke="#eef3f8" strokeWidth={1} />
@@ -193,18 +193,26 @@ export default function ReportsPage() {
     return m;
   }, [rawClients]);
 
-  // client name → daily budget $ (from performance_overview, one row per owner)
+  // client name → daily budget + ad spend (performance_overview, one row per owner)
+  const [aiOpen, setAiOpen] = useState(false);
   const [budgetMap, setBudgetMap] = useState<Map<string, number>>(new Map());
+  const [spendMap, setSpendMap] = useState<Map<string, { all: number; d14: number }>>(new Map());
   useEffect(() => {
     const supabase = createClient();
-    supabase.from("performance_overview").select("owner_name, daily_budget").then(({ data }) => {
+    supabase.from("performance_overview").select("owner_name, daily_budget, spent_all, spent14").then(({ data }) => {
       const m = new Map<string, number>();
+      const sp = new Map<string, { all: number; d14: number }>();
       (data ?? []).forEach((r) => {
-        const k = String((r as { owner_name?: string }).owner_name ?? "").trim().toLowerCase();
-        const b = Number((r as { daily_budget?: unknown }).daily_budget);
-        if (k && !isNaN(b)) m.set(k, b);
+        const row = r as { owner_name?: string; daily_budget?: unknown; spent_all?: unknown; spent14?: unknown };
+        const k = String(row.owner_name ?? "").trim().toLowerCase();
+        if (!k) return;
+        const b = Number(row.daily_budget);
+        if (!isNaN(b)) m.set(k, b);
+        const all = Number(row.spent_all), d14 = Number(row.spent14);
+        sp.set(k, { all: isNaN(all) ? 0 : all, d14: isNaN(d14) ? 0 : d14 });
       });
       setBudgetMap(m);
+      setSpendMap(sp);
     });
   }, []);
 
@@ -487,7 +495,7 @@ export default function ReportsPage() {
         ) : !current ? (
           <div className="p-10 text-center text-[#8595a8]">No tracking data found.</div>
         ) : (
-          <div className="p-3 sm:p-4 space-y-3 md:min-w-[900px]">
+          <div className="p-2 sm:p-3 space-y-2 md:min-w-[900px]">
             {/* Header */}
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl font-bold text-[#1f3559]">{current.name}</h1>
@@ -513,6 +521,17 @@ export default function ReportsPage() {
                         Budget: ${Math.round(dailyBudget).toLocaleString()}/d
                       </span>
                     )}
+                    {(() => {
+                      const sp = spendMap.get(current.name.trim().toLowerCase());
+                      if (!sp || (!sp.all && !sp.d14)) return null;
+                      return (
+                        <span title="Total ad spend on this client's ad account (all time), and the last 14 days"
+                          className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#eef7ff] text-[#1d4ed8] border border-[#bfdbfe]">
+                          Spent: ${Math.round(sp.all).toLocaleString()}
+                          {sp.d14 ? ` · $${Math.round(sp.d14).toLocaleString()} last 14d` : ""}
+                        </span>
+                      );
+                    })()}
                     {badge(`GMB: ${gmbActive ? "Yes" : "No"}`, gmbActive)}
                     {(() => {
                       const ver = versionMap.get(current.name);
@@ -533,27 +552,32 @@ export default function ReportsPage() {
               })()}
             </div>
 
-            {/* AI suggestions */}
+            {/* AI suggestions — collapsed by default: this block used to push the
+                charts and the section table below the fold. */}
             {suggestions.length > 0 && (
-              <div className="rounded-2xl border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff] p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={15} className="text-[#0e8f88]" />
+              <div className="rounded-2xl border border-[#bfe9e5] bg-gradient-to-br from-[#f0fbfa] to-[#eef4ff]">
+                <button onClick={() => setAiOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 py-1.5 text-left">
+                  <Sparkles size={14} className="text-[#0e8f88]" />
                   <h2 className="text-sm font-bold text-[#0e8f88]">AI Suggestions</h2>
-                  <span className="text-[10px] text-[#697a91]">based on this client&apos;s report trend</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {suggestions.map((s, i) => (
-                    <div key={i} className="rounded-xl bg-white/80 border border-[#e4ebf2] border-l-4 p-3" style={{ borderLeftColor: s.accent }}>
-                      <p className="text-sm font-semibold text-[#1f3559]">{s.option}</p>
-                      <p className="text-xs text-[#56678a] leading-snug mt-0.5">{s.body}</p>
-                    </div>
-                  ))}
-                </div>
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/70 text-[#0e8f88] border border-[#a7e3df]">{suggestions.length}</span>
+                  <span className="text-[10px] text-[#697a91] hidden sm:inline">based on this client&apos;s report trend</span>
+                  <span className="ml-auto text-[#0e8f88] text-xs">{aiOpen ? "\u25b2" : "\u25bc"}</span>
+                </button>
+                {aiOpen && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 px-3 pb-3">
+                    {suggestions.map((s, i) => (
+                      <div key={i} className="rounded-xl bg-white/80 border border-[#e4ebf2] border-l-4 p-2.5" style={{ borderLeftColor: s.accent }}>
+                        <p className="text-sm font-semibold text-[#1f3559]">{s.option}</p>
+                        <p className="text-xs text-[#56678a] leading-snug mt-0.5">{s.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
               <ChartCard title="Total Leads Over Time" color="#34568a" values={reps.map((r) => r.leads ?? 0)} dates={reps.map((r) => r.date)} yFmt={(v) => String(Math.round(v))} />
               <ChartCard title="Booking Rate %" color="#15B7AE" values={reps.map((r) => (r.booking ?? 0) * 100)} dates={reps.map((r) => r.date)} yFmt={(v) => `${Math.round(v)}%`} />
               <ChartCard title="Sessions Booked" color="#7e8fc4" values={reps.map((r) => r.sessions ?? 0)} dates={reps.map((r) => r.date)} yFmt={(v) => String(Math.round(v))} />
@@ -566,9 +590,9 @@ export default function ReportsPage() {
                 <table className="text-sm border-collapse w-full">
                   <thead>
                     <tr style={{ background: "linear-gradient(180deg,#34568a,#26416b)" }} className="text-white">
-                      <th className="px-3 py-1 text-left text-[10px] font-bold uppercase tracking-wider sticky left-0 z-10" style={{ background: "#2d4c79" }}>Metric</th>
+                      <th className="px-3 py-0.5 text-left text-[10px] font-bold uppercase tracking-wider sticky left-0 z-10" style={{ background: "#2d4c79" }}>Metric</th>
                       {reps.map((r, i) => (
-                        <th key={i} className="px-3 py-1 text-center text-[10px] font-bold uppercase whitespace-nowrap">
+                        <th key={i} className="px-3 py-0.5 text-center text-[10px] font-bold uppercase whitespace-nowrap">
                           #{i + 1}<br /><span className="font-medium opacity-80">{r.date}</span>
                         </th>
                       ))}
@@ -606,8 +630,8 @@ export default function ReportsPage() {
 
 function ChartCard({ title, color, values, dates, yFmt }: { title: string; color: string; values: number[]; dates: string[]; yFmt: (v: number) => string }) {
   return (
-    <div className="rounded-2xl border border-[#e4ebf2] bg-white p-3">
-      <h3 className="text-xs font-bold uppercase tracking-wide text-[#34568a] mb-1">{title}</h3>
+    <div className="rounded-2xl border border-[#e4ebf2] bg-white p-2">
+      <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-0.5 truncate">{title}</h3>
       <AreaChart values={values} dates={dates} color={color} yFmt={yFmt} />
     </div>
   );
@@ -616,7 +640,7 @@ function ChartCard({ title, color, values, dates, yFmt }: { title: string; color
 function SectionRow({ label, span }: { label: string; span: number }) {
   return (
     <tr className="bg-[#eef2f7]">
-      <td colSpan={span + 1} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#34568a] sticky left-0 bg-[#eef2f7]">{label}</td>
+      <td colSpan={span + 1} className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#34568a] sticky left-0 bg-[#eef2f7]">{label}</td>
     </tr>
   );
 }
@@ -626,14 +650,14 @@ function NumRow({ label, reps, get, fmt, higherBetter }: {
 }) {
   return (
     <tr className="border-b border-[#eef3f8]">
-      <td className="px-3 py-1 font-medium text-[#1f3559] whitespace-nowrap sticky left-0 bg-white">{label}</td>
+      <td className="px-3 py-0.5 font-medium text-[#1f3559] whitespace-nowrap sticky left-0 bg-white">{label}</td>
       {reps.map((r, i) => {
         const v = get(r);
         const prev = i > 0 ? get(reps[i - 1]) : null;
         const d = v != null && prev != null ? v - prev : null;
         const good = d == null ? null : higherBetter ? d >= 0 : d <= 0;
         return (
-          <td key={i} className="px-3 py-1 text-center whitespace-nowrap text-[#1e2a3a]">
+          <td key={i} className="px-3 py-0.5 text-center whitespace-nowrap text-[#1e2a3a]">
             {v == null ? <span className="text-[#a6b3c4]">–</span> : fmt(v)}
             {d != null && Math.abs(d) > 0.001 && (
               <span className={cn("ml-1 text-[10px] font-semibold", good ? "text-[#0e8f88]" : "text-[#e11d48]")}>
@@ -650,7 +674,7 @@ function NumRow({ label, reps, get, fmt, higherBetter }: {
 function BehaviourRow({ label, bkey, reps }: { label: string; bkey: string; reps: Report[] }) {
   return (
     <tr className="border-b border-[#eef3f8]">
-      <td className="px-3 py-1 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
+      <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
       {reps.map((r, i) => {
         const raw = r.raw[bkey];
         const on = onState(raw);
@@ -672,8 +696,8 @@ function BehaviourRow({ label, bkey, reps }: { label: string; bkey: string; reps
 function ContextRow({ label, reps, get }: { label: string; reps: Report[]; get: (r: Report) => string }) {
   return (
     <tr className="border-b border-[#eef3f8]">
-      <td className="px-3 py-1 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
-      {reps.map((r, i) => <td key={i} className="px-3 py-1 text-center whitespace-nowrap text-[#34568a]">{get(r)}</td>)}
+      <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
+      {reps.map((r, i) => <td key={i} className="px-3 py-0.5 text-center whitespace-nowrap text-[#34568a]">{get(r)}</td>)}
     </tr>
   );
 }
@@ -686,7 +710,7 @@ function ActionRow({ reps, edits, onSave }: {
 }) {
   return (
     <tr className="border-b border-[#eef3f8]">
-      <td className="px-3 py-1 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">Action</td>
+      <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">Action</td>
       {reps.map((r, i) => <ActionCell key={i} report={r} edits={edits} onSave={onSave} />)}
     </tr>
   );
@@ -718,7 +742,7 @@ function ActionCell({ report, edits, onSave }: {
   const options = value && !ACTION_OPTIONS.includes(value) ? [value, ...ACTION_OPTIONS] : ACTION_OPTIONS;
 
   return (
-    <td className="px-3 py-1 text-center min-w-[150px]">
+    <td className="px-3 py-0.5 text-center min-w-[150px]">
       <div className="inline-flex items-center gap-1">
         <select value={value} onChange={(e) => change(e.target.value)} disabled={saving} title="Set the action (synced to the sheet)"
           className="max-w-[170px] text-xs rounded border border-[#d7e0ea] bg-white px-2 py-1 text-[#34568a] cursor-pointer focus:outline-none focus:border-[#15B7AE] disabled:opacity-60">
