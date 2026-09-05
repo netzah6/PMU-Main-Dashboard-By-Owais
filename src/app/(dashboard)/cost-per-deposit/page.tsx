@@ -173,8 +173,8 @@ function IssuesPanel() {
   return (
     <div className="rounded-xl border border-[#ecd3a8] bg-[#fbf7f1]">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
-        <span className="text-sm font-bold text-[#6b4d16]">\u26a0 {issues.length} problem{issues.length === 1 ? "" : "s"} found</span>
-        <span className="text-xs text-[#8a7442]">data errors &amp; client-chat issues from the daily check &mdash; click to review</span>
+        <span className="text-sm font-bold text-[#6b4d16]">{issues.length} problem{issues.length === 1 ? "" : "s"} found</span>
+        <span className="text-xs text-[#8a7442]">V3 bot &amp; data problems from the daily check &mdash; click to review</span>
         <span className="ml-auto text-[#8a7442]">{open ? "\u25b2" : "\u25bc"}</span>
       </button>
       {open && (
@@ -305,7 +305,6 @@ export default function CostPerDepositPage() {
             <h1 className="text-lg font-semibold text-[#1f3559]">Cost Per Deposit</h1>
             <DataFreshness />
           </div>
-          <p className="text-xs text-[#697a91]">V3 &amp; V2.3 clients · deposits &amp; cost-per-deposit</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
