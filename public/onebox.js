@@ -28,6 +28,11 @@
   var root = document.getElementById("onebox-root");
   if (!root) return;
 
+  /* V2 experiment layout (scarcity calendar, sticky hold bar, focused
+     deposit step). Off unless the funnel config carries v2:"1" or the
+     visit carries ?obv2=1 (team preview) — so shipping this engine
+     changes nothing for live funnels until a variant opts in. */
+  var V2 = /[?&]obv2=1/.test(location.search) || String(C.v2 || "") === "1";
   var BIZ = (C.biz || "").trim() || "Our Studio";
   var PHONE = (C.phone || "").trim();
   var ADDR = (C.address || "").trim();
@@ -214,6 +219,13 @@
     "#onebox-root .obreserve{margin:14px auto 0;max-width:340px}" +
     "#onebox-root .obslots button:disabled{opacity:.5;cursor:wait}" +
     "#onebox-root .obslots p{margin:0;font-size:13px;color:var(--muted);text-align:center;padding:16px 0;grid-column:1/-1}" +
+    /* V2 experiment layout */
+    "#onebox-root .v2scarce{margin:7px 0 0;font-size:12.5px;font-weight:700;color:#c2410c;text-align:center}" +
+    "#ob-v2bar{position:fixed;top:0;left:0;right:0;z-index:60;display:none;align-items:center;justify-content:center;gap:12px;padding:9px 12px;background:linear-gradient(100deg,#0f9e9e,#0b7f7f);color:#fff;font-family:var(--form);font-size:13.5px;font-weight:600;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}" +
+    "#ob-v2bar.on{display:flex}" +
+    "#ob-v2bar .v2hold b{font-variant-numeric:tabular-nums;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 7px;margin-left:4px}" +
+    "#onebox-root h2.phead.v2dephead{margin-bottom:8px;font-size:clamp(19px,5.6vw,26px);line-height:1.25;overflow-wrap:break-word;white-space:normal}" +
+    "#onebox-root .v2deprow{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 10px;padding:9px 12px;border:1px solid #cdeae4;border-radius:10px;background:#f2fbf8;font-size:13px;color:#116b52;font-weight:600;text-align:center}" +
     "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
     "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:6px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
     "#onebox-root .depwhen{margin:0;font-size:14.5px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
@@ -566,8 +578,19 @@
         ' aria-pressed="' + (calState.day === key) + '">' + d + "</button>";
     }
     var slots = "";
+    var scarce = "";
     if (calState.day && calState.dates[calState.day]) {
-      slots = calState.dates[calState.day].map(function (iso) {
+      var dayList = calState.dates[calState.day];
+      /* V2: show at most 5 openings per day — a near-full calendar books
+         better than a wide-open one (the "Look Busy" rule from the
+         calendar-insights data). Display only; nothing is blocked. */
+      if (V2 && dayList.length > 5) {
+        dayList = dayList.slice(0, 5);
+        scarce = '<p class="v2scarce">&#128293; This day is almost full &mdash; ' + dayList.length + ' openings left</p>';
+      } else if (V2) {
+        scarce = '<p class="v2scarce">&#128293; Only ' + dayList.length + (dayList.length === 1 ? ' opening' : ' openings') + ' left this day</p>';
+      }
+      slots = dayList.map(function (iso) {
         return '<button type="button" data-slot="' + esc(iso) + '" class="' +
           (calState.selIso === iso ? "sel" : "") + '">' + fmtTime(iso) + "</button>";
       }).join("");
@@ -581,6 +604,7 @@
       "</div>" +
       '<div class="obgrid" id="ob-grid">' + cells + "</div>" +
       '<div class="obslotwrap"><div class="obslots" id="ob-slots">' + slots + '</div><div class="obfade"></div></div>' +
+      scarce +
       '<p class="obmore" id="ob-more">&darr; Scroll for more times</p>' +
       '<p class="obcal-note" id="ob-note"></p>';
   }
@@ -851,6 +875,16 @@
   }
 
   function slideDeposit() {
+    /* V2: everything above the checkout compresses into two short rows —
+       the payment box lands (nearly) above the fold, the countdown moves
+       to the sticky bar, and nothing competes with paying. */
+    if (V2) {
+      return '<h2 class="phead dephead v2dephead">' + (C.depositHead ? esc(C.depositHead)
+        : "Lock In Your Spot &mdash; " + esc(DEPOSIT) + ", Fully Refundable") + "</h2>" +
+        '<div class="v2deprow">' +
+          '<span>&#10004; Refunded in full or applied to your service &mdash; you&rsquo;re 100% covered</span>' +
+        "</div>";
+    }
     return '<h2 class="phead dephead">' + (C.depositHead ? esc(C.depositHead)
       : esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
       (state.slotIso ? '<div class="depmeta"><p class="depwhen">&#128197; ' +
@@ -964,6 +998,27 @@
       state.holdFor = state.slotIso;
       bootFanbasis(fbHost);
     }
+    /* V2 sticky hold bar: the picked slot + live countdown stay pinned
+       to the top of the screen for the whole checkout scroll, so the
+       urgency never leaves the visitor's sight. paintHold() feeds the
+       #ob-clock-mini element every second. */
+    if (V2) {
+      var bar = document.getElementById("ob-v2bar");
+      if (phase === "deposit") {
+        if (!bar) {
+          bar = document.createElement("div");
+          bar.id = "ob-v2bar";
+          root.appendChild(bar);
+        }
+        bar.innerHTML = '<span class="v2when">&#128197; ' +
+          (state.slotIso ? esc(fmtWhen(state.slotIso)) : "Your appointment") + "</span>" +
+          '<span class="v2hold">held for <b id="ob-clock-mini"></b></span>';
+        bar.classList.add("on");
+        paintHold();
+      } else if (bar) {
+        bar.classList.remove("on");
+      }
+    }
     /* Survey-stage copy: hidden from the calendar onward so the booking,
        confirm and deposit steps sit as high as possible. */
     root.classList.toggle("nohero", phase !== "survey");
@@ -1042,6 +1097,9 @@
   function renderExtras() {
     var el = document.getElementById("ob-extras");
     if (phase === "survey") { el.innerHTML = ""; return; }
+    /* V2 deposit step is pay-only: no photo grid, map or widgets under
+       the checkout — one decision on the screen, nothing to wander to. */
+    if (V2 && phase === "deposit") { el.innerHTML = ""; return; }
     var IG = C.igWidget || C.elfsightId || "";
     var GOOG = C.googleWidget || "";
     function loadElfsight() {
