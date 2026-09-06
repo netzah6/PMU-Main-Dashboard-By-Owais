@@ -137,6 +137,10 @@ export async function loadTeamLookup(svc: Svc): Promise<(name: string | null | u
 // The footer GHL appends when a sub-account's SMS-compliance toggles are on.
 const COMPLIANCE_RE = /(reply|txt|text)\s+"?stop"?\s+to\s+(unsubscribe|opt[\s-]*out|cancel)/i;
 
+// A footer older than this is history, not a live setting: the account was
+// probably already fixed. Both scans only look this far back.
+const COMPLIANCE_FRESH_DAYS = 7;
+
 const COMPLIANCE_FIX =
   "Open the sub-account in GHL → Settings → Phone Numbers → Advanced Settings → " +
   "turn OFF the SMS compliance / opt-out language toggles, so texts stop carrying the bot-looking footer.";
@@ -144,7 +148,7 @@ const COMPLIANCE_FIX =
 // ── Layer 1: cheap scan of already-synced conversations ─────────────────────
 // Catches accounts where a recent conversation ENDED on the footer message.
 export async function scanComplianceSynced(svc: Svc): Promise<number> {
-  const since = new Date(Date.now() - 30 * 86400_000).toISOString();
+  const since = new Date(Date.now() - COMPLIANCE_FRESH_DAYS * 86400_000).toISOString();
   const { data } = await svc
     .from("ghl_conversations")
     .select("owner_key, location_id, last_message_body, last_message_date, contact_id")
@@ -178,7 +182,7 @@ export async function scanComplianceSynced(svc: Svc): Promise<number> {
     const ok = await fileAlert(svc, {
       type: "compliance_text",
       title: `${owner}: "Reply STOP" opt-out footer going to leads (${v.n} recent text${v.n === 1 ? "" : "s"})`,
-      detail: `Latest, sent to ${leadName || "a lead"}: "${v.sample.slice(0, 400)}"\n\nFix: ${COMPLIANCE_FIX}`,
+      detail: `Latest, sent to ${leadName || "a lead"} on ${new Date(v.latest).toLocaleDateString()}: "${v.sample.slice(0, 400)}"\n\nFix: ${COMPLIANCE_FIX}`,
       source_key: `loc:${v.loc}`,
       meta: {
         owner_key: owner, location_id: v.loc, count: v.n, latest: v.latest, via: "synced",
@@ -237,7 +241,16 @@ export async function scanComplianceDeep(svc: Svc): Promise<{ accounts: number; 
       if (!token) continue;
       for (const c of convs as Array<{ id: string; contact_id?: string | null }>) {
         const thread = await getThread({ locationId: acct.locationId, token }, c.id);
-        const hit = thread.find((m) => m.direction === "outbound" && COMPLIANCE_RE.test(m.body));
+        // Only a RECENT footer proves the toggle is still on. Scanning whole
+        // threads with no date check re-raised an August message weeks after
+        // the account was fixed (linda deleon, user report 2026-09-06).
+        const hit = thread.find(
+          (m) =>
+            m.direction === "outbound" &&
+            COMPLIANCE_RE.test(m.body) &&
+            !!m.dateAdded &&
+            Date.now() - new Date(m.dateAdded).getTime() <= COMPLIANCE_FRESH_DAYS * 86400_000
+        );
         if (!hit) continue;
         // Name the lead who actually received it — "which contact?" was the
         // first question this alert raised (user, 2026-09-05).
@@ -249,7 +262,7 @@ export async function scanComplianceDeep(svc: Svc): Promise<{ accounts: number; 
         await fileAlert(svc, {
           type: "compliance_text",
           title: `${acct.ownerKey}: "Reply STOP" opt-out footer going to leads`,
-          detail: `Sent to ${leadName || "a lead"}: "${hit.body.slice(0, 400)}"\n\nFix: ${COMPLIANCE_FIX}`,
+          detail: `Sent to ${leadName || "a lead"} on ${new Date(hit.dateAdded!).toLocaleDateString()}: "${hit.body.slice(0, 400)}"\n\nFix: ${COMPLIANCE_FIX}`,
           source_key: `loc:${acct.locationId}`,
           meta: {
             owner_key: acct.ownerKey, location_id: acct.locationId, via: "deep", conversation_id: c.id,
