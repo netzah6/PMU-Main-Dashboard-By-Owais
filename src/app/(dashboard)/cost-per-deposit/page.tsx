@@ -6,6 +6,7 @@ import { formatCurrency, userColor, cn } from "@/lib/utils";
 import { Search, ChevronRight, Copy, X } from "lucide-react";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 import { LeadBreakdown } from "@/components/clients/LeadBreakdown";
+import { OpenConversations } from "@/components/clients/OpenConversations";
 import { SyncHealthBanner } from "@/components/SyncHealthBanner";
 
 interface Row {
@@ -299,6 +300,8 @@ export default function CostPerDepositPage() {
     <div className="p-3 md:p-4 space-y-3">
       <SyncHealthBanner />
       <IssuesPanel />
+      {/* Replied leads still waiting on us — the ones we could still close. */}
+      <OpenConversations />
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
