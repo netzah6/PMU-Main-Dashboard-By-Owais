@@ -221,6 +221,15 @@
     "#onebox-root .obslots p{margin:0;font-size:13px;color:var(--muted);text-align:center;padding:16px 0;grid-column:1/-1}" +
     /* V2 experiment layout */
     "#onebox-root .v2scarce{margin:7px 0 0;font-size:12.5px;font-weight:700;color:#c2410c;text-align:center}" +
+    /* V2: the phone line lives in the footer — dropping the top copy of it
+       lifts the whole funnel one row higher on phones. */
+    "#onebox-root.v2 .callbar{display:none}" +
+    /* V2: the checkout iframe opens with a tall blank band above its own
+       "Billing Information" — crop it so the form starts right under the
+       guarantee row. Test-only: the vendor can reshape their checkout, so
+       this offset lives and dies with the V2 experiment. */
+    "#onebox-root.v2 .fbhost.on{overflow:hidden}" +
+    "#onebox-root.v2 .fbhost.on iframe{margin-top:-72px}" +
     "#ob-v2bar{position:fixed;top:0;left:0;right:0;z-index:60;display:none;align-items:center;justify-content:center;gap:12px;padding:9px 12px;background:linear-gradient(100deg,#0f9e9e,#0b7f7f);color:#fff;font-family:var(--form);font-size:13.5px;font-weight:600;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}" +
     "#ob-v2bar.on{display:flex}" +
     "#ob-v2bar .v2hold b{font-variant-numeric:tabular-nums;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 7px;margin-left:4px}" +
@@ -375,6 +384,7 @@
   }
 
   /* ------------------------------------------------------------------ */
+  if (V2) root.classList.add("v2");
   root.innerHTML =
     '<div class="topbar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg><span>' + esc(ADDR) + "</span></div>" +
     '<div class="callbar">Call Us Today:' + (PHONE ? " " + esc(PHONE) : "") + "</div>" +
