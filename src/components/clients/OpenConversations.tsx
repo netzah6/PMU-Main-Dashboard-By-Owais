@@ -4,9 +4,10 @@ import { createClient } from "@/lib/supabase/client";
 import { Loader2, Search, ExternalLink, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Leads who replied in the last 14 days and are still waiting on us — the
-// conversations that could still turn into a deposit. Read by hand to spot
-// what to improve; one click opens the thread in GHL.
+// Replies from the last 14 days where the conversation went BADLY — priced
+// out, opting out, lost trust, hit something broken. These are the ones worth
+// reading to work out what to adjust; one click opens the thread in GHL.
+// "Everything" brings back the ordinary replies too.
 
 type Row = {
   conversation_id: string;
@@ -21,6 +22,17 @@ type Row = {
   last_message_date: string;
   unread: number;
   already_deposited: boolean;
+  friction_kind: string | null;
+};
+
+// What went wrong, and how loudly to say it.
+const KIND: Record<string, string> = {
+  "opt-out": "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]",
+  trust: "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]",
+  broken: "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]",
+  price: "bg-[#eef7ff] text-[#1d4ed8] border-[#bfdbfe]",
+  "not interested": "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]",
+  confused: "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]",
 };
 
 function ago(iso: string): string {
@@ -41,6 +53,7 @@ export function OpenConversations() {
   const [q, setQ] = useState("");
   const [client, setClient] = useState("all");
   const [showDeposited, setShowDeposited] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
@@ -61,35 +74,39 @@ export function OpenConversations() {
     const m = new Map<string, number>();
     for (const r of rows ?? []) {
       if (!showDeposited && r.already_deposited) continue;
+      if (!showAll && !r.friction_kind) continue;
       const k = r.owner_name || r.owner_key;
       m.set(k, (m.get(k) ?? 0) + 1);
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  }, [rows, showDeposited]);
+  }, [rows, showDeposited, showAll]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return (rows ?? []).filter((r) => {
       if (!showDeposited && r.already_deposited) return false;
+      if (!showAll && !r.friction_kind) return false;
       if (client !== "all" && (r.owner_name || r.owner_key) !== client) return false;
       if (!needle) return true;
       return `${r.lead_name} ${r.owner_name ?? ""} ${r.business ?? ""} ${r.last_message_body ?? ""}`
         .toLowerCase()
         .includes(needle);
     });
-  }, [rows, q, client, showDeposited]);
+  }, [rows, q, client, showDeposited, showAll]);
 
-  const openCount = (rows ?? []).filter((r) => showDeposited || !r.already_deposited).length;
+  const openCount = (rows ?? []).filter(
+    (r) => (showDeposited || !r.already_deposited) && (showAll || r.friction_kind)
+  ).length;
 
   return (
     <div className="rounded-xl border border-[#cfe3f7] bg-[#f7fbff]">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
         <MessageSquare size={14} className="text-[#1d4ed8] shrink-0" />
         <span className="text-sm font-bold text-[#1d4ed8]">
-          Leads who replied{rows ? ` · ${openCount}` : ""}
+          Conversations to fix{rows ? ` · ${openCount}` : ""}
         </span>
         <span className="text-xs text-[#5b7aa8] hidden sm:inline">
-          last 14 days, still waiting on us &mdash; open the chat and close them
+          last 14 days &mdash; replies that went badly, so you can see what to adjust
         </span>
         <span className="ml-auto text-[#1d4ed8]">{open ? "▲" : "▼"}</span>
       </button>
@@ -108,6 +125,10 @@ export function OpenConversations() {
               {clients.map(([name, n]) => <option key={name} value={name}>{name} ({n})</option>)}
             </select>
             <label className="flex items-center gap-1.5 text-xs text-[#34568a] whitespace-nowrap">
+              <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+              Every reply, not just the rough ones
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-[#34568a] whitespace-nowrap">
               <input type="checkbox" checked={showDeposited} onChange={(e) => setShowDeposited(e.target.checked)} />
               Include leads who already paid
             </label>
@@ -116,7 +137,7 @@ export function OpenConversations() {
           {loading ? (
             <div className="flex items-center gap-2 text-xs text-[#697a91] py-3"><Loader2 size={13} className="animate-spin" />Loading conversations…</div>
           ) : shown.length === 0 ? (
-            <p className="text-xs text-[#8595a8] py-2">No replies waiting — everyone has been answered.</p>
+            <p className="text-xs text-[#8595a8] py-2">Nothing rough in the last 14 days. Tick “Every reply” to see the rest.</p>
           ) : (
             <ul className="space-y-1 max-h-[60vh] overflow-y-auto">
               {shown.map((r) => (
@@ -125,6 +146,11 @@ export function OpenConversations() {
                     r.already_deposited ? "border-[#c7edd4]" : "border-[#e4ebf2]")}>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[13px] font-semibold text-[#1f3559]">{r.lead_name}</span>
+                    {r.friction_kind && (
+                      <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold border", KIND[r.friction_kind] ?? KIND["not interested"])}>
+                        {r.friction_kind}
+                      </span>
+                    )}
                     <span className="text-[11px] text-[#697a91] truncate">
                       {r.owner_name}{r.business ? ` · ${r.business}` : ""}
                     </span>

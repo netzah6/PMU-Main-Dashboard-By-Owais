@@ -7,6 +7,10 @@
 -- message is mirrored per conversation, so threads where we already replied
 -- after them cannot be identified without message-level data.)
 --
+-- friction_kind names what went wrong in the lead's last message (opt-out,
+-- trust, broken, price, not interested, confused); NULL means an ordinary
+-- reply. The review panel shows the rough ones by default (2026-09-06).
+--
 -- already_deposited flags leads who have since paid, matched on normalized name
 -- within the same business — deposit rows carry a name but usually no email.
 CREATE OR REPLACE VIEW public.cpd_open_conversations AS

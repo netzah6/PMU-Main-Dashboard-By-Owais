@@ -248,7 +248,6 @@ export default function PerformancePage() {
             <h1 className="text-lg font-semibold text-[#1f3559]">Performance</h1>
             <DataFreshness />
           </div>
-          <p className="text-xs text-[#697a91]">Live clients & campaign data</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">
