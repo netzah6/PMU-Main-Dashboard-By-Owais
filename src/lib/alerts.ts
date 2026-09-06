@@ -147,7 +147,7 @@ export async function scanComplianceSynced(svc: Svc): Promise<number> {
   const since = new Date(Date.now() - 30 * 86400_000).toISOString();
   const { data } = await svc
     .from("ghl_conversations")
-    .select("owner_key, location_id, last_message_body, last_message_date")
+    .select("owner_key, location_id, last_message_body, last_message_date, contact_id")
     .eq("last_message_direction", "outbound")
     .gte("last_message_date", since)
     .or(
@@ -157,21 +157,34 @@ export async function scanComplianceSynced(svc: Svc): Promise<number> {
       "last_message_body.ilike.%stop to cancel%"
     )
     .limit(2000);
-  const byOwner = new Map<string, { loc: string; n: number; sample: string; latest: string }>();
-  for (const r of (data ?? []) as Array<{ owner_key: string; location_id: string; last_message_body: string; last_message_date: string }>) {
+  const byOwner = new Map<string, { loc: string; n: number; sample: string; latest: string; contactId: string | null }>();
+  for (const r of (data ?? []) as Array<{ owner_key: string; location_id: string; last_message_body: string; last_message_date: string; contact_id: string | null }>) {
     if (!COMPLIANCE_RE.test(r.last_message_body ?? "")) continue;
     const cur = byOwner.get(r.owner_key);
-    if (cur) { cur.n++; if (r.last_message_date > cur.latest) { cur.latest = r.last_message_date; cur.sample = r.last_message_body; } }
-    else byOwner.set(r.owner_key, { loc: r.location_id, n: 1, sample: r.last_message_body, latest: r.last_message_date });
+    if (cur) {
+      cur.n++;
+      if (r.last_message_date > cur.latest) { cur.latest = r.last_message_date; cur.sample = r.last_message_body; cur.contactId = r.contact_id ?? null; }
+    } else {
+      byOwner.set(r.owner_key, { loc: r.location_id, n: 1, sample: r.last_message_body, latest: r.last_message_date, contactId: r.contact_id ?? null });
+    }
   }
   let filed = 0;
   for (const [owner, v] of byOwner) {
+    let leadName = "";
+    if (v.contactId) {
+      const { data: ct } = await svc.from("ghl_contacts").select("contact_name").eq("id", v.contactId).maybeSingle();
+      leadName = String((ct as { contact_name?: string } | null)?.contact_name ?? "").trim();
+    }
     const ok = await fileAlert(svc, {
       type: "compliance_text",
       title: `${owner}: "Reply STOP" opt-out footer going to leads (${v.n} recent text${v.n === 1 ? "" : "s"})`,
-      detail: `Latest example: "${v.sample.slice(0, 400)}"\n\nFix: ${COMPLIANCE_FIX}`,
+      detail: `Latest, sent to ${leadName || "a lead"}: "${v.sample.slice(0, 400)}"\n\nFix: ${COMPLIANCE_FIX}`,
       source_key: `loc:${v.loc}`,
-      meta: { owner_key: owner, location_id: v.loc, count: v.n, latest: v.latest, via: "synced" },
+      meta: {
+        owner_key: owner, location_id: v.loc, count: v.n, latest: v.latest, via: "synced",
+        contact_id: v.contactId, contact_name: leadName || null,
+        link: v.contactId ? ghlContactUrl(v.loc, v.contactId) : null,
+      },
       resurfaceAfterDays: 7, // still on a week after "resolved" → say it again
     });
     if (ok) filed++;
@@ -210,7 +223,7 @@ export async function scanComplianceDeep(svc: Svc): Promise<{ accounts: number; 
       // Newest conversations from the synced table (no extra API call).
       const { data: convs } = await svc
         .from("ghl_conversations")
-        .select("id, last_message_date")
+        .select("id, last_message_date, contact_id")
         .eq("location_id", acct.locationId)
         .order("last_message_date", { ascending: false })
         .limit(DEEP_CONVS_PER_ACCOUNT);
@@ -222,16 +235,28 @@ export async function scanComplianceDeep(svc: Svc): Promise<{ accounts: number; 
       const app = await getAppLocationToken(acct.locationId);
       const token = app.token ?? (acct.viaAgency ? null : acct.token);
       if (!token) continue;
-      for (const c of convs as Array<{ id: string }>) {
+      for (const c of convs as Array<{ id: string; contact_id?: string | null }>) {
         const thread = await getThread({ locationId: acct.locationId, token }, c.id);
         const hit = thread.find((m) => m.direction === "outbound" && COMPLIANCE_RE.test(m.body));
         if (!hit) continue;
+        // Name the lead who actually received it — "which contact?" was the
+        // first question this alert raised (user, 2026-09-05).
+        let leadName = "";
+        if (c.contact_id) {
+          const { data: ct } = await svc.from("ghl_contacts").select("contact_name").eq("id", c.contact_id).maybeSingle();
+          leadName = String((ct as { contact_name?: string } | null)?.contact_name ?? "").trim();
+        }
         await fileAlert(svc, {
           type: "compliance_text",
           title: `${acct.ownerKey}: "Reply STOP" opt-out footer going to leads`,
-          detail: `Example text sent to a lead: "${hit.body.slice(0, 400)}"\n\nFix: ${COMPLIANCE_FIX}`,
+          detail: `Sent to ${leadName || "a lead"}: "${hit.body.slice(0, 400)}"\n\nFix: ${COMPLIANCE_FIX}`,
           source_key: `loc:${acct.locationId}`,
-          meta: { owner_key: acct.ownerKey, location_id: acct.locationId, via: "deep", conversation_id: c.id },
+          meta: {
+            owner_key: acct.ownerKey, location_id: acct.locationId, via: "deep", conversation_id: c.id,
+            contact_id: c.contact_id ?? null,
+            contact_name: leadName || null,
+            link: c.contact_id ? ghlContactUrl(acct.locationId, c.contact_id) : null,
+          },
           resurfaceAfterDays: 7,
         });
         filed++;

@@ -80,9 +80,11 @@ export function ActivityLog({ clientKey, clientLabel, hideRoutine }: { clientKey
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "Task creation failed");
       setNote("");
-      setTaskMsg("✓ Task added");
+      // Created but unassigned (the person has no GHL user) — say so plainly
+      // rather than implying it landed on their Tasks tab.
+      setTaskMsg(j.warning ? `⚠ ${j.warning}` : "✓ Task added");
       window.dispatchEvent(new CustomEvent("client-tasks-changed", { detail: clientLabel }));
-      setTimeout(() => setTaskMsg(null), 4000);
+      setTimeout(() => setTaskMsg(null), j.warning ? 12000 : 4000);
     } catch (e) {
       setTaskMsg(e instanceof Error ? e.message : "Task creation failed");
     } finally {

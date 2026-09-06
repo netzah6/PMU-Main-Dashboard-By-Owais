@@ -138,10 +138,20 @@ export function ClientProfile({
 
   // Price comes from the financing sheet's latest month (client_payments).
   // Fall back to the clients sheet "p" column if there's no payment record.
-  const hasPayment = payment?.usd != null;
-  const priceDisplay = hasPayment
+  // 182 of 285 financing rows carry $0 in the USD column with the real plan in
+  // the notes ("$50 deposit + $45 per show" — Henry Von Norden, user report
+  // 2026-09-05). A bare $0 read as "pricing missing", so a zero price falls
+  // through to the plan text.
+  const usdNum = Number(payment?.usd ?? NaN);
+  const hasRealPrice = Number.isFinite(usdNum) && usdNum > 0;
+  const planNote = String(payment?.notes ?? "").trim().replace(/\s+/g, " ");
+  const priceDisplay = hasRealPrice
     ? formatCurrency(String(payment!.usd))
-    : formatCurrency(String(localClient.p ?? ""));
+    : planNote
+      ? (planNote.length > 34 ? `${planNote.slice(0, 34)}\u2026` : planNote)
+      : payment?.usd != null
+        ? formatCurrency(String(payment.usd))
+        : formatCurrency(String(localClient.p ?? ""));
 
   // ── Edit panel ──────────────────────────────────────────────────────────
   // Edit Profile opens one edit mode covering the names (top) + every detail
@@ -319,6 +329,11 @@ export function ClientProfile({
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
               {localClient.business_name && <CopyButton value={String(localClient.business_name)} title="Copy business name" />}
+            </div>
+            <p className="text-sm text-[#697a91] mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span className="truncate">{localClient.owner_name || "—"}</span>
+              {localClient.owner_name && <CopyButton value={String(localClient.owner_name)} title="Copy client full name" />}
+              {/* Time zone rides with the person's name — one line, phone-friendly. */}
               {tz && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap"
                   title={`Client time zone (from GoHighLevel): ${tz}`}>
@@ -326,32 +341,17 @@ export function ClientProfile({
                   {tz.split("/").pop()?.replace(/_/g, " ")}{tzOffset ? ` (${tzOffset})` : ""}{tzTime ? ` · ${tzTime} local` : ""}
                 </span>
               )}
-            </div>
-            <p className="text-sm text-[#697a91] mt-0.5 flex items-center gap-1.5 flex-wrap">
-              <span className="truncate">{localClient.owner_name || "—"}</span>
-              {localClient.owner_name && <CopyButton value={String(localClient.owner_name)} title="Copy client full name" />}
-              {localClient.ad_account_name && <span className="text-[#8595a8] truncate">· {String(localClient.ad_account_name)}</span>}
+              {/* The ad account is almost always the business name again — desktop only. */}
+              {localClient.ad_account_name && <span className="hidden md:inline text-[#8595a8] truncate">· {String(localClient.ad_account_name)}</span>}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Desktop only. On a phone this opened the GHL website rather than the
+                LeadConnector app — the deep link never took over reliably — so the
+                button is hidden there instead of misleading (user, 2026-09-05). */}
             {ghlUrl && (
-              // Mobile: try the LeadConnector APP first (custom scheme); if the
-              // app doesn't take over within ~1.6s, fall back to the website —
-              // worst case behaves exactly like before. Desktop keeps the tab.
-              <a href={ghlUrl}
-                {...(typeof navigator !== "undefined" && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-                  ? {
-                      onClick: (e: React.MouseEvent) => {
-                        e.preventDefault();
-                        const fallback = setTimeout(() => {
-                          if (document.visibilityState === "visible") window.location.href = ghlUrl;
-                        }, 1600);
-                        window.addEventListener("pagehide", () => clearTimeout(fallback), { once: true });
-                        window.location.href = `leadconnector://v2/location/${GHL_LOCATION}/contacts/detail/${ghlContactId}`;
-                      },
-                    }
-                  : { target: "_blank", rel: "noopener noreferrer" })}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] hover:bg-[#e6f7f5] transition-colors">
+              <a href={ghlUrl} target="_blank" rel="noopener noreferrer"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] hover:bg-[#e6f7f5] transition-colors">
                 <MessageSquare size={12} /> Click To Chat
               </a>
             )}
@@ -484,7 +484,7 @@ export function ClientProfile({
                   onClick={() => setShowPayment((s) => !s)}
                   className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d4f1ee] transition-colors cursor-pointer"
                 >
-                  Price: <strong className="ml-1">{priceDisplay}</strong>
+                  Price: <strong className="ml-1" title={planNote || undefined}>{priceDisplay}</strong>
                   {payment.month && <span className="ml-1 font-normal opacity-70">({payment.month})</span>}
                   <ChevronDown size={12} className={`ml-1 transition-transform ${showPayment ? "rotate-180" : ""}`} />
                 </button>
