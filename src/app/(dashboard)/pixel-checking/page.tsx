@@ -21,19 +21,43 @@ function ghlFunnelUrl(r: PixelCheckRow): string {
     : `https://app.gohighlevel.com/v2/location/${r.location_id}/funnels-websites/funnels`;
 }
 
+// The agency's own Meta pixels, by the names the team uses for them.
+// NOTE: 428811263531094 was given for both (B) and (D) — it is one pixel id, so
+// it carries one label; tell an admin if (D) is actually a different number.
+const PIXEL_NAMES: Record<string, string> = {
+  "799731475337650": "PMU For All",
+  "428811263531094": "PMU For All (B)",
+  "1926392208201665": "PMU For All (C)",
+  "1289579289946332": "PMU For All (E)",
+};
+
+/** Events firing more than once on a page, and pages carrying more than one
+ *  pixel — both mean a conversion is counted twice in Meta. */
+function duplicateInfo(pages: PageAudit[]): { events: string[]; doublePixel: boolean } {
+  const events = new Set<string>();
+  let doublePixel = false;
+  for (const pg of pages ?? []) {
+    for (const [ev, n] of Object.entries(pg.events ?? {})) if (n > 1) events.add(ev);
+    if ((pg.pixels?.length ?? 0) > 1) doublePixel = true;
+  }
+  return { events: [...events], doublePixel };
+}
+
 function CheckCell({ c }: { c?: Check }) {
   if (!c) return <span className="text-[#8595a8]">—</span>;
   return (
-    <div className="min-w-[120px]">
+    // One line per check — the wrapped detail paragraph was what made every
+    // row three lines tall. Full text on hover, and in the expanded row.
+    <div className="flex items-center gap-1.5 min-w-[110px]" title={c.detail}>
       <span
         className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold",
+          "inline-flex items-center px-1.5 rounded-full text-[11px] font-bold shrink-0",
           c.ok ? "bg-[#e7f6ec] text-[#15803d]" : "bg-[#fde8ee] text-[#e11d48]"
         )}
       >
         {c.ok ? "✓" : "✕"}
       </span>
-      <div className="text-[11px] leading-tight text-[#697a91] mt-0.5 max-w-[190px]">{c.detail}</div>
+      <span className="text-[11px] leading-tight text-[#697a91] truncate max-w-[150px]">{c.detail}</span>
     </div>
   );
 }
@@ -47,6 +71,9 @@ function PixelChips({ ids, shared }: { ids: string[]; shared: Map<string, number
         return (
           <span key={id} className="font-mono text-[11px] text-[#34568a] whitespace-nowrap">
             {id}
+            {PIXEL_NAMES[id] && (
+              <span className="ml-1 font-sans font-semibold text-[#1f3559]">· {PIXEL_NAMES[id]}</span>
+            )}
             {n > 1 && (
               <span className="ml-1.5 px-1.5 py-0.5 rounded bg-[#fff7ec] text-[#d97706] text-[10px] font-bold" title={`This pixel is installed on ${n} live clients' funnels`}>
                 shared ×{n}
@@ -74,7 +101,8 @@ function PageDetail({ p }: { p: PageAudit }) {
       <span className="text-[12px]">
         {evs.length ? (
           evs.map(([ev, n]) => (
-            <span key={ev} className="mr-2 font-semibold text-[#15803d]">
+            <span key={ev} className={cn("mr-2 font-semibold", n > 1 ? "text-[#e11d48]" : "text-[#15803d]")}
+      title={n > 1 ? `${ev} fires ${n}× on this page — Meta counts it ${n} times` : undefined}>
               {ev}
               {n > 1 ? ` ×${n}` : ""}
               {p.sources[ev]?.includes("lead-pixel.js") && <span className="text-[#697a91] font-normal"> (lead-pixel.js)</span>}
@@ -91,7 +119,7 @@ function PageDetail({ p }: { p: PageAudit }) {
   );
 }
 
-type Filter = "all" | "lead" | "sched" | "pixel" | "old" | "correct3";
+type Filter = "all" | "lead" | "sched" | "pixel" | "old" | "correct3" | "dupes";
 
 export default function PixelCheckingPage() {
   const [rows, setRows] = useState<PixelCheckRow[] | null>(null);
@@ -132,12 +160,18 @@ export default function PixelCheckingPage() {
     };
   }, [rows, shared]);
 
+  const dupeCount = useMemo(
+    () => (rows ?? []).filter((r) => { const d = duplicateInfo(r.pages); return d.events.length > 0 || d.doublePixel; }).length,
+    [rows]
+  );
+
   const filtered = useMemo(() => {
     let rs = rows ?? [];
     if (filter === "lead") rs = rs.filter((r) => !(r.checks as RowChecks).lead2?.ok);
     if (filter === "sched") rs = rs.filter((r) => !(r.checks as RowChecks).sched3?.ok);
     if (filter === "pixel") rs = rs.filter((r) => !r.pixel_ids.length || r.status === "blocked" || !(r.checks as RowChecks).pv1?.ok);
     if (filter === "old") rs = rs.filter((r) => !r.pages.some((p) => p.role === "deposit" && !p.extra));
+    if (filter === "dupes") rs = rs.filter((r) => { const d = duplicateInfo(r.pages); return d.events.length > 0 || d.doublePixel; });
     if (filter === "correct3")
       rs = rs.filter((r) => {
         const c = r.checks as RowChecks;
@@ -218,8 +252,8 @@ export default function PixelCheckingPage() {
   );
 
   return (
-    <div className="p-5 max-w-[1400px] mx-auto">
-      <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+    <div className="p-3 sm:p-4 max-w-[1400px] mx-auto">
+      <div className="flex flex-wrap items-end justify-between gap-2 mb-2">
         <div>
           <h1 className="text-xl font-bold text-[#1e3a5f]">📡 Pixel Checking</h1>
           <p className="text-[12.5px] text-[#697a91] max-w-[80ch]">
@@ -236,7 +270,7 @@ export default function PixelCheckingPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-2">
         {[
           { v: stats.total, l: "clients" },
           { v: stats.pv1, l: "1 · PageView ok" },
@@ -252,11 +286,12 @@ export default function PixelCheckingPage() {
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-1.5 mb-2">
         {chip("all", `All ${rows.length}`)}
         {chip("correct3", `Steps 1–3 correct (${stats.correct3})`)}
         {chip("lead", `Lead problems (${rows.length - stats.lead2})`)}
         {chip("sched", `Schedule missing (${rows.length - stats.sched3})`)}
+        {chip("dupes", `Double-counted (${dupeCount})`)}
         {chip("pixel", "Pixel problems")}
         {chip("old", "Old funnels (no deposit page)")}
         <div className="relative ml-auto">
@@ -274,15 +309,15 @@ export default function PixelCheckingPage() {
         <table className="w-full text-[13px]" style={{ minWidth: 1100 }}>
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-[#8595a8] border-b border-[#e4ebf2]">
-              <th className="px-3 py-2.5 w-6"></th>
-              <th className="px-3 py-2.5">Sub-account</th>
-              <th className="px-3 py-2.5">Funnel</th>
-              <th className="px-3 py-2.5">Pixel / dataset</th>
-              <th className="px-3 py-2.5">1 · PageView</th>
-              <th className="px-3 py-2.5">2 · Lead</th>
-              <th className="px-3 py-2.5">3 · Schedule</th>
-              <th className="px-3 py-2.5">4 · Purchase</th>
-              <th className="px-3 py-2.5 w-10"></th>
+              <th className="px-3 py-1.5 w-6"></th>
+              <th className="px-3 py-1.5">Sub-account</th>
+              <th className="px-3 py-1.5">Funnel</th>
+              <th className="px-3 py-1.5">Pixel / dataset</th>
+              <th className="px-3 py-1.5">1 · PageView</th>
+              <th className="px-3 py-1.5">2 · Lead</th>
+              <th className="px-3 py-1.5">3 · Schedule</th>
+              <th className="px-3 py-1.5">4 · Purchase</th>
+              <th className="px-3 py-1.5 w-10"></th>
             </tr>
           </thead>
           <tbody>
@@ -303,14 +338,14 @@ export default function PixelCheckingPage() {
                       })
                     }
                   >
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-1.5">
                       <ChevronRight size={14} className={cn("text-[#8595a8] transition-transform mt-0.5", isOpen && "rotate-90")} />
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-1.5">
                       <div className="font-semibold text-[#1e3a5f]">{r.business_name}</div>
                       <div className="text-[11px] text-[#8595a8]">{r.owner_name}</div>
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-1.5">
                       <a
                         href={ghlFunnelUrl(r)}
                         target="_blank"
@@ -327,14 +362,30 @@ export default function PixelCheckingPage() {
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-2.5">
-                      <PixelChips ids={r.pixel_ids} shared={shared} />
+                    <td className="px-3 py-1.5">
+                      <>
+                    <PixelChips ids={r.pixel_ids} shared={shared} />
+                    {(() => {
+                      const d = duplicateInfo(r.pages);
+                      if (!d.events.length && !d.doublePixel) return null;
+                      const why = [
+                        d.events.length ? `${d.events.join(", ")} fires more than once on a page` : "",
+                        d.doublePixel ? "a page loads two pixels, so every event reports twice" : "",
+                      ].filter(Boolean).join(" · ");
+                      return (
+                        <span title={`Double-counted in Meta: ${why}`}
+                          className="mt-1 inline-block px-1.5 py-0.5 rounded bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold border border-[#f5c2cf]">
+                          DUPLICATE {d.events.length ? d.events.join("/") : "PIXEL"}
+                        </span>
+                      );
+                    })()}
+                  </>
                     </td>
-                    <td className="px-3 py-2.5"><CheckCell c={c.pv1} /></td>
-                    <td className="px-3 py-2.5"><CheckCell c={c.lead2} /></td>
-                    <td className="px-3 py-2.5"><CheckCell c={c.sched3} /></td>
-                    <td className="px-3 py-2.5"><CheckCell c={c.purchase4} /></td>
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-1.5"><CheckCell c={c.pv1} /></td>
+                    <td className="px-3 py-1.5"><CheckCell c={c.lead2} /></td>
+                    <td className="px-3 py-1.5"><CheckCell c={c.sched3} /></td>
+                    <td className="px-3 py-1.5"><CheckCell c={c.purchase4} /></td>
+                    <td className="px-3 py-1.5">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
