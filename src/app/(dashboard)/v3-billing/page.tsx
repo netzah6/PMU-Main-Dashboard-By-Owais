@@ -606,19 +606,26 @@ function ChatFlagsPanel({ feeByOwner, nameByOwner, onBilled }: {
 // Latest Monday auto-charge run, one line + expandable detail.
 interface AutoLogRow { owner_key: string; owner_name: string | null; status: string; amount: number | null; shows: number | null; square_payment_id: string | null; detail: string | null }
 
+// Dismissals are remembered per RUN, so clearing a failed Monday keeps it gone
+// on reload while the next run still announces itself.
+const AUTORUN_DISMISSED = "pps.autorun.dismissed";
+
 function AutoRunBanner() {
   const [run, setRun] = useState<{ runAt: string; rows: AutoLogRow[] } | null>(null);
   const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState<string | null>(null);
   useEffect(() => {
     fetch("/api/ppa/autocharge-log").then((r) => r.json()).then((j) => setRun(j.run ?? null)).catch(() => {});
+    try { setDismissed(localStorage.getItem(AUTORUN_DISMISSED)); } catch { /* private mode */ }
   }, []);
   if (!run || run.rows.length === 0) return null;
+  if (dismissed && dismissed === run.runAt) return null;
   const charged = run.rows.filter((r) => r.status === "charged");
   const skipped = run.rows.filter((r) => r.status === "skipped");
   const failed = run.rows.filter((r) => r.status === "failed");
   const total = charged.reduce((s, r) => s + (Number(r.amount) || 0), 0);
   return (
-    <div className={cn("rounded-xl border px-3 py-2 text-[12px]", failed.length ? "border-[#f5c2cf] bg-[#fde8ee] text-[#be123c]" : "border-[#c9dbfb] bg-[#eef7ff] text-[#1d4ed8]")}>
+    <div className={cn("relative rounded-xl border px-3 py-2 pr-7 text-[12px]", failed.length ? "border-[#f5c2cf] bg-[#fde8ee] text-[#be123c]" : "border-[#c9dbfb] bg-[#eef7ff] text-[#1d4ed8]")}>
       <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 w-full text-left">
         <span className="font-bold">⚡ Last auto-charge run</span>
         <span>{new Date(run.runAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
@@ -626,6 +633,16 @@ function AutoRunBanner() {
         {skipped.length > 0 && <span>· {skipped.length} skipped</span>}
         {failed.length > 0 && <span className="font-bold">· {failed.length} FAILED</span>}
         <span className="ml-auto text-[10px]">{open ? "hide" : "details"}</span>
+      </button>
+      <button
+        onClick={() => {
+          setDismissed(run.runAt);
+          try { localStorage.setItem(AUTORUN_DISMISSED, run.runAt); } catch { /* private mode */ }
+        }}
+        title="Clear this notice — it comes back after the next auto-charge run"
+        className="absolute top-1 right-1 px-1.5 text-[13px] leading-none opacity-60 hover:opacity-100"
+      >
+        ×
       </button>
       {open && (
         <div className="mt-1.5 space-y-0.5">
@@ -765,7 +782,6 @@ export default function V3BillingPage() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">PPS Billing</h1>
-          <p className="text-sm text-[#697a91]">Pay-per-show clients (marked &quot;PPA&quot; in the financing sheet&apos;s current month) · charge per completed appointment</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
@@ -801,12 +817,6 @@ export default function V3BillingPage() {
           Payment check unavailable: {verifyError} — billing numbers still work; card info and the Charge buttons are hidden until it loads (hit Refresh to retry).
         </div>
       )}
-
-      {/* Billing policy: unorganized "confirmed" appointments are billed as shown. */}
-      <div className="rounded-xl border border-[#e4ebf2] bg-[#f8fafc] px-3 py-2 text-[12px] text-[#697a91]">
-        Appointments left in <strong className="text-[#34568a]">&quot;confirmed&quot;</strong> past their date are billed as <strong className="text-[#34568a]">shown</strong> by default — per agreement, if the artist doesn&apos;t organize their dashboard we charge anyway. Clients with several of these are flagged <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">⚠ NOT ORGANIZED</span> so you can nudge them.
-        {" "}Leads we sent that the artist booked <strong className="text-[#7c3aed]">on her end</strong> (no deposit through us) also bill the show fee — caught three ways: moved to Session Done (<span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">Self-booked</span>), sitting on her GHL calendar past its date (<span className="px-1 py-0.5 rounded text-[9px] font-bold bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">Calendar</span>), or agreed in the conversation (💬 review panel above). All counted from Aug 1, 2026; booked fully off-platform we can&apos;t see.
-      </div>
 
       {/* PPA names in the financing sheet with no Clients Master row — they
           can't be tracked until they're added to the Master sheet. */}
