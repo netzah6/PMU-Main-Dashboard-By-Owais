@@ -418,25 +418,36 @@ export function ClientProfile({
                 Status: <strong className="ml-1">{localClient.status || "—"}</strong>
               </Badge>
             )}
-            {canEdit ? (
-              <span className="inline-flex items-center gap-1.5">
-                <span className="text-xs text-[#697a91]">Version:</span>
-                <select
-                  value={VERSION_OPTIONS.includes(String(localClient.version ?? "")) ? String(localClient.version ?? "") : ""}
-                  onChange={(e) => saveVersion(e.target.value)}
-                  disabled={versionSaving}
-                  title="Change version — writes back to the Google Sheet"
-                  className="px-2 py-1 rounded-md text-xs font-bold border border-[#d7e0ea] bg-white text-[#34568a] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
-                >
-                  {!VERSION_OPTIONS.includes(String(localClient.version ?? "")) && (
-                    <option value="" disabled>{localClient.version || "—"}</option>
-                  )}
-                  {VERSION_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
-              </span>
-            ) : (
-              <Badge variant="gray">Version: <strong className="ml-1">{localClient.version || "—"}</strong></Badge>
-            )}
+            {/* One Version control only — the editable one, wearing the same
+                per-version colours the Reports tab uses. */}
+            {(() => {
+              const v = String(localClient.version ?? "");
+              const vs = versionStyle(v);
+              if (!canEdit) {
+                return (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border"
+                    style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>
+                    Version: <strong className="ml-1">{v || "—"}</strong>
+                  </span>
+                );
+              }
+              return (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-xs text-[#697a91]">Version:</span>
+                  <select
+                    value={VERSION_OPTIONS.includes(v) ? v : ""}
+                    onChange={(e) => saveVersion(e.target.value)}
+                    disabled={versionSaving}
+                    title="Change version — writes back to the Google Sheet"
+                    style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}
+                    className="px-2 py-1 rounded-md text-xs font-bold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
+                  >
+                    {!VERSION_OPTIONS.includes(v) && <option value="" disabled>{v || "—"}</option>}
+                    {VERSION_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </span>
+              );
+            })()}
             {canEdit ? (
               <>
                 <span className="inline-flex items-center gap-1.5">
@@ -518,16 +529,6 @@ export function ClientProfile({
             ) : (
               <Badge variant="teal">Price: <strong className="ml-1">{priceDisplay}</strong></Badge>
             )}
-            {(() => {
-              const v = String(localClient.version ?? "");
-              const vs = versionStyle(v);
-              return (
-                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border"
-                  style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>
-                  Version: <strong className="ml-1">{v || "—"}</strong>
-                </span>
-              );
-            })()}
           </div>
         )}
       </div>
