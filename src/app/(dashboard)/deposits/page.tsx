@@ -152,8 +152,8 @@ export default function DepositsPage() {
   const money = (a: unknown) => { const s = String(a ?? ""); return s ? (s.startsWith("$") ? s : "$" + s) : "—"; };
 
   return (
-    <div className="p-3 md:p-4 space-y-3">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="p-2 sm:p-3 space-y-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-semibold text-[#1f3559]">Deposits</h1>
           {/* Live means live — say so, and show when a new one lands. */}
@@ -173,9 +173,9 @@ export default function DepositsPage() {
         <div className="flex items-center gap-2">
           <button onClick={loadRefunds} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]"><RefreshCw size={12} /> Refunds</button>
           {role === "admin" && (
-            <div className="bg-white rounded-lg px-4 py-2 border border-[#e4ebf2] text-right">
+            <div className="bg-white rounded-lg px-3 py-1 border border-[#e4ebf2] text-right">
               <p className="text-xs text-[#697a91]">Total deposits{month !== "All" ? ` · ${monthLabel(month)}` : ""}</p>
-              <p className="text-[#0e8f88] font-bold text-lg">{filtered.length.toLocaleString()}</p>
+              <p className="text-[#0e8f88] font-bold text-base leading-tight">{filtered.length.toLocaleString()}</p>
             </div>
           )}
         </div>
@@ -216,7 +216,7 @@ export default function DepositsPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap gap-2 items-center">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
           <input type="text" placeholder="Search client, name, or email…" value={search} onChange={(e) => setSearch(e.target.value)}
@@ -287,18 +287,18 @@ export default function DepositsPage() {
                 const rf = refundByKey.get(key);
                 return (
                   <tr key={i} className={cn("border-b border-[#eef3f8]", i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
-                    <td className="hidden sm:table-cell px-3 py-1 text-[#1f3559]">{String(r["Business Name"] ?? r.client_name ?? "—")}</td>
-                    <td className="px-2 sm:px-3 py-1 max-w-[46vw] sm:max-w-none">
+                    <td className="hidden sm:table-cell px-3 py-0.5 text-[#1f3559]">{String(r["Business Name"] ?? r.client_name ?? "—")}</td>
+                    <td className="px-2 sm:px-3 py-0.5 max-w-[46vw] sm:max-w-none">
                       <div className="text-[#1f3559] truncate">{String(r["Full Name"] ?? "—")}</div>
                       {r["Email"] ? <div className="text-[11px] text-[#8595a8] truncate">{String(r["Email"])}</div> : null}
                       <div className="sm:hidden text-[11px] text-[#8595a8] truncate">
                         {String(r["Business Name"] ?? r.client_name ?? "—")} · {fmtDate(dateStr(r))}
                       </div>
                     </td>
-                    <td className="px-2 sm:px-3 py-1 font-semibold text-[#0e8f88] whitespace-nowrap">{money(r["Amount"])}</td>
-                    <td className="hidden sm:table-cell px-3 py-1 text-[#697a91] whitespace-nowrap">{fmtDate(dateStr(r))}</td>
-                    <td className="hidden sm:table-cell px-3 py-1 text-[#697a91]">{String(r["Source"] ?? "—")}</td>
-                    <td className="px-2 sm:px-3 py-1 whitespace-nowrap">
+                    <td className="px-2 sm:px-3 py-0.5 font-semibold text-[#0e8f88] whitespace-nowrap">{money(r["Amount"])}</td>
+                    <td className="hidden sm:table-cell px-3 py-0.5 text-[#697a91] whitespace-nowrap">{fmtDate(dateStr(r))}</td>
+                    <td className="hidden sm:table-cell px-3 py-0.5 text-[#697a91]">{String(r["Source"] ?? "—")}</td>
+                    <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap">
                       {rf ? (
                         <div className="flex items-center gap-1.5">
                           <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold border", (STATUS[rf.status] ?? STATUS.denied).cls)}>{(STATUS[rf.status] ?? STATUS.denied).label}</span>

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, userColor } from "@/lib/utils";
 import type { AlertRow } from "@/lib/alerts";
 
 // Admin-only Alerts board — the CEO's notification center. Crons file alerts
@@ -47,18 +47,33 @@ function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, 
       <div className="mt-2 text-sm font-semibold text-[#1c2f4a]">{a.title}</div>
       {/* Who takes care of this client + one-click jump to the contact in GHL. */}
       {(() => {
-        const team = typeof a.meta?.team === "string" ? a.meta.team : "";
+        const csm = typeof a.meta?.csm === "string" ? a.meta.csm : "";
+        const buyer = typeof a.meta?.media_buyer === "string" ? a.meta.media_buyer : "";
+        // Older alerts stored one combined "Assigned · Media buyer" string.
+        const legacy = typeof a.meta?.team === "string" ? a.meta.team : "";
+        const people: Array<{ name: string; role: string }> = csm || buyer
+          ? [
+              ...(csm ? [{ name: csm, role: "Client Success Coach" }] : []),
+              ...(buyer ? [{ name: buyer, role: "Media buyer" }] : []),
+            ]
+          : legacy.split("·").map((n) => ({ name: n.trim(), role: "Looks after this client" })).filter((p) => p.name);
         const link = typeof a.meta?.link === "string" ? a.meta.link : "";
         const contact = typeof a.meta?.contact_name === "string" ? a.meta.contact_name : "";
-        if (!team && !link) return null;
+        if (!people.length && !link) return null;
         return (
           <div className="mt-1 flex items-center gap-2 flex-wrap">
-            {team && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#eef2f7] text-[#34568a] border-[#d7e0ea]"
-                title="Who takes care of this client (assigned · media buyer)">
-                👤 {team}
-              </span>
-            )}
+            {/* Same name colours as the Performance and Clients tabs. */}
+            {people.map((p) => {
+              const c = userColor(p.name);
+              return (
+                <span key={p.role + p.name} title={p.role}
+                  className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap"
+                  style={c ? { background: c.bg, color: c.text, borderColor: c.border }
+                           : { background: "#f1f5f9", color: "#64748b", borderColor: "#d7e0ea" }}>
+                  {p.name}
+                </span>
+              );
+            })}
             {link && (
               <a href={link} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d5f0ee]">

@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { createClient } from "@/lib/supabase/client";
-import { GhlNotes } from "@/components/clients/GhlNotes";
 import { formatDate, cn } from "@/lib/utils";
 import { Search, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -102,7 +101,7 @@ function AreaChart({ values, dates, color, yFmt }: {
   const xIdx = want <= 1 ? [0] : Array.from({ length: want }, (_, k) => Math.round((k * (n - 1)) / (want - 1)));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 112 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 168 }}>
       {ticks.map((t, k) => (
         <g key={k}>
           <line x1={mL} x2={W - mR} y1={Y(t)} y2={Y(t)} stroke="#eef3f8" strokeWidth={1} />
@@ -215,20 +214,6 @@ export default function ReportsPage() {
       setSpendMap(sp);
     });
   }, []);
-
-  // client name → GHL contact ID (same picker rule as the Clients tab) for GHL notes
-  const contactIdMap = useMemo(() => {
-    const m = new Map<string, string>();
-    rawClients.forEach((c) => {
-      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
-      if (!owner) return;
-      for (const cand of [c["Contact ID"], c["contact_id"], c["GHL Contact ID"], c["_id2"]]) {
-        const s = String(cand ?? "").trim();
-        if (s.length >= 15 && /[a-zA-Z]/.test(s) && /^[a-zA-Z0-9_-]+$/.test(s)) { m.set(owner, s); break; }
-      }
-    });
-    return m;
-  }, [rawClients]);
 
   // Write an edited Action (col T) back to Supabase + the "Add Data - Tracking" sheet.
   const saveAction = useCallback(async (rowNumber: number, raw: Record<string, unknown>, value: string) => {
@@ -343,7 +328,6 @@ export default function ReportsPage() {
   }, [current, bizResolve, depositsByBiz]);
   const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
   const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
-  const ghlContactId = current ? contactIdMap.get(current.name.toLowerCase()) ?? "" : "";
 
   // ── AI suggestions (rule-based) — each is one of the canonical Action options ──
   const suggestions = useMemo(() => {
@@ -599,12 +583,10 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    <SectionRow label="Context" span={reps.length} />
                     <ContextRow label="Call or Chat" reps={reps} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
                     <ContextRow label="Last Strategy" reps={reps} get={(r) => { const d = String(r.raw["Last Strategy?"] ?? ""); return d ? formatDate(d, true) : "—"; }} />
                     <ActionRow reps={reps} edits={actionEdits} onSave={saveAction} />
 
-                    <SectionRow label="Metric" span={reps.length} />
                     <NumRow label="Total Leads" reps={reps} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
                     <NumRow label="Booking %" reps={reps} get={(r) => (r.booking == null ? null : r.booking * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter />
                     <NumRow label="Sessions Booked" reps={reps} get={(r) => r.sessions} fmt={(v) => String(v)} higherBetter />
@@ -617,10 +599,8 @@ export default function ReportsPage() {
                 </table>
               </div>
             </div>
-            <p className="text-xs text-[#8595a8]">Green = on track, red = off track. Numeric cells show the change vs the previous date (▲/▼).</p>
 
             {/* Notes from GoHighLevel — same as the Clients tab */}
-            {ghlContactId && <GhlNotes contactId={ghlContactId} />}
           </div>
         )}
       </div>
@@ -630,8 +610,8 @@ export default function ReportsPage() {
 
 function ChartCard({ title, color, values, dates, yFmt }: { title: string; color: string; values: number[]; dates: string[]; yFmt: (v: number) => string }) {
   return (
-    <div className="rounded-2xl border border-[#e4ebf2] bg-white p-2">
-      <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-0.5 truncate">{title}</h3>
+    <div className="rounded-2xl border border-[#e4ebf2] bg-white p-2.5">
+      <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-1 truncate">{title}</h3>
       <AreaChart values={values} dates={dates} color={color} yFmt={yFmt} />
     </div>
   );

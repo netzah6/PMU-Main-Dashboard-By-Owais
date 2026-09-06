@@ -113,24 +113,42 @@ export function ghlContactUrl(locationId: string, contactId: string): string {
 
 // Who takes care of a client — "Assigned · Media buyer" from the Performance
 // data, matched loosely by owner or business name. Loaded once per scan.
-export async function loadTeamLookup(svc: Svc): Promise<(name: string | null | undefined) => string | null> {
+export type TeamOwners = { assigned: string | null; mediaBuyer: string | null };
+
+export async function loadTeamLookup(svc: Svc): Promise<(name: string | null | undefined) => TeamOwners | null> {
   type Row = { owner_name: string | null; business_name: string | null; assigned: string | null; media_buyer: string | null };
   let rows: Row[] = [];
   try {
     const { data } = await svc.from("performance_overview").select("owner_name, business_name, assigned, media_buyer");
     rows = (data as Row[]) ?? [];
   } catch { /* alerts still file without the team chip */ }
+  // performance_overview only covers LIVE clients, so onboarding alerts — the
+  // ones most in need of a name to chase — had nobody on them. Clients Master
+  // carries Assigned/Media Buyer for every client, launched or not.
+  try {
+    const { data: cm } = await svc.from("clients_master").select("data");
+    for (const r of (cm ?? []) as Array<{ data: Record<string, unknown> }>) {
+      const d = r.data ?? {};
+      rows.push({
+        owner_name: String(d["Owner Full Name"] ?? "") || null,
+        business_name: String(d["Business Name"] ?? "") || null,
+        assigned: String(d["Assigned"] ?? "") || null,
+        media_buyer: String(d["Media Buyer"] ?? "") || null,
+      });
+    }
+  } catch { /* the performance rows above are enough */ }
   return (name) => {
     const want = String(name ?? "").trim();
     if (!want || !rows.length) return null;
+    const usable = (r: Row) => (r.assigned ?? "").trim() || (r.media_buyer ?? "").trim();
     const hit =
-      rows.find((r) => nameMatches(r.owner_name ?? "", want)) ??
-      rows.find((r) => nameMatches(r.business_name ?? "", want));
+      rows.find((r) => usable(r) && nameMatches(r.owner_name ?? "", want)) ??
+      rows.find((r) => usable(r) && nameMatches(r.business_name ?? "", want));
     if (!hit) return null;
-    const a = (hit.assigned ?? "").trim();
-    const mb = (hit.media_buyer ?? "").trim();
-    const parts = [a, mb && mb !== a ? mb : ""].filter(Boolean);
-    return parts.length ? parts.join(" · ") : null;
+    const assigned = (hit.assigned ?? "").trim() || null;
+    const mediaBuyer = (hit.media_buyer ?? "").trim() || null;
+    if (!assigned && !mediaBuyer) return null;
+    return { assigned, mediaBuyer: mediaBuyer && mediaBuyer !== assigned ? mediaBuyer : null };
   };
 }
 
@@ -479,7 +497,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
         contact_id: contactId, contact_name: cname, launch_call: start,
         clients_master_status: match?.status ?? null,
         link: ghlContactUrl(MAIN_LOC, contactId),
-        team: teamFor(cname),
+        ...(() => { const t = teamFor(cname); return t ? { csm: t.assigned, media_buyer: t.mediaBuyer } : {}; })(),
       },
       resurfaceAfterDays: 3, // nags every few days until they're Live
     });
@@ -523,7 +541,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
       meta: {
         contact_id: contactId, contact_name: oname, stage: stageName, entered,
         link: contactId ? ghlContactUrl(MAIN_LOC, contactId) : null,
-        team: teamFor(oname),
+        ...(() => { const t = teamFor(oname); return t ? { csm: t.assigned, media_buyer: t.mediaBuyer } : {}; })(),
       },
       resurfaceAfterDays: 7,
     });
