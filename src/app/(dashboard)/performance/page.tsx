@@ -277,16 +277,9 @@ export default function PerformancePage() {
         <div className="text-sm text-[#697a91] py-12 text-center">Loading performance data…</div>
       ) : (
         <>
-        {/* Mobile: cards */}
-        <div className="md:hidden space-y-2">
-          {filtered.map((r, i) => {
-            const id = String(r.sheet_row ?? i);
-            return <PerfCard key={id} r={r} open={openRow === id} onToggle={() => setOpenRow(openRow === id ? null : id)} onChanged={load} />;
-          })}
-          {filtered.length === 0 && <div className="px-4 py-12 text-center text-[#8595a8]">No live clients match.</div>}
-        </div>
-        {/* Desktop: table */}
-        <div className="hidden md:block rounded-[14px] border border-[#e4ebf2] bg-white overflow-auto max-h-[calc(100vh-180px)]" style={{ boxShadow: "var(--shadow-sm)" }}>
+        {/* One table on every screen — the columns line up, and the client
+            column stays pinned while the numbers scroll sideways on a phone. */}
+        <div className="rounded-[14px] border border-[#e4ebf2] bg-white overflow-auto max-h-[calc(100vh-260px)] md:max-h-[calc(100vh-180px)]" style={{ boxShadow: "var(--shadow-sm)" }}>
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
@@ -335,11 +328,11 @@ export default function PerformancePage() {
                     </td>
                     <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
                       style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name && r.ad_account_name !== r.business_name ? `Ad account: ${r.ad_account_name}` : (r.business_name ?? "")}>{r.business_name || r.ad_account_name || "—"}</td>
-                    <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
                     <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
                     <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
-                    <td className="px-3 py-1 align-top"><PmuServicesCell value={r.pmu_services} /></td>
-                    <td className="px-3 py-1 whitespace-nowrap">
+                    <td className="px-2 sm:px-3 py-1 align-top"><PmuServicesCell value={r.pmu_services} /></td>
+                    <td className="px-2 sm:px-3 py-1 whitespace-nowrap">
                       <span className={cn("inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border", statusTone(r.campaign_status))}>
                         {shortStatus(r.campaign_status)}
                       </span>
@@ -350,31 +343,31 @@ export default function PerformancePage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]"
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]"
                       style={bookingPctVal == null ? undefined : { background: bookingFill(bookingPctVal).bg, color: bookingFill(bookingPctVal).fg }}>
                       {bookingPctVal == null ? <span className="text-[#a6b3c4]">—</span> : `${bookingPctVal.toFixed(2)}%`}
                     </td>
-                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l30, 86, 65, paused).bg, color: leadCellTone(r.l30, 86, 65, paused).fg }}>{r.l30}</td>
-                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l14, 43, 33, paused).bg, color: leadCellTone(r.l14, 43, 33, paused).fg }}>{r.l14}</td>
-                    <td className="px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l7, 22, 17, paused).bg, color: leadCellTone(r.l7, 22, 17, paused).fg }}>{r.l7}</td>
-                    <td className="px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3, 11, 8, paused).bg, color: leadCellTone(r.l3, 11, 8, paused).fg }}>{r.l3}</td>
-                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl30).bg, color: cplVivid(cpl30).fg }}>{cpl30 == null ? "$0.00" : formatCurrency(cpl30)}</td>
-                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl14).bg, color: cplVivid(cpl14).fg }}>{cpl14 == null ? "$0.00" : formatCurrency(cpl14)}</td>
-                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cplVivid(cpl7).bg, color: cplVivid(cpl7).fg }}>{cpl7 == null ? "$0.00" : formatCurrency(cpl7)}</td>
-                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap"
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l30, 86, 65, paused).bg, color: leadCellTone(r.l30, 86, 65, paused).fg }}>{r.l30}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l14, 43, 33, paused).bg, color: leadCellTone(r.l14, 43, 33, paused).fg }}>{r.l14}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l7, 22, 17, paused).bg, color: leadCellTone(r.l7, 22, 17, paused).fg }}>{r.l7}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-bold border-r-2 border-[#cbd5e1]" style={{ background: leadCellTone(r.l3, 11, 8, paused).bg, color: leadCellTone(r.l3, 11, 8, paused).fg }}>{r.l3}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl30).bg, color: cplVivid(cpl30).fg }}>{cpl30 == null ? "$0.00" : formatCurrency(cpl30)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap" style={{ background: cplVivid(cpl14).bg, color: cplVivid(cpl14).fg }}>{cpl14 == null ? "$0.00" : formatCurrency(cpl14)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]" style={{ background: cplVivid(cpl7).bg, color: cplVivid(cpl7).fg }}>{cpl7 == null ? "$0.00" : formatCurrency(cpl7)}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap"
                       style={sp14 ? { background: sp14.bg, color: sp14.fg } : undefined}
                       title={sp14 === SPEND_BLUE ? "Spend too low vs daily budget × 14" : sp14 === SPEND_PURPLE ? "Spend too high vs daily budget × 14" : undefined}>
                       {num(r.spent14) == null ? <span className="text-[#a6b3c4]">—</span> : formatCurrency(num(r.spent14))}
                     </td>
-                    <td className="px-3 py-1 text-center font-semibold whitespace-nowrap"
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap"
                       style={sp7 ? { background: sp7.bg, color: sp7.fg } : undefined}
                       title={sp7 === SPEND_BLUE ? "Spend too low vs daily budget × 7" : sp7 === SPEND_PURPLE ? "Spend too high vs daily budget × 7" : undefined}>
                       {num(r.spent7) == null ? <span className="text-[#a6b3c4]">—</span> : formatCurrency(num(r.spent7))}
                     </td>
-                    <td className="px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—"}</td>
-                    <td className="px-3 py-1 text-center text-[#1e2a3a] whitespace-nowrap">{r.sessions_done || <span className="text-[#a6b3c4]">—</span>}</td>
-                    <td className="px-3 py-1 text-[#34568a] whitespace-nowrap">{r.last_strategy ? formatDate(r.last_strategy) : <span className="text-[#a6b3c4]">—</span>}</td>
-                    <td className="px-3 py-1 align-top"><CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={load} /></td>
+                    <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—"}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center text-[#1e2a3a] whitespace-nowrap">{r.sessions_done || <span className="text-[#a6b3c4]">—</span>}</td>
+                    <td className="px-2 sm:px-3 py-1 text-[#34568a] whitespace-nowrap">{r.last_strategy ? formatDate(r.last_strategy) : <span className="text-[#a6b3c4]">—</span>}</td>
+                    <td className="px-2 sm:px-3 py-1 align-top"><CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={load} /></td>
                   </tr>
                   {isOpen && (
                     <tr className="bg-[#f3f7fb]">
@@ -409,72 +402,3 @@ export default function PerformancePage() {
 // Mobile card for one performance row — carries EVERY data point the desktop
 // table shows (all lead/CPL/spend windows always visible; status, services,
 // sessions & strategy in the card too), so nothing is missing on a phone.
-function PerfCard({ r, open, onToggle, onChanged }: { r: PerfRow; open: boolean; onToggle: () => void; onChanged: () => void }) {
-  const booking = num(r.booking_pct);
-  const bookingPctVal = booking == null ? null : booking < 1 ? booking * 100 : booking;
-  const cpl30 = num(r.cpl30), cpl14 = num(r.cpl14), cpl7 = num(r.cpl7);
-  const paused = String(r.client_status ?? "").toLowerCase() === "paused";
-  const chip = (label: string, val: string | number, tone?: { bg: string; fg: string }) => (
-    <div className="rounded-lg px-1.5 py-1.5 text-center" style={tone ? { background: tone.bg, color: tone.fg } : { background: "#f1f5f9", color: "#1f3559" }}>
-      <div className="text-[9px] font-bold uppercase tracking-wide opacity-70 whitespace-nowrap">{label}</div>
-      <div className="text-sm font-bold whitespace-nowrap">{val}</div>
-    </div>
-  );
-  return (
-    <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-hidden">
-      <button onClick={onToggle} className="w-full flex items-start gap-2 p-3 text-left">
-        <ChevronRight size={15} className={cn("mt-0.5 shrink-0 text-[#94a3b8] transition-transform", open && "rotate-90")} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-bold text-[#1f3559]">{r.owner_name || "—"}</span>
-            {paused && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
-            {r.campaign_status && (
-              <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border", statusTone(r.campaign_status))}>{shortStatus(r.campaign_status)}</span>
-            )}
-          </div>
-          <div className="text-xs text-[#697a91] truncate">{r.business_name || r.ad_account_name || "—"}</div>
-        </div>
-      </button>
-      <div className="px-3 pb-3 space-y-1.5">
-        <div className="grid grid-cols-4 gap-1.5">
-          {chip("L 30", r.l30, leadCellTone(r.l30, 86, 65, paused))}
-          {chip("L 14", r.l14, leadCellTone(r.l14, 43, 33, paused))}
-          {chip("L 7", r.l7, leadCellTone(r.l7, 22, 17, paused))}
-          {chip("L 3", r.l3, leadCellTone(r.l3, 11, 8, paused))}
-          {chip("CPL 30", cpl30 == null ? "—" : formatCurrency(cpl30), cplVivid(cpl30))}
-          {chip("CPL 14", cpl14 == null ? "—" : formatCurrency(cpl14), cplVivid(cpl14))}
-          {chip("CPL 7", cpl7 == null ? "—" : formatCurrency(cpl7), cplVivid(cpl7))}
-          {chip("Book %", bookingPctVal == null ? "—" : `${bookingPctVal.toFixed(0)}%`, bookingPctVal == null ? undefined : bookingFill(bookingPctVal))}
-          {chip("Spent 7", num(r.spent7) == null ? "—" : formatCurrency(num(r.spent7)))}
-          {chip("Spent 14", num(r.spent14) == null ? "—" : formatCurrency(num(r.spent14)))}
-          {chip("Spent all", num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—")}
-          {chip("Budget", money0(r.daily_budget))}
-        </div>
-        <div className="grid grid-cols-2 gap-1.5 text-xs">
-          <div className="rounded-lg bg-[#f7fafc] border border-[#eef3f8] px-2 py-1.5">
-            <div className="text-[9px] font-bold uppercase tracking-wide text-[#8595a8]">Sessions done</div>
-            <div className="font-semibold text-[#1f3559] truncate">{r.sessions_done || "—"}</div>
-          </div>
-          <div className="rounded-lg bg-[#f7fafc] border border-[#eef3f8] px-2 py-1.5">
-            <div className="text-[9px] font-bold uppercase tracking-wide text-[#8595a8]">Last strategy</div>
-            <div className="font-semibold text-[#1f3559] truncate">{r.last_strategy || "—"}</div>
-          </div>
-        </div>
-      </div>
-      {open && (
-        <div className="px-3 pb-3 space-y-3 border-t border-[#eef3f8] pt-3">
-          <div className="flex items-center gap-2 text-xs flex-wrap">
-            <span className="text-[#697a91]">Assigned:</span><UserCell name={r.assigned} />
-            <span className="text-[#697a91] ml-2">Buyer:</span><UserCell name={r.media_buyer} />
-          </div>
-          {r.pmu_services && (
-            <div className="flex items-start gap-2 text-xs"><span className="text-[#697a91] shrink-0">PMU services:</span> <PmuServicesCell value={r.pmu_services} /></div>
-          )}
-          <CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={onChanged} />
-          <ActivityLog clientKey={(r.owner_name ?? "").toLowerCase().trim()} clientLabel={r.owner_name ?? undefined} />
-          <ClientTasks clientLabel={r.owner_name ?? ""} />
-        </div>
-      )}
-    </div>
-  );
-}
