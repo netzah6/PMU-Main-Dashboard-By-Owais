@@ -177,7 +177,10 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
             conversation_id: c.id, contact_id: c.contactId, contact_name: c.contactName,
             business_name: biz, channel: c.channel,
             link: c.contactId ? ghlContactUrl(acct.locationId, c.contactId) : null,
-            team: teamFor(c.contactName) ?? teamFor(biz),
+            ...(() => {
+              const t = teamFor(c.contactName) ?? teamFor(biz);
+              return t ? { csm: t.assigned, media_buyer: t.mediaBuyer } : {};
+            })(),
           },
           // After the CEO resolves a client's box, a complaint 2+ days later
           // opens a fresh one; a same-day rescan of old messages stays quiet.
