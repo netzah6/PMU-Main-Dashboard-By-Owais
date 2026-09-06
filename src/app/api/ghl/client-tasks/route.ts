@@ -141,16 +141,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `No GHL contact found for "${name}" in PMU Bookings On Demand` }, { status: 404 });
   }
 
-  // Self-assignment is the point of the button ("a task for herself") — a
-  // login with no matching GHL user gets a clear error instead of a task
-  // they'd never see on their scoped Tasks tab.
+  // Self-assignment is the point of the button, but a login with no matching
+  // GHL user must not lose the work: the task is still created (unassigned)
+  // and the reply says it will not show on their own Tasks tab until an admin
+  // adds them as a GHL user. Refusing outright blocked Marie entirely
+  // (user report 2026-09-05).
   const myGhlId = await ghlUserIdForEmail(acct, user.email);
-  if (!myGhlId) {
-    return NextResponse.json(
-      { error: `Your login (${user.email}) has no matching GHL user in PMU Bookings On Demand — ask an admin to add one` },
-      { status: 409 }
-    );
-  }
 
   // GHL requires a due date; tomorrow noon UTC keeps it near the top of today's list.
   const due = new Date();
@@ -165,10 +161,17 @@ export async function POST(req: NextRequest) {
       body: `Added from the ${contact.name} activity log by ${user.email}`,
       dueDate: due.toISOString(),
       completed: false,
-      assignedTo: myGhlId,
+      ...(myGhlId ? { assignedTo: myGhlId } : {}),
     }),
   });
   const text = await r.text();
   if (!r.ok) return NextResponse.json({ error: text.slice(0, 300) || "GHL create failed" }, { status: r.status });
-  return NextResponse.json({ success: true, contactId: contact.id });
+  return NextResponse.json({
+    success: true,
+    contactId: contact.id,
+    assigned: !!myGhlId,
+    ...(myGhlId ? {} : {
+      warning: `Task created, but ${user.email} isn't a user in PMU Bookings On Demand, so it can't be assigned to you and won't appear on your Tasks tab. Ask an admin to add you as a GHL user.`,
+    }),
+  });
 }
