@@ -33,9 +33,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { taskId: st
   if (roleRow?.role !== "admin") {
     const myGhlId = await ghlUserIdForEmail(acct, user.email);
     const tr = await fetch(`${GHL_BASE}/contacts/${contactId}/tasks/${params.taskId}`, { headers: H });
-    const tj = tr.ok ? ((await tr.json()) as { task?: { assignedTo?: string | null } }) : null;
-    if (!myGhlId || !tj?.task || tj.task.assignedTo !== myGhlId) {
-      return NextResponse.json({ error: "You can only update tasks assigned to you" }, { status: 403 });
+    const tj = tr.ok ? ((await tr.json()) as { task?: { assignedTo?: string | null; body?: string | null } }) : null;
+    // Team members with no user in this sub-account own their tasks by
+    // authorship instead — the dashboard writes "… by <email>" into the body
+    // (Marie, 2026-09-06). Without this they could see a task but never
+    // tick it off.
+    const myEmail = (user.email ?? "").trim().toLowerCase();
+    const mine =
+      (!!myGhlId && tj?.task?.assignedTo === myGhlId) ||
+      (!!myEmail && String(tj?.task?.body ?? "").toLowerCase().includes(myEmail));
+    if (!tj?.task || !mine) {
+      return NextResponse.json({ error: "You can only update your own tasks" }, { status: 403 });
     }
   }
 

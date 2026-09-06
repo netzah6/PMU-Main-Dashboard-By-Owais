@@ -22,12 +22,11 @@ function ghlFunnelUrl(r: PixelCheckRow): string {
 }
 
 // The agency's own Meta pixels, by the names the team uses for them.
-// NOTE: 428811263531094 was given for both (B) and (D) — it is one pixel id, so
-// it carries one label; tell an admin if (D) is actually a different number.
 const PIXEL_NAMES: Record<string, string> = {
   "799731475337650": "PMU For All",
   "428811263531094": "PMU For All (B)",
   "1926392208201665": "PMU For All (C)",
+  "1124003035779378": "PMU For All (D)",
   "1289579289946332": "PMU For All (E)",
 };
 

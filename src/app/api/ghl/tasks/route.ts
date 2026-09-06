@@ -46,14 +46,16 @@ export async function GET() {
     }
   } catch { /* roster is best-effort */ }
 
-  // Everyone sees their own tasks only; admins see everyone's. A login with no
-  // matching GHL user gets an empty list — no GHL user means no tasks can be
-  // assigned to them in the first place.
+  // Everyone sees their own tasks only; admins see everyone's.
+  const myEmail = (user.email ?? "").trim().toLowerCase();
   let scopedTo: string | null = null;
-  if (!isAdmin) {
-    const myEmail = (user.email ?? "").trim().toLowerCase();
-    scopedTo = [...emails.entries()].find(([, e]) => e === myEmail)?.[0] ?? "__no_ghl_user__";
-  }
+  if (!isAdmin) scopedTo = [...emails.entries()].find(([, e]) => e === myEmail)?.[0] ?? "__no_ghl_user__";
+  // Some team members have no user in THIS sub-account (Marie, 2026-09-06), so
+  // nothing can be assigned to them and their list came back empty. Tasks made
+  // from the dashboard record the author in the body ("… by <email>"), so they
+  // still see their own work without needing a seat here.
+  const mineByAuthor = (t: GhlTask) =>
+    !!myEmail && String(t.body ?? "").toLowerCase().includes(myEmail);
 
   // All open tasks (cursor pagination via searchAfter)
   const raw: GhlTask[] = [];
@@ -71,7 +73,7 @@ export async function GET() {
     if (batch.length < 100 || !searchAfter) break;
   }
 
-  const visible = scopedTo ? raw.filter((t) => t.assignedTo === scopedTo) : raw;
+  const visible = scopedTo ? raw.filter((t) => t.assignedTo === scopedTo || mineByAuthor(t)) : raw;
   const tasks = visible.map((t) => ({
     id: t._id,
     title: t.title ?? "",
