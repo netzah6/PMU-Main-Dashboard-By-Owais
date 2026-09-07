@@ -338,7 +338,7 @@ export default function FunnelsPage() {
       });
       const j = await r.json();
       if (j.error) { setAddNote(`Error: ${j.error}`); return; }
-      setAddNote(`Created ${j.url} — ${[j.pixelNote, j.photoNote, j.cvNote].filter(Boolean).join(" · ")}${j.calendarId ? "" : " · ⚠ no calendar id in custom values"}`);
+      // Success needs no prose — the new funnel card appears in the list below.
       setAddForm({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
       await load();
     } finally { setBusy(null); }
@@ -388,9 +388,6 @@ export default function FunnelsPage() {
             </button>
             {addNote && <span className="text-xs text-[#697a91]">{addNote}</span>}
           </div>
-          <p className="text-[11px] text-[#697a91] mt-2">
-            Created funnels start <b>paused</b> — add the Fanbasis block in Extras, run a health check, then flip to Live.
-          </p>
         </div>
       )}
 
