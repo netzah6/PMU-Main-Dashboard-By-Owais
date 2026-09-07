@@ -231,8 +231,10 @@
        this offset lives and dies with the V2 experiment. */
     "#onebox-root.v2 .fbhost.on{overflow:hidden}" +
     "#onebox-root.v2 .fbhost.on iframe{margin-top:-72px}" +
-    /* Bar color per Netzah (2026-09-16): exactly #01c5ad. */
-    "#ob-v2bar{position:fixed;top:0;left:0;right:0;z-index:60;display:none;align-items:center;justify-content:center;gap:12px;padding:9px 12px;background:#01c5ad;color:#fff;font-family:var(--form);font-size:13.5px;font-weight:600;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}" +
+    /* Bar wears the funnel's own brand teal (var(--teal), same as the
+       progress rail and buttons) so it matches every page by definition
+       instead of a hand-picked hex fighting the design system. */
+    "#ob-v2bar{position:fixed;top:0;left:0;right:0;z-index:60;display:none;align-items:center;justify-content:center;gap:12px;padding:9px 12px;background:var(--teal,#17c3c3);color:#fff;font-family:var(--form);font-size:13.5px;font-weight:600;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}" +
     "#ob-v2bar.on{display:flex}" +
     "#ob-v2bar .v2hold b{font-variant-numeric:tabular-nums;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 7px;margin-left:4px}" +
     "#onebox-root h2.phead.v2dephead{margin-bottom:8px;font-size:clamp(19px,5.6vw,26px);line-height:1.25;overflow-wrap:break-word;white-space:normal}" +
