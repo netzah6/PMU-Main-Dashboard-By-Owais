@@ -231,9 +231,10 @@
        this offset lives and dies with the V2 experiment. */
     "#onebox-root.v2 .fbhost.on{overflow:hidden}" +
     "#onebox-root.v2 .fbhost.on iframe{margin-top:-72px}" +
-    /* Bar wears the Pay button's blue (Netzah 2026-09-08): the payments-
-       trust color, and it visually chains the held slot to the pay action. */
-    "#ob-v2bar{position:fixed;top:0;left:0;right:0;z-index:60;display:none;align-items:center;justify-content:center;gap:12px;padding:9px 12px;background:linear-gradient(100deg,#3b8df5,#1f6fe0);color:#fff;font-family:var(--form);font-size:13.5px;font-weight:600;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}" +
+    /* Bar wears the checkout's EXACT accent (#239dde — the color we hand
+       Fanbasis for the Card/Pay buttons), so slot, countdown and pay
+       action read as one system (Netzah 2026-09-08/16). */
+    "#ob-v2bar{position:fixed;top:0;left:0;right:0;z-index:60;display:none;align-items:center;justify-content:center;gap:12px;padding:9px 12px;background:#239dde;color:#fff;font-family:var(--form);font-size:13.5px;font-weight:600;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}" +
     "#ob-v2bar.on{display:flex}" +
     "#ob-v2bar .v2hold b{font-variant-numeric:tabular-nums;background:rgba(255,255,255,.18);border-radius:6px;padding:2px 7px;margin-left:4px}" +
     "#onebox-root h2.phead.v2dephead{margin-bottom:8px;font-size:clamp(19px,5.6vw,26px);line-height:1.25;overflow-wrap:break-word;white-space:normal}" +
