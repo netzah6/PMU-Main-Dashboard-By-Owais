@@ -234,7 +234,8 @@
     /* Bar wears the funnel's own brand teal (var(--teal), same as the
        progress rail and buttons) so it matches every page by definition
        instead of a hand-picked hex fighting the design system. */
-    "#ob-v2bar{position:fixed;top:0;left:0;right:0;z-index:60;display:none;align-items:center;justify-content:center;gap:12px;padding:9px 12px;background:var(--teal,#17c3c3);color:#111;font-family:var(--form);font-size:13.5px;font-weight:600;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}" +
+    "#ob-v2bar{position:fixed;top:0;left:0;right:0;z-index:60;display:none;align-items:center;justify-content:center;gap:10px;padding:9px 10px;background:var(--teal,#17c3c3);color:#111;font-family:var(--form);font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;box-shadow:0 4px 14px -6px rgba(0,0,0,.35)}" +
+    "#ob-v2bar span{white-space:nowrap}" +
     "#ob-v2bar.on{display:flex}" +
     "#ob-v2bar .v2hold b{font-variant-numeric:tabular-nums;background:rgba(255,255,255,.45);border-radius:6px;padding:2px 7px;margin-left:4px}" +
     "#onebox-root h2.phead.v2dephead{margin-bottom:8px;font-size:clamp(19px,5.6vw,26px);line-height:1.25;overflow-wrap:break-word;white-space:normal}" +
@@ -624,6 +625,13 @@
   }
 
   var DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  /* Compact form for the V2 hold bar: "Wed, Sep 9 \u00b7 1:00 AM" — the
+     full sentence wrapped to two lines on phones (Netzah 2026-09-17). */
+  function fmtWhenShort(iso) {
+    var y = +iso.slice(0, 4), m = +iso.slice(5, 7), d = +iso.slice(8, 10);
+    var wd = DAYS[new Date(y, m - 1, d).getDay()].slice(0, 3);
+    return wd + ", " + MONTHS[m - 1].slice(0, 3) + " " + d + " \u00b7 " + fmtTime(iso);
+  }
   function fmtWhen(iso) {
     var y = +iso.slice(0, 4), m = +iso.slice(5, 7), d = +iso.slice(8, 10);
     var wd = DAYS[new Date(y, m - 1, d).getDay()];
@@ -1026,8 +1034,8 @@
           root.appendChild(bar);
         }
         bar.innerHTML = '<span class="v2when">&#128197; ' +
-          (state.slotIso ? esc(fmtWhen(state.slotIso)) : "Your appointment") + "</span>" +
-          '<span class="v2hold">held for <b id="ob-clock-mini"></b></span>';
+          (state.slotIso ? esc(fmtWhenShort(state.slotIso)) : "Your appointment") + "</span>" +
+          '<span class="v2hold">&#9203; <b id="ob-clock-mini"></b></span>';
         bar.classList.add("on");
         paintHold();
       } else if (bar) {
