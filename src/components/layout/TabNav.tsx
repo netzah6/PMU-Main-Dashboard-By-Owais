@@ -47,8 +47,11 @@ const TABS: Tab[] = [
 // Strict per-role allowlists — these roles see ONLY the listed tabs.
 const VA_TABS = new Set(["/clients", "/onboarding"]);
 const MEDIA_BUYER_TABS = new Set([
-  "/clients", "/tasks", "/performance", "/onboarding", "/leads", "/pixel-checking",
-]); // user request 2026-09-01
+  // Clients dropped 2026-09-08 — a media buyer works from Performance and
+  // Pixel Checking; the client profiles carry contact and billing detail they
+  // do not need.
+  "/tasks", "/performance", "/onboarding", "/leads", "/pixel-checking",
+]);
 
 const ALLOWLISTS: Partial<Record<NonNullable<UserRole>, Set<string>>> = {
   va: VA_TABS,
