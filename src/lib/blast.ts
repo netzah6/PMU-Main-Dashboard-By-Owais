@@ -1,9 +1,10 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 
-// Text-blast helpers (admin Blast tab). The AI tab has NO access to any of
-// this — blasts are composed and confirmed by a human, and sending happens
-// in the blast-send cron.
+// Text-blast helpers (admin Blast tab). Sending lives here and in the
+// blast-send cron, behind a human picking the audience and confirming. The AI
+// tab imports DEFAULT_TEMPLATE so it hands out the same proven copy — reading
+// that constant is the only reach it has into blasts; it cannot send.
 
 const GHL = "https://services.leadconnectorhq.com";
 
