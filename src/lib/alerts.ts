@@ -328,6 +328,44 @@ export async function scanDuplicateLeads(svc: Svc): Promise<number> {
   return ok ? 1 : 0;
 }
 
+// ── Ingestion health ────────────────────────────────────────────────────────
+// The Google Sheets step was removed from both Make scenarios on 2026-09-08,
+// so GHL -> Make -> /api/webhooks is now the ONLY path for leads and calls.
+// If it stops, nothing else catches the data, so silence has to be loud.
+//
+// The rule needs no historical baseline: alert when a window is completely
+// empty AND the previous day proves the pipeline was working. That cannot fire
+// on a quiet night unless delivery has genuinely stopped.
+const INGEST_WINDOW_HOURS = 6;
+const INGEST_PROOF_OF_LIFE = 20; // rows in the prior 24h before we trust silence
+
+export async function scanIngestHealth(svc: Svc): Promise<number> {
+  const { data, error } = await svc.rpc("ingest_health", { hours: INGEST_WINDOW_HOURS });
+  if (error) return 0;
+  const rows = (data ?? []) as Array<{ source: string; recent: number; prior_24h: number }>;
+  let filed = 0;
+  for (const r of rows) {
+    const recent = Number(r.recent), prior = Number(r.prior_24h);
+    if (recent > 0 || prior < INGEST_PROOF_OF_LIFE) continue;
+    const label = r.source === "calls" ? "Calls" : "Leads";
+    const ok = await fileAlert(svc, {
+      type: "data_quality",
+      severity: "high",
+      title: `${label} have stopped reaching the dashboard — nothing for ${INGEST_WINDOW_HOURS} hours`,
+      detail:
+        `${prior} ${r.source} arrived in the 24 hours before this window, then nothing.\n\n` +
+        `Since the Google Sheet step was removed, GoHighLevel \u2192 Make \u2192 dashboard is the only ` +
+        `path, so anything not delivered now is not recorded anywhere else.\n\n` +
+        `Check the Make scenario (${r.source === "calls" ? "CC - Outgoing Call, 1227003" : "CC- Funnel Survey, 1250213"}): ` +
+        `is it still Active, and does its "Incomplete executions" tab have items to replay?`,
+      source_key: `ingest-stopped:${r.source}`,
+      resurfaceAfterDays: 1,
+    });
+    if (ok) filed++;
+  }
+  return filed;
+}
+
 // ── Make.com: scenarios switched off or with incomplete executions ──────────
 export async function scanMakeScenarios(svc: Svc): Promise<{ checked: number; filed: number; error?: string }> {
   const token = process.env.MAKE_API_TOKEN;
