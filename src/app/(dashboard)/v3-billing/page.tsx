@@ -2,12 +2,16 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUser } from "@/lib/hooks/useUser";
 import { CardCell, StatusCell, ActionsCell, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
 import { CreditsPanel } from "@/components/billing/CreditsPanel";
+import { RecentBilling } from "@/components/billing/RecentBilling";
+import { CoachBilling } from "@/components/billing/CoachBilling";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
 interface ClientRow {
   ownerKey: string; ownerName: string; business: string; status: string; version: string;
+  coach?: string;
   isPpa: boolean; fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null; note: string | null;
   deposits: number; depositTotal: number;
   served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; selfBookedReady?: number;
@@ -659,7 +663,24 @@ function AutoRunBanner() {
   );
 }
 
+// The tab shows two different pages. An admin gets the full billing desk
+// below; a Client Success Coach gets their own book and the money already
+// collected (CoachBilling) — no pending amounts, no charge buttons. The split
+// is a convenience: every /api/ppa/* route the admin page calls is admin-only
+// server-side, so a coach could not drive it even if this branch were wrong.
 export default function V3BillingPage() {
+  const { role, loading } = useUser();
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-[#697a91] py-12 justify-center">
+        <Loader2 size={15} className="animate-spin" /> Loading…
+      </div>
+    );
+  }
+  return role === "admin" ? <AdminBilling /> : <CoachBilling />;
+}
+
+function AdminBilling() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -669,6 +690,10 @@ export default function V3BillingPage() {
   // One client expanded at a time — every dropdown open at once was unreadable.
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [chargeOpen, setChargeOpen] = useState(false);
+  // Which coach's book to show. "" = the whole roster.
+  const [coach, setCoach] = useState("");
+  // Bumped whenever money moves, so the Recent-billing panel re-pulls.
+  const [billingKey, setBillingKey] = useState(0);
   // Payment verification (Square match/cards/flags) loads separately — it's
   // slower than the billing overview, so cards render first and the payment
   // cluster fills in when this arrives.
@@ -686,6 +711,7 @@ export default function V3BillingPage() {
       if (!res.ok) throw new Error(json.error || "Failed to load");
       setClients(json.clients ?? []);
       setMissing(json.missingFromMaster ?? []);
+      setBillingKey((k) => k + 1);
     } catch (e) { setError(`${e}`.replace("Error: ", "")); }
     finally { setLoading(false); }
   }, []);
@@ -701,6 +727,9 @@ export default function V3BillingPage() {
   }, []);
   useEffect(() => { load(); loadVerify(); }, [load, loadVerify]);
 
+  const coaches = useMemo(
+    () => [...new Set(clients.map((c) => (c.coach ?? "").trim()).filter(Boolean))].sort(),
+    [clients]);
   const feeByOwner = useMemo(() => new Map(clients.map((c) => [c.ownerKey, c.fee])), [clients]);
   const nameByOwner = useMemo(() => new Map(clients.map((c) => [c.ownerKey, c.ownerName])), [clients]);
   const vBy = useMemo(() => {
@@ -742,12 +771,13 @@ export default function V3BillingPage() {
       if (filter === "issues" && !(v && v.flags.some((f) => f.level !== "info"))) return false;
       if (filter === "verified" && !v?.safeToAutoCharge) return false;
       if (filter === "auto" && !v?.autoCharge) return false;
+      if (coach && (c.coach ?? "").trim().toLowerCase() !== coach.toLowerCase()) return false;
       if (q && !`${c.ownerName} ${c.business}`.toLowerCase().includes(q)) return false;
       return true;
     // Live clients first, paused sink to the bottom (alphabetical within each
     // group — the sort is stable). Mirrors the Performance tab's ordering.
     }).sort((a, b) => (a.status === "paused" ? 1 : 0) - (b.status === "paused" ? 1 : 0));
-  }, [clients, search, filter, vBy]);
+  }, [clients, search, filter, coach, vBy]);
 
   // Who owes what, in reading order: money to collect first, settled next,
   // write-offs last (user request 2026-09-05). Deposit-only clients keep their
@@ -801,6 +831,10 @@ export default function V3BillingPage() {
 
       {/* Latest Monday auto-charge run (only shows once a run has happened) */}
       <AutoRunBanner />
+
+      {/* Every service fee that actually went through, newest first — open a
+          day to see which clients made up that total. */}
+      <RecentBilling coach={coach || undefined} refreshKey={billingKey} />
 
       {/* Account credit: coaches request, admin approves, approved balance comes
           off the client's next service-fee charge automatically. */}
@@ -858,6 +892,12 @@ export default function V3BillingPage() {
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search client or business…"
             className="w-full pl-8 pr-3 py-2 bg-[#eef2f7] border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
         </div>
+        <select value={coach} onChange={(e) => setCoach(e.target.value)}
+          title="Show only the clients one Client Success Coach looks after"
+          className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+          <option value="">All coaches</option>
+          {coaches.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
         <select value={filter} onChange={(e) => setFilter(e.target.value as Filter)}
           className="px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] bg-white text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
           <option value="all">All clients</option>

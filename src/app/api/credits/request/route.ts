@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
+import { getCoachScope } from "@/lib/coach";
 
 // A Client Success Coach (or an admin) asks for account credit on a client.
 // Nothing is applied until an admin approves it in the queue — same rule as
@@ -25,6 +26,15 @@ export async function POST(req: NextRequest) {
   }
 
   const svc = createServiceClient();
+
+  // A coach may only ask for credit on a client in their own book.
+  if (auth.role !== "admin") {
+    const { ownerKeys } = await getCoachScope(svc, auth);
+    if (!ownerKeys?.has(ownerKey.toLowerCase())) {
+      return NextResponse.json({ error: "That client is not in your book" }, { status: 403 });
+    }
+  }
+
   const { data, error } = await svc
     .from("client_credits")
     .insert({
