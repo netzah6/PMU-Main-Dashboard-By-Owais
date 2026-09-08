@@ -37,8 +37,15 @@ export async function creditBalances(svc: Svc, ownerKeys?: string[]): Promise<Ma
  * Draw `used` dollars off a client's approved credits, oldest first. Called
  * right after a charge succeeds — the charge was already reduced by this much,
  * so the credit must not be spendable twice.
+ *
+ * Each draw-down is also written to credit_applications against the payment it
+ * came off. Without that link, "why was I charged $100 and not $135?" has no
+ * answer in the data: `applied` records how much was spent but not against
+ * what. squarePaymentId is null when credit covered the whole bill.
  */
-export async function consumeCredit(svc: Svc, ownerKey: string, used: number): Promise<void> {
+export async function consumeCredit(
+  svc: Svc, ownerKey: string, used: number, squarePaymentId?: string | null,
+): Promise<void> {
   if (!(used > 0)) return;
   const { data } = await svc
     .from("client_credits")
@@ -57,5 +64,11 @@ export async function consumeCredit(svc: Svc, ownerKey: string, used: number): P
       .from("client_credits")
       .update({ applied: Number(r.applied) + take, updated_at: new Date().toISOString() })
       .eq("id", r.id);
+    // Best-effort: the credit is already spent, and failing to log where it
+    // went must not look like the charge failed.
+    await svc.from("credit_applications").insert({
+      credit_id: r.id, owner_key: ownerKey, amount: take,
+      square_payment_id: squarePaymentId ?? null, applied_at: new Date().toISOString(),
+    });
   }
 }
