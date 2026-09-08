@@ -338,7 +338,9 @@ export default function AskPage() {
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
         {msgs.length === 0 && (
           <div className="pt-16 text-center text-sm text-[#8595a8]">
-            Ask anything, type a client&apos;s name for their report, ask &quot;what&apos;s unread?&quot;, or &quot;draft a reply to …&quot;.
+            Ask me anything &mdash; write a text blast, draft an email, think something through.
+            <br />
+            I also know our data: type a client&apos;s name for their report, ask &quot;what&apos;s unread?&quot;, or &quot;draft a reply to …&quot;.
           </div>
         )}
         {msgs.map((m, i) => (
@@ -458,7 +460,7 @@ export default function AskPage() {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="e.g. How many leads does Sabby Beauty have this month?"
+          placeholder="Ask anything — e.g. 'write me a Labor Day text blast' or 'how many leads does Sabby Beauty have?'"
           className="flex-1 px-4 py-3 bg-white border border-[#d7e0ea] rounded-xl text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]"
           disabled={busy}
         />
