@@ -219,6 +219,49 @@ export function fingerprint(table: IngestTable, row: Record<string, unknown>): s
  * 18th, and the two never merged — every near-midnight payment showed twice.
  * Callers pair this with rowDate() and accept a small day gap.
  */
+/**
+ * Identity keys for one record — one per identifier the row actually carries.
+ * Two rows are the same record when ANY key matches.
+ *
+ * This replaces comparing one all-fields fingerprint, which silently failed
+ * whenever a field was present on one copy and blank on the other: the leads
+ * sheet carries no phone number while the webhook payload does, so every lead
+ * that arrived by webhook AND by sheet was stored twice (147 clients,
+ * ~3.6k rows in 30 days — found 2026-09-08). Matching per identifier means a
+ * blank field can no longer split one record into two.
+ */
+export function identityKeys(table: IngestTable, row: Record<string, unknown>): string[] {
+  const n = (x: unknown) => String(x ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const biz = n(row["Business Name"]);
+  const date = n(row["Date"] ?? row["Signed Date"]);
+  // A deposit is only "the same" at the same amount — two $50 payments on one
+  // day by the same person are two deposits, not a duplicate.
+  const amt = table === "deposits" ? n(row["Amount"]) : "";
+  const email = n(row["Email"]);
+  const phone = n(row["Phone Number"]);
+  const name = n(row["Full Name"]);
+  const keys: string[] = [];
+  if (email) keys.push(`${table}|e|${email}|${biz}|${date}|${amt}`);
+  if (phone) keys.push(`${table}|p|${phone}|${biz}|${date}|${amt}`);
+  if (name) keys.push(`${table}|n|${name}|${biz}|${date}|${amt}`);
+  return keys;
+}
+
+/** identityKeys without the date, for the date-tolerant second pass. */
+export function identityKeysLoose(table: IngestTable, row: Record<string, unknown>): string[] {
+  const n = (x: unknown) => String(x ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const biz = n(row["Business Name"]);
+  const amt = table === "deposits" ? n(row["Amount"]) : "";
+  const email = n(row["Email"]);
+  const phone = n(row["Phone Number"]);
+  const name = n(row["Full Name"]);
+  const keys: string[] = [];
+  if (email) keys.push(`${table}|le|${email}|${biz}|${amt}`);
+  if (phone) keys.push(`${table}|lp|${phone}|${biz}|${amt}`);
+  if (name) keys.push(`${table}|ln|${name}|${biz}|${amt}`);
+  return keys;
+}
+
 export function fingerprintLoose(table: IngestTable, row: Record<string, unknown>): string {
   const n = (x: unknown) => String(x ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
   const parts = [n(row["Full Name"]), n(row["Email"]), n(row["Phone Number"]), n(row["Business Name"])];
@@ -305,7 +348,7 @@ export async function ingestRow(table: IngestTable, body: Record<string, unknown
   // reliable identifier. Falling through to the name was a sequential scan of
   // 38k rows (measured: 8.4s), which timed the webhook out and filled Make's
   // incomplete-executions queue.
-  const fp = fingerprint(table, row);
+  const myKeys = new Set(identityKeys(table, row));
   let q = supabase.from(table).select("id, data").is("external_id", null).limit(50);
   if (v.email) q = q.eq("data->>Email", v.email);
   else if (v.phone) q = q.eq("data->>Phone Number", String(toPhone(v.phone)));
@@ -314,8 +357,8 @@ export async function ingestRow(table: IngestTable, body: Record<string, unknown
   // A slow or failed duplicate check must not lose the row: fall through and
   // write it. external_id still guards against the same delivery arriving twice.
   if (twinErr) console.warn("direct-ingest: duplicate check failed:", twinErr.message);
-  const twin = (candidates ?? []).find(
-    (r) => fingerprint(table, (r.data ?? {}) as Record<string, unknown>) === fp
+  const twin = (candidates ?? []).find((r) =>
+    identityKeys(table, (r.data ?? {}) as Record<string, unknown>).some((k) => myKeys.has(k))
   );
   if (twin) {
     await supabase.from(table).update({ external_id: externalId, synced_at: now }).eq("id", twin.id);

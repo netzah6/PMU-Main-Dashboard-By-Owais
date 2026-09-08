@@ -33,7 +33,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -296,6 +296,36 @@ export async function scanComplianceDeep(svc: Svc): Promise<{ accounts: number; 
     } catch { /* one bad account never stops the sweep */ }
   }
   return { accounts: batch.length, filed };
+}
+
+// ── Duplicate leads ─────────────────────────────────────────────────────────
+// Leads arrive twice — once by webhook, once by the sheet — and are reconciled
+// by identityKeys(). That reconciliation silently broke once (a blank phone on
+// one side split every lead in two, inflating 147 clients' lead counts for
+// weeks before anyone noticed). This watchdog counts duplicates directly, so a
+// regression shows up on the board within a day instead of by eye.
+export async function scanDuplicateLeads(svc: Svc): Promise<number> {
+  const { data, error } = await svc.rpc("duplicate_lead_count", { days: 7 });
+  if (error) return 0;
+  const rows = (data ?? []) as Array<{ biz: string; extra: number }>;
+  const worst = rows.filter((r) => Number(r.extra) > 0).sort((a, b) => Number(b.extra) - Number(a.extra));
+  const extra = worst.reduce((t, r) => t + Number(r.extra), 0);
+  // A couple of stragglers is normal timing between the two writers; a real
+  // regression shows up across many clients at once.
+  if (worst.length < 5 || extra < 20) return 0;
+  const ok = await fileAlert(svc, {
+    type: "data_quality",
+    severity: "high",
+    title: `Duplicate leads are back — ${extra} extra rows across ${worst.length} clients (last 7 days)`,
+    detail:
+      `Lead counts on Performance and Cost/Deposit read high while this is happening.\n\n` +
+      `Worst affected: ${worst.slice(0, 8).map((r) => `${r.biz} (+${r.extra})`).join(", ")}.\n\n` +
+      `Cause to check first: the webhook copy and the sheet copy of a lead are no longer ` +
+      `matching in identityKeys() — usually a field present on one side and blank on the other.`,
+    source_key: "dupe-leads",
+    resurfaceAfterDays: 3,
+  });
+  return ok ? 1 : 0;
 }
 
 // ── Make.com: scenarios switched off or with incomplete executions ──────────

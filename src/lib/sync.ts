@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { readSheetValues, rowsToObjects, SHEET_MAP } from "@/lib/sheets";
-import { fingerprint, fingerprintLoose, rowDate, resolveTable } from "@/lib/direct-ingest";
+import { identityKeys, identityKeysLoose, rowDate, resolveTable } from "@/lib/direct-ingest";
 
 /**
  * Drop direct-ingest rows that the sheet has now caught up on.
@@ -31,7 +31,10 @@ async function dropSupersededDirectRows(
     .is("sheet_row", null);
   if (!direct || direct.length === 0) return 0;
 
-  const inSheet = new Set(sheetObjects.map((o) => fingerprint(t, o)));
+  // Every identifier the sheet knows about. Matching per identifier (rather
+  // than one all-fields fingerprint) is what lets a webhook row carrying a
+  // phone retire against a sheet row that has none.
+  const inSheet = new Set(sheetObjects.flatMap((o) => identityKeys(t, o)));
   // Date-tolerant second pass: the sheet stamps UTC dates, the webhook stamps
   // the payment moment, so the same deposit can carry two adjacent calendar
   // days (paid in the evening Pacific = next day UTC). Match everything-but-
@@ -39,17 +42,19 @@ async function dropSupersededDirectRows(
   const DAY = 86_400_000;
   const looseDates = new Map<string, number[]>();
   for (const o of sheetObjects) {
-    const k = fingerprintLoose(t, o);
-    if (!looseDates.has(k)) looseDates.set(k, []);
     const d = rowDate(o);
-    if (!Number.isNaN(d)) looseDates.get(k)!.push(d);
+    if (Number.isNaN(d)) continue;
+    for (const k of identityKeysLoose(t, o)) {
+      if (!looseDates.has(k)) looseDates.set(k, []);
+      looseDates.get(k)!.push(d);
+    }
   }
   const superseded = direct
     .filter((r) => {
       const row = (r.data ?? {}) as Record<string, unknown>;
-      if (inSheet.has(fingerprint(t, row))) return true;
-      const near = looseDates.get(fingerprintLoose(t, row));
-      if (!near) return false;
+      if (identityKeys(t, row).some((k) => inSheet.has(k))) return true;
+      const near = identityKeysLoose(t, row).flatMap((k) => looseDates.get(k) ?? []);
+      if (!near.length) return false;
       // Two candidate dates for a direct row: the payload's Date field, and
       // the row's ARRIVAL time. Make's webhook sometimes fills Date with the
       // lead's signup date, months before the payment (17 Commas-verified
