@@ -195,6 +195,7 @@ export async function GET(req: NextRequest) {
       business: c.business,
       status: c.status,
       version: c.version,
+      coach: c.assigned,
       // The roster only contains PPA-marked clients now, so everyone bills
       // per appointment — the old per-client toggle is meaningless.
       isPpa: true,

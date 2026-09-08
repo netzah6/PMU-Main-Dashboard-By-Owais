@@ -27,6 +27,7 @@ export interface V3Client {
   bizNorm: string;    // business name, alphanumerics only, lowercased
   status: string;     // live | paused
   version: string;
+  assigned: string;   // Clients Master "Assigned" — the coach who owns this client
   sheetNotes: string | null; // financing-sheet notes for this client's row
   sheetFee: number | null;   // per-show fee parsed from those notes
 }
@@ -105,6 +106,7 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
       bizNorm: business.toLowerCase().replace(/[^a-z0-9]/g, ""),
       status,
       version,
+      assigned: String(d["Assigned"] ?? "").trim(),
       sheetNotes: payRow.notes,
       sheetFee: feeFromNotes(payRow.notes),
     });

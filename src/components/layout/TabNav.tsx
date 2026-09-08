@@ -9,7 +9,10 @@ import type { UserRole } from "@/lib/types";
 // `collapsed` tabs stay off the bar behind a "⋯ More" toggle — their data
 // already shows on the Clients tab, but the pages stay reachable for manual
 // digging (user request 2026-08-27).
-type Tab = { label: string; href: string; adminOnly?: boolean; collapsed?: boolean };
+// `alsoRoles` opens an adminOnly tab to specific other roles — the page itself
+// decides what those roles actually see (PPS Billing shows a coach only their
+// own clients and none of the pending money).
+type Tab = { label: string; href: string; adminOnly?: boolean; collapsed?: boolean; alsoRoles?: NonNullable<UserRole>[] };
 
 const TABS: Tab[] = [
   // Hidden from the menu (page still exists at /overview): Overview
@@ -29,10 +32,11 @@ const TABS: Tab[] = [
   { label: "💎 LTV", href: "/ltv", adminOnly: true, collapsed: true }, // admins only
   { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true, collapsed: true }, // Square billing — admins only
   { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true, collapsed: true }, // Square disputes + evidence prep — admins only
-  { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true }, // pay-per-show tracking — admins only
+  // Pay-per-show tracking. Admins get the full billing desk; a Client Success
+  // Coach gets their own clients and the money already collected (2026-09-08).
+  { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true, alsoRoles: ["editor"] },
   { label: "💼 Team", href: "/sales", adminOnly: true, collapsed: true }, // sales-team salary tracking: closer demo checker + coach tracker
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
-  { label: "🧑‍💼 My Clients", href: "/my-clients" }, // a coach's own book — clients, receipts, credit (2026-09-05)
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true }, // one-box funnels on Vercel — existence, health, leads/bookings
   { label: "📡 Pixel Checking", href: "/pixel-checking", adminOnly: true }, // per-client funnel pixel/conversion audit — user request 2026-09-01
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true, collapsed: true }, // offboarded sub-account wipe + pool recycling — admins only
@@ -70,7 +74,8 @@ export function pathAllowedFor(role: UserRole | null, pathname: string): boolean
   if (allow) return !!hit && allow.has(hit.href);
   // Pages outside the tab list guard themselves (/settings is admin-gated).
   if (!hit) return true;
-  return !hit.adminOnly || role === "admin";
+  if (!hit.adminOnly) return true;
+  return role === "admin" || (!!role && !!hit.alsoRoles?.includes(role));
 }
 
 export function TabNav() {
@@ -78,7 +83,7 @@ export function TabNav() {
   const { role } = useUser();
   const allow = role ? ALLOWLISTS[role] : undefined;
   const tabs = TABS.filter((t) =>
-    allow ? allow.has(t.href) : !t.adminOnly || role === "admin"
+    allow ? allow.has(t.href) : pathAllowedFor(role, t.href)
   )
     // An allowlist role's bar is short — show every tab directly instead of
     // hiding some (e.g. Leads) behind "⋯ More".
