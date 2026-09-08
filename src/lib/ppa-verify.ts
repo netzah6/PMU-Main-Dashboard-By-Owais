@@ -672,7 +672,7 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
       })),
       { onConflict: "appt_id" }
     );
-    await consumeCredit(svcFree, row.ownerKey, row.creditApplied);
+    await consumeCredit(svcFree, row.ownerKey, row.creditApplied, null);
     return {
       paymentId: null, receiptUrl: null, amount: 0, shows: row.readyToCharge,
       card: `account credit ($${row.creditApplied})`,
@@ -722,7 +722,7 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
   );
 
   // The charge was reduced by this much, so the credit is now spent.
-  if (row.creditApplied > 0) await consumeCredit(svc, row.ownerKey, row.creditApplied);
+  if (row.creditApplied > 0) await consumeCredit(svc, row.ownerKey, row.creditApplied, payment.id);
 
   return {
     paymentId: payment.id,

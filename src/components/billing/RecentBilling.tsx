@@ -10,14 +10,18 @@ import { cn } from "@/lib/utils";
 // Server-scoped: an admin gets every client, a Client Success Coach gets only
 // their own book.
 
+type Show = { name: string; amount: number; source: string };
+type CreditLine = { amount: number; reason: string; approvedBy: string | null };
 type ClientLine = {
   ownerKey: string; ownerName: string; coach: string;
-  shows: number; total: number; chargedAt: string | null; chargedBy: string | null;
-  manual: boolean; receiptUrl: string | null;
+  shows: number; gross: number; total: number;
+  creditApplied: number; credits: CreditLine[];
+  chargedAt: string | null; chargedBy: string | null;
+  manual: boolean; receiptUrl: string | null; lines: Show[];
 };
 type Run = {
-  day: string; total: number; shows: number; clientCount: number;
-  manualOnly: boolean; clients: ClientLine[];
+  day: string; total: number; gross: number; creditApplied: number;
+  shows: number; clientCount: number; manualOnly: boolean; clients: ClientLine[];
 };
 
 const money = (n: number) => `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -37,6 +41,9 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null);
+  // "Why was I charged $100?" arrives as an artist's name, not a date — so the
+  // panel narrows to one client and shows every day she was billed.
+  const [who, setWho] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,7 +66,25 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
   // A charge elsewhere on the page invalidates what is already showing.
   useEffect(() => { if (open && refreshKey) load(); }, [refreshKey, open, load]);
 
-  const total = (runs ?? []).reduce((t, r) => t + r.total, 0);
+  // Narrowing to one client rewrites each day around only her charges, so the
+  // totals on screen are hers rather than the whole run's.
+  const needle = who.trim().toLowerCase();
+  const view = (runs ?? [])
+    .map((r) => {
+      if (!needle) return r;
+      const clients = r.clients.filter((c) => c.ownerName.toLowerCase().includes(needle));
+      return {
+        ...r, clients,
+        total: clients.reduce((t, c) => t + c.total, 0),
+        gross: clients.reduce((t, c) => t + c.gross, 0),
+        creditApplied: clients.reduce((t, c) => t + c.creditApplied, 0),
+        shows: clients.reduce((t, c) => t + c.shows, 0),
+        clientCount: new Set(clients.map((c) => c.ownerKey)).size,
+      };
+    })
+    .filter((r) => r.clients.length > 0);
+  const total = view.reduce((t, r) => t + r.total, 0);
+  const names = [...new Set((runs ?? []).flatMap((r) => r.clients.map((c) => c.ownerName)))].sort();
 
   return (
     <div className="rounded-xl border border-[#c7edd4] bg-[#f4fbf7]">
@@ -67,7 +92,7 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
         <Receipt size={15} className="text-[#15803d] shrink-0" />
         <h2 className="text-sm font-bold text-[#1f3559]">Recent billing</h2>
         {runs
-          ? <span className="text-xs font-semibold text-[#15803d]">{money(total)} collected across {runs.length} billing day{runs.length === 1 ? "" : "s"}</span>
+          ? <span className="text-xs font-semibold text-[#15803d]">{money(total)} collected across {view.length} billing day{view.length === 1 ? "" : "s"}{needle ? ` · ${who}` : ""}</span>
           : <span className="text-xs text-[#697a91]">payments that went through &mdash; open a day to see who was charged</span>}
         <span className="ml-auto text-[#15803d] text-xs">{open ? "▲" : "▼"}</span>
       </button>
@@ -75,16 +100,31 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
       {open && (
         <div className="px-3 pb-3 space-y-1.5">
           {error && <p className="text-[11px] text-[#e11d48]">{error}</p>}
+          {names.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="text-[11px] font-semibold text-[#697a91]">Client asking about a charge?</label>
+              <select value={who} onChange={(e) => { setWho(e.target.value); setOpenDay(null); }}
+                className="px-2 py-1 rounded-lg border border-[#d9efe2] bg-white text-xs text-[#34568a] max-w-[240px]">
+                <option value="">All clients ({names.length})</option>
+                {names.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              {who && <button onClick={() => setWho("")} className="text-[11px] font-semibold text-[#0e8f88] hover:underline">clear</button>}
+            </div>
+          )}
           {loading && !runs ? (
             <div className="flex items-center gap-2 text-xs text-[#697a91] py-2">
               <Loader2 size={13} className="animate-spin" /> Loading billing history…
             </div>
-          ) : (runs ?? []).length === 0 ? (
-            <p className="text-xs text-[#8595a8] py-1">Nothing has been charged in the last few months.</p>
+          ) : view.length === 0 ? (
+            <p className="text-xs text-[#8595a8] py-1">
+              {needle ? `${who} has not been charged in the last few months.` : "Nothing has been charged in the last few months."}
+            </p>
           ) : (
             <ul className="space-y-1 max-h-[55vh] overflow-y-auto">
-              {(runs ?? []).map((run) => {
-                const isOpen = openDay === run.day;
+              {view.map((run) => {
+                // Narrowed to one client, every day she appears in opens
+                // straight away — the coach is answering one question.
+                const isOpen = openDay === run.day || (!!needle && run.clients.length > 0);
                 return (
                   <li key={run.day} className="rounded-lg border border-[#d9efe2] bg-white">
                     <button onClick={() => setOpenDay(isOpen ? null : run.day)}
@@ -94,6 +134,12 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
                       <span className="text-[11px] text-[#697a91]">
                         {run.clientCount} client{run.clientCount === 1 ? "" : "s"} · {run.shows} show{run.shows === 1 ? "" : "s"}
                       </span>
+                      {run.creditApplied > 0 && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#eef4ff] text-[#1d4ed8] border border-[#c9dbfb]"
+                          title={`${money(run.gross)} of shows less ${money(run.creditApplied)} of account credit`}>
+                          −{money(run.creditApplied)} credit
+                        </span>
+                      )}
                       {run.manualOnly && (
                         <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0]"
                           title="Recorded in the dashboard as collected elsewhere (e.g. charged directly in Square)">
@@ -104,23 +150,64 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
                     </button>
 
                     {isOpen && (
-                      <div className="border-t border-[#eef3f8] px-2.5 py-1.5 space-y-0.5">
+                      <div className="border-t border-[#eef3f8] px-2.5 py-1.5 space-y-1.5">
                         {run.clients.map((c, i) => (
-                          <div key={`${c.ownerKey}-${i}`} className="flex items-center gap-2 flex-wrap text-[11px]">
-                            <span className="font-bold text-[#0e8f88] tabular-nums w-[60px]">{money(c.total)}</span>
-                            <span className="font-semibold text-[#1f3559]">{c.ownerName}</span>
-                            <span className="text-[#697a91]">{c.shows} show{c.shows === 1 ? "" : "s"}</span>
-                            {c.coach && <span className="text-[#8595a8]">· {c.coach}</span>}
-                            {c.chargedBy && <span className="text-[#8595a8]">· by {c.chargedBy.split("@")[0]}</span>}
-                            {c.receiptUrl ? (
-                              <a href={c.receiptUrl} target="_blank" rel="noopener noreferrer"
-                                className="ml-auto flex items-center gap-1 font-semibold text-[#0e8f88] hover:underline">
-                                Receipt <ExternalLink size={10} />
-                              </a>
-                            ) : (
-                              <span className={cn("ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold",
-                                "bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0]")}>no receipt</span>
-                            )}
+                          // Client and total on the left, the leads that made
+                          // up that total on the right — so every charge shows
+                          // exactly who was billed and why.
+                          <div key={`${c.ownerKey}-${i}`}
+                            className="grid sm:grid-cols-[minmax(150px,240px)_1fr] gap-x-3 gap-y-1 py-1 border-b border-dashed border-[#eef3f8] last:border-b-0">
+                            <div className="flex sm:block items-center gap-2 flex-wrap text-[11px]">
+                              <span className="font-bold text-[#0e8f88] tabular-nums">{money(c.total)}</span>
+                              <span className="font-semibold text-[#1f3559]">{c.ownerName}</span>
+                              <div className="text-[10px] text-[#8595a8] sm:mt-0.5">
+                                {c.shows} show{c.shows === 1 ? "" : "s"}
+                                {c.coach && ` · ${c.coach}`}
+                                {c.chargedBy && ` · by ${c.chargedBy.split("@")[0]}`}
+                              </div>
+                              {c.creditApplied > 0 && (
+                                // The exact answer to "why was I charged this
+                                // and not the full amount?"
+                                <div className="mt-0.5 rounded border border-[#c9dbfb] bg-[#f7fbff] px-1.5 py-1 text-[10px] leading-snug">
+                                  <div className="text-[#34568a]">
+                                    {money(c.gross)} of shows − <b>{money(c.creditApplied)} credit</b> = <b className="text-[#0e8f88]">{money(c.total)}</b> charged
+                                  </div>
+                                  {c.credits.map((cr, ci) => (
+                                    <div key={ci} className="text-[#697a91]">
+                                      ↳ {money(cr.amount)} &mdash; &ldquo;{cr.reason}&rdquo;
+                                      {cr.approvedBy ? ` (approved by ${cr.approvedBy.split("@")[0]})` : ""}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {c.receiptUrl ? (
+                                <a href={c.receiptUrl} target="_blank" rel="noopener noreferrer"
+                                  className="flex items-center gap-1 text-[10px] font-semibold text-[#0e8f88] hover:underline sm:mt-0.5">
+                                  Square receipt <ExternalLink size={9} />
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-[#8595a8] sm:mt-0.5 sm:block">recorded by hand</span>
+                              )}
+                            </div>
+
+                            <ul className="space-y-0.5 sm:border-l sm:border-[#eef3f8] sm:pl-3">
+                              {c.lines.map((s, si) => (
+                                <li key={si} className="flex items-baseline gap-2 text-[11px]">
+                                  <span className="tabular-nums font-semibold text-[#34568a] w-[42px] shrink-0">{money(s.amount)}</span>
+                                  <span className="text-[#1f3559] truncate">{s.name}</span>
+                                  {s.source && (
+                                    <span className={cn("ml-auto shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold border",
+                                      s.source === "Deposit" ? "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]"
+                                        : "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]")}
+                                      title={s.source === "Deposit"
+                                        ? "Booked through us — she paid a deposit on the funnel"
+                                        : "Booked without a deposit through us — billable as a show"}>
+                                      {s.source}
+                                    </span>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         ))}
                       </div>
