@@ -35,6 +35,7 @@ export function CreditsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [open, setOpen] = useState(false);
   const [ownerKey, setOwnerKey] = useState("");
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -110,7 +111,9 @@ export function CreditsPanel({
 
   return (
     <div className="rounded-xl border border-[#cfe3f7] bg-[#f7fbff] p-3 space-y-2">
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Summary always visible; the breakdown and the Give-credit form sit
+          behind the dropdown so the top of PPS stays short. */}
+      <div className="flex items-center gap-2 flex-wrap cursor-pointer" onClick={() => setOpen((o) => !o)}>
         <h2 className="text-sm font-bold text-[#1d4ed8]">💳 Account credit</h2>
         {pending.length > 0 && (
           <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#fff7ec] text-[#b45309] border border-[#fcd9a8]">
@@ -123,16 +126,17 @@ export function CreditsPanel({
           </span>
         )}
         {canRequest && (
-          <button onClick={() => setAdding((a) => !a)}
+          <button onClick={(e) => { e.stopPropagation(); setOpen(true); setAdding((a) => !a); }}
             className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-[#bfdbfe] bg-white text-[#1d4ed8] hover:bg-[#eff6ff]">
             {adding ? <X size={12} /> : <Plus size={12} />} {adding ? "Cancel" : "Give credit"}
           </button>
         )}
+        <span className={cn("text-[#1d4ed8] text-xs", canRequest ? "" : "ml-auto")}>{open ? "▲" : "▼"}</span>
       </div>
 
       {error && <p className="text-[11px] text-[#e11d48]">{error}</p>}
 
-      {adding && (
+      {open && adding && (
         <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5 space-y-2">
           <div className="flex flex-wrap gap-2">
             <select value={ownerKey} onChange={(e) => setOwnerKey(e.target.value)}
@@ -160,7 +164,7 @@ export function CreditsPanel({
         </div>
       )}
 
-      {pending.length > 0 && (
+      {open && pending.length > 0 && (
         <div className="space-y-1.5">
           {pending.map((c) => (
             <div key={c.id} className="flex items-center gap-3 flex-wrap rounded-lg border border-[#f0e4cf] bg-white px-3 py-2">
@@ -191,7 +195,7 @@ export function CreditsPanel({
         </div>
       )}
 
-      {active.length > 0 && (
+      {open && active.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {active.map((c) => (
             <span key={c.id} title={`${c.reason} — approved by ${c.decided_by?.split("@")[0] ?? "—"}`}

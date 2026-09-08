@@ -668,6 +668,7 @@ export default function V3BillingPage() {
   const [filter, setFilter] = useState<Filter>("all");
   // One client expanded at a time — every dropdown open at once was unreadable.
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [chargeOpen, setChargeOpen] = useState(false);
   // Payment verification (Square match/cards/flags) loads separately — it's
   // slower than the billing overview, so cards render first and the payment
   // cluster fills in when this arrives.
@@ -826,17 +827,19 @@ export default function V3BillingPage() {
         </div>
       )}
 
-      {/* Monday worklist — who to charge this week */}
-      <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] p-3">
-        <div className="flex items-center gap-2 mb-2">
-          <CalendarClock size={15} className="text-[#d97706]" />
+      {/* Monday worklist — the totals always show; the per-client breakdown is
+          behind the dropdown so the top of the page stays short. */}
+      <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7]">
+        <button onClick={() => setChargeOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
+          <CalendarClock size={15} className="text-[#d97706] shrink-0" />
           <h2 className="text-sm font-bold text-[#1f3559]">To charge</h2>
           {totals.ready > 0
             ? <span className="text-xs font-semibold text-[#d97706]">{totals.ready} appointment{totals.ready === 1 ? "" : "s"} · {money(totals.readyUsd)} across {worklist.length} client{worklist.length === 1 ? "" : "s"}</span>
             : <span className="text-xs text-[#15803d] font-semibold">All caught up 🎉</span>}
-        </div>
-        {worklist.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+          {worklist.length > 0 && <span className="ml-auto text-[#d97706] text-xs">{chargeOpen ? "▲" : "▼"}</span>}
+        </button>
+        {chargeOpen && worklist.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pb-3">
             {worklist.map((c) => (
               <button key={c.ownerKey} onClick={() => { setFilter("ready"); setSearch(c.ownerName); }}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-white border border-[#fcd9a8] hover:border-[#d97706]">
