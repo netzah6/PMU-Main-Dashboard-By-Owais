@@ -4,6 +4,7 @@ import { useTableData } from "@/lib/hooks/useTableData";
 import { useUser } from "@/lib/hooks/useUser";
 import { createClient } from "@/lib/supabase/client";
 import { ClientList } from "@/components/clients/ClientList";
+import { MergeClients } from "@/components/clients/MergeClients";
 import { ClientProfile } from "@/components/clients/ClientProfile";
 import { Skeleton } from "@/components/ui/Skeleton";
 import {
@@ -150,6 +151,13 @@ export default function ClientsPage() {
             <p className="text-[#8595a8] text-sm mt-1">
               Choose a client from the list to view their profile
             </p>
+            {/* Duplicate cleanup lives on the empty panel: it is admin work,
+                not something to trip over while reading a client. */}
+            {role === "admin" && (
+              <div className="w-full max-w-[640px] mt-6 text-left">
+                <MergeClients rows={rawClients} onDone={() => window.location.reload()} />
+              </div>
+            )}
           </div>
         )}
       </div>
