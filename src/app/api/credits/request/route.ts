@@ -42,9 +42,13 @@ export async function POST(req: NextRequest) {
       client_label: body.clientLabel ?? null,
       amount,
       reason: reason.slice(0, 500),
-      status: "pending",
+      // An admin's request needs no second pair of eyes — they ARE the
+      // approver, so their credits apply to the next charge immediately.
+      // Coach requests stay pending for admin review.
+      status: auth.role === "admin" ? "approved" : "pending",
       requested_by: auth.email,
       requested_at: new Date().toISOString(),
+      ...(auth.role === "admin" ? { decided_by: auth.email, decided_at: new Date().toISOString() } : {}),
       updated_at: new Date().toISOString(),
     })
     .select()

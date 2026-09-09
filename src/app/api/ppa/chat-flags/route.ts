@@ -11,14 +11,30 @@ export async function GET() {
   if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const svc = createServiceClient();
-  const [{ data: flags }, { data: lastScan }] = await Promise.all([
+  const [{ data: flags }, { data: lastScan }, { data: refunds }] = await Promise.all([
     svc.from("ppa_chat_flags")
       .select("conversation_id, owner_key, location_id, contact_id, contact_name, detected_when, evidence, last_message_at")
       .eq("verdict", "booked").eq("dismissed", false).eq("billed", false)
       .order("last_message_at", { ascending: false }),
     svc.from("ppa_chat_flags").select("scanned_at").order("scanned_at", { ascending: false }).limit(1).maybeSingle(),
+    svc.from("deposit_refunds").select("contact_name, email").eq("status", "refunded"),
   ]);
-  return NextResponse.json({ flags: flags ?? [], lastScanAt: lastScan?.scanned_at ?? null });
+
+  // A refunded deposit means the session never happened — that lead must not
+  // resurface as a billable chat booking (Santos M Alcocer did: refund logged
+  // as "Santos M", chat contact "Santos M Alcocer" — hence containment
+  // matching, not equality).
+  const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const refundNames = ((refunds ?? []) as Array<{ contact_name: string | null }>)
+    .map((r) => norm(r.contact_name)).filter((n) => n.length >= 6);
+  const refunded = (name: string | null) => {
+    const n = norm(name);
+    if (n.length < 6) return false;
+    return refundNames.some((r) => r.includes(n) || n.includes(r));
+  };
+  const visible = ((flags ?? []) as Array<{ contact_name: string | null }>).filter((f) => !refunded(f.contact_name));
+
+  return NextResponse.json({ flags: visible, lastScanAt: lastScan?.scanned_at ?? null });
 }
 
 export async function POST(req: NextRequest) {

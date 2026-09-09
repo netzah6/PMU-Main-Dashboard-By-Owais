@@ -35,6 +35,54 @@ function fmtDay(day: string) {
     : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 }
 
+// "We charged this show but shouldn't have" — one click credits the artist
+// for exactly that lead's fee. Admin requests are auto-approved, so the
+// credit immediately offsets the client's NEXT charge (and shows up in that
+// charge's breakdown when it applies).
+function GiveCreditButton({ ownerKey, ownerName, lead, amount }: {
+  ownerKey: string; ownerName: string; lead: string; amount: number;
+}) {
+  const [state, setState] = useState<"idle" | "confirm" | "busy" | "done" | "error">("idle");
+  if (state === "done") {
+    return <span className="ml-auto shrink-0 text-[9px] font-bold text-[#15803d]">✓ credited</span>;
+  }
+  const give = async () => {
+    setState("busy");
+    try {
+      const res = await fetch("/api/credits/request", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ownerKey, clientLabel: ownerName, amount,
+          reason: `Charged in error for ${lead} — credited back, offsets the next charge.`,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "failed");
+      setState("done");
+    } catch { setState("error"); setTimeout(() => setState("idle"), 2500); }
+  };
+  if (state === "confirm" || state === "busy") {
+    return (
+      <span className="ml-auto shrink-0 flex items-center gap-1">
+        <button onClick={give} disabled={state === "busy"}
+          className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88]">
+          {state === "busy" ? "…" : `Yes, credit ${money(amount)}`}
+        </button>
+        <button onClick={() => setState("idle")} disabled={state === "busy"}
+          className="px-1 py-0.5 rounded text-[9px] border bg-white text-[#94a3b8] border-[#e4ebf2]">✕</button>
+      </span>
+    );
+  }
+  return (
+    <button onClick={() => setState("confirm")}
+      title={`Credit ${ownerName} ${money(amount)} because ${lead} shouldn't have been charged — the credit automatically comes off her next charge.`}
+      className={cn("ml-auto shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold border",
+        state === "error" ? "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"
+          : "bg-white text-[#8595a8] border-[#e4ebf2] hover:text-[#0e8f88] hover:border-[#a7e3df]")}>
+      {state === "error" ? "failed — retry" : "Give credit"}
+    </button>
+  );
+}
+
 export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKey?: number }) {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -196,7 +244,7 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
                                   <span className="tabular-nums font-semibold text-[#34568a] w-[42px] shrink-0">{money(s.amount)}</span>
                                   <span className="text-[#1f3559] truncate">{s.name}</span>
                                   {s.source && (
-                                    <span className={cn("ml-auto shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold border",
+                                    <span className={cn("shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold border",
                                       s.source === "Deposit" ? "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]"
                                         : "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]")}
                                       title={s.source === "Deposit"
@@ -205,6 +253,7 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
                                       {s.source}
                                     </span>
                                   )}
+                                  <GiveCreditButton ownerKey={c.ownerKey} ownerName={c.ownerName} lead={s.name} amount={s.amount} />
                                 </li>
                               ))}
                             </ul>
