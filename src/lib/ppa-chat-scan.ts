@@ -109,10 +109,21 @@ export async function scanChats(deadlineMs = 240_000): Promise<ChatScanSummary> 
   // Contacts already covered by a deterministic billing path — their chats
   // don't need reading: deposit leads, done-stage leads, calendar-booked leads.
   const covered = new Set<string>();
-  const [depRes, apptRes] = await Promise.all([
+  const [depRes, apptRes, refRes] = await Promise.all([
     svc.from("ppa_deposit_contacts").select("contact_id").in("owner_key", ownerKeys),
     svc.from("ghl_appointments").select("contact_id").in("owner_key", ownerKeys),
+    svc.from("deposit_refunds").select("contact_name").eq("status", "refunded"),
   ]);
+  // Refunded deposit = session never happened; that lead's chats must not
+  // produce a billable flag (names matched by containment — refund records
+  // often carry a shorter form of the name).
+  const normName = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const refundNames = ((refRes.data ?? []) as Array<{ contact_name: string | null }>)
+    .map((r) => normName(r.contact_name)).filter((n) => n.length >= 6);
+  const isRefundedName = (name: string | null) => {
+    const n = normName(name);
+    return n.length >= 6 && refundNames.some((r) => r.includes(n) || n.includes(r));
+  };
   for (const r of (depRes.data ?? []) as Array<{ contact_id: string | null }>) if (r.contact_id) covered.add(r.contact_id);
   for (const r of (apptRes.data ?? []) as Array<{ contact_id: string | null }>) if (r.contact_id) covered.add(r.contact_id);
   // Done-stage contacts (self-booked path) — page past the 1,000-row cap.
@@ -154,6 +165,7 @@ export async function scanChats(deadlineMs = 240_000): Promise<ChatScanSummary> 
         if (!conv.lastMessageAt || new Date(conv.lastMessageAt).getTime() < cutoff) break; // sorted desc
         summary.conversations++;
         if (conv.contactId && covered.has(conv.contactId)) { summary.skippedKnownBillable++; continue; }
+        if (isRefundedName(conv.contactName)) { summary.skippedKnownBillable++; continue; }
         const prev = flagBy.get(conv.id);
         if (prev && (prev.billed || prev.dismissed)) continue;
         if (prev && prev.last_message_at && conv.lastMessageAt <= prev.last_message_at) continue;
