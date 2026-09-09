@@ -13,7 +13,7 @@ export async function GET() {
   const svc = createServiceClient();
   const [{ data: flags }, { data: lastScan }, { data: refunds }] = await Promise.all([
     svc.from("ppa_chat_flags")
-      .select("conversation_id, owner_key, location_id, contact_id, contact_name, detected_when, evidence, last_message_at")
+      .select("conversation_id, owner_key, location_id, contact_id, contact_name, detected_when, detected_date, evidence, last_message_at")
       .eq("verdict", "booked").eq("dismissed", false).eq("billed", false)
       .order("last_message_at", { ascending: false }),
     svc.from("ppa_chat_flags").select("scanned_at").order("scanned_at", { ascending: false }).limit(1).maybeSingle(),
@@ -32,9 +32,33 @@ export async function GET() {
     if (n.length < 6) return false;
     return refundNames.some((r) => r.includes(n) || n.includes(r));
   };
-  const visible = ((flags ?? []) as Array<{ contact_name: string | null }>).filter((f) => !refunded(f.contact_name));
+  const visible = ((flags ?? []) as Array<{ contact_name: string | null; contact_id: string | null; detected_date: string | null }>)
+    .filter((f) => !refunded(f.contact_name));
 
-  return NextResponse.json({ flags: visible, lastScanAt: lastScan?.scanned_at ?? null });
+  // "We only charge AFTER the appointment happened": a flag whose detected
+  // date — or whose contact's calendar appointment — is still in the future
+  // is HELD (the panel shows "billable after <date>" instead of Bill).
+  const ids = visible.map((f) => f.contact_id).filter(Boolean) as string[];
+  const futureByContact = new Map<string, string>();
+  if (ids.length) {
+    const { data: appts } = await svc.from("ghl_appointments")
+      .select("contact_id, start_time").in("contact_id", ids).gt("start_time", new Date().toISOString());
+    for (const a of (appts ?? []) as Array<{ contact_id: string | null; start_time: string | null }>) {
+      if (!a.contact_id || !a.start_time) continue;
+      const cur = futureByContact.get(a.contact_id);
+      if (!cur || a.start_time < cur) futureByContact.set(a.contact_id, a.start_time);
+    }
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const withHold = visible.map((f) => {
+    const flagFuture = f.detected_date && f.detected_date > today ? f.detected_date : null;
+    const calFuture = f.contact_id ? (futureByContact.get(f.contact_id) ?? null) : null;
+    const billableAfter = [flagFuture, calFuture ? calFuture.slice(0, 10) : null]
+      .filter(Boolean).sort().pop() ?? null;
+    return { ...f, billableAfter };
+  });
+
+  return NextResponse.json({ flags: withHold, lastScanAt: lastScan?.scanned_at ?? null });
 }
 
 export async function POST(req: NextRequest) {
