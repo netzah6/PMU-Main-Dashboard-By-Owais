@@ -61,18 +61,19 @@ async function threadText(conversationId: string, token: string): Promise<string
     .join("\n");
 }
 
-type Verdict = { booked: boolean; when: string | null; evidence: string | null };
+type Verdict = { booked: boolean; when: string | null; when_iso: string | null; evidence: string | null };
 
 async function classify(anthropic: Anthropic, transcript: string): Promise<Verdict> {
   const res = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 300,
     system: [
+      `Today's date is ${new Date().toISOString().slice(0, 10)}.`,
       "You review SMS/DM conversations between a permanent-makeup artist and a prospective client.",
       "Decide whether they AGREED ON A CONCRETE APPOINTMENT in this conversation — a specific day and/or time that both sides confirmed, or clear evidence a session already happened.",
       "NOT enough: interest, price talk, 'I'll check my schedule', an unanswered proposal, or the artist sending a booking link with no confirmed slot.",
-      'Reply with ONLY a JSON object: {"booked": boolean, "when": string|null, "evidence": string|null}.',
-      "\"when\" = the agreed day/time as stated (e.g. \"Friday 2pm\", \"Aug 20\"). \"evidence\" = a SHORT verbatim quote (max 200 chars) showing the agreement. Use null when booked is false.",
+      'Reply with ONLY a JSON object: {"booked": boolean, "when": string|null, "when_iso": string|null, "evidence": string|null}.',
+      "\"when\" = the agreed day/time as stated (e.g. \"Friday 2pm\", \"Aug 20\"). \"when_iso\" = that same day resolved to YYYY-MM-DD using today's date (null if you cannot resolve it). \"evidence\" = a SHORT verbatim quote (max 200 chars) showing the agreement. Use null when booked is false.",
     ].join("\n"),
     messages: [{ role: "user", content: transcript.slice(0, 12000) }],
   });
@@ -83,9 +84,10 @@ async function classify(anthropic: Anthropic, transcript: string): Promise<Verdi
   try {
     const m = text.match(/\{[\s\S]*\}/);
     const j = JSON.parse(m ? m[0] : text) as Verdict;
-    return { booked: !!j.booked, when: j.when ?? null, evidence: j.evidence ?? null };
+    const iso = typeof j.when_iso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(j.when_iso) ? j.when_iso : null;
+    return { booked: !!j.booked, when: j.when ?? null, when_iso: iso, evidence: j.evidence ?? null };
   } catch {
-    return { booked: false, when: null, evidence: null };
+    return { booked: false, when: null, when_iso: null, evidence: null };
   }
 }
 
@@ -171,7 +173,7 @@ export async function scanChats(deadlineMs = 240_000): Promise<ChatScanSummary> 
         if (prev && prev.last_message_at && conv.lastMessageAt <= prev.last_message_at) continue;
 
         const transcript = await threadText(conv.id, t.token);
-        let verdict: Verdict = { booked: false, when: null, evidence: null };
+        let verdict: Verdict = { booked: false, when: null, when_iso: null, evidence: null };
         if (transcript && BOOKING_HINTS.test(transcript)) {
           verdict = await classify(anthropic, transcript);
         }
@@ -185,6 +187,7 @@ export async function scanChats(deadlineMs = 240_000): Promise<ChatScanSummary> 
           contact_name: conv.contactName || null,
           verdict: verdict.booked ? "booked" : "none",
           detected_when: verdict.when,
+          detected_date: verdict.when_iso,
           evidence: verdict.evidence,
           last_message_at: conv.lastMessageAt,
           scanned_at: new Date().toISOString(),

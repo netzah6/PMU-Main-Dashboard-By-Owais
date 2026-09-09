@@ -509,6 +509,9 @@ type Filter = "all" | "ready" | "issues" | "verified" | "auto";
 interface ChatFlag {
   conversation_id: string; owner_key: string; contact_id: string | null; contact_name: string | null;
   detected_when: string | null; evidence: string | null; last_message_at: string | null;
+  /** Set when the detected booking (or a calendar appt) is still in the
+      future — the fee only becomes billable after this date. */
+  billableAfter?: string | null;
 }
 
 function ChatFlagsPanel({ feeByOwner, nameByOwner, onBilled }: {
@@ -589,11 +592,20 @@ function ChatFlagsPanel({ feeByOwner, nameByOwner, onBilled }: {
               </div>
               {f.evidence && <div className="flex-1 min-w-[200px] text-[11px] italic text-[#64748b]">&ldquo;{f.evidence}&rdquo;</div>}
               <div className="flex items-center gap-1.5 shrink-0">
+                {f.billableAfter ? (
+                  // Policy: the service fee bills only AFTER the appointment
+                  // happened — the artist gets paid first.
+                  <span className="px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#eef4ff] text-[#3b6fd4] border-[#c9dbfb]"
+                    title={`Their appointment hasn't happened yet — the fee becomes billable after ${fmtDate(f.billableAfter)}. We only charge once the artist has been paid.`}>
+                    ⏳ billable after {fmtDate(f.billableAfter)}
+                  </span>
+                ) : (
                 <button onClick={() => act(f, true)} disabled={busy === f.conversation_id}
                   className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]">
                   {busy === f.conversation_id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
                   Bill {money(feeByOwner.get(f.owner_key) ?? 30)}
                 </button>
+                )}
                 <button onClick={() => act(f, false)} disabled={busy === f.conversation_id}
                   className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#94a3b8] border-[#e4ebf2] hover:border-[#94a3b8]">
                   Dismiss
