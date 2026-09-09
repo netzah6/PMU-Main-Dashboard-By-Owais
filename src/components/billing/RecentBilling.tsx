@@ -44,7 +44,7 @@ function GiveCreditButton({ ownerKey, ownerName, lead, amount }: {
 }) {
   const [state, setState] = useState<"idle" | "confirm" | "busy" | "done" | "error">("idle");
   if (state === "done") {
-    return <span className="ml-auto shrink-0 text-[9px] font-bold text-[#15803d]">✓ credited</span>;
+    return <span className="shrink-0 text-[9px] font-bold text-[#15803d]">✓ credited</span>;
   }
   const give = async () => {
     setState("busy");
@@ -62,9 +62,9 @@ function GiveCreditButton({ ownerKey, ownerName, lead, amount }: {
   };
   if (state === "confirm" || state === "busy") {
     return (
-      <span className="ml-auto shrink-0 flex items-center gap-1">
+      <span className="shrink-0 flex items-center gap-1">
         <button onClick={give} disabled={state === "busy"}
-          className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88]">
+          className="px-1.5 py-0.5 rounded text-[9px] font-bold border bg-[#1d4ed8] text-white border-[#1d4ed8]">
           {state === "busy" ? "…" : `Yes, credit ${money(amount)}`}
         </button>
         <button onClick={() => setState("idle")} disabled={state === "busy"}
@@ -73,11 +73,13 @@ function GiveCreditButton({ ownerKey, ownerName, lead, amount }: {
     );
   }
   return (
+    // Same blue as the Account-credit panel's "Give credit" button, so credit
+    // actions read as one family everywhere.
     <button onClick={() => setState("confirm")}
       title={`Credit ${ownerName} ${money(amount)} because ${lead} shouldn't have been charged — the credit automatically comes off her next charge.`}
-      className={cn("ml-auto shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold border",
+      className={cn("shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold border",
         state === "error" ? "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"
-          : "bg-white text-[#8595a8] border-[#e4ebf2] hover:text-[#0e8f88] hover:border-[#a7e3df]")}>
+          : "bg-white text-[#1d4ed8] border-[#bfdbfe] hover:bg-[#eff6ff]")}>
       {state === "error" ? "failed — retry" : "Give credit"}
     </button>
   );
