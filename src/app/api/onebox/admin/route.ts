@@ -62,11 +62,41 @@ export async function GET(req: NextRequest) {
     .select("slug, location_id, client_name, status, cv_synced_at, config, extras, created_at")
     .order("created_at", { ascending: true });
 
-  const [{ data: leads }, { data: hitRows }, { data: expRows }] = await Promise.all([
+  const [{ data: leads }, { data: hitRows }, { data: expRows }, { data: programRows }] = await Promise.all([
     svc.from("onebox_leads").select("id, slug, ghl_status, picked_time_at, answers, created_at, phone, full_name"),
     svc.from("onebox_hits").select("slug"),
     svc.from("onebox_experiments").select("id, slug, status, created_at").order("created_at", { ascending: false }),
+    svc.from("client_program_rows").select("sheet_row, business_name, version, owner_name"),
   ]);
+
+  /* Which program (V3/V2.3/V1) is each funnel's client on? Matched to the
+     Clients Master sheet by normalized business name — the SAME row the
+     Clients tab edits, so a change from either tab is a change to both.
+     Exact match first; a prefix match only when exactly ONE sheet row
+     claims it (e.g. "…By Vicky Le - ad account"), never a guess between
+     two. Duplicate matches keep the newest sheet row and say so. */
+  const normBiz = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const findProgram = (clientName: string) => {
+    const key = normBiz(clientName);
+    if (key.length < 4) return null;
+    const all = (programRows ?? []).map((p) => ({ ...p, norm: normBiz(String(p.business_name ?? "")) }));
+    let hits = all.filter((p) => p.norm === key);
+    let via: "exact" | "prefix" = "exact";
+    if (!hits.length && key.length >= 8) {
+      hits = all.filter((p) => p.norm.length >= 8 && (p.norm.startsWith(key) || key.startsWith(p.norm)));
+      via = "prefix";
+      if (hits.length !== 1) return null;
+    }
+    if (!hits.length) return null;
+    const best = hits.reduce((a, b) => ((b.sheet_row as number) > (a.sheet_row as number) ? b : a));
+    return {
+      version: String(best.version ?? ""),
+      sheetRow: best.sheet_row as number,
+      ownerName: String(best.owner_name ?? ""),
+      matches: hits.length,
+      via,
+    };
+  };
   /* One word per card: is a split test live right now? "running" beats
      any number of old paused/ended experiments for the same slug. */
   const abStatus: Record<string, string> = {};
@@ -188,6 +218,7 @@ export async function GET(req: NextRequest) {
       paid: counts[r.slug]?.paid ?? 0,
       lastLeadAt: counts[r.slug]?.lastLeadAt ?? null,
       abStatus: abStatus[r.slug] ?? null,
+      program: r.slug === "demo-v3" || (extras.template ?? "") === "b2b" ? null : findProgram(String(r.client_name ?? "")),
       traffic: (() => {
         const runId = newestRunning[r.slug];
         if (runId !== undefined) return { expId: runId, status: "running", variants: trafficByExp[runId] ?? [] };
