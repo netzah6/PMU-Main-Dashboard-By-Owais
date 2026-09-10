@@ -6,7 +6,7 @@ import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server
 // The /f/ namespace still exists everywhere — it's what keeps funnel slugs
 // from colliding with dashboard routes on the main deployment domain.
 const FUNNEL_HOST = "book.pmu-care.com";
-const RESERVED = new Set(["api", "f", "s", "login", "auth", "manifest.webmanifest"]);
+const RESERVED = new Set(["api", "f", "s", "login", "auth", "deck", "manifest.webmanifest"]);
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
   const host = (request.headers.get("host") ?? "").toLowerCase();
@@ -70,8 +70,11 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     || p.startsWith("/.well-known");
   // One-Box funnel pages are client-facing marketing pages — public by design.
   const isPublicFunnel = p.startsWith("/f/") || p.startsWith("/s/");
+  /* The proposal deck is a prospect-facing page we hand out as a link, so it
+     and its media must load without a dashboard session. */
+  const isPublicDeck = p === "/deck" || p.startsWith("/deck/");
 
-  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel) {
+  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel && !isPublicDeck) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
