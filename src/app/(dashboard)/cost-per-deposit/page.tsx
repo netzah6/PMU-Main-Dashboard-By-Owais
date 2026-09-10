@@ -132,7 +132,7 @@ function ExpandText({ value }: { value: string | null }) {
   );
 }
 
-const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Sched", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
+const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Sched", "1-Box", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
 
 /* One row per sub-account where the Meta "Schedule" event was installed on
    the funnel's deposit page — written by the rollout, read here so the team
@@ -226,16 +226,20 @@ export default function CostPerDepositPage() {
   // leads carry the (v3) tag.
   const [ghlStatus, setGhlStatus] = useState<Map<string, "ok" | "untagged"> | null>(null);
   const [schedFlags, setSchedFlags] = useState<Map<string, SchedFlag> | null>(null);
+  /* owner (lowercased) → one-box funnel status, from the onebox_active_clients
+     view (onebox_clients joined to Clients Master by normalized business name). */
+  const [oneboxMap, setOneboxMap] = useState<Map<string, { status: string; business: string }> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
     (async () => {
       // booking_stats is a tiny pre-aggregated view (one row per GHL owner) —
       // much cheaper than scanning ghl_lead_status for the "No GHL" flags.
-      const [ovRes, bkRes, sfRes] = await Promise.all([
+      const [ovRes, bkRes, sfRes, obRes] = await Promise.all([
         supabase.from("deposit_overview").select("*"),
         supabase.from("booking_stats").select("owner_key, leads_total, contacts_total"),
         supabase.from("funnel_tracking_flags").select("owner_name, schedule_installed_at, lead_status, notes"),
+        supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status"),
       ]);
       if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
       setRows(((ovRes.data as Row[]) ?? []));
@@ -243,6 +247,13 @@ export default function CostPerDepositPage() {
         const m = new Map<string, SchedFlag>();
         for (const f of sfRes.data as SchedFlag[]) m.set(f.owner_name.toLowerCase().trim(), f);
         setSchedFlags(m);
+      }
+      if (!obRes.error && obRes.data) {
+        const m = new Map<string, { status: string; business: string }>();
+        for (const o of obRes.data as { owner_name: string; business_name: string; onebox_status: string }[]) {
+          m.set(o.owner_name.toLowerCase().trim(), { status: o.onebox_status, business: o.business_name });
+        }
+        setOneboxMap(m);
       }
       // leads_total > 0 → (v3)-tagged leads flowing ("ok"); contacts but zero
       // tagged leads → the (v3) tag workflow is broken in that sub-account
@@ -387,7 +398,7 @@ export default function CostPerDepositPage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 9 || idx === 13 || idx === 15 || idx === 19 || idx === 22 || idx === 25; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7 (all +1 for the Sched column)
+                  const divider = idx === 10 || idx === 14 || idx === 16 || idx === 20 || idx === 23 || idx === 26; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7 (+1 Sched, +1 1-Box)
                   return (
                     <th key={h} className={cn("sticky top-0 px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
                       idx === 0 || idx === 1 ? "z-30" : "z-20", divider && "border-r-2 border-[#9fb0c4]")}
@@ -451,6 +462,19 @@ export default function CostPerDepositPage() {
                           <span className={cn("font-bold text-[13px] cursor-default", cantFire ? "text-[#d97706]" : "text-[#15803d]")}
                             title={`Schedule event installed ${new Date(f.schedule_installed_at).toLocaleDateString()}${f.notes ? ` — ${f.notes}` : ""}`}>
                             {cantFire ? "⚠" : "✓"}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-3 py-1 text-center">
+                      {(() => {
+                        const ob = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim());
+                        if (!ob) return <span className="text-[#c3cdd9]">—</span>;
+                        const live = ob.status === "live";
+                        return (
+                          <span className={cn("font-bold text-[13px] cursor-default", live ? "text-[#0e9c9c]" : "text-[#8595a8]")}
+                            title={live ? `One-box funnel LIVE (${ob.business}) — traffic runs on the one-box` : `One-box funnel exists but is paused (${ob.business})`}>
+                            {live ? "✓" : "⏸"}
                           </span>
                         );
                       })()}
