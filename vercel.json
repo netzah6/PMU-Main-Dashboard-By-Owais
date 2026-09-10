@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/pps-retry",
       "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/insights-scan",
+      "schedule": "0 14 * * *"
     }
   ],
   "headers": [
