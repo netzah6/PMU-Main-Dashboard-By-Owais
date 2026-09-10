@@ -34,6 +34,11 @@
      for future version tests via config v1:"1" (variant override) or
      ?obv1=1 (team preview). ?obv2=1 stays accepted as a no-op. */
   var V2 = !(/[?&]obv1=1/.test(location.search) || String(C.v1 || "") === "1");
+  /* Program-driven flow: (V1) clients run survey → thank-you ONLY — no
+     booking page, no deposit page (the AI books them by text instead).
+     The server sets flow:"v1" from the client's Clients Master program;
+     ?obflow=v1 is the team's preview override. */
+  var FLOW_V1 = String(C.flow || "") === "v1" || /[?&]obflow=v1/.test(location.search);
   var BIZ = (C.biz || "").trim() || "Our Studio";
   var PHONE = (C.phone || "").trim();
   var ADDR = (C.address || "").trim();
@@ -514,7 +519,7 @@
     if (phase === "booking") { pct = 85; label = "You’re Almost Done…"; }
     else if (phase === "confirm") { pct = 88; label = "You\u2019re Almost Done\u2026"; }
     else if (phase === "deposit") { pct = 90; label = "Last Step…"; }
-    else if (phase === "done") { pct = 100; label = "Confirmed ✓"; }
+    else if (phase === "done") { pct = 100; label = FLOW_V1 ? "All Set ✓" : "Confirmed ✓"; }
     else { pct = 100; label = "100%"; }
     railEl.style.width = pct + "%";
     railEl.textContent = label;
@@ -531,8 +536,11 @@
       var note = (q.k === "phone" || q.k === "email")
         ? '<p class="trustnote">&#128274; Only used to confirm your appointment &mdash; no spam.</p>' : "";
       var submitBtn = qi === N - 1
-        ? '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>See My Available Times</b>' +
-          "<span>Next: pick your appointment</span></button>"
+        ? (FLOW_V1
+          /* V1 flow ends here — no booking step to promise. */
+          ? '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>Claim My Offer &rarr;</b></button>'
+          : '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>See My Available Times</b>' +
+            "<span>Next: pick your appointment</span></button>")
         : '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>Continue &rarr;</b></button>';
       return '<label class="qlabel" for="ob-f">' + esc(q.q) + '\u00A0<em>*</em></label>' +
         '<input class="field" id="ob-f" type="' + q.type + '" placeholder="' + esc(q.ph) + '" value="' +
@@ -934,6 +942,21 @@
   }
   function slideDone() {
     var first = (state.answers.full_name || "").split(/\s+/)[0] || "";
+    if (FLOW_V1) {
+      /* V1 thank-you: no appointment, no deposit — just the qualify
+         message; booking happens over text like the original V1 funnel. */
+      return confettiHtml() +
+        '<div class="doneburst">&#127881;</div>' +
+        '<h2 class="phead donehead">' + (first ? esc(first) + ", you" : "You") + "&rsquo;re in!</h2>" +
+        '<p class="donesub">Your answers are in &mdash; you qualify for the offer.</p>' +
+        '<div class="confcard donecard">' +
+          "<h3>&#10004; We got your request</h3>" +
+          (ADDR ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
+          "<p>We&rsquo;ll text you shortly to lock in your appointment time. Keep an eye on your phone! &#128241;</p>" +
+        "</div>" +
+        ((C.igWidget || C.elfsightId) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
+          "&#128248; Follow us on Instagram for daily results</a>" : "");
+    }
     return confettiHtml() +
       '<div class="doneburst">&#127881;</div>' +
       '<h2 class="phead donehead">' + (first ? esc(first) + ", you" : "You") + "&rsquo;re booked!</h2>" +
@@ -1003,6 +1026,7 @@
       if (phase === "survey") { if (qi > 0) { qi--; show("survey", "prev"); } }
       else if (phase === "booking") { qi = N - 1; show("survey", "prev"); }
       else if (phase === "deposit") show("booking", "prev");
+      else if (FLOW_V1) { /* done is the end of the V1 flow — no booking page to go back to */ }
       else show("booking", "prev");
     };
     if (phase === "survey") bindSurvey();
@@ -1058,7 +1082,7 @@
       if (advanced) return;
       advanced = true;
       if (qi < N - 1) { qi++; show("survey"); }
-      else { submitLead(); show("booking"); }
+      else { submitLead(); show(FLOW_V1 ? "done" : "booking"); }
     }
     function submit() {
       var q = QUESTIONS[qi], val;
@@ -1245,6 +1269,7 @@
        (~30s), the month is memoized and the booking step paints with zero
        wait. The 2.5s delay keeps it off the first-paint critical path. */
     setTimeout(function () {
+      if (FLOW_V1) return; // no booking page — nothing to warm
       if (phase !== "survey") return;
       if (!calState.y) {
         var seedNow = new Date();

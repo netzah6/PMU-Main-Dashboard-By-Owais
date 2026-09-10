@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 
 // ── One-box funnel optimizer ─────────────────────────────────────────────────
 // Watches every live B2C one-box funnel and, once a client has ENOUGH data,
@@ -218,7 +219,16 @@ function runRules(
    as a 'proposed' insight. A (slug, kind) that is already open, or that was
    decided in the last 21 days, is skipped — approve/deny means "heard you". */
 export async function runInsightScan(svc: SupabaseClient, origin: string): Promise<{ created: number; open: number; checked: number }> {
-  const stats = await computeFunnelStats(svc, 14);
+  const allStats = await computeFunnelStats(svc, 14);
+  /* V3 clients only, by design: deposits are the target metric, and a
+     (V1)/(V2.3) client's funnel doesn't even run the booking + deposit
+     flow — every deposit rule would be noise about her. A client the
+     sheet can't match stays in (24/25 are V3; new clients default V3). */
+  const progRows = await fetchProgramRows(svc);
+  const stats = allStats.filter((s) => {
+    const p = findClientProgram(progRows, s.clientName);
+    return !p || !p.version || p.version === "(V3)";
+  });
   const slugs = stats.map((s) => s.slug);
   const [{ data: clientRows }, { data: existing }, days] = await Promise.all([
     svc.from("onebox_clients").select("slug, created_at").in("slug", slugs),
