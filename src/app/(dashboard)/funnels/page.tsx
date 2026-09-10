@@ -71,6 +71,15 @@ function trafficSummary(t: Funnel["traffic"]): string {
 }
 type HealthCheck = { name: string; ok: boolean; note: string };
 
+/* One optimizer flag: the problem, the evidence, the proposed fix — and
+   whatever the human decided about it. */
+type Insight = {
+  id: number; slug: string; clientName: string; kind: string; status: string;
+  problem: string; why: string; solution: string;
+  deny_reason: string | null; user_suggestion: string | null;
+  decided_at: string | null; created_at: string;
+};
+
 /* Click-to-copy pill for SOP values — the exact string, one click. */
 function CopyChip({ text, label, onCopied }: { text: string; label?: string; onCopied: () => void }) {
   return (
@@ -281,6 +290,52 @@ export default function FunnelsPage() {
     } finally { setStatsLoading(false); }
   }, []);
 
+  /* Optimizer inbox: data-backed flags per funnel, each waiting for an
+     explicit approve or deny. A deny must carry a reason or a better idea —
+     that's what keeps the same flag from coming straight back. */
+  const [insights, setInsights] = useState<{ open: Insight[]; decided: Insight[] } | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [decideBusy, setDecideBusy] = useState<number | null>(null);
+  const [denyFor, setDenyFor] = useState<number | null>(null);
+  const [denyReason, setDenyReason] = useState("");
+  const [denySuggestion, setDenySuggestion] = useState("");
+  const [showDecided, setShowDecided] = useState(false);
+  const loadInsights = useCallback(async () => {
+    try {
+      const r = await fetch("/api/onebox/insights");
+      const j = await r.json();
+      if (!j.error) setInsights({ open: j.open ?? [], decided: j.decided ?? [] });
+    } catch { /* panel just stays empty */ }
+  }, []);
+  useEffect(() => { void loadInsights(); }, [loadInsights]);
+  const scanNow = useCallback(async () => {
+    setScanBusy(true);
+    try {
+      const r = await fetch("/api/onebox/insights", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "scan" }),
+      });
+      const j = await r.json();
+      if (j.error) { setToast(`Scan failed: ${j.error}`); return; }
+      setToast(j.created ? `Scan done — ${j.created} new flag${j.created === 1 ? "" : "s"}` : "Scan done — nothing new to flag");
+      await loadInsights();
+    } finally { setScanBusy(false); }
+  }, [loadInsights]);
+  const decideInsight = useCallback(async (id: number, decision: "approve" | "deny", reason?: string, suggestion?: string) => {
+    setDecideBusy(id);
+    try {
+      const r = await fetch("/api/onebox/insights", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "decide", id, decision, reason, suggestion }),
+      });
+      const j = await r.json();
+      if (j.error) { setToast(j.error); return; }
+      setToast(decision === "approve" ? "Approved ✓ — it's the plan now" : "Denied — noted, I won't re-flag this for 3 weeks");
+      setDenyFor(null); setDenyReason(""); setDenySuggestion("");
+      await loadInsights();
+    } finally { setDecideBusy(null); }
+  }, [loadInsights]);
+
   /* Inline traffic editor. On a running test, saving weights is enough;
      on a paused one the weights only take effect once the test is resumed,
      so both happen in one click — and a resume the server refuses (the
@@ -470,6 +525,90 @@ export default function FunnelsPage() {
         <div className="p-10 text-center text-[#697a91] text-sm">No funnels yet — add the first client.</div>
       ) : (
         <div className="space-y-1.5">
+          <div className="border border-[#f0c987] rounded-xl bg-white p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-[#1c2b3a]">🧠 Optimizer — B2C funnels</span>
+              {insights && insights.open.length > 0 && (
+                <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-[#fff3e6] text-[#c2410c] border border-[#fdba74]">
+                  {insights.open.length} flag{insights.open.length === 1 ? "" : "s"} waiting for you
+                </span>
+              )}
+              <div className="flex-1" />
+              <button onClick={() => void scanNow()} disabled={scanBusy}
+                className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] inline-flex items-center gap-1.5 disabled:opacity-50">
+                {scanBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Scan now
+              </button>
+            </div>
+            <p className="text-[11px] text-[#697a91] mt-1">
+              Watches every live B2C funnel daily, optimizing for deposits. Once a client has enough data it flags the
+              problem, the evidence, and a fix — nothing changes without your approve.
+            </p>
+            {insights === null ? (
+              <div className="mt-2 text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /></div>
+            ) : insights.open.length === 0 ? (
+              <div className="mt-2 text-xs text-[#697a91]">No open flags — every funnel is inside its normal range right now.</div>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {insights.open.map((ins) => (
+                  <div key={ins.id} className="border border-[#f4dcb8] rounded-lg bg-[#fffcf6] p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <b className="text-sm text-[#1c2b3a]">{ins.clientName}</b>
+                      <span className="text-[13px] font-medium text-[#b45309]">{ins.problem}</span>
+                    </div>
+                    <div className="text-xs text-[#425466] mt-1"><b className="text-[#697a91]">Why:</b> {ins.why}</div>
+                    <div className="text-xs text-[#425466] mt-1"><b className="text-[#0b7f7f]">Fix I suggest:</b> {ins.solution}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button onClick={() => void decideInsight(ins.id, "approve")} disabled={decideBusy === ins.id}
+                        className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
+                        {decideBusy === ins.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Approve
+                      </button>
+                      <button onClick={() => { setDenyFor(denyFor === ins.id ? null : ins.id); setDenyReason(""); setDenySuggestion(""); }}
+                        className={cn("text-xs border rounded-md px-3 py-1",
+                          denyFor === ins.id ? "border-[#fca5a5] bg-[#fef2f2] text-[#b91c1c]" : "border-[#e4ebf2] hover:bg-white text-[#697a91]")}>
+                        Deny…
+                      </button>
+                    </div>
+                    {denyFor === ins.id && (
+                      <div className="mt-2 grid gap-1.5">
+                        <input placeholder="Why deny? (required if no suggestion)" value={denyReason}
+                          onChange={(e) => setDenyReason(e.target.value)}
+                          className="border border-[#e4ebf2] rounded-md px-2.5 py-1.5 text-xs" />
+                        <input placeholder="Or suggest a different fix — we'll do yours instead (optional)" value={denySuggestion}
+                          onChange={(e) => setDenySuggestion(e.target.value)}
+                          className="border border-[#e4ebf2] rounded-md px-2.5 py-1.5 text-xs" />
+                        <button onClick={() => void decideInsight(ins.id, "deny", denyReason, denySuggestion)}
+                          disabled={decideBusy === ins.id || (!denyReason.trim() && !denySuggestion.trim())}
+                          className="justify-self-start text-xs border border-[#fca5a5] text-[#b91c1c] rounded-md px-3 py-1 hover:bg-[#fef2f2] disabled:opacity-40">
+                          Confirm deny
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {insights && insights.decided.length > 0 && (
+              <div className="mt-2">
+                <button onClick={() => setShowDecided(!showDecided)} className="text-[11px] text-[#697a91] hover:underline">
+                  {showDecided ? "▲ hide" : "▼ show"} recent decisions ({insights.decided.length})
+                </button>
+                {showDecided && (
+                  <div className="mt-1 space-y-1">
+                    {insights.decided.map((ins) => (
+                      <div key={ins.id} className="text-[11px] text-[#697a91]">
+                        <span className={ins.status === "approved" ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                          {ins.status === "approved" ? "✓ approved" : "✗ denied"}
+                        </span>{" "}
+                        <b className="text-[#425466]">{ins.clientName}</b> — {ins.problem}
+                        {ins.deny_reason ? <span className="italic"> · “{ins.deny_reason}”</span> : null}
+                        {ins.user_suggestion ? <span className="italic"> · your fix: “{ins.user_suggestion}”</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           {funnels.some((f) => f.status === "live" && f.slug !== "demo-v3" && f.template !== "b2b") && (
             <div className="border border-[#bfe6e2] rounded-xl bg-white p-4">
               <button
@@ -590,42 +729,55 @@ export default function FunnelsPage() {
               )}
             </div>
           )}
-          {funnels.some((f) => f.abStatus === "running" && f.template === "b2b") && (
-            <div className="border border-[#9fd8d4] rounded-xl bg-white p-4">
-              <button
-                onClick={() => {
-                  const open = !b2bOverviewOpen;
-                  setB2bOverviewOpen(open);
-                  if (open) funnels.filter((f) => f.abStatus === "running" && f.template === "b2b").forEach((f) => void loadAb(f.slug));
-                }}
-                className="w-full flex items-center gap-2 text-sm font-medium text-[#1c2b3a]">
-                <span className="w-2 h-2 rounded-full bg-[#0e9c9c] animate-pulse" />
-                B2B split test — agency funnel
-                <span className="text-xs text-[#697a91]">
-                  ({funnels.filter((f) => f.abStatus === "running" && f.template === "b2b").length} running)
-                </span>
-                <span className="ml-auto text-[#697a91]">{b2bOverviewOpen ? "▲" : "▼"}</span>
-              </button>
-              {b2bOverviewOpen && (
-                <SplitOverviewTable
-                  rows={funnels.filter((f) => f.abStatus === "running" && f.template === "b2b")}
-                  ab={ab}
-                  showTotals={false}
-                  footnote="The agency's own B2B funnel (PMU Bookings On Demand) — the win here is a booked strategy call, so read Visitors → Leads → Picked time and ignore the deposit columns. Kept out of the client totals above because it's a different business."
-                />
-              )}
-            </div>
-          )}
+          {/* B2C on top; everything B2B sinks to the very bottom behind its
+              own divider — the 99% of attention goes to the client funnels. */}
           {[...funnels]
-            .sort((a, b) => Number(b.status === "live") - Number(a.status === "live"))
+            .sort((a, b) =>
+              Number(a.template === "b2b") - Number(b.template === "b2b") ||
+              Number(b.status === "live") - Number(a.status === "live"))
             .map((f, i, arr) => (
             <Fragment key={f.slug}>
-            {i > 0 && arr[i - 1].status === "live" && f.status !== "live" && (
+            {f.template !== "b2b" && i > 0 && arr[i - 1].status === "live" && f.status !== "live" && (
               <div className="flex items-center gap-3 pt-3">
                 <div className="h-px flex-1 bg-[#e4ebf2]" />
                 <span className="text-[11px] font-semibold tracking-wide text-[#c2410c]">PAUSED</span>
                 <div className="h-px flex-1 bg-[#e4ebf2]" />
               </div>
+            )}
+            {f.template === "b2b" && (i === 0 || arr[i - 1].template !== "b2b") && (
+              <>
+                <div className="flex items-center gap-3 pt-8">
+                  <div className="h-px flex-1 bg-[#9fd8d4]" />
+                  <span className="text-[11px] font-semibold tracking-wide text-[#0b7f7f]">B2B — AGENCY FUNNEL</span>
+                  <div className="h-px flex-1 bg-[#9fd8d4]" />
+                </div>
+                {funnels.some((x) => x.abStatus === "running" && x.template === "b2b") && (
+                  <div className="border border-[#9fd8d4] rounded-xl bg-white p-4">
+                    <button
+                      onClick={() => {
+                        const open = !b2bOverviewOpen;
+                        setB2bOverviewOpen(open);
+                        if (open) funnels.filter((x) => x.abStatus === "running" && x.template === "b2b").forEach((x) => void loadAb(x.slug));
+                      }}
+                      className="w-full flex items-center gap-2 text-sm font-medium text-[#1c2b3a]">
+                      <span className="w-2 h-2 rounded-full bg-[#0e9c9c] animate-pulse" />
+                      B2B split test — agency funnel
+                      <span className="text-xs text-[#697a91]">
+                        ({funnels.filter((x) => x.abStatus === "running" && x.template === "b2b").length} running)
+                      </span>
+                      <span className="ml-auto text-[#697a91]">{b2bOverviewOpen ? "▲" : "▼"}</span>
+                    </button>
+                    {b2bOverviewOpen && (
+                      <SplitOverviewTable
+                        rows={funnels.filter((x) => x.abStatus === "running" && x.template === "b2b")}
+                        ab={ab}
+                        showTotals={false}
+                        footnote="The agency's own B2B funnel (PMU Bookings On Demand) — the win here is a booked strategy call, so read Visitors → Leads → Picked time and ignore the deposit columns. Kept out of the client totals above because it's a different business."
+                      />
+                    )}
+                  </div>
+                )}
+              </>
             )}
             <div className="border border-[#e4ebf2] rounded-xl bg-white px-4 py-1.5">
               <div className="flex flex-wrap items-center gap-2">
