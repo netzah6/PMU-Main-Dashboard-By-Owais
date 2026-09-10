@@ -28,11 +28,12 @@
   var root = document.getElementById("onebox-root");
   if (!root) return;
 
-  /* V2 experiment layout (scarcity calendar, sticky hold bar, focused
-     deposit step). Off unless the funnel config carries v2:"1" or the
-     visit carries ?obv2=1 (team preview) — so shipping this engine
-     changes nothing for live funnels until a variant opts in. */
-  var V2 = /[?&]obv2=1/.test(location.search) || String(C.v2 || "") === "1";
+  /* V2 IS the one-box now (Netzah, 2026-09-11): scarcity calendar,
+     sticky hold bar, focused deposit step ship by default — no
+     experiment or config flag needed. The old layout stays reachable
+     for future version tests via config v1:"1" (variant override) or
+     ?obv1=1 (team preview). ?obv2=1 stays accepted as a no-op. */
+  var V2 = !(/[?&]obv1=1/.test(location.search) || String(C.v1 || "") === "1");
   var BIZ = (C.biz || "").trim() || "Our Studio";
   var PHONE = (C.phone || "").trim();
   var ADDR = (C.address || "").trim();
