@@ -48,13 +48,21 @@ type Funnel = {
   paid: number; booked: number; lastLeadAt: string | null;
   abStatus: string | null;
   template: string;
-  /* The NEWEST running experiment's variants — exactly what the splitter
-     routes by, so the card can show and edit where traffic really goes. */
-  traffic: { expId: number; variants: { vkey: string; label: string; kind: string; weight: number }[] } | null;
+  /* What the splitter routes by: the NEWEST running experiment — or, with
+     none running, the newest paused one that still has an original-funnel
+     side (so sending traffic back is a resume, not a re-setup). null =
+     this client has never had a test against the original. */
+  traffic: {
+    expId: number; status: "running" | "paused";
+    variants: { vkey: string; label: string; kind: string; weight: number; target: string | null }[];
+  } | null;
 };
 
-/* "100% → One-box V2" / "50% Original · 50% One-box V2" for the card chip. */
-function trafficSummary(t: NonNullable<Funnel["traffic"]>): string {
+/* The card chip's one-line truth. With no RUNNING experiment the splitter
+   forwards every visitor straight to the one-box funnel, whatever old
+   paused tests exist — so anything but "running" reads 100% → One-box. */
+function trafficSummary(t: Funnel["traffic"]): string {
+  if (!t || t.status !== "running") return "100% → One-box";
   const active = t.variants.filter((v) => v.weight > 0);
   if (!active.length) return "no traffic weights";
   const total = active.reduce((s, v) => s + v.weight, 0);
@@ -273,18 +281,29 @@ export default function FunnelsPage() {
     } finally { setStatsLoading(false); }
   }, []);
 
-  /* Inline traffic editor: weights for the newest running experiment. */
+  /* Inline traffic editor. On a running test, saving weights is enough;
+     on a paused one the weights only take effect once the test is resumed,
+     so both happen in one click — and a resume the server refuses (the
+     original URL redirecting back to us) surfaces its reason as the toast. */
   const [trafficFor, setTrafficFor] = useState<string | null>(null);
   const [trafficW, setTrafficW] = useState<Record<string, number>>({});
   const [trafficBusy, setTrafficBusy] = useState(false);
-  const saveTraffic = useCallback(async (expId: number, weights: Record<string, number>) => {
+  const applyTraffic = useCallback(async (t: NonNullable<Funnel["traffic"]>, weights: Record<string, number>) => {
     setTrafficBusy(true);
     try {
       const r = await fetch("/api/onebox/ab", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "weights", id: expId, weights }),
+        body: JSON.stringify({ action: "weights", id: t.expId, weights }),
       });
       if (!r.ok) { setToast("Saving traffic weights failed"); return; }
+      if (t.status !== "running") {
+        const r2 = await fetch("/api/onebox/ab", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "status", id: t.expId, status: "running" }),
+        });
+        const j2 = await r2.json().catch(() => ({} as { error?: string }));
+        if (!r2.ok || j2.error) { setToast(j2.error ?? "Resuming the test failed"); return; }
+      }
       setToast("Traffic updated — live immediately");
       setTrafficFor(null);
       await load();
@@ -630,19 +649,24 @@ export default function FunnelsPage() {
                         A/B PAUSED
                       </span>
                     )}
-                    {f.traffic && f.abStatus === "running" && (
-                      <button
-                        title="Where this funnel's ad traffic goes right now — click to change"
-                        onClick={() => {
-                          if (trafficFor === f.slug) { setTrafficFor(null); return; }
-                          setTrafficFor(f.slug);
-                          setTrafficW(Object.fromEntries(f.traffic!.variants.map((v) => [v.vkey, v.weight])));
-                        }}
-                        className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1",
-                          trafficFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "bg-[#f0fbfa] text-[#0b7f7f] border-[#bfe6e2] hover:bg-[#e2f6f4]")}>
-                        🚦 {trafficSummary(f.traffic)}
-                      </button>
-                    )}
+                    <button
+                      title={f.traffic?.status === "running"
+                        ? "Where this funnel's ad traffic goes right now — click to change"
+                        : "No test running — the splitter sends every visitor to the one-box funnel. Click to manage."}
+                      onClick={() => {
+                        if (trafficFor === f.slug) { setTrafficFor(null); return; }
+                        setTrafficFor(f.slug);
+                        if (f.traffic) {
+                          /* Prefill with the truth: live weights on a running
+                             test; 0/100 toward one-box on a paused one. */
+                          setTrafficW(Object.fromEntries(f.traffic.variants.map((v) =>
+                            [v.vkey, f.traffic!.status === "running" ? v.weight : (v.kind === "external" ? 0 : 100)])));
+                        }
+                      }}
+                      className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1",
+                        trafficFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "bg-[#f0fbfa] text-[#0b7f7f] border-[#bfe6e2] hover:bg-[#e2f6f4]")}>
+                      🚦 {trafficSummary(f.traffic)}
+                    </button>
                     <a href={f.url} target="_blank" rel="noopener" className="text-xs text-[#0e9c9c] hover:underline inline-flex items-center gap-1">
                       {f.url} <ExternalLink className="w-3 h-3" />
                     </a>
@@ -675,34 +699,74 @@ export default function FunnelsPage() {
                 </div>
               </div>
 
-              {trafficFor === f.slug && f.traffic && (
-                <div className="mt-2 border border-[#bfe6e2] rounded-lg bg-[#f7fdfc] p-2.5 flex flex-wrap items-center gap-2">
-                  {f.traffic.variants.map((v) => (
-                    <label key={v.vkey} className="inline-flex items-center gap-1.5 text-xs text-[#1c2b3a]">
-                      <span className="font-medium">{v.label}</span>
-                      <span className="text-[10px] text-[#697a91]">({v.kind === "external" ? "GHL" : "one-box"})</span>
-                      <input type="number" min={0} max={100} value={trafficW[v.vkey] ?? 0}
-                        onChange={(e) => setTrafficW((w) => ({ ...w, [v.vkey]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) }))}
-                        className="w-14 border border-[#e4ebf2] rounded-md px-1.5 py-0.5 text-xs text-right" />%
-                    </label>
-                  ))}
-                  <div className="flex-1" />
-                  {f.traffic.variants.length === 2 && (
-                    <>
-                      <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 0, [f.traffic!.variants[1].vkey]: 100 })}
-                        className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">100% {f.traffic.variants[1].label}</button>
-                      <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 50, [f.traffic!.variants[1].vkey]: 50 })}
-                        className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">50 / 50</button>
-                      <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 100, [f.traffic!.variants[1].vkey]: 0 })}
-                        className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">100% {f.traffic.variants[0].label}</button>
-                    </>
+              {trafficFor === f.slug && (f.traffic ? (
+                <div className="mt-2 border border-[#bfe6e2] rounded-lg bg-[#f7fdfc] p-2.5">
+                  {f.traffic.status === "paused" && (
+                    <div className="text-[11px] text-[#697a91] mb-2">
+                      No test is running — the splitter sends <b className="text-[#1c2b3a]">every visitor to the one-box funnel</b>.
+                      To send some back to the original
+                      {(() => {
+                        const ext = f.traffic!.variants.find((v) => v.kind === "external" && v.target);
+                        return ext?.target ? (
+                          <> (<a href={ext.target} target="_blank" rel="noopener" className="text-[#0e9c9c] hover:underline break-all">{ext.target.replace(/^https?:\/\//, "")}</a>)</>
+                        ) : null;
+                      })()}
+                      , set the weights and apply.
+                      <span className="text-[#c2410c]"> ⚠ Apple Pay / Cash App are still broken on original GHL funnels.</span>
+                    </div>
                   )}
-                  <button onClick={() => void saveTraffic(f.traffic!.expId, trafficW)} disabled={trafficBusy}
-                    className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
-                    {trafficBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save — live immediately
+                  <div className="flex flex-wrap items-center gap-2">
+                    {f.traffic.variants.map((v) => (
+                      <label key={v.vkey} className="inline-flex items-center gap-1.5 text-xs text-[#1c2b3a]">
+                        <span className="font-medium">{v.label}</span>
+                        <span className="text-[10px] text-[#697a91]">({v.kind === "external" ? "GHL" : "one-box"})</span>
+                        <input type="number" min={0} max={100} value={trafficW[v.vkey] ?? 0}
+                          onChange={(e) => setTrafficW((w) => ({ ...w, [v.vkey]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) }))}
+                          className="w-14 border border-[#e4ebf2] rounded-md px-1.5 py-0.5 text-xs text-right" />%
+                      </label>
+                    ))}
+                    <div className="flex-1" />
+                    {f.traffic.variants.length === 2 && (
+                      <>
+                        <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 0, [f.traffic!.variants[1].vkey]: 100 })}
+                          className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">100% {f.traffic.variants[1].label}</button>
+                        <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 50, [f.traffic!.variants[1].vkey]: 50 })}
+                          className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">50 / 50</button>
+                        <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 100, [f.traffic!.variants[1].vkey]: 0 })}
+                          className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">100% {f.traffic.variants[0].label}</button>
+                      </>
+                    )}
+                    {(() => {
+                      /* Resuming a paused test only means something if the
+                         original actually gets a share — otherwise there is
+                         nothing to change, so don't fake a running test. */
+                      const extShare = f.traffic!.variants.filter((v) => v.kind === "external")
+                        .reduce((s, v) => s + (trafficW[v.vkey] ?? 0), 0);
+                      const noopResume = f.traffic!.status === "paused" && extShare === 0;
+                      return (
+                        <button onClick={() => void applyTraffic(f.traffic!, trafficW)} disabled={trafficBusy || noopResume}
+                          title={noopResume ? "Everything already goes to the one-box — give the original a % first" : undefined}
+                          className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
+                          {trafficBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                          {f.traffic!.status === "running" ? "Save — live immediately" : "Apply — resumes the test"}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 border border-[#bfe6e2] rounded-lg bg-[#f7fdfc] p-2.5 flex flex-wrap items-center gap-2 text-xs text-[#1c2b3a]">
+                  <span>
+                    <b>Every visitor goes to the one-box funnel</b> — this client has never had a split test,
+                    so the splitter forwards all traffic straight through. To send any share to the original GHL funnel, set one up first.
+                  </span>
+                  <button
+                    onClick={() => { setTrafficFor(null); setAbFor(f.slug); setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); }}
+                    className="border border-[#e4ebf2] rounded-md px-2.5 py-1 hover:bg-white text-[11px] font-medium">
+                    Set up a test vs the original…
                   </button>
                 </div>
-              )}
+              ))}
 
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 <Dot ok={f.hasCalendar} label="calendar" />

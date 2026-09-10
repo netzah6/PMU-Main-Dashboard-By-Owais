@@ -430,6 +430,30 @@ export async function POST(req: NextRequest) {
 
   if (action === "status") {
     const status = body.status === "running" ? "running" : "paused";
+    /* Same trap as "create": an old test's original-funnel URL may have
+       become a redirect back to us since it was paused, which would make
+       both sides identical. Re-check before letting it carry traffic. */
+    if (status === "running") {
+      const { data: vars } = await svc.from("onebox_variants").select("kind, target, weight").eq("experiment_id", id);
+      for (const v of vars ?? []) {
+        if (v.kind !== "external" || !v.target || !((v.weight as number) > 0)) continue;
+        try {
+          const r = await fetch(String(v.target), { redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(12000) });
+          if (/book\.pmu-care\.com|\/f\/|\/s\//.test(r.url)) {
+            return NextResponse.json(
+              {
+                error:
+                  `The original-funnel URL "${v.target}" now redirects to the one-box (${r.url}), so both sides would be identical. ` +
+                  `Restore the original page at its -ab-ghl address first, then resume.`,
+              },
+              { status: 400 }
+            );
+          }
+        } catch {
+          /* unreachable target: let it through rather than block on a blip */
+        }
+      }
+    }
     await svc.from("onebox_experiments").update({ status, updated_at: new Date().toISOString() }).eq("id", id);
     return NextResponse.json({ ok: true, status });
   }
