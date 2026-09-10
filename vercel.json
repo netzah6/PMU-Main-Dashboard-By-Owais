@@ -70,6 +70,31 @@
           "value": "public, max-age=31536000, immutable"
         }
       ]
+    },
+    {
+      "source": "/deck/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "deck.pmubookingsondemand.com"
+        }
+      ],
+      "destination": "/deck/index.html"
+    },
+    {
+      "source": "/deck",
+      "destination": "/deck/index.html"
     }
   ]
 }
