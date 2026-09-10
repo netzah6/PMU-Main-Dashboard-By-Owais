@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PMU Bookings On Demand</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --teal:#2EC4C6; --teal-dark:#1FA6A8; --teal-soft:#E8F9F9;
+  --ink:#171717; --muted:#5b6470; --line:#e6e9ee;
+  /* the iPhone system stack — what a real Messages screenshot looks like */
+  --ios:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#0d1114;color:var(--ink);font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+/* Slide 7 sets the house style: Inter bold for headings, Poppins for body. */
+h1,h2,h3,.disp{font-family:Inter,sans-serif;letter-spacing:-.02em}
+
+/* ---------- fixed 1600x900 stage, scaled to fit ---------- */
+#fit{position:fixed;inset:0;overflow:hidden}
+/* Absolute + translate, not grid centering: a grid clamps an oversized
+   child to the start edge, which pushes the scaled stage off to the right. */
+#stage{width:1600px;height:900px;position:absolute;left:50%;top:50%;
+  transform-origin:center center;background:#fff;box-shadow:0 0 60px -10px rgba(0,0,0,.6)}
+.slide{position:absolute;inset:0;display:none;background:#fff}
+.slide.on{display:block}
+.slide > .inner{position:absolute;inset:0;padding:52px 70px;display:flex;flex-direction:column}
+img.full{width:100%;height:100%;object-fit:cover;display:block}
+
+.brush{position:absolute;top:-34px;left:-64px;width:390px;pointer-events:none;z-index:0}
+.logo{position:absolute;top:30px;right:40px;height:52px;z-index:4;opacity:.95}
+.slide-no{position:absolute;bottom:20px;left:70px;font-size:11px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:#aab3bd;z-index:6}
+.slide-no .lv{color:#ff4d4f}
+.slide.dark .slide-no{color:#6d7a84}
+
+.row{position:relative;z-index:2;flex:1;display:flex;gap:56px;align-items:center;min-height:0}
+.col-copy{flex:1 1 44%;min-width:0}
+.col-visual{flex:1 1 56%;min-width:0;height:100%;display:flex;align-items:center;justify-content:center;gap:30px}
+
+h1.title{font-family:Inter,sans-serif;font-size:55px;line-height:1.1;font-weight:700;margin:0 0 24px}
+p.lede{font-family:Poppins,sans-serif;font-size:29px;line-height:1.42;color:#2b3340;margin:0 0 26px;max-width:24em}
+p.lede b{font-weight:700}
+ul.bullets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:15px}
+ul.bullets li{display:flex;align-items:center;gap:15px;font-family:Poppins,sans-serif;font-size:29px;font-weight:400;line-height:1.42}
+.chev{flex:none;width:30px;height:30px;border-radius:50%;background:var(--teal);display:grid;place-items:center;
+  color:#fff;box-shadow:0 2px 8px rgba(46,196,198,.35)}
+.chev svg{width:52%;height:52%}
+.rv{opacity:0;transform:translateY(12px)}
+.slide.on .rv{animation:rise .55s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes rise{to{opacity:1;transform:none}}
+.rx{opacity:0;transform:translateX(-14px)}
+.slide.on .rx{animation:sx .5s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes sx{to{opacity:1;transform:none}}
+
+/* ---------- phones ---------- */
+.phone{position:relative;background:#0d0f12;border-radius:36px;padding:9px;flex:none;
+  box-shadow:0 26px 60px -18px rgba(13,15,18,.55),0 0 0 1px rgba(0,0,0,.06)}
+.phone .screen{position:relative;background:#fff;border-radius:28px;overflow:hidden;width:100%;height:100%;
+  display:flex;flex-direction:column}
+.notch{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:33%;height:20px;background:#0d0f12;
+  border-radius:0 0 13px 13px;z-index:8}
+.statusbar{flex:none;display:flex;justify-content:space-between;align-items:center;padding:8px 15px 3px;
+  font-size:10px;font-weight:700;color:#111}
+.live{position:absolute;z-index:9;top:12px;left:12px;display:flex;align-items:center;gap:6px;
+  background:rgba(17,17,17,.72);color:#fff;border-radius:999px;padding:4px 9px 4px 7px;font-size:9px;
+  font-weight:700;letter-spacing:.1em;backdrop-filter:blur(4px)}
+.live i{width:6px;height:6px;border-radius:50%;background:#ff4d4f;animation:blink 1.4s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* --- facebook --- */
+.ph-fb{width:330px;height:620px}
+.fb-chrome{flex:none;padding:0 13px 8px;border-bottom:1px solid #e9ebee}
+.fb-top{display:flex;align-items:center;justify-content:space-between}
+.fb-word{font-family:Poppins;font-weight:800;color:#0866FF;font-size:18px;letter-spacing:-.03em}
+.fb-ic{width:20px;height:20px;border-radius:50%;background:#eef0f3;display:inline-grid;place-items:center;margin-left:6px}
+.fb-ic svg{width:58%;height:58%}
+.fb-search{margin-top:7px;background:#eef0f3;border-radius:999px;padding:5px 12px;font-size:10px;color:#8a8d91}
+.fb-tabs{display:flex;justify-content:space-between;padding:7px 6px 0;color:#8a8d91}
+.fb-tabs svg{width:19px;height:19px}
+.fb-tabs .act{color:#0866FF}
+.post{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.post-head{display:flex;align-items:center;gap:8px;padding:10px 13px 7px}
+.avatar{flex:none;width:30px;height:30px;border-radius:50%;overflow:hidden;background:#f2f2f4;display:grid;place-items:center}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.post-who{min-width:0;flex:1}
+.post-name{font-size:12px;font-weight:700;color:#050505;line-height:1.2}
+.post-meta{font-size:10px;color:#65676b;display:flex;align-items:center;gap:4px}
+.post-more{color:#65676b;font-weight:700;letter-spacing:1px;font-size:13px}
+.post-copy{padding:0 13px 8px;font-size:11.5px;line-height:1.38;color:#050505}
+.post-copy .more{color:#65676b}
+.media{position:relative;flex:1 1 auto;min-height:46%;background:#000}
+.media video{width:100%;height:100%;object-fit:cover;display:block}
+.fly-wrap{position:absolute;right:10px;bottom:8px;width:64px;height:78%;pointer-events:none;z-index:6}
+.fly{position:absolute;bottom:0;width:26px;height:26px;color:#F3425F;opacity:0;will-change:transform,opacity}
+.fly svg{width:100%;height:100%;display:block;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
+@keyframes floatup{
+  0%{opacity:0;transform:translate(0,0) scale(.45)}
+  14%{opacity:1;transform:translate(var(--dx1),-18px) scale(1.12)}
+  34%{transform:translate(var(--dx2),-52px) scale(1)}
+  100%{opacity:0;transform:translate(var(--dx3),-165px) scale(.85)}
+}
+/* Reduced motion: keep the reaction, drop the travel. */
+@keyframes fadeheart{0%{opacity:0}25%{opacity:.95}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.fly{animation-name:fadeheart!important}}
+.cta-bar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:7px;background:#f0f2f5;padding:9px 11px}
+/* must stay on one line inside the phone */
+.cta-bar .hl{display:block;font-size:12.5px;font-weight:800;color:#050505;line-height:1.25;white-space:nowrap}
+.cta-bar .sb{display:block;font-size:10.5px;color:#65676b;margin-top:1px}
+.cta-btn{flex:none;background:#e4e6eb;border-radius:6px;font-weight:700;color:#050505;padding:6px 10px;font-size:10px;white-space:nowrap}
+.stats{flex:none;display:flex;align-items:center;justify-content:space-between;padding:8px 13px 6px;
+  font-size:12px;color:#65676b;border-bottom:1px solid #e9ebee}
+.reacts{display:flex;align-items:center;gap:0}
+.rbubble{width:19px;height:19px;border-radius:50%;display:grid;place-items:center;border:2px solid #fff;flex:none}
+.rbubble svg{width:11px;height:11px;color:#fff}
+.rbubble.like{background:linear-gradient(180deg,#3b8cff,#0866FF);z-index:2}
+.rbubble.love{background:linear-gradient(180deg,#ff5f7a,#F3425F);margin-left:-6px;z-index:1}
+.rcount{margin-left:7px;color:#65676b}
+.actions{flex:none;display:flex;justify-content:space-around;padding:7px 0 10px;font-size:11.5px;font-weight:600;color:#65676b}
+.actions span{display:flex;align-items:center;gap:5px}
+.actions svg{width:14px;height:14px}
+.bump{display:inline-block;animation:bump .45s ease-out}
+@keyframes bump{0%{transform:translateY(0)}40%{transform:translateY(-3px)}100%{transform:translateY(0)}}
+
+/* --- instagram reel --- */
+.ph-ig{width:282px;height:560px;margin-top:40px}
+.ig-screen{background:#000}
+.ig-reel{position:relative;flex:1;min-height:0;overflow:hidden}
+.ig-reel video{width:100%;height:100%;object-fit:cover;display:block}
+.ig-shade{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(0,0,0,.55) 0,rgba(0,0,0,0) 20%,rgba(0,0,0,0) 46%,rgba(0,0,0,.78) 100%)}
+.ig-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;
+  padding:30px 13px 0;color:#fff;z-index:3}
+.ig-top .ttl{font-family:Poppins;font-weight:700;font-size:15px}
+.ig-top svg{width:18px;height:18px}
+.ig-side{position:absolute;right:9px;bottom:88px;z-index:3;display:flex;flex-direction:column;align-items:center;gap:15px;color:#fff}
+.ig-side .it{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;font-weight:600;
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
+.ig-side svg{width:22px;height:22px}
+.ig-disc{width:24px;height:24px;border-radius:6px;overflow:hidden;border:1.5px solid #fff;animation:spin 6s linear infinite}
+.ig-disc img{width:100%;height:100%;object-fit:cover}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ig-bot{position:absolute;left:0;right:52px;bottom:0;z-index:3;color:#fff;padding:0 13px 11px;
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.55))}
+.ig-user{display:flex;align-items:center;gap:7px;margin-bottom:5px}
+.ig-ring{width:26px;height:26px;border-radius:50%;padding:1.5px;
+  background:conic-gradient(from 20deg,#f9ce34,#ee2a7b,#6228d7,#f9ce34);flex:none}
+.ig-ring i{display:block;width:100%;height:100%;border-radius:50%;overflow:hidden;border:1.5px solid #000;background:#fff}
+.ig-ring img{width:100%;height:100%;object-fit:cover;display:block}
+.ig-user .n{font-size:12px;font-weight:700}
+.ig-follow{border:1px solid rgba(255,255,255,.9);border-radius:6px;padding:2px 9px;font-size:10px;font-weight:600}
+.ig-cap{font-size:11.5px;line-height:1.35}
+.ig-spon{font-size:9.5px;opacity:.92;margin-top:3px;font-weight:600}
+.ig-audio{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:9.5px;font-weight:500;overflow:hidden;white-space:nowrap}
+.ig-audio svg{width:11px;height:11px;flex:none}
+.ig-audio span{display:inline-block;animation:marq 11s linear infinite}
+@keyframes marq{0%{transform:translateX(0)}100%{transform:translateX(-52%)}}
+.ig-cta{margin-top:8px;background:rgba(255,255,255,.95);color:#111;border-radius:9px;padding:9px;text-align:center;
+  font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px}
+.ig-cta svg{width:12px;height:12px}
+.ig-heart{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:#fff;opacity:0;z-index:4}
+.ig-heart svg{width:32%;height:32%;filter:drop-shadow(0 4px 14px rgba(0,0,0,.45))}
+.ig-heart.pop{animation:hp 1.1s ease-out}
+@keyframes hp{0%{opacity:0;transform:scale(.4)}22%{opacity:1;transform:scale(1.12)}40%{transform:scale(1)}100%{opacity:0;transform:scale(1)}}
+.ig-prog{position:absolute;left:0;bottom:0;height:2px;background:#fff;z-index:5;width:0;opacity:.9}
+/* keep the badge clear of the "Reels" title row */
+.ph-ig .live{top:58px}
+
+/* ---------- slide 9: the real funnel survey ---------- */
+.ph-survey{width:392px;height:790px}
+.ph-survey .notch{display:none}
+.fnl{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;font-family:Inter,sans-serif}
+.fnl-bar{flex:none;background:var(--teal);color:#fff;text-align:center;font-size:12.5px;font-weight:500;padding:7px}
+.fnl-tel{flex:none;text-align:center;font-size:15px;font-weight:700;color:#111;padding:6px;border-bottom:1px solid #eef0f2}
+.fnl-brand{flex:none;text-align:center;padding:8px 0 4px}
+.fnl-brand img{width:58px;height:58px;border-radius:50%;object-fit:cover;display:inline-block}
+.fnl-trust{font-size:12px;color:#6b747f;margin-top:3px}
+.fnl-stars{color:#f5a623;font-size:13.5px;letter-spacing:1.5px}
+.fnl-cong{flex:none;text-align:center;font-size:15px;color:#111;line-height:1.35;padding:4px 22px 0}
+.fnl-h{flex:none;text-align:center;font-family:Poppins;font-weight:700;font-size:23px;line-height:1.2;padding:6px 20px 0}
+.fnl-sec{flex:none;text-align:center;font-size:13.5px;color:#6b747f;padding:2px 0 7px}
+/* hugs its content, like the real page — not stretched to the phone height */
+.fnl-card{flex:0 0 auto;margin:0 16px 16px;background:#fff;border-radius:12px;
+  box-shadow:0 3px 18px rgba(20,25,35,.14);padding:18px 16px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+/* One question at a time, like the real funnel — so it can breathe. */
+.fq .fl{font-size:17.5px;font-weight:600;color:#2b3340;margin-bottom:11px;line-height:1.3}
+.fq .fl i{color:#e05252;font-style:normal}
+.fopts{display:flex;flex-direction:column;gap:8px}
+.fopt{display:flex;align-items:center;gap:10px;border:1px solid #e7eaee;background:#fbfcfd;border-radius:9px;
+  padding:13px 15px;font-size:16px;color:#3a434f;cursor:pointer;font-family:inherit;text-align:left;transition:.12s;line-height:1.2}
+.fopt:hover{border-color:var(--teal)}
+.fopt i{flex:none;width:16px;height:16px;border-radius:50%;border:1.5px solid #c3cad2;background:#fff;display:block}
+.fopt.on{border-color:var(--teal);background:var(--teal-soft);color:#12706f;font-weight:600}
+.fopt.on i{border-color:var(--teal);background:var(--teal);box-shadow:inset 0 0 0 3px #fff}
+.finput{border:1px solid #e7eaee;background:#fbfcfd;border-radius:9px;padding:14px 15px;font:inherit;font-size:16px;width:100%;color:#111}
+.finput:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 2px rgba(46,196,198,.16)}
+.fnext{margin-top:auto;background:#111;color:#fff;border:0;border-radius:9px;cursor:pointer;padding:14px;
+  font:inherit;font-family:Poppins;font-weight:700;font-size:17px;letter-spacing:.02em}
+.fprog{flex:none;display:flex;align-items:center;gap:9px;padding:0 16px 8px;font-size:12.5px;color:#8b949e;font-weight:600}
+.fprog .track{flex:1;height:4px;background:#e9edf1;border-radius:999px;overflow:hidden}
+.fprog .track i{display:block;height:100%;background:var(--teal);border-radius:999px;transition:width .3s ease}
+.fback{background:none;border:0;color:#8b949e;font:inherit;font-size:12px;cursor:pointer;padding:0;text-align:left}
+.fdone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;gap:11px}
+.fdone .big{font-size:46px;line-height:1}
+.fdone h4{font-family:Poppins;font-weight:700;font-size:17px;margin:0}
+.fdone p{margin:0;font-size:11px;color:var(--muted);line-height:1.45}
+.frecap{width:100%;text-align:left;background:#f7fafb;border:1px solid #e4edee;border-radius:10px;padding:11px;
+  font-size:10.5px;line-height:1.6;color:#33404b}
+.frecap b{color:#111}
+.fsand{display:inline-flex;align-items:center;gap:6px;background:#fff6e0;border:1px solid #ffe2a8;color:#8a6100;
+  border-radius:999px;padding:5px 12px;font-size:10px;font-weight:700}
+.sandbox-pill{display:inline-flex;align-items:center;gap:8px;background:#fff6e0;border:1px solid #ffe2a8;color:#8a6100;
+  border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;margin-top:20px}
+.sandbox-pill svg{width:15px;height:15px;flex:none}
+
+/* ---------- slide 10: iMessage ---------- */
+.ph-sms{width:352px;height:700px}
+.ios-head{flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;
+  background:rgba(247,247,248,.95);border-bottom:.5px solid #d6d6da;position:relative;font-family:var(--ios)}
+.ios-back{position:absolute;left:12px;top:50%;transform:translateY(-30%);color:#0a84ff;display:flex;align-items:center;gap:2px;font-size:12px}
+.ios-back svg{width:13px;height:13px}
+.ios-badge{background:#ff3b30;color:#fff;border-radius:999px;padding:0 6px;font-size:10px;font-weight:700}
+.ios-av{width:42px;height:42px;border-radius:50%;background:#fff;border:1px solid #e3e6ea;display:grid;
+  place-items:center;overflow:hidden}
+/* contain, not cover — the logo is wide and was being cropped to a blur */
+.ios-av img{width:76%;height:76%;object-fit:contain}
+.ios-name{font-size:12px;font-weight:500;color:#111;display:flex;align-items:center;gap:3px}
+.ios-name svg{width:9px;height:9px;color:#9a9aa0}
+.ios-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:7px;
+  padding:12px 12px;background:#fff;font-family:var(--ios)}
+.ios-stamp{text-align:center;font-size:10.5px;color:#8e8e93;margin:4px 0;font-weight:400}
+.ios-stamp b{font-weight:600;color:#8e8e93}
+.ios-row{display:flex;flex-direction:column;align-items:flex-start;opacity:0;transform:translateY(12px) scale(.97)}
+.ios-row.in{animation:bin .42s cubic-bezier(.2,.8,.3,1) forwards}
+@keyframes bin{to{opacity:1;transform:none}}
+.ios-bub{position:relative;max-width:86%;background:#e9e9eb;color:#000;border-radius:19px;padding:10px 15px;
+  font-size:16px;line-height:1.34;white-space:pre-line;font-family:var(--ios);letter-spacing:-.01em}
+.ios-bub::before{content:"";position:absolute;left:-5px;bottom:0;width:15px;height:17px;background:#e9e9eb;
+  border-bottom-right-radius:17px;z-index:-1}
+.ios-bub::after{content:"";position:absolute;left:-10px;bottom:0;width:11px;height:17px;background:#fff;border-bottom-right-radius:13px}
+.ios-bub .hd{font-weight:600}
+.ios-read{font-size:10px;color:#8e8e93;margin:2px 0 0 6px}
+.typing{display:flex;gap:4px;align-items:center;background:#e9e9eb;border-radius:18px;padding:11px 15px;width:fit-content}
+.typing i{width:7px;height:7px;border-radius:50%;background:#a3a3a8;animation:td 1.3s infinite}
+.typing i:nth-child(2){animation-delay:.18s}
+.typing i:nth-child(3){animation-delay:.36s}
+@keyframes td{0%,60%,100%{opacity:.35;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+.ios-foot{flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:.5px solid #d6d6da;
+  background:rgba(247,247,248,.95);color:#a8a8ae;font-size:13px;font-family:var(--ios)}
+.ios-foot .plus{width:22px;height:22px;border-radius:50%;background:#e4e4e8;display:grid;place-items:center;color:#7b7b80;flex:none}
+.ios-foot .inp{flex:1;background:#fff;border:.5px solid #d6d6da;border-radius:999px;padding:6px 12px}
+
+/* ---------- slide 11: CRM ---------- */
+.crm{width:100%;height:100%;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);
+  border-radius:14px;overflow:hidden;box-shadow:0 20px 46px -22px rgba(20,25,35,.35)}
+.crm-top{flex:none;display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:12px;color:#5b6470}
+.crm-top .pill{background:var(--teal-soft);color:var(--teal-dark);font-weight:700;border-radius:999px;padding:3px 11px}
+.crm-cols{flex:1;min-height:0;display:flex;gap:9px;padding:10px;background:#f7f9fb}
+.crm-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;border-radius:9px;padding:4px;transition:.15s}
+.crm-col.over{background:var(--teal-soft);outline:2px dashed var(--teal)}
+.crm-h{font-size:18px;font-weight:700;color:#1b2228;display:flex;justify-content:space-between;align-items:center;
+  gap:6px;padding:3px 3px 7px;border-bottom:2px solid var(--teal)}
+.crm-h em{font-style:normal;color:#98a1ab;font-weight:600;font-size:14px}
+.crm-card{background:#fff;border:1px solid #e8ecf1;border-radius:9px;padding:9px 10px;box-shadow:0 1px 2px rgba(20,25,35,.05);cursor:grab}
+.crm-card.drag{opacity:.4}
+.crm-card b{display:block;color:#111;font-weight:600;font-size:13px;line-height:1.3}
+.crm-acts{display:flex;gap:4px;margin-top:7px}
+.crm-acts button{flex:1;border:1px solid #e3e8ee;background:#fff;border-radius:6px;padding:3px 0;cursor:pointer;
+  display:grid;place-items:center;color:#5b6470;transition:.12s}
+.crm-acts button:hover{background:var(--teal);border-color:var(--teal);color:#fff}
+.crm-acts svg{width:11px;height:11px}
+.toast{position:absolute;left:50%;bottom:26px;transform:translate(-50%,14px);background:#111;color:#fff;
+  border-radius:999px;padding:9px 20px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;
+  transition:.28s;z-index:20;box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.hintline{position:absolute;right:70px;top:104px;font-size:12px;color:#98a1ab;z-index:5}
+
+/* ---------- slide 12: the assistant ---------- */
+.aitag{display:inline-block;border:2px solid var(--teal);border-radius:14px;padding:16px 26px;
+  font-weight:600;font-size:23px;line-height:1.3;margin-bottom:24px}
+.robot{display:block;width:520px;margin:0 auto;height:auto;animation:float 4.5s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-11px)}}
+.panel{background:var(--teal);color:#fff;border-radius:20px;padding:40px 36px;
+  box-shadow:0 22px 50px -24px rgba(46,196,198,.85)}
+.panel .num{display:flex;align-items:center;gap:22px;margin-bottom:30px}
+.panel .num:last-child{margin-bottom:0}
+.panel .num b{flex:none;width:64px;height:64px;border-radius:50%;background:#fff;color:var(--ink);
+  display:grid;place-items:center;font-family:Poppins,sans-serif;font-weight:700;font-size:23px}
+.panel .num span{font-weight:600;font-size:25px;line-height:1.32}
+
+/* ---------- slide 16: educate-your-clients FAQ ---------- */
+.faqbar{background:var(--teal);color:#fff;text-align:center;font-family:Poppins,sans-serif;font-weight:700;
+  font-size:19px;border-radius:9px;padding:9px;margin-bottom:14px}
+.faqgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+.faqc{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;
+  box-shadow:0 8px 22px -18px rgba(20,25,35,.6)}
+.faqc .qh{display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;
+  font-family:Poppins,sans-serif;font-weight:600;font-size:16px;line-height:1.28;color:#1b2228}
+.faqc .qh .cr{margin-left:auto;flex:none;color:var(--teal);transition:transform .22s}
+.faqc.open .qh .cr{transform:rotate(180deg)}
+.faqc .qh svg{width:15px;height:15px}
+.faqc .ans{max-height:0;overflow:hidden;transition:max-height .28s ease;
+  font-family:Poppins,sans-serif;font-size:14.5px;line-height:1.5;color:#4a5560;padding:0 14px}
+.faqc.open .ans{max-height:210px;padding-bottom:12px}
+.faqvid{position:relative;background:#000;height:196px;cursor:pointer}
+.faqvid video{width:100%;height:100%;object-fit:cover;display:block}
+.faqvid .pl{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .2s}
+.faqvid.playing .pl{opacity:0;pointer-events:none}
+.faqvid .pl i{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.94);display:grid;
+  place-items:center;box-shadow:0 4px 16px rgba(0,0,0,.45)}
+.faqvid .pl svg{width:40%;height:40%;color:#111;margin-left:3px}
+
+/* ---------- slide 13: area exclusivity ---------- */
+.mapwrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.mapimg{position:relative;width:min(100%,1120px)}
+.mapimg img{width:100%;display:block}
+.pin{position:absolute;width:26px;height:34px;transform:translate(-50%,-100%);color:var(--teal);
+  opacity:0;filter:drop-shadow(0 2px 3px rgba(20,25,35,.28))}
+.pin svg{width:100%;height:100%;display:block}
+.slide.on .pin{animation:pindrop .42s cubic-bezier(.2,1.5,.4,1) forwards}
+@keyframes pindrop{from{opacity:0;transform:translate(-50%,-135%) scale(.6)}to{opacity:1;transform:translate(-50%,-100%) scale(1)}}
+.statcard{position:absolute;left:0;bottom:12%;background:#fff;border:1px solid var(--line);border-radius:14px;
+  padding:20px 26px;box-shadow:0 18px 40px -20px rgba(20,25,35,.4);text-align:center}
+.statcard .k{font-family:Poppins,sans-serif;font-weight:700;color:var(--teal-dark);font-size:26px}
+.statcard .v{font-family:Poppins,sans-serif;font-size:19px;font-weight:600;color:#2b3340;margin-top:7px}
+
+/* ---------- slide 14: setting expectations ---------- */
+.expect{display:flex;gap:44px;align-items:center;width:100%}
+.expect .txt{flex:1}
+.expect .lead{font-family:Poppins,sans-serif;font-weight:700;font-size:29px;line-height:1.4;margin:0 0 22px}
+.expect ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:15px}
+.expect li{font-family:Poppins,sans-serif;font-size:24px;line-height:1.4;color:#2b3340}
+.expect .pic{flex:none;width:400px;border-radius:16px;overflow:hidden;box-shadow:0 18px 40px -22px rgba(20,25,35,.55)}
+.expect .pic img{width:100%;display:block}
+
+/* ---------- slide 20: plans ---------- */
+.plans{display:flex;gap:22px;width:100%;align-items:stretch}
+.plan{flex:1;background:#fff;border:1px solid var(--line);border-radius:18px;padding:24px 22px;position:relative;
+  display:flex;flex-direction:column;gap:9px;box-shadow:0 16px 38px -24px rgba(20,25,35,.5)}
+.plan.pop{border-color:var(--teal);box-shadow:0 20px 44px -20px rgba(46,196,198,.65);transform:translateY(-8px)}
+.plan .badge{position:absolute;top:-13px;right:16px;background:var(--teal);color:#fff;border-radius:999px;
+  padding:5px 14px;font-family:Poppins,sans-serif;font-size:12px;font-weight:700;letter-spacing:.05em}
+.plan h3{margin:0;text-align:center;font-family:Poppins,sans-serif;font-size:22px;font-weight:700;letter-spacing:.01em}
+.plan .kind{text-align:center;font-family:Poppins,sans-serif;font-size:16px;color:var(--muted)}
+.plan .price{text-align:center;font-family:Poppins,sans-serif;font-weight:800;font-size:40px;margin:4px 0}
+.plan .price em{font-style:normal;font-size:.44em;font-weight:600;color:var(--muted)}
+.plan .save{background:var(--teal-soft);color:var(--teal-dark);border-radius:10px;text-align:center;
+  font-family:Poppins,sans-serif;font-weight:700;padding:9px;font-size:18px;line-height:1.3}
+.plan ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.plan li{display:flex;gap:9px;align-items:flex-start;font-family:Poppins,sans-serif;font-size:16px;color:#3a434f;line-height:1.35}
+.plan li svg{width:16px;flex:none;color:var(--teal);margin-top:2px}
+.plan .guar{margin-top:auto;padding-top:12px;font-family:Poppins,sans-serif;font-size:15px;color:var(--teal-dark);
+  font-weight:700;text-align:center;line-height:1.35}
+.specialbar{margin-top:20px;background:var(--teal);color:#fff;border-radius:13px;text-align:center;padding:15px;
+  font-family:Poppins,sans-serif;font-size:20px;font-weight:600}
+.specialbar b{font-weight:800}
+
+/* ---------- slide 17: FB group ---------- */
+.fbg{width:100%;max-width:640px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  box-shadow:0 18px 44px -24px rgba(20,25,35,.5)}
+.fbg .cover{height:210px;position:relative;background:#eef1f4;overflow:hidden}
+.fbg .cover img{width:100%;height:100%;object-fit:cover;display:block}
+.fbg .cover .mark{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-family:Poppins;
+  font-weight:800;font-size:26px;letter-spacing:-.02em;text-shadow:0 2px 12px rgba(0,0,0,.25)}
+.fbg .bd{padding:18px 22px 20px}
+.fbg h4{margin:0 0 5px;font-family:Poppins;font-size:23px}
+.fbg .meta{font-size:15px;color:var(--muted);display:flex;align-items:center;gap:7px}
+.fbg .meta svg{width:15px;height:15px}
+.fbg .mem{display:flex;align-items:center;margin-top:12px}
+.fbg .mem i{width:44px;height:44px;border-radius:50%;border:2px solid #fff;margin-left:-11px;
+  background-size:cover;background-position:center;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.fbg .mem i:first-child{margin-left:0}
+.fbg .mem span{margin-left:12px;font-size:14px;color:var(--muted);font-weight:600}
+.fbg .btns{display:flex;gap:9px;margin-top:14px}
+.fbg .btns b{flex:1;text-align:center;background:#1877F2;color:#fff;border-radius:7px;padding:10px;font-size:15px;font-weight:600}
+.fbg .btns u{flex:none;text-decoration:none;background:#e4e6eb;color:#050505;border-radius:7px;padding:10px 22px;font-size:15px;font-weight:600}
+
+/* ---------- slide 19: ROI calculator ---------- */
+.calcwrap{width:100%;display:flex;justify-content:center}
+.calcdev{width:1060px;background:linear-gradient(180deg,#1e262c,#151b20);border-radius:22px;padding:22px 26px;
+  box-shadow:0 26px 58px -24px rgba(0,0,0,.75),inset 0 1px 0 rgba(255,255,255,.08);
+  display:flex;flex-direction:column;gap:12px}
+/* each step stays hidden until the one above it is answered */
+.cstep{background:#232c33;border-radius:14px;padding:15px 20px;display:flex;align-items:center;gap:20px}
+.cstep.locked{display:none}
+.cstep.reveal{animation:stepin .4s cubic-bezier(.2,.7,.3,1) both}
+@keyframes stepin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+.cstep .no{flex:none;width:38px;height:38px;border-radius:50%;background:var(--teal);color:#0f1519;
+  display:grid;place-items:center;font-family:Poppins,sans-serif;font-weight:800;font-size:18px}
+.cstep .lbl{flex:1;font-family:Poppins,sans-serif;font-size:22px;font-weight:700;color:#e7edf1}
+.stepper{flex:none;display:flex;align-items:center;gap:12px}
+.stepper button{width:42px;height:42px;border-radius:11px;border:1px solid #3a464f;background:#2c363e;color:#e7edf1;
+  font-size:24px;line-height:1;cursor:pointer;display:grid;place-items:center;font-family:inherit;transition:.13s}
+.stepper button:hover:not(:disabled){background:var(--teal);border-color:var(--teal);color:#0f1519}
+.stepper button:disabled{opacity:.3;cursor:not-allowed}
+.stepper .amt{min-width:132px;text-align:center;font-family:"SF Mono",ui-monospace,Menlo,monospace;
+  font-weight:700;font-size:30px;color:#4fe0d6;font-variant-numeric:tabular-nums}
+.stepper .amt em{font-style:normal;font-size:17px;color:#9fb0bb;font-family:Poppins,sans-serif;font-weight:600}
+.permo{font-family:Poppins,sans-serif;font-size:16px;font-weight:600;color:#8496a2;margin-left:-4px;min-width:88px}
+.slide-ctl{flex:none;display:flex;align-items:center;gap:16px}
+.slide-ctl input[type=range]{width:300px;accent-color:var(--teal);height:26px;margin:0}
+.slide-ctl .amt{min-width:86px;text-align:right;font-family:"SF Mono",ui-monospace,Menlo,monospace;
+  font-weight:700;font-size:30px;color:#4fe0d6;font-variant-numeric:tabular-nums}
+.cnext{flex:none;background:var(--teal);color:#0f1519;border:0;border-radius:11px;padding:11px 22px;cursor:pointer;
+  font-family:Poppins,sans-serif;font-weight:700;font-size:17px;transition:.13s}
+.cnext:hover{filter:brightness(1.08)}
+.cout{display:flex;align-items:center;gap:16px;padding:1px 8px}
+.cout.locked{display:none}
+.cout.reveal{animation:stepin .4s cubic-bezier(.2,.7,.3,1) both}
+.cout .arrow{color:#4a5760;flex:none}
+.cout .arrow svg{width:22px;height:22px;display:block}
+.cout .cell{display:flex;align-items:baseline;gap:10px}
+.cout .cell .k{font-size:16px;color:#9fb0bb;font-weight:600}
+.cout .cell .v{font-family:Poppins,sans-serif;font-weight:800;font-size:30px;color:#fff;line-height:1}
+.cout .plus,.cout .eq{color:#6b7a85;font-size:22px;font-weight:700}
+.cout .note{margin-left:auto;font-size:14px;color:#8496a2}
+.cout .cell.total .v{color:#4fe0d6;font-size:34px}
+.ctotal{background:var(--teal);color:#fff;border-radius:14px;padding:17px 24px;display:flex;align-items:center;
+  justify-content:space-between;box-shadow:0 16px 34px -18px rgba(46,196,198,.8)}
+.ctotal.locked{display:none}
+.ctotal.reveal{animation:stepin .45s cubic-bezier(.2,.7,.3,1) both}
+.ctotal .k{font-size:15px;font-weight:700;opacity:.92;text-transform:uppercase;letter-spacing:.07em}
+.ctotal .v{font-family:Poppins,sans-serif;font-weight:800;font-size:54px;line-height:1.05}
+.ctotal .r{text-align:right;font-size:15px;font-weight:600;opacity:.95;line-height:1.35}
+.ctotal .r b{display:block;font-size:44px;line-height:1.08;font-family:Poppins,sans-serif}
+.creset.locked{display:none}
+.creset{align-self:center;background:none;border:0;color:#7d8c97;font:inherit;font-size:14px;cursor:pointer;padding:2px}
+.creset:hover{color:#b9c6cf}
+
+/* ---------- nav / grid ---------- */
+#nav{position:fixed;bottom:14px;right:16px;z-index:80;display:flex;align-items:center;gap:7px;
+  background:rgba(255,255,255,.93);border:1px solid var(--line);border-radius:999px;padding:5px 7px;
+  box-shadow:0 6px 22px -8px rgba(0,0,0,.5);backdrop-filter:blur(6px)}
+#nav button{width:30px;height:30px;border-radius:50%;border:0;background:#f1f4f7;color:#3a434f;font-size:15px;
+  cursor:pointer;display:grid;place-items:center;transition:.15s}
+#nav button:hover{background:var(--teal);color:#fff}
+#nav .pos{font-size:12px;font-weight:700;color:#6b747f;padding:0 5px;font-variant-numeric:tabular-nums;cursor:pointer;user-select:none}
+.hint{position:fixed;bottom:19px;left:50%;transform:translateX(-50%);z-index:80;font-size:11px;color:#6b747f;pointer-events:none}
+#bar{position:fixed;top:0;left:0;height:3px;background:var(--teal);z-index:90;transition:width .3s ease}
+#grid{position:fixed;inset:0;z-index:95;background:rgba(255,255,255,.97);backdrop-filter:blur(8px);display:none;padding:30px;overflow:auto}
+#grid.on{display:block}
+#grid h3{margin:0 0 15px;font-size:14px;color:#6b747f;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+.gg{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.gcard{border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;background:#fff;transition:.15s}
+.gcard:hover{border-color:var(--teal);box-shadow:0 8px 20px -12px rgba(46,196,198,.7);transform:translateY(-2px)}
+.gcard.cur{border-color:var(--teal);box-shadow:0 0 0 2px var(--teal)}
+.gcard img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#eef1f4}
+.gcard .cap{padding:7px 9px;font-size:11.5px;font-weight:600;display:flex;justify-content:space-between;gap:6px}
+.gcard .cap em{font-style:normal;color:#aab3bd;font-weight:700}
+.gcard .cap .lv{color:#ff4d4f;font-weight:700;font-size:10px}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="fit"><div id="stage"></div></div>
+<div id="grid"><h3>All slides — click to jump</h3><div class="gg" id="gg"></div></div>
+<div id="nav"><button id="prev" title="Previous (←)">&#8249;</button>
+  <span class="pos" id="pos" title="All slides (O)">1 / 22</span>
+  <button id="next" title="Next (→)">&#8250;</button></div>
+<div class="hint">← → move · O all slides · F fullscreen</div>
+
+<script>
+(function(){
+"use strict";
+
+var BRUSH='<svg class="brush" viewBox="0 0 420 260" fill="none"><path d="M-20 150C40 60 170 0 340 18c26 3 28 56 2 54C190 58 96 104 34 176c-20 24-68 10-54-26Z" fill="#2EC4C6"/><path d="M-16 92C46 26 150-14 268-8c18 1 20 28 2 28C168 16 78 50 20 108 6 122-26 106-16 92Z" fill="#2EC4C6" opacity=".5"/></svg>';
+var LOGO='<img class="logo" src="assets/brand-logo.png" alt="">';
+var THUMB='<span class="rbubble like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 21H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h4zm2-11 3.2-6.4A2 2 0 0 1 18 4.5L16.8 10H20a2 2 0 0 1 2 2.4l-1.3 6.2A2 2 0 0 1 18.7 21H11z"/></svg></span>';
+var HEART='<span class="rbubble love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg></span>';
+var CK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l6 6L20 5"/></svg>';
+var PINSVG='<svg viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20c0-6.6-5.4-12-12-12Zm0 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z"/></svg>';
+var PINS=[[13,30],[15,38],[12,47],[17,52],[14,60],[19,44],[21,35],[20,63],[24,55],[23,68],[27,44],[26,58],[30,37],[29,50],[31,63],[34,47],[33,58],[36,68],[38,40],[37,54],[40,62],[42,35],[41,49],[44,58],[43,66],[46,44],[47,55],[49,63],[51,38],[50,52],[53,60],[55,46],[54,57],[57,66],[59,42],[58,54],[61,61],[63,36],[62,50],[65,58],[64,68],[67,44],[68,55],[70,62],[72,39],[71,52],[74,59],[76,45],[75,56],[78,64],[80,41],[79,53],[82,60],[84,47],[83,57],[86,51],[88,44],[87,56],[90,49]];
+var ARROW='<span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></span>';
+var CHEV='<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>';
+function bullets(a){return '<ul class="bullets">'+a.map(function(t,k){return '<li class="rx" style="animation-delay:'+(0.12+k*0.085)+'s">'+CHEV+t+'</li>';}).join("")+'</ul>';}
+function head(no,live){return BRUSH+LOGO+'<div class="slide-no">Slide '+no+(live?' · <span class="lv">● LIVE</span>':'')+'</div>';}
+function pad(n){return (n<10?"0":"")+n;}
+
+/* Every slide keeps its exact original render; the live ones replace it. */
+var SLIDES=[];
+function orig(n,t){SLIDES.push({n:n,t:t,img:true});}
+function live(n,t,html){SLIDES.push({n:n,t:t,html:'<div class="inner">'+html+'</div>'});}
+
+orig(1,"Title");
+orig(2,"Today…");
+orig(3,"Meet the average PMU artist");
+orig(4,"No reliable system");
+orig(5,"Common problem");
+orig(6,"Easy Bookings On Demand");
+orig(7,"Customized solution");
+
+/* ---- 8: ads ---- */
+live(8,"Premium FB &amp; IG Ad System",
+head(8,true)+
+'<div class="row"><div class="col-copy">'+
+  '<h1 class="title">Premium Facebook &amp;<br>Instagram Ad System</h1>'+
+  '<p class="lede">The <b>proven method</b> we use to deliver <b>high-quality bookings</b> every month:</p>'+
+  bullets(["Special Offer Ads","Client Education Ads","High-Quality Clients","Industry Lead Qualification","Daily Monitoring and Optimization","Local Expert Ads","Tailored To You And Your Business"])+
+'</div><div class="col-visual">'+
+  '<div class="phone ph-fb"><div class="notch"></div><div class="screen">'+
+    '<div class="statusbar"><span>10:34</span><span>&#9679;&#9679;&#9679;&#9679; &#9679;</span></div>'+
+    '<div class="fb-chrome"><div class="fb-top"><span class="fb-word">facebook</span><span>'+
+      '<span class="fb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#050505" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>'+
+      '<span class="fb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#050505" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>'+
+      '<span class="fb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#050505" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>'+
+    '</span></div><div class="fb-search">What\'s on your mind?</div>'+
+    '<div class="fb-tabs">'+
+      '<span class="act"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 12h3v9h6v-6h2v6h6v-9h3z"/></svg></span>'+
+      '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/></svg></span>'+
+      '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></span>'+
+      '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></span>'+
+    '</div></div>'+
+    '<div class="post"><div class="post-head">'+
+      '<span class="avatar"><img src="assets/blossom-logo.png" alt=""></span>'+
+      '<span class="post-who"><span class="post-name">Blossom Beauty</span>'+
+      '<span class="post-meta">Sponsored · <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="#65676b" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/></svg></span></span>'+
+      '<span class="post-more">···</span></div>'+
+      '<div class="post-copy">Hello Gainesville Ladies! 👋<br>Tired of filling in your eyebrows every single day? 😩<br>We have JUST the solution for you 💕 <span class="more">See More</span></div>'+
+      '<div class="media"><span class="live"><i></i>LIVE AD</span><video src="assets/ad-facebook.mp4" autoplay muted loop playsinline preload="auto"></video><span class="fly-wrap" id="fb-fly"></span></div>'+
+      '<div class="cta-bar"><span class="hl">🎉 $150 OFF This Month Only</span><span class="cta-btn">Book Now</span></div>'+
+      '<div class="stats"><span class="reacts">'+THUMB+HEART+'<span class="rcount" id="fb-likes">5.8K</span></span>'+
+        '<span><span id="fb-comments">461</span> comments · 1K shares</span></div>'+
+      '<div class="actions">'+
+        '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zM7 10l4-7a2.5 2.5 0 0 1 2.5 3L13 10h5.5a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 17 21H7"/></svg>Like</span>'+
+        '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5Z"/></svg>Comment</span>'+
+        '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Send</span>'+
+        '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M12 3v13M7 8l5-5 5 5"/></svg>Share</span>'+
+      '</div></div></div></div>'+
+  '<div class="phone ph-ig"><div class="notch"></div><div class="screen ig-screen"><div class="ig-reel">'+
+    '<video src="assets/ad-instagram.mp4" autoplay muted loop playsinline preload="auto"></video><div class="ig-shade"></div>'+
+    '<span class="live"><i></i>LIVE AD</span>'+
+    '<div class="ig-top"><span class="ttl">Reels</span><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="3.6"/><circle cx="17.2" cy="6.8" r="1.1" fill="#fff"/></svg></div>'+
+    '<div class="ig-side">'+
+      '<span class="it"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M20.8 6.6a5 5 0 0 0-8.8-2 5 5 0 0 0-8.8 2c-1 3.4 1.6 6.6 8.8 12 7.2-5.4 9.8-8.6 8.8-12Z"/></svg><em style="font-style:normal" id="ig-likes">1,431</em></span>'+
+      '<span class="it"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5Z"/></svg><em style="font-style:normal">208</em></span>'+
+      '<span class="it"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg><em style="font-style:normal">94</em></span>'+
+      '<span class="it"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></span>'+
+      '<span class="ig-disc"><img src="assets/blossom-logo.png" alt=""></span>'+
+    '</div>'+
+    '<div class="ig-bot">'+
+      '<div class="ig-user"><span class="ig-ring"><i><img src="assets/blossom-logo.png" alt=""></i></span>'+
+        '<span class="n">blossombeautyva</span><span class="ig-follow">Follow</span></div>'+
+      '<div class="ig-cap">Wake up with perfect brows — every single day ✨</div>'+
+      '<div class="ig-spon">Sponsored</div>'+
+      '<div class="ig-audio"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2.5"/><circle cx="17" cy="16" r="2.5"/></svg>'+
+        '<span>blossombeautyva · Original audio · blossombeautyva · Original audio · </span></div>'+
+      '<div class="ig-cta">🎉 Claim $150 OFF <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></div>'+
+    '</div>'+
+    '<span class="ig-heart" id="ig-heart"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg></span>'+
+    '<span class="ig-prog" id="ig-prog"></span>'+
+  '</div></div></div>'+
+'</div></div>');
+
+/* ---- 9: real funnel survey ---- */
+live(9,"Lead Qualification Process",
+head(9,true)+
+'<div class="row"><div class="col-copy">'+
+  '<h1 class="title">Lead Qualification<br>Process</h1>'+
+  '<p class="lede">Simplify the booking process to ensure we generate only <b>high-quality &amp; qualified PMU clients</b>.</p>'+
+  bullets(["Every answer lands in your CRM","Not commutable? Auto-disqualified","Serious 0–2? Never reaches you","Only real buyers hit your phone"])+
+'</div><div class="col-visual"><div class="phone ph-survey"><div class="screen"><div class="fnl" id="fnl"></div></div></div></div></div>');
+
+/* ---- 10: iMessage ---- */
+live(10,"Notification Process",
+head(10,true)+
+'<div class="row"><div class="col-copy">'+
+  '<h1 class="title">Notification<br>Process</h1>'+
+  '<p class="lede">Every qualified lead lands on your phone the second they finish — <b>name, treatment, age, how serious they are</b>. No dashboard to check.</p>'+
+'</div><div class="col-visual"><div class="phone ph-sms"><div class="notch"></div><div class="screen">'+
+  '<div class="statusbar"><span>9:41</span><span>&#9679;&#9679;&#9679;&#9679; 5G</span></div>'+
+  '<div class="ios-head"><span class="ios-back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg><span class="ios-badge">3</span></span>'+
+    '<span class="ios-av"><img src="assets/brand-logo.png" alt=""></span>'+
+    '<span class="ios-name">PMU Bookings <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></span></div>'+
+  '<div class="ios-body" id="sms-body"></div>'+
+  '<div class="ios-foot"><span class="plus">+</span><span class="inp">Text Message · SMS</span><span>&#9835;</span></div>'+
+'</div></div></div></div>');
+
+/* ---- 11: CRM ---- */
+live(11,"Introducing the CRM",
+head(11,true)+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:14px">Introducing the CRM</h1>'+
+'<div style="position:relative;z-index:2;flex:1;min-height:0"><div class="crm">'+
+  '<div class="crm-top"><b style="font-family:Poppins;color:#111">Opportunities</b>'+
+    '<span class="pill" id="crm-count">1,260 opportunities</span><span style="margin-left:auto">Booking pipeline</span></div>'+
+  '<div class="crm-cols" id="crm-cols"></div></div></div>'+
+'<div class="toast" id="crm-toast"></div>');
+
+/* ---- 12: AI ---- */
+live(12,"Smart AI PMU Assistant",
+head(12)+
+'<div class="row"><div class="col-copy">'+
+  '<h1 class="title">Smart AI PMU<br>Assistant</h1>'+
+  '<div class="aitag rv" style="animation-delay:.12s">A Smart Robot That Behaves Like A Real Human Being</div>'+
+  '<img class="robot rv" src="assets/robot.png" alt="" style="animation-delay:.24s">'+
+'</div><div class="col-visual"><div class="panel" style="width:100%">'+
+  '<div class="num rv" style="animation-delay:.2s"><b>01</b><span>24/7 Response Bot</span></div>'+
+  '<div class="num rv" style="animation-delay:.34s"><b>02</b><span>Replies in 2 minutes &amp; increases booking rates</span></div>'+
+  '<div class="num rv" style="animation-delay:.48s"><b>03</b><span>Will warm them up for you</span></div>'+
+'</div></div></div>');
+
+live(13,"Area Exclusivity",
+head(13)+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2">Area Exclusivity</h1>'+
+'<div class="mapwrap"><div class="mapimg"><img src="assets/us-map.png" alt="">'+
+  PINS.map(function(p,k){return '<span class="pin" style="left:'+p[0]+'%;top:'+p[1]+'%;animation-delay:'+(0.15+k*0.028)+'s">'+PINSVG+'</span>';}).join('')+
+  '<div class="statcard rv" style="animation-delay:.2s"><div class="k">Over 300 PMU Artists</div>'+
+  '<div class="v">100k Population For Each Artist</div><div class="v">10&ndash;50 Miles Away</div></div>'+
+'</div></div>');
+live(14,"Setting Expectations",
+head(14)+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2">Setting Expectations</h1>'+
+'<div class="row"><div class="expect">'+
+  '<div class="txt">'+
+    '<p class="lead rv" style="animation-delay:.14s">Generating opportunities &mdash; 100% on us.<br>'+
+      'Turning those opportunities into bookings &mdash; on both of us.</p>'+
+    '<ul>'+
+      '<li class="rx" style="animation-delay:.26s">The system is great, but it cannot replace hard work &mdash; it requires an investment of time and energy.</li>'+
+      '<li class="rx" style="animation-delay:.36s">We won&rsquo;t be able to book all of them &mdash; it&rsquo;s a numbers game.</li>'+
+      '<li class="rx" style="animation-delay:.46s">Being a PMU artist is HARD, COMPETITIVE and not suitable for everyone.</li>'+
+    '</ul>'+
+  '</div>'+
+  '<div class="pic rv" style="animation-delay:.3s"><img src="assets/hands.jpg" alt=""></div>'+
+'</div></div>');
+orig(15,"Bonus #1 — Diamond Booking Training");
+live(16,"Bonus #2 — Educate Your Clients",
+head(16,true)+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:6px"><span style="font-weight:400">Bonus #2:</span> Educate Your Clients</h1>'+
+'<p class="lede rv" style="animation-delay:.14s;position:relative;z-index:2;margin-bottom:12px;max-width:none">Pre-educate clients about PMU before they ever speak to you \u2014 tap a question to read the answer, tap the video to play it.</p>'+
+'<div style="position:relative;z-index:2;flex:1;min-height:0;display:flex;flex-direction:column">'+
+'<div class="faqbar">FAQs \ud83d\udc47</div><div class="faqgrid" id="faqgrid"></div></div>');
+
+/* ---- 17: facebook group ---- */
+live(17,"Bonus #3 — PMU Success Society",
+head(17)+
+'<div class="row"><div class="col-copy">'+
+  '<h1 class="title"><span style="font-weight:500">Bonus #3:</span><br>PMU Success Society</h1>'+
+  '<p class="lede">Our private growth community — real artists, real numbers, no gurus.</p>'+
+  bullets(["Access our private Facebook group for PMU artists","Grow faster with connection and support","Tips, strategies and support from other successful artists"])+
+'</div><div class="col-visual"><div class="fbg rv" style="animation-delay:.18s">'+
+  '<div class="cover"><img src="assets/fbgroup-cover.jpg" alt=""></div>'+
+  '<div class="bd"><h4>PMU Bookings On Demand [Private Group]</h4>'+
+    '<div class="meta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>'+
+      'Private group · <b>333 members</b> · Created Sept 2019</div>'+
+    '<div class="mem">'+[1,2,3,4,5,6].map(function(n){return '<i style="background-image:url(assets/member'+n+'.jpg)"></i>';}).join('')+'<span>+327 permanent makeup artists</span></div>'+
+    '<div class="btns"><b>+ Join group</b><u>Share</u></div></div>'+
+'</div></div></div>');
+
+/* ---- 18: guarantee ---- */
+orig(18,"Guarantee Bookings");
+
+/* ---- 19: ROI calculator ---- */
+live(19,"Projected ROI (calculator)",
+head(19,true)+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:14px">Projected ROI</h1>'+
+'<div class="row"><div class="calcwrap"><div class="calcdev">'+
+  '<div class="cstep" id="st-spend"><span class="no">1</span><span class="lbl">Ad spend</span>'+
+    '<span class="stepper"><button data-step="spend" data-d="-1">&minus;</button>'+
+      '<span class="amt" id="v-spend">$10<em>/day</em></span><span class="permo" id="v-spend-mo">$300/mo</span>'+
+      '<button data-step="spend" data-d="1">+</button></span>'+
+    '<button class="cnext" data-go="1">Next &rarr;</button></div>'+
+  '<div class="cout locked" id="out-leads">'+ARROW+
+    '<span class="cell"><span class="k">Leads</span><span class="v" id="k-leads">50</span></span>'+
+    '<span class="note">cost per lead averages about $6</span></div>'+
+  '<div class="cstep locked" id="st-rate"><span class="no">2</span><span class="lbl">Booking rate</span>'+
+    '<span class="slide-ctl"><input type="range" id="r-rate" min="10" max="100" step="5" value="20">'+
+      '<span class="amt" id="v-rate">20%</span></span>'+
+    '<button class="cnext" data-go="2">Next &rarr;</button></div>'+
+  '<div class="cout locked" id="out-book">'+ARROW+
+    '<span class="cell"><span class="k">Bookings</span><span class="v" id="k-book">10</span></span>'+
+    '<span class="plus">+</span><span class="cell"><span class="k">Referrals 15%</span><span class="v" id="k-ref">2</span></span>'+
+    '<span class="eq">=</span><span class="cell total"><span class="k">Total bookings</span><span class="v" id="k-total">12</span></span></div>'+
+  '<div class="cstep locked" id="st-svc"><span class="no">3</span><span class="lbl">Service cost</span>'+
+    '<span class="stepper"><button data-step="svc" data-d="-1">&minus;</button>'+
+      '<span class="amt" id="v-svc">$500</span>'+
+      '<button data-step="svc" data-d="1">+</button></span></div>'+
+  '<div class="cstep locked" id="st-tu"><span class="no">4</span><span class="lbl">Touch-up cost</span>'+
+    '<span class="stepper"><button data-step="tu" data-d="-1">&minus;</button>'+
+      '<span class="amt" id="v-tu">$150</span>'+
+      '<button data-step="tu" data-d="1">+</button></span>'+
+    '<button class="cnext" data-go="3">Show revenue &rarr;</button></div>'+
+  '<div class="ctotal locked" id="out-total"><span><span class="k">Total revenue</span><br>'+
+    '<span class="v" id="k-rev">$6,900</span></span>'+
+    '<span class="r" id="k-ret">on $300 ad spend<br><b>23.0\u00d7 return</b></span></div>'+
+  '<button class="creset locked" id="c-reset">Start over</button>'+
+'</div></div></div>');
+
+live(20,"Investment options",
+head(20)+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:10px">Which investment option sounds best for you?</h1>'+
+'<div style="position:relative;z-index:2;flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center">'+
+'<div class="plans">'+
+  '<div class="plan rv" style="animation-delay:.16s"><h3>MONTHLY FLEX</h3><div class="kind">Payment Plan</div>'+
+    '<div class="price">$897<em>/month &times; 3</em></div><div class="save">Pay As You Go</div>'+
+    '<ul><li>'+CK+'Pay today $897 (total $2,691)</li><li>'+CK+'All bonuses included</li>'+
+    '<li>'+CK+'Setup fee WAIVED today</li></ul>'+
+    '<div class="guar">30 bookings GUARANTEED when you complete 3 months</div></div>'+
+  '<div class="plan pop rv" style="animation-delay:.26s"><span class="badge">MOST POPULAR</span>'+
+    '<h3>FAST TRACK</h3><div class="kind">Pay Upfront</div>'+
+    '<div class="price">$697<em>/month &times; 3</em></div><div class="save">Save $600</div>'+
+    '<ul><li>'+CK+'Pay today $2,091 ($697 &times; 3)</li><li>'+CK+'All bonuses included</li>'+
+    '<li>'+CK+'Setup fee WAIVED today</li></ul>'+
+    '<div class="guar">30 bookings GUARANTEED in 3 months</div></div>'+
+  '<div class="plan rv" style="animation-delay:.36s"><h3>ULTIMATE GROWTH</h3><div class="kind">Pay Upfront</div>'+
+    '<div class="price">$497<em>/month &times; 7</em></div><div class="save">Save $600<br>+ 2 Extra Months Free</div>'+
+    '<ul><li>'+CK+'Pay today $3,485 ($497 &times; 7)</li><li>'+CK+'All bonuses included</li>'+
+    '<li>'+CK+'Setup fee WAIVED today</li></ul>'+
+    '<div class="guar">75 bookings GUARANTEED in 7 months</div></div>'+
+'</div>'+
+'<div class="specialbar rv" style="animation-delay:.46s"><b>Special Offer:</b> options include waived setup fee &mdash; $300 value, available ONLY if you decide today</div>'+
+'</div>');
+
+/* ============ render ============ */
+var stage=document.getElementById("stage");
+stage.innerHTML=SLIDES.map(function(s,k){
+  return '<section class="slide" data-i="'+k+'">'+
+    (s.img ? '<img class="full" src="assets/slides/s-'+pad(s.n)+'.jpg" alt="">' : s.html)+'</section>';
+}).join("");
+var nodes=[].slice.call(stage.children);
+
+document.getElementById("gg").innerHTML=SLIDES.map(function(s,k){
+  return '<div class="gcard" data-i="'+k+'"><img src="assets/thumbs/t-'+pad(s.n)+'.jpg" alt="" loading="lazy">'+
+    '<div class="cap"><span>'+s.t+'</span>'+(s.html?'<span class="lv">LIVE</span>':'<em>'+s.n+'</em>')+'</div></div>';
+}).join("");
+
+/* scale the 1600x900 stage to whatever screen it is shown on */
+function fit(){
+  var s=Math.min(window.innerWidth/1600, window.innerHeight/900);
+  stage.style.transform="translate(-50%,-50%) scale("+s+")";
+}
+window.addEventListener("resize",fit); fit();
+
+var pos=document.getElementById("pos"),bar=document.getElementById("bar"),grid=document.getElementById("grid"),i=0;
+function show(n){
+  i=Math.max(0,Math.min(nodes.length-1,n));
+  nodes.forEach(function(s,k){s.classList.toggle("on",k===i);});
+  pos.textContent=(i+1)+" / "+nodes.length;
+  bar.style.width=((i+1)/nodes.length*100)+"%";
+  [].forEach.call(grid.querySelectorAll(".gcard"),function(c,k){c.classList.toggle("cur",k===i);});
+  restagger(nodes[i]);
+  nodes[i].querySelectorAll("video[autoplay]").forEach(function(v){v.play().catch(function(){});});
+  var num=SLIDES[i].n;
+  if(num===10) runSms();
+  if(num!==16) stopFaqs();
+  if(num===11) runCrm();
+  if(num===19) resetCalc();
+}
+function restagger(sl){
+  sl.querySelectorAll(".rv,.rx").forEach(function(el){
+    var d=el.style.animationDelay; el.style.animation="none"; void el.offsetWidth; el.style.animation=""; el.style.animationDelay=d;
+  });
+}
+document.getElementById("prev").onclick=function(){show(i-1);};
+document.getElementById("next").onclick=function(){show(i+1);};
+pos.onclick=function(){grid.classList.toggle("on");};
+/* Click anywhere on the slide to advance — but never swallow a click meant
+   for the live demos (phone survey, CRM board, calculator sliders, nav). */
+document.getElementById("fit").addEventListener("click",function(e){
+  if(e.target.closest("button,input,select,textarea,a,.phone,.crm,.calcdev,.faqgrid,#nav,#grid")) return;
+  if(SLIDES[i].n===19) return;   // calculator slide: arrow key or the nav button only
+  show(i+1);
+});
+grid.onclick=function(e){var c=e.target.closest(".gcard"); if(c){grid.classList.remove("on");show(+c.dataset.i);} else if(e.target===grid) grid.classList.remove("on");};
+window.addEventListener("keydown",function(e){
+  var t=e.target; if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.isContentEditable)) return;
+  var k=e.key;
+  if(k==="ArrowRight"||k==="Right"||k==="PageDown"||k===" "){show(i+1);e.preventDefault();}
+  else if(k==="ArrowLeft"||k==="Left"||k==="PageUp") show(i-1);
+  else if(k==="o"||k==="O") grid.classList.toggle("on");
+  else if(k==="Escape") grid.classList.remove("on");
+  else if(k==="f"||k==="F"){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+});
+
+/* ---- slide 8 life ---- */
+function tick(el,step,fmt){
+  if(!el)return; var n=parseFloat(el.dataset.n||"0");
+  setInterval(function(){n+=step;el.dataset.n=n;el.textContent=fmt(n);
+    el.classList.remove("bump");void el.offsetWidth;el.classList.add("bump");},3200+Math.floor(Math.random()*2600));
+}
+var fbL=document.getElementById("fb-likes");fbL.dataset.n="5834";tick(fbL,3,function(n){return (n/1000).toFixed(1)+"K";});
+var fbC=document.getElementById("fb-comments");fbC.dataset.n="461";tick(fbC,1,function(n){return String(Math.round(n));});
+var igL=document.getElementById("ig-likes");igL.dataset.n="1431";tick(igL,2,function(n){return Math.round(n).toLocaleString();});
+/* A red heart drifts up over the Facebook ad every couple of seconds, so the
+   post looks like it is collecting reactions while the creative plays. */
+var HEARTSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg>';
+var flyWrap=document.getElementById("fb-fly");
+function flyHeart(){
+  if(!flyWrap || !flyWrap.closest(".slide").classList.contains("on")) return;
+  var h=document.createElement("span");
+  h.className="fly";
+  var dur=2.4+Math.random()*1.2, drift=(Math.random()*34-17);
+  h.style.setProperty("--dx1",(drift*0.25)+"px");
+  h.style.setProperty("--dx2",(drift*0.7)+"px");
+  h.style.setProperty("--dx3",drift+"px");
+  h.style.right=(Math.random()*22)+"px";
+  h.style.width=h.style.height=(20+Math.random()*10)+"px";
+  h.style.animation="floatup "+dur+"s ease-out forwards";
+  h.innerHTML=HEARTSVG;
+  flyWrap.appendChild(h);
+  setTimeout(function(){h.remove();},dur*1000+80);
+}
+setInterval(flyHeart,1500);
+setInterval(function(){ if(Math.random()<0.45) flyHeart(); },700);
+
+var heart=document.getElementById("ig-heart");
+setInterval(function(){heart.classList.remove("pop");void heart.offsetWidth;heart.classList.add("pop");},7400);
+var igVid=document.querySelector(".ig-reel video"),igProg=document.getElementById("ig-prog");
+if(igVid) igVid.addEventListener("timeupdate",function(){if(igVid.duration) igProg.style.width=(igVid.currentTime/igVid.duration*100)+"%";});
+
+/* ---- slide 9: the funnel survey, rebuilt to match the live page ---- */
+var ADDR="Gainesville, Virginia",TEL="(703) 963-0321";
+var QS=[
+  {k:"area",q:"Which Area(s) Would You Like Treated?",o:["Lips","Eyebrows"],c:"c2"},
+  {k:"had_pmu",q:"Have You Ever Had Permanent Makeup Before?",o:["Yes","No"],c:"c2"},
+  {k:"age",q:"What Age Group Are You In?",o:["18-24","24-30","30-36","36-42","42-54","54-65","65+"],c:"c4"},
+  {k:"commute",q:"Our Address is "+ADDR+". Is This commutable for you?",o:["Yes","No"],c:"c2"},
+  {k:"serious",q:"On A Scale From 1-10 How Serious Are You About Getting This Treatment?",o:["0-2","3-6","7-9","10 I Want This!"],c:"c4"},
+  {k:"aftercare",q:"Would you like a FREE Aftercare Kit?",o:["Yes","No"],c:"c2"}
+];
+/* The three contact fields are questions 7-9 of the same one-at-a-time flow. */
+var FIELDS=[{k:"full_name",q:"Full Name",ph:"Full Name"},{k:"phone",q:"Phone Number",ph:"Phone Number",im:"tel"},{k:"email",q:"Email Address",ph:"Email Address",im:"email"}];
+var TOTALQ=QS.length+FIELDS.length;
+var A={},qi=0,fnl=document.getElementById("fnl");
+
+function fHeader(){
+  return '<div class="fnl-bar">📍 '+ADDR+'</div>'+
+    '<div class="fnl-tel">Call Us Today: '+TEL+'</div>'+
+    '<div class="fnl-brand"><img src="assets/blossom-logo.png" alt="">'+
+      '<div class="fnl-trust">Trusted by 5,600+ Happy Clients</div><div class="fnl-stars">★★★★★</div></div>'+
+    '<div class="fnl-cong">Congrats on claiming $150 OFF for NEW clients<br>All Permanent Makeup Packages!</div>'+
+    '<div class="fnl-h">Fill Out Our Quiz To<br>See If You Qualify</div>'+
+    '<div class="fnl-sec">(30 Seconds)</div>';
+}
+function fRender(){
+  if(qi>=TOTALQ) return fDone();
+  var body,isOpt=qi<QS.length;
+  if(isOpt){
+    var Q=QS[qi];
+    body='<div class="fq"><div class="fl">'+Q.q+' <i>*</i></div><div class="fopts">'+
+      Q.o.map(function(o){return '<button class="fopt'+(A[Q.k]===o?" on":"")+'" data-v="'+o+'"><i></i>'+o+'</button>';}).join("")+
+      '</div></div>';
+  }else{
+    var F=FIELDS[qi-QS.length];
+    body='<div class="fq"><div class="fl">'+F.q+' <i>*</i></div>'+
+      '<input class="finput" id="f-in" placeholder="'+F.ph+'"'+(F.im?' inputmode="'+F.im+'"':'')+' value="'+(A[F.k]||"")+'"></div>'+
+      '<button class="fnext" id="f-next">'+(qi===TOTALQ-1?"SEE IF I QUALIFY →":"NEXT →")+'</button>';
+  }
+  fnl.innerHTML=fHeader()+
+    '<div class="fprog"><span>'+(qi+1)+' of '+TOTALQ+'</span><span class="track"><i style="width:'+((qi)/TOTALQ*100)+'%"></i></span></div>'+
+    '<div class="fnl-card">'+body+(qi>0?'<button class="fback" id="f-back">← Back</button>':'')+'</div>';
+
+  fnl.querySelectorAll(".fopt").forEach(function(b){
+    b.onclick=function(){
+      A[QS[qi].k]=b.dataset.v;
+      b.classList.add("on");
+      setTimeout(function(){qi++;fRender();},280);   // let the selection register visually
+    };
+  });
+  var inp=fnl.querySelector("#f-in");
+  if(inp){
+    inp.oninput=function(){A[FIELDS[qi-QS.length].k]=inp.value;};
+    inp.onkeydown=function(e){if(e.key==="Enter"){qi++;fRender();}};
+    document.getElementById("f-next").onclick=function(){qi++;fRender();};
+  }
+  var bk=document.getElementById("f-back");
+  if(bk) bk.onclick=function(){qi--;fRender();};
+}
+/* Mirrors the real funnel's two disqualify rules — decided here, in the page. */
+function fDone(){
+  var dq=A.commute==="No"||A.serious==="0-2", nm=(A.full_name||"").trim()||"Your lead";
+  fnl.innerHTML='<div class="fdone"><div class="big">'+(dq?"🚫":"✅")+'</div>'+
+    '<h4>'+(dq?"Disqualified — never reaches you":"Qualified — sent to your phone")+'</h4>'+
+    '<p>'+(dq?"Not commutable, or a 0–2 on seriousness. They are still stored, but never get the survey tag — so none of your workflows fire."
+             :"In the real funnel this is where they pick a real time on your calendar and put down a $50 deposit.")+'</p>'+
+    '<div class="frecap"><b>'+nm+'</b><br>Area: <b>'+(A.area||"—")+'</b><br>Had PMU: <b>'+(A.had_pmu||"—")+'</b><br>'+
+      'Age: <b>'+(A.age||"—")+'</b><br>Commutable: <b>'+(A.commute||"—")+'</b><br>Seriousness: <b>'+(A.serious||"—")+'</b><br>'+
+      'Aftercare kit: <b>'+(A.aftercare||"—")+'</b><br>Phone: <b>'+(A.phone||"—")+'</b></div>'+
+    '<button class="fnext" style="width:100%;margin-top:4px" id="f-again">Start over</button></div>';
+  document.getElementById("f-again").onclick=function(){A={};qi=0;fRender();};
+}
+fRender();
+
+/* ---- slide 10 ---- */
+var LEADS=[
+  {name:"Karen Stanley",area:"Eyebrows",had:"No",age:"54-65",serious:"7-9",tel:"(703) 555-0142"},
+  {name:"Lynet Parker",area:"Eyebrows",had:"No",age:"42-54",serious:"10 — I want this!",tel:"(571) 555-0198"},
+  {name:"Latha Shashi",area:"Lips",had:"No",age:"42-54",serious:"10 — I want this!",tel:"(703) 555-0177"},
+  {name:"Denise Ruiz",area:"Eyeliner",had:"Yes",age:"36-42",serious:"8-9",tel:"(540) 555-0163"}
+];
+var smsBody=document.getElementById("sms-body"),smsT=[];
+function runSms(){
+  smsT.forEach(clearTimeout);smsT=[];
+  smsBody.innerHTML='<div class="ios-stamp"><b>Today</b> 9:41 AM</div>';
+  LEADS.forEach(function(L,k){
+    var base=700+k*6800;   // ~7s apart, so each alert can be talked through
+    smsT.push(setTimeout(function(){
+      var t=document.createElement("div");t.className="ios-row in";t.id="typing";
+      t.innerHTML='<div class="typing"><i></i><i></i><i></i></div>';smsBody.appendChild(t);trim();
+    },base));
+    smsT.push(setTimeout(function(){
+      var t=document.getElementById("typing");if(t)t.remove();
+      var d=document.createElement("div");d.className="ios-row in";
+      /* One field per line, and no phone number — the real alert does not carry it. */
+      d.innerHTML='<div class="ios-bub"><span class="hd">🔥 New lead — contact ASAP</span>\n'+
+        L.name+'\n'+L.area+'\nHad PMU: '+L.had+'\nAge: '+L.age+'\nSerious: '+L.serious+'</div>'+
+        (k===LEADS.length-1?'<div class="ios-read">Delivered</div>':'');
+      smsBody.appendChild(d);trim();
+    },base+1250));
+  });
+}
+function trim(){while(smsBody.scrollHeight>smsBody.clientHeight&&smsBody.children.length>1) smsBody.removeChild(smsBody.children[0]);}
+
+/* ---- slide 11: draggable pipeline ---- */
+var COLS=[
+  {h:"🔥 New Leads",n:6,names:["Anna Leyva","Blanca Robles","Leticia Leon","Rosa Guerra","Marisol Vega"]},
+  {h:"📞 Call Later",n:132,names:["Caroline Reyes","Claire Downey","Veronica Davis","Priya Nair","Amy Whitfield"]},
+  {h:"💰 Deposit Paid",n:18,names:["Anabella Fonseca","Candy Lopez","Suleima Ortiz","Nia Robertson","Kim Tran"]},
+  {h:"🤔 Deciding",n:347,names:["Belen De Los Santos","Mimi Carter","Jessica Duarte","Hannah Boyd","Tara Nguyen"]},
+  {h:"✅ Session Done",n:3,names:["Lisa Cortel","Nichole Ochoa","Olivia Vasquez","Grace Adeyemi","Renee Park"]},
+  {h:"⭐ 5-Star Review",n:12,names:["Daya Soriano","Jocelyn Bovian","Esmeralda Prieto","Farah Aziz","Iris Chen"]}
+];
+var IC={
+  call:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg>',
+  text:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5Z"/></svg>',
+  book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>'
+};
+var crmT=[],toast=document.getElementById("crm-toast"),toastT;
+function say(msg){toast.textContent=msg;toast.classList.add("on");clearTimeout(toastT);toastT=setTimeout(function(){toast.classList.remove("on");},1900);}
+function card(name){
+  return '<div class="crm-card" draggable="true"><b>'+name+'</b>'+
+    '<div class="crm-acts"><button data-a="Calling" title="Call">'+IC.call+'</button>'+
+    '<button data-a="Texting" title="Text">'+IC.text+'</button>'+
+    '<button data-a="Booking" title="Book">'+IC.book+'</button></div></div>';
+}
+function runCrm(){
+  crmT.forEach(clearTimeout);crmT=[];
+  var wrap=document.getElementById("crm-cols");
+  wrap.innerHTML=COLS.map(function(c){
+    return '<div class="crm-col"><div class="crm-h"><span>'+c.h+'</span><em>'+c.n+'</em></div>'+c.names.map(card).join("")+'</div>';
+  }).join("");
+  var cards=wrap.querySelectorAll(".crm-card");
+  cards.forEach(function(c,k){c.style.opacity="0";crmT.push(setTimeout(function(){c.style.transition="opacity .35s";c.style.opacity="1";},80+k*40));});
+
+  var dragged=null;
+  wrap.querySelectorAll(".crm-card").forEach(function(c){
+    c.addEventListener("dragstart",function(){dragged=c;c.classList.add("drag");});
+    c.addEventListener("dragend",function(){c.classList.remove("drag");dragged=null;
+      wrap.querySelectorAll(".crm-col").forEach(function(x){x.classList.remove("over");});});
+  });
+  wrap.querySelectorAll(".crm-col").forEach(function(col){
+    col.addEventListener("dragover",function(e){e.preventDefault();col.classList.add("over");});
+    col.addEventListener("dragleave",function(){col.classList.remove("over");});
+    col.addEventListener("drop",function(e){
+      e.preventDefault();col.classList.remove("over");
+      if(!dragged)return;
+      col.appendChild(dragged);
+      say("Moved " + dragged.querySelector("b").textContent + " → " + col.querySelector(".crm-h span").textContent);
+    });
+  });
+  wrap.onclick=function(e){
+    var b=e.target.closest("button[data-a]");if(!b)return;
+    say(b.dataset.a+" "+b.closest(".crm-card").querySelector("b").textContent+"…");
+  };
+}
+
+/* ---- slide 12: AI conversation ---- */
+var FAQS=[{"q": "What is permanent makeup❓", "a": "Permanent makeup is a beauty treatment that gently enhances your natural features — like your brows, eyeliner, or lips — so you can wake up looking polished every day without the hassle of applying makeup."}, {"q": "Is permanent makeup the same as tattooing❓", "a": "No. Permanent makeup is a much softer and more natural technique. Unlike traditional tattoos, the colors are designed to fade gradually over time, keeping the look fresh and allowing adjustments as your style changes."}, {"q": "Is it painless, or does it cause discomfort❓", "a": "Clients are pleasantly surprised at how comfortable the process is. A numbing cream is used to make the treatment as easy and relaxing as possible. Many say it feels more like light scratching than anything else."}, {"q": "How long does the procedure take to complete❓", "a": "The session usually takes 1.5–3 hours, which includes consultation, shaping, color selection, and the procedure itself. It's an unhurried, detailed process to make sure you leave with results you'll love."}, {"q": "Is permanent makeup a safe procedure❓", "a": "Yes. When done by a trained professional, permanent makeup is a safe and hygienic procedure. Certified artists use high-quality products and follow strict safety standards, so you can feel completely at ease."}, {"q": "Is any care required after the procedure❓", "a": "Yes, but it's simple! We'll guide you step by step. Typically, you'll just need to keep the area clean, avoid touching it too much, and let it heal naturally. Following these easy instructions helps ensure your results stay beautiful and long-lasting."}];
+document.getElementById("faqgrid").innerHTML=FAQS.map(function(f,k){
+  return '<div class="faqc" data-k="'+k+'">'+
+    '<div class="qh">'+f.q+'<span class="cr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></span></div>'+
+    '<div class="ans">'+f.a+'</div>'+
+    '<div class="faqvid"><video src="assets/faq'+(k+1)+'.mp4" poster="assets/faqp'+(k+1)+'.jpg" preload="none" playsinline></video>'+
+    '<span class="pl"><i><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg></i></span></div></div>';
+}).join("");
+document.getElementById("faqgrid").addEventListener("click",function(e){
+  var vw=e.target.closest(".faqvid");
+  if(vw){
+    var v=vw.querySelector("video");
+    /* only one answer video at a time — these have sound */
+    document.querySelectorAll("#faqgrid video").forEach(function(o){
+      if(o!==v){o.pause();o.closest(".faqvid").classList.remove("playing");}
+    });
+    if(v.paused){v.play();vw.classList.add("playing");}
+    else{v.pause();vw.classList.remove("playing");}
+    return;
+  }
+  var h=e.target.closest(".qh");
+  if(h) h.parentElement.classList.toggle("open");
+});
+/* leaving the slide stops whatever was talking */
+function stopFaqs(){document.querySelectorAll("#faqgrid video").forEach(function(v){
+  v.pause();v.closest(".faqvid").classList.remove("playing");});}
+
+/* ---- slide 19: their real calculator ---- */
+var CPL=6;
+/* Each control is a stepper with its own increment and range. */
+var FIELDS19={
+  spend:{v:300,min:300,max:5000,step:150,fmt:function(n){return money(n);}},
+  rate: {v:20, min:10, max:100, step:5,  fmt:function(n){return n+"%";}},
+  svc:  {v:500,min:100,max:2000,step:50, fmt:function(n){return money(n);}},
+  tu:   {v:150,min:0,  max:800, step:25, fmt:function(n){return money(n);}}
+};
+var STAGE19=0;   // 0 = only ad spend; 1 = + booking rate; 2 = + costs; 3 = + revenue
+function money(n){return "$"+Math.round(n).toLocaleString();}
+
+function calc(){
+  var F=FIELDS19,
+      leads=Math.round(F.spend.v/CPL),
+      books=Math.round(leads*F.rate.v/100),
+      refs=Math.round(books*0.15),
+      total=books+refs,
+      rev=total*F.svc.v+Math.round(total*0.5)*F.tu.v;
+  document.getElementById("v-spend").innerHTML=money(Math.round(F.spend.v/30))+'<em>/day</em>';
+  document.getElementById("v-spend-mo").textContent=money(F.spend.v)+"/mo";
+  document.getElementById("v-rate").textContent=F.rate.v+"%";
+  document.getElementById("v-svc").textContent=money(F.svc.v);
+  document.getElementById("v-tu").textContent=money(F.tu.v);
+  document.getElementById("k-leads").textContent=leads.toLocaleString();
+  document.getElementById("k-book").textContent=books.toLocaleString();
+  document.getElementById("k-ref").textContent=refs.toLocaleString();
+  document.getElementById("k-total").textContent=total.toLocaleString();
+  document.getElementById("k-rev").textContent=money(rev);
+  document.getElementById("k-ret").innerHTML="on "+money(F.spend.v)+" ad spend<br><b>"+(rev/F.spend.v).toFixed(1)+"\u00d7 return</b>";
+  // keep the +/- buttons honest at the ends of each range
+  document.querySelectorAll(".stepper button").forEach(function(btn){
+    var f=F[btn.dataset.step]; if(!f) return;
+    btn.disabled = (+btn.dataset.d)<0 ? f.v<=f.min : f.v>=f.max;
+  });
+}
+
+/* Nothing below the current stage is on screen — one decision at a time. */
+function stage19(n){
+  STAGE19=n;
+  var show={ "out-leads":1,"st-rate":1,"out-book":2,"st-svc":2,"st-tu":2,"out-total":3,"c-reset":3 };
+  for(var id in show){
+    var el=document.getElementById(id), on=n>=show[id];
+    el.classList.toggle("locked",!on);
+    if(on){el.classList.remove("reveal");void el.offsetWidth;el.classList.add("reveal");}
+  }
+}
+function resetCalc(){
+  FIELDS19.spend.v=300; FIELDS19.rate.v=20; FIELDS19.svc.v=500; FIELDS19.tu.v=150;
+  document.getElementById("r-rate").value=20;
+  stage19(0); calc();
+}
+document.getElementById("r-rate").addEventListener("input",function(){
+  FIELDS19.rate.v=+this.value; calc();
+});
+document.querySelector(".calcdev").addEventListener("click",function(e){
+  var st=e.target.closest(".stepper button");
+  if(st){ var f=FIELDS19[st.dataset.step];
+    f.v=Math.max(f.min,Math.min(f.max,f.v+(+st.dataset.d)*f.step)); calc(); return; }
+  var go=e.target.closest("[data-go]");
+  if(go){ stage19(Math.max(STAGE19,+go.dataset.go)); return; }
+  if(e.target.id==="c-reset") resetCalc();
+});
+resetCalc();
+
+show(0); window.focus();
+})();
+</script>
+</body>
+</html>
