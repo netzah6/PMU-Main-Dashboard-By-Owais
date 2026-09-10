@@ -300,6 +300,7 @@ export default function FunnelsPage() {
   const [denyReason, setDenyReason] = useState("");
   const [denySuggestion, setDenySuggestion] = useState("");
   const [showDecided, setShowDecided] = useState(false);
+  const [optimizerOpen, setOptimizerOpen] = useState(true);
   const loadInsights = useCallback(async () => {
     try {
       const r = await fetch("/api/onebox/insights");
@@ -526,23 +527,28 @@ export default function FunnelsPage() {
       ) : (
         <div className="space-y-1.5">
           <div className="border border-[#f0c987] rounded-xl bg-white p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-[#1c2b3a]">🧠 Optimizer — B2C funnels</span>
+            <button onClick={() => setOptimizerOpen(!optimizerOpen)}
+              className="w-full flex flex-wrap items-center gap-2 text-sm font-medium text-[#1c2b3a]">
+              🧠 Optimizer — B2C funnels
               {insights && insights.open.length > 0 && (
                 <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-[#fff3e6] text-[#c2410c] border border-[#fdba74]">
                   {insights.open.length} flag{insights.open.length === 1 ? "" : "s"} waiting for you
                 </span>
               )}
+              <span className="ml-auto text-[#697a91]">{optimizerOpen ? "▲" : "▼"}</span>
+            </button>
+            {optimizerOpen && (<>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <p className="text-[11px] text-[#697a91]">
+                Watches every live B2C funnel daily, optimizing for deposits. Once a client has enough data it flags the
+                problem, the evidence, and a fix — nothing changes without your approve.
+              </p>
               <div className="flex-1" />
               <button onClick={() => void scanNow()} disabled={scanBusy}
                 className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] inline-flex items-center gap-1.5 disabled:opacity-50">
                 {scanBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Scan now
               </button>
             </div>
-            <p className="text-[11px] text-[#697a91] mt-1">
-              Watches every live B2C funnel daily, optimizing for deposits. Once a client has enough data it flags the
-              problem, the evidence, and a fix — nothing changes without your approve.
-            </p>
             {insights === null ? (
               <div className="mt-2 text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /></div>
             ) : insights.open.length === 0 ? (
@@ -608,6 +614,7 @@ export default function FunnelsPage() {
                 )}
               </div>
             )}
+            </>)}
           </div>
           {funnels.some((f) => f.status === "live" && f.slug !== "demo-v3" && f.template !== "b2b") && (
             <div className="border border-[#bfe6e2] rounded-xl bg-white p-4">
