@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, RefreshCw, CreditCard } from "lucide-react";
+import { Loader2, Search, RefreshCw, CreditCard, ShieldCheck, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Sub {
@@ -141,6 +141,7 @@ export default function SubscriptionsPage() {
 
   return (
     <div className="p-3 sm:p-4 space-y-3">
+      <TokenPermissions />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Subscriptions</h1>
@@ -261,6 +262,73 @@ export default function SubscriptionsPage() {
           </table>
         </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/* What the Square token is allowed to do. Shown here because pausing or
+   resuming a subscription needs six specific permissions, and a token missing
+   one only fails at the moment someone clicks the button — on a real client's
+   billing. Admin-only server-side; the panel simply stays hidden otherwise. */
+function TokenPermissions() {
+  const [d, setD] = useState<{
+    scopes: string[]; canPauseResume: boolean; missingForSubscriptionWrites: string[];
+    requiredForSubscriptionWrites: string[]; expiresAt: string | null;
+  } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/square/token-status")
+      .then(async (r) => (r.ok ? setD(await r.json()) : setErr((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`)))
+      .catch(() => setErr("Could not reach Square"));
+  }, []);
+
+  if (err) {
+    return (
+      <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] px-3 py-2 text-[12px] text-[#b45309]">
+        Square permissions unknown: {err}
+      </div>
+    );
+  }
+  if (!d) return null;
+
+  const ok = d.canPauseResume;
+  return (
+    <div className={cn("rounded-xl border px-3 py-2", ok ? "border-[#c7edd4] bg-[#f4fbf7]" : "border-[#fcd9a8] bg-[#fffdf7]")}>
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 text-left">
+        {ok ? <ShieldCheck size={14} className="text-[#15803d] shrink-0" /> : <ShieldAlert size={14} className="text-[#b45309] shrink-0" />}
+        <span className={cn("text-[12px] font-bold", ok ? "text-[#15803d]" : "text-[#b45309]")}>
+          {ok
+            ? "This token can pause and resume subscriptions"
+            : `Cannot pause/resume — token is missing ${d.missingForSubscriptionWrites.length} permission${d.missingForSubscriptionWrites.length === 1 ? "" : "s"}`}
+        </span>
+        {!ok && (
+          <span className="text-[11px] text-[#b45309]">
+            {d.missingForSubscriptionWrites.join(", ")}
+          </span>
+        )}
+        <span className="ml-auto text-[11px] opacity-70">{open ? "hide" : "details"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1 text-[11px] text-[#34568a]">
+          <div>
+            <b>Needed for pause/resume:</b>{" "}
+            {d.requiredForSubscriptionWrites.map((s2) => (
+              <span key={s2} className={cn("inline-block mr-1 px-1.5 py-0.5 rounded border",
+                d.scopes.includes(s2)
+                  ? "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]"
+                  : "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]")}>
+                {s2}
+              </span>
+            ))}
+          </div>
+          <div className="text-[#697a91]">
+            <b>All {d.scopes.length} permissions on this token:</b> {d.scopes.join(", ") || "none reported"}
+          </div>
+          {d.expiresAt && <div className="text-[#697a91]">Token expires {new Date(d.expiresAt).toLocaleDateString()}</div>}
+        </div>
       )}
     </div>
   );
