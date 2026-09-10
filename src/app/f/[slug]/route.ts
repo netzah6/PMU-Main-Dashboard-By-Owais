@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { refreshOneboxConfig, parseFaqs, normalizeElfsight, buildFanbasisBlock, SYNC_TTL_MS } from "@/lib/onebox";
+import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
 // the hosted engine public/onebox.js owns the DOM; a hydrated page would
@@ -157,6 +158,15 @@ export async function GET(
     studioImgs: row.config.studioImgs || "",
     metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),
   };
+  /* Program-driven flow: a (V1) client's funnel is survey → thank-you
+     ONLY — no booking page, no deposit page. The program comes from the
+     same Clients Master row the dashboard's V3/V1 switcher edits, so
+     flipping it there changes this page too (within the ~1-min cache).
+     V3 (and anything unmatched) keeps the full flow. */
+  try {
+    const prog = findClientProgram(await fetchProgramRows(svc), String(row.client_name ?? ""));
+    if (prog?.version === "(V1)") cfg.flow = "v1";
+  } catch { /* the funnel must render even if the sheet mirror is down */ }
   /* Same URL the engine will render (its fastImg proxies media-library
      files) so the preload warms the right resource, never a second one. */
   const logoRaw = (cfg.logo || "").replace(/["\\]/g, "");
@@ -203,7 +213,7 @@ export async function GET(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap">
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
-<script src="/onebox.js?v=69" defer></script>
+<script src="/onebox.js?v=71" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
