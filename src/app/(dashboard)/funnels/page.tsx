@@ -640,8 +640,7 @@ export default function FunnelsPage() {
                       ["offer", "Offer (e.g. $200 OFF All Packages)"],
                       ["deposit", "Deposit amount (e.g. $50)"],
                       ["calendarId", "Calendar ID"],
-                      ["fanbasisProductId", "Fanbasis product ID"],
-                      ["thankYouPath", "Thank-you page path (optional)"],
+                      ["fanbasisProductId", "Commas product ID"],
                       ["igWidget", "Instagram widget link (elf.site)"],
                       ["googleWidget", "Google reviews widget link (elf.site)"],
                     ] as [string, string][]).map(([k, label]) => (
