@@ -48,6 +48,9 @@ type Funnel = {
   paid: number; booked: number; lastLeadAt: string | null;
   abStatus: string | null;
   template: string;
+  /* The client's program from the Clients Master sheet — the same row the
+     Clients tab edits, so both tabs always show (and change) one truth. */
+  program: { version: string; sheetRow: number; ownerName: string; matches: number; via: "exact" | "prefix" } | null;
   /* What the splitter routes by: the NEWEST running experiment — or, with
      none running, the newest paused one that still has an original-funnel
      side (so sending traffic back is a resume, not a re-setup). null =
@@ -70,6 +73,27 @@ function trafficSummary(t: Funnel["traffic"]): string {
   return active.map((v) => `${Math.round((v.weight / total) * 100)}% ${v.label}`).join(" · ");
 }
 type HealthCheck = { name: string; ok: boolean; note: string };
+
+/* Card-list grouping: V3 first (where the focus is), then V2.3, V1, the
+   demo, and anything the sheet can't match; B2B always dead last. */
+function programRank(f: Funnel): number {
+  if (f.template === "b2b") return 9;
+  if (f.slug === "demo-v3") return 6;
+  if (!f.program) return 5;
+  if (f.program.version === "(V3)") return 0;
+  if (f.program.version === "(V2.3)") return 1;
+  if (f.program.version === "(V1)") return 2;
+  return 4;
+}
+function programSection(f: Funnel): string {
+  if (f.template === "b2b") return "";
+  if (f.slug === "demo-v3") return "DEMO";
+  if (!f.program) return "NOT MATCHED TO THE CLIENTS SHEET";
+  if (f.program.version === "(V3)") return "V3 CLIENTS";
+  if (f.program.version === "(V2.3)") return "V2.3 CLIENTS";
+  if (f.program.version === "(V1)") return "V1 CLIENTS";
+  return `${f.program.version || "NO VERSION"} CLIENTS`;
+}
 
 /* One optimizer flag: the problem, the evidence, the proposed fix — and
    whatever the human decided about it. */
@@ -301,6 +325,29 @@ export default function FunnelsPage() {
   const [denySuggestion, setDenySuggestion] = useState("");
   const [showDecided, setShowDecided] = useState(false);
   const [optimizerOpen, setOptimizerOpen] = useState(true);
+
+  /* Program (V3/V2.3/V1) switcher — writes the Version column of the same
+     Clients Master row the Clients tab edits, sheet write-back included,
+     so the two tabs can never disagree. */
+  const [progFor, setProgFor] = useState<string | null>(null);
+  const [progBusy, setProgBusy] = useState<string | null>(null);
+  const saveProgram = useCallback(async (f: Funnel, newVersion: string) => {
+    if (!f.program || newVersion === f.program.version) { setProgFor(null); return; }
+    setProgBusy(f.slug);
+    try {
+      const r = await fetch("/api/sync/clients_master", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rowNumber: f.program.sheetRow, rowData: { Version: newVersion }, columns: ["Version"] }),
+      });
+      const j = await r.json();
+      if (!r.ok) { setToast(`Version save failed: ${j.error ?? r.status}`); return; }
+      setToast(j.sheetsUpdated
+        ? `${f.clientName || f.slug}: Version → ${newVersion} — Clients sheet updated ✓`
+        : `${f.clientName || f.slug}: Version → ${newVersion} (sheet write-back failed — check the Clients tab)`);
+      setProgFor(null);
+      await load();
+    } finally { setProgBusy(null); }
+  }, [load]);
   const loadInsights = useCallback(async () => {
     try {
       const r = await fetch("/api/onebox/insights");
@@ -740,15 +787,20 @@ export default function FunnelsPage() {
               own divider — the 99% of attention goes to the client funnels. */}
           {[...funnels]
             .sort((a, b) =>
-              Number(a.template === "b2b") - Number(b.template === "b2b") ||
-              Number(b.status === "live") - Number(a.status === "live"))
+              programRank(a) - programRank(b) ||
+              Number(b.status === "live") - Number(a.status === "live") ||
+              (a.clientName || a.slug).localeCompare(b.clientName || b.slug))
             .map((f, i, arr) => (
             <Fragment key={f.slug}>
-            {f.template !== "b2b" && i > 0 && arr[i - 1].status === "live" && f.status !== "live" && (
-              <div className="flex items-center gap-3 pt-3">
-                <div className="h-px flex-1 bg-[#e4ebf2]" />
-                <span className="text-[11px] font-semibold tracking-wide text-[#c2410c]">PAUSED</span>
-                <div className="h-px flex-1 bg-[#e4ebf2]" />
+            {f.template !== "b2b" && (i === 0 || programSection(arr[i - 1]) !== programSection(f)) && (
+              <div className={cn("flex items-center gap-3", i === 0 ? "pt-1" : "pt-3")}>
+                <div className={cn("h-px flex-1", programSection(f) === "V3 CLIENTS" ? "bg-[#bfe6e2]" : "bg-[#e4ebf2]")} />
+                <span className={cn("text-[11px] font-semibold tracking-wide",
+                  programSection(f) === "V3 CLIENTS" ? "text-[#0b7f7f]"
+                  : programSection(f) === "V1 CLIENTS" ? "text-[#c2410c]" : "text-[#697a91]")}>
+                  {programSection(f)} ({arr.filter((x) => programSection(x) === programSection(f)).length})
+                </span>
+                <div className={cn("h-px flex-1", programSection(f) === "V3 CLIENTS" ? "bg-[#bfe6e2]" : "bg-[#e4ebf2]")} />
               </div>
             )}
             {f.template === "b2b" && (i === 0 || arr[i - 1].template !== "b2b") && (
@@ -795,6 +847,26 @@ export default function FunnelsPage() {
                       f.status === "live" ? "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]" : "bg-[#fff3e6] text-[#c2410c] border-[#fdba74]")}>
                       {f.status.toUpperCase()}
                     </span>
+                    {f.template !== "b2b" && f.slug !== "demo-v3" && (f.program ? (
+                      <button
+                        title={`Program from the Clients Master sheet (row ${f.program.sheetRow}, ${f.program.ownerName})` +
+                          (f.program.matches > 1 ? ` — ⚠ ${f.program.matches} sheet rows matched this business name, using the newest` : "") +
+                          (f.program.via === "prefix" ? " — matched by name prefix" : "") +
+                          " — click to change (updates the Clients tab + sheet)"}
+                        onClick={() => setProgFor(progFor === f.slug ? null : f.slug)}
+                        className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5 border",
+                          f.program.version === "(V3)" ? "bg-[#e7f6f6] text-[#0b7f7f] border-[#bfe6e2] hover:bg-[#d8f0ef]"
+                          : f.program.version === "(V1)" ? "bg-[#fff3e6] text-[#c2410c] border-[#fdba74] hover:bg-[#ffe9d1]"
+                          : "bg-[#f6f9fc] text-[#697a91] border-[#e4ebf2] hover:bg-[#eef3f8]")}>
+                        {f.program.version.replace(/[()]/g, "") || "no version"}{f.program.matches > 1 ? " ⚠" : ""}
+                      </button>
+                    ) : (
+                      <span
+                        title="No row on the Clients Master sheet matches this business name — fix the name there (or in this funnel's client name) and the program will sync"
+                        className="text-[11px] rounded-full px-2 py-0.5 border bg-[#fef2f2] text-[#b91c1c] border-[#fecaca]">
+                        not on Clients sheet
+                      </span>
+                    ))}
                     {f.abStatus === "running" && (
                       <button title="Split test is live — click for details"
                         onClick={() => { if (abFor !== f.slug) { setAbFor(f.slug); setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
@@ -857,6 +929,21 @@ export default function FunnelsPage() {
                   </span>
                 </div>
               </div>
+
+              {progFor === f.slug && f.program && (
+                <div className="mt-2 border border-[#e4ebf2] rounded-lg bg-[#f6f9fc] p-2.5 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-[#425466]">
+                    Program for <b>{f.program.ownerName || f.clientName}</b> — one click changes it here, on the Clients tab, and on the Clients Master sheet together:
+                  </span>
+                  {["(V3)", "(V2.3)", "(V1)"].map((v) => (
+                    <button key={v} onClick={() => void saveProgram(f, v)} disabled={progBusy === f.slug}
+                      className={cn("text-[11px] font-semibold border rounded-md px-2.5 py-1 disabled:opacity-50",
+                        f.program!.version === v ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] bg-white hover:bg-[#eef6f6]")}>
+                      {progBusy === f.slug ? <Loader2 className="w-3 h-3 animate-spin inline" /> : v}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {trafficFor === f.slug && (f.traffic ? (
                 <div className="mt-2 border border-[#bfe6e2] rounded-lg bg-[#f7fdfc] p-2.5">
