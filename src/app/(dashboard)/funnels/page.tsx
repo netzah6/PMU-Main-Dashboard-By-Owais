@@ -515,7 +515,7 @@ export default function FunnelsPage() {
 
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <Dot ok={f.hasCalendar} label="calendar" />
-                <Dot ok={f.hasFanbasis} label="fanbasis" />
+                <Dot ok={f.hasFanbasis} label="commas" />
                 <Dot ok={f.hasWidget} label="results widget" />
                 <Dot ok={f.hasPixel} label="pixel" />
                 <div className="flex-1" />
@@ -924,7 +924,7 @@ export default function FunnelsPage() {
                                   <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
                                   <td className="py-1.5 pr-3">
                                     {v.deposits != null ? v.deposits
-                                      : v.kind === "external" ? <span className="text-[10px] text-[#97a5b8]" title="This side's deposits live in Fanbasis — not visible from here (not zero)">in Fanbasis</span> : "—"}
+                                      : v.kind === "external" ? <span className="text-[10px] text-[#97a5b8]" title="This side's deposits live in Commas — not visible from here (not zero)">in Commas</span> : "—"}
                                   </td>
                                   <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{v.aiDeposits != null ? v.aiDeposits : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
@@ -948,7 +948,7 @@ export default function FunnelsPage() {
                   <p className="text-[11px] text-[#697a91]">
                     Leave a field empty to keep its current value. Instagram widget accepts the Elfsight ID, the elf.site link, or the whole embed code.
                   </p>
-                  <textarea placeholder="Fanbasis checkout block (paste the whole custom-code block from the client's -last-step page)"
+                  <textarea placeholder="Commas checkout block (paste the whole custom-code block from the client's -last-step page)"
                     value={extrasForm.fanbasisHtml} onChange={(e) => setExtrasForm((x) => ({ ...x, fanbasisHtml: e.target.value }))}
                     rows={3} className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs font-mono" />
                   <div className="grid md:grid-cols-3 gap-2">

@@ -49,21 +49,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // own for already-claimed onboardings ({ fanbasis: true }).
   const runFanbasis = async (form: Record<string, string>): Promise<{ action: ClaimAction; productId?: string; checkoutUrl?: string }> => {
     const cents = parseAmountCents(form.deposit_amount ?? "");
-    if (!cents) return { action: { action: "Fanbasis product", ok: false, detail: "no valid deposit amount on the form" } };
+    if (!cents) return { action: { action: "Commas product", ok: false, detail: "no valid deposit amount on the form" } };
     // Team convention: "FULL NAME - BUSINESS NAME" (e.g. "Ivan Androsov - PMU by Ivan")
     const title = [form.owner_name?.trim(), form.business_name?.trim()].filter(Boolean).join(" - ");
     try {
       const p = await createDepositProduct(title, cents);
       return {
         action: {
-          action: `Fanbasis product "${title}" ($${(cents / 100).toFixed(2)})${p.productId ? ` → ID ${p.productId}` : ""}${p.checkoutUrl ? ` · ${p.checkoutUrl}` : ""}`,
+          action: `Commas product "${title}" ($${(cents / 100).toFixed(2)})${p.productId ? ` → ID ${p.productId}` : ""}${p.checkoutUrl ? ` · ${p.checkoutUrl}` : ""}`,
           ok: true,
         },
         productId: p.productId ?? undefined,
         checkoutUrl: p.checkoutUrl ?? undefined,
       };
     } catch (e) {
-      return { action: { action: "Fanbasis product", ok: false, detail: e instanceof Error ? e.message : "failed" } };
+      return { action: { action: "Commas product", ok: false, detail: e instanceof Error ? e.message : "failed" } };
     }
   };
 
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const form = row.form as Record<string, string>;
     if (String(form.product_id ?? "").trim()) return NextResponse.json({ error: "Form already has a product ID" }, { status: 409 });
     const res = await runFanbasis(form);
-    if (!res.action.ok) return NextResponse.json({ error: res.action.detail ?? "Fanbasis failed" }, { status: 500 });
+    if (!res.action.ok) return NextResponse.json({ error: res.action.detail ?? "Commas failed" }, { status: 500 });
     const extra: ClaimAction[] = [res.action];
     if (res.productId) {
       try {
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // Auto-check the checklist steps the claim just performed.
     const checklist = { ...(row.checklist as Record<string, unknown>) };
     const AUTO_STEPS: Record<string, string> = {
-      "Fanbasis product ID": "funnel_product_id",
+      "Commas product ID": "funnel_product_id",
       "Treated areas": "wf_area",
       "Map address": "funnel_map",
     };

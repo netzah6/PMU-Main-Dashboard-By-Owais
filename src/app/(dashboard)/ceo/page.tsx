@@ -239,7 +239,7 @@ export default function CeoPage() {
             </div>
 
             <p className="text-[12px] text-[#8595a8] mt-2 leading-snug">
-              Deposits are the &ldquo;Deposits From Clients&rdquo; rows (Whop + Fanbasis) &mdash; money collected
+              Deposits are the &ldquo;Deposits From Clients&rdquo; rows (Whop + Commas) &mdash; money collected
               from clients rather than a subscription, so they sit outside new and recurring. Counting them is
               what makes each month tie to the sheet&rsquo;s own Total Income.
             </p>

@@ -57,7 +57,7 @@ export default function MakeRoutesPage() {
         </div>
       </div>
       <p className="text-sm text-[#697a91] mb-4">
-        View-only map of the Fanbasis scenario{report?.scenarioName ? <> — <span className="font-medium">{report.scenarioName}</span></> : null}.
+        View-only map of the Commas scenario{report?.scenarioName ? <> — <span className="font-medium">{report.scenarioName}</span></> : null}.
         Reading it uses no Make operations. Edit routes in the Make editor.
       </p>
 
