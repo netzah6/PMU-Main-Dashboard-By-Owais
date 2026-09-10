@@ -98,10 +98,17 @@ function ago(iso: string | null): string {
 }
 
 function Dot({ ok, label }: { ok: boolean; label: string }) {
+  /* Compact: a green check shows only the icon (hover for the name) —
+     healthy is the norm and doesn't need to shout. A failing check keeps
+     its label visible so problems still jump out. */
+  if (ok) return (
+    <span title={label} className="inline-flex items-center rounded-full border px-1 py-0.5 bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]">
+      <Check className="w-3 h-3" />
+    </span>
+  );
   return (
-    <span className={cn("inline-flex items-center gap-1 text-[11px] font-medium rounded-full border px-2 py-0.5",
-      ok ? "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]" : "bg-[#fef2f2] text-[#b91c1c] border-[#fca5a5]")}>
-      {ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}{label}
+    <span className="inline-flex items-center gap-1 text-[11px] font-medium rounded-full border px-2 py-0.5 bg-[#fef2f2] text-[#b91c1c] border-[#fca5a5]">
+      <X className="w-3 h-3" />{label}
     </span>
   );
 }
@@ -248,6 +255,23 @@ export default function FunnelsPage() {
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+
+  /* Always-on performance overview (post-A/B): funnel-wide stats per
+     live client for a 7- or 14-day window, no experiment required. */
+  type StatRow = { slug: string; clientName: string; visitors: number; leads: number; leadRate: number | null;
+    picked: number; pickRate: number | null; deposits: number; aiDeposits: number; spend: number | null; costPerBooking: number | null };
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [statsWin, setStatsWin] = useState<7 | 14>(7);
+  const [stats, setStats] = useState<StatRow[] | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const loadStats = useCallback(async (win: 7 | 14) => {
+    setStatsLoading(true);
+    try {
+      const r = await fetch(`/api/onebox/admin?stats=${win}`);
+      const j = await r.json();
+      setStats(j.stats ?? []);
+    } finally { setStatsLoading(false); }
+  }, []);
 
   /* Inline traffic editor: weights for the newest running experiment. */
   const [trafficFor, setTrafficFor] = useState<string | null>(null);
@@ -427,6 +451,101 @@ export default function FunnelsPage() {
         <div className="p-10 text-center text-[#697a91] text-sm">No funnels yet — add the first client.</div>
       ) : (
         <div className="space-y-1.5">
+          {funnels.some((f) => f.status === "live" && f.slug !== "demo-v3" && f.template !== "b2b") && (
+            <div className="border border-[#bfe6e2] rounded-xl bg-white p-4">
+              <button
+                onClick={() => {
+                  const open = !statsOpen;
+                  setStatsOpen(open);
+                  if (open && !stats) void loadStats(statsWin);
+                }}
+                className="w-full flex items-center gap-2 text-sm font-medium text-[#1c2b3a]">
+                <span className="w-2 h-2 rounded-full bg-[#0e9c9c]" />
+                One-box performance — all clients
+                <span className="text-xs text-[#697a91]">
+                  ({funnels.filter((f) => f.status === "live" && f.slug !== "demo-v3" && f.template !== "b2b").length} live)
+                </span>
+                <span className="ml-auto text-[#697a91]">{statsOpen ? "▲" : "▼"}</span>
+              </button>
+              {statsOpen && (
+                <div className="mt-3">
+                  <div className="flex items-center gap-1.5 mb-2">
+                    {( [7, 14] as const).map((w) => (
+                      <button key={w}
+                        onClick={() => { setStatsWin(w); void loadStats(w); }}
+                        className={cn("text-[11px] font-semibold rounded-md px-2.5 py-1 border",
+                          statsWin === w ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] text-[#697a91] hover:bg-[#f6f9fc]")}>
+                        Last {w} days
+                      </button>
+                    ))}
+                    {statsLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#697a91]" />}
+                  </div>
+                  {stats && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="text-[#697a91]">
+                          <tr className="text-left">
+                            <th className="py-1 pr-3 font-medium">Client</th>
+                            <th className="py-1 pr-3 font-medium">Visitors</th>
+                            <th className="py-1 pr-3 font-medium">Leads</th>
+                            <th className="py-1 pr-3 font-medium">Lead rate</th>
+                            <th className="py-1 pr-3 font-medium">Picked time</th>
+                            <th className="py-1 pr-3 font-medium">Pick rate</th>
+                            <th className="py-1 pr-3 font-medium">Deposits</th>
+                            <th className="py-1 pr-3 font-medium">AI deposits</th>
+                            <th className="py-1 pr-3 font-medium">Spend</th>
+                            <th className="py-1 pr-3 font-medium">Cost / booking</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stats.map((s) => (
+                            <tr key={s.slug} className="border-t border-[#eef2f6]">
+                              <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{s.clientName || s.slug}</td>
+                              <td className="py-1.5 pr-3">{s.visitors}</td>
+                              <td className="py-1.5 pr-3">{s.leads}</td>
+                              <td className="py-1.5 pr-3">{s.leadRate != null ? `${s.leadRate}%` : "—"}</td>
+                              <td className="py-1.5 pr-3">{s.picked}</td>
+                              <td className="py-1.5 pr-3">{s.pickRate != null ? `${s.pickRate}%` : "—"}</td>
+                              <td className="py-1.5 pr-3 font-semibold">{s.deposits}</td>
+                              <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{s.aiDeposits}</td>
+                              <td className="py-1.5 pr-3">{s.spend != null ? `$${s.spend}` : "—"}</td>
+                              <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">{s.costPerBooking != null ? `$${s.costPerBooking}` : "—"}</td>
+                            </tr>
+                          ))}
+                          {(() => {
+                            const t = stats.reduce((acc, s) => ({
+                              vis: acc.vis + s.visitors, leads: acc.leads + s.leads, picked: acc.picked + s.picked,
+                              dep: acc.dep + s.deposits, ai: acc.ai + s.aiDeposits, spend: acc.spend + (s.spend ?? 0),
+                            }), { vis: 0, leads: 0, picked: 0, dep: 0, ai: 0, spend: 0 });
+                            return (
+                              <tr className="border-t-2 border-[#bfe6e2] bg-[#f7fdfc] font-semibold text-[#1c2b3a]">
+                                <td className="py-1.5 pr-3">All clients</td>
+                                <td className="py-1.5 pr-3">{t.vis}</td>
+                                <td className="py-1.5 pr-3">{t.leads}</td>
+                                <td className="py-1.5 pr-3">{t.vis ? `${((t.leads / t.vis) * 100).toFixed(1)}%` : "—"}</td>
+                                <td className="py-1.5 pr-3">{t.picked}</td>
+                                <td className="py-1.5 pr-3">{t.vis ? `${((t.picked / t.vis) * 100).toFixed(1)}%` : "—"}</td>
+                                <td className="py-1.5 pr-3">{t.dep}</td>
+                                <td className="py-1.5 pr-3 text-[#7c3aed]">{t.ai}</td>
+                                <td className="py-1.5 pr-3">{t.spend ? `$${t.spend.toFixed(2)}` : "—"}</td>
+                                <td className="py-1.5 pr-3">{t.spend && t.picked ? `$${(t.spend / t.picked).toFixed(2)}` : "—"}</td>
+                              </tr>
+                            );
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="mt-2 text-[10px] text-[#697a91]">
+                    Funnel-wide numbers for every live one-box client (all traffic is one-box now).
+                    Same counting rules as the old split tables: unique clients within 21 days, deposits =
+                    paid on the funnel, AI deposits = collected by text afterwards. Spend matches the ad
+                    account by the pinned owner name in Extras (or the client name).
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           {funnels.some((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b") && (
             <div className="border border-[#d8b4fe] rounded-xl bg-white p-4">
               <button
@@ -489,7 +608,7 @@ export default function FunnelsPage() {
                 <div className="h-px flex-1 bg-[#e4ebf2]" />
               </div>
             )}
-            <div className="border border-[#e4ebf2] rounded-xl bg-white px-4 py-2">
+            <div className="border border-[#e4ebf2] rounded-xl bg-white px-4 py-1.5">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -537,22 +656,22 @@ export default function FunnelsPage() {
                   )}
                 </div>
                 <div className="flex-1" />
-                <div className="text-right text-xs text-[#697a91]">
-                  <div>
-                    <b className="text-[#1c2b3a] text-sm">{f.visitors}</b> visitors ·{" "}
-                    <button className="hover:underline" onClick={() => { setLeadsFor(leadsFor === f.slug ? null : f.slug); setLeadFilter("all"); void loadLeads(f.slug); }}>
-                      <b className="text-[#0e9c9c] text-sm">{f.leads}</b> leads
-                    </button>
-                    {" · "}
-                    <button className="hover:underline" onClick={() => { setLeadsFor(f.slug); setLeadFilter("picked_no_deposit"); void loadLeads(f.slug); }}>
-                      <b className="text-[#0e9c9c] text-sm">{f.booked}</b> picked time
-                    </button>
-                    {" · "}
-                    <button className="hover:underline" onClick={() => { setLeadsFor(f.slug); setLeadFilter("deposits"); void loadLeads(f.slug); }}>
-                      <b className="text-[#0e9c9c] text-sm">{f.paid}</b> deposits
-                    </button>
-                  </div>
-                  <div>last lead {ago(f.lastLeadAt)} · synced {ago(f.cvSyncedAt)}</div>
+                <div className="text-right text-xs text-[#697a91] whitespace-nowrap">
+                  <b className="text-[#1c2b3a] text-sm">{f.visitors}</b> visitors ·{" "}
+                  <button className="hover:underline" onClick={() => { setLeadsFor(leadsFor === f.slug ? null : f.slug); setLeadFilter("all"); void loadLeads(f.slug); }}>
+                    <b className="text-[#0e9c9c] text-sm">{f.leads}</b> leads
+                  </button>
+                  {" · "}
+                  <button className="hover:underline" onClick={() => { setLeadsFor(f.slug); setLeadFilter("picked_no_deposit"); void loadLeads(f.slug); }}>
+                    <b className="text-[#0e9c9c] text-sm">{f.booked}</b> picked
+                  </button>
+                  {" · "}
+                  <button className="hover:underline" onClick={() => { setLeadsFor(f.slug); setLeadFilter("deposits"); void loadLeads(f.slug); }}>
+                    <b className="text-[#0e9c9c] text-sm">{f.paid}</b> deposits
+                  </button>
+                  <span className="text-[10px] text-[#97a5b8]" title={`last lead ${ago(f.lastLeadAt)} · synced ${ago(f.cvSyncedAt)}`}>
+                    {" "}· lead {ago(f.lastLeadAt)}
+                  </span>
                 </div>
               </div>
 
@@ -585,32 +704,32 @@ export default function FunnelsPage() {
                 </div>
               )}
 
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <div className="mt-1 flex flex-wrap items-center gap-1">
                 <Dot ok={f.hasCalendar} label="calendar" />
                 <Dot ok={f.hasFanbasis} label="commas" />
                 <Dot ok={f.hasWidget} label="results widget" />
                 <Dot ok={f.hasPixel} label="pixel" />
                 <div className="flex-1" />
                 <button onClick={() => void act("resync", f.slug)} disabled={busy === `resync:${f.slug}`}
-                  className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
+                  className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `resync:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sync now
                 </button>
                 <button onClick={() => void act("health", f.slug)} disabled={busy === `health:${f.slug}`}
-                  className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
+                  className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `health:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />} Health check
                 </button>
                 <button onClick={() => { setExtrasFor(extrasFor === f.slug ? null : f.slug); setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); }}
-                  className={cn("text-xs border rounded-lg px-2.5 py-1",
+                  className={cn("text-[11px] border rounded-lg px-2 py-0.5",
                     extrasFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Extras {extrasFor === f.slug ? "▲" : ""}
                 </button>
                 <button onClick={() => { const open = cvFor === f.slug; setCvFor(open ? null : f.slug); if (!open) setCvForm({ ...f.cv }); }}
-                  className={cn("text-xs border rounded-lg px-2.5 py-1",
+                  className={cn("text-[11px] border rounded-lg px-2 py-0.5",
                     cvFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Values {cvFor === f.slug ? "▲" : ""}
                 </button>
                 <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
-                  className={cn("text-xs border rounded-lg px-2.5 py-1",
+                  className={cn("text-[11px] border rounded-lg px-2 py-0.5",
                     abFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Split test {abFor === f.slug ? "▲" : ""}
                 </button>

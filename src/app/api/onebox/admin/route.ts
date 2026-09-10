@@ -43,6 +43,91 @@ export async function GET(req: NextRequest) {
   if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const svc = createServiceClient();
+
+  /* ?stats=7|14 → the always-on performance overview (post-A/B era):
+     per live client, funnel-wide numbers for the window — no experiment
+     needed. Spend comes from performance_overview (spent7/spent14),
+     matched by the pinned Extras owner name, else the client name and
+     its distinctive words — the same matching the split tables used. */
+  const statsWin = req.nextUrl.searchParams.get("stats");
+  if (statsWin === "7" || statsWin === "14") {
+    const days = Number(statsWin);
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const { data: clients } = await svc
+      .from("onebox_clients")
+      .select("slug, client_name, status, extras")
+      .eq("status", "live")
+      .not("slug", "in", "(demo-v3,pmu-bookings)");
+    const live = (clients ?? []).filter((c) => ((c.extras ?? {}) as { template?: string }).template !== "b2b");
+    const slugs = live.map((c) => c.slug as string);
+    const [{ data: winLeads }, { data: winHits }, { data: perfRows }] = await Promise.all([
+      svc.from("onebox_leads").select("slug, ghl_status, picked_time_at, answers, created_at, phone, full_name")
+        .in("slug", slugs).gte("created_at", since),
+      svc.from("onebox_hits").select("slug").in("slug", slugs).gte("created_at", since),
+      svc.from("performance_overview").select("owner_name, spent7, spent14"),
+    ]);
+    const hitC: Record<string, number> = {};
+    for (const hRow of winHits ?? []) hitC[hRow.slug as string] = (hitC[hRow.slug as string] ?? 0) + 1;
+
+    const stats = live.map((c) => {
+      const slug = c.slug as string;
+      /* Unique-person journeys, same rules as the split tables: repeats
+         within 21 days merge; picked is cumulative (paid implies picked). */
+      type J = { ms: number; picked: boolean; paid: boolean; aiPaid: boolean };
+      const journeys = new Map<string, J>();
+      let nLeads = 0, nPicked = 0, nPaid = 0, nAi = 0;
+      const mine = (winLeads ?? []).filter((l) => l.slug === slug)
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+      for (const l of mine) {
+        const ms = new Date(l.created_at as string).getTime();
+        const keys = personKeys(l.full_name as string, ((l.answers ?? {}) as { email?: string }).email, l.phone as string);
+        let j: J | undefined;
+        for (const key of keys) {
+          const hit = journeys.get(key);
+          if (hit && ms - hit.ms < PERSON_DEDUPE_MS) { j = hit; break; }
+        }
+        const paid = l.ghl_status === "booked" || l.ghl_status === "paid" || l.ghl_status === "paid-not-booked";
+        const aiPaid = l.ghl_status === "paid-followup";
+        const picked = paid || aiPaid || !!l.picked_time_at;
+        if (!j) { j = { ms, picked: false, paid: false, aiPaid: false }; nLeads++; }
+        if (picked && !j.picked) { nPicked++; j.picked = true; }
+        if (paid && !j.paid) { nPaid++; j.paid = true; }
+        if (aiPaid && !j.aiPaid) { nAi++; j.aiPaid = true; }
+        for (const key of keys) journeys.set(key, j);
+      }
+      const pinned = ((c.extras ?? {}) as { ownerName?: string }).ownerName?.trim();
+      const candidates: string[] = [];
+      if (pinned) candidates.push(pinned);
+      else {
+        const name = String(c.client_name ?? "");
+        candidates.push(name);
+        for (const w of name.split(/\s+/)) {
+          if (w.length > 3 && !/^(pmu|by|the|and|llc|inc|studio|beauty)$/i.test(w)) candidates.push(w);
+        }
+      }
+      let spend: number | null = null;
+      for (const cand of candidates) {
+        if (!cand) continue;
+        const low = cand.toLowerCase();
+        const perf = (perfRows ?? []).find((p) => String(p.owner_name ?? "").toLowerCase().includes(low));
+        const val = perf ? (days === 7 ? perf.spent7 : perf.spent14) : null;
+        if (val != null) { spend = Number(val); break; }
+      }
+      const vis = hitC[slug] ?? 0;
+      return {
+        slug, clientName: c.client_name as string,
+        visitors: vis, leads: nLeads,
+        leadRate: vis ? Math.round((nLeads / vis) * 1000) / 10 : null,
+        picked: nPicked,
+        pickRate: vis ? Math.round((nPicked / vis) * 1000) / 10 : null,
+        deposits: nPaid, aiDeposits: nAi,
+        spend: spend != null ? Math.round(spend * 100) / 100 : null,
+        costPerBooking: spend != null && nPicked > 0 ? Math.round((spend / nPicked) * 100) / 100 : null,
+      };
+    }).sort((a, b) => b.visitors - a.visitors);
+    return NextResponse.json({ window: days, stats });
+  }
+
   const { data: rows } = await svc
     .from("onebox_clients")
     .select("slug, location_id, client_name, status, cv_synced_at, config, extras, created_at")
