@@ -145,23 +145,29 @@ export async function GET(req: NextRequest) {
     if (e.status === "running" || !abStatus[e.slug]) abStatus[e.slug] = e.status as string;
   }
   /* Where does traffic actually go? The splitter uses the NEWEST running
-     experiment per slug, so the card shows exactly that one's variants
-     and weights (rows are already ordered newest-first). */
+     experiment per slug; with none running it forwards every visitor to
+     the one-box funnel. The card also needs the newest experiment that
+     still has a real external (original-funnel) side, so "send traffic
+     back to the original" is a resume, not a full re-setup — which is why
+     variants are fetched for all experiments, not just running ones. */
   const newestRunning: Record<string, number> = {};
+  const expsBySlug: Record<string, number[]> = {};
   for (const e of expRows ?? []) {
     if (e.status === "running" && newestRunning[e.slug] === undefined) newestRunning[e.slug] = e.id as number;
+    (expsBySlug[e.slug] ??= []).push(e.id as number);
   }
-  const trafficByExp: Record<number, { vkey: string; label: string; kind: string; weight: number }[]> = {};
-  const expIds = Object.values(newestRunning);
+  const trafficByExp: Record<number, { vkey: string; label: string; kind: string; weight: number; target: string | null }[]> = {};
+  const expIds = (expRows ?? []).map((e) => e.id as number);
   if (expIds.length) {
     const { data: varRows } = await svc
       .from("onebox_variants")
-      .select("experiment_id, vkey, label, kind, weight")
+      .select("experiment_id, vkey, label, kind, weight, target")
       .in("experiment_id", expIds)
       .order("vkey");
     for (const v of varRows ?? []) {
       (trafficByExp[v.experiment_id as number] ??= []).push({
         vkey: v.vkey as string, label: v.label as string, kind: v.kind as string, weight: (v.weight as number) ?? 0,
+        target: (v.target as string | null) ?? null,
       });
     }
   }
@@ -253,9 +259,18 @@ export async function GET(req: NextRequest) {
       paid: counts[r.slug]?.paid ?? 0,
       lastLeadAt: counts[r.slug]?.lastLeadAt ?? null,
       abStatus: abStatus[r.slug] ?? null,
-      traffic: newestRunning[r.slug] !== undefined
-        ? { expId: newestRunning[r.slug], variants: trafficByExp[newestRunning[r.slug]] ?? [] }
-        : null,
+      traffic: (() => {
+        const runId = newestRunning[r.slug];
+        if (runId !== undefined) return { expId: runId, status: "running", variants: trafficByExp[runId] ?? [] };
+        /* Nothing running: the newest paused test with an external side is
+           the one-click path back to the original funnel. Newest-first. */
+        const resumable = (expsBySlug[r.slug] ?? []).find((eid) =>
+          (trafficByExp[eid] ?? []).some((v) => v.kind === "external" && v.target)
+        );
+        return resumable !== undefined
+          ? { expId: resumable, status: "paused", variants: trafficByExp[resumable] ?? [] }
+          : null;
+      })(),
     };
   });
   return NextResponse.json({ funnels: out });
