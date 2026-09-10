@@ -51,13 +51,34 @@ export async function GET(req: NextRequest) {
   const [{ data: leads }, { data: hitRows }, { data: expRows }] = await Promise.all([
     svc.from("onebox_leads").select("id, slug, ghl_status, picked_time_at, answers, created_at, phone, full_name"),
     svc.from("onebox_hits").select("slug"),
-    svc.from("onebox_experiments").select("slug, status"),
+    svc.from("onebox_experiments").select("id, slug, status, created_at").order("created_at", { ascending: false }),
   ]);
   /* One word per card: is a split test live right now? "running" beats
      any number of old paused/ended experiments for the same slug. */
   const abStatus: Record<string, string> = {};
   for (const e of expRows ?? []) {
     if (e.status === "running" || !abStatus[e.slug]) abStatus[e.slug] = e.status as string;
+  }
+  /* Where does traffic actually go? The splitter uses the NEWEST running
+     experiment per slug, so the card shows exactly that one's variants
+     and weights (rows are already ordered newest-first). */
+  const newestRunning: Record<string, number> = {};
+  for (const e of expRows ?? []) {
+    if (e.status === "running" && newestRunning[e.slug] === undefined) newestRunning[e.slug] = e.id as number;
+  }
+  const trafficByExp: Record<number, { vkey: string; label: string; kind: string; weight: number }[]> = {};
+  const expIds = Object.values(newestRunning);
+  if (expIds.length) {
+    const { data: varRows } = await svc
+      .from("onebox_variants")
+      .select("experiment_id, vkey, label, kind, weight")
+      .in("experiment_id", expIds)
+      .order("vkey");
+    for (const v of varRows ?? []) {
+      (trafficByExp[v.experiment_id as number] ??= []).push({
+        vkey: v.vkey as string, label: v.label as string, kind: v.kind as string, weight: (v.weight as number) ?? 0,
+      });
+    }
   }
   const hitCounts: Record<string, number> = {};
   for (const hRow of hitRows ?? []) hitCounts[hRow.slug] = (hitCounts[hRow.slug] ?? 0) + 1;
@@ -147,6 +168,9 @@ export async function GET(req: NextRequest) {
       paid: counts[r.slug]?.paid ?? 0,
       lastLeadAt: counts[r.slug]?.lastLeadAt ?? null,
       abStatus: abStatus[r.slug] ?? null,
+      traffic: newestRunning[r.slug] !== undefined
+        ? { expId: newestRunning[r.slug], variants: trafficByExp[newestRunning[r.slug]] ?? [] }
+        : null,
     };
   });
   return NextResponse.json({ funnels: out });

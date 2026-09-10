@@ -48,7 +48,19 @@ type Funnel = {
   paid: number; booked: number; lastLeadAt: string | null;
   abStatus: string | null;
   template: string;
+  /* The NEWEST running experiment's variants — exactly what the splitter
+     routes by, so the card can show and edit where traffic really goes. */
+  traffic: { expId: number; variants: { vkey: string; label: string; kind: string; weight: number }[] } | null;
 };
+
+/* "100% → One-box V2" / "50% Original · 50% One-box V2" for the card chip. */
+function trafficSummary(t: NonNullable<Funnel["traffic"]>): string {
+  const active = t.variants.filter((v) => v.weight > 0);
+  if (!active.length) return "no traffic weights";
+  const total = active.reduce((s, v) => s + v.weight, 0);
+  if (active.length === 1) return `100% → ${active[0].label}`;
+  return active.map((v) => `${Math.round((v.weight / total) * 100)}% ${v.label}`).join(" · ");
+}
 type HealthCheck = { name: string; ok: boolean; note: string };
 
 /* Click-to-copy pill for SOP values — the exact string, one click. */
@@ -237,6 +249,24 @@ export default function FunnelsPage() {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
+  /* Inline traffic editor: weights for the newest running experiment. */
+  const [trafficFor, setTrafficFor] = useState<string | null>(null);
+  const [trafficW, setTrafficW] = useState<Record<string, number>>({});
+  const [trafficBusy, setTrafficBusy] = useState(false);
+  const saveTraffic = useCallback(async (expId: number, weights: Record<string, number>) => {
+    setTrafficBusy(true);
+    try {
+      const r = await fetch("/api/onebox/ab", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "weights", id: expId, weights }),
+      });
+      if (!r.ok) { setToast("Saving traffic weights failed"); return; }
+      setToast("Traffic updated — live immediately");
+      setTrafficFor(null);
+      await load();
+    } finally { setTrafficBusy(false); }
+  }, [load]);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 4000);
@@ -396,7 +426,7 @@ export default function FunnelsPage() {
       ) : funnels.length === 0 ? (
         <div className="p-10 text-center text-[#697a91] text-sm">No funnels yet — add the first client.</div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {funnels.some((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b") && (
             <div className="border border-[#d8b4fe] rounded-xl bg-white p-4">
               <button
@@ -459,8 +489,8 @@ export default function FunnelsPage() {
                 <div className="h-px flex-1 bg-[#e4ebf2]" />
               </div>
             )}
-            <div className="border border-[#e4ebf2] rounded-xl bg-white p-4">
-              <div className="flex flex-wrap items-center gap-3">
+            <div className="border border-[#e4ebf2] rounded-xl bg-white px-4 py-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-[#1c2b3a]">{f.clientName || f.slug}</span>
@@ -480,6 +510,19 @@ export default function FunnelsPage() {
                       <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 border bg-[#f6f9fc] text-[#697a91] border-[#e4ebf2]">
                         A/B PAUSED
                       </span>
+                    )}
+                    {f.traffic && f.abStatus === "running" && (
+                      <button
+                        title="Where this funnel's ad traffic goes right now — click to change"
+                        onClick={() => {
+                          if (trafficFor === f.slug) { setTrafficFor(null); return; }
+                          setTrafficFor(f.slug);
+                          setTrafficW(Object.fromEntries(f.traffic!.variants.map((v) => [v.vkey, v.weight])));
+                        }}
+                        className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1",
+                          trafficFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "bg-[#f0fbfa] text-[#0b7f7f] border-[#bfe6e2] hover:bg-[#e2f6f4]")}>
+                        🚦 {trafficSummary(f.traffic)}
+                      </button>
                     )}
                     <a href={f.url} target="_blank" rel="noopener" className="text-xs text-[#0e9c9c] hover:underline inline-flex items-center gap-1">
                       {f.url} <ExternalLink className="w-3 h-3" />
@@ -513,7 +556,36 @@ export default function FunnelsPage() {
                 </div>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              {trafficFor === f.slug && f.traffic && (
+                <div className="mt-2 border border-[#bfe6e2] rounded-lg bg-[#f7fdfc] p-2.5 flex flex-wrap items-center gap-2">
+                  {f.traffic.variants.map((v) => (
+                    <label key={v.vkey} className="inline-flex items-center gap-1.5 text-xs text-[#1c2b3a]">
+                      <span className="font-medium">{v.label}</span>
+                      <span className="text-[10px] text-[#697a91]">({v.kind === "external" ? "GHL" : "one-box"})</span>
+                      <input type="number" min={0} max={100} value={trafficW[v.vkey] ?? 0}
+                        onChange={(e) => setTrafficW((w) => ({ ...w, [v.vkey]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) }))}
+                        className="w-14 border border-[#e4ebf2] rounded-md px-1.5 py-0.5 text-xs text-right" />%
+                    </label>
+                  ))}
+                  <div className="flex-1" />
+                  {f.traffic.variants.length === 2 && (
+                    <>
+                      <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 0, [f.traffic!.variants[1].vkey]: 100 })}
+                        className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">100% {f.traffic.variants[1].label}</button>
+                      <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 50, [f.traffic!.variants[1].vkey]: 50 })}
+                        className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">50 / 50</button>
+                      <button onClick={() => setTrafficW({ [f.traffic!.variants[0].vkey]: 100, [f.traffic!.variants[1].vkey]: 0 })}
+                        className="text-[11px] border border-[#e4ebf2] rounded-md px-2 py-0.5 hover:bg-white">100% {f.traffic.variants[0].label}</button>
+                    </>
+                  )}
+                  <button onClick={() => void saveTraffic(f.traffic!.expId, trafficW)} disabled={trafficBusy}
+                    className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
+                    {trafficBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save — live immediately
+                  </button>
+                </div>
+              )}
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <Dot ok={f.hasCalendar} label="calendar" />
                 <Dot ok={f.hasFanbasis} label="commas" />
                 <Dot ok={f.hasWidget} label="results widget" />
