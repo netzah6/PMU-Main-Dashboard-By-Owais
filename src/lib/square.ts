@@ -677,3 +677,49 @@ export async function getPlans(ids: string[]): Promise<Map<string, SquarePlan>> 
   }
   return map;
 }
+
+// ── Token permissions ────────────────────────────────────────────────────────
+// What the configured access token is actually allowed to do. Square answers
+// this about the token presented in the Authorization header, so nobody has to
+// paste a secret anywhere to find out.
+//
+// Why it matters: pausing or resuming a subscription needs a specific set of
+// permissions, and a token missing one fails at the moment you click the
+// button — on a real client's billing — rather than at build time.
+
+/** Permissions Square requires for POST /v2/subscriptions/{id}/pause|resume. */
+export const SUBSCRIPTION_WRITE_SCOPES = [
+  "PAYMENTS_WRITE",
+  "SUBSCRIPTIONS_WRITE",
+  "CUSTOMERS_READ",
+  "INVOICES_WRITE",
+  "ITEMS_READ",
+  "ORDERS_WRITE",
+] as const;
+
+export type TokenStatus = {
+  scopes: string[];
+  expiresAt: string | null;
+  merchantId: string | null;
+  /** Required scopes the token does NOT have. Empty = pause/resume is possible. */
+  missingForSubscriptionWrites: string[];
+};
+
+export async function getTokenStatus(): Promise<TokenStatus> {
+  const r = await fetch(`${BASE}/oauth2/token/status`, { method: "POST", headers: headers() });
+  const j = (await r.json().catch(() => ({}))) as {
+    scopes?: string[]; expires_at?: string; merchant_id?: string;
+    errors?: Array<{ code?: string; detail?: string }>;
+  };
+  if (!r.ok) {
+    const detail = (j.errors ?? []).map((e) => e.detail || e.code).filter(Boolean).join("; ");
+    throw new Error(`Square token status failed (${r.status}): ${detail || "unknown error"}`);
+  }
+  const scopes = (j.scopes ?? []).map((s) => String(s).toUpperCase());
+  return {
+    scopes,
+    expiresAt: j.expires_at ?? null,
+    merchantId: j.merchant_id ?? null,
+    missingForSubscriptionWrites: SUBSCRIPTION_WRITE_SCOPES.filter((s) => !scopes.includes(s)),
+  };
+}
