@@ -352,7 +352,7 @@ export async function POST(req: NextRequest) {
     const fbPid = (config.fanbasisProductId || "").trim();
     const fbCode = (config.fanbasisCode || "").trim() || extras.fanbasisHtml || "";
     checks.push({
-      name: "Fanbasis checkout",
+      name: "Commas checkout",
       ok: !!(fbPid || fbCode),
       note: fbPid ? `product ${fbPid} (custom value)` : fbCode ? `${fbCode.length} chars` : "add 'CC - Fanbasis Product ID' custom value",
     });

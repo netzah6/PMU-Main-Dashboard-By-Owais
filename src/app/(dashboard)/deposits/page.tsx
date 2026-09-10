@@ -328,7 +328,7 @@ export default function DepositsPage() {
               <div className="font-semibold text-[#1f3559]">{String(requestFor["Full Name"] ?? "—")} · <span className="text-[#0e8f88]">{money(requestFor["Amount"])}</span></div>
               <div className="text-[12px] text-[#697a91]">{String(requestFor["Business Name"] ?? "—")}{requestFor["Email"] ? ` · ${String(requestFor["Email"])}` : ""}</div>
             </div>
-            <p className="text-xs text-[#697a91]">This sends an approval request. {role === "admin" ? "As an admin you can approve it in the queue above." : "Nicolas will review and approve it."} The refund runs on Fanbasis only after approval.</p>
+            <p className="text-xs text-[#697a91]">This sends an approval request. {role === "admin" ? "As an admin you can approve it in the queue above." : "Nicolas will review and approve it."} The refund runs on Commas only after approval.</p>
             <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)"
               className="w-full px-3 py-2 text-sm rounded-lg border border-[#e4ebf2] focus:outline-none focus:border-[#15B7AE]" />
             <div className="flex justify-end gap-2">

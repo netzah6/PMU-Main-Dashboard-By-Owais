@@ -774,7 +774,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
             notes.push(`"${c.name}": ${g.routes.length} routes${g.status !== 200 ? ` (blueprint HTTP ${g.status})` : ""}`);
             if (g.routes.length > routes.length) { routes = g.routes; usedName = c.name; }
           }
-          if (!routes.length) diag = `Found ${candidates.length} Fanbasis scenario(s) but none has router routes — ${notes.join(" · ")}`;
+          if (!routes.length) diag = `Found ${candidates.length} Commas scenario(s) but none has router routes — ${notes.join(" · ")}`;
         }
       }
 
@@ -898,7 +898,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     embedCreator = html.match(/CREATOR_ID\s*=\s*['"]([^'"]+)['"]/)?.[1] ?? null;
     if (!pidMatch) push("funnel_product_id", "fail", "No PRODUCT_ID found on the deposit page");
     else if (productId && pidMatch[1] !== productId) push("funnel_product_id", "fail", `Page PRODUCT_ID ${pidMatch[1]} ≠ onboarding product ${productId}`);
-    else push("funnel_product_id", "pass", `PRODUCT_ID ${pidMatch[1]}${productId ? " matches Fanbasis" : ""}`);
+    else push("funnel_product_id", "pass", `PRODUCT_ID ${pidMatch[1]}${productId ? " matches Commas" : ""}`);
 
     // REDIRECT_URL must be THIS client's own thank-you page — e.g. deposit
     // "browology-plus-last-step" ⇒ redirect should be "browology-plus-thank-you",
@@ -1029,10 +1029,10 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // live deposit page is actually using (so a name-only check still works).
   const checkPid = productId || pagePid;
   let checkoutUrl: string | null = null;
-  if (!checkPid) push("fanbasis_product", "manual", "No Fanbasis Product ID found (form or page)");
+  if (!checkPid) push("fanbasis_product", "manual", "No Commas Product ID found (form or page)");
   else {
-    try { await listCheckoutTransactions(checkPid); push("fanbasis_product", "pass", `Fanbasis product ${checkPid} exists`); }
-    catch (e) { push("fanbasis_product", "fail", `Fanbasis product ${checkPid} not reachable: ${e instanceof Error ? e.message.slice(0, 80) : ""}`); }
+    try { await listCheckoutTransactions(checkPid); push("fanbasis_product", "pass", `Commas product ${checkPid} exists`); }
+    catch (e) { push("fanbasis_product", "fail", `Commas product ${checkPid} not reachable: ${e instanceof Error ? e.message.slice(0, 80) : ""}`); }
     // A live, shareable Fanbasis checkout link for this product (built from the
     // deposit page's own embed config; falls back to null if the page had none).
     checkoutUrl = await getProductCheckoutUrl({ publicApiKey: embedApiKey, creatorId: embedCreator, productId: pagePid ?? checkPid }).catch(() => null);
@@ -1045,7 +1045,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     const CRIT: Record<string, string> = {
       ghl_domain: "domain", funnel_path: "funnel paths", funnel_product_id: "PRODUCT_ID",
       funnel_redirect: "redirect", funnel_lead_pixel: "Lead code", ghl_pixel: "pixel",
-      fanbasis_product: "Fanbasis product",
+      fanbasis_product: "Commas product",
     };
     const critFail = checks.filter((c) => c.key in CRIT && c.status === "fail").map((c) => CRIT[c.key]);
     let slots = -1; // -1 = couldn't check

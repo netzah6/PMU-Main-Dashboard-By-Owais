@@ -416,7 +416,7 @@ export async function POST(req: NextRequest) {
     const oneboxNote = !cRow ? "unknown funnel"
       : cRow.status !== "live" ? "the one-box funnel is paused — set it live first"
       : !cCfg.calendarId ? "no calendar ID in Values"
-      : !(cCfg.fanbasisProductId || cCfg.fanbasisCode) ? "no Fanbasis product ID in Values" : "";
+      : !(cCfg.fanbasisProductId || cCfg.fanbasisCode) ? "no Commas product ID in Values" : "";
 
     return NextResponse.json({
       ok: originalReady && redirectLive && oneboxReady,

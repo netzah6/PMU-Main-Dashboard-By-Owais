@@ -902,7 +902,7 @@ function CheckPanel({ query, setQuery, version, setVersion, running, result, onR
                                 <div className="text-[#697a91]">Product ID: <code className="font-semibold text-[#1f3559]">{result.productId}</code></div>
                                 {result.checkoutUrl
                                   ? <a href={result.checkoutUrl} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline break-all">{result.checkoutUrl} ↗</a>
-                                  : <span className="text-[#8595a8]">Fanbasis checkout link unavailable</span>}
+                                  : <span className="text-[#8595a8]">Commas checkout link unavailable</span>}
                               </div>
                             )}
                           </div>

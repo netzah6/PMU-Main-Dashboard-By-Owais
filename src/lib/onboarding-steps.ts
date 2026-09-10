@@ -21,7 +21,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "ghl_timezone", section: "GHL Setup", label: "Sub-account timezone matches the client location", auto: true, v3Only: true },
 
   // ── Fanbasis ──
-  { key: "fanbasis_product", section: "Fanbasis", label: "Create unique product — FULLNAME + BUSINESS NAME", loom: "https://www.loom.com/share/2e8c0dffd58246b89f1032b68a6d7c5a" },
+  { key: "fanbasis_product", section: "Commas", label: "Create unique product — FULLNAME + BUSINESS NAME", loom: "https://www.loom.com/share/2e8c0dffd58246b89f1032b68a6d7c5a" },
 
   // ── Funnel ──
   { key: "funnel_domain", section: "Funnel", label: "Connect the domain to the funnel", loom: "https://www.loom.com/share/2ff84fcffac546d5817d88f019c4f038" },
@@ -61,7 +61,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "cal_id_cv", section: "Calendar", label: "Custom value \"CC - … Calendar ID🔵\" holds the calendar's ID (not a link)", auto: true },
 
   // ── Make.com ──
-  { key: "make_http", section: "Make.com", label: "Fanbasis_Make.com_GHL scenario → duplicate HTTP + paste the GHL webhook", loom: "https://www.loom.com/share/898c1fece6b64942af27f3de2f7b8187", auto: true },
+  { key: "make_http", section: "Make.com", label: "Commas scenario (named Fanbasis_Make.com_GHL in Make) → duplicate HTTP + paste the GHL webhook", loom: "https://www.loom.com/share/898c1fece6b64942af27f3de2f7b8187", auto: true },
   { key: "make_filter", section: "Make.com", label: "Setup a filter: full name + business name + product ID", auto: true },
 
   // ── Facebook ──
