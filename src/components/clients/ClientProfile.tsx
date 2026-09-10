@@ -145,6 +145,18 @@ export function ClientProfile({
   const usdNum = Number(payment?.usd ?? NaN);
   const hasRealPrice = Number.isFinite(usdNum) && usdNum > 0;
   const planNote = String(payment?.notes ?? "").trim().replace(/\s+/g, " ");
+  // Which plan the client is on, read from the financing sheet's Payment
+  // Status (same row the price comes from). The sheet only fills that cell for
+  // the exceptions — PPS, Paused, Grace — so a blank means an ordinary monthly
+  // plan, i.e. Standard. No sheet row at all is genuinely unknown, and shows
+  // "—" rather than guessing Standard. Matches getPpaRoster's PPA/PPS test so
+  // the Clients tab and PPS Billing can never disagree about who is PPS.
+  const payStatus = String(payment?.payment_status ?? "").toLowerCase();
+  const program = !payment
+    ? null
+    : payStatus.includes("pps") || payStatus.includes("ppa")
+      ? "PPS (Pay Per Show)"
+      : "Standard";
   const priceDisplay = hasRealPrice
     ? formatCurrency(String(payment!.usd))
     : planNote
@@ -487,7 +499,19 @@ export function ClientProfile({
                 <UserChip label="Media Buyer" name={String(localClient.media_buyer ?? "")} />
               </>
             )}
-            <Badge variant="gray">Campaign: <strong className="ml-1">{localClient.campaign_status || "—"}</strong></Badge>
+            {/* Was "Campaign" (Campaign Status from the master sheet) — that
+                column is empty for every client, so the badge only ever read
+                "—". Replaced with the plan the client is actually on. */}
+            <Badge variant={program === "PPS (Pay Per Show)" ? "teal" : "gray"}>
+              Program:{" "}
+              <strong className="ml-1"
+                title={program
+                  ? `From the financing sheet${payment?.month ? ` (${payment.month})` : ""}` +
+                    `${payment?.payment_status ? ` — Payment Status: ${payment.payment_status}` : " — Payment Status blank, so a standard monthly plan"}`
+                  : "No row for this client in the financing sheet"}>
+                {program ?? "—"}
+              </strong>
+            </Badge>
             {payment ? (
               <div className="relative" ref={payRef}>
                 <button
