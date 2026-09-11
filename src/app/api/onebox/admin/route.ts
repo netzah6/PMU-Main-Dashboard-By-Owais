@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
-import { computeFunnelStats } from "@/lib/onebox-insights";
+import { computeFunnelStats, countHitsBySlug, fetchAllRows } from "@/lib/onebox-insights";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 
@@ -52,8 +52,8 @@ export async function GET(req: NextRequest) {
      matched by the pinned Extras owner name, else the client name and
      its distinctive words — the same matching the split tables used. */
   const statsWin = req.nextUrl.searchParams.get("stats");
-  if (statsWin === "7" || statsWin === "14") {
-    const days = Number(statsWin) as 7 | 14;
+  if (statsWin === "7" || statsWin === "14" || statsWin === "30") {
+    const days = Number(statsWin) as 7 | 14 | 30;
     const stats = await computeFunnelStats(svc, days);
     return NextResponse.json({ window: days, stats });
   }
@@ -63,9 +63,14 @@ export async function GET(req: NextRequest) {
     .select("slug, location_id, client_name, status, cv_synced_at, config, extras, created_at")
     .order("created_at", { ascending: true });
 
-  const [{ data: leads }, { data: hitRows }, { data: expRows }, { data: programRows }] = await Promise.all([
-    svc.from("onebox_leads").select("id, slug, ghl_status, picked_time_at, answers, created_at, phone, full_name"),
-    svc.from("onebox_hits").select("slug"),
+  /* Leads are paged and visitors are COUNTED per slug — PostgREST caps
+     any plain select at 1,000 rows, which silently froze these counters
+     once the fleet outgrew that (see lib/onebox-insights). */
+  const [leads, hitCounts, { data: expRows }, { data: programRows }] = await Promise.all([
+    fetchAllRows((from, to) =>
+      svc.from("onebox_leads").select("id, slug, ghl_status, picked_time_at, answers, created_at, phone, full_name")
+        .order("id").range(from, to)),
+    countHitsBySlug(svc, (rows ?? []).map((r) => r.slug as string)),
     svc.from("onebox_experiments").select("id, slug, status, created_at").order("created_at", { ascending: false }),
     svc.from("client_program_rows").select("sheet_row, business_name, version, owner_name"),
   ]);
@@ -107,9 +112,6 @@ export async function GET(req: NextRequest) {
       });
     }
   }
-  const hitCounts: Record<string, number> = {};
-  for (const hRow of hitRows ?? []) hitCounts[hRow.slug] = (hitCounts[hRow.slug] ?? 0) + 1;
-
   /* Reconcile against Fanbasis before counting: a deposit paid outside
      our checkout callback is almost always the AI's SMS follow-up
      converting a picked-no-deposit lead (the Michele/Norma pattern) —

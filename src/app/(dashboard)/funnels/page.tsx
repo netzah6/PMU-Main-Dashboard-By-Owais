@@ -298,14 +298,16 @@ export default function FunnelsPage() {
   useEffect(() => { void load(); }, [load]);
 
   /* Always-on performance overview (post-A/B): funnel-wide stats per
-     live client for a 7- or 14-day window, no experiment required. */
+     live client for a 7/14/30-day window, no experiment required. 30 is
+     the default — short windows leave low-traffic clients with 0 visitors
+     and therefore no rates to show. */
   type StatRow = { slug: string; clientName: string; visitors: number; leads: number; leadRate: number | null;
     picked: number; pickRate: number | null; deposits: number; aiDeposits: number; spend: number | null; costPerBooking: number | null };
   const [statsOpen, setStatsOpen] = useState(false);
-  const [statsWin, setStatsWin] = useState<7 | 14>(7);
+  const [statsWin, setStatsWin] = useState<7 | 14 | 30>(30);
   const [stats, setStats] = useState<StatRow[] | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
-  const loadStats = useCallback(async (win: 7 | 14) => {
+  const loadStats = useCallback(async (win: 7 | 14 | 30) => {
     setStatsLoading(true);
     try {
       const r = await fetch(`/api/onebox/admin?stats=${win}`);
@@ -682,7 +684,7 @@ export default function FunnelsPage() {
               {statsOpen && (
                 <div className="mt-3">
                   <div className="flex items-center gap-1.5 mb-2">
-                    {( [7, 14] as const).map((w) => (
+                    {( [7, 14, 30] as const).map((w) => (
                       <button key={w}
                         onClick={() => { setStatsWin(w); void loadStats(w); }}
                         className={cn("text-[11px] font-semibold rounded-md px-2.5 py-1 border",
@@ -715,9 +717,9 @@ export default function FunnelsPage() {
                               <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{s.clientName || s.slug}</td>
                               <td className="py-1.5 pr-3">{s.visitors}</td>
                               <td className="py-1.5 pr-3">{s.leads}</td>
-                              <td className="py-1.5 pr-3">{s.leadRate != null ? `${s.leadRate}%` : "—"}</td>
+                              <td className="py-1.5 pr-3" title={s.leadRate == null ? "no visitors in this window — rates need traffic" : undefined}>{s.leadRate != null ? `${s.leadRate}%` : "—"}</td>
                               <td className="py-1.5 pr-3">{s.picked}</td>
-                              <td className="py-1.5 pr-3">{s.pickRate != null ? `${s.pickRate}%` : "—"}</td>
+                              <td className="py-1.5 pr-3" title={s.pickRate == null ? "no visitors in this window — rates need traffic" : undefined}>{s.pickRate != null ? `${s.pickRate}%` : "—"}</td>
                               <td className="py-1.5 pr-3 font-semibold">{s.deposits}</td>
                               <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{s.aiDeposits}</td>
                               <td className="py-1.5 pr-3">{s.spend != null ? `$${s.spend}` : "—"}</td>
