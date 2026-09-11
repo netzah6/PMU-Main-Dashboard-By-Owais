@@ -35,6 +35,8 @@ export type SquareSubscription = {
   // action is the only way to know the subscription is on its way out.
   pauseScheduledOn: string | null;
   cancelScheduledOn: string | null;
+  /** Id of the pending PAUSE action, needed to cancel it before it takes effect. */
+  pauseActionId: string | null;
 };
 
 // All subscriptions in the account (every status), paginated.
@@ -91,8 +93,9 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
       // for what this subscription actually charges.
       const invoiceIds = (s.invoice_ids as string[] | undefined) ?? [];
       const actions = (s.actions as Array<Record<string, unknown>> | undefined) ?? [];
+      const actionOf = (type: string) => actions.find((a) => String(a.type ?? "").toUpperCase() === type);
       const actionOn = (type: string): string | null => {
-        const hit = actions.find((a) => String(a.type ?? "").toUpperCase() === type);
+        const hit = actionOf(type);
         return hit ? ((hit.effective_date as string) ?? null) : null;
       };
       out.push({
@@ -109,6 +112,7 @@ export async function listSubscriptions(): Promise<SquareSubscription[]> {
         latestInvoiceId: invoiceIds[0] ?? null,
         pauseScheduledOn: actionOn("PAUSE"),
         cancelScheduledOn: actionOn("CANCEL"),
+        pauseActionId: (actionOf("PAUSE")?.id as string) ?? null,
       });
     }
     cursor = j.cursor;
@@ -722,4 +726,55 @@ export async function getTokenStatus(): Promise<TokenStatus> {
     merchantId: j.merchant_id ?? null,
     missingForSubscriptionWrites: SUBSCRIPTION_WRITE_SCOPES.filter((s) => !scopes.includes(s)),
   };
+}
+
+// ── Pause / resume ───────────────────────────────────────────────────────────
+// Square's model is action-based: a pause or resume is SCHEDULED (by default
+// for the next billing cycle) and the subscription's status does not change
+// until that date. So the honest result of "Pause" is "pauses on <date>", and
+// undoing a pause that has not taken effect yet means deleting the pending
+// action, not calling resume. ⚠ Square emails the client on both pause and
+// resume — the dashboard-run subscriptions exist precisely to avoid that.
+
+export type SubscriptionActionResult = {
+  status: string;
+  /** Effective date of the scheduled action Square created, if any. */
+  effectiveDate: string | null;
+};
+
+function readActionResult(j: Record<string, unknown>, type: string): SubscriptionActionResult {
+  const sub = (j.subscription as Record<string, unknown>) ?? {};
+  const actions = (j.actions as Array<Record<string, unknown>>) ?? [];
+  const hit = actions.find((a) => String(a.type ?? "").toUpperCase() === type);
+  return { status: String(sub.status ?? ""), effectiveDate: (hit?.effective_date as string) ?? null };
+}
+
+async function subscriptionAction(path: string, method: "POST" | "DELETE", body?: Record<string, unknown>) {
+  const r = await fetch(`${BASE}/v2/subscriptions/${path}`, {
+    method, headers: headers(), body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = (await r.json().catch(() => ({}))) as Record<string, unknown> & { errors?: Array<{ code?: string; detail?: string }> };
+  if (!r.ok) {
+    const detail = (j.errors ?? []).map((e) => e.detail || e.code).filter(Boolean).join("; ");
+    throw new Error(`Square ${r.status}: ${detail || "unknown error"}`);
+  }
+  return j;
+}
+
+/** Schedule a pause — from the next billing cycle unless a date is given. */
+export async function pauseSubscription(id: string, effectiveDate?: string): Promise<SubscriptionActionResult> {
+  const j = await subscriptionAction(`${id}/pause`, "POST", effectiveDate ? { pause_effective_date: effectiveDate } : {});
+  return readActionResult(j, "PAUSE");
+}
+
+/** Schedule a resume for a PAUSED subscription. */
+export async function resumeSubscription(id: string): Promise<SubscriptionActionResult> {
+  const j = await subscriptionAction(`${id}/resume`, "POST", {});
+  return readActionResult(j, "RESUME");
+}
+
+/** Remove a pending action (e.g. a pause that has not taken effect yet). */
+export async function deleteSubscriptionAction(id: string, actionId: string): Promise<SubscriptionActionResult> {
+  const j = await subscriptionAction(`${id}/actions/${actionId}`, "DELETE");
+  return readActionResult(j, "PAUSE");
 }

@@ -64,3 +64,21 @@ DROP POLICY IF EXISTS "Subscription charges read" ON subscription_charges;
 CREATE POLICY "Subscription charges read" ON subscription_charges FOR SELECT TO authenticated USING (get_user_role() = 'admin');
 DROP POLICY IF EXISTS "App settings read" ON app_settings;
 CREATE POLICY "App settings read" ON app_settings FOR SELECT TO authenticated USING (get_user_role() = 'admin');
+
+-- Every pause / resume / cancel-pause issued to Square from the dashboard, with
+-- what Square answered, so the activity feed shows who did what and when.
+CREATE TABLE IF NOT EXISTS square_subscription_actions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  subscription_id TEXT NOT NULL,
+  customer_name TEXT,
+  action TEXT NOT NULL CHECK (action IN ('pause', 'resume', 'cancel_pause')),
+  status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed')),
+  detail TEXT,
+  error TEXT,
+  actor TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS square_subscription_actions_at_idx ON square_subscription_actions (created_at DESC);
+ALTER TABLE square_subscription_actions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Square actions read" ON square_subscription_actions;
+CREATE POLICY "Square actions read" ON square_subscription_actions FOR SELECT TO authenticated USING (get_user_role() = 'admin');
