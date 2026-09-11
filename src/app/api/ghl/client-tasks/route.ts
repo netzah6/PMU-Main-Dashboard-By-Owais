@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getPmuTasksAccount, ghlUserIdForEmail, GHL_BASE, GHL_VERSION } from "@/lib/ghl-tasks";
+import { normalizeOwnerKey } from "@/lib/normalizers";
 
 export const maxDuration = 30;
 
@@ -31,6 +32,57 @@ async function requireUser() {
 
 function headers(token: string) {
   return { Authorization: `Bearer ${token}`, Version: GHL_VERSION, Accept: "application/json", "Content-Type": "application/json" };
+}
+
+// Client → contact in the main account, most reliable source first.
+//
+// 1. The Contact ID on the client's Clients Master row. It is the link the
+//    sheet keeps on purpose, and it survives everything a name search cannot:
+//    Jessica Lee is filed in GHL under her legal name, "Oyunchimeg
+//    Erdenetsogt", so the name search found nothing and the Task button
+//    refused her (2026-09-11). Verified with a GET first — a stale id must
+//    not be trusted.
+// 2. The Email on that row — GHL's email search is exact.
+// 3. The name search below, as before, for rows with neither.
+async function resolveContact(
+  acct: { locationId: string; token: string }, name: string
+): Promise<{ id: string; name: string; via: "contact_id" | "email" | "name" } | null> {
+  const key = normalizeOwnerKey(name.replace(/\([^)]*\)/g, " ").split("/")[0]);
+  if (key) {
+    const svc = createServiceClient();
+    const { data } = await svc.from("clients_master").select("data");
+    const row = (data ?? []).find(
+      (r) => normalizeOwnerKey((r as { data: Record<string, unknown> }).data?.["Owner Full Name"]) === key
+    ) as { data: Record<string, string> } | undefined;
+    const contactId = String(row?.data?.["Contact ID"] ?? "").trim();
+    const email = String(row?.data?.["Email"] ?? "").trim();
+
+    if (/^[A-Za-z0-9_-]{15,}$/.test(contactId)) {
+      const r = await fetch(`${GHL_BASE}/contacts/${contactId}`, { headers: headers(acct.token), cache: "no-store" });
+      if (r.ok) {
+        const j = (await r.json()) as { contact?: { id: string; contactName?: string; firstName?: string; lastName?: string; locationId?: string } };
+        const c = j.contact;
+        // The id must belong to THIS account — a client's id from their own
+        // sub-account would otherwise attach the task to the wrong location.
+        if (c?.id && (!c.locationId || c.locationId === acct.locationId)) {
+          return { id: c.id, name: (c.contactName || `${c.firstName ?? ""} ${c.lastName ?? ""}`).trim(), via: "contact_id" };
+        }
+      }
+    }
+    if (email.includes("@")) {
+      const r = await fetch(
+        `${GHL_BASE}/contacts/?locationId=${acct.locationId}&query=${encodeURIComponent(email)}&limit=5`,
+        { headers: headers(acct.token), cache: "no-store" }
+      );
+      if (r.ok) {
+        const j = (await r.json()) as { contacts?: Array<{ id: string; email?: string; contactName?: string; firstName?: string; lastName?: string }> };
+        const hit = (j.contacts ?? []).find((c) => String(c.email ?? "").toLowerCase() === email.toLowerCase());
+        if (hit) return { id: hit.id, name: (hit.contactName || `${hit.firstName ?? ""} ${hit.lastName ?? ""}`).trim(), via: "email" };
+      }
+    }
+  }
+  const byName = await findContact(acct, name);
+  return byName ? { ...byName, via: "name" } : null;
 }
 
 // Client name → contact in the main account. GHL's query match is LITERAL —
@@ -94,7 +146,7 @@ export async function GET(req: NextRequest) {
   const name = (req.nextUrl.searchParams.get("name") ?? "").trim();
   if (!name) return NextResponse.json({ error: "name required" }, { status: 400 });
 
-  const contact = await findContact(acct, name);
+  const contact = await resolveContact(acct, name);
   if (!contact) return NextResponse.json({ contactId: null, contactName: null, tasks: [] });
 
   // User roster for assignee names on the cards.
@@ -136,9 +188,11 @@ export async function POST(req: NextRequest) {
   const title = (body.title ?? "").trim();
   if (!name || !title) return NextResponse.json({ error: "name and title required" }, { status: 400 });
 
-  const contact = await findContact(acct, name);
+  const contact = await resolveContact(acct, name);
   if (!contact) {
-    return NextResponse.json({ error: `No GHL contact found for "${name}" in PMU Bookings On Demand` }, { status: 404 });
+    return NextResponse.json({
+      error: `No GHL contact found for "${name}" in PMU Bookings On Demand — add their Contact ID or Email to the Clients Master sheet and try again`,
+    }, { status: 404 });
   }
 
   // Self-assignment is the point of the button, but a login with no matching
