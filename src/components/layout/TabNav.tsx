@@ -28,6 +28,9 @@ const TABS: Tab[] = [
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
   // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
   // { label: "📝 Agreements", href: "/agreements" },
+  // Build a partner agreement from the standard Scope of Service, edit it in
+  // plain English, download it as a PDF (user request 2026-09-11).
+  { label: "📝 Agreement", href: "/agreement", adminOnly: true },
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "💎 LTV", href: "/ltv", adminOnly: true, collapsed: true }, // admins only
   { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true, collapsed: true }, // Square billing — admins only
