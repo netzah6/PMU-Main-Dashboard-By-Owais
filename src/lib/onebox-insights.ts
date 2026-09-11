@@ -17,11 +17,38 @@ export type FunnelStat = {
   spend: number | null; costPerBooking: number | null;
 };
 
+/* PostgREST silently caps every select at 1,000 rows — a truncation that
+   once made busy weeks look quiet (visitors vanished; the optimizer filed
+   "no traffic" flags about clients with 166 real visitors). So visitor
+   numbers are COUNTED per slug instead of fetched, and row fetches page
+   until exhausted. */
+export async function countHitsBySlug(svc: SupabaseClient, slugs: string[], sinceIso?: string): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  await Promise.all(slugs.map(async (slug) => {
+    let q = svc.from("onebox_hits").select("slug", { count: "exact", head: true }).eq("slug", slug);
+    if (sinceIso) q = q.gte("created_at", sinceIso);
+    const { count } = await q;
+    out[slug] = count ?? 0;
+  }));
+  return out;
+}
+
+export async function fetchAllRows<T>(page: (from: number, to: number) => PromiseLike<{ data: T[] | null }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data } = await page(from, from + 999);
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+
 /* Funnel-wide numbers for the window, per live B2C client — the exact same
    journey rules the split tables used (21-day person dedupe; paid implies
    picked). Shared by the performance overview and the optimizer so the two
    can never disagree. */
-export async function computeFunnelStats(svc: SupabaseClient, days: 7 | 14): Promise<FunnelStat[]> {
+export async function computeFunnelStats(svc: SupabaseClient, days: 7 | 14 | 30): Promise<FunnelStat[]> {
   const since = new Date(Date.now() - days * 86400000).toISOString();
   const { data: clients } = await svc
     .from("onebox_clients")
@@ -30,14 +57,13 @@ export async function computeFunnelStats(svc: SupabaseClient, days: 7 | 14): Pro
     .not("slug", "in", "(demo-v3,pmu-bookings)");
   const live = (clients ?? []).filter((c) => ((c.extras ?? {}) as { template?: string }).template !== "b2b");
   const slugs = live.map((c) => c.slug as string);
-  const [{ data: winLeads }, { data: winHits }, { data: perfRows }] = await Promise.all([
-    svc.from("onebox_leads").select("slug, ghl_status, picked_time_at, answers, created_at, phone, full_name")
-      .in("slug", slugs).gte("created_at", since),
-    svc.from("onebox_hits").select("slug").in("slug", slugs).gte("created_at", since),
-    svc.from("performance_overview").select("owner_name, spent7, spent14"),
+  const [winLeads, hitC, { data: perfRows }] = await Promise.all([
+    fetchAllRows((from, to) =>
+      svc.from("onebox_leads").select("slug, ghl_status, picked_time_at, answers, created_at, phone, full_name")
+        .in("slug", slugs).gte("created_at", since).order("id").range(from, to)),
+    countHitsBySlug(svc, slugs, since),
+    svc.from("performance_overview").select("owner_name, spent7, spent14, cpl30, l30"),
   ]);
-  const hitC: Record<string, number> = {};
-  for (const hRow of winHits ?? []) hitC[hRow.slug as string] = (hitC[hRow.slug as string] ?? 0) + 1;
 
   return live.map((c) => {
     const slug = c.slug as string;
@@ -78,7 +104,13 @@ export async function computeFunnelStats(svc: SupabaseClient, days: 7 | 14): Pro
       if (!cand) continue;
       const low = cand.toLowerCase();
       const perf = (perfRows ?? []).find((p) => String(p.owner_name ?? "").toLowerCase().includes(low));
-      const val = perf ? (days === 7 ? perf.spent7 : perf.spent14) : null;
+      /* The ad sheet has no spent30 column, but CPL × leads IS spend, so
+         the 30-day window derives it from cpl30 · l30 (same source data). */
+      const val = perf
+        ? days === 7 ? perf.spent7
+          : days === 14 ? perf.spent14
+          : perf.cpl30 != null && perf.l30 != null ? Number(perf.cpl30) * Number(perf.l30) : null
+        : null;
       if (val != null) { spend = Number(val); break; }
     }
     const vis = hitC[slug] ?? 0;
