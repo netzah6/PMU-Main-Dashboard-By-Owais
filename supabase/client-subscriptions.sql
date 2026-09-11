@@ -82,3 +82,16 @@ CREATE INDEX IF NOT EXISTS square_subscription_actions_at_idx ON square_subscrip
 ALTER TABLE square_subscription_actions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Square actions read" ON square_subscription_actions;
 CREATE POLICY "Square actions read" ON square_subscription_actions FOR SELECT TO authenticated USING (get_user_role() = 'admin');
+
+-- The assembled Square subscriptions payload, stored so the tab opens from
+-- here in milliseconds instead of re-walking ~750 subscriptions on every visit.
+CREATE TABLE IF NOT EXISTS square_subscriptions_snapshot (
+  id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  payload JSONB NOT NULL,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  duration_ms INTEGER,
+  error TEXT
+);
+ALTER TABLE square_subscriptions_snapshot ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Square snapshot read" ON square_subscriptions_snapshot;
+CREATE POLICY "Square snapshot read" ON square_subscriptions_snapshot FOR SELECT TO authenticated USING (get_user_role() = 'admin');
