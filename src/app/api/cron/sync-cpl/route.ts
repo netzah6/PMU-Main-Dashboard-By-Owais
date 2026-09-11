@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SHEET_MAP } from "@/lib/sheets";
 import { syncOneSheet } from "@/lib/sync";
+import { getAuth } from "@/lib/ppa";
 
 export const maxDuration = 120;
 
@@ -11,9 +12,12 @@ export const maxDuration = 120;
 // report). Small tabs, own schedule, immune to everyone else's slowness —
 // same pattern as sync-deposits.
 export async function GET(req: NextRequest) {
+  // Cron secret, or an admin pressing "Refresh now" on the Performance tab.
   const authHeader = req.headers.get("authorization");
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const cronOk = !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
+  if (!cronOk) {
+    const auth = await getAuth();
+    if (!auth || auth.role !== "admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const tables = ["cpl_7days", "cpl_14days", "cpl_30days", "campaign_spent"];
   const results = [];
