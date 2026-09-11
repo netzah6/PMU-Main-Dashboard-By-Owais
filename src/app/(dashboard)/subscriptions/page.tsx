@@ -88,25 +88,32 @@ export default function SubscriptionsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
   const [serverCounts, setServerCounts] = useState<ServerCounts | null>(null);
+  // When the list was last rebuilt from Square. Ordinary loads come from a
+  // stored snapshot (instant); Refresh asks Square directly (slow, ~1 min).
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
+  const load = useCallback(async (live = false) => {
+    if (live) setRefreshing(true); else setLoading(true);
+    setError(null);
     try {
-      const res = await fetch("/api/square/subscriptions");
+      const res = await fetch(`/api/square/subscriptions${live ? "?refresh=1" : ""}`);
       // The platform can return plain text (e.g. a gateway timeout page), so
       // never assume JSON — show a readable error instead of a parse crash.
       const text = await res.text();
-      let json: { subscriptions?: Sub[]; error?: string; counts?: ServerCounts } = {};
+      let json: { subscriptions?: Sub[]; error?: string; counts?: ServerCounts; cachedAt?: string; lastError?: string | null } = {};
       try { json = JSON.parse(text); } catch {
         throw new Error(res.ok ? "Unexpected response from the server" : `Server error (${res.status}) — try Refresh in a moment`);
       }
       if (!res.ok) throw new Error(json.error || "Failed to load subscriptions");
       setSubs(json.subscriptions ?? []);
       setServerCounts(json.counts ?? null);
+      setCachedAt(json.cachedAt ?? null);
+      if (json.lastError) setError(`Showing the last good list — the latest rebuild from Square failed: ${json.lastError}`);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
     } finally {
-      setLoading(false);
+      setLoading(false); setRefreshing(false);
     }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -132,7 +139,7 @@ export default function SubscriptionsPage() {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Square refused");
       setActMsg({ ok: true, text: `${s.customerName}: ${j.detail}` });
-      await load();
+      await load(true);
     } catch (e) {
       setActMsg({ ok: false, text: `${s.customerName}: ${e instanceof Error ? e.message : "failed"}` });
     } finally { setActing(null); }
@@ -204,9 +211,15 @@ export default function SubscriptionsPage() {
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{counts.active} active</span>
           {counts.paused > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">{counts.paused} paused</span>}
           {counts.monthlyCents > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df]">{money(counts.monthlyCents, "USD")}/mo</span>}
-          <button onClick={load} disabled={loading}
+          {cachedAt && (
+            <span className="text-[11px] text-[#8595a8]" title="The list is stored and refreshed every 15 minutes; Refresh rebuilds it from Square right now">
+              updated {(() => { const m = Math.round((Date.now() - new Date(cachedAt).getTime()) / 60000); return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; })()}
+            </span>
+          )}
+          <button onClick={() => load(true)} disabled={loading || refreshing}
+            title="Rebuild the list from Square now (takes about a minute)"
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
+            <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} /> {refreshing ? "Refreshing from Square…" : "Refresh"}
           </button>
         </div>
       </div>
