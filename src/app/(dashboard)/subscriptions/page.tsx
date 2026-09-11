@@ -1,8 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, RefreshCw, CreditCard, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Loader2, Search, RefreshCw, CreditCard, Pause, Play, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DashboardSubscriptions } from "@/components/billing/DashboardSubscriptions";
+import { BillingActivity } from "@/components/billing/BillingActivity";
 
 interface Sub {
   id: string;
@@ -10,6 +11,7 @@ interface Sub {
   squareStatus?: string;
   pauseScheduledOn?: string | null;
   cancelScheduledOn?: string | null;
+  pauseActionId?: string | null;
   customerName: string;
   customerEmail: string | null;
   planName: string;
@@ -109,6 +111,56 @@ export default function SubscriptionsPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // Pause / resume on Square, from here. Square schedules these for the next
+  // billing cycle rather than applying them now, and it EMAILS the client
+  // either way — so the confirm says both, every time.
+  const [acting, setActing] = useState<string | null>(null);
+  const [actMsg, setActMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const squareAct = async (s: Sub, action: "pause" | "resume" | "cancel_pause") => {
+    const what = action === "pause"
+      ? `Pause ${s.customerName}'s Square subscription?\n\nSquare will schedule the pause for the next billing cycle and will EMAIL the client that their subscription is paused.`
+      : action === "resume"
+        ? `Resume ${s.customerName}'s Square subscription?\n\nSquare will schedule the resume and will EMAIL the client.`
+        : `Cancel the scheduled pause for ${s.customerName}?\n\nThe subscription stays active and keeps billing as normal.`;
+    if (!window.confirm(what)) return;
+    setActing(s.id); setActMsg(null);
+    try {
+      const r = await fetch("/api/square/subscriptions/action", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: s.id, action, customerName: s.customerName, actionId: s.pauseActionId ?? undefined }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Square refused");
+      setActMsg({ ok: true, text: `${s.customerName}: ${j.detail}` });
+      await load();
+    } catch (e) {
+      setActMsg({ ok: false, text: `${s.customerName}: ${e instanceof Error ? e.message : "failed"}` });
+    } finally { setActing(null); }
+  };
+  const ActionButtons = ({ s }: { s: Sub }) => {
+    const st = s.status.toUpperCase();
+    const busy = acting === s.id;
+    if (st === "PAUSED") return (
+      <button onClick={() => squareAct(s, "resume")} disabled={busy}
+        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-[#e6f7ee] text-[#15803d] border-[#c7edd4] hover:bg-[#d5f0e0]">
+        {busy ? <Loader2 size={10} className="animate-spin" /> : <Play size={10} />} Resume
+      </button>
+    );
+    if (st === "ACTIVE" && s.pauseScheduledOn) return (
+      <button onClick={() => squareAct(s, "cancel_pause")} disabled={busy}
+        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#d7e0ea] hover:bg-[#f6f9fc]">
+        {busy ? <Loader2 size={10} className="animate-spin" /> : <Undo2 size={10} />} Cancel pause
+      </button>
+    );
+    if (st === "ACTIVE") return (
+      <button onClick={() => squareAct(s, "pause")} disabled={busy}
+        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:bg-[#fdebd3]">
+        {busy ? <Loader2 size={10} className="animate-spin" /> : <Pause size={10} />} Pause
+      </button>
+    );
+    return null;
+  };
+
   const counts = useMemo(() => {
     const c = { active: 0, paused: 0, monthlyCents: 0 };
     subs.forEach((s) => {
@@ -143,21 +195,10 @@ export default function SubscriptionsPage() {
   return (
     <div className="p-3 sm:p-4 space-y-3">
       <DashboardSubscriptions />
-      <TokenPermissions />
+      <BillingActivity />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-[#1f3559]">Subscriptions</h1>
-          <p className="text-sm text-[#697a91]">
-            Square · active subscriptions &amp; upcoming charge dates
-            {serverCounts && (
-              // Spell out what Square actually holds, so a short list reads as
-              // a short list rather than "that must be all of them".
-              <> · <span className="text-[#34568a] font-medium">{serverCounts.total} on file</span>{" "}
-                ({Object.entries(serverCounts.byStatus).sort((a, b) => b[1] - a[1])
-                  .map(([k, v]) => `${v} ${k.toLowerCase()}`).join(", ")})
-              </>
-            )}
-          </p>
+          <h1 className="text-xl font-bold text-[#1f3559]">Square Subscriptions</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{counts.active} active</span>
@@ -169,6 +210,13 @@ export default function SubscriptionsPage() {
           </button>
         </div>
       </div>
+
+      {actMsg && (
+        <p className={cn("text-[12px] rounded-lg px-3 py-1.5 border",
+          actMsg.ok ? "text-[#15803d] bg-[#e6f7ee] border-[#c7edd4]" : "text-[#be123c] bg-[#fde8ee] border-[#f5c2cf]")}>
+          {actMsg.text}
+        </p>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
@@ -226,6 +274,7 @@ export default function SubscriptionsPage() {
                 </div>
                 <div className="text-xs text-[#697a91] truncate">{s.planName} · <strong className="text-[#0e8f88]">{money(s.amountCents, s.currency)}{CADENCE_LABEL[s.cadence] ?? ""}</strong></div>
                 <div className="text-xs text-[#34568a]">Next charge: <ChargeCell s={s} /></div>
+                <ActionButtons s={s} />
               </div>
             );
           })}
@@ -235,7 +284,7 @@ export default function SubscriptionsPage() {
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-[#e4ebf2] bg-[#f8fafc]">
-                {["Customer", "Plan", "Amount", "Status", "Started", "Next Charge"].map((h) => (
+                {["Customer", "Plan", "Amount", "Status", "Started", "Next Charge", ""].map((h) => (
                   <th key={h} className="px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -257,6 +306,7 @@ export default function SubscriptionsPage() {
                     </td>
                     <td className="px-3 py-1 text-[#697a91] whitespace-nowrap">{fmtDate(s.startDate)}</td>
                     <td className="px-3 py-1 text-[#1f3559]"><ChargeCell s={s} /></td>
+                    <td className="px-3 py-1 text-right"><ActionButtons s={s} /></td>
                   </tr>
                 );
               })}
@@ -264,73 +314,6 @@ export default function SubscriptionsPage() {
           </table>
         </div>
         </>
-      )}
-    </div>
-  );
-}
-
-/* What the Square token is allowed to do. Shown here because pausing or
-   resuming a subscription needs six specific permissions, and a token missing
-   one only fails at the moment someone clicks the button — on a real client's
-   billing. Admin-only server-side; the panel simply stays hidden otherwise. */
-function TokenPermissions() {
-  const [d, setD] = useState<{
-    scopes: string[]; canPauseResume: boolean; missingForSubscriptionWrites: string[];
-    requiredForSubscriptionWrites: string[]; expiresAt: string | null;
-  } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/square/token-status")
-      .then(async (r) => (r.ok ? setD(await r.json()) : setErr((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`)))
-      .catch(() => setErr("Could not reach Square"));
-  }, []);
-
-  if (err) {
-    return (
-      <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] px-3 py-2 text-[12px] text-[#b45309]">
-        Square permissions unknown: {err}
-      </div>
-    );
-  }
-  if (!d) return null;
-
-  const ok = d.canPauseResume;
-  return (
-    <div className={cn("rounded-xl border px-3 py-2", ok ? "border-[#c7edd4] bg-[#f4fbf7]" : "border-[#fcd9a8] bg-[#fffdf7]")}>
-      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 text-left">
-        {ok ? <ShieldCheck size={14} className="text-[#15803d] shrink-0" /> : <ShieldAlert size={14} className="text-[#b45309] shrink-0" />}
-        <span className={cn("text-[12px] font-bold", ok ? "text-[#15803d]" : "text-[#b45309]")}>
-          {ok
-            ? "This token can pause and resume subscriptions"
-            : `Cannot pause/resume — token is missing ${d.missingForSubscriptionWrites.length} permission${d.missingForSubscriptionWrites.length === 1 ? "" : "s"}`}
-        </span>
-        {!ok && (
-          <span className="text-[11px] text-[#b45309]">
-            {d.missingForSubscriptionWrites.join(", ")}
-          </span>
-        )}
-        <span className="ml-auto text-[11px] opacity-70">{open ? "hide" : "details"}</span>
-      </button>
-      {open && (
-        <div className="mt-2 space-y-1 text-[11px] text-[#34568a]">
-          <div>
-            <b>Needed for pause/resume:</b>{" "}
-            {d.requiredForSubscriptionWrites.map((s2) => (
-              <span key={s2} className={cn("inline-block mr-1 px-1.5 py-0.5 rounded border",
-                d.scopes.includes(s2)
-                  ? "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]"
-                  : "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]")}>
-                {s2}
-              </span>
-            ))}
-          </div>
-          <div className="text-[#697a91]">
-            <b>All {d.scopes.length} permissions on this token:</b> {d.scopes.join(", ") || "none reported"}
-          </div>
-          {d.expiresAt && <div className="text-[#697a91]">Token expires {new Date(d.expiresAt).toLocaleDateString()}</div>}
-        </div>
       )}
     </div>
   );

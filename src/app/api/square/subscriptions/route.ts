@@ -55,6 +55,7 @@ export async function GET() {
         squareStatus: s.status, // what Square itself reports, before our reading of it
         pauseScheduledOn: s.pauseScheduledOn,
         cancelScheduledOn: s.cancelScheduledOn,
+        pauseActionId: s.pauseActionId,
         customerName: customer?.name ?? s.customerId ?? "—",
         customerEmail: customer?.email ?? null,
         planName: plan?.name ?? "Subscription",
