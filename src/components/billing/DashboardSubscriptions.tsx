@@ -50,6 +50,12 @@ export function DashboardSubscriptions() {
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [form, setForm] = useState({ ownerKey: "", amount: "", cadence: "monthly", nextChargeOn: "", note: "" });
+  // Type-to-find replaces the 200-row dropdown: the query is what the admin
+  // typed, and the pick is the client they clicked from the matches.
+  const [clientQuery, setClientQuery] = useState("");
+  const [showMatches, setShowMatches] = useState(false);
+  // Which subscription is having its next-charge date changed inline.
+  const [dateEdit, setDateEdit] = useState<{ id: string; value: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,8 +117,14 @@ export function DashboardSubscriptions() {
 
   const submit = async () => {
     const ok = await act({ action: "create", ...form, clientLabel: clients.find((c) => c.key === form.ownerKey)?.label ?? "" }, "new");
-    if (ok) { setAdding(false); setForm({ ownerKey: "", amount: "", cadence: "monthly", nextChargeOn: "", note: "" }); }
+    if (ok) { setAdding(false); setForm({ ownerKey: "", amount: "", cadence: "monthly", nextChargeOn: "", note: "" }); setClientQuery(""); }
   };
+
+  const clientMatches = useMemo(() => {
+    const q = clientQuery.trim().toLowerCase();
+    if (!q) return [];
+    return clients.filter((c) => c.label.toLowerCase().includes(q)).slice(0, 8);
+  }, [clientQuery, clients]);
 
   const byId = useMemo(() => {
     const m = new Map<string, Charge[]>();
@@ -171,11 +183,33 @@ export function DashboardSubscriptions() {
       {adding && (
         <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5 space-y-2">
           <div className="flex flex-wrap gap-2">
-            <select value={form.ownerKey} onChange={(e) => setForm({ ...form, ownerKey: e.target.value })}
-              className="flex-1 min-w-[200px] px-2 py-1.5 bg-[#eef2f7] border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559]">
-              <option value="">Choose a client…</option>
-              {clients.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-            </select>
+            <div className="relative flex-1 min-w-[220px]">
+              <input
+                value={clientQuery}
+                onChange={(e) => { setClientQuery(e.target.value); setShowMatches(true); if (form.ownerKey) setForm({ ...form, ownerKey: "" }); }}
+                onFocus={() => setShowMatches(true)}
+                onBlur={() => setTimeout(() => setShowMatches(false), 150)}
+                placeholder="Start typing the client's name…"
+                autoComplete="off"
+                className={cn("w-full px-2 py-1.5 bg-[#eef2f7] border rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8]",
+                  form.ownerKey ? "border-[#15B7AE]" : "border-[#d7e0ea]")} />
+              {form.ownerKey && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[#0e8f88]">✓ picked</span>}
+              {showMatches && clientQuery.trim() && !form.ownerKey && (
+                <ul className="absolute z-30 left-0 right-0 mt-1 rounded-lg border border-[#d7e0ea] bg-white shadow-lg max-h-[240px] overflow-y-auto">
+                  {clientMatches.length === 0 ? (
+                    <li className="px-2.5 py-1.5 text-xs text-[#8595a8]">No live or paused client matches “{clientQuery}”</li>
+                  ) : clientMatches.map((c) => (
+                    <li key={c.key}>
+                      <button type="button" onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setForm({ ...form, ownerKey: c.key }); setClientQuery(c.label); setShowMatches(false); }}
+                        className="w-full text-left px-2.5 py-1.5 text-sm text-[#1f3559] hover:bg-[#e6f7f5]">
+                        {c.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
             <input value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })}
               placeholder="$ amount" inputMode="decimal"
               className="w-[110px] px-2 py-1.5 bg-[#eef2f7] border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559]" />
@@ -220,8 +254,31 @@ export function DashboardSubscriptions() {
                   <span className="text-[13px] font-semibold text-[#1f3559]">{s.client_label || s.owner_key}</span>
                   <span className="text-[13px] font-bold text-[#0e8f88] tabular-nums">{money(s.amount_cents)}</span>
                   <span className="text-[11px] text-[#697a91]">{s.cadence === "monthly" ? "every month" : "one time"}</span>
-                  {s.status === "active" && <span className="text-[11px] text-[#34568a]">next {fmt(s.next_charge_on)}</span>}
-                  {s.status === "draft" && <span className="text-[11px] text-[#8595a8]">would start {fmt(s.next_charge_on)}</span>}
+                  {s.status !== "ended" && (dateEdit?.id === s.id ? (
+                    <span className="flex items-center gap-1">
+                      <input type="date" value={dateEdit.value} min={new Date().toISOString().slice(0, 10)}
+                        onChange={(e) => setDateEdit({ id: s.id, value: e.target.value })}
+                        className="px-1.5 py-0.5 rounded border border-[#15B7AE] text-[11px] text-[#1f3559]" />
+                      <button onClick={async () => {
+                          if (!dateEdit.value) return;
+                          if (s.cadence === "monthly" && Number(dateEdit.value.slice(8, 10)) > 28) { setErr("Pick a day from 1–28 so every month has that date"); return; }
+                          const ok = await act({ action: "update", id: s.id, nextChargeOn: dateEdit.value }, `date:${s.id}`);
+                          if (ok) { setDateEdit(null); setMsg(`${s.client_label || s.owner_key}: next charge moved to ${fmt(dateEdit.value)}${s.cadence === "monthly" ? `, and the ${Number(dateEdit.value.slice(8, 10))}th of each month after` : ""}.`); }
+                        }}
+                        disabled={busy === `date:${s.id}`}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#15B7AE] text-white">{busy === `date:${s.id}` ? "…" : "Save"}</button>
+                      <button onClick={() => setDateEdit(null)} className="px-1 text-[10px] text-[#8595a8]">cancel</button>
+                    </span>
+                  ) : (
+                    <button onClick={() => setDateEdit({ id: s.id, value: s.next_charge_on })}
+                      title={s.cadence === "monthly"
+                        ? "Change the next charge date — the same day of the month is used from then on. Charges run at 7 AM Pacific."
+                        : "Change the charge date. Charges run at 7 AM Pacific."}
+                      className={cn("text-[11px] underline decoration-dotted underline-offset-2 hover:text-[#0e8f88]",
+                        s.status === "active" ? "text-[#34568a]" : "text-[#8595a8]")}>
+                      {s.status === "active" ? "next" : s.status === "paused" ? "resumes on" : "would start"} {fmt(s.next_charge_on)} 📅
+                    </button>
+                  ))}
 
                   <div className="ml-auto flex items-center gap-1.5">
                     {(s.status === "draft" || s.status === "paused") && (
