@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { DemoResult, DemoStatus } from "@/lib/demo-check";
 
 const SECTIONS: Array<{ key: DemoStatus; label: string; emoji: string; tint: string; border: string }> = [
@@ -98,6 +98,23 @@ export default function SalesPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Every run is saved server-side; this is the list to bring one back.
+  type PastCheck = { id: string; user_email: string | null; names: string[]; results: DemoResult[]; showed: number; total: number; created_at: string };
+  const [history, setHistory] = useState<PastCheck[]>([]);
+  const [viewingPast, setViewingPast] = useState<PastCheck | null>(null);
+  const loadHistory = useCallback(async () => {
+    try {
+      const r = await fetch("/api/sales/demo-check");
+      if (r.ok) setHistory(((await r.json()).checks as PastCheck[]) ?? []);
+    } catch { /* history is a convenience */ }
+  }, []);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+  const showPast = (c: PastCheck) => {
+    setViewingPast(c);
+    setRaw(c.names.join("\n"));
+    setResults(c.results);
+    setErr(null);
+  };
 
   const names = raw.split(/[\n,]/).map((n) => n.trim()).filter(Boolean);
 
@@ -114,6 +131,8 @@ export default function SalesPage() {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setResults(j.results as DemoResult[]);
+      setViewingPast(null);
+      loadHistory();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -158,6 +177,31 @@ export default function SalesPage() {
         Paste contact names (one per line). Each is checked against its sales-pipeline stage — the stage is what proves
         whether the demo actually happened, since a past demo stays &ldquo;confirmed&rdquo; on the calendar either way.
       </p>
+
+      {history.length > 0 && (
+        <div className="mt-4 flex items-center gap-2 flex-wrap">
+          <label className="text-xs font-semibold text-[#697a91]">Previous checks</label>
+          <select
+            value={viewingPast?.id ?? ""}
+            onChange={(e) => { const c = history.find((h) => h.id === e.target.value); if (c) showPast(c); }}
+            className="px-2 py-1.5 rounded-lg border border-[#e4ebf2] bg-white text-xs text-[#34568a] max-w-[420px]"
+          >
+            <option value="">Bring back an earlier list…</option>
+            {history.map((c) => (
+              <option key={c.id} value={c.id}>
+                {new Date(c.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                {" — "}{c.total} name{c.total === 1 ? "" : "s"}, {c.showed} showed
+                {c.user_email ? ` · ${c.user_email.split("@")[0]}` : ""}
+              </option>
+            ))}
+          </select>
+          {viewingPast && (
+            <span className="text-[11px] text-[#8595a8]">
+              Showing the list from {new Date(viewingPast.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} as it was then — press <b>Check</b> to re-run it for today&apos;s statuses.
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mt-5 rounded-xl border border-[#e4ebf2] bg-white p-4">
         <textarea
