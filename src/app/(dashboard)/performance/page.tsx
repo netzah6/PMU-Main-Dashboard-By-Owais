@@ -246,7 +246,7 @@ export default function PerformancePage() {
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-lg font-semibold text-[#1f3559]">Performance</h1>
-            <DataFreshness />
+            <DataFreshness onRefreshed={() => { void load(); }} />
           </div>
         </div>
         <div className="flex items-center gap-2">
