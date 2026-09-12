@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check } from "lucide-react";
+import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { GhlNotes } from "./GhlNotes";
@@ -378,7 +378,7 @@ export function ClientProfile({
                 <button onClick={saveEdit} disabled={saving}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#1f3559] transition-colors disabled:opacity-60"
                   style={{ background: "#15B7AE" }}>
-                  <Save size={12} /> {saving ? "Saving…" : "Save All"}
+                  {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} {saving ? "Saving…" : "Save All"}
                 </button>
                 <button onClick={() => setEditMode(false)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e4ebf2] hover:bg-[#dbe5ef] text-[#34568a] border border-[#d7e0ea] transition-colors">
@@ -424,6 +424,7 @@ export function ClientProfile({
                     {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 ); })()}
+                {statusSaving && <Loader2 size={12} className="animate-spin text-[#0e8f88]" />}
               </span>
             ) : (
               <Badge variant={statusVariant(String(localClient.status ?? ""))}>
@@ -457,6 +458,7 @@ export function ClientProfile({
                     {!VERSION_OPTIONS.includes(v) && <option value="" disabled>{v || "—"}</option>}
                     {VERSION_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
+                  {versionSaving && <Loader2 size={12} className="animate-spin text-[#0e8f88]" />}
                 </span>
               );
             })()}
@@ -476,6 +478,7 @@ export function ClientProfile({
                     {localClient.assigned && !TEAM_OPTIONS.includes(String(localClient.assigned)) && <option value={String(localClient.assigned)}>{String(localClient.assigned)}</option>}
                     {TEAM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
                   </select>
+                  {assignSaving === "Assigned" && <Loader2 size={12} className="animate-spin text-[#0e8f88]" />}
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="text-xs text-[#697a91]">Media Buyer:</span>
@@ -491,6 +494,7 @@ export function ClientProfile({
                     {localClient.media_buyer && !TEAM_OPTIONS.includes(String(localClient.media_buyer)) && <option value={String(localClient.media_buyer)}>{String(localClient.media_buyer)}</option>}
                     {TEAM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
                   </select>
+                  {assignSaving === "Media Buyer" && <Loader2 size={12} className="animate-spin text-[#0e8f88]" />}
                 </span>
               </>
             ) : (
