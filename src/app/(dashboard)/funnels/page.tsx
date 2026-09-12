@@ -707,11 +707,11 @@ export default function FunnelsPage() {
                       vis: acc.vis + s.visitors, leads: acc.leads + s.leads, picked: acc.picked + s.picked,
                       dep: acc.dep + s.deposits, ai: acc.ai + s.aiDeposits, spend: acc.spend + (s.spend ?? 0),
                     }), { vis: 0, leads: 0, picked: 0, dep: 0, ai: 0, spend: 0 });
-                    /* Lead/Pick rates are per VISITOR; the two deposit rates
-                       are per LEAD (of the people who filled the survey). */
+                    /* Lead rate is per VISITOR; pick and the two deposit
+                       rates are per LEAD (of the people who filled the survey). */
                     const bench = {
                       lead: t.vis ? (t.leads / t.vis) * 100 : 0,
-                      pick: t.vis ? (t.picked / t.vis) * 100 : 0,
+                      pick: t.leads ? (t.picked / t.leads) * 100 : 0,
                       dep: t.leads ? (t.dep / t.leads) * 100 : 0,
                       ai: t.leads ? (t.ai / t.leads) * 100 : 0,
                     };
@@ -753,7 +753,7 @@ export default function FunnelsPage() {
                               <td className="py-1.5 pr-3">{s.leads}</td>
                               {rateCell(s.visitors, s.leadRate, bench.lead)}
                               <td className="py-1.5 pr-3">{s.picked}</td>
-                              {rateCell(s.visitors, s.pickRate, bench.pick)}
+                              {rateCell(s.leads, pct(s.picked, s.leads), bench.pick)}
                               <td className="py-1.5 pr-3 font-semibold">{s.deposits}</td>
                               {rateCell(s.leads, pct(s.deposits, s.leads), bench.dep, "font-semibold")}
                               <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{s.aiDeposits}</td>
@@ -768,7 +768,7 @@ export default function FunnelsPage() {
                             <td className="py-1.5 pr-3">{t.leads}</td>
                             <td className="py-1.5 pr-3">{t.vis ? `${bench.lead.toFixed(1)}%` : "—"}</td>
                             <td className="py-1.5 pr-3">{t.picked}</td>
-                            <td className="py-1.5 pr-3">{t.vis ? `${bench.pick.toFixed(1)}%` : "—"}</td>
+                            <td className="py-1.5 pr-3">{t.leads ? `${bench.pick.toFixed(1)}%` : "—"}</td>
                             <td className="py-1.5 pr-3">{t.dep}</td>
                             <td className="py-1.5 pr-3">{t.leads ? `${bench.dep.toFixed(1)}%` : "—"}</td>
                             <td className="py-1.5 pr-3 text-[#7c3aed]">{t.ai}</td>
@@ -784,9 +784,9 @@ export default function FunnelsPage() {
                   <p className="mt-2 text-[10px] text-[#697a91]">
                     Funnel-wide numbers for every live one-box client (all traffic is one-box now).
                     Same counting rules as the old split tables: unique clients within 21 days, deposits =
-                    paid on the funnel, AI deposits = collected by text afterwards. Lead rate and Pick
-                    rate are per visitor; Deposit rate and AI dep. rate are per LEAD — of the people who
-                    filled the survey, the share who paid. <span className="bg-[#fff3e6] text-[#c2410c] font-semibold px-1 rounded">Orange</span> =
+                    paid on the funnel, AI deposits = collected by text afterwards. Lead rate is per visitor; Pick rate,
+                    Deposit rate and AI dep. rate are per LEAD — of the people who filled the survey,
+                    the share who picked a time / paid. <span className="bg-[#fff3e6] text-[#c2410c] font-semibold px-1 rounded">Orange</span> =
                     25%+ below the all-clients average — the likely bottleneck to look at. A cell only
                     qualifies once the client has enough traffic for the average to predict 3+ of that
                     event, so rare things (deposits) on small traffic don&rsquo;t cry wolf. Spend matches the ad account by the pinned owner name in
