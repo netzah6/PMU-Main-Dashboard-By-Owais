@@ -707,19 +707,21 @@ export default function FunnelsPage() {
                       vis: acc.vis + s.visitors, leads: acc.leads + s.leads, picked: acc.picked + s.picked,
                       dep: acc.dep + s.deposits, ai: acc.ai + s.aiDeposits, spend: acc.spend + (s.spend ?? 0),
                     }), { vis: 0, leads: 0, picked: 0, dep: 0, ai: 0, spend: 0 });
+                    /* Lead/Pick rates are per VISITOR; the two deposit rates
+                       are per LEAD (of the people who filled the survey). */
                     const bench = {
                       lead: t.vis ? (t.leads / t.vis) * 100 : 0,
                       pick: t.vis ? (t.picked / t.vis) * 100 : 0,
-                      dep: t.vis ? (t.dep / t.vis) * 100 : 0,
-                      ai: t.vis ? (t.ai / t.vis) * 100 : 0,
+                      dep: t.leads ? (t.dep / t.leads) * 100 : 0,
+                      ai: t.leads ? (t.ai / t.leads) * 100 : 0,
                     };
-                    const low = (s: StatRow, rate: number | null, avg: number) =>
-                      rate != null && avg > 0 && s.visitors * (avg / 100) >= 3 && rate < 0.75 * avg;
-                    const rateCell = (s: StatRow, rate: number | null, avg: number, extraCls = "") => (
+                    const low = (base: number, rate: number | null, avg: number) =>
+                      rate != null && avg > 0 && base * (avg / 100) >= 3 && rate < 0.75 * avg;
+                    const rateCell = (base: number, rate: number | null, avg: number, extraCls = "") => (
                       <td className={cn("py-1.5 pr-3", extraCls,
-                        low(s, rate, avg) && "bg-[#fff3e6] text-[#c2410c] font-semibold")}
-                        title={rate == null ? "no visitors in this window — rates need traffic"
-                          : low(s, rate, avg) ? `25%+ below the all-clients average (${avg.toFixed(1)}%) — likely bottleneck` : undefined}>
+                        low(base, rate, avg) && "bg-[#fff3e6] text-[#c2410c] font-semibold")}
+                        title={rate == null ? "nothing in this window yet — rates need data"
+                          : low(base, rate, avg) ? `25%+ below the all-clients average (${avg.toFixed(1)}%) — likely bottleneck` : undefined}>
                         {rate != null ? `${rate}%` : "—"}
                       </td>
                     );
@@ -749,13 +751,13 @@ export default function FunnelsPage() {
                               <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{s.clientName || s.slug}</td>
                               <td className="py-1.5 pr-3">{s.visitors}</td>
                               <td className="py-1.5 pr-3">{s.leads}</td>
-                              {rateCell(s, s.leadRate, bench.lead)}
+                              {rateCell(s.visitors, s.leadRate, bench.lead)}
                               <td className="py-1.5 pr-3">{s.picked}</td>
-                              {rateCell(s, s.pickRate, bench.pick)}
+                              {rateCell(s.visitors, s.pickRate, bench.pick)}
                               <td className="py-1.5 pr-3 font-semibold">{s.deposits}</td>
-                              {rateCell(s, pct(s.deposits, s.visitors), bench.dep, "font-semibold")}
+                              {rateCell(s.leads, pct(s.deposits, s.leads), bench.dep, "font-semibold")}
                               <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{s.aiDeposits}</td>
-                              {rateCell(s, pct(s.aiDeposits, s.visitors), bench.ai, "text-[#7c3aed]")}
+                              {rateCell(s.leads, pct(s.aiDeposits, s.leads), bench.ai, "text-[#7c3aed]")}
                               <td className="py-1.5 pr-3">{s.spend != null ? `$${s.spend}` : "—"}</td>
                               <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">{s.costPerBooking != null ? `$${s.costPerBooking}` : "—"}</td>
                             </tr>
@@ -768,9 +770,9 @@ export default function FunnelsPage() {
                             <td className="py-1.5 pr-3">{t.picked}</td>
                             <td className="py-1.5 pr-3">{t.vis ? `${bench.pick.toFixed(1)}%` : "—"}</td>
                             <td className="py-1.5 pr-3">{t.dep}</td>
-                            <td className="py-1.5 pr-3">{t.vis ? `${bench.dep.toFixed(1)}%` : "—"}</td>
+                            <td className="py-1.5 pr-3">{t.leads ? `${bench.dep.toFixed(1)}%` : "—"}</td>
                             <td className="py-1.5 pr-3 text-[#7c3aed]">{t.ai}</td>
-                            <td className="py-1.5 pr-3 text-[#7c3aed]">{t.vis ? `${bench.ai.toFixed(1)}%` : "—"}</td>
+                            <td className="py-1.5 pr-3 text-[#7c3aed]">{t.leads ? `${bench.ai.toFixed(1)}%` : "—"}</td>
                             <td className="py-1.5 pr-3">{t.spend ? `$${t.spend.toFixed(2)}` : "—"}</td>
                             <td className="py-1.5 pr-3">{t.spend && t.picked ? `$${(t.spend / t.picked).toFixed(2)}` : "—"}</td>
                           </tr>
@@ -782,8 +784,9 @@ export default function FunnelsPage() {
                   <p className="mt-2 text-[10px] text-[#697a91]">
                     Funnel-wide numbers for every live one-box client (all traffic is one-box now).
                     Same counting rules as the old split tables: unique clients within 21 days, deposits =
-                    paid on the funnel, AI deposits = collected by text afterwards; all rates are per
-                    visitor. <span className="bg-[#fff3e6] text-[#c2410c] font-semibold px-1 rounded">Orange</span> =
+                    paid on the funnel, AI deposits = collected by text afterwards. Lead rate and Pick
+                    rate are per visitor; Deposit rate and AI dep. rate are per LEAD — of the people who
+                    filled the survey, the share who paid. <span className="bg-[#fff3e6] text-[#c2410c] font-semibold px-1 rounded">Orange</span> =
                     25%+ below the all-clients average — the likely bottleneck to look at. A cell only
                     qualifies once the client has enough traffic for the average to predict 3+ of that
                     event, so rare things (deposits) on small traffic don&rsquo;t cry wolf. Spend matches the ad account by the pinned owner name in
