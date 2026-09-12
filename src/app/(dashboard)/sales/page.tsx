@@ -1,4 +1,5 @@
 "use client";
+import { Loader2 } from "lucide-react";
 
 import { useCallback, useEffect, useState } from "react";
 import type { DemoResult, DemoStatus } from "@/lib/demo-check";
@@ -217,7 +218,7 @@ export default function SalesPage() {
             disabled={busy || !names.length}
             className="rounded-lg bg-[#15B7AE] px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
           >
-            {busy ? `Checking ${names.length}…` : `Check ${names.length || ""} contact${names.length === 1 ? "" : "s"}`}
+            {busy && <Loader2 size={13} className="animate-spin inline mr-1.5 -mt-0.5" />}{busy ? `Checking ${names.length}…` : `Check ${names.length || ""} contact${names.length === 1 ? "" : "s"}`}
           </button>
           <span className="text-xs text-[#8595a8]">
             {names.length > 25 ? "Large lists take a while — roughly a second per name." : " "}
