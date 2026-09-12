@@ -380,7 +380,9 @@ export default function FunnelsPage() {
       });
       const j = await r.json();
       if (j.error) { setToast(j.error); return; }
-      setToast(decision === "approve" ? "Approved ✓ — it's the plan now" : "Denied — noted, I won't re-flag this for 3 weeks");
+      // Approving records the decision — nothing runs by itself. Say so, or
+      // the owner waits for a fix that is not coming (2026-09-12).
+      setToast(decision === "approve" ? "Approved ✓ — noted as the plan. Nothing runs on its own: hand the fix to a coach, or ask Claude to do it." : "Denied — noted, I won't re-flag this for 3 weeks");
       setDenyFor(null); setDenyReason(""); setDenySuggestion("");
       await loadInsights();
     } finally { setDecideBusy(null); }
@@ -590,7 +592,7 @@ export default function FunnelsPage() {
             <div className="flex flex-wrap items-center gap-2 mt-1">
               <p className="text-[11px] text-[#697a91]">
                 Watches every live B2C funnel daily, optimizing for deposits. Once a client has enough data it flags the
-                problem, the evidence, and a fix — nothing changes without your approve.
+                problem, the evidence, and a fix. Approving records the plan — it does not run the fix; a person (or Claude, when asked) does.
               </p>
               <div className="flex-1" />
               <button onClick={() => void scanNow()} disabled={scanBusy}

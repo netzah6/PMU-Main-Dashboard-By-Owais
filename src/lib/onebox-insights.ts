@@ -181,7 +181,7 @@ function runRules(
         slug: s.slug, kind: "no-traffic",
         problem: "Almost no ad traffic is reaching the funnel",
         why: `Only ${s.visitors} visitors in the last 14 days on a live funnel. Either the ads are off, or the ad's URL redirect broke — every ad click is being wasted.`,
-        solution: "Check the Meta ads are running, then I'll verify the ad URL → splitter → funnel chain end to end and fix whatever link is broken.",
+        solution: "Check the Meta ads are running, then verify the ad URL → splitter → funnel chain end to end and fix whatever link is broken.",
         metrics: { visitors: s.visitors },
       });
     }
@@ -215,7 +215,7 @@ function runRules(
         slug: s.slug, kind: "pick-pay-leak",
         problem: `${s.picked} people picked a time but only ${s.deposits + s.aiDeposits} paid the deposit`,
         why: `That's ${Math.round(pt * 100)}% pay-through vs the fleet's ${Math.round(medPay * 100)}% — the leak is between choosing a time and paying, not in getting leads.`,
-        solution: "Confirm the AI follow-up text fires at exactly 8 minutes for this client (the proven payment bump), and I'll run a live checkout test on her page to rule out a slow/broken payment box.",
+        solution: "Read a few of this client's post-pick chats: does the AI follow-up mention the time the lead already picked and send the deposit link? If it restarts the discovery script instead, that is the leak. Then confirm the follow-up fires at ~8 minutes and the payment box loads.",
         metrics: { picked: s.picked, paid: s.deposits + s.aiDeposits, payThrough: pt, fleetMedian: medPay },
       });
     }
@@ -228,7 +228,7 @@ function runRules(
         slug: s.slug, kind: "no-deposits",
         problem: `${s.leads} leads in 14 days and not a single deposit`,
         why: "At this volume even a weak funnel produces some deposits — zero means something in the pay path is likely broken (checkout, calendar hand-off, or the AI reach-out is off).",
-        solution: "I'll run the full chain on her funnel (survey → time pick → checkout) and check her AI follow-up is actually sending — then fix what's broken.",
+        solution: "Run the full chain on her funnel (survey → time pick → checkout) and check her AI follow-up is actually sending — then fix what's broken.",
         metrics: { leads: s.leads, picked: s.picked },
       });
     }
