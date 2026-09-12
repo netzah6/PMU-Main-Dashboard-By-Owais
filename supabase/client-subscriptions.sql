@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS client_subscriptions (
   note TEXT,
   square_customer_id TEXT,
   square_card_id TEXT,
+  -- "Visa ••4242", stored when chosen so the row shows it without a Square call
+  square_card_label TEXT,
   created_by TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   activated_by TEXT,

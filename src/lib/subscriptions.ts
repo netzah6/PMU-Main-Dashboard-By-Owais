@@ -60,18 +60,13 @@ export function advance(sub: Subscription, on: string): string | null {
 
 export type CardTarget = { customerId: string; cardId: string; label: string };
 
-/**
- * The Square customer and card to charge for a client. A pin in ppa_card_prefs
- * wins; otherwise the customer is found by the email or phone on their Clients
- * Master row and their first enabled card is used. Never guesses across
- * clients: no match means no charge.
- */
-export async function resolveCard(svc: Svc, ownerKey: string): Promise<CardTarget | { error: string }> {
+/** The Square customer for a client: the ppa_card_prefs pin's customer if one
+ *  exists, otherwise found by the email or phone on their Clients Master row.
+ *  Never guesses across clients — two matches is a refusal. */
+export async function resolveCustomer(svc: Svc, ownerKey: string): Promise<{ customerId: string; pinnedCardId: string | null } | { error: string }> {
   const { data: pin } = await svc
     .from("ppa_card_prefs").select("customer_id, card_id").eq("owner_key", ownerKey).maybeSingle();
-  if (pin?.customer_id && pin?.card_id) {
-    return { customerId: pin.customer_id as string, cardId: pin.card_id as string, label: "pinned card" };
-  }
+  if (pin?.customer_id) return { customerId: pin.customer_id as string, pinnedCardId: (pin.card_id as string) ?? null };
 
   const { data: rows } = await svc.from("clients_master").select("data");
   const row = (rows ?? []).find(
@@ -84,15 +79,23 @@ export async function resolveCard(svc: Svc, ownerKey: string): Promise<CardTarge
   let customers = email ? await searchCustomersByEmail(email) : [];
   if (!customers.length && phone) customers = await searchCustomersByPhone(phone);
   if (!customers.length) return { error: "No Square customer found by email or phone" };
-  if (customers.length > 1) {
-    return { error: `${customers.length} Square customers match — pin the right card first` };
-  }
+  if (customers.length > 1) return { error: `${customers.length} Square customers match — pin the right card first` };
+  return { customerId: customers[0].id, pinnedCardId: null };
+}
 
-  const customerId = customers[0].id;
-  const cards = (await listCards(customerId, false)).filter((c) => c.enabled !== false);
+/**
+ * The card a charge will use when the subscription has no card of its own:
+ * the ppa_card_prefs pin if there is one, else the customer's first enabled
+ * card. Callers that want the admin to CHOOSE should list cards instead.
+ */
+export async function resolveCard(svc: Svc, ownerKey: string): Promise<CardTarget | { error: string }> {
+  const cust = await resolveCustomer(svc, ownerKey);
+  if ("error" in cust) return cust;
+  if (cust.pinnedCardId) return { customerId: cust.customerId, cardId: cust.pinnedCardId, label: "pinned card" };
+  const cards = (await listCards(cust.customerId, false)).filter((c) => c.enabled !== false);
   if (!cards.length) return { error: "Square customer has no usable card on file" };
   const c = cards[0];
-  return { customerId, cardId: c.id, label: `${c.brand || "card"} ••${c.last4}` };
+  return { customerId: cust.customerId, cardId: c.id, label: `${c.brand || "card"} ••${c.last4}` };
 }
 
 export type ChargeOutcome =

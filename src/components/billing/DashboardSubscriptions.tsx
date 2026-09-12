@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, Plus, X, Play, Pause, Check, Trash2, ExternalLink, AlertTriangle } from "lucide-react";
+import { Loader2, Plus, X, Play, Pause, Check, Trash2, ExternalLink, AlertTriangle, CreditCard } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Subscriptions billed from here instead of Square, so pausing one never sends
@@ -18,7 +18,9 @@ type Sub = {
   cadence: "monthly" | "once"; charge_day: number | null; next_charge_on: string;
   status: "draft" | "active" | "paused" | "ended"; note: string | null;
   created_by: string | null; activated_by: string | null;
+  square_customer_id: string | null; square_card_id: string | null; square_card_label: string | null;
 };
+type CardOpt = { id: string; brand: string; last4: string; exp: string | null; holder: string | null; enabled: boolean };
 type Charge = {
   id: string; subscription_id: string; owner_key: string; amount_cents: number;
   status: "succeeded" | "failed"; square_payment_id: string | null; receipt_url: string | null;
@@ -56,6 +58,36 @@ export function DashboardSubscriptions() {
   const [showMatches, setShowMatches] = useState(false);
   // Which subscription is having its next-charge date changed inline.
   const [dateEdit, setDateEdit] = useState<{ id: string; value: string } | null>(null);
+  // Card picker: which subscription is open, the cards Square returned for
+  // that client, and which one would be used if nothing is chosen.
+  const [cardPick, setCardPick] = useState<{ id: string; loading: boolean; error?: string; customerId?: string; cards: CardOpt[]; defaultCardId: string | null; pinnedInPps: boolean } | null>(null);
+  // last4 by card id, so a row can show "••4242" without a lookup each render
+  const [cardLabels, setCardLabels] = useState<Record<string, string>>({});
+
+  const openCardPicker = async (s: Sub) => {
+    setCardPick({ id: s.id, loading: true, cards: [], defaultCardId: null, pinnedInPps: false });
+    try {
+      const r = await fetch(`/api/subscriptions/cards?ownerKey=${encodeURIComponent(s.owner_key)}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Could not load cards");
+      setCardPick({ id: s.id, loading: false, customerId: j.customerId, cards: j.cards, defaultCardId: j.defaultCardId, pinnedInPps: !!j.pinnedInPps });
+      const labels: Record<string, string> = {};
+      for (const c of j.cards as CardOpt[]) labels[c.id] = `${c.brand} ••${c.last4}`;
+      setCardLabels((m) => ({ ...m, ...labels }));
+    } catch (e) {
+      setCardPick({ id: s.id, loading: false, error: e instanceof Error ? e.message : "Could not load cards", cards: [], defaultCardId: null, pinnedInPps: false });
+    }
+  };
+  const chooseCard = async (s: Sub, customerId: string | null, cardId: string | null) => {
+    const cardLabel = cardId ? (cardLabels[cardId] ?? "") : "";
+    const ok = await act({ action: "set_card", id: s.id, customerId: customerId ?? "", cardId: cardId ?? "", cardLabel }, `card:${s.id}`);
+    if (ok) {
+      setCardPick(null);
+      setMsg(cardId
+        ? `${s.client_label || s.owner_key}: will charge ${cardLabels[cardId] ?? "the chosen card"}.`
+        : `${s.client_label || s.owner_key}: back to the default card.`);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -280,6 +312,16 @@ export function DashboardSubscriptions() {
                     </button>
                   ))}
 
+                  {s.status !== "ended" && (
+                    <button onClick={() => openCardPicker(s)}
+                      title={s.square_card_id ? "This subscription charges a specific card — click to change" : "No card chosen — the charge uses the PPS-pinned card or the first card on file. Click to choose."}
+                      className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border",
+                        s.square_card_id ? "bg-[#eef4ff] text-[#1d4ed8] border-[#c9dbfb]" : "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]")}>
+                      <CreditCard size={10} />
+                      {s.square_card_id ? (s.square_card_label ?? cardLabels[s.square_card_id] ?? "chosen card") : "default card"}
+                    </button>
+                  )}
+
                   <div className="ml-auto flex items-center gap-1.5">
                     {(s.status === "draft" || s.status === "paused") && (
                       <button onClick={() => act({ action: s.status === "draft" ? "activate" : "resume", id: s.id }, `on:${s.id}`)}
@@ -311,6 +353,57 @@ export function DashboardSubscriptions() {
                     </button>
                   </div>
                 </div>
+
+                {cardPick?.id === s.id && (
+                  <div className="border-t border-[#eef3f8] bg-[#f7fbff] px-2.5 py-2 space-y-1.5">
+                    {cardPick.loading ? (
+                      <div className="flex items-center gap-2 text-[11px] text-[#697a91]"><Loader2 size={12} className="animate-spin" /> Looking up cards on file in Square…</div>
+                    ) : cardPick.error ? (
+                      <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#be123c]">
+                        {cardPick.error}
+                        <button onClick={() => setCardPick(null)} className="ml-auto text-[#8595a8]">close</button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-[11px] font-semibold text-[#1f3559]">
+                          Which card should this subscription charge?
+                          {cardPick.pinnedInPps && <span className="ml-2 font-normal text-[#697a91]">(the default is the card pinned on PPS Billing)</span>}
+                        </div>
+                        {cardPick.cards.length === 0 ? (
+                          <p className="text-[11px] text-[#be123c]">This client has no cards on file in Square.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {cardPick.cards.map((c) => {
+                              const chosen = s.square_card_id === c.id;
+                              const isDefault = !s.square_card_id && c.id === cardPick.defaultCardId;
+                              return (
+                                <button key={c.id} disabled={!c.enabled || busy === `card:${s.id}`}
+                                  onClick={() => chooseCard(s, cardPick.customerId ?? null, c.id)}
+                                  title={!c.enabled ? "Disabled in Square — cannot be charged" : c.holder ?? undefined}
+                                  className={cn("flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] text-left",
+                                    chosen ? "bg-[#eef4ff] border-[#1d4ed8] text-[#1d4ed8] font-semibold"
+                                      : c.enabled ? "bg-white border-[#d7e0ea] text-[#1f3559] hover:border-[#15B7AE]"
+                                        : "bg-[#f6f7f9] border-[#e2e8f0] text-[#94a3b8] line-through")}>
+                                  <CreditCard size={12} />
+                                  <span>{c.brand} ••{c.last4}{c.exp ? ` · exp ${c.exp}` : ""}</span>
+                                  {chosen && <span className="text-[9px] font-bold uppercase">chosen</span>}
+                                  {isDefault && <span className="text-[9px] font-bold uppercase text-[#0e8f88]">default</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-[11px]">
+                          {s.square_card_id && (
+                            <button onClick={() => chooseCard(s, null, null)} disabled={busy === `card:${s.id}`}
+                              className="text-[#34568a] underline decoration-dotted">Use the default card instead</button>
+                          )}
+                          <button onClick={() => setCardPick(null)} className="ml-auto text-[#8595a8]">close</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {(s.note || last) && !open && (
                   <div className="px-2.5 pb-1.5 text-[10px] text-[#8595a8]">
