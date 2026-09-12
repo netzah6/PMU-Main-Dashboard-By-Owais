@@ -115,14 +115,33 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
   const teamFor = await loadTeamLookup(svc); // "Assigned · Media buyer" chip on alerts
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, " ").trim();
   const bizByOwner = new Map<string, string>();
+  const statusByOwner = new Map<string, string>();
+  const statusByBiz = new Map<string, string>();
+  const statusByContactId = new Map<string, string>();
   try {
     const { data: cm } = await svc.from("clients_master").select("data");
     for (const row of (cm ?? []) as Array<{ data: Record<string, unknown> }>) {
       const owner = norm(String(row.data?.["Owner Full Name"] ?? ""));
       const biz = String(row.data?.["Business Name"] ?? "").trim();
       if (owner && biz && !bizByOwner.has(owner)) bizByOwner.set(owner, biz);
+      const status = String(row.data?.["col_1"] ?? "").trim().toLowerCase();
+      if (owner) statusByOwner.set(owner, status);
+      if (biz) statusByBiz.set(biz.toLowerCase(), status);
+      const cid = String(row.data?.["Contact ID"] ?? "").trim();
+      if (/^[A-Za-z0-9_-]{15,}$/.test(cid)) statusByContactId.set(cid, status);
     }
   } catch { /* alerts still file without the business name */ }
+  // Only LIVE clients belong on the Alerts board (owner request 2026-09-12 —
+  // an offboarded client's complaint is not something to act on). The contact
+  // id on the Clients Master row is checked first because names drift; the
+  // name and business matches are the fallback. Unknown = not a client = skip.
+  const isLiveClient = (contactId: string | null, contactName: string, biz: string | null): boolean => {
+    if (contactId && statusByContactId.has(contactId)) return statusByContactId.get(contactId) === "live";
+    const n = norm(contactName);
+    if (n && statusByOwner.has(n)) return statusByOwner.get(n) === "live";
+    if (biz && statusByBiz.has(biz.toLowerCase())) return statusByBiz.get(biz.toLowerCase()) === "live";
+    return false;
+  };
   const businessFor = (contactName: string): string | null => {
     const n = norm(contactName);
     if (!n) return null;
@@ -160,7 +179,9 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       // concrete ask to act on — the CEO wants to know either way. The alert
       // carries the business name and the client's actual recent messages so
       // the CEO can judge for himself (user request 2026-08-30).
-      if (cls?.upset) {
+      // The alert is gated on Live status; the proposal below is not — a
+      // non-live client's concrete request still reaches the AI inbox.
+      if (cls?.upset && isLiveClient(c.contactId, c.contactName, businessFor(c.contactName))) {
         const biz = businessFor(c.contactName);
         const recentInbound = thread.filter((m) => m.direction === "inbound").slice(-3);
         const msgs = recentInbound.map((m) => `• "${m.body.slice(0, 400)}"`).join("\n");
