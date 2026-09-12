@@ -97,6 +97,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   }
 
+  // Which card on file this subscription charges. Empty ids clear the choice,
+  // and the charge falls back to the PPS pin / first enabled card again.
+  if (action === "set_card") {
+    const customerId = String(body.customerId ?? "").trim();
+    const cardId = String(body.cardId ?? "").trim();
+    const label = String(body.cardLabel ?? "").trim().slice(0, 40) || null;
+    const patch = customerId && cardId
+      ? { square_customer_id: customerId, square_card_id: cardId, square_card_label: label, updated_at: now }
+      : { square_customer_id: null, square_card_id: null, square_card_label: null, updated_at: now };
+    const { error } = await svc.from("client_subscriptions").update(patch).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  }
+
   if (action === "update") {
     const patch: Record<string, unknown> = { updated_at: now };
     if (body.amount != null) {
