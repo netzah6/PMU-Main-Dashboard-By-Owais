@@ -1060,7 +1060,7 @@ export default function FunnelsPage() {
                 <div className="flex-1" />
                 <button onClick={() => void act("resync", f.slug)} disabled={busy === `resync:${f.slug}`}
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
-                  {busy === `resync:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sync now
+                  {busy === `resync:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sync Custom Values From GHL
                 </button>
                 <button onClick={() => void act("health", f.slug)} disabled={busy === `health:${f.slug}`}
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
