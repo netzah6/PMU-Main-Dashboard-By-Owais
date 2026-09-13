@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
-import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Save } from "lucide-react";
+import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Funnels — the one-box funnels hosted on Vercel: which client has one,
