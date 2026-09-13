@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
-import { getSurveyFieldMap } from "@/lib/onebox";
+import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { ingestRow } from "@/lib/direct-ingest";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
@@ -34,13 +34,79 @@ export async function POST(req: NextRequest) {
   // can see who reached the deposit step but never paid.
   if (stage === "slot") {
     if (!slug || !phone) return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
+    const slotIso = String(body.slotIso ?? "").slice(0, 40);
     const svcSlot = createServiceClient();
-    await svcSlot
-      .from("onebox_leads")
-      .update({ picked_time_at: new Date().toISOString(), slot_iso: String(body.slotIso ?? "").slice(0, 40) })
-      .eq("slug", slug)
-      .eq("phone", phone)
-      .then(() => {});
+    const [, { data: slotClient }, { data: slotLead }] = await Promise.all([
+      svcSlot
+        .from("onebox_leads")
+        .update({ picked_time_at: new Date().toISOString(), slot_iso: slotIso })
+        .eq("slug", slug)
+        .eq("phone", phone)
+        .then((r) => r),
+      svcSlot.from("onebox_clients").select("location_id, status, extras").eq("slug", slug).single(),
+      svcSlot
+        .from("onebox_leads")
+        .select("ghl_contact_id, full_name, answers")
+        .eq("slug", slug)
+        .eq("phone", phone)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    /* Until now GHL only learned about a slot AFTER the deposit cleared, so
+       a lead who picked a time but never paid looked exactly like one who
+       only filled the survey — the follow-up AI could not name her slot or
+       branch on it (fleet scan 2026-09-12: 0 of 124 engaged-never-asked
+       leads paid). Tag the contact and fill "CC - Reserved Appointment
+       Time" the moment the time is chosen; the paid path overwrites the
+       same field later. B2B has no deposit step, so nothing to mark. */
+    const slotExtras = (slotClient?.extras ?? {}) as { template?: string };
+    const slotDisqualified = Boolean((slotLead?.answers as { disqualified?: boolean } | null)?.disqualified);
+    if (slotClient && slotClient.status !== "draft" && slotExtras.template !== "b2b" && !slotDisqualified && slotIso) {
+      try {
+        const loc = slotClient.location_id as string;
+        const tok = await getAppLocationToken(loc);
+        if (!tok.token) throw new Error(tok.error ?? "no location token");
+        const H = {
+          Authorization: `Bearer ${tok.token}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        };
+        let contactId = String(slotLead?.ghl_contact_id ?? "");
+        if (!contactId) {
+          // The survey upsert is what normally sets it; if that call was
+          // still in flight (or failed), the same phone-deduped upsert
+          // finds or creates the contact.
+          const nm = String(slotLead?.full_name ?? body.full_name ?? "").trim();
+          const [fn, ...ln] = nm.split(/\s+/);
+          const up = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
+            method: "POST", headers: H,
+            body: JSON.stringify({ locationId: loc, firstName: fn, lastName: ln.join(" "), name: nm, phone, source: "One-Box Funnel" }),
+          });
+          const uj = (await up.json()) as { contact?: { id?: string } };
+          contactId = String(uj.contact?.id ?? "");
+        }
+        if (contactId) {
+          const fieldMap = await getSurveyFieldMap(loc, tok.token);
+          await Promise.all([
+            // Additive endpoint — tags in a PUT body replace the whole list.
+            fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+              method: "POST", headers: H, body: JSON.stringify({ tags: ["onebox-picked-time"] }),
+            }),
+            fieldMap.reserved_time
+              ? fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+                  method: "PUT", headers: H,
+                  body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(slotIso) }] }),
+                })
+              : Promise.resolve(),
+          ]);
+        }
+      } catch (e) {
+        // Best effort: the lead row already records the pick either way.
+        console.error("[onebox/submit] slot tag failed:", e instanceof Error ? e.message : e);
+      }
+    }
     return NextResponse.json({ ok: true });
   }
   // Split-test attribution, passed through by the funnel page.
