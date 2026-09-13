@@ -338,24 +338,25 @@ export function ClientProfile({
       <div className="sticky top-0 z-10 px-3 sm:px-6 pt-3 sm:pt-5 pb-2.5 sm:pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
+            {/* Business, owner and their local time on ONE line (wraps only when
+                the screen is too narrow). The ad-account name used to follow —
+                it is nearly always the business name again, so it's gone
+                (user, 2026-09-13). */}
+            <div className="flex items-baseline gap-x-2 gap-y-0.5 flex-wrap">
               <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
               {localClient.business_name && <CopyButton value={String(localClient.business_name)} title="Copy business name" />}
-            </div>
-            <p className="text-sm text-[#697a91] mt-0.5 flex items-center gap-1.5 flex-wrap">
-              <span className="truncate">{localClient.owner_name || "—"}</span>
-              {localClient.owner_name && <CopyButton value={String(localClient.owner_name)} title="Copy client full name" />}
-              {/* Time zone rides with the person's name — one line, phone-friendly. */}
+              <span className="text-sm text-[#697a91] inline-flex items-center gap-1.5 min-w-0">
+                <span className="truncate">{localClient.owner_name || "—"}</span>
+                {localClient.owner_name && <CopyButton value={String(localClient.owner_name)} title="Copy client full name" />}
+              </span>
               {tz && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap"
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap self-center"
                   title={`Client time zone (from GoHighLevel): ${tz}`}>
                   <Clock size={11} />
                   {tz.split("/").pop()?.replace(/_/g, " ")}{tzOffset ? ` (${tzOffset})` : ""}{tzTime ? ` · ${tzTime} local` : ""}
                 </span>
               )}
-              {/* The ad account is almost always the business name again — desktop only. */}
-              {localClient.ad_account_name && <span className="hidden md:inline text-[#8595a8] truncate">· {String(localClient.ad_account_name)}</span>}
-            </p>
+            </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Desktop only. On a phone this opened the GHL website rather than the
