@@ -260,7 +260,7 @@ export default function FunnelsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
   const [addNote, setAddNote] = useState<string | null>(null);
-  const [extrasFor, setExtrasFor] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [cvFor, setCvFor] = useState<string | null>(null);
   const [leadsFor, setLeadsFor] = useState<string | null>(null);
   const [leadRows, setLeadRows] = useState<Record<string, LeadRow[]>>({});
@@ -1066,12 +1066,7 @@ export default function FunnelsPage() {
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `health:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />} Health check
                 </button>
-                <button onClick={() => { setExtrasFor(extrasFor === f.slug ? null : f.slug); setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); }}
-                  className={cn("text-[11px] border rounded-lg px-2 py-0.5",
-                    extrasFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
-                  Extras {extrasFor === f.slug ? "▲" : ""}
-                </button>
-                <button onClick={() => { const open = cvFor === f.slug; setCvFor(open ? null : f.slug); if (!open) setCvForm({ ...f.cv }); }}
+                <button onClick={() => { const open = cvFor === f.slug; setCvFor(open ? null : f.slug); if (!open) { setCvForm({ ...f.cv }); setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); setShowAdvanced(false); } }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
                     cvFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Values {cvFor === f.slug ? "▲" : ""}
@@ -1084,7 +1079,7 @@ export default function FunnelsPage() {
                 <button onClick={() => void act("status", f.slug, { status: f.status === "live" ? "paused" : "live" })}
                   disabled={busy === `status:${f.slug}`}
                   className={cn("text-xs rounded-lg px-2.5 py-1 border font-medium",
-                    f.status === "live" ? "border-[#fdba74] text-[#c2410c] hover:bg-[#fff3e6]" : "border-[#bfe3cd] text-[#15803d] hover:bg-[#e7f6ec]")}>
+                    f.status === "live" ? "border-[#fdba74] text-[#c2410c] hover:bg-[#fff3e6]" : "ob-golive border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]")}>
                   {f.status === "live" ? "Pause" : "Go live"}
                 </button>
               </div>
@@ -1190,7 +1185,41 @@ export default function FunnelsPage() {
                           className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                       </label>
                     ))}
+                    <label className="grid gap-0.5">
+                      <span className="text-[10px] font-medium text-[#697a91]">Meta pixel ID{f.hasPixel ? "" : " (not set)"}</span>
+                      <input value={extrasForm.metaPixelId} placeholder="leave empty to keep the current one"
+                        onChange={(e) => setExtrasForm((x) => ({ ...x, metaPixelId: e.target.value }))}
+                        className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                    </label>
                   </div>
+                  <button onClick={() => setShowAdvanced(!showAdvanced)}
+                    className="justify-self-start text-[11px] text-[#697a91] hover:underline">
+                    {showAdvanced ? "▲ hide" : "▼ show"} rarely-needed settings (ad-spend owner, widgets, checkout paste)
+                  </button>
+                  {showAdvanced && (
+                    <div className="grid gap-2">
+                      <p className="text-[11px] text-[#697a91]">Leave a field empty to keep its current value.</p>
+                      <div className="grid md:grid-cols-2 gap-2">
+                        <input placeholder="Ad-spend owner name, exactly as in the Performance tab"
+                          value={extrasForm.ownerName}
+                          onChange={(e) => setExtrasForm((x) => ({ ...x, ownerName: e.target.value }))}
+                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                        <input placeholder="Old funnel URL this one replaces (shows the redirect line)"
+                          value={extrasForm.oldFunnelUrl}
+                          onChange={(e) => setExtrasForm((x) => ({ ...x, oldFunnelUrl: e.target.value }))}
+                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                        <input placeholder="Instagram widget (Elfsight ID / link / code)" value={extrasForm.elfsightId}
+                          onChange={(e) => setExtrasForm((x) => ({ ...x, elfsightId: e.target.value }))}
+                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                        <input placeholder="Result image URLs, comma-separated" value={extrasForm.resultImgs}
+                          onChange={(e) => setExtrasForm((x) => ({ ...x, resultImgs: e.target.value }))}
+                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                      </div>
+                      <textarea placeholder="Commas checkout block (paste the whole custom-code block from the client's -last-step page)"
+                        value={extrasForm.fanbasisHtml} onChange={(e) => setExtrasForm((x) => ({ ...x, fanbasisHtml: e.target.value }))}
+                        rows={3} className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs font-mono" />
+                    </div>
+                  )}
                   <div>
                     <button
                       onClick={() => {
@@ -1198,13 +1227,18 @@ export default function FunnelsPage() {
                         for (const [k, v] of Object.entries(cvForm)) {
                           if ((f.cv[k] ?? "") !== v) changed[k] = v;
                         }
-                        if (!Object.keys(changed).length) { setToast("Nothing changed"); return; }
-                        void act("cvs", f.slug, { values: JSON.stringify(changed) });
+                        const extras: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(extrasForm)) {
+                          if (v.trim()) extras[k] = v;
+                        }
+                        if (!Object.keys(changed).length && !Object.keys(extras).length) { setToast("Nothing changed"); return; }
+                        if (Object.keys(changed).length) void act("cvs", f.slug, { values: JSON.stringify(changed) });
+                        if (Object.keys(extras).length) void act("extras", f.slug, extras);
                         setCvFor(null);
                       }}
-                      disabled={busy === `cvs:${f.slug}`}
+                      disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`}
                       className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
-                      {busy === `cvs:${f.slug}` ? "Saving…" : "Save to GHL"}
+                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
                     </button>
                   </div>
                 </div>
@@ -1482,51 +1516,6 @@ export default function FunnelsPage() {
                 </div>
               )}
 
-              {extrasFor === f.slug && (
-                <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
-                  <p className="text-[11px] text-[#697a91]">
-                    Leave a field empty to keep its current value. Instagram widget accepts the Elfsight ID, the elf.site link, or the whole embed code.
-                  </p>
-                  <textarea placeholder="Commas checkout block (paste the whole custom-code block from the client's -last-step page)"
-                    value={extrasForm.fanbasisHtml} onChange={(e) => setExtrasForm((x) => ({ ...x, fanbasisHtml: e.target.value }))}
-                    rows={3} className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs font-mono" />
-                  <div className="grid md:grid-cols-3 gap-2">
-                    <input placeholder="Instagram widget (Elfsight ID / link / code)" value={extrasForm.elfsightId}
-                      onChange={(e) => setExtrasForm((x) => ({ ...x, elfsightId: e.target.value }))}
-                      className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                    <input placeholder="Result image URLs, comma-separated" value={extrasForm.resultImgs}
-                      onChange={(e) => setExtrasForm((x) => ({ ...x, resultImgs: e.target.value }))}
-                      className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                    <input placeholder="Meta pixel ID" value={extrasForm.metaPixelId}
-                      onChange={(e) => setExtrasForm((x) => ({ ...x, metaPixelId: e.target.value }))}
-                      className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                  </div>
-                  <input placeholder="Old funnel URL this one replaces (shows the redirect from → to line)"
-                    value={extrasForm.oldFunnelUrl}
-                    onChange={(e) => setExtrasForm((x) => ({ ...x, oldFunnelUrl: e.target.value }))}
-                    className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                  <input placeholder="Ad-spend owner name, exactly as in the Performance tab (e.g. Ivan Androsov)"
-                    value={extrasForm.ownerName}
-                    onChange={(e) => setExtrasForm((x) => ({ ...x, ownerName: e.target.value }))}
-                    className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                  <div>
-                    <button onClick={() => {
-                      const payload: Record<string, string> = {};
-                      if (extrasForm.fanbasisHtml.trim()) payload.fanbasisHtml = extrasForm.fanbasisHtml;
-                      if (extrasForm.elfsightId.trim()) payload.elfsightId = extrasForm.elfsightId;
-                      if (extrasForm.resultImgs.trim()) payload.resultImgs = extrasForm.resultImgs;
-                      if (extrasForm.metaPixelId.trim()) payload.metaPixelId = extrasForm.metaPixelId;
-                      if (extrasForm.oldFunnelUrl.trim()) payload.oldFunnelUrl = extrasForm.oldFunnelUrl;
-                      if (extrasForm.ownerName.trim()) payload.ownerName = extrasForm.ownerName;
-                      void act("extras", f.slug, payload);
-                      setExtrasFor(null);
-                    }} disabled={busy === `extras:${f.slug}`}
-                      className="flex items-center gap-1.5 text-xs bg-[#0e9c9c] text-white rounded-lg px-3 py-1.5 hover:bg-[#0b8383]">
-                      <Save className="w-3.5 h-3.5" /> Save extras
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
             </Fragment>
           ))}
