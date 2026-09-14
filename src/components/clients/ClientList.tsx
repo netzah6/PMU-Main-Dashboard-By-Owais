@@ -190,7 +190,7 @@ export function ClientList({ clients, selectedId, onSelect, programOf }: ClientL
                       {/* Program chip — PPS blue, Standard yellow (user, 2026-09-14). */}
                       {(() => { const pr = programOf?.(c); return pr ? (
                         <span className={cn("ml-auto shrink-0 px-1.5 py-px rounded text-[10px] font-bold border",
-                          pr === "PPS" ? "bg-[#eef2ff] text-[#3a5a8c] border-[#c7d2fe]" : "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]")}>
+                          pr === "PPS" ? "bg-[#1d4ed8] text-white border-[#1d4ed8]" : "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]")}>
                           {pr}
                         </span>
                       ) : null; })()}
