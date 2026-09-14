@@ -472,15 +472,18 @@ export default function FunnelsPage() {
   }
 
   // Fresh SOP + verification every time the split panel opens or switches mode.
+  /* The SOP + verification live under Start Setup, while the start button
+     sits under Split test — so a passed verification must SURVIVE closing
+     one panel and opening the other. It resets only when the test mode
+     flips or a Start Setup panel opens fresh (see the button handler). */
   useEffect(() => {
     setSop({ renamed: false, redirect: false, values: false, workflow: false });
     setStartVerify(null);
-  }, [abFor, abMode]);
+  }, [abMode]);
 
   async function verifyStart(slug: string) {
-    const el = document.getElementById(`ab-orig-${slug}`) as HTMLInputElement | null;
-    const target = (el?.value ?? "").trim();
-    if (!target) { setToast("Add the original funnel URL first"); return; }
+    const target = abOrigUrl.trim();
+    if (!target) { setToast("Add the original funnel URL first (under Start Setup)"); return; }
     setStartVerify({ loading: true });
     try {
       const r = await fetch("/api/onebox/ab", {
@@ -907,7 +910,7 @@ export default function FunnelsPage() {
                     ))}
                     {f.abStatus === "running" && (
                       <button title="Split test is live — click for details"
-                        onClick={() => { if (abFor !== f.slug) { setAbFor(f.slug); setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
+                        onClick={() => { if (abFor !== f.slug) { setAbFor(f.slug); if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
                         className="text-[11px] font-semibold rounded-full px-2 py-0.5 border bg-[#f3e8ff] text-[#7c3aed] border-[#d8b4fe] inline-flex items-center gap-1.5 hover:bg-[#ead9fe]">
                         <span className="w-1.5 h-1.5 rounded-full bg-[#7c3aed] animate-pulse" />
                         A/B TEST LIVE
@@ -1045,7 +1048,7 @@ export default function FunnelsPage() {
                     so the splitter forwards all traffic straight through. To send any share to the original GHL funnel, set one up first.
                   </span>
                   <button
-                    onClick={() => { setTrafficFor(null); setAbFor(f.slug); setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); }}
+                    onClick={() => { setTrafficFor(null); setAbFor(f.slug); if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); }}
                     className="border border-[#e4ebf2] rounded-md px-2.5 py-1 hover:bg-white text-[11px] font-medium">
                     Set up a test vs the original…
                   </button>
@@ -1066,12 +1069,23 @@ export default function FunnelsPage() {
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `health:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />} Health check
                 </button>
-                <button onClick={() => { const open = cvFor === f.slug; setCvFor(open ? null : f.slug); if (!open) { setCvForm({ ...f.cv }); setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); setShowAdvanced(false); } }}
+                <button onClick={() => {
+                    const open = cvFor === f.slug;
+                    setCvFor(open ? null : f.slug);
+                    if (!open) {
+                      setCvForm({ ...f.cv });
+                      setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
+                      setShowAdvanced(false);
+                      setAbOrigUrl(f.oldFunnelUrl ? f.oldFunnelUrl.replace(/\/?$/, "") + "-ab-ghl" : "");
+                      setSop({ renamed: false, redirect: false, values: false, workflow: false });
+                      setStartVerify(null);
+                    }
+                  }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
                     cvFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
-                  Values {cvFor === f.slug ? "▲" : ""}
+                  Start Setup {cvFor === f.slug ? "▲" : ""}
                 </button>
-                <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
+                <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
                     abFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Split test {abFor === f.slug ? "▲" : ""}
@@ -1241,6 +1255,91 @@ export default function FunnelsPage() {
                       {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
                     </button>
                   </div>
+
+                  <div className="border-t border-[#eef2f6] pt-3 grid gap-2">
+                    <p className="text-[11px] text-[#697a91]">
+                      Traffic must arrive at the splitter: point the ad&rsquo;s redirect at{" "}
+                      <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b>. With no test running it simply
+                      forwards to the funnel, so it can stay pointed there permanently.
+                    </p>
+                    <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL at its -ab-ghl address (e.g. https://pmu-care.com/their-survey-ab-ghl)"
+                      value={abOrigUrl}
+                      onChange={(e) => { setAbOrigUrl(e.target.value); setStartVerify(null); }}
+                      className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                    <div className="border border-[#e4ebf2] rounded-xl p-3 grid gap-1.5 text-xs">
+                      <b className="text-[11px] text-[#1c2b3a]">Start-test SOP — do each step in GHL, tick it, then run the check:</b>
+                      <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
+                        <input type="checkbox" className="mt-0.5" checked={sop.renamed}
+                          onChange={(e) => { setSop((x) => ({ ...x, renamed: e.target.checked })); setStartVerify(null); }} />
+                        <span>1. Rename the original page: add{" "}
+                          <CopyChip text="-ab-ghl" onCopied={() => setToast("Copied ✓")} /> to the END of its path
+                          (don&rsquo;t retype the whole path)</span>
+                      </label>
+                      <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
+                        <input type="checkbox" className="mt-0.5" checked={sop.redirect}
+                          onChange={(e) => { setSop((x) => ({ ...x, redirect: e.target.checked })); setStartVerify(null); }} />
+                        <span>2. URL Redirect (Sites → URL Redirects):{" "}
+                          {adUrlFromRenamed(abOrigUrl) ? (
+                            <CopyChip text={adUrlFromRenamed(abOrigUrl).replace(/^https?:\/\/[^/]+/, "")} onCopied={() => setToast("Copied ✓")} />
+                          ) : (
+                            <i>paste the -ab-ghl URL above first</i>
+                          )}{" "}
+                          →{" "}
+                          <CopyChip text={f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)} onCopied={() => setToast("Copied ✓")} /></span>
+                      </label>
+                      <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
+                        <input type="checkbox" className="mt-0.5" checked={sop.values}
+                          onChange={(e) => { setSop((x) => ({ ...x, values: e.target.checked })); setStartVerify(null); }} />
+                        <span>3. Values filled &amp; health check green</span>
+                      </label>
+                      <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
+                        <input type="checkbox" className="mt-0.5" checked={sop.workflow}
+                          onChange={(e) => { setSop((x) => ({ ...x, workflow: e.target.checked })); setStartVerify(null); }} />
+                        <span>4. Workflow <b>CC- Funnel Survey &rarr; (V1/V2/V3)</b>: add a Contact Tag trigger{" "}
+                          <CopyChip text="onebox-survey" onCopied={() => setToast("Copied ✓")} />
+                          {" "}+ the same tag as an OR condition in the <b>(V3)</b> branch, then Publish
+                          (manual — the check can&rsquo;t verify this one)</span>
+                      </label>
+                      {!startVerify && (
+                        <button onClick={() => void verifyStart(f.slug)}
+                          disabled={!(sop.renamed && sop.redirect && sop.values && sop.workflow)}
+                          className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] disabled:opacity-40 disabled:cursor-not-allowed">
+                          Run verification
+                        </button>
+                      )}
+                      {startVerify?.loading && <span className="text-[#697a91]">Checking the live wiring…</span>}
+                      {startVerify?.error && <span className="text-[#b91c1c]">{startVerify.error}</span>}
+                      {startVerify?.checks && !startVerify.loading && (
+                        <>
+                          <span className={startVerify.checks.originalReady ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                            {startVerify.checks.originalReady
+                              ? "✓ Original funnel is live at its renamed address"
+                              : `✗ Original funnel: ${startVerify.checks.originalNote}`}
+                          </span>
+                          <span className={startVerify.checks.redirectLive ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                            {startVerify.checks.redirectLive
+                              ? "✓ Ad URL redirects to the splitter"
+                              : `✗ Ad URL: ${startVerify.checks.redirectNote}`}
+                          </span>
+                          <span className={startVerify.checks.oneboxReady ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                            {startVerify.checks.oneboxReady
+                              ? "✓ One-box funnel is live and configured"
+                              : `✗ One-box: ${startVerify.checks.oneboxNote}`}
+                          </span>
+                          {startVerify.adUrl && (
+                            <span className="text-[#697a91] break-all">ad link tested: {startVerify.adUrl}</span>
+                          )}
+                          {startVerify.ok && startVerify.namedRight === false && (
+                            <span className="text-[#c2410c]">note: the path doesn&rsquo;t end in -ab-ghl — the team won&rsquo;t see the test marker</span>
+                          )}
+                          <button onClick={() => void verifyStart(f.slug)}
+                            className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
+                            Re-check
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1262,95 +1361,17 @@ export default function FunnelsPage() {
                           two versions of this funnel
                         </button>
                       </div>
-                      <p className="text-[11px] text-[#697a91]">
-                        Traffic must arrive at the splitter: point the ad&rsquo;s redirect at{" "}
-                        <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b>. With no test running it simply
-                        forwards to the funnel, so it can stay pointed there permanently.
-                      </p>
                       {abMode === "original" ? (
                         <div className="grid gap-2">
-                          <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL at its -ab-ghl address (e.g. https://pmu-care.com/their-survey-ab-ghl)"
-                            value={abOrigUrl}
-                            onChange={(e) => { setAbOrigUrl(e.target.value); setStartVerify(null); }}
-                            className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                          <div className="border border-[#e4ebf2] rounded-xl p-3 grid gap-1.5 text-xs">
-                            <b className="text-[11px] text-[#1c2b3a]">Start-test SOP — do each step in GHL, tick it, then run the check:</b>
-                            <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
-                              <input type="checkbox" className="mt-0.5" checked={sop.renamed}
-                                onChange={(e) => { setSop((x) => ({ ...x, renamed: e.target.checked })); setStartVerify(null); }} />
-                              <span>1. Rename the original page: add{" "}
-                                <CopyChip text="-ab-ghl" onCopied={() => setToast("Copied ✓")} /> to the END of its path
-                                (don&rsquo;t retype the whole path)</span>
-                            </label>
-                            <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
-                              <input type="checkbox" className="mt-0.5" checked={sop.redirect}
-                                onChange={(e) => { setSop((x) => ({ ...x, redirect: e.target.checked })); setStartVerify(null); }} />
-                              <span>2. URL Redirect (Sites → URL Redirects):{" "}
-                                {adUrlFromRenamed(abOrigUrl) ? (
-                                  <CopyChip text={adUrlFromRenamed(abOrigUrl).replace(/^https?:\/\/[^/]+/, "")} onCopied={() => setToast("Copied ✓")} />
-                                ) : (
-                                  <i>paste the -ab-ghl URL above first</i>
-                                )}{" "}
-                                →{" "}
-                                <CopyChip text={f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)} onCopied={() => setToast("Copied ✓")} /></span>
-                            </label>
-                            <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
-                              <input type="checkbox" className="mt-0.5" checked={sop.values}
-                                onChange={(e) => { setSop((x) => ({ ...x, values: e.target.checked })); setStartVerify(null); }} />
-                              <span>3. Values filled &amp; health check green</span>
-                            </label>
-                            <label className="flex items-start gap-2 cursor-pointer text-[#697a91]">
-                              <input type="checkbox" className="mt-0.5" checked={sop.workflow}
-                                onChange={(e) => { setSop((x) => ({ ...x, workflow: e.target.checked })); setStartVerify(null); }} />
-                              <span>4. Workflow <b>CC- Funnel Survey &rarr; (V1/V2/V3)</b>: add a Contact Tag trigger{" "}
-                                <CopyChip text="onebox-survey" onCopied={() => setToast("Copied ✓")} />
-                                {" "}+ the same tag as an OR condition in the <b>(V3)</b> branch, then Publish
-                                (manual — the check can&rsquo;t verify this one)</span>
-                            </label>
-                            {!startVerify && (
-                              <button onClick={() => void verifyStart(f.slug)}
-                                disabled={!(sop.renamed && sop.redirect && sop.values && sop.workflow)}
-                                className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] disabled:opacity-40 disabled:cursor-not-allowed">
-                                Run verification
-                              </button>
-                            )}
-                            {startVerify?.loading && <span className="text-[#697a91]">Checking the live wiring…</span>}
-                            {startVerify?.error && <span className="text-[#b91c1c]">{startVerify.error}</span>}
-                            {startVerify?.checks && !startVerify.loading && (
-                              <>
-                                <span className={startVerify.checks.originalReady ? "text-[#15803d]" : "text-[#b91c1c]"}>
-                                  {startVerify.checks.originalReady
-                                    ? "✓ Original funnel is live at its renamed address"
-                                    : `✗ Original funnel: ${startVerify.checks.originalNote}`}
-                                </span>
-                                <span className={startVerify.checks.redirectLive ? "text-[#15803d]" : "text-[#b91c1c]"}>
-                                  {startVerify.checks.redirectLive
-                                    ? "✓ Ad URL redirects to the splitter"
-                                    : `✗ Ad URL: ${startVerify.checks.redirectNote}`}
-                                </span>
-                                <span className={startVerify.checks.oneboxReady ? "text-[#15803d]" : "text-[#b91c1c]"}>
-                                  {startVerify.checks.oneboxReady
-                                    ? "✓ One-box funnel is live and configured"
-                                    : `✗ One-box: ${startVerify.checks.oneboxNote}`}
-                                </span>
-                                {startVerify.adUrl && (
-                                  <span className="text-[#697a91] break-all">ad link tested: {startVerify.adUrl}</span>
-                                )}
-                                {startVerify.ok && startVerify.namedRight === false && (
-                                  <span className="text-[#c2410c]">note: the path doesn&rsquo;t end in -ab-ghl — the team won&rsquo;t see the test marker</span>
-                                )}
-                                <button onClick={() => void verifyStart(f.slug)}
-                                  className="justify-self-start border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc]">
-                                  Re-check
-                                </button>
-                              </>
-                            )}
-                          </div>
+                          <p className="text-[11px] text-[#697a91]">
+                            {startVerify?.ok
+                              ? <>✓ Setup verified{abOrigUrl ? <> against <b>{abOrigUrl.replace(/^https?:\/\//, "")}</b></> : null} — ready to start.</>
+                              : <>Do the GHL steps and run the verification under <b>Start Setup</b> first — this button unlocks when it passes.</>}
+                          </p>
                           <button
                             onClick={() => {
-                              const el = document.getElementById(`ab-orig-${f.slug}`) as HTMLInputElement | null;
-                              const target = (el?.value ?? "").trim();
-                              if (!target) { setToast("Add the original funnel URL first"); return; }
+                              const target = abOrigUrl.trim();
+                              if (!target) { setToast("Add the original funnel URL under Start Setup first"); return; }
                               void abAct(f.slug, {
                                 action: "create", slug: f.slug, name: "Original vs One-Box",
                                 variants: [
