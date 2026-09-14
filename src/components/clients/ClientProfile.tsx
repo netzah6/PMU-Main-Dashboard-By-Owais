@@ -130,6 +130,23 @@ export function ClientProfile({
     : null;
   const tzOffset = tz ? gmtOffset(tz) : null;
 
+  // Does this client have a one-box funnel, and is it live? Read from the
+  // onebox_active_clients view (one-box clients joined to Clients Master by
+  // business name); no row = never set up (user request 2026-09-14).
+  const [onebox, setOnebox] = useState<{ status: string; slug: string } | null | undefined>(undefined);
+  useEffect(() => {
+    setOnebox(undefined);
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/onebox/status?business=${encodeURIComponent(tzBusiness)}`);
+        const d = r.ok ? await r.json() : null;
+        if (!cancelled) setOnebox(d?.status ? { status: d.status, slug: d.slug } : null);
+      } catch { if (!cancelled) setOnebox(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [tzBusiness]);
+
   const rowNumber = Number(localClient._row_number ?? localClient.row_number ?? 0);
 
   const perfRecord = performance.find(
@@ -503,6 +520,15 @@ export function ClientProfile({
                 <UserChip label="Assigned" name={String(localClient.assigned ?? "")} />
                 <UserChip label="Media Buyer" name={String(localClient.media_buyer ?? "")} />
               </>
+            )}
+            {onebox !== undefined && (
+              <Badge variant={onebox?.status === "live" ? "teal" : onebox ? "yellow" : "gray"}>
+                One-box:{" "}
+                <strong className="ml-1"
+                  title={onebox ? `book.pmu-care.com/f/${onebox.slug}` : "No one-box funnel set up for this client"}>
+                  {onebox?.status === "live" ? "Active" : onebox?.status === "paused" ? "Paused" : onebox ? onebox.status : "Not set up"}
+                </strong>
+              </Badge>
             )}
             {/* Was "Campaign" (Campaign Status from the master sheet) — that
                 column is empty for every client, so the badge only ever read
