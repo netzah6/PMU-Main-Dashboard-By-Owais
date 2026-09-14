@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
-import { createCardPayment, listCards, searchCustomersByEmail, searchCustomersByPhone } from "@/lib/square";
+import { createCardPayment, listCards, listAllCustomers, searchCustomersByEmail, searchCustomersByPhone, type SquareCustomer } from "@/lib/square";
 import { normalizeOwnerKey } from "@/lib/normalizers";
 
 // Recurring billing run from the dashboard rather than Square Subscriptions.
@@ -74,13 +74,57 @@ export async function resolveCustomer(svc: Svc, ownerKey: string): Promise<{ cus
   ) as { data: Record<string, string> } | undefined;
   if (!row) return { error: "No Clients Master row for this client" };
 
+  /* Square keeps a separate customer record per checkout, so one artist is
+     often two or three records — and the card lives on only one of them.
+     Casandra Brown (2026-09-14): Clients Master has sabbybeautyacademy@…,
+     her card sits on the record under sabbybeauty1@… (the one her old Square
+     subscription bills), so the email match found a card-less twin and the
+     picker said "no cards on file". Gather every plausible record — master
+     email, master phone, the email on her Square subscription, and any record
+     whose name matches — then let the cards decide which one is hers. */
   const email = String(row.data["Email"] ?? "").trim();
   const phone = String(row.data["Phone"] ?? "").trim();
-  let customers = email ? await searchCustomersByEmail(email) : [];
-  if (!customers.length && phone) customers = await searchCustomersByPhone(phone);
-  if (!customers.length) return { error: "No Square customer found by email or phone" };
-  if (customers.length > 1) return { error: `${customers.length} Square customers match — pin the right card first` };
-  return { customerId: customers[0].id, pinnedCardId: null };
+  const seen = new Map<string, SquareCustomer>();
+  const add = (list: SquareCustomer[]) => { for (const c of list) if (!seen.has(c.id)) seen.set(c.id, c); };
+  if (email) add(await searchCustomersByEmail(email));
+  if (phone) add(await searchCustomersByPhone(phone));
+  for (const e of await subscriptionEmailsFor(svc, ownerKey)) {
+    if (e && e.toLowerCase() !== email.toLowerCase()) add(await searchCustomersByEmail(e));
+  }
+  try {
+    const { customers } = await listAllCustomers();
+    add(customers.filter((c) => normalizeOwnerKey(c.name) === ownerKey));
+  } catch { /* the scan is a bonus — the direct lookups above still stand */ }
+
+  const candidates = [...seen.values()];
+  if (!candidates.length) return { error: "No Square customer found by email, phone or name" };
+  if (candidates.length === 1) return { customerId: candidates[0].id, pinnedCardId: null };
+
+  // Several records: the one holding a usable card is the real one.
+  const withCards: SquareCustomer[] = [];
+  for (const c of candidates) {
+    const cards = (await listCards(c.id, false)).filter((k) => k.enabled !== false);
+    if (cards.length) withCards.push(c);
+  }
+  const describe = (l: SquareCustomer[]) => l.map((c) => c.email || c.name).join(", ");
+  if (withCards.length === 1) return { customerId: withCards[0].id, pinnedCardId: null };
+  if (withCards.length === 0)
+    return { error: `${candidates.length} Square customers match (${describe(candidates)}) and none has a card on file` };
+  return { error: `${withCards.length} Square customers with cards match (${describe(withCards)}) — pin the right card on PPS Billing first` };
+}
+
+/* Emails Square itself has for this artist, taken from the stored Square
+   Subscriptions snapshot (one row per subscription, with the customer's
+   name + email). A record the artist was billed on before is the best lead
+   to the one carrying her card. */
+async function subscriptionEmailsFor(svc: Svc, ownerKey: string): Promise<string[]> {
+  const { data } = await svc.from("square_subscriptions_snapshot").select("payload").eq("id", 1).maybeSingle();
+  const subs = ((data?.payload as { subscriptions?: Array<{ customerName?: string; customerEmail?: string | null }> } | null)?.subscriptions) ?? [];
+  const out = new Set<string>();
+  for (const s of subs) {
+    if (s.customerEmail && normalizeOwnerKey(s.customerName) === ownerKey) out.add(s.customerEmail.trim());
+  }
+  return [...out];
 }
 
 /**
