@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -40,7 +40,7 @@ type AbResult = {
 type Funnel = {
   slug: string; locationId: string; clientName: string; status: string;
   cvSyncedAt: string | null; url: string;
-  hasCalendar: boolean; hasFanbasis: boolean; hasWidget: boolean; hasPixel: boolean;
+  hasCalendar: boolean; hasFanbasis: boolean; hasWidget: boolean; hasPixel: boolean; pixelId?: string;
   oldFunnelUrl: string;
   cv: Record<string, string>;
   visitors: number;
@@ -303,6 +303,29 @@ export default function FunnelsPage() {
   const [leadsBusy, setLeadsBusy] = useState(false);
   const [cvForm, setCvForm] = useState<Record<string, string>>({});
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
+  const [pixelOther, setPixelOther] = useState(false);
+  /* Pixels in use across all funnels. Shared ones (2+ funnels) are the
+     agency's template pixels — named "PMU For all (A)", "(B)", … by how many
+     funnels ride on them; a pixel used by one funnel is named after that
+     client. */
+  const pixelOptions = useMemo(() => {
+    const use = new Map<string, { n: number; who: string }>();
+    for (const x of funnels) {
+      const id = (x.pixelId ?? "").replace(/\D/g, "");
+      if (!id) continue;
+      const u = use.get(id) ?? { n: 0, who: x.clientName };
+      u.n += 1; use.set(id, u);
+    }
+    const shared = [...use.entries()].filter(([, u]) => u.n >= 2).sort((a, b) => b[1].n - a[1].n);
+    const single = [...use.entries()].filter(([, u]) => u.n < 2).sort((a, b) => a[1].who.localeCompare(b[1].who));
+    const out: { id: string; label: string }[] = [];
+    shared.forEach(([id, u], i) => out.push({ id, label: `PMU For all (${String.fromCharCode(65 + i)}) — ${id} · ${u.n} funnels` }));
+    single.forEach(([id, u]) => out.push({ id, label: `${u.who} — ${id}` }));
+    return out;
+  }, [funnels]);
+  const pixelLabel = (id: string) => pixelOptions.find((o) => o.id === id)?.label ?? id;
+  const pixelChoice = (typed: string, current: string) =>
+    pixelOther ? "__other" : !typed ? "__keep" : pixelOptions.some((o) => o.id === typed && typed !== current) ? typed : "__other";
   const [toast, setToast] = useState<string | null>(null);
   const [abFor, setAbFor] = useState<string | null>(null);
   const [abMode, setAbMode] = useState<"original" | "versions">("original");
@@ -619,96 +642,6 @@ export default function FunnelsPage() {
         <div className="p-10 text-center text-[#697a91] text-sm">No funnels yet — add the first client.</div>
       ) : (
         <div className="space-y-1.5">
-          <div className="border border-[#f0c987] rounded-xl bg-white p-4">
-            <button onClick={() => setOptimizerOpen(!optimizerOpen)}
-              className="w-full flex flex-wrap items-center gap-2 text-sm font-medium text-[#1c2b3a]">
-              🧠 Optimizer — B2C funnels
-              {insights && insights.open.length > 0 && (
-                <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-[#fff3e6] text-[#c2410c] border border-[#fdba74]">
-                  {insights.open.length} flag{insights.open.length === 1 ? "" : "s"} waiting for you
-                </span>
-              )}
-              <span className="ml-auto text-[#697a91]">{optimizerOpen ? "▲" : "▼"}</span>
-            </button>
-            {optimizerOpen && (<>
-            <div className="flex flex-wrap items-center gap-2 mt-1">
-              <p className="text-[11px] text-[#697a91]">
-                Watches every live B2C funnel daily, optimizing for deposits. Once a client has enough data it flags the
-                problem, the evidence, and a fix. Approving records the plan — it does not run the fix; a person (or Claude, when asked) does.
-              </p>
-              <div className="flex-1" />
-              <button onClick={() => void scanNow()} disabled={scanBusy}
-                className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] inline-flex items-center gap-1.5 disabled:opacity-50">
-                {scanBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Scan now
-              </button>
-            </div>
-            {insights === null ? (
-              <div className="mt-2 text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /></div>
-            ) : insights.open.length === 0 ? (
-              <div className="mt-2 text-xs text-[#697a91]">No open flags — every funnel is inside its normal range right now.</div>
-            ) : (
-              <div className="mt-2 space-y-2">
-                {insights.open.map((ins) => (
-                  <div key={ins.id} className="border border-[#f4dcb8] rounded-lg bg-[#fffcf6] p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <b className="text-sm text-[#1c2b3a]">{ins.clientName}</b>
-                      <span className="text-[13px] font-medium text-[#b45309]">{ins.problem}</span>
-                    </div>
-                    <div className="text-xs text-[#425466] mt-1"><b className="text-[#697a91]">Why:</b> {ins.why}</div>
-                    <div className="text-xs text-[#425466] mt-1"><b className="text-[#0b7f7f]">Fix I suggest:</b> {ins.solution}</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <button onClick={() => void decideInsight(ins.id, "approve")} disabled={decideBusy === ins.id}
-                        className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
-                        {decideBusy === ins.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Approve
-                      </button>
-                      <button onClick={() => { setDenyFor(denyFor === ins.id ? null : ins.id); setDenyReason(""); setDenySuggestion(""); }}
-                        className={cn("text-xs border rounded-md px-3 py-1",
-                          denyFor === ins.id ? "border-[#fca5a5] bg-[#fef2f2] text-[#b91c1c]" : "border-[#e4ebf2] hover:bg-white text-[#697a91]")}>
-                        Deny…
-                      </button>
-                    </div>
-                    {denyFor === ins.id && (
-                      <div className="mt-2 grid gap-1.5">
-                        <input placeholder="Why deny? (required if no suggestion)" value={denyReason}
-                          onChange={(e) => setDenyReason(e.target.value)}
-                          className="border border-[#e4ebf2] rounded-md px-2.5 py-1.5 text-xs" />
-                        <input placeholder="Or suggest a different fix — we'll do yours instead (optional)" value={denySuggestion}
-                          onChange={(e) => setDenySuggestion(e.target.value)}
-                          className="border border-[#e4ebf2] rounded-md px-2.5 py-1.5 text-xs" />
-                        <button onClick={() => void decideInsight(ins.id, "deny", denyReason, denySuggestion)}
-                          disabled={decideBusy === ins.id || (!denyReason.trim() && !denySuggestion.trim())}
-                          className="justify-self-start text-xs border border-[#fca5a5] text-[#b91c1c] rounded-md px-3 py-1 hover:bg-[#fef2f2] disabled:opacity-40">
-                          Confirm deny
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {insights && insights.decided.length > 0 && (
-              <div className="mt-2">
-                <button onClick={() => setShowDecided(!showDecided)} className="text-[11px] text-[#697a91] hover:underline">
-                  {showDecided ? "▲ hide" : "▼ show"} recent decisions ({insights.decided.length})
-                </button>
-                {showDecided && (
-                  <div className="mt-1 space-y-1">
-                    {insights.decided.map((ins) => (
-                      <div key={ins.id} className="text-[11px] text-[#697a91]">
-                        <span className={ins.status === "approved" ? "text-[#15803d]" : "text-[#b91c1c]"}>
-                          {ins.status === "approved" ? "✓ approved" : "✗ denied"}
-                        </span>{" "}
-                        <b className="text-[#425466]">{ins.clientName}</b> — {ins.problem}
-                        {ins.deny_reason ? <span className="italic"> · “{ins.deny_reason}”</span> : null}
-                        {ins.user_suggestion ? <span className="italic"> · your fix: “{ins.user_suggestion}”</span> : null}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            </>)}
-          </div>
           {funnels.some((f) => f.status === "live" && f.slug !== "demo-v3" && f.template !== "b2b") && (
             <div className="border border-[#bfe6e2] rounded-xl bg-white p-4">
               <button
@@ -1113,7 +1046,7 @@ export default function FunnelsPage() {
                     setCvFor(open ? null : f.slug);
                     if (!open) {
                       setCvForm({ ...f.cv });
-                      setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
+                      setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); setPixelOther(false);
                       setSurveyRows(parseSurvey((f.cv.surveyRaw ?? "").trim() || DEFAULT_SURVEY_TEMPLATE));
                       setSurveyDirty(false);
                       setAbOrigUrl(f.oldFunnelUrl ? f.oldFunnelUrl.replace(/\/?$/, "") + "-ab-ghl" : "");
@@ -1241,9 +1174,27 @@ export default function FunnelsPage() {
                     ))}
                     <label className="grid gap-0.5">
                       <span className="text-[10px] font-medium text-[#697a91]">Meta pixel ID{f.hasPixel ? "" : " (not set)"}</span>
-                      <input value={extrasForm.metaPixelId} placeholder="leave empty to keep the current one"
-                        onChange={(e) => setExtrasForm((x) => ({ ...x, metaPixelId: e.target.value }))}
-                        className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                      {/* Every pixel already in use across the funnels, so a new
+                          client is dropped onto the right shared pixel instead
+                          of a typo (user, 2026-09-14). "Other…" opens a box. */}
+                      <select value={pixelChoice(extrasForm.metaPixelId, f.pixelId ?? "")}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__other") { setPixelOther(true); setExtrasForm((x) => ({ ...x, metaPixelId: "" })); }
+                          else { setPixelOther(false); setExtrasForm((x) => ({ ...x, metaPixelId: v === "__keep" ? "" : v })); }
+                        }}
+                        className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs bg-white">
+                        <option value="__keep">{f.pixelId ? `Keep current — ${pixelLabel(f.pixelId)}` : "— pick a pixel —"}</option>
+                        {pixelOptions.filter((o) => o.id !== f.pixelId).map((o) => (
+                          <option key={o.id} value={o.id}>{o.label}</option>
+                        ))}
+                        <option value="__other">Other…</option>
+                      </select>
+                      {pixelOther && (
+                        <input value={extrasForm.metaPixelId} placeholder="paste the pixel ID" autoFocus
+                          onChange={(e) => setExtrasForm((x) => ({ ...x, metaPixelId: e.target.value.replace(/\D/g, "") }))}
+                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs mt-1" />
+                      )}
                     </label>
                   </div>
                   <div className="grid gap-1">
@@ -1593,6 +1544,98 @@ export default function FunnelsPage() {
             </div>
             </Fragment>
           ))}
+          {/* Optimizer lives at the very bottom of the tab (user, 2026-09-14) —
+              the funnels themselves come first. */}
+          <div className="border border-[#f0c987] rounded-xl bg-white p-4">
+            <button onClick={() => setOptimizerOpen(!optimizerOpen)}
+              className="w-full flex flex-wrap items-center gap-2 text-sm font-medium text-[#1c2b3a]">
+              🧠 Optimizer — B2C funnels
+              {insights && insights.open.length > 0 && (
+                <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-[#fff3e6] text-[#c2410c] border border-[#fdba74]">
+                  {insights.open.length} flag{insights.open.length === 1 ? "" : "s"} waiting for you
+                </span>
+              )}
+              <span className="ml-auto text-[#697a91]">{optimizerOpen ? "▲" : "▼"}</span>
+            </button>
+            {optimizerOpen && (<>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              <p className="text-[11px] text-[#697a91]">
+                Watches every live B2C funnel daily, optimizing for deposits. Once a client has enough data it flags the
+                problem, the evidence, and a fix. Approving records the plan — it does not run the fix; a person (or Claude, when asked) does.
+              </p>
+              <div className="flex-1" />
+              <button onClick={() => void scanNow()} disabled={scanBusy}
+                className="text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1 hover:bg-[#f6f9fc] inline-flex items-center gap-1.5 disabled:opacity-50">
+                {scanBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Scan now
+              </button>
+            </div>
+            {insights === null ? (
+              <div className="mt-2 text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /></div>
+            ) : insights.open.length === 0 ? (
+              <div className="mt-2 text-xs text-[#697a91]">No open flags — every funnel is inside its normal range right now.</div>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {insights.open.map((ins) => (
+                  <div key={ins.id} className="border border-[#f4dcb8] rounded-lg bg-[#fffcf6] p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <b className="text-sm text-[#1c2b3a]">{ins.clientName}</b>
+                      <span className="text-[13px] font-medium text-[#b45309]">{ins.problem}</span>
+                    </div>
+                    <div className="text-xs text-[#425466] mt-1"><b className="text-[#697a91]">Why:</b> {ins.why}</div>
+                    <div className="text-xs text-[#425466] mt-1"><b className="text-[#0b7f7f]">Fix I suggest:</b> {ins.solution}</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button onClick={() => void decideInsight(ins.id, "approve")} disabled={decideBusy === ins.id}
+                        className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
+                        {decideBusy === ins.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Approve
+                      </button>
+                      <button onClick={() => { setDenyFor(denyFor === ins.id ? null : ins.id); setDenyReason(""); setDenySuggestion(""); }}
+                        className={cn("text-xs border rounded-md px-3 py-1",
+                          denyFor === ins.id ? "border-[#fca5a5] bg-[#fef2f2] text-[#b91c1c]" : "border-[#e4ebf2] hover:bg-white text-[#697a91]")}>
+                        Deny…
+                      </button>
+                    </div>
+                    {denyFor === ins.id && (
+                      <div className="mt-2 grid gap-1.5">
+                        <input placeholder="Why deny? (required if no suggestion)" value={denyReason}
+                          onChange={(e) => setDenyReason(e.target.value)}
+                          className="border border-[#e4ebf2] rounded-md px-2.5 py-1.5 text-xs" />
+                        <input placeholder="Or suggest a different fix — we'll do yours instead (optional)" value={denySuggestion}
+                          onChange={(e) => setDenySuggestion(e.target.value)}
+                          className="border border-[#e4ebf2] rounded-md px-2.5 py-1.5 text-xs" />
+                        <button onClick={() => void decideInsight(ins.id, "deny", denyReason, denySuggestion)}
+                          disabled={decideBusy === ins.id || (!denyReason.trim() && !denySuggestion.trim())}
+                          className="justify-self-start text-xs border border-[#fca5a5] text-[#b91c1c] rounded-md px-3 py-1 hover:bg-[#fef2f2] disabled:opacity-40">
+                          Confirm deny
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {insights && insights.decided.length > 0 && (
+              <div className="mt-2">
+                <button onClick={() => setShowDecided(!showDecided)} className="text-[11px] text-[#697a91] hover:underline">
+                  {showDecided ? "▲ hide" : "▼ show"} recent decisions ({insights.decided.length})
+                </button>
+                {showDecided && (
+                  <div className="mt-1 space-y-1">
+                    {insights.decided.map((ins) => (
+                      <div key={ins.id} className="text-[11px] text-[#697a91]">
+                        <span className={ins.status === "approved" ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                          {ins.status === "approved" ? "✓ approved" : "✗ denied"}
+                        </span>{" "}
+                        <b className="text-[#425466]">{ins.clientName}</b> — {ins.problem}
+                        {ins.deny_reason ? <span className="italic"> · “{ins.deny_reason}”</span> : null}
+                        {ins.user_suggestion ? <span className="italic"> · your fix: “{ins.user_suggestion}”</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            </>)}
+          </div>
         </div>
       )}
 
