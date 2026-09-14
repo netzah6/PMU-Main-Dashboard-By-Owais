@@ -188,6 +188,7 @@ export async function GET(req: NextRequest) {
       hasFanbasis: !!(config.fanbasisProductId || config.fanbasisCode || extras.fanbasisHtml),
       hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
       hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
+      pixelId: (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, ""),
       oldFunnelUrl: extras.oldFunnelUrl ?? "",
       template: extras.template ?? "",
       cv: Object.fromEntries(Object.keys(ONEBOX_EDITABLE_CVS).map((k) => [k, config[k] ?? ""])),
