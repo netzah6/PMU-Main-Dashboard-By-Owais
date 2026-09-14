@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
-import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X } from "lucide-react";
+import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Funnels — the one-box funnels hosted on Vercel: which client has one,
@@ -292,6 +292,8 @@ export default function FunnelsPage() {
   const [health, setHealth] = useState<Record<string, HealthCheck[]>>({});
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
+  // Search line at the top — dozens of funnel boxes now (user, 2026-09-14).
+  const [search, setSearch] = useState("");
   const [addNote, setAddNote] = useState<string | null>(null);
   const [surveyRows, setSurveyRows] = useState<SurveyRow[]>([]);
   const [surveyDirty, setSurveyDirty] = useState(false);
@@ -324,6 +326,18 @@ export default function FunnelsPage() {
     return out;
   }, [funnels]);
   const pixelLabel = (id: string) => pixelOptions.find((o) => o.id === id)?.label ?? id;
+  /* What the list shows: sorted B2C-first as before, narrowed by the search
+     line; a coach never sees the agency's B2B funnel. */
+  const visibleFunnels = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return [...funnels]
+      .filter((f) => role === "admin" || f.template !== "b2b")
+      .filter((f) => !q || `${f.clientName} ${f.slug}`.toLowerCase().includes(q))
+      .sort((a, b) =>
+        programRank(a) - programRank(b) ||
+        Number(b.status === "live") - Number(a.status === "live") ||
+        (a.clientName || a.slug).localeCompare(b.clientName || b.slug));
+  }, [funnels, search, role]);
   const pixelChoice = (typed: string, current: string) =>
     pixelOther ? "__other" : !typed ? "__keep" : pixelOptions.some((o) => o.id === typed && typed !== current) ? typed : "__other";
   const [toast, setToast] = useState<string | null>(null);
@@ -590,7 +604,10 @@ export default function FunnelsPage() {
   }
 
   if (userLoading) return <div className="p-8 text-[#697a91]"><Loader2 className="w-5 h-5 animate-spin" /></div>;
-  if (role !== "admin") return <div className="p-8 text-[#697a91]">Admins only.</div>;
+  if (role !== "admin" && role !== "editor") return <div className="p-8 text-[#697a91]">Admins and coaches only.</div>;
+  /* A Client Success Coach sees the client funnels only — no Optimizer, no
+     agency B2B funnel, no add/edit controls (the API refuses them anyway). */
+  const isAdmin = role === "admin";
 
   return (
     <div className="p-3 md:p-6 max-w-[1200px] mx-auto">
@@ -601,10 +618,18 @@ export default function FunnelsPage() {
           <button onClick={() => void load()} title="Refresh" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> <span className="hidden sm:inline">Refresh</span>
           </button>
-          <button onClick={() => setShowAdd((s) => !s)} title="Add client" className="flex items-center gap-1.5 text-sm bg-[#0e9c9c] text-white rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#0b8383]">
-            <Plus className="w-4 h-4" /> <span className="hidden sm:inline">Add client</span>
-          </button>
+          {isAdmin && (
+            <button onClick={() => setShowAdd((s) => !s)} title="Add client" className="flex items-center gap-1.5 text-sm bg-[#0e9c9c] text-white rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#0b8383]">
+              <Plus className="w-4 h-4" /> <span className="hidden sm:inline">Add client</span>
+            </button>
+          )}
         </div>
+      </div>
+
+      <div className="relative mb-3">
+        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search a client…"
+          className="w-full pl-9 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1c2b3a] focus:outline-none focus:border-[#15B7AE]" />
       </div>
 
       {toast && <div className="mb-3 text-sm bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] rounded-lg px-3 py-2">{toast}</div>}
@@ -798,11 +823,10 @@ export default function FunnelsPage() {
           )}
           {/* B2C on top; everything B2B sinks to the very bottom behind its
               own divider — the 99% of attention goes to the client funnels. */}
-          {[...funnels]
-            .sort((a, b) =>
-              programRank(a) - programRank(b) ||
-              Number(b.status === "live") - Number(a.status === "live") ||
-              (a.clientName || a.slug).localeCompare(b.clientName || b.slug))
+          {visibleFunnels.length === 0 && (
+            <div className="p-6 text-center text-[#697a91] text-sm">No funnel matches “{search}”.</div>
+          )}
+          {visibleFunnels
             .map((f, i, arr) => (
             <Fragment key={f.slug}>
             {f.template !== "b2b" && (i === 0 || programSection(arr[i - 1]) !== programSection(f)) && (
@@ -1019,11 +1043,13 @@ export default function FunnelsPage() {
                     <b>Every visitor goes to the one-box funnel</b> — this client has never had a split test,
                     so the splitter forwards all traffic straight through. To send any share to the original GHL funnel, set one up first.
                   </span>
+                  {isAdmin && (
                   <button
                     onClick={() => { setTrafficFor(null); setAbFor(f.slug); if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); }}
                     className="border border-[#e4ebf2] rounded-md px-2.5 py-1 hover:bg-white text-[11px] font-medium">
                     Set up a test vs the original…
                   </button>
+                  )}
                 </div>
               ))}
 
@@ -1033,6 +1059,7 @@ export default function FunnelsPage() {
                 <Dot ok={f.hasWidget} label="results widget" />
                 <Dot ok={f.hasPixel} label="pixel" />
                 <div className="flex-1" />
+                {isAdmin && (<>
                 <button onClick={() => void act("resync", f.slug)} disabled={busy === `resync:${f.slug}`}
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `resync:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sync Custom Values From GHL
@@ -1069,6 +1096,7 @@ export default function FunnelsPage() {
                     f.status === "live" ? "border-[#fdba74] text-[#c2410c] hover:bg-[#fff3e6]" : "ob-golive border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]")}>
                   {f.status === "live" ? "Pause" : "Go live"}
                 </button>
+                </>)}
               </div>
 
               {health[f.slug] && (
@@ -1545,7 +1573,8 @@ export default function FunnelsPage() {
             </Fragment>
           ))}
           {/* Optimizer lives at the very bottom of the tab (user, 2026-09-14) —
-              the funnels themselves come first. */}
+              the funnels themselves come first. Admins only. */}
+          {isAdmin && (
           <div className="border border-[#f0c987] rounded-xl bg-white p-4">
             <button onClick={() => setOptimizerOpen(!optimizerOpen)}
               className="w-full flex flex-wrap items-center gap-2 text-sm font-medium text-[#1c2b3a]">
@@ -1636,6 +1665,7 @@ export default function FunnelsPage() {
             )}
             </>)}
           </div>
+          )}
         </div>
       )}
 

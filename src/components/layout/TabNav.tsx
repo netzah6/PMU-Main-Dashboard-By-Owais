@@ -42,7 +42,7 @@ const TABS: Tab[] = [
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true, alsoRoles: ["editor"] },
   { label: "💼 Team", href: "/sales", adminOnly: true, collapsed: true }, // sales-team salary tracking: closer demo checker + coach tracker
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
-  { label: "🧪 Funnels", href: "/funnels", adminOnly: true }, // one-box funnels on Vercel — existence, health, leads/bookings
+  { label: "🧪 Funnels", href: "/funnels", adminOnly: true, alsoRoles: ["editor"] }, // one-box funnels — coaches see the client funnels read-only (user request 2026-09-14)
   { label: "📡 Pixel Checking", href: "/pixel-checking", adminOnly: true }, // per-client funnel pixel/conversion audit — user request 2026-09-01
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true, collapsed: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "👑 CEO", href: "/ceo", adminOnly: true },

@@ -42,7 +42,8 @@ function funnelUrl(_req: NextRequest, slug: string): string {
 export async function GET(req: NextRequest) {
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Coaches read the list (their Funnels tab); every change below is still admin-only.
+  if (auth.role !== "admin" && auth.role !== "editor") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const svc = createServiceClient();
 
