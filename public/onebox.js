@@ -342,6 +342,7 @@
      the lead submission depends on them. */
   var CUSTOM_SURVEY = [];
   String(C.surveyRaw || "").split(/\r?\n/).forEach(function (line, i) {
+    if (/^\s*\/\//.test(line)) return; // question paused on the dashboard
     var bar = line.indexOf("|");
     if (bar < 0) return;
     var q = line.slice(0, bar).trim().replace(/\{address\}/gi, ADDR);
