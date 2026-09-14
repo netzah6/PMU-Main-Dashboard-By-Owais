@@ -48,6 +48,7 @@ p.lede{font-family:Poppins,sans-serif;font-size:29px;line-height:1.42;color:#2b3
 p.lede b{font-weight:700}
 ul.bullets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:15px}
 ul.bullets li{display:flex;align-items:center;gap:15px;font-family:Poppins,sans-serif;font-size:29px;font-weight:400;line-height:1.42}
+ul.bullets.one-line li{white-space:nowrap;font-size:23px}
 .chev{flex:none;width:30px;height:30px;border-radius:50%;background:var(--teal);display:grid;place-items:center;
   color:#fff;box-shadow:0 2px 8px rgba(46,196,198,.35)}
 .chev svg{width:52%;height:52%}
@@ -258,22 +259,22 @@ ul.bullets li{display:flex;align-items:center;gap:15px;font-family:Poppins,sans-
 /* ---------- slide 11: CRM ---------- */
 .crm{width:100%;height:100%;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);
   border-radius:14px;overflow:hidden;box-shadow:0 20px 46px -22px rgba(20,25,35,.35)}
-.crm-top{flex:none;display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:12px;color:#5b6470}
+.crm-top{flex:none;display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:15px;color:#5b6470}
 .crm-top .pill{background:var(--teal-soft);color:var(--teal-dark);font-weight:700;border-radius:999px;padding:3px 11px}
 .crm-cols{flex:1;min-height:0;display:flex;gap:9px;padding:10px;background:#f7f9fb}
 .crm-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;border-radius:9px;padding:4px;transition:.15s}
 .crm-col.over{background:var(--teal-soft);outline:2px dashed var(--teal)}
-.crm-h{font-size:18px;font-weight:700;color:#1b2228;display:flex;justify-content:space-between;align-items:center;
-  gap:6px;padding:3px 3px 7px;border-bottom:2px solid var(--teal)}
-.crm-h em{font-style:normal;color:#98a1ab;font-weight:600;font-size:14px}
-.crm-card{background:#fff;border:1px solid #e8ecf1;border-radius:9px;padding:9px 10px;box-shadow:0 1px 2px rgba(20,25,35,.05);cursor:grab}
+.crm-h{font-size:22px;font-weight:700;color:#1b2228;display:flex;justify-content:space-between;align-items:center;
+  gap:6px;padding:4px 4px 9px;border-bottom:2px solid var(--teal);white-space:nowrap}
+.crm-h em{font-style:normal;color:#98a1ab;font-weight:600;font-size:16px}
+.crm-card{background:#fff;border:1px solid #e8ecf1;border-radius:10px;padding:11px 12px;box-shadow:0 1px 2px rgba(20,25,35,.05);cursor:grab}
 .crm-card.drag{opacity:.4}
-.crm-card b{display:block;color:#111;font-weight:600;font-size:13px;line-height:1.3}
+.crm-card b{display:block;color:#111;font-weight:600;font-size:17px;line-height:1.3}
 .crm-acts{display:flex;gap:4px;margin-top:7px}
-.crm-acts button{flex:1;border:1px solid #e3e8ee;background:#fff;border-radius:6px;padding:3px 0;cursor:pointer;
+.crm-acts button{flex:1;border:1px solid #e3e8ee;background:#fff;border-radius:7px;padding:5px 0;cursor:pointer;
   display:grid;place-items:center;color:#5b6470;transition:.12s}
 .crm-acts button:hover{background:var(--teal);border-color:var(--teal);color:#fff}
-.crm-acts svg{width:11px;height:11px}
+.crm-acts svg{width:15px;height:15px}
 .toast{position:absolute;left:50%;bottom:26px;transform:translate(-50%,14px);background:#111;color:#fff;
   border-radius:999px;padding:9px 20px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;
   transition:.28s;z-index:20;box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}
@@ -282,7 +283,7 @@ ul.bullets li{display:flex;align-items:center;gap:15px;font-family:Poppins,sans-
 
 /* ---------- slide 12: the assistant ---------- */
 .aitag{display:inline-block;border:2px solid var(--teal);border-radius:14px;padding:16px 26px;
-  font-weight:600;font-size:23px;line-height:1.3;margin-bottom:24px}
+  font-weight:600;font-size:23px;line-height:1.3;margin-bottom:24px;white-space:nowrap}
 .robot{display:block;width:520px;margin:0 auto;height:auto;animation:float 4.5s ease-in-out infinite}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-11px)}}
 .panel{background:var(--teal);color:#fff;border-radius:20px;padding:40px 36px;
@@ -307,8 +308,8 @@ ul.bullets li{display:flex;align-items:center;gap:15px;font-family:Poppins,sans-
 .faqc .ans{max-height:0;overflow:hidden;transition:max-height .28s ease;
   font-family:Poppins,sans-serif;font-size:14.5px;line-height:1.5;color:#4a5560;padding:0 14px}
 .faqc.open .ans{max-height:210px;padding-bottom:12px}
-.faqvid{position:relative;background:#000;height:196px;cursor:pointer}
-.faqvid video{width:100%;height:100%;object-fit:cover;display:block}
+.faqvid{position:relative;background:#000;height:220px;cursor:pointer}
+.faqvid video{width:100%;height:100%;object-fit:contain;display:block}
 .faqvid .pl{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .2s}
 .faqvid.playing .pl{opacity:0;pointer-events:none}
 .faqvid .pl i{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.94);display:grid;
@@ -326,38 +327,38 @@ ul.bullets li{display:flex;align-items:center;gap:15px;font-family:Poppins,sans-
 @keyframes pindrop{from{opacity:0;transform:translate(-50%,-135%) scale(.6)}to{opacity:1;transform:translate(-50%,-100%) scale(1)}}
 .statcard{position:absolute;left:0;bottom:12%;background:#fff;border:1px solid var(--line);border-radius:14px;
   padding:20px 26px;box-shadow:0 18px 40px -20px rgba(20,25,35,.4);text-align:center}
-.statcard .k{font-family:Poppins,sans-serif;font-weight:700;color:var(--teal-dark);font-size:26px}
-.statcard .v{font-family:Poppins,sans-serif;font-size:19px;font-weight:600;color:#2b3340;margin-top:7px}
+.statcard .k{font-family:Poppins,sans-serif;font-weight:700;color:var(--teal-dark);font-size:34px}
+.statcard .v{font-family:Poppins,sans-serif;font-size:24px;font-weight:600;color:#2b3340;margin-top:9px}
 
 /* ---------- slide 14: setting expectations ---------- */
 .expect{display:flex;gap:44px;align-items:center;width:100%}
 .expect .txt{flex:1}
-.expect .lead{font-family:Poppins,sans-serif;font-weight:700;font-size:29px;line-height:1.4;margin:0 0 22px}
+.expect .lead{font-family:Poppins,sans-serif;font-weight:700;font-size:31px;line-height:1.4;margin:0 0 24px}
 .expect ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:15px}
-.expect li{font-family:Poppins,sans-serif;font-size:24px;line-height:1.4;color:#2b3340}
-.expect .pic{flex:none;width:400px;border-radius:16px;overflow:hidden;box-shadow:0 18px 40px -22px rgba(20,25,35,.55)}
+.expect li{font-family:Poppins,sans-serif;font-size:27px;line-height:1.4;color:#2b3340}
+.expect .pic{flex:none;width:470px;border-radius:16px;overflow:hidden;box-shadow:0 18px 40px -22px rgba(20,25,35,.55)}
 .expect .pic img{width:100%;display:block}
 
 /* ---------- slide 20: plans ---------- */
 .plans{display:flex;gap:22px;width:100%;align-items:stretch}
-.plan{flex:1;background:#fff;border:1px solid var(--line);border-radius:18px;padding:24px 22px;position:relative;
-  display:flex;flex-direction:column;gap:9px;box-shadow:0 16px 38px -24px rgba(20,25,35,.5)}
+.plan{flex:1;background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px 26px;position:relative;
+  display:flex;flex-direction:column;gap:10px;box-shadow:0 16px 38px -24px rgba(20,25,35,.5)}
 .plan.pop{border-color:var(--teal);box-shadow:0 20px 44px -20px rgba(46,196,198,.65);transform:translateY(-8px)}
 .plan .badge{position:absolute;top:-13px;right:16px;background:var(--teal);color:#fff;border-radius:999px;
-  padding:5px 14px;font-family:Poppins,sans-serif;font-size:12px;font-weight:700;letter-spacing:.05em}
-.plan h3{margin:0;text-align:center;font-family:Poppins,sans-serif;font-size:22px;font-weight:700;letter-spacing:.01em}
-.plan .kind{text-align:center;font-family:Poppins,sans-serif;font-size:16px;color:var(--muted)}
-.plan .price{text-align:center;font-family:Poppins,sans-serif;font-weight:800;font-size:40px;margin:4px 0}
+  padding:6px 16px;font-family:Poppins,sans-serif;font-size:14px;font-weight:700;letter-spacing:.05em}
+.plan h3{margin:0;text-align:center;font-family:Poppins,sans-serif;font-size:30px;font-weight:700;letter-spacing:.01em}
+.plan .kind{text-align:center;font-family:Poppins,sans-serif;font-size:21px;color:var(--muted)}
+.plan .price{text-align:center;font-family:Poppins,sans-serif;font-weight:800;font-size:56px;margin:4px 0}
 .plan .price em{font-style:normal;font-size:.44em;font-weight:600;color:var(--muted)}
 .plan .save{background:var(--teal-soft);color:var(--teal-dark);border-radius:10px;text-align:center;
-  font-family:Poppins,sans-serif;font-weight:700;padding:9px;font-size:18px;line-height:1.3}
+  font-family:Poppins,sans-serif;font-weight:700;padding:11px;font-size:23px;line-height:1.3}
 .plan ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
-.plan li{display:flex;gap:9px;align-items:flex-start;font-family:Poppins,sans-serif;font-size:16px;color:#3a434f;line-height:1.35}
-.plan li svg{width:16px;flex:none;color:var(--teal);margin-top:2px}
-.plan .guar{margin-top:auto;padding-top:12px;font-family:Poppins,sans-serif;font-size:15px;color:var(--teal-dark);
+.plan li{display:flex;gap:10px;align-items:flex-start;font-family:Poppins,sans-serif;font-size:21px;color:#3a434f;line-height:1.35}
+.plan li svg{width:19px;flex:none;color:var(--teal);margin-top:2px}
+.plan .guar{margin-top:auto;padding-top:14px;font-family:Poppins,sans-serif;font-size:20px;color:var(--teal-dark);
   font-weight:700;text-align:center;line-height:1.35}
-.specialbar{margin-top:20px;background:var(--teal);color:#fff;border-radius:13px;text-align:center;padding:15px;
-  font-family:Poppins,sans-serif;font-size:20px;font-weight:600}
+.specialbar{margin-top:20px;background:var(--teal);color:#fff;border-radius:13px;text-align:center;padding:16px;
+  font-family:Poppins,sans-serif;font-size:23px;font-weight:600}
 .specialbar b{font-weight:800}
 
 /* ---------- slide 17: FB group ---------- */
@@ -474,7 +475,7 @@ var THUMB='<span class="rbubble like"><svg viewBox="0 0 24 24" fill="currentColo
 var HEART='<span class="rbubble love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg></span>';
 var CK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l6 6L20 5"/></svg>';
 var PINSVG='<svg viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20c0-6.6-5.4-12-12-12Zm0 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z"/></svg>';
-var PINS=[[13,30],[15,38],[12,47],[17,52],[14,60],[19,44],[21,35],[20,63],[24,55],[23,68],[27,44],[26,58],[30,37],[29,50],[31,63],[34,47],[33,58],[36,68],[38,40],[37,54],[40,62],[42,35],[41,49],[44,58],[43,66],[46,44],[47,55],[49,63],[51,38],[50,52],[53,60],[55,46],[54,57],[57,66],[59,42],[58,54],[61,61],[63,36],[62,50],[65,58],[64,68],[67,44],[68,55],[70,62],[72,39],[71,52],[74,59],[76,45],[75,56],[78,64],[80,41],[79,53],[82,60],[84,47],[83,57],[86,51],[88,44],[87,56],[90,49]];
+var PINS=[[35.7,64.9],[75.4,49.4],[80.8,45.5],[71.7,71.8],[47.6,24.4],[63.7,56.6],[44.7,58.6],[24.3,60.3],[42.7,75.6],[43.8,68.8],[79.7,70.9],[80.9,60.1],[60.2,62.0],[41.3,15.8],[21.1,37.3],[13.8,22.8],[46.7,37.6],[72.2,34.1],[63.1,75.8],[96.1,15.9],[15.8,8.3],[67.6,40.2],[18.6,79.0],[58.7,39.8],[71.7,43.3],[17.9,47.5],[17.7,26.0],[27.6,24.2],[28.1,47.1],[71.7,62.7],[53.7,29.7],[50.7,41.6],[50.4,65.6],[21.3,18.3],[84.9,49.8],[66.2,62.9],[41.8,32.5],[83.5,35.9],[66.0,29.7],[69.7,52.5],[34.2,53.3],[88.4,36.8],[49.5,15.0],[57.7,16.0],[19.9,59.7],[43.3,50.6],[12.0,41.6],[34.5,20.9],[20.8,7.1],[32.4,34.6],[52.7,76.8],[58.6,47.6],[53.6,59.6],[89.0,24.0],[29.7,12.7],[74.1,25.7],[36.0,13.0],[12.2,50.5],[78.7,38.2],[82.3,78.2],[12.4,31.0],[54.5,45.8],[32.1,44.8],[57.3,71.4]];
 var ARROW='<span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></span>';
 var CHEV='<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>';
 function bullets(a){return '<ul class="bullets">'+a.map(function(t,k){return '<li class="rx" style="animation-delay:'+(0.12+k*0.085)+'s">'+CHEV+t+'</li>';}).join("")+'</ul>';}
@@ -560,8 +561,7 @@ head(8,true)+
 live(9,"Lead Qualification Process",
 head(9,true)+
 '<div class="row"><div class="col-copy">'+
-  '<h1 class="title">Lead Qualification<br>Process</h1>'+
-  '<p class="lede">Simplify the booking process to ensure we generate only <b>high-quality &amp; qualified PMU clients</b>.</p>'+
+  '<h1 class="title" style="white-space:nowrap">Lead Qualification Process</h1>'+
   bullets(["Every answer lands in your CRM","Not commutable? Auto-disqualified","Serious 0–2? Never reaches you","Only real buyers hit your phone"])+
 '</div><div class="col-visual"><div class="phone ph-survey"><div class="screen"><div class="fnl" id="fnl"></div></div></div></div></div>');
 
@@ -570,7 +570,7 @@ live(10,"Notification Process",
 head(10,true)+
 '<div class="row"><div class="col-copy">'+
   '<h1 class="title">Notification<br>Process</h1>'+
-  '<p class="lede">Every qualified lead lands on your phone the second they finish — <b>name, treatment, age, how serious they are</b>. No dashboard to check.</p>'+
+  '<p class="lede">Every qualified lead lands on your phone the second they finish — <b>name, treatment, age, how serious they are</b>.</p>'+
 '</div><div class="col-visual"><div class="phone ph-sms"><div class="notch"></div><div class="screen">'+
   '<div class="statusbar"><span>9:41</span><span>&#9679;&#9679;&#9679;&#9679; 5G</span></div>'+
   '<div class="ios-head"><span class="ios-back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg><span class="ios-badge">3</span></span>'+
@@ -594,7 +594,7 @@ head(11,true)+
 live(12,"Smart AI PMU Assistant",
 head(12)+
 '<div class="row"><div class="col-copy">'+
-  '<h1 class="title">Smart AI PMU<br>Assistant</h1>'+
+  '<h1 class="title" style="white-space:nowrap">Smart AI PMU Assistant</h1>'+
   '<div class="aitag rv" style="animation-delay:.12s">A Smart Robot That Behaves Like A Real Human Being</div>'+
   '<img class="robot rv" src="/deck/assets/robot.png" alt="" style="animation-delay:.24s">'+
 '</div><div class="col-visual"><div class="panel" style="width:100%">'+
@@ -613,8 +613,9 @@ head(13)+
 '</div></div>');
 live(14,"Setting Expectations",
 head(14)+
-'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2">Setting Expectations</h1>'+
-'<div class="row"><div class="expect">'+
+'<div class="row" style="flex-direction:column;justify-content:center;align-items:stretch;gap:0">'+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:26px">Setting Expectations</h1>'+
+'<div class="expect">'+
   '<div class="txt">'+
     '<p class="lead rv" style="animation-delay:.14s">Generating opportunities &mdash; 100% on us.<br>'+
       'Turning those opportunities into bookings &mdash; on both of us.</p>'+
@@ -637,10 +638,10 @@ head(16,true)+
 /* ---- 17: facebook group ---- */
 live(17,"Bonus #3 — PMU Success Society",
 head(17)+
-'<div class="row"><div class="col-copy">'+
+'<div class="row"><div class="col-copy" style="flex:1 1 57%">'+
   '<h1 class="title"><span style="font-weight:500">Bonus #3:</span><br>PMU Success Society</h1>'+
   '<p class="lede">Our private growth community — real artists, real numbers, no gurus.</p>'+
-  bullets(["Access our private Facebook group for PMU artists","Grow faster with connection and support","Tips, strategies and support from other successful artists"])+
+  '<ul class="bullets one-line">'+["Access our private Facebook group for PMU artists","Grow faster with connection and support","Tips, strategies and support from other successful artists"].map(function(t,k){return '<li class="rx" style="animation-delay:'+(0.12+k*0.085)+'s">'+CHEV+t+'</li>';}).join('')+'</ul>'+
 '</div><div class="col-visual"><div class="fbg rv" style="animation-delay:.18s">'+
   '<div class="cover"><img src="/deck/assets/fbgroup-cover.jpg" alt=""></div>'+
   '<div class="bd"><h4>PMU Bookings On Demand [Private Group]</h4>'+
@@ -667,7 +668,7 @@ head(19,true)+
     '<span class="cell"><span class="k">Leads</span><span class="v" id="k-leads">50</span></span>'+
     '<span class="note">cost per lead averages about $6</span></div>'+
   '<div class="cstep locked" id="st-rate"><span class="no">2</span><span class="lbl">Booking rate</span>'+
-    '<span class="slide-ctl"><input type="range" id="r-rate" min="10" max="100" step="5" value="20">'+
+    '<span class="slide-ctl"><input type="range" id="r-rate" min="0" max="100" step="5" value="0">'+
       '<span class="amt" id="v-rate">20%</span></span>'+
     '<button class="cnext" data-go="2">Next &rarr;</button></div>'+
   '<div class="cout locked" id="out-book">'+ARROW+
@@ -686,7 +687,7 @@ head(19,true)+
   '<div class="ctotal locked" id="out-total"><span><span class="k">Total revenue</span><br>'+
     '<span class="v" id="k-rev">$6,900</span></span>'+
     '<span class="r" id="k-ret">on $300 ad spend<br><b>23.0\u00d7 return</b></span></div>'+
-  '<button class="creset locked" id="c-reset">Start over</button>'+
+  '<button class="creset" id="c-reset">Start over</button>'+
 '</div></div></div>');
 
 live(20,"Investment options",
@@ -747,7 +748,6 @@ function show(n){
   if(num===10) runSms();
   if(num!==16) stopFaqs();
   if(num===11) runCrm();
-  if(num===19) resetCalc();
 }
 function restagger(sl){
   sl.querySelectorAll(".rv,.rx").forEach(function(el){
@@ -999,8 +999,8 @@ function stopFaqs(){document.querySelectorAll("#faqgrid video").forEach(function
 var CPL=6;
 /* Each control is a stepper with its own increment and range. */
 var FIELDS19={
-  spend:{v:300,min:300,max:5000,step:150,fmt:function(n){return money(n);}},
-  rate: {v:20, min:10, max:100, step:5,  fmt:function(n){return n+"%";}},
+  spend:{v:600,min:300,max:5000,step:150,fmt:function(n){return money(n);}},
+  rate: {v:0,  min:0,  max:100, step:5,  fmt:function(n){return n+"%";}},
   svc:  {v:500,min:100,max:2000,step:50, fmt:function(n){return money(n);}},
   tu:   {v:150,min:0,  max:800, step:25, fmt:function(n){return money(n);}}
 };
@@ -1035,7 +1035,7 @@ function calc(){
 /* Nothing below the current stage is on screen — one decision at a time. */
 function stage19(n){
   STAGE19=n;
-  var show={ "out-leads":1,"st-rate":1,"out-book":2,"st-svc":2,"st-tu":2,"out-total":3,"c-reset":3 };
+  var show={ "out-leads":1,"st-rate":1,"out-book":2,"st-svc":2,"st-tu":2,"out-total":3 };
   for(var id in show){
     var el=document.getElementById(id), on=n>=show[id];
     el.classList.toggle("locked",!on);
@@ -1043,8 +1043,8 @@ function stage19(n){
   }
 }
 function resetCalc(){
-  FIELDS19.spend.v=300; FIELDS19.rate.v=20; FIELDS19.svc.v=500; FIELDS19.tu.v=150;
-  document.getElementById("r-rate").value=20;
+  FIELDS19.spend.v=600; FIELDS19.rate.v=0; FIELDS19.svc.v=500; FIELDS19.tu.v=150;
+  document.getElementById("r-rate").value=0;
   stage19(0); calc();
 }
 document.getElementById("r-rate").addEventListener("input",function(){
