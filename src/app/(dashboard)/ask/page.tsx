@@ -411,7 +411,7 @@ export default function AskPage() {
           {/* Note box — explicitly labelled so it's clear the AI reads it */}
           <div className="rounded-lg border border-[#ffd8a8] bg-[#fffaf2] p-2">
             <label htmlFor="ai-note" className="flex items-center gap-1.5 text-[11px] font-bold text-[#c2620a] mb-1">
-              📝 Note for the AI <span className="font-medium text-[#a1783f]">— it reads this before writing the reply (optional)</span>
+              📝 Note for the AI
             </label>
             <textarea
               id="ai-note"
@@ -436,7 +436,7 @@ export default function AskPage() {
           {/* Manual send — goes straight into the GHL chat, only when YOU click Send */}
           <div className="mt-2.5 rounded-lg border border-[#c9dbfb] bg-[#f7faff] p-2">
             <label htmlFor="manual-send" className="flex items-center gap-1.5 text-[11px] font-bold text-[#34568a] mb-1">
-              ✍️ Send a message yourself <span className="font-medium text-[#8595a8]">— sends in GHL as-is when you click Send ({pending.channel || "SMS"})</span>
+              ✍️ Send a message yourself
             </label>
             <textarea
               id="manual-send"
