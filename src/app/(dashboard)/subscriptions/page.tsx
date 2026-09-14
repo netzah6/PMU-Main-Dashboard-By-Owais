@@ -75,6 +75,48 @@ function ChargeCell({ s }: { s: Sub }) {
   );
 }
 
+/* The list reads as a calendar: this month's charges first, next month's
+   below, and so on — one divider per month (user, 2026-09-14). Anything
+   already overdue folds into the current month; rows without a next charge
+   (paused / canceled) close the list. */
+type MonthGroup = { key: string; label: string; subs: Sub[]; cents: number };
+function monthGroups(list: Sub[]): MonthGroup[] {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const groups = new Map<string, MonthGroup>();
+  for (const s of list) {
+    let key = "zzzz-none";
+    if (s.status.toUpperCase() === "ACTIVE" && s.chargedThroughDate && /^\d{4}-\d{2}/.test(s.chargedThroughDate)) {
+      key = s.chargedThroughDate.slice(0, 7);
+      if (key < curKey) key = curKey;
+    }
+    let g = groups.get(key);
+    if (!g) {
+      const label = key === "zzzz-none"
+        ? "No upcoming charge"
+        : new Date(`${key}-15T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+      g = { key, label, subs: [], cents: 0 };
+      groups.set(key, g);
+    }
+    g.subs.push(s);
+    if (key !== "zzzz-none") g.cents += s.amountCents ?? 0;
+  }
+  return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function MonthDivider({ g, current }: { g: MonthGroup; current: boolean }) {
+  return (
+    <div className={cn("flex items-center gap-2 flex-wrap px-1 pt-2", current && "pt-0")}>
+      <span className={cn("text-[12px] font-bold uppercase tracking-wide", current ? "text-[#0e8f88]" : "text-[#34568a]")}>
+        {g.label}{current ? " · this month" : ""}
+      </span>
+      <span className="text-[11px] text-[#697a91]">{g.subs.length} subscription{g.subs.length === 1 ? "" : "s"}</span>
+      {g.cents > 0 && <span className="text-[11px] font-semibold text-[#0e8f88] tabular-nums">{money(g.cents, "USD")}</span>}
+      <span className="flex-1 h-px bg-[#d7e0ea]" />
+    </div>
+  );
+}
+
 type ServerCounts = {
   total: number;
   byStatus: Record<string, number>;
@@ -198,11 +240,13 @@ export default function SubscriptionsPage() {
         return da - db;
       });
   }, [subs, search, statusFilter]);
+  const groups = useMemo(() => monthGroups(filtered), [filtered]);
+  const thisMonthKey = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`; })();
 
   return (
     <div className="p-3 sm:p-4 space-y-3">
-      <DashboardSubscriptions />
       <BillingActivity />
+      <DashboardSubscriptions />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Square Subscriptions</h1>
@@ -277,7 +321,10 @@ export default function SubscriptionsPage() {
         <>
         {/* Mobile cards */}
         <div className="md:hidden space-y-2">
-          {filtered.map((s) => {
+          {groups.map((g) => (
+          <div key={g.key} className="space-y-2">
+          <MonthDivider g={g} current={g.key === thisMonthKey} />
+          {g.subs.map((s) => {
             const st = statusStyle(s.status);
             return (
               <div key={s.id} className="rounded-xl border border-[#e4ebf2] bg-white p-3 space-y-1.5">
@@ -291,6 +338,8 @@ export default function SubscriptionsPage() {
               </div>
             );
           })}
+          </div>
+          ))}
         </div>
         {/* Desktop table */}
         <div className="hidden md:block rounded-xl border border-[#e4ebf2] bg-white overflow-auto">
@@ -302,8 +351,12 @@ export default function SubscriptionsPage() {
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {filtered.map((s, i) => {
+            {groups.map((g) => (
+            <tbody key={g.key}>
+              <tr className="border-b border-[#d7e0ea] bg-[#f4f8fb]">
+                <td colSpan={7} className="px-3 py-1.5"><MonthDivider g={g} current={g.key === thisMonthKey} /></td>
+              </tr>
+              {g.subs.map((s, i) => {
                 const st = statusStyle(s.status);
                 return (
                   <tr key={s.id} className={cn("border-b border-[#eef3f8]", i % 2 ? "bg-[#fafcfe]" : "bg-white")}>
@@ -324,6 +377,7 @@ export default function SubscriptionsPage() {
                 );
               })}
             </tbody>
+            ))}
           </table>
         </div>
         </>

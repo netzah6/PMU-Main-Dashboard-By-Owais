@@ -275,12 +275,24 @@ export function DashboardSubscriptions() {
         <p className="text-xs text-[#8595a8] py-2">No dashboard subscriptions yet. Square subscriptions are listed below and are untouched by this.</p>
       ) : (
         <ul className="space-y-1">
-          {subs.map((s) => {
+          {/* Same calendar reading as the Square list below: a divider each
+              time the next-charge month changes, this month first. */}
+          {[...subs].sort((a, b) => (a.status === "ended") === (b.status === "ended") ? a.next_charge_on.localeCompare(b.next_charge_on) : a.status === "ended" ? 1 : -1).map((s, i, arr) => {
             const hist = byId.get(s.id) ?? [];
+            const monthOf = (x: Sub) => x.status === "ended" ? "ended" : x.next_charge_on.slice(0, 7);
+            const showDivider = i === 0 || monthOf(arr[i - 1]) !== monthOf(s);
+            const monthLabel = monthOf(s) === "ended" ? "Ended" : new Date(`${monthOf(s)}-15T12:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
             const last = hist[0];
             const open = openId === s.id;
             return (
-              <li key={s.id} className="rounded-lg border border-[#e4ebf2] bg-white">
+              <li key={s.id} className={cn(showDivider && i > 0 && "pt-2")}>
+                {showDivider && (
+                  <div className="flex items-center gap-2 px-1 pb-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">{monthLabel}</span>
+                    <span className="flex-1 h-px bg-[#d7e0ea]" />
+                  </div>
+                )}
+                <div className="rounded-lg border border-[#e4ebf2] bg-white">
                 <div className="flex items-center gap-2 flex-wrap px-2.5 py-1.5">
                   <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border", TONE[s.status])}>{s.status}</span>
                   <span className="text-[13px] font-semibold text-[#1f3559]">{s.client_label || s.owner_key}</span>
@@ -448,6 +460,7 @@ export function DashboardSubscriptions() {
                     ))}
                   </div>
                 )}
+                </div>
               </li>
             );
           })}

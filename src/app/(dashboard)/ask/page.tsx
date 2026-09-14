@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, ExternalLink, Check, MessageCircle, RefreshCw, X, Pencil } from "lucide-react";
+import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, Check, MessageCircle, RefreshCw, X, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn, userColor } from "@/lib/utils";
 
@@ -346,7 +346,9 @@ export default function AskPage() {
         {msgs.map((m, i) => (
           <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
             <div className={cn(
-              "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap break-words",
+              // Full width on phones — the 85% cap left a dead strip on the
+              // right and pushed drafts twice as far down (user, 2026-09-14).
+              "max-w-full sm:max-w-[85%] rounded-2xl px-3 sm:px-4 py-2.5 text-sm whitespace-pre-wrap break-words",
               m.role === "user"
                 ? "bg-[#15B7AE] text-white rounded-br-md"
                 : "bg-white border border-[#e4ebf2] text-[#1f3559] rounded-bl-md",
@@ -670,18 +672,13 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
             {sendState === "sent" ? "Sent ✓" : `Send to ${d.contactName}`}
           </button>
         )}
-        <button
-          onClick={() => { copy(); window.open(d.conversationUrl, "_blank", "noopener"); toast.success("Draft copied — paste it in the chat"); }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold">
-          <ExternalLink size={12} /> Copy &amp; open chat
-        </button>
         <button onClick={() => { copy(); toast.success("Draft copied"); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-white text-xs font-semibold">
           {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
         </button>
         <button onClick={() => setManualOpen((o) => !o)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#c9dbfb] text-[#34568a] hover:bg-[#f7faff] text-xs font-semibold">
-          <Pencil size={12} /> {manualOpen ? "Close editor" : "Edit text"}
+          <Pencil size={12} /> {manualOpen ? "Close editor" : "Edit"}
         </button>
         {canEdit && (
           <button onClick={() => setEditOpen((o) => !o)} disabled={busy}
