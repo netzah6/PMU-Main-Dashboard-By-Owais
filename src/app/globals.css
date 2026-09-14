@@ -60,7 +60,8 @@ html, body {
 
 /* "Go live" nudge on paused funnel cards: a soft green glow pulse with a
    little shake every few seconds, so the one action that matters on a
-   paused client can't be missed. Stills under reduced-motion. */
+   paused client can't be missed. Netzah wants the shake for everyone —
+   including machines with Reduce Motion on — so no reduced-motion out. */
 @keyframes ob-golive {
   0%, 100% { box-shadow: 0 0 0 0 rgba(21, 128, 61, 0.0); }
   45% { box-shadow: 0 0 12px 2px rgba(21, 128, 61, 0.45); }
@@ -72,4 +73,3 @@ html, body {
   96% { transform: rotate(-0.5deg) scale(1.01); }
 }
 .ob-golive { animation: ob-golive 3s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .ob-golive { animation: none; box-shadow: 0 0 10px 1px rgba(21, 128, 61, 0.4); } }
