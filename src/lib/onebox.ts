@@ -38,6 +38,8 @@ const pickers: [key: string, ...names: string[]][] = [
   // Or paste the whole deposit-page block (fallback for edge cases).
   ["fanbasisCode", "CC - Fanbasis Checkout Code", "CC - Fanbasis Code", "OB - Fanbasis Code"],
   ["faqsRaw", "OB - FAQs"],
+  // Per-client survey questions (dashboard-edited; empty = standard six).
+  ["surveyRaw", "OB - Survey Questions"],
   ["metaPixelId", "OB - Meta Pixel ID"],
 ];
 
@@ -220,6 +222,7 @@ export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
   thankYouPath: "CC - Thank You Page Path",
   igWidget: "CC - IG Widget LINK",
   googleWidget: "CC - Google Widget LINK",
+  surveyRaw: "OB - Survey Questions",
   // Before/after + studio photos are managed ONLY in the GHL sub-account
   // (the 12 template custom values) — deliberately not dashboard-editable.
 };

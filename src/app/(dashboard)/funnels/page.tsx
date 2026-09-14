@@ -72,6 +72,18 @@ function trafficSummary(t: Funnel["traffic"]): string {
   if (active.length === 1) return `100% → ${active[0].label}`;
   return active.map((v) => `${Math.round((v.weight / total) * 100)}% ${v.label}`).join(" · ");
 }
+/* The engine's standard six survey questions in the dashboard-editable
+   format — inserted into the editor so a client-specific tweak starts
+   from the real thing instead of a blank box. */
+const DEFAULT_SURVEY_TEMPLATE = [
+  "Which Area(s) Would You Like Treated? | Lips; Eyebrows",
+  "Have You Ever Had Permanent Makeup Before? | Yes; No",
+  "What Age Group Are You In? | 18-24; 24-30; 30-36; 36-42; 42-54; 54-65; 65+",
+  "Our Address is {address}. Is This commutable for you? | Yes; No",
+  "On A Scale From 1-10 How Serious Are You About Getting This Treatment? | 0-2; 3-6; 7-9; 10 I Want This Treatment!",
+  "Would you like a FREE Aftercare Kit? | Yes; No",
+].join("\n");
+
 type HealthCheck = { name: string; ok: boolean; note: string };
 
 /* Card-list grouping: V3 first (where the focus is), then V2.3, V1, the
@@ -1210,6 +1222,23 @@ export default function FunnelsPage() {
                         className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                     </label>
                   </div>
+                  <label className="grid gap-0.5">
+                    <span className="text-[10px] font-medium text-[#697a91]">
+                      Survey questions — one per line: <span className="font-mono">Question? | Option 1; Option 2</span>.
+                      Empty = the standard six. Name, phone and email always close the survey. Use {"{address}"} for the studio address.
+                    </span>
+                    <textarea rows={5} value={cvForm.surveyRaw ?? ""}
+                      onChange={(e) => setCvForm((x) => ({ ...x, surveyRaw: e.target.value }))}
+                      placeholder={"Which Area(s) Would You Like Treated? | Lips; Eyebrows\n…leave empty for the standard questions"}
+                      className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs font-mono" />
+                    {!(cvForm.surveyRaw ?? "").trim() && (
+                      <button type="button"
+                        onClick={() => setCvForm((x) => ({ ...x, surveyRaw: DEFAULT_SURVEY_TEMPLATE }))}
+                        className="justify-self-start text-[11px] text-[#0b7f7f] hover:underline">
+                        Insert the standard questions to edit them
+                      </button>
+                    )}
+                  </label>
                   <button onClick={() => setShowAdvanced(!showAdvanced)}
                     className="justify-self-start text-[11px] text-[#697a91] hover:underline">
                     {showAdvanced ? "▲ hide" : "▼ show"} rarely-needed settings (ad-spend owner, widgets, checkout paste)
@@ -1245,6 +1274,51 @@ export default function FunnelsPage() {
                       <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b>. With no test running it simply
                       forwards to the funnel, so it can stay pointed there permanently.
                     </p>
+                  <div>
+                    <button
+                      onClick={() => {
+                        const changed: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(cvForm)) {
+                          if ((f.cv[k] ?? "") !== v) changed[k] = v;
+                        }
+                        const extras: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(extrasForm)) {
+                          if (v.trim()) extras[k] = v;
+                        }
+                        if (!Object.keys(changed).length && !Object.keys(extras).length) { setToast("Nothing changed"); return; }
+                        if (Object.keys(changed).length) void act("cvs", f.slug, { values: JSON.stringify(changed) });
+                        if (Object.keys(extras).length) void act("extras", f.slug, extras);
+                        setCvFor(null);
+                      }}
+                      disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`}
+                      className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
+                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
+                    </button>
+                  </div>
+                  </div>
+                </div>
+              )}
+
+              {abFor === f.slug && (
+                <div className="mt-3 border-t border-[#eef2f6] pt-3">
+                  {abBusy && !ab[f.slug] ? (
+                    <div className="text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /> Loading…</div>
+                  ) : !ab[f.slug]?.experiment ? (
+                    <div className="grid gap-2">
+                      <div className="flex gap-1.5">
+                        <button onClick={() => setAbMode("original")}
+                          className={cn("text-xs rounded-lg px-2.5 py-1 border",
+                            abMode === "original" ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
+                          vs original funnel
+                        </button>
+                        <button onClick={() => setAbMode("versions")}
+                          className={cn("text-xs rounded-lg px-2.5 py-1 border",
+                            abMode === "versions" ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
+                          two versions of this funnel
+                        </button>
+                      </div>
+                      {abMode === "original" ? (
+                        <div className="grid gap-2">
                     <input id={`ab-orig-${f.slug}`} placeholder="Original funnel URL at its -ab-ghl address (e.g. https://pmu-care.com/their-survey-ab-ghl)"
                       value={abOrigUrl}
                       onChange={(e) => { setAbOrigUrl(e.target.value); setStartVerify(null); }}
@@ -1322,56 +1396,6 @@ export default function FunnelsPage() {
                         </>
                       )}
                     </div>
-                  <div>
-                    <button
-                      onClick={() => {
-                        const changed: Record<string, string> = {};
-                        for (const [k, v] of Object.entries(cvForm)) {
-                          if ((f.cv[k] ?? "") !== v) changed[k] = v;
-                        }
-                        const extras: Record<string, string> = {};
-                        for (const [k, v] of Object.entries(extrasForm)) {
-                          if (v.trim()) extras[k] = v;
-                        }
-                        if (!Object.keys(changed).length && !Object.keys(extras).length) { setToast("Nothing changed"); return; }
-                        if (Object.keys(changed).length) void act("cvs", f.slug, { values: JSON.stringify(changed) });
-                        if (Object.keys(extras).length) void act("extras", f.slug, extras);
-                        setCvFor(null);
-                      }}
-                      disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`}
-                      className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
-                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
-                    </button>
-                  </div>
-                  </div>
-                </div>
-              )}
-
-              {abFor === f.slug && (
-                <div className="mt-3 border-t border-[#eef2f6] pt-3">
-                  {abBusy && !ab[f.slug] ? (
-                    <div className="text-xs text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /> Loading…</div>
-                  ) : !ab[f.slug]?.experiment ? (
-                    <div className="grid gap-2">
-                      <div className="flex gap-1.5">
-                        <button onClick={() => setAbMode("original")}
-                          className={cn("text-xs rounded-lg px-2.5 py-1 border",
-                            abMode === "original" ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
-                          vs original funnel
-                        </button>
-                        <button onClick={() => setAbMode("versions")}
-                          className={cn("text-xs rounded-lg px-2.5 py-1 border",
-                            abMode === "versions" ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
-                          two versions of this funnel
-                        </button>
-                      </div>
-                      {abMode === "original" ? (
-                        <div className="grid gap-2">
-                          <p className="text-[11px] text-[#697a91]">
-                            {startVerify?.ok && verifySlug === f.slug
-                              ? <>✓ Setup verified{abOrigUrl ? <> against <b>{abOrigUrl.replace(/^https?:\/\//, "")}</b></> : null} — ready to start.</>
-                              : <>Do the GHL steps and run the verification under <b>Start Setup</b> first — this button unlocks when it passes.</>}
-                          </p>
                           <button
                             onClick={() => {
                               const target = abOrigUrl.trim();
