@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { listCards } from "@/lib/square";
-import { resolveCustomer } from "@/lib/subscriptions";
+import { resolveCustomer, lastUsedCard } from "@/lib/subscriptions";
 
 export const maxDuration = 30;
 
@@ -19,7 +19,9 @@ export async function GET(req: NextRequest) {
   const cust = await resolveCustomer(svc, ownerKey);
   if ("error" in cust) return NextResponse.json({ error: cust.error }, { status: 404 });
 
-  const cards = (await listCards(cust.customerId, true)).map((c) => ({
+  const raw = await listCards(cust.customerId, true);
+  const last = cust.pinnedCardId ? null : await lastUsedCard(cust.customerId, raw.filter((c) => c.enabled !== false));
+  const cards = raw.map((c) => ({
     id: c.id,
     brand: c.brand,
     last4: c.last4,
@@ -27,6 +29,8 @@ export async function GET(req: NextRequest) {
     holder: c.cardholderName,
     enabled: c.enabled !== false,
   }));
-  const defaultCardId = cust.pinnedCardId ?? cards.find((c) => c.enabled)?.id ?? null;
-  return NextResponse.json({ customerId: cust.customerId, cards, defaultCardId, pinnedInPps: !!cust.pinnedCardId });
+  // Default: the pinned card, else the card she last paid with, else the
+  // newest enabled card.
+  const defaultCardId = cust.pinnedCardId ?? last?.id ?? cards.find((c) => c.enabled)?.id ?? null;
+  return NextResponse.json({ customerId: cust.customerId, cards, defaultCardId, pinnedInPps: !!cust.pinnedCardId, lastUsed: !!last });
 }

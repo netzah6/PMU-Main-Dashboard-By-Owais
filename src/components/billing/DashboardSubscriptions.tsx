@@ -60,7 +60,7 @@ export function DashboardSubscriptions() {
   const [dateEdit, setDateEdit] = useState<{ id: string; value: string } | null>(null);
   // Card picker: which subscription is open, the cards Square returned for
   // that client, and which one would be used if nothing is chosen.
-  const [cardPick, setCardPick] = useState<{ id: string; loading: boolean; error?: string; customerId?: string; cards: CardOpt[]; defaultCardId: string | null; pinnedInPps: boolean } | null>(null);
+  const [cardPick, setCardPick] = useState<{ id: string; loading: boolean; error?: string; customerId?: string; cards: CardOpt[]; defaultCardId: string | null; pinnedInPps: boolean; lastUsed?: boolean } | null>(null);
   // last4 by card id, so a row can show "••4242" without a lookup each render
   const [cardLabels, setCardLabels] = useState<Record<string, string>>({});
 
@@ -70,7 +70,7 @@ export function DashboardSubscriptions() {
       const r = await fetch(`/api/subscriptions/cards?ownerKey=${encodeURIComponent(s.owner_key)}`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Could not load cards");
-      setCardPick({ id: s.id, loading: false, customerId: j.customerId, cards: j.cards, defaultCardId: j.defaultCardId, pinnedInPps: !!j.pinnedInPps });
+      setCardPick({ id: s.id, loading: false, customerId: j.customerId, cards: j.cards, defaultCardId: j.defaultCardId, pinnedInPps: !!j.pinnedInPps, lastUsed: !!j.lastUsed });
       const labels: Record<string, string> = {};
       for (const c of j.cards as CardOpt[]) labels[c.id] = `${c.brand} ••${c.last4}`;
       setCardLabels((m) => ({ ...m, ...labels }));
@@ -367,7 +367,11 @@ export function DashboardSubscriptions() {
                       <>
                         <div className="text-[11px] font-semibold text-[#1f3559]">
                           Which card should this subscription charge?
-                          {cardPick.pinnedInPps && <span className="ml-2 font-normal text-[#697a91]">(the default is the card pinned on PPS Billing)</span>}
+                          {cardPick.pinnedInPps
+                            ? <span className="ml-2 font-normal text-[#697a91]">(the default is the card pinned on PPS Billing)</span>
+                            : cardPick.lastUsed
+                              ? <span className="ml-2 font-normal text-[#697a91]">(the default is the card she last paid with)</span>
+                              : null}
                         </div>
                         {cardPick.cards.length === 0 ? (
                           <p className="text-[11px] text-[#be123c]">This client has no cards on file in Square.</p>

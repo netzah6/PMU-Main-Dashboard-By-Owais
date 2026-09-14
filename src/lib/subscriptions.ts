@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
-import { createCardPayment, listCards, listAllCustomers, searchCustomersByEmail, searchCustomersByPhone, type SquareCustomer } from "@/lib/square";
+import { createCardPayment, listCards, listAllCustomers, listRecentPayments, searchCustomersByEmail, searchCustomersByPhone, type SquareCard, type SquareCustomer } from "@/lib/square";
 import { normalizeOwnerKey } from "@/lib/normalizers";
 
 // Recurring billing run from the dashboard rather than Square Subscriptions.
@@ -138,8 +138,29 @@ export async function resolveCard(svc: Svc, ownerKey: string): Promise<CardTarge
   if (cust.pinnedCardId) return { customerId: cust.customerId, cardId: cust.pinnedCardId, label: "pinned card" };
   const cards = (await listCards(cust.customerId, false)).filter((c) => c.enabled !== false);
   if (!cards.length) return { error: "Square customer has no usable card on file" };
-  const c = cards[0];
-  return { customerId: cust.customerId, cardId: c.id, label: `${c.brand || "card"} ••${c.last4}` };
+  const last = await lastUsedCard(cust.customerId, cards);
+  const c = last ?? cards[0];
+  return { customerId: cust.customerId, cardId: c.id, label: `${c.brand || "card"} ••${c.last4}${last ? " (last used)" : ""}` };
+}
+
+/**
+ * The card this customer most recently paid with, if it is still on file —
+ * the sensible default for a new subscription (user, 2026-09-14). Square has
+ * no "default card", and its card list only orders by creation, so the last
+ * COMPLETED payment is the signal: matched by card id, or by fingerprint when
+ * the payment was made with a re-saved copy of the same physical card.
+ */
+export async function lastUsedCard(customerId: string, cards: SquareCard[]): Promise<SquareCard | null> {
+  if (!cards.length) return null;
+  try {
+    const payments = await listRecentPayments(); // newest first
+    for (const p of payments) {
+      if (p.customerId !== customerId) continue;
+      const hit = cards.find((c) => (p.cardId && c.id === p.cardId) || (p.cardFingerprint && c.fingerprint === p.cardFingerprint));
+      if (hit) return hit;
+    }
+  } catch { /* payments are a nicety — fall back to newest card */ }
+  return null;
 }
 
 export type ChargeOutcome =
