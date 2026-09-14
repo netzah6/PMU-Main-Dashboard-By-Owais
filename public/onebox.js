@@ -325,17 +325,36 @@
     });
   }
 
-  var QUESTIONS = [
+  var DEFAULT_SURVEY = [
     { k: "area", q: "Which Area(s) Would You Like Treated?", o: ["Lips", "Eyebrows"] },
     { k: "had_pmu", q: "Have You Ever Had Permanent Makeup Before?", o: ["Yes", "No"] },
     { k: "age", q: "What Age Group Are You In?", o: ["18-24", "24-30", "30-36", "36-42", "42-54", "54-65", "65+"] },
     { k: "commute", q: "Our Address is " + ADDR + ". Is This commutable for you?", o: ["Yes", "No"] },
     { k: "serious", q: "On A Scale From 1-10 How Serious Are You About Getting This Treatment?", o: ["0-2", "3-6", "7-9", "10 I Want This Treatment!"] },
-    { k: "aftercare", q: "Would you like a FREE Aftercare Kit?", o: ["Yes", "No"] },
+    { k: "aftercare", q: "Would you like a FREE Aftercare Kit?", o: ["Yes", "No"] }
+  ];
+  /* Per-client survey (OB - Survey Questions custom value, edited on the
+     dashboard's Start Setup panel): one question per line, in the form
+       Question text? | Option 1; Option 2; Option 3
+     {address} in the text becomes the studio address. Lines that don't
+     parse (no "|", fewer than 2 options) are skipped; an empty value
+     keeps the standard six. Name/phone/email always close the survey —
+     the lead submission depends on them. */
+  var CUSTOM_SURVEY = [];
+  String(C.surveyRaw || "").split(/\r?\n/).forEach(function (line, i) {
+    var bar = line.indexOf("|");
+    if (bar < 0) return;
+    var q = line.slice(0, bar).trim().replace(/\{address\}/gi, ADDR);
+    var o = line.slice(bar + 1).split(";").map(function (s) { return s.trim(); }).filter(Boolean);
+    if (!q || o.length < 2) return;
+    var k = q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 28) || "q" + (i + 1);
+    CUSTOM_SURVEY.push({ k: k, q: q, o: o });
+  });
+  var QUESTIONS = (CUSTOM_SURVEY.length ? CUSTOM_SURVEY : DEFAULT_SURVEY).concat([
     { k: "full_name", q: "Full Name", type: "text", ph: "Full Name" },
     { k: "phone", q: "Phone Number", type: "tel", ph: "Phone Number" },
     { k: "email", q: "Email Address", type: "email", ph: "Email Address" }
-  ];
+  ]);
   var N = QUESTIONS.length;
   var state = { eventIds: {}, answers: {}, submitted: false };
   var qi = 0, phase = "survey";
