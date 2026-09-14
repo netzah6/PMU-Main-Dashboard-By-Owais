@@ -97,3 +97,8 @@ CREATE TABLE IF NOT EXISTS square_subscriptions_snapshot (
 ALTER TABLE square_subscriptions_snapshot ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Square snapshot read" ON square_subscriptions_snapshot;
 CREATE POLICY "Square snapshot read" ON square_subscriptions_snapshot FOR SELECT TO authenticated USING (get_user_role() = 'admin');
+
+-- 2026-09-14: automatic retries after a failed charge (+1d, +3d, +4d; 4th failure pauses)
+alter table client_subscriptions add column if not exists retry_attempt integer not null default 0;
+alter table client_subscriptions add column if not exists retry_period text;
+alter table client_subscriptions add column if not exists pause_reason text;

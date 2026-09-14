@@ -19,6 +19,7 @@ type Sub = {
   status: "draft" | "active" | "paused" | "ended"; note: string | null;
   created_by: string | null; activated_by: string | null;
   square_customer_id: string | null; square_card_id: string | null; square_card_label: string | null;
+  retry_attempt?: number | null; pause_reason?: string | null;
 };
 type CardOpt = { id: string; brand: string; last4: string; exp: string | null; holder: string | null; enabled: boolean };
 type Charge = {
@@ -323,6 +324,18 @@ export function DashboardSubscriptions() {
                       {s.status === "active" ? "next" : s.status === "paused" ? "resumes on" : "would start"} {fmt(s.next_charge_on)} 📅
                     </button>
                   ))}
+                  {/* A failed charge schedules itself again (+1d, +3d, +4d); say so. */}
+                  {s.status === "active" && (s.retry_attempt ?? 0) > 0 && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#fff7ec] text-[#b45309] border border-[#fcd9a8]"
+                      title="The last charge failed — this is the automatic retry (1 day, then 3, then 4). A 4th failure pauses the subscription.">
+                      ↻ retry {s.retry_attempt} of 3
+                    </span>
+                  )}
+                  {s.status === "paused" && s.pause_reason && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]" title={s.pause_reason}>
+                      ⚠ card failed 4× — needs attention
+                    </span>
+                  )}
 
                   {s.status !== "ended" && (
                     <button onClick={() => openCardPicker(s)}

@@ -80,7 +80,8 @@ export async function POST(req: NextRequest) {
   const sub = cur as Subscription;
 
   if (action === "activate" || action === "resume") {
-    const patch: Record<string, unknown> = { status: "active", updated_at: now };
+    // Resuming after a card failure starts the retry count fresh.
+    const patch: Record<string, unknown> = { status: "active", retry_attempt: 0, retry_period: null, pause_reason: null, updated_at: now };
     if (!sub.activated_at) { patch.activated_by = auth.email; patch.activated_at = now; }
     // A due date already in the past would charge the moment it is switched on.
     const today = new Date().toISOString().slice(0, 10);

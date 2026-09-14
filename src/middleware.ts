@@ -8,7 +8,22 @@ import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server
 const FUNNEL_HOST = "book.pmu-care.com";
 const RESERVED = new Set(["api", "f", "s", "login", "auth", "deck", "manifest.webmanifest"]);
 
+/* This repo is deployed by TWO Vercel projects (pmu-main-dashboard-by-owais
+   and …-owais1). Production — tokens, custom domains — is the "1" one; the
+   other still fires every cron on the same schedule against the same
+   database: on 2026-09-14 it re-ran the subscription charges 15 s after the
+   real run with no Square token (401 "could not be authorized"), leaving a
+   second failure row per client. Crons only run on the production project. */
+const PRIMARY_PRODUCTION_URL = "pmu-main-dashboard-by-owais1.vercel.app";
+function cronOnSecondaryProject(): boolean {
+  const mine = (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "").toLowerCase();
+  return !!mine && mine !== PRIMARY_PRODUCTION_URL;
+}
+
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
+  if (request.nextUrl.pathname.startsWith("/api/cron/") && cronOnSecondaryProject()) {
+    return NextResponse.json({ skipped: "secondary Vercel project — crons run on production only" });
+  }
   const host = (request.headers.get("host") ?? "").toLowerCase();
   if (host === FUNNEL_HOST) {
     const m = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/?$/i);
