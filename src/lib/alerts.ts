@@ -2,6 +2,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getV3Accounts, type V3Account } from "@/lib/ghl-ingest";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { getThread } from "@/lib/ghl-conversations";
+import { normalizeOwnerKey } from "@/lib/normalizers";
 
 // ── Alerts center ────────────────────────────────────────────────────────────
 // High-signal problems the CEO wants pushed at him instead of hunted for:
@@ -33,7 +34,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -616,4 +617,84 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     if (ok) missingCall++;
   }
   return { overdue, missingCall };
+}
+
+/* ── Agreement not signed ──────────────────────────────────────────────
+   A Standard-program client who goes LIVE from now on without a signed
+   agreement gets an alert that stays open until it's signed (user request
+   2026-09-14). "From now on" is real: the first run seeds every client
+   already live as baseline and never alerts on them; only owners who turn
+   Live after that are checked. Signed = Clients Master "Agreement" is
+   true / a date, or a matching row in the Signed Agreements sheet. Program
+   = the financing sheet's Payment Status (PPS/PPA → PPS; anything else,
+   including no row, is Standard). */
+export async function scanAgreementMissing(svc: Svc): Promise<{ seeded: number; newlyLive: number; filed: number; resolved: number }> {
+  const [{ data: cm }, { data: seen }, { data: pay }, { data: signed }] = await Promise.all([
+    svc.from("clients_master").select("data"),
+    svc.from("client_live_seen").select("owner_key, baseline, first_seen_live_at"),
+    svc.from("client_payments").select("owner_key, payment_status"),
+    svc.from("signed_agreements").select("data"),
+  ]);
+  const live = ((cm ?? []) as Array<{ data: Record<string, unknown> }>)
+    .map((r) => {
+      const owner = String(r.data?.["Owner Full Name"] ?? "").trim();
+      const agreement = String(r.data?.["Agreement"] ?? "").trim().toLowerCase();
+      return {
+        owner, key: normalizeOwnerKey(owner),
+        business: String(r.data?.["Business Name"] ?? "").trim(),
+        status: String(r.data?.["col_1"] ?? "").trim().toLowerCase(),
+        assigned: String(r.data?.["Assigned"] ?? "").trim(),
+        // "true" or a date = signed; "false" / blank = not signed.
+        agreementSigned: agreement === "true" || /\d{1,2}\/\d{1,2}\/\d{4}/.test(agreement),
+      };
+    })
+    .filter((c) => c.key && c.status === "live");
+
+  const signedNames = ((signed ?? []) as Array<{ data: Record<string, unknown> }>)
+    .map((r) => String(r.data?.["Full Name"] ?? "").trim()).filter(Boolean);
+  const pps = new Set(((pay ?? []) as Array<{ owner_key: string; payment_status: string | null }>)
+    .filter((p) => /pps|ppa/i.test(String(p.payment_status ?? ""))).map((p) => p.owner_key));
+  const seenMap = new Map(((seen ?? []) as Array<{ owner_key: string; baseline: boolean; first_seen_live_at: string }>).map((r) => [r.owner_key, r]));
+
+  // First run: everyone live today is the baseline — no alerts for them, ever.
+  const firstRun = seenMap.size === 0;
+  const unseen = live.filter((c) => !seenMap.has(c.key));
+  if (unseen.length) {
+    await svc.from("client_live_seen").upsert(
+      unseen.map((c) => ({ owner_key: c.key, owner_name: c.owner, baseline: firstRun })),
+      { onConflict: "owner_key" }
+    );
+  }
+  if (firstRun) return { seeded: unseen.length, newlyLive: 0, filed: 0, resolved: 0 };
+
+  let filed = 0, resolved = 0, newlyLive = 0;
+  for (const c of live) {
+    const rec = seenMap.get(c.key);
+    if (rec?.baseline) continue; // was live before this check existed
+    newlyLive++;
+    const isSigned = c.agreementSigned || signedNames.some((n) => nameMatches(n, c.owner));
+    const key = `agreement-missing:${c.key}`;
+    if (isSigned || pps.has(c.key)) {
+      // Signed since (or turned out to be PPS): close the open alert quietly.
+      const { data: open } = await svc.from("alerts").select("id").eq("type", "agreement").eq("source_key", key).eq("status", "open");
+      if (open?.length) {
+        await svc.from("alerts").update({ status: "resolved", resolved_by: "system (agreement signed)", resolved_at: new Date().toISOString() })
+          .in("id", open.map((o) => o.id));
+        resolved += open.length;
+      }
+      continue;
+    }
+    const liveSince = String(rec?.first_seen_live_at ?? "").slice(0, 10);
+    const ok = await fileAlert(svc, {
+      type: "agreement",
+      severity: "high",
+      title: `${c.owner}${c.business ? ` — ${c.business}` : ""}: LIVE on Standard with NO signed agreement`,
+      detail: `Went Live ${liveSince || "recently"} on the Standard program and the agreement is not signed (Clients Master "Agreement" is not true and no row in Signed Agreements). Get it signed — this alert clears itself once it is.`,
+      source_key: key,
+      meta: { owner: c.owner, business: c.business, live_since: liveSince, csm: c.assigned || null },
+      resurfaceAfterDays: 3,
+    });
+    if (ok) filed++;
+  }
+  return { seeded: 0, newlyLive, filed, resolved };
 }
