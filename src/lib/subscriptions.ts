@@ -34,7 +34,42 @@ export type Subscription = {
   activated_at?: string | null;
   activated_by?: string | null;
   created_by?: string | null;
+  // Failed-charge retries: 0 = no failure pending; 1..3 = which retry is
+  // scheduled next; a 4th failure pauses the subscription (see RETRY_DAYS).
+  retry_attempt?: number | null;
+  retry_period?: string | null; // the period the retries are still trying to collect
+  pause_reason?: string | null;
 };
+
+/* After a failed charge, try again after this many days: +1, then +3, then
+   +4 (user, 2026-09-14). A fourth failure pauses the subscription with a
+   reason, so it shows up on the Subs tab instead of retrying forever. */
+export const RETRY_DAYS = [1, 3, 4] as const;
+
+function addDays(on: string, n: number): string {
+  const d = new Date(`${on}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/* Where a failed subscription goes next: the next retry date, or paused
+   once the retries are used up. Returns the ledger note to log with it. */
+async function scheduleRetry(svc: Svc, sub: Subscription, on: string, error: string): Promise<string> {
+  const attempt = sub.retry_attempt ?? 0;
+  const now = new Date().toISOString();
+  if (attempt < RETRY_DAYS.length) {
+    const next = addDays(on, RETRY_DAYS[attempt]);
+    // A retry that slips into next month still collects THIS period.
+    const retry_period = sub.retry_period ?? periodKey(sub, on);
+    await svc.from("client_subscriptions").update({ next_charge_on: next, retry_attempt: attempt + 1, retry_period, updated_at: now }).eq("id", sub.id);
+    return `retry ${attempt + 1} of ${RETRY_DAYS.length} on ${next}`;
+  }
+  await svc.from("client_subscriptions").update({
+    status: "paused", retry_attempt: 0, retry_period: null, updated_at: now,
+    pause_reason: `Card failed ${RETRY_DAYS.length + 1} times (last: ${error.slice(0, 120)}) — paused ${on}; fix the card, then resume`,
+  }).eq("id", sub.id);
+  return "retries exhausted — subscription paused";
+}
 
 type Svc = ReturnType<typeof createServiceClient>;
 
@@ -177,7 +212,9 @@ export async function chargeSubscription(
 ): Promise<ChargeOutcome> {
   if (sub.status !== "active") return { ok: false, error: `Subscription is ${sub.status}, not active` };
 
-  const period = periodKey(sub, on);
+  // Retries keep collecting the period the first attempt was for, even
+  // when the retry date has crossed into the next month.
+  const period = (sub.retry_attempt ?? 0) > 0 && sub.retry_period ? sub.retry_period : periodKey(sub, on);
   const { data: already } = await svc
     .from("subscription_charges").select("id")
     .eq("subscription_id", sub.id).eq("period_key", period).eq("status", "succeeded").maybeSingle();
@@ -187,16 +224,19 @@ export async function chargeSubscription(
     ? { customerId: sub.square_customer_id, cardId: sub.square_card_id, label: "pinned card" }
     : await resolveCard(svc, sub.owner_key);
   if ("error" in target) {
+    const plan = await scheduleRetry(svc, sub, on, target.error);
     await svc.from("subscription_charges").insert({
       subscription_id: sub.id, owner_key: sub.owner_key, amount_cents: sub.amount_cents,
-      status: "failed", error: target.error, charged_by: chargedBy, period_key: period,
+      status: "failed", error: `${target.error} · ${plan}`, charged_by: chargedBy, period_key: period,
     });
-    return { ok: false, error: target.error };
+    return { ok: false, error: `${target.error} · ${plan}` };
   }
 
   // Same subscription + same period => same key, so Square returns the existing
   // payment instead of creating a second one.
-  const idempotencyKey = createHash("sha256").update(`sub:${sub.id}:${period}`).digest("hex").slice(0, 45);
+  // …but a RETRY of a declined charge must be a new request — Square would
+  // replay the decline for a reused key — so the attempt number is part of it.
+  const idempotencyKey = createHash("sha256").update(`sub:${sub.id}:${period}:${sub.retry_attempt ?? 0}`).digest("hex").slice(0, 45);
   try {
     const p = await createCardPayment({
       customerId: target.customerId,
@@ -215,15 +255,17 @@ export async function chargeSubscription(
     await svc.from("client_subscriptions").update({
       next_charge_on: next ?? sub.next_charge_on,
       status: next ? sub.status : "ended",
+      retry_attempt: 0, retry_period: null, pause_reason: null,
       updated_at: new Date().toISOString(),
     }).eq("id", sub.id);
     return { ok: true, paymentId: p.id, receiptUrl: p.receiptUrl, amountCents: p.amountCents, card: target.label };
   } catch (e) {
     const error = e instanceof Error ? e.message : "Charge failed";
+    const plan = await scheduleRetry(svc, sub, on, error);
     await svc.from("subscription_charges").insert({
       subscription_id: sub.id, owner_key: sub.owner_key, amount_cents: sub.amount_cents,
-      status: "failed", error, charged_by: chargedBy, period_key: period,
+      status: "failed", error: `${error} · ${plan}`, charged_by: chargedBy, period_key: period,
     });
-    return { ok: false, error };
+    return { ok: false, error: `${error} · ${plan}` };
   }
 }
