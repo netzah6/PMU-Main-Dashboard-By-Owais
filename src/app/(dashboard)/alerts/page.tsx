@@ -15,6 +15,7 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   make_scenario: { label: "Make.com automation", icon: "⚙️", chip: "bg-amber-50 text-amber-800 border-amber-200" },
   data_quality: { label: "Data problem", icon: "🧮", chip: "bg-purple-50 text-purple-700 border-purple-200" },
   onboarding: { label: "Onboarding", icon: "🚀", chip: "bg-blue-50 text-blue-700 border-blue-200" },
+  agreement: { label: "Agreement not signed", icon: "📝", chip: "bg-red-50 text-red-700 border-red-200" },
 };
 
 function typeMeta(t: string) {
