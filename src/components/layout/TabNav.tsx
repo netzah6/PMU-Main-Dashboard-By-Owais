@@ -15,25 +15,27 @@ import type { UserRole } from "@/lib/types";
 type Tab = { label: string; href: string; adminOnly?: boolean; collapsed?: boolean; alsoRoles?: NonNullable<UserRole>[] };
 
 const TABS: Tab[] = [
+  // Order set by the user (2026-09-14): AI, Clients, Tasks, Performance, then the rest.
   // Hidden from the menu (page still exists at /overview): Overview
+  { label: "🤖 AI", href: "/ask" },
   { label: "👥 Clients", href: "/clients" },
-  { label: "✅ Tasks", href: "/tasks" }, // second, next to Clients — user request 2026-08-27
-  { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
+  { label: "✅ Tasks", href: "/tasks" },
   { label: "📈 Performance", href: "/performance" },
+  { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
   { label: "💰 Cost / Deposit", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27
   { label: "💵 Deposits", href: "/deposits" },
   { label: "📅 Bookings", href: "/bookings", collapsed: true },
   { label: "🧲 Leads", href: "/leads", collapsed: true },
   { label: "📞 Calls", href: "/calls", collapsed: true },
+  // Build a partner agreement from the standard Scope of Service, edit it in
+  // plain English, download it as a PDF (user request 2026-09-11). Sits right
+  // after Calls (user request 2026-09-14).
+  { label: "📝 Agreement", href: "/agreement", adminOnly: true },
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
   // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
-  // { label: "📝 Agreements", href: "/agreements" },
-  // Build a partner agreement from the standard Scope of Service, edit it in
-  // plain English, download it as a PDF (user request 2026-09-11).
-  { label: "📝 Agreement", href: "/agreement", adminOnly: true },
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "💎 LTV", href: "/ltv", adminOnly: true, collapsed: true }, // admins only
-  { label: "🔄 Subscriptions", href: "/subscriptions", adminOnly: true, collapsed: true }, // Square billing — admins only
+  { label: "🔄 Subs", href: "/subscriptions", adminOnly: true, collapsed: true }, // Square + dashboard billing — admins only
   { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true, collapsed: true }, // Square disputes + evidence prep — admins only
   // Pay-per-show tracking. Admins get the full billing desk; a Client Success
   // Coach gets their own clients and the money already collected (2026-09-08).
@@ -43,11 +45,10 @@ const TABS: Tab[] = [
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true }, // one-box funnels on Vercel — existence, health, leads/bookings
   { label: "📡 Pixel Checking", href: "/pixel-checking", adminOnly: true }, // per-client funnel pixel/conversion audit — user request 2026-09-01
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true, collapsed: true }, // offboarded sub-account wipe + pool recycling — admins only
-  { label: "👑 CEO", href: "/ceo", adminOnly: true }, // offboarded sub-account wipe + pool recycling — admins only
+  { label: "👑 CEO", href: "/ceo", adminOnly: true },
   { label: "🕵️ Logs", href: "/activity", adminOnly: true, collapsed: true }, // team-member change log
   { label: "📣 Blast", href: "/blast" }, // text blasts — human-confirmed; admins + coaches (user request 2026-08-27)
   { label: "🗺️ Map", href: "/map" },
-  { label: "🤖 AI", href: "/ask" },
   { label: "📊 Reports", href: "/reports" },
 ];
 

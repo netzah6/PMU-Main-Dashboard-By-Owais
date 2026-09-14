@@ -29,7 +29,9 @@ const LABEL: Record<string, { text: string; cls: string }> = {
 
 export function BillingActivity() {
   const [feed, setFeed] = useState<Row[] | null>(null);
-  const [open, setOpen] = useState(true);
+  // Sits at the very top of the Subs tab as a dropdown — closed until asked
+  // (user, 2026-09-14), so the subscriptions themselves stay in view.
+  const [open, setOpen] = useState(false);
   const [onlyProblems, setOnlyProblems] = useState(false);
 
   const load = useCallback(async () => {
@@ -48,8 +50,10 @@ export function BillingActivity() {
     <div className="rounded-xl border border-[#e4ebf2] bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
         <Activity size={14} className="text-[#34568a] shrink-0" />
-        <h2 className="text-sm font-bold text-[#1f3559]">Activity</h2>
-        <span className="text-[11px] text-[#697a91]">every charge and every Square pause/resume from here</span>
+        <h2 className="text-sm font-bold text-[#1f3559]">Recent activity</h2>
+        <span className="text-[11px] text-[#697a91]">
+          {feed === null ? "loading…" : feed.length ? `${feed.length} charge${feed.length === 1 ? "" : "s"} / Square action${feed.length === 1 ? "" : "s"}` : "every charge and Square pause/resume from here"}
+        </span>
         {failed > 0 && (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]">
             {failed} failed
