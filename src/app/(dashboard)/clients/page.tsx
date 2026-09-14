@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { useUser } from "@/lib/hooks/useUser";
 import { createClient } from "@/lib/supabase/client";
@@ -115,6 +115,20 @@ export default function ClientsPage() {
   const payments = usePayments();
   const [selectedClient, setSelectedClient] = useState<ClientRecord | null>(null);
 
+  // Program per client for the list rows (PPS vs Standard), same rule as the
+  // profile: a PPS/PPA Payment Status in the financing sheet = PPS, any other
+  // row = Standard, no row = unknown (user request 2026-09-14).
+  const programOf = useCallback((c: ClientRecord): "PPS" | "Standard" | null => {
+    const k = normalizeOwnerKey(c.owner_name);
+    if (!k) return null;
+    const parts = k.split(" ").filter(Boolean);
+    const fl = parts.length > 2 ? `${parts[0]} ${parts[parts.length - 1]}` : "";
+    const pay = payments.get(k) ?? (fl ? payments.get(fl) ?? null : null);
+    if (!pay) return null;
+    const st = String(pay.payment_status ?? "").toLowerCase();
+    return st.includes("pps") || st.includes("ppa") ? "PPS" : "Standard";
+  }, [payments]);
+
   const selectedPayment = useMemo(() => {
     if (!selectedClient) return null;
     const k = normalizeOwnerKey(selectedClient.owner_name);
@@ -140,6 +154,7 @@ export default function ClientsPage() {
         ) : (
           <ClientList
             clients={clients}
+            programOf={programOf}
             selectedId={selectedClient
               ? String(selectedClient._id ?? selectedClient.row_number ?? "")
               : null}
