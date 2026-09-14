@@ -296,6 +296,7 @@ export default function FunnelsPage() {
   const [search, setSearch] = useState("");
   const [addNote, setAddNote] = useState<string | null>(null);
   const [surveyRows, setSurveyRows] = useState<SurveyRow[]>([]);
+  const [serviceInput, setServiceInput] = useState("");
   const [surveyDirty, setSurveyDirty] = useState(false);
   const surveyDragIdx = useRef<number | null>(null);
   const [cvFor, setCvFor] = useState<string | null>(null);
@@ -1081,6 +1082,7 @@ export default function FunnelsPage() {
                       setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); setPixelOther(false);
                       setSurveyRows(parseSurvey((f.cv.surveyRaw ?? "").trim() || DEFAULT_SURVEY_TEMPLATE));
                       setSurveyDirty(false);
+                      setServiceInput("");
                       setAbOrigUrl(f.oldFunnelUrl ? f.oldFunnelUrl.replace(/\/?$/, "") + "-ab-ghl" : "");
                       setSop({ renamed: false, redirect: false, values: false, workflow: false });
                       setStartVerify(null);
@@ -1235,6 +1237,50 @@ export default function FunnelsPage() {
                       Survey questions — ON/OFF hides a question, drag &#8801; (or &#9650;&#9660;) to reorder;
                       name, phone &amp; email always close the survey. {"{address}"} becomes the studio address.
                     </span>
+                    {(() => {
+                      /* The services live as the options of the services
+                         question (the standard first one) — these chips are
+                         just a friendlier handle on that same row. */
+                      const si = (() => {
+                        const byText = surveyRows.findIndex((r) => /would you like treated/i.test(r.text));
+                        return byText >= 0 ? byText : surveyRows.length ? 0 : -1;
+                      })();
+                      if (si < 0) return null;
+                      const services = surveyRows[si].opts.split(";").map((x) => x.trim()).filter(Boolean);
+                      const setServices = (list: string[]) => {
+                        setSurveyRows((rs) => rs.map((r, j) => (j === si ? { ...r, opts: list.join("; ") } : r)));
+                        setSurveyDirty(true);
+                      };
+                      return (
+                        <div className="border border-[#cdeeed] rounded-lg bg-[#f7fdfc] px-2.5 py-2 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-medium text-[#697a91]">Services on the survey:</span>
+                          {services.map((sv) => (
+                            <span key={sv} className="inline-flex items-center gap-1 text-[11px] font-medium bg-white border border-[#bfe6e2] text-[#0b7f7f] rounded-full px-2 py-0.5">
+                              {sv}
+                              <button type="button" title={`Remove ${sv}`}
+                                onClick={() => { if (services.length <= 2) { setToast("Keep at least 2 services — the question needs choices"); return; } setServices(services.filter((x) => x !== sv)); }}
+                                className="text-[#b91c1c] hover:font-bold leading-none">&times;</button>
+                            </span>
+                          ))}
+                          <input value={serviceInput} placeholder="+ add service"
+                            onChange={(e) => setServiceInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              e.preventDefault();
+                              const v = serviceInput.trim();
+                              if (!v) return;
+                              if (services.some((x) => x.toLowerCase() === v.toLowerCase())) { setToast("Already on the list"); return; }
+                              setServices([...services, v]); setServiceInput("");
+                            }}
+                            className="w-28 border border-dashed border-[#bfe6e2] rounded-full px-2 py-0.5 text-[11px] bg-white" />
+                          {serviceInput.trim() && (
+                            <button type="button"
+                              onClick={() => { const v = serviceInput.trim(); if (services.some((x) => x.toLowerCase() === v.toLowerCase())) { setToast("Already on the list"); return; } setServices([...services, v]); setServiceInput(""); }}
+                              className="text-[11px] font-medium text-[#0b7f7f] hover:underline">Add</button>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {surveyRows.map((row, i) => (
                       <div key={i} draggable
                         onDragStart={() => { surveyDragIdx.current = i; }}
