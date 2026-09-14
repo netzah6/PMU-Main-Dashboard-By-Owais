@@ -220,13 +220,19 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   let body: Record<string, string>;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
+  }
+  /* Client Success Coaches (role "editor") onboard clients: they may add
+     a funnel and save Start Setup (custom values + extras). Everything
+     that moves traffic or money stays admin-only. */
+  const COACH_ACTIONS = new Set(["add", "cvs", "extras"]);
+  if (auth.role !== "admin" && !(auth.role === "editor" && COACH_ACTIONS.has(String(body.action ?? "")))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const svc = createServiceClient();
   const action = String(body.action ?? "");
