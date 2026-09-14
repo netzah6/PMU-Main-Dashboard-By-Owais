@@ -297,24 +297,40 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
 /* ---------- slide 16: educate-your-clients FAQ ---------- */
 .faqbar{background:var(--teal);color:#fff;text-align:center;font-family:Poppins,sans-serif;font-weight:700;
   font-size:19px;border-radius:9px;padding:9px;margin-bottom:14px}
-.faqgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
-.faqc{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;
-  box-shadow:0 8px 22px -18px rgba(20,25,35,.6)}
-.faqc .qh{display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;
+.faqgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;align-items:start}
+/* hairline gradient border (teal -> soft gold -> teal) over a white card, lifted on a deep shadow */
+.faqc{position:relative;border-radius:16px;background:#fff;cursor:pointer;
+  border:1.5px solid transparent;
+  background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,#2EC4C6 0%,#d9c07a 55%,#2EC4C6 100%) border-box;
+  box-shadow:0 18px 40px -22px rgba(20,25,35,.55),0 2px 6px rgba(20,25,35,.06);transition:transform .18s,box-shadow .18s}
+.faqc:hover{transform:translateY(-3px);box-shadow:0 26px 48px -22px rgba(20,25,35,.6),0 2px 6px rgba(20,25,35,.06)}
+.faqc .qh{display:flex;align-items:center;gap:9px;padding:13px 16px 11px;
   font-family:Poppins,sans-serif;font-weight:600;font-size:16px;line-height:1.28;color:#1b2228}
 .faqc .qh .cr{margin-left:auto;flex:none;color:var(--teal);transition:transform .22s}
 .faqc.open .qh .cr{transform:rotate(180deg)}
 .faqc .qh svg{width:15px;height:15px}
 .faqc .ans{max-height:0;overflow:hidden;transition:max-height .28s ease;
-  font-family:Poppins,sans-serif;font-size:14.5px;line-height:1.5;color:#4a5560;padding:0 14px}
+  font-family:Poppins,sans-serif;font-size:14.5px;line-height:1.5;color:#4a5560;padding:0 16px}
 .faqc.open .ans{max-height:210px;padding-bottom:12px}
-.faqvid{position:relative;background:#000;height:220px;cursor:pointer}
+/* the video sits in its own dark inset frame, like a screening-room monitor */
+.faqvid{position:relative;margin:0 12px 12px;height:216px;border-radius:12px;overflow:hidden;cursor:pointer;
+  background:#0d1114;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 10px 24px -14px rgba(0,0,0,.7)}
 .faqvid video{width:100%;height:100%;object-fit:contain;display:block}
-.faqvid .pl{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .2s}
+.faqvid .pl{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .2s;
+  background:linear-gradient(180deg,rgba(0,0,0,0) 55%,rgba(0,0,0,.35) 100%)}
 .faqvid.playing .pl{opacity:0;pointer-events:none}
-.faqvid .pl i{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.94);display:grid;
-  place-items:center;box-shadow:0 4px 16px rgba(0,0,0,.45)}
-.faqvid .pl svg{width:40%;height:40%;color:#111;margin-left:3px}
+.faqvid .pl i{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(255,255,255,.14);border:1.5px solid rgba(255,255,255,.85);backdrop-filter:blur(3px);
+  box-shadow:0 0 0 8px rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.45);transition:transform .15s}
+.faqvid:hover .pl i{transform:scale(1.06)}
+.faqvid .pl svg{width:40%;height:40%;color:#fff;margin-left:3px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+.faqvid .dur{position:absolute;right:10px;bottom:9px;background:rgba(0,0,0,.62);color:#fff;border-radius:6px;
+  padding:3px 8px;font-size:11.5px;font-weight:600;letter-spacing:.03em;font-variant-numeric:tabular-nums;
+  backdrop-filter:blur(3px)}
+.faqvid .tag{position:absolute;left:10px;top:9px;display:flex;align-items:center;gap:6px;color:#fff;
+  background:rgba(0,0,0,.5);border-radius:6px;padding:3px 8px;font-size:10.5px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;backdrop-filter:blur(3px)}
+.faqvid .tag i{width:6px;height:6px;border-radius:50%;background:#d9c07a}
 
 /* ---------- slide 13: area exclusivity ---------- */
 .mapwrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
@@ -475,7 +491,7 @@ var THUMB='<span class="rbubble like"><svg viewBox="0 0 24 24" fill="currentColo
 var HEART='<span class="rbubble love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg></span>';
 var CK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l6 6L20 5"/></svg>';
 var PINSVG='<svg viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20c0-6.6-5.4-12-12-12Zm0 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z"/></svg>';
-var PINS=[[35.7,64.9],[75.4,49.4],[80.8,45.5],[71.7,71.8],[47.6,24.4],[63.7,56.6],[44.7,58.6],[24.3,60.3],[42.7,75.6],[43.8,68.8],[79.7,70.9],[80.9,60.1],[60.2,62.0],[41.3,15.8],[21.1,37.3],[13.8,22.8],[46.7,37.6],[72.2,34.1],[63.1,75.8],[96.1,15.9],[15.8,8.3],[67.6,40.2],[18.6,79.0],[58.7,39.8],[71.7,43.3],[17.9,47.5],[17.7,26.0],[27.6,24.2],[28.1,47.1],[71.7,62.7],[53.7,29.7],[50.7,41.6],[50.4,65.6],[21.3,18.3],[84.9,49.8],[66.2,62.9],[41.8,32.5],[83.5,35.9],[66.0,29.7],[69.7,52.5],[34.2,53.3],[88.4,36.8],[49.5,15.0],[57.7,16.0],[19.9,59.7],[43.3,50.6],[12.0,41.6],[34.5,20.9],[20.8,7.1],[32.4,34.6],[52.7,76.8],[58.6,47.6],[53.6,59.6],[89.0,24.0],[29.7,12.7],[74.1,25.7],[36.0,13.0],[12.2,50.5],[78.7,38.2],[82.3,78.2],[12.4,31.0],[54.5,45.8],[32.1,44.8],[57.3,71.4]];
+var PINS=[[35.7,64.9],[75.4,49.4],[80.8,45.5],[71.7,71.8],[47.6,24.4],[63.7,56.6],[44.7,58.6],[24.3,60.3],[42.7,75.6],[43.8,68.8],[79.7,70.9],[80.9,60.1],[60.2,62.0],[41.3,15.8],[21.1,37.3],[13.8,22.8],[46.7,37.6],[72.2,34.1],[63.1,75.8],[96.1,15.9],[15.8,8.3],[67.6,40.2],[18.6,79.0],[58.7,39.8],[71.7,43.3],[17.9,47.5],[17.7,26.0],[27.6,24.2],[28.1,47.1],[71.7,62.7],[53.7,29.7],[50.7,41.6],[50.4,65.6],[21.3,18.3],[84.9,49.8],[66.2,62.9],[41.8,32.5],[83.5,35.9],[66.0,29.7],[69.7,52.5],[34.2,53.3],[88.4,36.8],[49.5,15.0],[57.7,16.0],[19.9,59.7],[43.3,50.6],[12.0,41.6],[34.5,20.9],[20.8,7.1],[32.4,34.6],[52.7,76.8],[58.6,47.6],[53.6,59.6],[89.0,24.0],[29.7,12.7],[74.1,25.7],[36.0,13.0],[12.2,50.5],[78.7,38.2],[82.3,78.2],[12.4,31.0],[54.5,45.8],[32.1,44.8],[57.3,71.4],[93.0,29.4],[18.3,53.9],[87.1,34.9],[72.5,51.6],[25.1,47.3],[53.6,64.4],[73.7,69.0],[28.1,55.5],[15.0,42.1],[90.9,30.7],[71.7,27.5],[19.7,56.4],[75.4,76.2],[76.5,66.6],[51.5,56.1],[95.5,24.0],[18.4,17.2],[16.5,38.7],[20.3,11.1],[43.2,35.1]];
 var ARROW='<span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></span>';
 var CHEV='<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>';
 function bullets(a){return '<ul class="bullets">'+a.map(function(t,k){return '<li class="rx" style="animation-delay:'+(0.12+k*0.085)+'s">'+CHEV+t+'</li>';}).join("")+'</ul>';}
@@ -569,7 +585,7 @@ head(9,true)+
 live(10,"Notification Process",
 head(10,true)+
 '<div class="row"><div class="col-copy">'+
-  '<h1 class="title">Notification<br>Process</h1>'+
+  '<h1 class="title" style="white-space:nowrap">Notification Process</h1>'+
   '<p class="lede">Every qualified lead lands on your phone the second they finish — <b>name, treatment, age, how serious they are</b>.</p>'+
 '</div><div class="col-visual"><div class="phone ph-sms"><div class="notch"></div><div class="screen">'+
   '<div class="statusbar"><span>9:41</span><span>&#9679;&#9679;&#9679;&#9679; 5G</span></div>'+
@@ -968,13 +984,16 @@ function runCrm(){
 }
 
 /* ---- slide 12: AI conversation ---- */
+var FAQDUR=["1:26","0:33","0:50","1:13","0:36","1:56"];
 var FAQS=[{"q": "What is permanent makeup❓", "a": "Permanent makeup is a beauty treatment that gently enhances your natural features — like your brows, eyeliner, or lips — so you can wake up looking polished every day without the hassle of applying makeup."}, {"q": "Is permanent makeup the same as tattooing❓", "a": "No. Permanent makeup is a much softer and more natural technique. Unlike traditional tattoos, the colors are designed to fade gradually over time, keeping the look fresh and allowing adjustments as your style changes."}, {"q": "Is it painless, or does it cause discomfort❓", "a": "Clients are pleasantly surprised at how comfortable the process is. A numbing cream is used to make the treatment as easy and relaxing as possible. Many say it feels more like light scratching than anything else."}, {"q": "How long does the procedure take to complete❓", "a": "The session usually takes 1.5–3 hours, which includes consultation, shaping, color selection, and the procedure itself. It's an unhurried, detailed process to make sure you leave with results you'll love."}, {"q": "Is permanent makeup a safe procedure❓", "a": "Yes. When done by a trained professional, permanent makeup is a safe and hygienic procedure. Certified artists use high-quality products and follow strict safety standards, so you can feel completely at ease."}, {"q": "Is any care required after the procedure❓", "a": "Yes, but it's simple! We'll guide you step by step. Typically, you'll just need to keep the area clean, avoid touching it too much, and let it heal naturally. Following these easy instructions helps ensure your results stay beautiful and long-lasting."}];
 document.getElementById("faqgrid").innerHTML=FAQS.map(function(f,k){
   return '<div class="faqc" data-k="'+k+'">'+
     '<div class="qh">'+f.q+'<span class="cr"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></span></div>'+
     '<div class="ans">'+f.a+'</div>'+
     '<div class="faqvid"><video src="/deck/assets/faq'+(k+1)+'.mp4" poster="/deck/assets/faqp'+(k+1)+'.jpg" preload="none" playsinline></video>'+
-    '<span class="pl"><i><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg></i></span></div></div>';
+    '<span class="tag"><i></i>Client education</span>'+
+    '<span class="pl"><i><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg></i></span>'+
+    '<span class="dur">'+FAQDUR[k]+'</span></div></div>';
 }).join("");
 document.getElementById("faqgrid").addEventListener("click",function(e){
   var vw=e.target.closest(".faqvid");
