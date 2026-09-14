@@ -1,5 +1,5 @@
 "use client";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -83,6 +83,27 @@ const DEFAULT_SURVEY_TEMPLATE = [
   "On A Scale From 1-10 How Serious Are You About Getting This Treatment? | 0-2; 3-6; 7-9; 10 I Want This Treatment!",
   "Would you like a FREE Aftercare Kit? | Yes; No",
 ].join("\n");
+
+/* Survey rows for the Start Setup manager. A "// " prefix in the stored
+   value marks a question that is toggled OFF (the engine skips it). */
+type SurveyRow = { text: string; opts: string; off: boolean };
+function parseSurvey(raw: string): SurveyRow[] {
+  return raw.split(/\r?\n/).map((line) => {
+    const off = /^\s*\/\//.test(line);
+    const body = line.replace(/^\s*\/\/\s?/, "");
+    const bar = body.indexOf("|");
+    if (bar < 0) return null;
+    const text = body.slice(0, bar).trim();
+    const opts = body.slice(bar + 1).trim();
+    return text && opts ? { text, opts, off } : null;
+  }).filter((r): r is SurveyRow => r !== null);
+}
+function serializeSurvey(rows: SurveyRow[]): string {
+  return rows
+    .filter((r) => r.text.trim() && r.opts.trim())
+    .map((r) => (r.off ? "// " : "") + r.text.trim() + " | " + r.opts.trim())
+    .join("\n");
+}
 
 type HealthCheck = { name: string; ok: boolean; note: string };
 
@@ -272,7 +293,9 @@ export default function FunnelsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
   const [addNote, setAddNote] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [surveyRows, setSurveyRows] = useState<SurveyRow[]>([]);
+  const [surveyDirty, setSurveyDirty] = useState(false);
+  const surveyDragIdx = useRef<number | null>(null);
   const [cvFor, setCvFor] = useState<string | null>(null);
   const [leadsFor, setLeadsFor] = useState<string | null>(null);
   const [leadRows, setLeadRows] = useState<Record<string, LeadRow[]>>({});
@@ -1091,7 +1114,8 @@ export default function FunnelsPage() {
                     if (!open) {
                       setCvForm({ ...f.cv });
                       setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
-                      setShowAdvanced(false);
+                      setSurveyRows(parseSurvey((f.cv.surveyRaw ?? "").trim() || DEFAULT_SURVEY_TEMPLATE));
+                      setSurveyDirty(false);
                       setAbOrigUrl(f.oldFunnelUrl ? f.oldFunnelUrl.replace(/\/?$/, "") + "-ab-ghl" : "");
                       setSop({ renamed: false, redirect: false, values: false, workflow: false });
                       setStartVerify(null);
@@ -1222,65 +1246,67 @@ export default function FunnelsPage() {
                         className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                     </label>
                   </div>
-                  <label className="grid gap-0.5">
+                  <div className="grid gap-1">
                     <span className="text-[10px] font-medium text-[#697a91]">
-                      Survey questions — one per line: <span className="font-mono">Question? | Option 1; Option 2</span>.
-                      Empty = the standard six. Name, phone and email always close the survey. Use {"{address}"} for the studio address.
+                      Survey questions — ON/OFF hides a question, drag &#8801; (or &#9650;&#9660;) to reorder;
+                      name, phone &amp; email always close the survey. {"{address}"} becomes the studio address.
                     </span>
-                    <textarea rows={5} value={cvForm.surveyRaw ?? ""}
-                      onChange={(e) => setCvForm((x) => ({ ...x, surveyRaw: e.target.value }))}
-                      placeholder={"Which Area(s) Would You Like Treated? | Lips; Eyebrows\n…leave empty for the standard questions"}
-                      className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs font-mono" />
-                    {!(cvForm.surveyRaw ?? "").trim() && (
-                      <button type="button"
-                        onClick={() => setCvForm((x) => ({ ...x, surveyRaw: DEFAULT_SURVEY_TEMPLATE }))}
-                        className="justify-self-start text-[11px] text-[#0b7f7f] hover:underline">
-                        Insert the standard questions to edit them
-                      </button>
-                    )}
-                  </label>
-                  <button onClick={() => setShowAdvanced(!showAdvanced)}
-                    className="justify-self-start text-[11px] text-[#697a91] hover:underline">
-                    {showAdvanced ? "▲ hide" : "▼ show"} rarely-needed settings (ad-spend owner, widgets, checkout paste)
-                  </button>
-                  {showAdvanced && (
-                    <div className="grid gap-2">
-                      <p className="text-[11px] text-[#697a91]">Leave a field empty to keep its current value.</p>
-                      <div className="grid md:grid-cols-2 gap-2">
-                        <input placeholder="Ad-spend owner name, exactly as in the Performance tab"
-                          value={extrasForm.ownerName}
-                          onChange={(e) => setExtrasForm((x) => ({ ...x, ownerName: e.target.value }))}
-                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                        <input placeholder="Old funnel URL this one replaces (shows the redirect line)"
-                          value={extrasForm.oldFunnelUrl}
-                          onChange={(e) => setExtrasForm((x) => ({ ...x, oldFunnelUrl: e.target.value }))}
-                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                        <input placeholder="Instagram widget (Elfsight ID / link / code)" value={extrasForm.elfsightId}
-                          onChange={(e) => setExtrasForm((x) => ({ ...x, elfsightId: e.target.value }))}
-                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
-                        <input placeholder="Result image URLs, comma-separated" value={extrasForm.resultImgs}
-                          onChange={(e) => setExtrasForm((x) => ({ ...x, resultImgs: e.target.value }))}
-                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                    {surveyRows.map((row, i) => (
+                      <div key={i} draggable
+                        onDragStart={() => { surveyDragIdx.current = i; }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={() => {
+                          const from = surveyDragIdx.current;
+                          surveyDragIdx.current = null;
+                          if (from == null || from === i) return;
+                          setSurveyRows((rs) => { const c = [...rs]; const [m] = c.splice(from, 1); c.splice(i, 0, m); return c; });
+                          setSurveyDirty(true);
+                        }}
+                        className={cn("flex items-center gap-1.5 border rounded-lg px-2 py-1 bg-white",
+                          row.off ? "border-[#e4ebf2] opacity-60" : "border-[#cdeeed]")}>
+                        <span className="cursor-grab text-[#97a5b8] select-none" title="Drag to reorder">&#8801;</span>
+                        <button type="button"
+                          title={row.off ? "Hidden from the survey — click to turn it back on" : "Live on the survey — click to hide it"}
+                          onClick={() => { setSurveyRows((rs) => rs.map((r, j) => (j === i ? { ...r, off: !r.off } : r))); setSurveyDirty(true); }}
+                          className={cn("text-[10px] font-semibold rounded-full px-2 py-0.5 border shrink-0 w-10",
+                            row.off ? "bg-[#f6f9fc] text-[#697a91] border-[#e4ebf2]" : "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]")}>
+                          {row.off ? "OFF" : "ON"}
+                        </button>
+                        <input value={row.text} placeholder="Question text?"
+                          onChange={(e) => { setSurveyRows((rs) => rs.map((r, j) => (j === i ? { ...r, text: e.target.value } : r))); setSurveyDirty(true); }}
+                          className="flex-1 min-w-0 text-xs py-1 focus:outline-none" />
+                        <input value={row.opts} placeholder="Option 1; Option 2"
+                          onChange={(e) => { setSurveyRows((rs) => rs.map((r, j) => (j === i ? { ...r, opts: e.target.value } : r))); setSurveyDirty(true); }}
+                          className="flex-1 min-w-0 text-xs py-1 text-[#697a91] focus:outline-none" />
+                        <button type="button" disabled={i === 0} title="Move up"
+                          onClick={() => { setSurveyRows((rs) => { const c = [...rs]; [c[i - 1], c[i]] = [c[i], c[i - 1]]; return c; }); setSurveyDirty(true); }}
+                          className="text-[10px] text-[#697a91] hover:text-[#1c2b3a] disabled:opacity-20">&#9650;</button>
+                        <button type="button" disabled={i === surveyRows.length - 1} title="Move down"
+                          onClick={() => { setSurveyRows((rs) => { const c = [...rs]; [c[i], c[i + 1]] = [c[i + 1], c[i]]; return c; }); setSurveyDirty(true); }}
+                          className="text-[10px] text-[#697a91] hover:text-[#1c2b3a] disabled:opacity-20">&#9660;</button>
                       </div>
-                      <textarea placeholder="Commas checkout block (paste the whole custom-code block from the client's -last-step page)"
-                        value={extrasForm.fanbasisHtml} onChange={(e) => setExtrasForm((x) => ({ ...x, fanbasisHtml: e.target.value }))}
-                        rows={3} className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs font-mono" />
-                    </div>
-                  )}
+                    ))}
+                    {["Full Name", "Phone Number", "Email Address"].map((t) => (
+                      <div key={t} className="flex items-center gap-1.5 border border-dashed border-[#e4ebf2] rounded-lg px-2 py-1 text-xs text-[#97a5b8]">
+                        <span>&#128274;</span><span>{t}</span><span className="ml-auto text-[10px]">always last</span>
+                      </div>
+                    ))}
+                    <button type="button"
+                      onClick={() => { setSurveyRows((rs) => [...rs, { text: "", opts: "", off: false }]); setSurveyDirty(true); }}
+                      className="justify-self-start text-[11px] font-medium text-[#0b7f7f] hover:underline">
+                      + Add another question
+                    </button>
+                  </div>
 
-                  <div className="border-t border-[#eef2f6] pt-3 grid gap-2">
-                    <p className="text-[11px] text-[#697a91]">
-                      Traffic must arrive at the splitter: point the ad&rsquo;s redirect at{" "}
-                      <b>{f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)}</b>. With no test running it simply
-                      forwards to the funnel, so it can stay pointed there permanently.
-                    </p>
-                  <div>
+                  <div className="border-t border-[#eef2f6] pt-3">
                     <button
                       onClick={() => {
                         const changed: Record<string, string> = {};
                         for (const [k, v] of Object.entries(cvForm)) {
+                          if (k === "surveyRaw") continue; // managed by the row editor below
                           if ((f.cv[k] ?? "") !== v) changed[k] = v;
                         }
+                        if (surveyDirty) changed.surveyRaw = serializeSurvey(surveyRows);
                         const extras: Record<string, string> = {};
                         for (const [k, v] of Object.entries(extrasForm)) {
                           if (v.trim()) extras[k] = v;
@@ -1294,7 +1320,6 @@ export default function FunnelsPage() {
                       className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
                       {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
                     </button>
-                  </div>
                   </div>
                 </div>
               )}
