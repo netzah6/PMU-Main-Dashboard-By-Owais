@@ -591,9 +591,6 @@ export function ClientProfile({
       {/* ── Body ── */}
       <div className="px-3 sm:px-6 py-3 sm:py-4 space-y-3 sm:space-y-5">
 
-        {/* GHL Notes (top) */}
-        {ghlContactId && <GhlNotes contactId={ghlContactId} />}
-
         {/* Activity */}
         <Section icon={null} title="Activity — Deposits, Bookings, Leads & Calls">
           <ActivityTabs
@@ -652,6 +649,10 @@ export function ClientProfile({
             <p className="text-sm text-[#34568a] whitespace-pre-line">{String(localClient.notes)}</p>
           </Section>
         )}
+
+        {/* GHL Notes — last on the page (user, 2026-09-14); it used to sit
+            above Activity and pushed everything down. */}
+        {ghlContactId && <GhlNotes contactId={ghlContactId} />}
 
       </div>
     </div>
