@@ -9,6 +9,7 @@ interface ClientListProps {
   clients: ClientRecord[];
   selectedId: string | null;
   onSelect: (client: ClientRecord) => void;
+  programOf?: (client: ClientRecord) => "PPS" | "Standard" | null;
 }
 
 function uniqueSorted(clients: ClientRecord[], key: keyof ClientRecord) {
@@ -35,7 +36,7 @@ function avatarFor(name: string) {
   return AVATARS[h % AVATARS.length];
 }
 
-export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
+export function ClientList({ clients, selectedId, onSelect, programOf }: ClientListProps) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [assignedFilter, setAssignedFilter] = useState("All");
@@ -177,8 +178,8 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
                   <p className="text-xs text-[#697a91] truncate mt-0.5">
                     {c.owner_name || ""}
                   </p>
-                  {(c.assigned || c.version) && (
-                    <p className="text-xs mt-0.5 truncate">
+                  {(c.assigned || c.version || programOf?.(c)) && (
+                    <p className="text-xs mt-0.5 truncate flex items-center gap-1">
                       {c.assigned && (
                         <span className="font-medium" style={{ color: userColor(String(c.assigned))?.text ?? "#a6b3c4" }}>
                           {String(c.assigned)}
@@ -186,6 +187,13 @@ export function ClientList({ clients, selectedId, onSelect }: ClientListProps) {
                       )}
                       {c.assigned && c.version && <span className="text-[#a6b3c4]"> · </span>}
                       {c.version && <span className="text-[#a6b3c4]">{String(c.version)}</span>}
+                      {/* Program chip — PPS blue, Standard yellow (user, 2026-09-14). */}
+                      {(() => { const pr = programOf?.(c); return pr ? (
+                        <span className={cn("ml-auto shrink-0 px-1.5 py-px rounded text-[10px] font-bold border",
+                          pr === "PPS" ? "bg-[#eef2ff] text-[#3a5a8c] border-[#c7d2fe]" : "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]")}>
+                          {pr}
+                        </span>
+                      ) : null; })()}
                     </p>
                   )}
                 </div>
