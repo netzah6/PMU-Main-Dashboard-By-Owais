@@ -280,6 +280,9 @@ export default function FunnelsPage() {
     redirectGone?: boolean; pageBack?: boolean; adUrl?: string; error?: string } | null>(null);
   const [sop, setSop] = useState({ renamed: false, redirect: false, values: false, workflow: false });
   const [abOrigUrl, setAbOrigUrl] = useState("");
+  /* Which client the current SOP verification belongs to — the start
+     button must never unlock from another card's passed check. */
+  const [verifySlug, setVerifySlug] = useState<string | null>(null);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [b2bOverviewOpen, setB2bOverviewOpen] = useState(false);
   const [startVerify, setStartVerify] = useState<{ loading?: boolean; ok?: boolean; adUrl?: string; namedRight?: boolean;
@@ -483,6 +486,7 @@ export default function FunnelsPage() {
 
   async function verifyStart(slug: string) {
     const target = abOrigUrl.trim();
+    setVerifySlug(slug);
     if (!target) { setToast("Add the original funnel URL first (under Start Setup)"); return; }
     setStartVerify({ loading: true });
     try {
@@ -1234,27 +1238,6 @@ export default function FunnelsPage() {
                         rows={3} className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs font-mono" />
                     </div>
                   )}
-                  <div>
-                    <button
-                      onClick={() => {
-                        const changed: Record<string, string> = {};
-                        for (const [k, v] of Object.entries(cvForm)) {
-                          if ((f.cv[k] ?? "") !== v) changed[k] = v;
-                        }
-                        const extras: Record<string, string> = {};
-                        for (const [k, v] of Object.entries(extrasForm)) {
-                          if (v.trim()) extras[k] = v;
-                        }
-                        if (!Object.keys(changed).length && !Object.keys(extras).length) { setToast("Nothing changed"); return; }
-                        if (Object.keys(changed).length) void act("cvs", f.slug, { values: JSON.stringify(changed) });
-                        if (Object.keys(extras).length) void act("extras", f.slug, extras);
-                        setCvFor(null);
-                      }}
-                      disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`}
-                      className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
-                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
-                    </button>
-                  </div>
 
                   <div className="border-t border-[#eef2f6] pt-3 grid gap-2">
                     <p className="text-[11px] text-[#697a91]">
@@ -1339,6 +1322,27 @@ export default function FunnelsPage() {
                         </>
                       )}
                     </div>
+                  <div>
+                    <button
+                      onClick={() => {
+                        const changed: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(cvForm)) {
+                          if ((f.cv[k] ?? "") !== v) changed[k] = v;
+                        }
+                        const extras: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(extrasForm)) {
+                          if (v.trim()) extras[k] = v;
+                        }
+                        if (!Object.keys(changed).length && !Object.keys(extras).length) { setToast("Nothing changed"); return; }
+                        if (Object.keys(changed).length) void act("cvs", f.slug, { values: JSON.stringify(changed) });
+                        if (Object.keys(extras).length) void act("extras", f.slug, extras);
+                        setCvFor(null);
+                      }}
+                      disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`}
+                      className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
+                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
+                    </button>
+                  </div>
                   </div>
                 </div>
               )}
@@ -1364,7 +1368,7 @@ export default function FunnelsPage() {
                       {abMode === "original" ? (
                         <div className="grid gap-2">
                           <p className="text-[11px] text-[#697a91]">
-                            {startVerify?.ok
+                            {startVerify?.ok && verifySlug === f.slug
                               ? <>✓ Setup verified{abOrigUrl ? <> against <b>{abOrigUrl.replace(/^https?:\/\//, "")}</b></> : null} — ready to start.</>
                               : <>Do the GHL steps and run the verification under <b>Start Setup</b> first — this button unlocks when it passes.</>}
                           </p>
@@ -1380,9 +1384,9 @@ export default function FunnelsPage() {
                                 ],
                               });
                             }}
-                            disabled={abBusy || !startVerify?.ok}
+                            disabled={abBusy || !startVerify?.ok || verifySlug !== f.slug}
                             className="justify-self-start text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed">
-                            {startVerify?.ok ? "Verified — start 50/50 test" : "Start 50/50 test (verify first)"}
+                            {startVerify?.ok && verifySlug === f.slug ? "Verified — start 50/50 test" : "Start 50/50 test (verify first)"}
                           </button>
                         </div>
                       ) : (
