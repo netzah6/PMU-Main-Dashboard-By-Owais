@@ -608,6 +608,10 @@ export default function FunnelsPage() {
   /* A Client Success Coach sees the client funnels only — no Optimizer, no
      agency B2B funnel, no add/edit controls (the API refuses them anyway). */
   const isAdmin = role === "admin";
+  /* Client Success Coaches ("editor") onboard clients too: they get
+     Add client + Start Setup (with Save to GHL); everything that moves
+     traffic or money stays admin-only. */
+  const canEdit = isAdmin || role === "editor";
 
   return (
     <div className="p-3 md:p-6 max-w-[1200px] mx-auto">
@@ -618,7 +622,7 @@ export default function FunnelsPage() {
           <button onClick={() => void load()} title="Refresh" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> <span className="hidden sm:inline">Refresh</span>
           </button>
-          {isAdmin && (
+          {canEdit && (
             <button onClick={() => setShowAdd((s) => !s)} title="Add client" className="flex items-center gap-1.5 text-sm bg-[#0e9c9c] text-white rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#0b8383]">
               <Plus className="w-4 h-4" /> <span className="hidden sm:inline">Add client</span>
             </button>
@@ -1073,6 +1077,8 @@ export default function FunnelsPage() {
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `health:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />} Health check
                 </button>
+                </>)}
+                {canEdit && (
                 <button onClick={() => {
                     const open = cvFor === f.slug;
                     setCvFor(open ? null : f.slug);
@@ -1090,6 +1096,8 @@ export default function FunnelsPage() {
                     cvFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Start Setup {cvFor === f.slug ? "▲" : ""}
                 </button>
+                )}
+                {isAdmin && (<>
                 <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
                     abFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
