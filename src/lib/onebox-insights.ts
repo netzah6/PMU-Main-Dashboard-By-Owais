@@ -330,13 +330,19 @@ export async function launchPage1Test(svc: SupabaseClient, slug: string, custom?
      override IS the current page: fold it into BOTH sides so "Current
      page" stays current and the test differs by the new copy alone. */
   const { data: prior } = await svc.from("onebox_experiments")
-    .select("id, onebox_variants(kind, weight, config_override)")
+    .select("id, name, onebox_variants(vkey, kind, weight, config_override)")
     .eq("slug", slug).eq("status", "running");
   let base: Record<string, string> = {};
   for (const p of prior ?? []) {
-    const vs = (p.onebox_variants ?? []) as { kind: string; weight: number; config_override: Record<string, string> | null }[];
+    const vs = (p.onebox_variants ?? []) as { vkey: string; kind: string; weight: number; config_override: Record<string, string> | null }[];
     const live = vs.filter((v) => (v.weight ?? 0) > 0);
     if (live.length === 1 && live[0].kind === "onebox") base = { ...base, ...(live[0].config_override ?? {}) };
+    // Relaunching over a running page-1 test: its "a" side carries the
+    // inherited base by construction — carry it forward, not the copy.
+    else if (p.name === PAGE1_TEST_NAME) {
+      const a = vs.find((v) => v.vkey === "a");
+      base = { ...base, ...(a?.config_override ?? {}) };
+    }
   }
   await svc.from("onebox_experiments").update({ status: "paused" }).eq("slug", slug).eq("status", "running");
   const { data: exp, error } = await svc.from("onebox_experiments").insert({ slug, name: PAGE1_TEST_NAME }).select("id").single();

@@ -34,11 +34,11 @@ function pick(variants: Variant[]): Variant {
   return variants[variants.length - 1];
 }
 
-function visitorId(req: NextRequest, slug: string): { id: string; vkey: string | null } {
+function visitorId(req: NextRequest, slug: string): { id: string; vkey: string | null; exp: string | null } {
   const raw = req.cookies.get(`${COOKIE}_${slug}`)?.value ?? "";
-  const [id, vkey] = raw.split(":");
-  if (id) return { id, vkey: vkey || null };
-  return { id: crypto.randomUUID(), vkey: null };
+  const [id, vkey, exp] = raw.split(":");
+  if (id) return { id, vkey: vkey || null, exp: exp || null };
+  return { id: crypto.randomUUID(), vkey: null, exp: null };
 }
 
 export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
@@ -92,10 +92,19 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
 
   // A returning visitor keeps their variant; a forced ?ob_v=a wins (for
   // the team to preview a side without waiting on the coin flip).
+  // Stickiness is per EXPERIMENT: every test on a slug reuses vkeys a/b,
+  // so a cookie minted under an earlier test must not satisfy this one —
+  // it would skip the assignment row (no denominator) while the visitor's
+  // lead still gets tagged, and after a 0/100-weight rollout it would herd
+  // every returning visitor onto one side. A different-experiment cookie
+  // is treated as a brand-new visitor for this test.
   const seen = visitorId(req, slug);
+  const sameExp = seen.exp === String(exp.id);
+  const vid = sameExp ? seen.id : crypto.randomUUID();
+  const forcedVar = forced ? variants.find((v) => v.vkey === forced) ?? null : null;
   let chosen =
-    (forced && variants.find((v) => v.vkey === forced)) ||
-    (seen.vkey && variants.find((v) => v.vkey === seen.vkey)) ||
+    forcedVar ||
+    (sameExp && seen.vkey && variants.find((v) => v.vkey === seen.vkey)) ||
     null;
   const isNew = !chosen;
   if (!chosen) chosen = pick(variants);
@@ -104,7 +113,7 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     await svc
       .from("onebox_assignments")
       .upsert(
-        { experiment_id: exp.id, vkey: chosen.vkey, visitor_id: seen.id },
+        { experiment_id: exp.id, vkey: chosen.vkey, visitor_id: vid },
         { onConflict: "experiment_id,visitor_id", ignoreDuplicates: true }
       )
       .then(() => {});
@@ -122,10 +131,14 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
   }
 
   const res = redirect(dest);
-  res.cookies.set(`${COOKIE}_${slug}`, `${seen.id}:${chosen.vkey}`, {
-    maxAge: YEAR,
-    path: "/",
-    sameSite: "lax",
-  });
+  /* A forced preview never writes the cookie: the team flipping between
+     sides must not convert their browser into a sticky test participant. */
+  if (!forcedVar) {
+    res.cookies.set(`${COOKIE}_${slug}`, `${vid}:${chosen.vkey}:${exp.id}`, {
+      maxAge: YEAR,
+      path: "/",
+      sameSite: "lax",
+    });
+  }
   return res;
 }

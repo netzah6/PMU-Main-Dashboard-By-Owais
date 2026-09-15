@@ -93,13 +93,13 @@ export async function GET(
        · The 307 is no-store: its Location embeds this visitor's fbclid
          while the funnel-host cache key is shared by everyone. */
   const ua = req.headers.get("user-agent") ?? "";
-  const canSplit =
+  const isBot = /facebookexternalhit|AdsBot/i.test(ua);
+  const wantsSplit =
     !req.nextUrl.searchParams.has("ob_e") &&
-    !req.nextUrl.searchParams.has("preview") &&
-    !/facebookexternalhit|AdsBot/i.test(ua);
+    !req.nextUrl.searchParams.has("preview");
   const [clientRes, expRes] = await Promise.all([
     svc.from("onebox_clients").select("*").eq("slug", slug).single(),
-    canSplit
+    wantsSplit
       ? svc.from("onebox_experiments").select("id, onebox_variants(kind)")
           .eq("slug", slug).eq("status", "running")
           .order("created_at", { ascending: false }).limit(1).maybeSingle()
@@ -113,8 +113,12 @@ export async function GET(
   const expVars = exp?.onebox_variants ?? [];
   // [].every() is vacuously true — a variantless running row must not bounce
   // (the splitter would send it straight back: a stable redirect loop).
-  if (exp && expVars.length > 0 && expVars.every((v) => v.kind === "onebox")) {
-    const search = req.headers.get("x-ob-orig-search") || req.nextUrl.search || "";
+  const testLive = !!exp && expVars.length > 0 && expVars.every((v) => v.kind === "onebox");
+  if (testLive && !isBot) {
+    // Only honor the middleware-minted header shape — a client-supplied
+    // header on an un-rewritten path must not steer the Location.
+    const hdr = req.headers.get("x-ob-orig-search") ?? "";
+    const search = hdr.startsWith("?") ? hdr : req.nextUrl.search || "";
     return new Response(null, {
       status: 307,
       headers: {
@@ -123,6 +127,11 @@ export async function GET(
       },
     });
   }
+  /* A scraper mid-test gets the control page, but its 200 must not be
+     CDN-cached: the cache key ignores the user agent, so a stored copy
+     would serve every real visitor the control for the next cache window,
+     dropping them out of the test after each Meta re-scrape. */
+  const uncacheable = testLive && isBot;
 
   /* Resync from GHL when the stored copy is stale — but never on the
      visitor's clock. Awaiting this made one visitor every few minutes
@@ -266,7 +275,7 @@ ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</templat
          background — visitors get an edge hit instead of a database
          round trip, and a custom-value edit still appears within the
          same ~5 minutes as before. */
-      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+      "Cache-Control": uncacheable ? "no-store" : "public, s-maxage=60, stale-while-revalidate=300",
     },
   });
 }
