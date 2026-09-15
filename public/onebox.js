@@ -1209,7 +1209,11 @@
         '<div class="elfsight-app-' + esc(GOOG) + '" data-elfsight-app-lazy></div></div>';
       loadElfsight();
     }
-    if (phase === "booking" && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
+    /* FAQs + education videos sit under the booking page; a V1 funnel has
+       no booking page, so its thank-you carries them instead (user,
+       2026-09-15). The IG widget above already renders on every non-survey
+       step, thank-you included. */
+    if ((phase === "booking" || (FLOW_V1 && phase === "done")) && Array.isArray(window.OB_FAQS) && window.OB_FAQS.length) {
       htmlStr += '<div class="xsec"><h2 class="xhead">FAQs &#128071;</h2><div class="faqs">' +
         window.OB_FAQS.map(function (f) {
           return "<details><summary>" + esc(f.q) + '</summary><p class="fa">' + esc(f.a) + "</p>" +
