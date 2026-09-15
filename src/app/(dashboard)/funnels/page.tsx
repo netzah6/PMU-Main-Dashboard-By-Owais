@@ -446,6 +446,20 @@ export default function FunnelsPage() {
       await loadInsights();
     } finally { setScanBusy(false); }
   }, [loadInsights]);
+  const launchPage1 = useCallback(async (id: number) => {
+    setDecideBusy(id);
+    try {
+      const r = await fetch("/api/onebox/insights", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "launchTest", id }),
+      });
+      const j = await r.json();
+      if (j.error) { setToast(`Launch failed: ${j.error}`); return; }
+      setToast("Page-1 test is live — 50/50 starting now; the daily scan will flag the winner");
+      await loadInsights();
+      await load();
+    } finally { setDecideBusy(null); }
+  }, [loadInsights, load]);
   const decideInsight = useCallback(async (id: number, decision: "approve" | "deny", reason?: string, suggestion?: string) => {
     setDecideBusy(id);
     try {
@@ -1627,6 +1641,13 @@ export default function FunnelsPage() {
                     <div className="text-xs text-[#425466] mt-1"><b className="text-[#697a91]">Why:</b> {ins.why}</div>
                     <div className="text-xs text-[#425466] mt-1"><b className="text-[#0b7f7f]">Fix I suggest:</b> {ins.solution}</div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {ins.kind === "low-lead-rate" && (
+                        <button onClick={() => void launchPage1(ins.id)} disabled={decideBusy === ins.id}
+                          title="Launches a 50/50 test on her first page only: half see the current page, half see the template copy (prefilled with her city, service and offer). The scan flags the winner once there's enough data."
+                          className="text-xs bg-[#7c3aed] text-white rounded-md px-3 py-1 hover:bg-[#6d28d9] disabled:opacity-50 inline-flex items-center gap-1">
+                          {decideBusy === ins.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null} 🧪 Launch page-1 test
+                        </button>
+                      )}
                       <button onClick={() => void decideInsight(ins.id, "approve")} disabled={decideBusy === ins.id}
                         className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
                         {decideBusy === ins.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Approve

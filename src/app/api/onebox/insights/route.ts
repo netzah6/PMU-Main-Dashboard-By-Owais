@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { runInsightScan } from "@/lib/onebox-insights";
+import { runInsightScan, launchPage1Test, applyPage1Decision, PAGE1_TEST_NAME } from "@/lib/onebox-insights";
 
 export const maxDuration = 120;
 
@@ -49,6 +49,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ...result });
   }
 
+  /* One click on a low-lead-rate flag: create the 50/50 page-1 test for
+     that client (Version B = template copy, prefilled from her data) and
+     resolve the flag. The daily scan takes it from there. */
+  if (action === "launchTest") {
+    const id = Number(String(body.id ?? "").replace(/\D/g, ""));
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    const { data: row } = await svc.from("onebox_insights")
+      .select("id, slug, kind, status").eq("id", id).maybeSingle();
+    if (!row || row.status !== "proposed") return NextResponse.json({ error: "flag already decided or unknown" }, { status: 409 });
+    if (row.kind !== "low-lead-rate") return NextResponse.json({ error: "only lead-rate flags launch page-1 tests" }, { status: 400 });
+    try {
+      const { expId, override } = await launchPage1Test(svc, row.slug as string);
+      await svc.from("onebox_insights").update({
+        status: "approved",
+        user_suggestion: `${PAGE1_TEST_NAME} #${expId} launched`,
+        decided_at: new Date().toISOString(),
+        decided_by: auth.email ?? "admin",
+        updated_at: new Date().toISOString(),
+      }).eq("id", id);
+      return NextResponse.json({ ok: true, expId, override });
+    } catch (e) {
+      return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+    }
+  }
+
   if (action === "decide") {
     const id = Number(String(body.id ?? "").replace(/\D/g, ""));
     const decision = body.decision === "approve" ? "approved" : body.decision === "deny" ? "denied" : null;
@@ -59,6 +84,18 @@ export async function POST(req: NextRequest) {
     // otherwise the same flag just comes back after the cooldown.
     if (decision === "denied" && !reason && !suggestion) {
       return NextResponse.json({ error: "tell me why, or suggest a different fix" }, { status: 400 });
+    }
+    /* A page-1 test verdict EXECUTES on approve: winner B's copy is
+       written to the funnel and the test ends (deny just records). */
+    const { data: pre } = await svc.from("onebox_insights")
+      .select("slug, kind, metrics, status").eq("id", id).maybeSingle();
+    let applied: string | null = null;
+    if (pre?.status === "proposed" && pre.kind === "page1-test-done" && decision === "approved") {
+      try {
+        applied = await applyPage1Decision(svc, pre.slug as string, (pre.metrics ?? {}) as Record<string, unknown>);
+      } catch (e) {
+        return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+      }
     }
     const { data: row, error } = await svc
       .from("onebox_insights")
@@ -76,7 +113,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!row) return NextResponse.json({ error: "already decided or unknown id" }, { status: 409 });
-    return NextResponse.json({ ok: true, status: row.status });
+    return NextResponse.json({ ok: true, status: row.status, applied });
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });
