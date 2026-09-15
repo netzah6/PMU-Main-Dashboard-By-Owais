@@ -56,6 +56,27 @@ export async function getV3Accounts(): Promise<V3Account[]> {
     return bn ? roster.find((c) => c.biz && c.biz === bn)?.key ?? null : null;
   };
 
+  /* Current sub-account names, from the agency. A keys-sheet row can point
+     at a location that has since been wiped and handed to ANOTHER client
+     (recycled pool): Brittanie Lee's row still said nDVV…, which is now
+     "Wholeness Wellness Spa" — so for weeks her box ingested Leonard
+     Martin's contacts and showed 0 (v3) leads (2026-09-14). A row whose
+     location now carries a different client's name is skipped; the name
+     matcher below then finds her real sub-account. */
+  const agencyTokenEarly = process.env.GHL_AGENCY_TOKEN;
+  const locNameById = new Map<string, string>();
+  if (agencyTokenEarly) {
+    try {
+      const r = await fetch("https://services.leadconnectorhq.com/locations/search?limit=500", {
+        headers: { Authorization: `Bearer ${agencyTokenEarly}`, Version: "2021-07-28", Accept: "application/json" },
+      });
+      if (r.ok) {
+        const j = (await r.json()) as { locations?: Array<Record<string, unknown>> };
+        for (const loc of j.locations ?? []) locNameById.set(String(loc.id ?? loc._id ?? ""), String(loc.name ?? "").trim());
+      }
+    } catch { /* no names → no recycle check, same as before */ }
+  }
+
   const sheets = await getSheetsClient();
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: "Sheet1" });
   const rows = (res.data.values ?? []) as string[][];
@@ -75,7 +96,16 @@ export async function getV3Accounts(): Promise<V3Account[]> {
     const token = String(row[tokIdx] ?? "").trim();
     if (!locationId || !token) continue;
     const ownerKey = matchClient(name, biz);
-    if (ownerKey && !seen.has(ownerKey)) { seen.add(ownerKey); out.push({ ownerKey, locationId, token }); }
+    if (!ownerKey || seen.has(ownerKey)) continue;
+    const locName = locNameById.get(locationId);
+    if (locName) {
+      const nowOwner = matchClient(locName, locName);
+      if (nowOwner && nowOwner !== ownerKey) {
+        console.warn(`[ghl-ingest] keys-sheet row for "${name}" points at ${locationId}, now "${locName}" (${nowOwner}) — recycled, skipped`);
+        continue;
+      }
+    }
+    seen.add(ownerKey); out.push({ ownerKey, locationId, token });
   }
 
   // Agency-token fallback: clients with no keys-sheet row are still reachable
