@@ -63,21 +63,22 @@ export function DataFreshness({ onRefreshed }: { onRefreshed?: () => void } = {}
 
   return (
     <div className="flex flex-col gap-1.5">
-      {/* A stale tab gets its own red line, first — that is the whole point. */}
-      {stale.length > 0 && (
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border bg-[#fde8ee] text-[#be123c] border-[#f5c2cf] w-fit">
-          ⚠ Not refreshed today:{" "}
-          {stale.map((s) => `${s.label}${s.at ? ` (last ${dateOf(s.at)} ${timeOf(s.at)})` : " (never)"}`).join(" · ")}
-        </div>
-      )}
+      {/* One line only (user, 2026-09-15): a short warning chip when anything
+          is stale, then the four pills — each carries its own last-sync time. */}
       <div className="flex items-center gap-1.5 flex-wrap">
+        {stale.length > 0 && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-bold border bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"
+            title={stale.map((s) => `${s.label}${s.at ? ` — last ${dateOf(s.at)} ${timeOf(s.at)}` : " — never"}`).join(" · ")}>
+            ⚠ Not refreshed today
+          </span>
+        )}
         {status.map((s) => (
           <span key={s.key}
             title={s.at ? `${s.label} — last synced ${dateOf(s.at)} at ${timeOf(s.at)} Pacific` : `${s.label} — never synced`}
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border ${
               s.fresh ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]" : "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${s.fresh ? "bg-[#22c55e]" : "bg-[#e11d48]"}`} />
-            {s.label} {s.at ? (s.fresh ? timeOf(s.at) : dateOf(s.at)) : "—"}
+            {s.label} {s.at ? (s.fresh ? timeOf(s.at) : `${dateOf(s.at)} ${timeOf(s.at)}`) : "—"}
           </span>
         ))}
         {/* Admins and media buyers — the buyers are the ones waiting on fresh CPL numbers (user, 2026-09-15). */}
