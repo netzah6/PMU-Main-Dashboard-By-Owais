@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useUser } from "@/lib/hooks/useUser";
+import { cn } from "@/lib/utils";
 import { Loader2, ChevronRight, Sparkles, MessageCircle } from "lucide-react";
 
 interface Lead {
@@ -162,10 +164,19 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   }, [supabase, ownerKey, retryTick]);
 
   // Changes from the Activity & Changes Log — pinned on the conversion timeline.
-  const [changes, setChanges] = useState<{ action_date: string; note: string; created_by_email: string | null }[]>([]);
+  const [allChanges, setAllChanges] = useState<{ action_date: string; note: string; created_by_email: string | null }[]>([]);
+  // Pins default to the viewer's OWN logged changes (user, 2026-09-15); a
+  // toggle shows everyone's. Applies to the 📌 pins and the action verdicts.
+  const { user } = useUser();
+  const [pinsScope, setPinsScope] = useState<"mine" | "all">("mine");
+  const changes = useMemo(() => {
+    if (pinsScope === "all" || !user?.email) return allChanges;
+    const me = user.email.toLowerCase();
+    return allChanges.filter((c) => (c.created_by_email ?? "").toLowerCase() === me);
+  }, [allChanges, pinsScope, user?.email]);
   useEffect(() => {
     let cancelled = false;
-    setChanges([]);
+    setAllChanges([]);
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 59);
     supabase.from("client_activity").select("action_date,note,created_by_email")
@@ -181,7 +192,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         // analysis (pins + action verdicts) — same filter as ActivityLog.
         const rows = ((data as { action_date: string; note: string; created_by_email: string | null }[]) ?? [])
           .filter((r) => !/payment\s*failed|all\s*good/i.test(r.note));
-        setChanges(rows);
+        setAllChanges(rows);
       });
     return () => { cancelled = true; };
   }, [supabase, ownerKey]);
@@ -566,8 +577,16 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         const fmtD = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
         return (
           <div className="order-1 rounded-lg border border-[#e4ebf2] bg-white p-2.5">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">
-              📈 Conversion timeline <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 60 days · 📌 = logged change</span>
+            <div className="flex items-center gap-2 flex-wrap text-[11px] font-bold uppercase tracking-wide text-[#34568a]">
+              <span>📈 Conversion timeline <span className="font-medium normal-case text-[#697a91] tracking-normal">· last 60 days · 📌 = {pinsScope === "mine" ? "my logged change" : "logged change"}</span></span>
+              <span className="ml-auto inline-flex rounded-md border border-[#d7e0ea] overflow-hidden normal-case tracking-normal font-semibold">
+                {(["mine", "all"] as const).map((k) => (
+                  <button key={k} onClick={() => setPinsScope(k)}
+                    className={cn("px-2 py-0.5 text-[10px]", pinsScope === k ? "bg-[#0e8f88] text-white" : "bg-white text-[#34568a] hover:bg-[#f6f9fc]")}>
+                    {k === "mine" ? "My pins" : "Everyone"}
+                  </button>
+                ))}
+              </span>
             </div>
             <div className="mt-1 flex items-center gap-3 flex-wrap text-[11px]">
               <span><span className="inline-block w-2.5 h-[3px] rounded align-middle mr-1" style={{ background: "#15803d" }} />💰 Conv {convNow == null ? "—" : `${Math.round(convNow)}%`} <span className="text-[#8595a8]">leads → deposits (rolling 7-day)</span></span>
@@ -612,7 +631,11 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                 })}
               </ul>
             ) : (
-              <p className="mt-1 text-[10px] text-[#8595a8]">No changes logged in this window — add them in the <strong>Activity &amp; Changes Log</strong> below and they&apos;ll show as 📌 pins on the timeline.</p>
+              <p className="mt-1 text-[10px] text-[#8595a8]">
+                {pinsScope === "mine" && allChanges.length > 0
+                  ? <>None of the {allChanges.length} logged change{allChanges.length === 1 ? "" : "s"} in this window are yours — switch to <strong>Everyone</strong> to see them.</>
+                  : <>No changes logged in this window — add them in the <strong>Activity &amp; Changes Log</strong> below and they&apos;ll show as 📌 pins on the timeline.</>}
+              </p>
             )}
             {(funnel.path.funnel.booked > 0 || funnel.path.ai.booked > 0) && (() => {
               // Which path books better AND which converts its bookings to
