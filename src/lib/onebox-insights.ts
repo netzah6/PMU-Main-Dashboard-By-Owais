@@ -305,16 +305,15 @@ export function buildPage1Override(cfg: Record<string, string>): Record<string, 
   const parts = String(cfg.address ?? "").split(",").map((x) => x.trim()).filter(Boolean);
   const city = parts.length >= 3 ? parts[parts.length - 2].replace(/[0-9]/g, "").trim() : "";
   const offer = String(cfg.offer ?? "").trim() || "$150 OFF";
-  let service = "Eyebrows";
-  const raw = String(cfg.surveyRaw ?? "").trim();
-  const firstQ = raw ? raw.split(/\r?\n/).find((l) => !/^\s*\/\//.test(l) && l.includes("|")) : "";
-  if (firstQ) {
-    const opts = firstQ.split("|")[1].split(";").map((x) => x.trim()).filter(Boolean);
-    if (opts[0]) service = opts[0];
-  }
+  /* Each element says ONE thing, once (Netzah 2026-09-15: the first cut
+     repeated the offer and "30 seconds", and named a single service on a
+     quiz that offers several): the top line carries city + offer + urgency,
+     the headline carries only the outcome — service-agnostic because the
+     first quiz question is where the visitor picks the area — and the
+     page's own "(30 Seconds)" sub plus the quiz right below carry the CTA. */
   return {
-    congrats: `${city ? city + ": " : ""}${offer} ${service} — This Month Only`,
-    headline: `Wake Up With Perfect ${service} Every Morning — Take the 30-Second Quiz to Claim Your ${offer}`,
+    congrats: `${city ? city + ": " : ""}${offer} — This Month Only`,
+    headline: "Wake Up With Perfect Makeup Every Morning",
   };
 }
 
