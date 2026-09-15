@@ -1064,7 +1064,8 @@ export default function FunnelsPage() {
 
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 <Dot ok={f.hasCalendar} label="calendar" />
-                <Dot ok={f.hasFanbasis} label="commas" />
+                {/* V1 = no deposit, so no Commas product is expected; don't show a red ✗ for it. */}
+                {!/v1/i.test(f.program?.version ?? "") && <Dot ok={f.hasFanbasis} label="commas" />}
                 <Dot ok={f.hasWidget} label="results widget" />
                 <Dot ok={f.hasPixel} label="pixel" />
                 <div className="flex-1" />

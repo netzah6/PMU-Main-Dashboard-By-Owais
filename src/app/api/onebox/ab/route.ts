@@ -4,6 +4,7 @@ import { getAuth } from "@/lib/ppa";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
+import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 120;
@@ -410,13 +411,18 @@ export async function POST(req: NextRequest) {
       else redirectNote = "no redirect yet — the ad URL still serves a page directly";
     } catch { redirectNote = "could not reach the ad URL — try again"; }
 
-    const { data: cRow } = await svc.from("onebox_clients").select("status, config").eq("slug", slug).maybeSingle();
+    const { data: cRow } = await svc.from("onebox_clients").select("status, config, client_name").eq("slug", slug).maybeSingle();
     const cCfg = (cRow?.config ?? {}) as Record<string, string>;
-    const oneboxReady = !!cRow && cRow.status === "live" && !!cCfg.calendarId && !!(cCfg.fanbasisProductId || cCfg.fanbasisCode);
+    /* V1 clients take no deposit, so a Commas product is not part of their
+       setup — the check must not demand one (user, 2026-09-15). */
+    const program = cRow ? findClientProgram(await fetchProgramRows(svc), String(cRow.client_name ?? "")) : null;
+    const isV1 = /v1/i.test(program?.version ?? "");
+    const hasCheckout = !!(cCfg.fanbasisProductId || cCfg.fanbasisCode);
+    const oneboxReady = !!cRow && cRow.status === "live" && !!cCfg.calendarId && (isV1 || hasCheckout);
     const oneboxNote = !cRow ? "unknown funnel"
       : cRow.status !== "live" ? "the one-box funnel is paused — set it live first"
       : !cCfg.calendarId ? "no calendar ID in Values"
-      : !(cCfg.fanbasisProductId || cCfg.fanbasisCode) ? "no Commas product ID in Values" : "";
+      : !isV1 && !hasCheckout ? "no Commas product ID in Values" : "";
 
     return NextResponse.json({
       ok: originalReady && redirectLive && oneboxReady,
