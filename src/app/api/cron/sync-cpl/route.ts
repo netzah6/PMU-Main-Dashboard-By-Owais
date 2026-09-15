@@ -12,12 +12,12 @@ export const maxDuration = 120;
 // report). Small tabs, own schedule, immune to everyone else's slowness —
 // same pattern as sync-deposits.
 export async function GET(req: NextRequest) {
-  // Cron secret, or an admin pressing "Refresh now" on the Performance tab.
+  // Cron secret, or an admin / media buyer pressing "Refresh now" on the Performance tab.
   const authHeader = req.headers.get("authorization");
   const cronOk = !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
   if (!cronOk) {
     const auth = await getAuth();
-    if (!auth || auth.role !== "admin") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!auth || (auth.role !== "admin" && auth.role !== "media_buyer")) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const tables = ["cpl_7days", "cpl_14days", "cpl_30days", "campaign_spent"];
   const results = [];
