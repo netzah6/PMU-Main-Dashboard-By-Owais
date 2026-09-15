@@ -320,10 +320,11 @@ export function buildPage1Override(cfg: Record<string, string>): Record<string, 
 
 /* Create the 50/50 page-1 test for one flagged client. Any other running
    experiment for the slug is paused first (one live test per funnel). */
-export async function launchPage1Test(svc: SupabaseClient, slug: string): Promise<{ expId: number; override: Record<string, string> }> {
+export async function launchPage1Test(svc: SupabaseClient, slug: string, custom?: Record<string, string>): Promise<{ expId: number; override: Record<string, string> }> {
   const { data: client } = await svc.from("onebox_clients").select("config").eq("slug", slug).single();
   if (!client) throw new Error("unknown funnel");
-  const override = buildPage1Override((client.config ?? {}) as Record<string, string>);
+  const built = buildPage1Override((client.config ?? {}) as Record<string, string>);
+  const override = { ...built, ...Object.fromEntries(Object.entries(custom ?? {}).filter(([, v]) => String(v).trim())) };
   await svc.from("onebox_experiments").update({ status: "paused" }).eq("slug", slug).eq("status", "running");
   const { data: exp, error } = await svc.from("onebox_experiments").insert({ slug, name: PAGE1_TEST_NAME }).select("id").single();
   if (error || !exp) throw new Error(error?.message ?? "insert failed");
@@ -333,6 +334,32 @@ export async function launchPage1Test(svc: SupabaseClient, slug: string): Promis
   ]);
   if (vErr) throw new Error(vErr.message);
   return { expId: exp.id as number, override };
+}
+
+
+/* Per-side numbers for one page-1 test: splitter assignments as visitors,
+   unique lead journeys as leads — one yardstick for both sides. */
+export async function page1Sides(svc: SupabaseClient, expId: number, slug: string, sinceIso: string): Promise<{ visA: number; visB: number; leadsA: number; leadsB: number }> {
+  const vis: Record<string, number> = {};
+  for (const vk of ["a", "b"]) {
+    const { count } = await svc.from("onebox_assignments")
+      .select("vkey", { count: "exact", head: true })
+      .eq("experiment_id", expId).eq("vkey", vk);
+    vis[vk] = count ?? 0;
+  }
+  const leads = await fetchAllRows((from, to) =>
+    svc.from("onebox_leads").select("variant_key, ghl_status, picked_time_at, answers, created_at, phone, full_name")
+      .eq("slug", slug).gte("created_at", sinceIso).order("id").range(from, to));
+  const nLeads: Record<string, number> = { a: 0, b: 0 };
+  const journeys = new Map<string, number>();
+  for (const l of [...leads].sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)))) {
+    const ms = new Date(l.created_at as string).getTime();
+    const keys = personKeys(l.full_name as string, ((l.answers ?? {}) as { email?: string }).email, l.phone as string);
+    if (keys.some((k) => { const hit = journeys.get(k); return hit != null && ms - hit < PERSON_DEDUPE_MS; })) continue;
+    for (const k of keys) journeys.set(k, ms);
+    nLeads[l.variant_key === "b" ? "b" : "a"]++;
+  }
+  return { visA: vis.a, visB: vis.b, leadsA: nLeads.a, leadsB: nLeads.b };
 }
 
 /* Watch running page-1 tests: once BOTH sides have enough visitors, file a
@@ -347,27 +374,10 @@ async function page1TestProposals(svc: SupabaseClient, blocked: Set<string>): Pr
   for (const e of exps ?? []) {
     const slug = e.slug as string;
     if (blocked.has(`${slug}:page1-test-done`)) continue;
-    const vis: Record<string, number> = {};
-    for (const vk of ["a", "b"]) {
-      const { count } = await svc.from("onebox_assignments")
-        .select("vkey", { count: "exact", head: true })
-        .eq("experiment_id", e.id).eq("vkey", vk);
-      vis[vk] = count ?? 0;
-    }
-    if (vis.a < PAGE1_MIN_VISITORS || vis.b < PAGE1_MIN_VISITORS) continue;
-    const leads = await fetchAllRows((from, to) =>
-      svc.from("onebox_leads").select("variant_key, ghl_status, picked_time_at, answers, created_at, phone, full_name")
-        .eq("slug", slug).gte("created_at", e.created_at as string).order("id").range(from, to));
-    const nLeads: Record<string, number> = { a: 0, b: 0 };
-    const journeys = new Map<string, number>();
-    for (const l of [...leads].sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)))) {
-      const ms = new Date(l.created_at as string).getTime();
-      const keys = personKeys(l.full_name as string, ((l.answers ?? {}) as { email?: string }).email, l.phone as string);
-      if (keys.some((k) => { const hit = journeys.get(k); return hit != null && ms - hit < PERSON_DEDUPE_MS; })) continue;
-      for (const k of keys) journeys.set(k, ms);
-      const vk = l.variant_key === "b" ? "b" : "a";
-      nLeads[vk]++;
-    }
+    const sides = await page1Sides(svc, e.id as number, slug, e.created_at as string);
+    if (sides.visA < PAGE1_MIN_VISITORS || sides.visB < PAGE1_MIN_VISITORS) continue;
+    const vis = { a: sides.visA, b: sides.visB };
+    const nLeads = { a: sides.leadsA, b: sides.leadsB };
     const aRate = Math.round((nLeads.a / vis.a) * 1000) / 10;
     const bRate = Math.round((nLeads.b / vis.b) * 1000) / 10;
     const winner = bRate > aRate ? "b" : "a";

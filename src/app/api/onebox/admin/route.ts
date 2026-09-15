@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
-import { computeFunnelStats, countHitsBySlug, fetchAllRows } from "@/lib/onebox-insights";
+import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME } from "@/lib/onebox-insights";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 
@@ -56,7 +56,13 @@ export async function GET(req: NextRequest) {
   if (statsWin === "7" || statsWin === "14" || statsWin === "30") {
     const days = Number(statsWin) as 7 | 14 | 30;
     const stats = await computeFunnelStats(svc, days);
-    return NextResponse.json({ window: days, stats });
+    /* Which clients have a page-1 A/B test right now — the table shows
+       its button next to the lead rate. */
+    const { data: p1 } = await svc.from("onebox_experiments")
+      .select("id, slug, status").eq("name", PAGE1_TEST_NAME).eq("status", "running");
+    const page1: Record<string, number> = {};
+    for (const e of p1 ?? []) page1[e.slug as string] = e.id as number;
+    return NextResponse.json({ window: days, stats, page1 });
   }
 
   const { data: rows } = await svc
