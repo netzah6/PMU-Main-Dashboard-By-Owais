@@ -222,6 +222,10 @@ export async function writeRowToSheet(
 
 // ─── Sheet ↔ Table mapping ────────────────────────────────────────────────────
 
+export const SALES_STATS_SHEET = "11lqrr8C-GdrqAhMJ5cNU9lRMfFP3dqyJQle2pxaMH9s";  // Sales Calls Stats
+export const SALES_SETTER_SHEET = "1apft0hfTVVKMB5eOevRNsqAYR3FMt4r21STvFF6pg3c"; // Appointment Setter Tracker
+export const SALES_CLOSER_SHEET = "1uywuehWsF10zdMANnKHgtC_Gp6_FcQBwcjZXXfVT6Zs"; // Closer Tracker
+
 export const SHEET_MAP: Array<{
   spreadsheetId: string;
   sheetName: string;
@@ -249,6 +253,15 @@ export const SHEET_MAP: Array<{
   { spreadsheetId: process.env.SHEET4_ID!, sheetName: "14 Days CPL",              table: "cpl_14days",           fallbackIndex: 1 },
   { spreadsheetId: process.env.SHEET4_ID!, sheetName: "30 Days CPL",              table: "cpl_30days",           fallbackIndex: 2 },
   { spreadsheetId: process.env.SHEET4_ID!, sheetName: "All Time Campaign Budget", table: "campaign_spent",       fallbackIndex: 3 },
+  // Sales team (Sales tab, 2026-09-15). The stats sheet is the source of truth
+  // for every discovery + demo; the two tracker sheets hold the follow-up logs
+  // the setter / closer fill in. Sheet ids are not secrets.
+  { spreadsheetId: SALES_STATS_SHEET,  sheetName: "Discoveries (unique entries)", table: "sales_discoveries",     fallbackIndex: 7 },
+  { spreadsheetId: SALES_STATS_SHEET,  sheetName: "Demos (unique entries)",       table: "sales_demos",           fallbackIndex: 8 },
+  { spreadsheetId: SALES_SETTER_SHEET, sheetName: "Discovery No Show Follow up",  table: "sales_fu_disc_noshow",  fallbackIndex: 4 },
+  { spreadsheetId: SALES_SETTER_SHEET, sheetName: "Discovery Cancelled Follow up", table: "sales_fu_disc_cancelled", fallbackIndex: 5 },
+  { spreadsheetId: SALES_SETTER_SHEET, sheetName: "Didn't Book Follow Up",        table: "sales_fu_didnt_book",   fallbackIndex: 3 },
+  { spreadsheetId: SALES_CLOSER_SHEET, sheetName: "Demo No Show Follow up",       table: "sales_fu_demo_noshow",  fallbackIndex: 5 },
 ];
 
 export function getSheetEntryForTable(table: string) {

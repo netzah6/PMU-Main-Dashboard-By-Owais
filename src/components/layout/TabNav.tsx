@@ -40,7 +40,7 @@ const TABS: Tab[] = [
   // Pay-per-show tracking. Admins get the full billing desk; a Client Success
   // Coach gets their own clients and the money already collected (2026-09-08).
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true, alsoRoles: ["editor"] },
-  { label: "💼 Team", href: "/sales", adminOnly: true, collapsed: true }, // sales-team salary tracking: closer demo checker + coach tracker
+  { label: "💼 Sales", href: "/sales", adminOnly: true, collapsed: true }, // sales board (setter + closer KPIs & to-dos), demo checker, coach tracker
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true, alsoRoles: ["editor"] }, // one-box funnels — coaches see the client funnels read-only (user request 2026-09-14)
   { label: "📡 Pixel Checking", href: "/pixel-checking", adminOnly: true }, // per-client funnel pixel/conversion audit — user request 2026-09-01
