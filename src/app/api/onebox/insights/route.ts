@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { runInsightScan, launchPage1Test, applyPage1Decision, PAGE1_TEST_NAME } from "@/lib/onebox-insights";
+import { runInsightScan, launchPage1Test, applyPage1Decision, buildPage1Override, page1Sides, PAGE1_TEST_NAME } from "@/lib/onebox-insights";
 
 export const maxDuration = 120;
 
@@ -47,6 +47,85 @@ export async function POST(req: NextRequest) {
   if (action === "scan") {
     const result = await runInsightScan(svc, req.nextUrl.origin);
     return NextResponse.json({ ok: true, ...result });
+  }
+
+  /* The inline A/B panel on the performance table. "page1Panel" returns
+     everything the dropdown needs in one trip: the newest page-1 test for
+     the slug with live per-side numbers (when running), plus the proposed
+     Version-B copy prefilled from the client's own data. */
+  if (action === "page1Panel") {
+    const slug = String(body.slug ?? "").trim();
+    if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
+    const { data: client } = await svc.from("onebox_clients").select("config").eq("slug", slug).single();
+    if (!client) return NextResponse.json({ error: "unknown funnel" }, { status: 404 });
+    const cfg = (client.config ?? {}) as Record<string, string>;
+    const { data: exp } = await svc.from("onebox_experiments")
+      .select("id, status, created_at").eq("slug", slug).eq("name", PAGE1_TEST_NAME)
+      .order("id", { ascending: false }).limit(1).maybeSingle();
+    let test: Record<string, unknown> | null = null;
+    if (exp && exp.status === "running") {
+      const sides = await page1Sides(svc, exp.id as number, slug, exp.created_at as string);
+      const { data: vb } = await svc.from("onebox_variants").select("config_override")
+        .eq("experiment_id", exp.id).eq("vkey", "b").maybeSingle();
+      test = {
+        expId: exp.id, startedAt: exp.created_at, ...sides,
+        rateA: sides.visA ? Math.round((sides.leadsA / sides.visA) * 1000) / 10 : null,
+        rateB: sides.visB ? Math.round((sides.leadsB / sides.visB) * 1000) / 10 : null,
+        override: (vb?.config_override ?? {}) as Record<string, string>,
+      };
+    }
+    return NextResponse.json({
+      test,
+      proposal: buildPage1Override(cfg),
+      current: { headline: cfg.headline ?? "", congrats: cfg.congrats ?? "" },
+    });
+  }
+
+  /* Start the 50/50 from the panel — with whatever copy the admin edited.
+     Any open lead-rate flag for the slug resolves along the way. */
+  if (action === "page1Start") {
+    const slug = String(body.slug ?? "").trim();
+    if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
+    try {
+      const { expId, override } = await launchPage1Test(svc, slug, {
+        headline: String(body.headline ?? ""),
+        congrats: String(body.congrats ?? ""),
+      });
+      await svc.from("onebox_insights").update({
+        status: "approved", user_suggestion: `${PAGE1_TEST_NAME} #${expId} launched from the table`,
+        decided_at: new Date().toISOString(), decided_by: auth.email ?? "admin", updated_at: new Date().toISOString(),
+      }).eq("slug", slug).eq("kind", "low-lead-rate").eq("status", "proposed");
+      return NextResponse.json({ ok: true, expId, override });
+    } catch (e) {
+      return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+    }
+  }
+
+  /* End a running test from the panel: keep "b" writes the new copy into
+     the client's GHL values; either way the test pauses and the splitter
+     goes back to 100%. */
+  if (action === "page1End") {
+    const expId = Number(String(body.expId ?? "").replace(/\D/g, ""));
+    const keep = body.keep === "b" ? "b" : "a";
+    if (!expId) return NextResponse.json({ error: "expId required" }, { status: 400 });
+    const { data: exp } = await svc.from("onebox_experiments")
+      .select("id, slug, name, status").eq("id", expId).maybeSingle();
+    if (!exp || exp.name !== PAGE1_TEST_NAME) return NextResponse.json({ error: "not a page-1 test" }, { status: 400 });
+    const { data: vb } = await svc.from("onebox_variants").select("config_override")
+      .eq("experiment_id", expId).eq("vkey", "b").maybeSingle();
+    try {
+      const note = await applyPage1Decision(svc, exp.slug as string, {
+        expId, winner: keep, override: (vb?.config_override ?? {}) as Record<string, string>,
+      });
+      /* the pending verdict flag (if the scan already filed one) resolves too */
+      await svc.from("onebox_insights").update({
+        status: "approved", user_suggestion: `decided from the table: keep ${keep === "b" ? "the new page" : "the current page"}`,
+        decided_at: new Date().toISOString(), decided_by: auth.email ?? "admin", updated_at: new Date().toISOString(),
+      }).eq("slug", exp.slug).eq("kind", "page1-test-done").eq("status", "proposed");
+      return NextResponse.json({ ok: true, note });
+    } catch (e) {
+      return NextResponse.json({ error: String(e instanceof Error ? e.message : e) }, { status: 500 });
+    }
   }
 
   /* One click on a low-lead-rate flag: create the 50/50 page-1 test for

@@ -381,6 +381,7 @@ export default function FunnelsPage() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsWin, setStatsWin] = useState<7 | 14 | 30>(30);
   const [stats, setStats] = useState<StatRow[] | null>(null);
+  const [page1Map, setPage1Map] = useState<Record<string, number>>({});
   const [statsLoading, setStatsLoading] = useState(false);
   const loadStats = useCallback(async (win: 7 | 14 | 30) => {
     setStatsLoading(true);
@@ -388,6 +389,7 @@ export default function FunnelsPage() {
       const r = await fetch(`/api/onebox/admin?stats=${win}`);
       const j = await r.json();
       setStats(j.stats ?? []);
+      setPage1Map(j.page1 ?? {});
     } finally { setStatsLoading(false); }
   }, []);
 
@@ -446,20 +448,62 @@ export default function FunnelsPage() {
       await loadInsights();
     } finally { setScanBusy(false); }
   }, [loadInsights]);
-  const launchPage1 = useCallback(async (id: number) => {
-    setDecideBusy(id);
+  /* The inline A/B panel on the performance table: proposed copy when no
+     test runs, live per-side numbers + keep-winner buttons while it does. */
+  type AbPanel = {
+    test: { expId: number; startedAt: string; visA: number; visB: number; leadsA: number; leadsB: number; rateA: number | null; rateB: number | null; override: Record<string, string> } | null;
+    proposal: Record<string, string>;
+    current: { headline: string; congrats: string };
+  };
+  const [abPanelFor, setAbPanelFor] = useState<string | null>(null);
+  const [abPanel, setAbPanel] = useState<AbPanel | null>(null);
+  const [abPanelBusy, setAbPanelBusy] = useState(false);
+  const [abDraft, setAbDraft] = useState({ headline: "", congrats: "" });
+  const openAbPanel = useCallback(async (slug: string) => {
+    if (abPanelFor === slug) { setAbPanelFor(null); return; }
+    setAbPanelFor(slug); setAbPanel(null); setAbPanelBusy(true);
     try {
       const r = await fetch("/api/onebox/insights", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "launchTest", id }),
+        body: JSON.stringify({ action: "page1Panel", slug }),
       });
       const j = await r.json();
-      if (j.error) { setToast(`Launch failed: ${j.error}`); return; }
-      setToast("Page-1 test is live — 50/50 starting now; the daily scan will flag the winner");
-      await loadInsights();
-      await load();
-    } finally { setDecideBusy(null); }
-  }, [loadInsights, load]);
+      if (j.error) { setToast(j.error); setAbPanelFor(null); return; }
+      setAbPanel(j);
+      setAbDraft({ headline: j.proposal?.headline ?? "", congrats: j.proposal?.congrats ?? "" });
+    } finally { setAbPanelBusy(false); }
+  }, [abPanelFor]);
+  const startAbTest = useCallback(async (slug: string) => {
+    setAbPanelBusy(true);
+    try {
+      const r = await fetch("/api/onebox/insights", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "page1Start", slug, ...abDraft }),
+      });
+      const j = await r.json();
+      if (j.error) { setToast(`Start failed: ${j.error}`); return; }
+      setToast("A/B test is live — half her visitors now see the new page");
+      setAbPanelFor(null);
+      await Promise.all([loadStats(statsWin), loadInsights(), load()]);
+    } finally { setAbPanelBusy(false); }
+  }, [abDraft, loadStats, statsWin, loadInsights, load]);
+  const endAbTest = useCallback(async (expId: number, keep: "a" | "b") => {
+    if (!window.confirm(keep === "b"
+      ? "Keep the NEW page? Her funnel switches to the winning copy and the test ends."
+      : "Keep her CURRENT page? The test ends and nothing changes on the funnel.")) return;
+    setAbPanelBusy(true);
+    try {
+      const r = await fetch("/api/onebox/insights", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "page1End", expId, keep }),
+      });
+      const j = await r.json();
+      if (j.error) { setToast(`Ending failed: ${j.error}`); return; }
+      setToast(keep === "b" ? "New page applied — test ended, traffic back to 100%" : "Test ended — current page kept");
+      setAbPanelFor(null);
+      await Promise.all([loadStats(statsWin), load()]);
+    } finally { setAbPanelBusy(false); }
+  }, [loadStats, statsWin, load]);
   const decideInsight = useCallback(async (id: number, decision: "approve" | "deny", reason?: string, suggestion?: string) => {
     setDecideBusy(id);
     try {
@@ -765,11 +809,26 @@ export default function FunnelsPage() {
                         </thead>
                         <tbody>
                           {stats.map((s) => (
-                            <tr key={s.slug} className="border-t border-[#eef2f6]">
+                            <Fragment key={s.slug}>
+                            <tr className="border-t border-[#eef2f6]">
                               <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{s.clientName || s.slug}</td>
                               <td className="py-1.5 pr-3">{s.visitors}</td>
                               <td className="py-1.5 pr-3">{s.leads}</td>
-                              {rateCell(s.visitors, s.leadRate, bench.lead)}
+                              <td className={cn("py-1.5 pr-3 whitespace-nowrap", low(s.visitors, s.leadRate, bench.lead) && "bg-[#fff3e6] text-[#c2410c] font-semibold")}
+                                title={s.leadRate == null ? "nothing in this window yet — rates need data"
+                                  : low(s.visitors, s.leadRate, bench.lead) ? `25%+ below the all-clients average (${bench.lead.toFixed(1)}%) — likely bottleneck` : undefined}>
+                                {s.leadRate != null ? `${s.leadRate}%` : "—"}
+                                {(low(s.visitors, s.leadRate, bench.lead) || page1Map[s.slug]) && (
+                                  <button onClick={() => void openAbPanel(s.slug)}
+                                    title={page1Map[s.slug] ? "An A/B test is running on her first page — click to see the live results" : "Test a better first page on this client: 50/50, only page 1 changes"}
+                                    className={cn("ml-1.5 text-[10px] font-semibold rounded-md px-1.5 py-0.5 border align-middle",
+                                      abPanelFor === s.slug ? "bg-[#7c3aed] text-white border-[#7c3aed]"
+                                      : page1Map[s.slug] ? "bg-[#f3e8ff] text-[#7c3aed] border-[#d8b4fe] hover:bg-[#ead9fe]"
+                                      : "bg-white text-[#7c3aed] border-[#d8b4fe] hover:bg-[#f3e8ff]")}>
+                                    {page1Map[s.slug] ? "A/B test ⏳" : "Launch A/B test"}
+                                  </button>
+                                )}
+                              </td>
                               <td className="py-1.5 pr-3">{s.picked}</td>
                               {rateCell(s.leads, pct(s.picked, s.leads), bench.pick)}
                               <td className="py-1.5 pr-3 font-semibold">{s.deposits}</td>
@@ -779,6 +838,66 @@ export default function FunnelsPage() {
                               <td className="py-1.5 pr-3">{s.spend != null ? `$${s.spend}` : "—"}</td>
                               <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">{s.costPerBooking != null ? `$${s.costPerBooking}` : "—"}</td>
                             </tr>
+                            {abPanelFor === s.slug && (
+                              <tr className="border-t border-[#eee]">
+                                <td colSpan={12} className="py-2">
+                                  <div className="border border-[#d8b4fe] rounded-lg bg-[#fdfbff] p-3 grid gap-2 text-xs">
+                                    {abPanelBusy && !abPanel ? (
+                                      <span className="text-[#697a91]"><Loader2 className="w-3.5 h-3.5 animate-spin inline" /> Loading…</span>
+                                    ) : abPanel?.test ? (
+                                      <>
+                                        <b className="text-[#1c2b3a]">A/B test running since {new Date(abPanel.test.startedAt).toLocaleDateString()} — first page only, 50/50</b>
+                                        <div className="grid sm:grid-cols-2 gap-2">
+                                          <div className="border border-[#e4ebf2] rounded-lg bg-white p-2">
+                                            <b>Current page</b>
+                                            <div className="text-[#697a91] mt-0.5">{abPanel.test.visA} visitors · {abPanel.test.leadsA} leads · <b className="text-[#1c2b3a]">{abPanel.test.rateA ?? "—"}%</b> lead rate</div>
+                                          </div>
+                                          <div className="border border-[#d8b4fe] rounded-lg bg-white p-2">
+                                            <b className="text-[#7c3aed]">New page</b>
+                                            <div className="text-[#697a91] mt-0.5">{abPanel.test.visB} visitors · {abPanel.test.leadsB} leads · <b className="text-[#1c2b3a]">{abPanel.test.rateB ?? "—"}%</b> lead rate</div>
+                                            <div className="text-[10px] text-[#697a91] mt-1 italic">&ldquo;{abPanel.test.override.headline ?? ""}&rdquo;</div>
+                                          </div>
+                                        </div>
+                                        <span className="text-[10px] text-[#697a91]">
+                                          A verdict is solid from ~400 visitors per side (now {abPanel.test.visA} / {abPanel.test.visB}). End it whenever you&rsquo;re convinced:
+                                        </span>
+                                        <div className="flex flex-wrap gap-2">
+                                          <button onClick={() => void endAbTest(abPanel.test!.expId, "b")} disabled={abPanelBusy}
+                                            className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50">
+                                            Keep NEW page — end test
+                                          </button>
+                                          <button onClick={() => void endAbTest(abPanel.test!.expId, "a")} disabled={abPanelBusy}
+                                            className="text-xs border border-[#e4ebf2] rounded-md px-3 py-1 hover:bg-white disabled:opacity-50">
+                                            Keep CURRENT page — end test
+                                          </button>
+                                        </div>
+                                      </>
+                                    ) : abPanel ? (
+                                      <>
+                                        <b className="text-[#1c2b3a]">Test a better first page — edit the copy if you like, then start. Only page 1 changes; half her visitors see it.</b>
+                                        <label className="grid gap-0.5">
+                                          <span className="text-[10px] text-[#697a91]">Headline — now: <i>{abPanel.current.headline || "Fill Out Our Quiz To See If You Qualify (standard)"}</i></span>
+                                          <input value={abDraft.headline} onChange={(e) => setAbDraft((x) => ({ ...x, headline: e.target.value }))}
+                                            className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                                        </label>
+                                        <label className="grid gap-0.5">
+                                          <span className="text-[10px] text-[#697a91]">Offer line — now: <i>{abPanel.current.congrats || "Congrats on claiming [offer] All Permanent Makeup Packages! (standard)"}</i></span>
+                                          <input value={abDraft.congrats} onChange={(e) => setAbDraft((x) => ({ ...x, congrats: e.target.value }))}
+                                            className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                                        </label>
+                                        <div>
+                                          <button onClick={() => void startAbTest(s.slug)} disabled={abPanelBusy}
+                                            className="text-xs bg-[#7c3aed] text-white rounded-md px-3 py-1.5 hover:bg-[#6d28d9] disabled:opacity-50 inline-flex items-center gap-1.5">
+                                            {abPanelBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Approve — start the A/B test (50/50)
+                                          </button>
+                                        </div>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                            </Fragment>
                           ))}
                           <tr className="border-t-2 border-[#bfe6e2] bg-[#f7fdfc] font-semibold text-[#1c2b3a]">
                             <td className="py-1.5 pr-3">All clients</td>
@@ -1641,13 +1760,6 @@ export default function FunnelsPage() {
                     <div className="text-xs text-[#425466] mt-1"><b className="text-[#697a91]">Why:</b> {ins.why}</div>
                     <div className="text-xs text-[#425466] mt-1"><b className="text-[#0b7f7f]">Fix I suggest:</b> {ins.solution}</div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {ins.kind === "low-lead-rate" && (
-                        <button onClick={() => void launchPage1(ins.id)} disabled={decideBusy === ins.id}
-                          title="Launches a 50/50 test on her first page only: half see the current page, half see the template copy (prefilled with her city, service and offer). The scan flags the winner once there's enough data."
-                          className="text-xs bg-[#7c3aed] text-white rounded-md px-3 py-1 hover:bg-[#6d28d9] disabled:opacity-50 inline-flex items-center gap-1">
-                          {decideBusy === ins.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null} 🧪 Launch page-1 test
-                        </button>
-                      )}
                       <button onClick={() => void decideInsight(ins.id, "approve")} disabled={decideBusy === ins.id}
                         className="text-xs bg-[#0e9c9c] text-white rounded-md px-3 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
                         {decideBusy === ins.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Approve
