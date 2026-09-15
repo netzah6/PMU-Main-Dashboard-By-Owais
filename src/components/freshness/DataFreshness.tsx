@@ -44,6 +44,7 @@ export function DataFreshness({ onRefreshed }: { onRefreshed?: () => void } = {}
       const r = await fetch("/api/cron/sync-cpl");
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      if (j.skipped || !Array.isArray(j.results)) throw new Error(j.skipped ? String(j.skipped) : "the sync did not run");
       const bad = (j.results ?? []).filter((x: { status?: string }) => x.status !== "ok");
       setMsg(bad.length ? `⚠ ${bad.length} tab${bad.length === 1 ? "" : "s"} failed to sync` : "All four tabs re-pulled from the sheet.");
       await load();
@@ -79,7 +80,8 @@ export function DataFreshness({ onRefreshed }: { onRefreshed?: () => void } = {}
             {s.label} {s.at ? (s.fresh ? timeOf(s.at) : dateOf(s.at)) : "—"}
           </span>
         ))}
-        {role === "admin" && (
+        {/* Admins and media buyers — the buyers are the ones waiting on fresh CPL numbers (user, 2026-09-15). */}
+        {(role === "admin" || role === "media_buyer") && (
           <button onClick={refresh} disabled={busy} title="Pull all four tabs from the Google Sheet right now (about 10 seconds)"
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border border-[#d7e0ea] bg-white text-[#34568a] hover:bg-[#f6f9fc] disabled:opacity-60">
             {busy ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />} {busy ? "Pulling…" : "Refresh now"}

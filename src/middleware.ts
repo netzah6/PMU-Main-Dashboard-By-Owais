@@ -12,12 +12,19 @@ const RESERVED = new Set(["api", "f", "s", "login", "auth", "deck", "manifest.we
    and …-owais1). Production — tokens, custom domains — is the "1" one; the
    other still fires every cron on the same schedule against the same
    database: on 2026-09-14 it re-ran the subscription charges 15 s after the
-   real run with no Square token (401 "could not be authorized"), leaving a
-   second failure row per client. Crons only run on the production project. */
-const PRIMARY_PRODUCTION_URL = "pmu-main-dashboard-by-owais1.vercel.app";
+   real run with no Square token (401 "could not be authorized").
+   Crons are refused on the SECONDARY project only. It is recognised by its
+   own identity — the bare project URL, which has no custom domain — never by
+   what production is called: the first version of this guard allow-listed
+   "…owais1.vercel.app", but VERCEL_PROJECT_PRODUCTION_URL on production is
+   the custom domain (book.pmu-care.com), so every cron was skipped for 13 h
+   on 2026-09-14/15 (deposits, blasts, subscription retries, alerts, Square
+   snapshot, CPL). */
+const SECONDARY_PROJECT = "pmu-main-dashboard-by-owais";
 function cronOnSecondaryProject(): boolean {
-  const mine = (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "").toLowerCase();
-  return !!mine && mine !== PRIMARY_PRODUCTION_URL;
+  const prod = (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "").toLowerCase();
+  const dep = (process.env.VERCEL_URL ?? "").toLowerCase();
+  return prod === `${SECONDARY_PROJECT}.vercel.app` || dep.startsWith(`${SECONDARY_PROJECT}-`);
 }
 
 export async function middleware(request: NextRequest, event: NextFetchEvent) {
