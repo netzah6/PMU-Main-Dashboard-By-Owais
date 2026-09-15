@@ -574,10 +574,20 @@ function EmojiLegend() {
       ],
     },
   ];
+  // Collapsed by default — it's a reference, not something to read every
+  // visit (user, 2026-09-14). The choice sticks per browser.
+  const [open, setOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem("cpd-legend-open") === "1"; } catch { return false; }
+  });
+  const toggle = () => setOpen((o) => { try { localStorage.setItem("cpd-legend-open", o ? "0" : "1"); } catch { /* private mode */ } return !o; });
   return (
     <div className="rounded-[14px] border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
-      <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-2">🧭 What the emojis mean</div>
-      <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-4">
+      <button onClick={toggle} className="w-full flex items-center gap-2 text-left">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">🧭 What the emojis mean</span>
+        <span className="ml-auto text-[#8595a8] text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+      <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2 xl:grid-cols-4 mt-2">
         {groups.map((g) => (
           <div key={g.title}>
             <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8] mb-1">{g.title}</div>
@@ -592,6 +602,7 @@ function EmojiLegend() {
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
