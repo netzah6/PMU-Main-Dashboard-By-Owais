@@ -401,7 +401,7 @@ export default function FunnelsPage() {
   const [denyReason, setDenyReason] = useState("");
   const [denySuggestion, setDenySuggestion] = useState("");
   const [showDecided, setShowDecided] = useState(false);
-  const [optimizerOpen, setOptimizerOpen] = useState(true);
+  const [optimizerOpen, setOptimizerOpen] = useState(false); // closed by default (user, 2026-09-15)
 
   /* Program (V3/V2.3/V1) switcher — writes the Version column of the same
      Clients Master row the Clients tab edits, sheet write-back included,
