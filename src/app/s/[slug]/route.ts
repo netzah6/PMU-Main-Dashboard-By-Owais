@@ -34,11 +34,11 @@ function pick(variants: Variant[]): Variant {
   return variants[variants.length - 1];
 }
 
-function visitorId(req: NextRequest, slug: string): { id: string; vkey: string | null } {
+function visitorId(req: NextRequest, slug: string): { id: string; vkey: string | null; exp: string | null } {
   const raw = req.cookies.get(`${COOKIE}_${slug}`)?.value ?? "";
-  const [id, vkey] = raw.split(":");
-  if (id) return { id, vkey: vkey || null };
-  return { id: crypto.randomUUID(), vkey: null };
+  const [id, vkey, exp] = raw.split(":");
+  if (id) return { id, vkey: vkey || null, exp: exp || null };
+  return { id: crypto.randomUUID(), vkey: null, exp: null };
 }
 
 export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
@@ -54,15 +54,33 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     .limit(1)
     .maybeSingle();
 
-  const search = req.nextUrl.search ?? "";
+  /* Strip any inherited ob_e/ob_v from the passthrough query BEFORE
+     building destinations: the fresh assignment appends its own pair, a
+     leftover stale pair would come first in the URL (and the funnel reads
+     the first), and the no-experiment fallback must hand /f a genuinely
+     plain URL — /f now bounces plain-URL visitors here during a page-1
+     test, so a stale ob_e riding along could ping-pong the two routes. */
+  const passthrough = new URLSearchParams(req.nextUrl.search);
+  const forced = passthrough.get("ob_v");
+  passthrough.delete("ob_e");
+  passthrough.delete("ob_v");
+  const search = passthrough.toString() ? `?${passthrough.toString()}` : "";
   /* On the funnel host the clean URL (book.pmu-care.com/<slug>) is
      rewritten to /f/<slug>, so hand visitors the tidy one — it is what
      they see in the address bar. Elsewhere /f/ is still the real path. */
   const shortHost = (req.headers.get("host") ?? "").toLowerCase() === "book.pmu-care.com";
   const funnelUrl = `${req.nextUrl.origin}${shortHost ? "" : "/f"}/${slug}${search}`;
 
+  /* Every splitter response is per-visitor — never let a cache replay one.
+     (Vercel skips them today only by omission; be explicit.) */
+  const redirect = (url: string) => {
+    const r = NextResponse.redirect(url, 307);
+    r.headers.set("Cache-Control", "no-store");
+    return r;
+  };
+
   // No live test: behave exactly like the plain funnel URL.
-  if (!exp) return NextResponse.redirect(funnelUrl, 307);
+  if (!exp) return redirect(funnelUrl);
 
   const { data: variantRows } = await svc
     .from("onebox_variants")
@@ -70,15 +88,23 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     .eq("experiment_id", exp.id)
     .order("vkey", { ascending: true });
   const variants = (variantRows ?? []) as Variant[];
-  if (!variants.length) return NextResponse.redirect(funnelUrl, 307);
+  if (!variants.length) return redirect(funnelUrl);
 
   // A returning visitor keeps their variant; a forced ?ob_v=a wins (for
   // the team to preview a side without waiting on the coin flip).
-  const forced = req.nextUrl.searchParams.get("ob_v");
+  // Stickiness is per EXPERIMENT: every test on a slug reuses vkeys a/b,
+  // so a cookie minted under an earlier test must not satisfy this one —
+  // it would skip the assignment row (no denominator) while the visitor's
+  // lead still gets tagged, and after a 0/100-weight rollout it would herd
+  // every returning visitor onto one side. A different-experiment cookie
+  // is treated as a brand-new visitor for this test.
   const seen = visitorId(req, slug);
+  const sameExp = seen.exp === String(exp.id);
+  const vid = sameExp ? seen.id : crypto.randomUUID();
+  const forcedVar = forced ? variants.find((v) => v.vkey === forced) ?? null : null;
   let chosen =
-    (forced && variants.find((v) => v.vkey === forced)) ||
-    (seen.vkey && variants.find((v) => v.vkey === seen.vkey)) ||
+    forcedVar ||
+    (sameExp && seen.vkey && variants.find((v) => v.vkey === seen.vkey)) ||
     null;
   const isNew = !chosen;
   if (!chosen) chosen = pick(variants);
@@ -87,7 +113,7 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     await svc
       .from("onebox_assignments")
       .upsert(
-        { experiment_id: exp.id, vkey: chosen.vkey, visitor_id: seen.id },
+        { experiment_id: exp.id, vkey: chosen.vkey, visitor_id: vid },
         { onConflict: "experiment_id,visitor_id", ignoreDuplicates: true }
       )
       .then(() => {});
@@ -104,11 +130,15 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     dest = `${funnelUrl}${sep}ob_e=${exp.id}&ob_v=${encodeURIComponent(chosen.vkey)}`;
   }
 
-  const res = NextResponse.redirect(dest, 307);
-  res.cookies.set(`${COOKIE}_${slug}`, `${seen.id}:${chosen.vkey}`, {
-    maxAge: YEAR,
-    path: "/",
-    sameSite: "lax",
-  });
+  const res = redirect(dest);
+  /* A forced preview never writes the cookie: the team flipping between
+     sides must not convert their browser into a sticky test participant. */
+  if (!forcedVar) {
+    res.cookies.set(`${COOKIE}_${slug}`, `${vid}:${chosen.vkey}:${exp.id}`, {
+      maxAge: YEAR,
+      path: "/",
+      sameSite: "lax",
+    });
+  }
   return res;
 }
