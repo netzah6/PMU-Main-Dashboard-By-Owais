@@ -325,12 +325,25 @@ export async function launchPage1Test(svc: SupabaseClient, slug: string, custom?
   if (!client) throw new Error("unknown funnel");
   const built = buildPage1Override((client.config ?? {}) as Record<string, string>);
   const override = { ...built, ...Object.fromEntries(Object.entries(custom ?? {}).filter(([, v]) => String(v).trim())) };
+  /* If the experiment being displaced is a 100%-rollout (one live onebox
+     side carrying an override — how non-CV engine flags are shipped), that
+     override IS the current page: fold it into BOTH sides so "Current
+     page" stays current and the test differs by the new copy alone. */
+  const { data: prior } = await svc.from("onebox_experiments")
+    .select("id, onebox_variants(kind, weight, config_override)")
+    .eq("slug", slug).eq("status", "running");
+  let base: Record<string, string> = {};
+  for (const p of prior ?? []) {
+    const vs = (p.onebox_variants ?? []) as { kind: string; weight: number; config_override: Record<string, string> | null }[];
+    const live = vs.filter((v) => (v.weight ?? 0) > 0);
+    if (live.length === 1 && live[0].kind === "onebox") base = { ...base, ...(live[0].config_override ?? {}) };
+  }
   await svc.from("onebox_experiments").update({ status: "paused" }).eq("slug", slug).eq("status", "running");
   const { data: exp, error } = await svc.from("onebox_experiments").insert({ slug, name: PAGE1_TEST_NAME }).select("id").single();
   if (error || !exp) throw new Error(error?.message ?? "insert failed");
   const { error: vErr } = await svc.from("onebox_variants").insert([
-    { experiment_id: exp.id, vkey: "a", label: "Current page", kind: "onebox", target: null, weight: 50, config_override: {} },
-    { experiment_id: exp.id, vkey: "b", label: "Template page", kind: "onebox", target: null, weight: 50, config_override: override },
+    { experiment_id: exp.id, vkey: "a", label: "Current page", kind: "onebox", target: null, weight: 50, config_override: base },
+    { experiment_id: exp.id, vkey: "b", label: "Template page", kind: "onebox", target: null, weight: 50, config_override: { ...base, ...override } },
   ]);
   if (vErr) throw new Error(vErr.message);
   return { expId: exp.id as number, override };
@@ -348,11 +361,16 @@ export async function page1Sides(svc: SupabaseClient, expId: number, slug: strin
     vis[vk] = count ?? 0;
   }
   const leads = await fetchAllRows((from, to) =>
-    svc.from("onebox_leads").select("variant_key, ghl_status, picked_time_at, answers, created_at, phone, full_name")
+    svc.from("onebox_leads").select("experiment_id, variant_key, ghl_status, picked_time_at, answers, created_at, phone, full_name")
       .eq("slug", slug).gte("created_at", sinceIso).order("id").range(from, to));
   const nLeads: Record<string, number> = { a: 0, b: 0 };
   const journeys = new Map<string, number>();
   for (const l of [...leads].sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)))) {
+    /* Only leads tagged with THIS experiment belong to a side. A lead with
+       no tag (direct visit during the cache-flush window, stale link) has
+       no matching visitor in the assignment counts — counting it into side
+       A would inflate A's rate with a numerator that has no denominator. */
+    if (Number(l.experiment_id) !== expId) continue;
     const ms = new Date(l.created_at as string).getTime();
     const keys = personKeys(l.full_name as string, ((l.answers ?? {}) as { email?: string }).email, l.phone as string);
     if (keys.some((k) => { const hit = journeys.get(k); return hit != null && ms - hit < PERSON_DEDUPE_MS; })) continue;

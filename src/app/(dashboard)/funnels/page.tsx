@@ -850,10 +850,12 @@ export default function FunnelsPage() {
                                         <div className="grid sm:grid-cols-2 gap-2">
                                           <div className="border border-[#e4ebf2] rounded-lg bg-white p-2">
                                             <b>Current page</b>
+                                            <a href={`https://book.pmu-care.com/s/${s.slug}?ob_v=a`} target="_blank" rel="noreferrer" className="ml-2 text-[10px] text-[#0e9c9c] hover:underline">view ↗</a>
                                             <div className="text-[#697a91] mt-0.5">{abPanel.test.visA} visitors · {abPanel.test.leadsA} leads · <b className="text-[#1c2b3a]">{abPanel.test.rateA ?? "—"}%</b> lead rate</div>
                                           </div>
                                           <div className="border border-[#d8b4fe] rounded-lg bg-white p-2">
                                             <b className="text-[#7c3aed]">New page</b>
+                                            <a href={`https://book.pmu-care.com/s/${s.slug}?ob_v=b`} target="_blank" rel="noreferrer" className="ml-2 text-[10px] text-[#7c3aed] hover:underline">view ↗</a>
                                             <div className="text-[#697a91] mt-0.5">{abPanel.test.visB} visitors · {abPanel.test.leadsB} leads · <b className="text-[#1c2b3a]">{abPanel.test.rateB ?? "—"}%</b> lead rate</div>
                                             <div className="text-[10px] text-[#697a91] mt-1 italic">&ldquo;{abPanel.test.override.headline ?? ""}&rdquo;</div>
                                           </div>
