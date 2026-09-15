@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { PERSON_DEDUPE_MS, personKeys, refreshOneboxConfig, setOneboxCustomValues } from "@/lib/onebox";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 
 // ── One-box funnel optimizer ─────────────────────────────────────────────────
@@ -278,6 +278,7 @@ export async function runInsightScan(svc: SupabaseClient, origin: string): Promi
     else if (e.decided_at && Date.now() - new Date(e.decided_at as string).getTime() < 21 * 86400000) blocked.add(key);
   }
   const proposals = runRules(stats, days, ageDays).filter((p) => !blocked.has(`${p.slug}:${p.kind}`));
+  proposals.push(...await page1TestProposals(svc, blocked));
   if (proposals.length) {
     await svc.from("onebox_insights").insert(proposals.map((p) => ({
       slug: p.slug, kind: p.kind, problem: p.problem, why: p.why, solution: p.solution, metrics: p.metrics,
@@ -285,4 +286,130 @@ export async function runInsightScan(svc: SupabaseClient, origin: string): Promi
   }
   const { count } = await svc.from("onebox_insights").select("id", { count: "exact", head: true }).eq("status", "proposed");
   return { created: proposals.length, open: count ?? 0, checked: stats.length };
+}
+
+// ── Page-1 lead-rate tests ───────────────────────────────────────────────────
+// The "fix the first page" loop: a low-lead-rate flag can launch a 50/50
+// version test whose Version B changes ONLY page-1 copy; the daily scan
+// watches it and files a keep-winner decision once both sides have enough
+// visitors; approving applies the winner and ends the test.
+
+export const PAGE1_TEST_NAME = "Page-1 lead-rate test";
+const PAGE1_MIN_VISITORS = 400; // per side, before a verdict is offered
+
+/* Version B's page-1 copy, prefilled from the client's own data: her city
+   (from the address), her #1 service (first option of the survey's services
+   question) and her offer amount. Only headline + congrats change — the
+   rest of the funnel stays identical. */
+export function buildPage1Override(cfg: Record<string, string>): Record<string, string> {
+  const parts = String(cfg.address ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const city = parts.length >= 3 ? parts[parts.length - 2].replace(/[0-9]/g, "").trim() : "";
+  const offer = String(cfg.offer ?? "").trim() || "$150 OFF";
+  let service = "Eyebrows";
+  const raw = String(cfg.surveyRaw ?? "").trim();
+  const firstQ = raw ? raw.split(/\r?\n/).find((l) => !/^\s*\/\//.test(l) && l.includes("|")) : "";
+  if (firstQ) {
+    const opts = firstQ.split("|")[1].split(";").map((x) => x.trim()).filter(Boolean);
+    if (opts[0]) service = opts[0];
+  }
+  return {
+    congrats: `${city ? city + ": " : ""}${offer} ${service} — This Month Only`,
+    headline: `Wake Up With Perfect ${service} Every Morning — Take the 30-Second Quiz to Claim Your ${offer}`,
+  };
+}
+
+/* Create the 50/50 page-1 test for one flagged client. Any other running
+   experiment for the slug is paused first (one live test per funnel). */
+export async function launchPage1Test(svc: SupabaseClient, slug: string): Promise<{ expId: number; override: Record<string, string> }> {
+  const { data: client } = await svc.from("onebox_clients").select("config").eq("slug", slug).single();
+  if (!client) throw new Error("unknown funnel");
+  const override = buildPage1Override((client.config ?? {}) as Record<string, string>);
+  await svc.from("onebox_experiments").update({ status: "paused" }).eq("slug", slug).eq("status", "running");
+  const { data: exp, error } = await svc.from("onebox_experiments").insert({ slug, name: PAGE1_TEST_NAME }).select("id").single();
+  if (error || !exp) throw new Error(error?.message ?? "insert failed");
+  const { error: vErr } = await svc.from("onebox_variants").insert([
+    { experiment_id: exp.id, vkey: "a", label: "Current page", kind: "onebox", target: null, weight: 50, config_override: {} },
+    { experiment_id: exp.id, vkey: "b", label: "Template page", kind: "onebox", target: null, weight: 50, config_override: override },
+  ]);
+  if (vErr) throw new Error(vErr.message);
+  return { expId: exp.id as number, override };
+}
+
+/* Watch running page-1 tests: once BOTH sides have enough visitors, file a
+   keep-winner decision flag with the numbers. Lead rate here = unique lead
+   journeys ÷ splitter assignments per side — identical yardstick for A and
+   B, which is all a head-to-head needs. */
+async function page1TestProposals(svc: SupabaseClient, blocked: Set<string>): Promise<Proposal[]> {
+  const { data: exps } = await svc
+    .from("onebox_experiments").select("id, slug, created_at")
+    .eq("status", "running").eq("name", PAGE1_TEST_NAME);
+  const out: Proposal[] = [];
+  for (const e of exps ?? []) {
+    const slug = e.slug as string;
+    if (blocked.has(`${slug}:page1-test-done`)) continue;
+    const vis: Record<string, number> = {};
+    for (const vk of ["a", "b"]) {
+      const { count } = await svc.from("onebox_assignments")
+        .select("vkey", { count: "exact", head: true })
+        .eq("experiment_id", e.id).eq("vkey", vk);
+      vis[vk] = count ?? 0;
+    }
+    if (vis.a < PAGE1_MIN_VISITORS || vis.b < PAGE1_MIN_VISITORS) continue;
+    const leads = await fetchAllRows((from, to) =>
+      svc.from("onebox_leads").select("variant_key, ghl_status, picked_time_at, answers, created_at, phone, full_name")
+        .eq("slug", slug).gte("created_at", e.created_at as string).order("id").range(from, to));
+    const nLeads: Record<string, number> = { a: 0, b: 0 };
+    const journeys = new Map<string, number>();
+    for (const l of [...leads].sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)))) {
+      const ms = new Date(l.created_at as string).getTime();
+      const keys = personKeys(l.full_name as string, ((l.answers ?? {}) as { email?: string }).email, l.phone as string);
+      if (keys.some((k) => { const hit = journeys.get(k); return hit != null && ms - hit < PERSON_DEDUPE_MS; })) continue;
+      for (const k of keys) journeys.set(k, ms);
+      const vk = l.variant_key === "b" ? "b" : "a";
+      nLeads[vk]++;
+    }
+    const aRate = Math.round((nLeads.a / vis.a) * 1000) / 10;
+    const bRate = Math.round((nLeads.b / vis.b) * 1000) / 10;
+    const winner = bRate > aRate ? "b" : "a";
+    const { data: vb } = await svc.from("onebox_variants").select("config_override")
+      .eq("experiment_id", e.id).eq("vkey", "b").maybeSingle();
+    out.push({
+      slug, kind: "page1-test-done",
+      problem: winner === "b"
+        ? `Page-1 test finished — the new page WON (${bRate}% vs ${aRate}% lead rate)`
+        : `Page-1 test finished — her current page held up (${aRate}% vs ${bRate}%)`,
+      why: `${vis.a + vis.b} visitors split 50/50: current page ${nLeads.a}/${vis.a} leads (${aRate}%), template page ${nLeads.b}/${vis.b} (${bRate}%).`,
+      solution: winner === "b"
+        ? "Approve = switch her funnel to the winning copy and end the test. Deny = keep her current page (the test ends either way once you decide)."
+        : "Approve = end the test and keep her current page. Deny = leave the test running for more data.",
+      metrics: { expId: e.id, winner, aRate, bRate, visA: vis.a, visB: vis.b, override: (vb?.config_override ?? {}) as Record<string, string> },
+    });
+  }
+  return out;
+}
+
+/* Execute an approved keep-winner decision: winner B writes the winning
+   copy into the client's GHL custom values (so it becomes THE page);
+   either way the experiment is paused — the splitter goes back to 100%. */
+export async function applyPage1Decision(svc: SupabaseClient, slug: string, metrics: Record<string, unknown>): Promise<string> {
+  const expId = Number(metrics.expId ?? 0);
+  if (!expId) throw new Error("no experiment id on the flag");
+  let note = "test ended — current page kept";
+  if (metrics.winner === "b") {
+    const override = (metrics.override ?? {}) as Record<string, string>;
+    const { data: client } = await svc.from("onebox_clients").select("location_id").eq("slug", slug).single();
+    if (!client) throw new Error("unknown funnel");
+    const CVS: Record<string, string> = { headline: "OB - Headline", congrats: "OB - Congrats Line", sub: "OB - Subheadline" };
+    const entries = Object.entries(override)
+      .filter(([k, v]) => CVS[k] && String(v).trim())
+      .map(([k, v]) => ({ name: CVS[k], value: String(v) }));
+    if (entries.length) {
+      const res = await setOneboxCustomValues(client.location_id as string, entries);
+      if (res.error) throw new Error(`writing the winning copy failed: ${res.error}`);
+      await refreshOneboxConfig(svc, slug, client.location_id as string);
+    }
+    note = "winning copy applied to the funnel; test ended";
+  }
+  await svc.from("onebox_experiments").update({ status: "paused", updated_at: new Date().toISOString() }).eq("id", expId);
+  return note;
 }
