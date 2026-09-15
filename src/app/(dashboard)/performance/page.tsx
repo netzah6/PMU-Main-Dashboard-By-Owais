@@ -188,7 +188,7 @@ function CampaignsCell({ campaigns, acctKey, onChanged }: { campaigns: PerfRow["
   );
 }
 
-const HEADERS = ["Owner Name", "Business Name", "Daily Budget", "Assigned", "Media Buyer", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Sessions Done", "Last Strategy", "Campaigns"];
+const HEADERS = ["Owner Name", "Business Name", "Daily Budget", "Assigned", "Media Buyer", "1-Box", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Sessions Done", "Last Strategy", "Campaigns"];
 
 export default function PerformancePage() {
   const [rows, setRows] = useState<PerfRow[]>([]);
@@ -199,11 +199,24 @@ export default function PerformancePage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [openRow, setOpenRow] = useState<string | null>(null);
 
+  /* owner (lowercased) → one-box funnel status — same source and same ✓/⏸
+     cell as Cost/Deposit (user request 2026-09-15). */
+  const [oneboxMap, setOneboxMap] = useState<Map<string, { status: string; business: string }> | null>(null);
   const load = useCallback(async () => {
     const supabase = createClient();
-    const { data, error } = await supabase.from("performance_overview").select("*");
+    const [{ data, error }, obRes] = await Promise.all([
+      supabase.from("performance_overview").select("*"),
+      supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status"),
+    ]);
     if (error) { setError(error.message); setLoading(false); return; }
     setRows((data as PerfRow[]) ?? []);
+    if (!obRes.error && obRes.data) {
+      const m = new Map<string, { status: string; business: string }>();
+      for (const o of obRes.data as { owner_name: string; business_name: string; onebox_status: string }[]) {
+        m.set(o.owner_name.toLowerCase().trim(), { status: o.onebox_status, business: o.business_name });
+      }
+      setOneboxMap(m);
+    }
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -283,7 +296,7 @@ export default function PerformancePage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 7 || idx === 11 || idx === 14; // after Booking %, L 3, CPL 7
+                  const divider = idx === 8 || idx === 12 || idx === 15; // after Booking %, L 3, CPL 7 (+1 for 1-Box)
                   return (
                     <th
                       key={h}
@@ -330,6 +343,19 @@ export default function PerformancePage() {
                     <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
                     <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
                     <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
+                    <td className="px-3 py-1 text-center">
+                      {(() => {
+                        const ob = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim());
+                        if (!ob) return <span className="text-[#c3cdd9]">—</span>;
+                        const live = ob.status === "live";
+                        return (
+                          <span className={cn("font-bold text-[13px] cursor-default", live ? "text-[#0e9c9c]" : "text-[#8595a8]")}
+                            title={live ? `One-box funnel LIVE (${ob.business}) — traffic runs on the one-box` : `One-box funnel exists but is paused (${ob.business})`}>
+                            {live ? "✓" : "⏸"}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td className="px-2 sm:px-3 py-1 align-top"><PmuServicesCell value={r.pmu_services} /></td>
                     <td className="px-2 sm:px-3 py-1 whitespace-nowrap">
                       <span className={cn("inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border", statusTone(r.campaign_status))}>
@@ -387,7 +413,7 @@ export default function PerformancePage() {
                 );
               })}
               {filtered.length === 0 && (
-                <tr><td colSpan={21} className="px-4 py-12 text-center text-[#8595a8]">No live clients match.</td></tr>
+                <tr><td colSpan={HEADERS.length} className="px-4 py-12 text-center text-[#8595a8]">No live clients match.</td></tr>
               )}
             </tbody>
           </table>

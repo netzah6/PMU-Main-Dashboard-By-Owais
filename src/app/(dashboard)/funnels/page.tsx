@@ -604,7 +604,7 @@ export default function FunnelsPage() {
   }
 
   if (userLoading) return <div className="p-8 text-[#697a91]"><Loader2 className="w-5 h-5 animate-spin" /></div>;
-  if (role !== "admin" && role !== "editor") return <div className="p-8 text-[#697a91]">Admins and coaches only.</div>;
+  if (role !== "admin" && role !== "editor" && role !== "media_buyer") return <div className="p-8 text-[#697a91]">Admins, coaches and media buyers only.</div>;
   /* A Client Success Coach sees the client funnels only — no Optimizer, no
      agency B2B funnel, no add/edit controls (the API refuses them anyway). */
   const isAdmin = role === "admin";

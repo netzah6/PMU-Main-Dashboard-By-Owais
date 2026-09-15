@@ -59,6 +59,7 @@ const MEDIA_BUYER_TABS = new Set([
   // Pixel Checking; the client profiles carry contact and billing detail they
   // do not need.
   "/tasks", "/performance", "/onboarding", "/leads", "/pixel-checking",
+  "/funnels", // read-only like coaches — user request 2026-09-15
 ]);
 
 const ALLOWLISTS: Partial<Record<NonNullable<UserRole>, Set<string>>> = {
