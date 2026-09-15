@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   // Coaches read the list (their Funnels tab); every change below is still admin-only.
-  if (auth.role !== "admin" && auth.role !== "editor") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (auth.role !== "admin" && auth.role !== "editor" && auth.role !== "media_buyer") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const svc = createServiceClient();
 
