@@ -60,6 +60,13 @@ export function CreditsPanel({
   const isAdmin = role === "admin";
   const pending = credits.filter((c) => c.status === "pending");
   const active = credits.filter((c) => c.status === "approved" && Number(c.amount) - Number(c.applied) > 0);
+  // One chip per client: several approved credits add up to one balance
+  // (billing draws them down together, oldest first) — user request 2026-09-16.
+  const balances = Object.values(active.reduce<Record<string, { key: string; label: string; left: number; parts: Credit[] }>>((m, c) => {
+    const b = (m[c.owner_key] ??= { key: c.owner_key, label: c.client_label || c.owner_key, left: 0, parts: [] });
+    b.left += Number(c.amount) - Number(c.applied); b.parts.push(c);
+    return m;
+  }, {}));
 
   async function submit() {
     if (!ownerKey || !amount.trim() || !reason.trim() || busy) return;
@@ -195,12 +202,13 @@ export function CreditsPanel({
         </div>
       )}
 
-      {open && active.length > 0 && (
+      {open && balances.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {active.map((c) => (
-            <span key={c.id} title={`${c.reason} — approved by ${c.decided_by?.split("@")[0] ?? "—"}`}
+          {balances.map((b) => (
+            <span key={b.key}
+              title={b.parts.map((c) => `${money(Number(c.amount) - Number(c.applied))} left of ${money(c.amount)} — ${c.reason} (approved by ${c.decided_by?.split("@")[0] ?? "—"})`).join("\n")}
               className={cn("px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]")}>
-              {c.client_label || c.owner_key}: {money(Number(c.amount) - Number(c.applied))} left
+              {b.label}: {money(b.left)} left{b.parts.length > 1 ? ` (${b.parts.length} credits)` : ""}
             </span>
           ))}
         </div>
