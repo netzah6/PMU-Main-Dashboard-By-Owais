@@ -103,17 +103,33 @@ export default function DepositsPage() {
     return true;
   })), [data, search, month]);
 
+  // A duplicate is the SAME payment written more than once — same client,
+  // same contact, same amount, within 3 days (Make re-fires, fund-release
+  // copies). The same person paying again weeks later is a repeat customer,
+  // not a duplicate, and no longer lands here (user, 2026-09-16).
   const dups = useMemo(() => {
-    const map = new Map<string, { business: string; name: string; email: string; dates: string[] }>();
+    const map = new Map<string, { business: string; name: string; email: string; rows: { date: string; t: number }[] }>();
     data.forEach((r) => {
       const c = contactKey(r); if (!c) return;
       const biz = String(r["Business Name"] ?? "").trim(); if (!biz) return;
-      const key = biz.toLowerCase() + "|" + c;
-      const e = map.get(key) ?? { business: biz, name: String(r["Full Name"] ?? ""), email: String(r["Email"] ?? ""), dates: [] };
-      e.dates.push(dateStr(r));
+      const key = biz.toLowerCase().trim() + "|" + c + "|" + String(r["Amount"] ?? "").replace(/[^0-9.]/g, "");
+      const e = map.get(key) ?? { business: biz, name: String(r["Full Name"] ?? ""), email: String(r["Email"] ?? ""), rows: [] };
+      e.rows.push({ date: dateStr(r), t: depDate(r)?.getTime() ?? 0 });
       map.set(key, e);
     });
-    return Array.from(map.values()).filter((d) => d.dates.length > 1).sort((a, b) => b.dates.length - a.dates.length);
+    const out: { business: string; name: string; email: string; dates: string[] }[] = [];
+    for (const e of map.values()) {
+      const rows = e.rows.sort((a, b) => a.t - b.t);
+      // Cluster rows that fall within 3 days of the previous one.
+      let cluster: typeof rows = [];
+      const flush = () => { if (cluster.length > 1) out.push({ business: e.business, name: e.name, email: e.email, dates: cluster.map((x) => x.date) }); cluster = []; };
+      for (const r of rows) {
+        if (cluster.length && r.t - cluster[cluster.length - 1].t > 3 * 86400_000) flush();
+        cluster.push(r);
+      }
+      flush();
+    }
+    return out.sort((a, b) => b.dates.length - a.dates.length);
   }, [data]);
 
   async function submitRequest() {
