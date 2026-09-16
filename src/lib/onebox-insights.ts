@@ -313,7 +313,7 @@ export function buildPage1Override(cfg: Record<string, string>): Record<string, 
      page's own "(30 Seconds)" sub plus the quiz right below carry the CTA. */
   return {
     congrats: `${city ? city + ": " : ""}${offer} — This Month Only`,
-    headline: "Wake Up With Perfect Makeup Every Morning",
+    headline: "Wake Up With Perfect Makeup Every Morning — Without Ever Applying It",
   };
 }
 
