@@ -29,6 +29,9 @@ export type AlertRow = {
   resolved_by: string | null;
   resolved_at: string | null;
   meta: Record<string, unknown> | null;
+  /* "Don't show again": resolved AND never re-filed for this source_key,
+     whatever resurfaceAfterDays says (owner request 2026-09-16). */
+  muted?: boolean;
 };
 
 type Svc = ReturnType<typeof createServiceClient>;
@@ -54,7 +57,7 @@ export type NewAlert = {
 export async function fileAlert(svc: Svc, a: NewAlert): Promise<boolean> {
   const { data: existing } = await svc
     .from("alerts")
-    .select("id, status, resolved_at, created_at")
+    .select("id, status, resolved_at, created_at, muted")
     .eq("type", a.type)
     .eq("source_key", a.source_key)
     .order("created_at", { ascending: false })
@@ -62,6 +65,7 @@ export async function fileAlert(svc: Svc, a: NewAlert): Promise<boolean> {
     .maybeSingle();
   if (existing) {
     if (existing.status === "open") return false;
+    if (existing.muted) return false; // "don't show again" — stays quiet until reopened
     if (!a.resurfaceAfterDays) return false;
     const ref = existing.resolved_at ?? existing.created_at;
     if (Date.now() - new Date(ref).getTime() < a.resurfaceAfterDays * 86400_000) return false;

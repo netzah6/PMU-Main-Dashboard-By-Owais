@@ -29,7 +29,7 @@ function ago(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, action: "resolve" | "reopen") => void; busy: boolean }) {
+function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, action: "resolve" | "mute" | "reopen") => void; busy: boolean }) {
   const m = typeMeta(a.type);
   const [expanded, setExpanded] = useState(false);
   const open = a.status === "open";
@@ -43,7 +43,7 @@ function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, 
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-red-50 text-red-700 border-red-200">HIGH</span>
         )}
         <span className="text-[11px] text-[#8595a8] ml-auto whitespace-nowrap">
-          {open ? ago(a.created_at) : `resolved ${a.resolved_at ? ago(a.resolved_at) : ""}${a.resolved_by ? ` by ${a.resolved_by.split("@")[0]}` : ""}`}
+          {open ? ago(a.created_at) : `${a.muted ? "muted" : "resolved"} ${a.resolved_at ? ago(a.resolved_at) : ""}${a.resolved_by ? ` by ${a.resolved_by.split("@")[0]}` : ""}`}
         </span>
       </div>
       <div className="mt-2 text-sm font-semibold text-[#1c2f4a]">{a.title}</div>
@@ -106,8 +106,18 @@ function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, 
               : "bg-white text-[#34568a] border-[#d7e0ea] hover:border-[#15B7AE]"
           )}
         >
-          {open ? "Resolve" : "Reopen"}
+          {open ? "Resolve" : a.muted ? "Unmute" : "Reopen"}
         </button>
+        {open && (
+          <button
+            onClick={() => onAction(a.id, "mute")}
+            disabled={busy}
+            title="Resolve and never bring this one up again (Reopen in the resolved list undoes it)"
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border bg-white text-[#697a91] border-[#d7e0ea] hover:border-[#8595a8] hover:text-[#1f3559] disabled:opacity-50"
+          >
+            🔕 Don&apos;t show again
+          </button>
+        )}
       </div>
     </div>
   );
@@ -147,7 +157,7 @@ export default function AlertsPage() {
     return () => clearInterval(t);
   }, [role, load]);
 
-  const onAction = async (id: string, action: "resolve" | "reopen") => {
+  const onAction = async (id: string, action: "resolve" | "mute" | "reopen") => {
     setBusyId(id);
     try {
       await fetch("/api/alerts", {
