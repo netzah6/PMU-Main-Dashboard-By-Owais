@@ -157,8 +157,11 @@ function closerStats(list: Demo[]): CloserStats {
 
 // ── To-do lists ──────────────────────────────────────────────────────────────
 export type Todo = {
-  name: string; who: string; sheetWho: string; kind: "no_show" | "cancelled" | "didnt_book" | "no_status" | "demo_no_show" | "didnt_close" | "upcoming" | "closed";
+  name: string; who: string; sheetWho: string; kind: "no_show" | "cancelled" | "didnt_book" | "no_status" | "demo_no_show" | "didnt_close" | "upcoming" | "closed" | "booked";
   amount?: number; // closed: upfront collected
+  /* booked (setter side): what happened to the demo this setter booked,
+     from the demos sheet — so the setter sees a no-show and chases it. */
+  demo?: { when: string | null; outcome: "showed" | "closed" | "didnt_close" | "no_show" | "cancelled" | "upcoming" | "pending" | "missing" };
   when: string | null; ageDays: number; followUps: number; lastFollowUp: string; notes: string; status: string;
   urgent: boolean; // nothing logged yet, or stale
 };
@@ -174,7 +177,7 @@ function todo(kind: Todo["kind"], name: string, who: string, when: Date | null, 
   return {
     name, who, sheetWho, kind, when: when ? when.toISOString() : null, ageDays, status,
     followUps: fus.length, lastFollowUp: fus[fus.length - 1] ?? "", notes: notes || fu?.notes || "",
-    urgent: kind === "upcoming" || kind === "closed" ? false : fus.length === 0 || (fus.length < 3 && ageDays >= 2),
+    urgent: kind === "upcoming" || kind === "closed" || kind === "booked" ? false : fus.length === 0 || (fus.length < 3 && ageDays >= 2),
   };
 }
 
@@ -188,6 +191,18 @@ export type SalesBoard = {
   closerStats: Record<string, Record<Win, CloserStats>>;
   setterTodos: Todo[]; closerTodos: Todo[];
 };
+
+/* Won demos (for the closer payment tracker): every Closed row with a
+   usable close date, newest first. */
+export async function loadClosedDeals(svc: Svc): Promise<Demo[]> {
+  const rows = await loadAll(svc, "sales_demos");
+  const now = Date.now();
+  // Same renewal guard as the KPIs: a close date far after the demo is an
+  // existing client re-billed on their old row, not a closer's win.
+  const fresh = (d: Demo) => { const base = d.demoAt ?? d.date; const c = d.closeDate; return !c || !base || (c.getTime() - base.getTime() <= MAX_CLOSE_LAG && c.getTime() <= now + DAY); };
+  return rows.map(demo).filter((d) => d.name && !/test/i.test(d.name) && isWon(d) && fresh(d) && (d.closeDate ?? d.demoAt ?? d.date))
+    .sort((a, b) => (b.closeDate ?? b.demoAt ?? b.date)!.getTime() - (a.closeDate ?? a.demoAt ?? a.date)!.getTime());
+}
 
 export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   const [dRows, mRows, fuNoShow, fuCancelled, fuDidntBook, fuDemoNoShow] = await Promise.all([
@@ -238,11 +253,25 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   // Lists cover the longest window (90 d); the page narrows them to the
   // selected 14/30/60/90 by each item's own date (ageDays).
   const fuNS = fuIndex(fuNoShow.map(followUp)), fuCA = fuIndex(fuCancelled.map(followUp)), fuDB = fuIndex(fuDidntBook.map(followUp));
+  const fuDN = fuIndex(fuDemoNoShow.map(followUp));
   const setterTodos: Todo[] = [];
   for (const d of discs) {
     if (!inWin(d.signUp, 90)) continue;
     const k = norm(d.name);
-    if (isNoShow(d.status)) setterTodos.push(todo("no_show", d.name, setterOf(d), d.discoveryAt ?? d.signUp, d.status, fuNS.get(k), now, d.notes, d.setter));
+    if (isDemoScheduled(d.status)) {
+      const t = todo("booked", d.name, setterOf(d), d.discoveryAt ?? d.signUp, d.status, fuDN.get(k), now, d.notes, d.setter);
+      const ds = demosByName.get(k) ?? [];
+      const m = ds[ds.length - 1]; // newest demo row for this name
+      const when = m?.demoAt ?? m?.date ?? null;
+      const outcome: NonNullable<Todo["demo"]>["outcome"] = !m ? "missing"
+        : isWon(m) ? "closed" : isDidntClose(m.status) ? "didnt_close" : isNoShow(m.status) ? "no_show" : isCancelled(m.status) ? "cancelled"
+        : m.status ? "showed" : when && when.getTime() > now - 2 * 3600_000 ? "upcoming" : "pending";
+      t.demo = { when: when ? when.toISOString() : null, outcome };
+      // A demo no-show is the setter's to chase — same follow-up rule as the other lists.
+      if (outcome === "no_show") { const age = when ? Math.floor((now - when.getTime()) / DAY) : 0; t.urgent = t.followUps === 0 || (t.followUps < 3 && age >= 2); }
+      setterTodos.push(t);
+    }
+    else if (isNoShow(d.status)) setterTodos.push(todo("no_show", d.name, setterOf(d), d.discoveryAt ?? d.signUp, d.status, fuNS.get(k), now, d.notes, d.setter));
     else if (isCancelled(d.status)) setterTodos.push(todo("cancelled", d.name, setterOf(d), d.discoveryAt ?? d.signUp, d.status, fuCA.get(k), now, d.notes, d.setter));
     else if (/didn'?t schedule/i.test(d.status) && !isDisq(d.status)) setterTodos.push(todo("didnt_book", d.name, setterOf(d), d.signUp, d.status, fuDB.get(k), now, d.notes, d.setter));
     else if (!d.status && d.discoveryAt && d.discoveryAt.getTime() < now - 2 * 3600_000) {
@@ -250,7 +279,6 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
     }
   }
   // Closer to-dos.
-  const fuDN = fuIndex(fuDemoNoShow.map(followUp));
   const closerTodos: Todo[] = [];
   for (const d of demos) {
     const closedRecently = isWon(d) && inWin(d.closeDate, 90) && !!(d.demoAt ?? d.date) && d.closeDate!.getTime() - (d.demoAt ?? d.date)!.getTime() <= MAX_CLOSE_LAG;
