@@ -153,7 +153,8 @@ function closerStats(list: Demo[]): CloserStats {
 
 // ── To-do lists ──────────────────────────────────────────────────────────────
 export type Todo = {
-  name: string; who: string; sheetWho: string; kind: "no_show" | "cancelled" | "didnt_book" | "no_status" | "demo_no_show" | "didnt_close" | "upcoming";
+  name: string; who: string; sheetWho: string; kind: "no_show" | "cancelled" | "didnt_book" | "no_status" | "demo_no_show" | "didnt_close" | "upcoming" | "closed";
+  amount?: number; // closed: upfront collected
   when: string | null; ageDays: number; followUps: number; lastFollowUp: string; notes: string; status: string;
   urgent: boolean; // nothing logged yet, or stale
 };
@@ -169,7 +170,7 @@ function todo(kind: Todo["kind"], name: string, who: string, when: Date | null, 
   return {
     name, who, sheetWho, kind, when: when ? when.toISOString() : null, ageDays, status,
     followUps: fus.length, lastFollowUp: fus[fus.length - 1] ?? "", notes: notes || fu?.notes || "",
-    urgent: kind === "upcoming" ? false : fus.length === 0 || (fus.length < 3 && ageDays >= 2),
+    urgent: kind === "upcoming" || kind === "closed" ? false : fus.length === 0 || (fus.length < 3 && ageDays >= 2),
   };
 }
 
@@ -247,9 +248,11 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   const fuDN = fuIndex(fuDemoNoShow.map(followUp));
   const closerTodos: Todo[] = [];
   for (const d of demos) {
-    if (!inWin(d.date, 30) && !(d.demoAt && d.demoAt.getTime() > now)) continue;
+    const closedRecently = isClosed(d.status) && inWin(d.closeDate, 30) && !!(d.demoAt ?? d.date) && d.closeDate!.getTime() - (d.demoAt ?? d.date)!.getTime() <= MAX_CLOSE_LAG;
+    if (!inWin(d.demoAt ?? d.date, 30) && !(d.demoAt && d.demoAt.getTime() > now) && !closedRecently) continue;
     const k = norm(d.name);
-    if (isNoShow(d.status)) closerTodos.push(todo("demo_no_show", d.name, closerOf(d), d.demoAt ?? d.date, d.status, fuDN.get(k), now, "", d.closer));
+    if (isClosed(d.status)) { const t = todo("closed", d.name, closerOf(d), d.closeDate ?? d.demoAt ?? d.date, d.status, undefined, now, "", d.closer); t.amount = d.upfront; closerTodos.push(t); }
+    else if (isNoShow(d.status)) closerTodos.push(todo("demo_no_show", d.name, closerOf(d), d.demoAt ?? d.date, d.status, fuDN.get(k), now, "", d.closer));
     else if (isDidntClose(d.status)) { const t = todo("didnt_close", d.name, closerOf(d), d.demoAt ?? d.date, d.status, undefined, now, "", d.closer); t.urgent = t.ageDays >= 1; closerTodos.push(t); }
     else if (!d.status && d.demoAt && d.demoAt.getTime() > now - 2 * 3600_000 && d.demoAt.getTime() < now + 7 * DAY) closerTodos.push(todo("upcoming", d.name, closerOf(d), d.demoAt, "", undefined, now, "", d.closer));
     else if (!d.status && d.demoAt && d.demoAt.getTime() <= now - 2 * 3600_000) { const t = todo("no_status", d.name, closerOf(d), d.demoAt, "", undefined, now, "", d.closer); t.urgent = true; closerTodos.push(t); }

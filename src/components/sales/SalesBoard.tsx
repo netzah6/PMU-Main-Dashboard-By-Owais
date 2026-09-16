@@ -20,6 +20,7 @@ const KIND: Record<Todo["kind"], { label: string; icon: string; cls: string; hin
   demo_no_show: { label: "Demo no-show",       icon: "❌", cls: "bg-rose-50 text-rose-700 border-rose-200", hint: "Booked a demo and didn't show — call, text, rebook." },
   didnt_close:  { label: "Didn't close",       icon: "💬", cls: "bg-orange-50 text-orange-700 border-orange-200", hint: "Had the demo, didn't buy — follow up." },
   upcoming:     { label: "Upcoming demo",      icon: "📅", cls: "bg-teal-50 text-teal-700 border-teal-200", hint: "Coming up — confirm and prepare." },
+  closed:       { label: "Closed",             icon: "✅", cls: "bg-emerald-50 text-emerald-700 border-emerald-200", hint: "Won — upfront collected as logged in the sheet." },
 };
 
 const fmtWhen = (iso: string | null) => iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
@@ -57,7 +58,7 @@ function TodoList({ todos, who, kinds }: { todos: Todo[]; who: string; kinds: To
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white">
       <div className="px-3 py-2 border-b border-[#eef3f8] flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-bold text-[#1f3559]">To-do — last 30 days</span>
+        <span className="text-sm font-bold text-[#1f3559]">Last 30 days</span>
         <span className="text-[11px] text-[#697a91]">{mine.filter((t) => t.urgent).length} need attention now</span>
         <div className="ml-auto flex gap-1 flex-wrap">
           <button onClick={() => setKind("all")} className={cn("px-2 py-0.5 rounded text-[11px] font-semibold border", kind === "all" ? "bg-[#1f3559] text-white border-[#1f3559]" : "bg-white text-[#34568a] border-[#d7e0ea]")}>All ({mine.length})</button>
@@ -79,7 +80,8 @@ function TodoList({ todos, who, kinds }: { todos: Todo[]; who: string; kinds: To
               <CopyName name={t.name} />
               {(who === "ALL" || t.who === FORMER) && <span className="text-[#697a91]">· {t.who === FORMER ? `sheet says ${t.sheetWho}` : t.who}</span>}
               <span className="text-[#697a91] whitespace-nowrap">· {fmtWhen(t.when)}{t.kind !== "upcoming" && t.ageDays > 0 ? ` · ${t.ageDays}d ago` : ""}</span>
-              {t.kind !== "upcoming" && t.kind !== "no_status" && (
+              {t.kind === "closed" && <span className="font-bold text-[#15803d]">{t.amount ? `$${t.amount.toLocaleString()}` : "no upfront logged"}</span>}
+              {t.kind !== "upcoming" && t.kind !== "no_status" && t.kind !== "closed" && (
                 <span className="inline-flex items-center gap-0.5 ml-1" title={t.lastFollowUp ? `Last follow-up: ${t.lastFollowUp}` : "No follow-up logged yet"}>
                   {[0, 1, 2].map((n) => <span key={n} className={cn("w-2.5 h-2.5 rounded-full border", n < t.followUps ? "bg-[#15B7AE] border-[#15B7AE]" : "bg-white border-[#c3cdd9]")} />)}
                   <span className="ml-1 text-[10px] text-[#697a91]">{t.followUps}/3 follow-ups</span>
@@ -126,7 +128,7 @@ function CloserView({ b, who, win }: { b: Board; who: string; win: Win }) {
         <Kpi label="Close rate" value={p(s.closeRate)} sub={`target ${TARGETS.closeRate}%`} tone={grade(s.closeRate, TARGETS.closeRate)} hint="closed ÷ demos that happened" />
         <Kpi label="Upfront collected" value={`$${s.upfront.toLocaleString()}`} tone={s.upfront > 0 ? "green" : "gray"} />
       </div>
-      <TodoList todos={b.closerTodos} who={who} kinds={["upcoming", "demo_no_show", "didnt_close", "no_status"]} />
+      <TodoList todos={b.closerTodos} who={who} kinds={["closed", "upcoming", "demo_no_show", "didnt_close", "no_status"]} />
     </div>
   );
 }
