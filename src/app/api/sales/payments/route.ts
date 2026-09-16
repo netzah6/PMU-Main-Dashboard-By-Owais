@@ -56,6 +56,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Closers can only request their own commission" }, { status: 403 });
   }
   const svc = svc0, now = now0, who = who0;
+  // No signed agreement in the client's name → no request (admin can still mark paid).
+  if (action === "request") {
+    const { deals } = await buildCloserPayments(svc, s.isAdmin ? null : s.closer);
+    const deal = deals.find((d) => d.name === clientName && d.installments.some((i) => i.ym === ym));
+    if (!deal) return NextResponse.json({ error: "That payment isn't on your list" }, { status: 404 });
+    if (!deal.agreement.signed) return NextResponse.json({ error: `No signed agreement found for ${clientName} — the client has to sign before a commission can be requested.` }, { status: 409 });
+  }
   const base = { client_key: nameKey(clientName), ym, closer: closer ?? "", client_name: clientName, amount: amount ?? null, updated_at: now };
   const patch = action === "request" ? { requested_at: now, requested_by: who }
     : action === "paid" ? { paid_at: now, paid_by: who }

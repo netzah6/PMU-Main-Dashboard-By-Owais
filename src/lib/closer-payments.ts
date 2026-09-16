@@ -16,6 +16,16 @@ const DAY = 86400_000;
    pays through July/August). */
 const LOOKBACK_DAYS = 240;
 
+/* Two shared name tokens (or every token of a one-word name) = same person —
+   tolerant of "Tanya O." vs "Tanya Ospitale" but not of a bare first name
+   matching a stranger. */
+export function nameMatches(a: string, b: string): boolean {
+  const at = nameKey(a).split(" ").filter((t) => t.length >= 2), bt = nameKey(b).split(" ").filter((t) => t.length >= 2);
+  if (!at.length || !bt.length) return false;
+  const [small, big] = at.length <= bt.length ? [at, bt] : [bt, at];
+  if (small.length === 1) return big.length === 1 && big[0] === small[0];
+  return small.filter((t) => big.includes(t) || big.some((x) => t.length === 1 ? false : x.startsWith(t) && t.length >= 3)).length >= 2;
+}
 export const nameKey = (s: string) => String(s ?? "").toLowerCase().replace(/\(.*?\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 const money = (v: unknown) => { const n = Number(String(v ?? "").replace(/[^0-9.-]/g, "")); return Number.isFinite(n) ? n : 0; };
 const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
@@ -35,6 +45,10 @@ export type Deal = {
   matchedAs: string | null;
   /* An installment went through and the commission hasn't been marked paid. */
   openCommission: number;
+  /* Owner rule (2026-09-16): no commission request without a signed
+     agreement in the client's name — Signed Agreements tab of the data
+     sheet, or the Agreement column of Clients Master. */
+  agreement: { signed: boolean; as: string | null };
 };
 
 /* "April V2" → 2026-04. The new layout starts in April 2026 (header row 6:
@@ -95,7 +109,20 @@ export async function buildCloserPayments(svc: SupabaseClient, closerName: strin
     }
   });
 
-  const { data: comms } = await svc.from("closer_commissions").select("*");
+  const [{ data: comms }, { data: signedRows }, { data: cmRows }] = await Promise.all([
+    svc.from("closer_commissions").select("*"),
+    svc.from("signed_agreements").select("data"),
+    svc.from("clients_master").select("data"),
+  ]);
+  const signedNames: string[] = ((signedRows ?? []) as { data: Record<string, unknown> }[]).map((r) => String(r.data?.["Full Name"] ?? "").trim()).filter(Boolean);
+  for (const r of (cmRows ?? []) as { data: Record<string, unknown> }[]) {
+    const a = String(r.data?.["Agreement"] ?? "").trim().toLowerCase();
+    if (a === "true" || /\d{1,2}\/\d{1,2}\/\d{4}/.test(a)) signedNames.push(String(r.data?.["Owner Full Name"] ?? "").trim());
+  }
+  const signedFor = (...names: (string | null)[]): string | null => {
+    for (const n of names) { if (!n) continue; const hit = signedNames.find((sn) => nameMatches(sn, n)); if (hit) return hit; }
+    return null;
+  };
   const commOf = new Map<string, Commission>();
   for (const c of comms ?? []) commOf.set(`${c.client_key}|${c.ym}`, { requestedAt: c.requested_at, requestedBy: c.requested_by, paidAt: c.paid_at, paidBy: c.paid_by });
 
@@ -133,6 +160,7 @@ export async function buildCloserPayments(svc: SupabaseClient, closerName: strin
     return {
       key, name: d.name, closer: d.closer, closedAt: closedAt.toISOString(), upfront: d.upfront,
       plan: planLabel(notes, d.upfront), months, installments, inSheet: months.length > 0, matchedAs,
+      agreement: (() => { const as = signedFor(d.name, matchedAs); return { signed: !!as, as }; })(),
       openCommission: installments.filter((x) => !x.commission?.paidAt).length,
     };
   });
