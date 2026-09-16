@@ -18,6 +18,9 @@ const TABS: Tab[] = [
   // Order set by the user (2026-09-14): AI, Clients, Tasks, Performance, then the rest.
   // Hidden from the menu (page still exists at /overview): Overview
   { label: "🤖 AI", href: "/ask" },
+  // Sales + Subs sit right after AI, always visible (user request 2026-09-16).
+  { label: "💼 Sales", href: "/sales", adminOnly: true }, // sales board (setter + closer KPIs & to-dos), demo checker, coach tracker
+  { label: "🔄 Subs", href: "/subscriptions", adminOnly: true }, // Square + dashboard billing — admins only
   { label: "👥 Clients", href: "/clients" },
   { label: "✅ Tasks", href: "/tasks" },
   { label: "📈 Performance", href: "/performance" },
@@ -35,12 +38,10 @@ const TABS: Tab[] = [
   // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
   { label: "💎 LTV", href: "/ltv", adminOnly: true, collapsed: true }, // admins only
-  { label: "🔄 Subs", href: "/subscriptions", adminOnly: true, collapsed: true }, // Square + dashboard billing — admins only
   { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true, collapsed: true }, // Square disputes + evidence prep — admins only
   // Pay-per-show tracking. Admins get the full billing desk; a Client Success
   // Coach gets their own clients and the money already collected (2026-09-08).
   { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true, alsoRoles: ["editor"] },
-  { label: "💼 Sales", href: "/sales", adminOnly: true, collapsed: true }, // sales board (setter + closer KPIs & to-dos), demo checker, coach tracker
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true, alsoRoles: ["editor"] }, // one-box funnels — coaches see the client funnels read-only (user request 2026-09-14)
   { label: "📡 Pixel Checking", href: "/pixel-checking", adminOnly: true }, // per-client funnel pixel/conversion audit — user request 2026-09-01
