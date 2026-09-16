@@ -161,7 +161,7 @@ export type Todo = {
   amount?: number; // closed: upfront collected
   /* booked (setter side): what happened to the demo this setter booked,
      from the demos sheet — so the setter sees a no-show and chases it. */
-  demo?: { when: string | null; outcome: "showed" | "closed" | "didnt_close" | "no_show" | "cancelled" | "upcoming" | "pending" | "missing" };
+  demo?: { when: string | null; outcome: "showed" | "no_show" | "cancelled" | "upcoming" | "pending" | "missing" };
   when: string | null; ageDays: number; followUps: number; lastFollowUp: string; notes: string; status: string;
   urgent: boolean; // nothing logged yet, or stale
 };
@@ -263,8 +263,9 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
       const ds = demosByName.get(k) ?? [];
       const m = ds[ds.length - 1]; // newest demo row for this name
       const when = m?.demoAt ?? m?.date ?? null;
+      // The setter only needs showed / didn't show — closed or not is the closer's business.
       const outcome: NonNullable<Todo["demo"]>["outcome"] = !m ? "missing"
-        : isWon(m) ? "closed" : isDidntClose(m.status) ? "didnt_close" : isNoShow(m.status) ? "no_show" : isCancelled(m.status) ? "cancelled"
+        : isNoShow(m.status) ? "no_show" : isCancelled(m.status) ? "cancelled"
         : m.status ? "showed" : when && when.getTime() > now - 2 * 3600_000 ? "upcoming" : "pending";
       t.demo = { when: when ? when.toISOString() : null, outcome };
       // A demo no-show is the setter's to chase — same follow-up rule as the other lists.

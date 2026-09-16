@@ -85,9 +85,7 @@ function TodoList({ todos, who, kinds, win }: { todos: Todo[]; who: string; kind
               {t.kind === "booked" && t.demo && (() => {
                 const o = t.demo.outcome;
                 const M: Record<typeof o, { txt: string; cls: string }> = {
-                  closed: { txt: "✅ Demo showed · closed", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
                   showed: { txt: "✅ Demo showed", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-                  didnt_close: { txt: "✅ Demo showed · didn't close", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
                   no_show: { txt: "❌ Demo NO-SHOW", cls: "bg-rose-50 text-rose-700 border-rose-200" },
                   cancelled: { txt: "⛔ Demo cancelled", cls: "bg-amber-50 text-amber-800 border-amber-200" },
                   upcoming: { txt: "📅 Demo coming up", cls: "bg-teal-50 text-teal-700 border-teal-200" },

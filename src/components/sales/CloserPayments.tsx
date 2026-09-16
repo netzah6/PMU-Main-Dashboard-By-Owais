@@ -52,6 +52,7 @@ export function CloserPayments({ who }: { who: string }) {
   const pending = deals.flatMap((d) => d.installments.filter((i) => !i.commission?.paidAt).map((i) => ({ d, i })));
   const toRequest = pending.filter((x) => !x.i.commission?.requestedAt).length;
   const requested = pending.filter((x) => x.i.commission?.requestedAt).length;
+  const unsigned = deals.filter((d) => !d.agreement.signed).length;
 
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white">
@@ -59,13 +60,14 @@ export function CloserPayments({ who }: { who: string }) {
         <span className="text-sm font-bold text-[#1f3559]">💵 Payment plans &amp; commissions</span>
         <span className="text-[11px] text-[#697a91]">{deals.length} closed deals · last 8 months</span>
         {toRequest > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]">{toRequest} payment{toRequest > 1 ? "s" : ""} went through — commission not requested</span>}
+        {unsigned > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fff7ec] text-[#9a5b00] border border-[#fcd9a8]">{unsigned} without a signed agreement</span>}
         {requested > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">{requested} requested, waiting to be paid</span>}
         <span className="ml-auto text-[#8595a8] text-xs">{open ? "▾" : "▸"}</span>
       </button>
       {open && (
         <div className="border-t border-[#eef3f8]">
           <div className="px-3 py-1.5 flex items-center gap-2 text-[11px] text-[#8595a8]">
-            One line per closed client. Each chip is a month the client actually paid (from the Financing sheet). {data.isAdmin ? "Mark a commission paid once you've sent it." : "When a new payment shows up, click Ask for commission — Nicolas sees it and marks it paid."}
+            One line per closed client. Each chip is a month the client actually paid (from the Financing sheet). {data.isAdmin ? "Mark a commission paid once you've sent it." : "When a new payment shows up, click Ask for commission — Nicolas sees it and marks it paid. A request needs a signed agreement in the client's name."}
             <span className="ml-auto inline-flex items-center gap-3">
               {data.isAdmin && pending.length > 0 && (
                 <button onClick={markAllPaid} disabled={busy === "bulk"} className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-[#d7e0ea] bg-white text-[#34568a] hover:bg-[#f6f9fc] disabled:opacity-60" title="One click to settle everything shown — for the payments you've already paid commission on">
@@ -83,6 +85,9 @@ export function CloserPayments({ who }: { who: string }) {
                   {who === "ALL" && <span className="text-[#697a91]">· {d.closer}</span>}
                   <span className="text-[#697a91]">· closed {day(d.closedAt)}{d.upfront ? ` · $${d.upfront.toLocaleString()} upfront` : ""}</span>
                   <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-[#f1f5f9] text-[#475569] border-[#e2e8f0]">{d.plan}</span>
+                  {d.agreement.signed
+                    ? <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-emerald-50 text-emerald-700 border-emerald-200" title={`Signed agreement on file as “${d.agreement.as}”`}>📝 agreement signed</span>
+                    : <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]" title="No signed agreement with this name in the Signed Agreements tab or Clients Master — commission can't be requested until the client signs">🔒 no signed agreement</span>}
                   {d.matchedAs && <span className="text-[10px] text-[#8595a8]" title="Matched on the first name — the financing sheet spells it differently">(“{d.matchedAs}” in the sheet)</span>}
                   {!d.inSheet && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold border bg-[#fff7ec] text-[#9a5b00] border-[#fcd9a8]" title="No row with this name in any month tab of the Financing sheet — check the spelling there">⚠ not in the financing sheet</span>}
                   {d.inSheet && d.installments.length === 0 && <span className="text-[10px] text-[#8595a8]">no paid month yet ({d.months[d.months.length - 1].status || "no status"})</span>}
@@ -97,9 +102,10 @@ export function CloserPayments({ who }: { who: string }) {
                           {ym(i.ym)} ${i.usd.toLocaleString()}
                           {state === "paid" && <span>✅ paid</span>}
                           {state === "requested" && <span>⏳ requested {day(c!.requestedAt)}</span>}
-                          {state === "new" && !data.isAdmin && (
+                          {state === "new" && !data.isAdmin && d.agreement.signed && (
                             <button onClick={() => act(d, i, "request")} disabled={busy === id} className="ml-1 px-1.5 py-0.5 rounded bg-[#be123c] text-white hover:bg-[#9f1239] disabled:opacity-60">{busy === id ? <Loader2 size={9} className="animate-spin inline" /> : "Ask for commission"}</button>
                           )}
+                          {state === "new" && !data.isAdmin && !d.agreement.signed && <span title="Get the agreement signed first">🔒 needs signed agreement</span>}
                           {state === "new" && data.isAdmin && <span>🔔 went through</span>}
                           {state !== "paid" && data.isAdmin && (
                             <button onClick={() => act(d, i, "paid")} disabled={busy === id} className="ml-1 px-1.5 py-0.5 rounded bg-[#15803d] text-white hover:bg-[#166534] disabled:opacity-60">{busy === id ? <Loader2 size={9} className="animate-spin inline" /> : "Mark paid"}</button>
