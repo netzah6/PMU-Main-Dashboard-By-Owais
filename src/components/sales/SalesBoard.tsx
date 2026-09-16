@@ -13,6 +13,7 @@ import { TARGETS, WINDOWS, FORMER } from "@/lib/sales-board";
 const GHL_CONTACTS = "https://app.gohighlevel.com/v2/location/SfpNMJ5YU9lBkxss47lK/contacts/smart_list/All";
 
 const KIND: Record<Todo["kind"], { label: string; icon: string; cls: string; hint: string }> = {
+  booked:       { label: "Booked a demo",      icon: "📆", cls: "bg-sky-50 text-sky-700 border-sky-200", hint: "Discovery done and a demo booked — the demo's outcome is shown next to it." },
   no_show:      { label: "Discovery no-show", icon: "❌", cls: "bg-rose-50 text-rose-700 border-rose-200", hint: "Booked a discovery call and didn't show — call, text, rebook." },
   cancelled:    { label: "Cancelled",          icon: "⛔", cls: "bg-amber-50 text-amber-800 border-amber-200", hint: "Cancelled the discovery — find out why and rebook." },
   didnt_book:   { label: "Didn't book a demo", icon: "📵", cls: "bg-orange-50 text-orange-700 border-orange-200", hint: "Showed to the discovery, no demo booked — follow up." },
@@ -80,8 +81,22 @@ function TodoList({ todos, who, kinds, win }: { todos: Todo[]; who: string; kind
               <CopyName name={t.name} />
               {(who === "ALL" || t.who === FORMER) && <span className="text-[#697a91]">· {t.who === FORMER ? `sheet says ${t.sheetWho}` : t.who}</span>}
               <span className="text-[#697a91] whitespace-nowrap">· {fmtWhen(t.when)}{t.kind !== "upcoming" && t.ageDays > 0 ? ` · ${t.ageDays}d ago` : ""}</span>
+              {t.kind === "booked" && t.demo && (() => {
+                const o = t.demo.outcome;
+                const M: Record<typeof o, { txt: string; cls: string }> = {
+                  closed: { txt: "✅ Demo showed · closed", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                  showed: { txt: "✅ Demo showed", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                  didnt_close: { txt: "✅ Demo showed · didn't close", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                  no_show: { txt: "❌ Demo NO-SHOW", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+                  cancelled: { txt: "⛔ Demo cancelled", cls: "bg-amber-50 text-amber-800 border-amber-200" },
+                  upcoming: { txt: "📅 Demo coming up", cls: "bg-teal-50 text-teal-700 border-teal-200" },
+                  pending: { txt: "❓ Demo happened, no status yet", cls: "bg-slate-100 text-slate-700 border-slate-300" },
+                  missing: { txt: "❓ Not in the demos sheet", cls: "bg-slate-100 text-slate-700 border-slate-300" },
+                };
+                return <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap", M[o].cls)} title={t.demo.when ? `Demo ${fmtWhen(t.demo.when)}` : undefined}>{M[o].txt}{t.demo.when ? ` · ${fmtWhen(t.demo.when)}` : ""}</span>;
+              })()}
               {t.kind === "closed" && <span className="font-bold text-[#15803d]">{t.amount ? `$${t.amount.toLocaleString()}` : "no upfront logged"}</span>}
-              {t.kind !== "upcoming" && t.kind !== "no_status" && t.kind !== "closed" && (
+              {t.kind !== "upcoming" && t.kind !== "no_status" && t.kind !== "closed" && (t.kind !== "booked" || t.demo?.outcome === "no_show") && (
                 <span className="inline-flex items-center gap-0.5 ml-1" title={t.lastFollowUp ? `Last follow-up: ${t.lastFollowUp}` : "No follow-up logged yet"}>
                   {[0, 1, 2].map((n) => <span key={n} className={cn("w-2.5 h-2.5 rounded-full border", n < t.followUps ? "bg-[#15B7AE] border-[#15B7AE]" : "bg-white border-[#c3cdd9]")} />)}
                   <span className="ml-1 text-[10px] text-[#697a91]">{t.followUps}/3 follow-ups</span>
@@ -110,7 +125,7 @@ function SetterView({ b, who, win }: { b: Board; who: string; win: Win }) {
         <Kpi label="Book rate" value={p(s.bookRate)} sub={`target ${TARGETS.bookRate}% · ${p(s.bookRateExDisq)} excl. disqualified`} tone={grade(s.bookRate, TARGETS.bookRate)} hint="demos booked ÷ discoveries (the tracker's definition)" />
         <Kpi label="Demo show-up" value={p(s.demoShowUp)} sub={`target ${TARGETS.demoShowUp}%`} tone={grade(s.demoShowUp, TARGETS.demoShowUp)} hint="Of the demos this setter booked that have a status, how many actually happened" />
       </div>
-      <TodoList todos={b.setterTodos} who={who} win={win} kinds={["no_show", "cancelled", "didnt_book", "no_status"]} />
+      <TodoList todos={b.setterTodos} who={who} win={win} kinds={["booked", "no_show", "cancelled", "didnt_book", "no_status"]} />
     </div>
   );
 }
