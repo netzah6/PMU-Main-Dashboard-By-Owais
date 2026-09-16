@@ -236,7 +236,9 @@ export async function POST(req: NextRequest) {
   /* Client Success Coaches (role "editor") onboard clients: they may add
      a funnel and save Start Setup (custom values + extras). Everything
      that moves traffic or money stays admin-only. */
-  const COACH_ACTIONS = new Set(["add", "cvs", "extras"]);
+  // "status" = the Go live / Pause button: coaches publish their own
+  // onboardings without waiting on an admin (Netzah, 2026-09-16).
+  const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status"]);
   if (auth.role !== "admin" && !(auth.role === "editor" && COACH_ACTIONS.has(String(body.action ?? "")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

@@ -1230,19 +1230,22 @@ export default function FunnelsPage() {
                   Start Setup {cvFor === f.slug ? "▲" : ""}
                 </button>
                 )}
-                {isAdmin && (<>
+                {isAdmin && (
                 <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
                     abFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
                   Split test {abFor === f.slug ? "▲" : ""}
                 </button>
+                )}
+                {/* Coaches publish their own onboardings — Go live is not admin-gated. */}
+                {canEdit && (
                 <button onClick={() => void act("status", f.slug, { status: f.status === "live" ? "paused" : "live" })}
                   disabled={busy === `status:${f.slug}`}
                   className={cn("text-xs rounded-lg px-2.5 py-1 border font-medium",
                     f.status === "live" ? "border-[#fdba74] text-[#c2410c] hover:bg-[#fff3e6]" : "ob-golive border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]")}>
                   {f.status === "live" ? "Pause" : "Go live"}
                 </button>
-                </>)}
+                )}
               </div>
 
               {health[f.slug] && (
