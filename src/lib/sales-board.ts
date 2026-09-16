@@ -15,6 +15,13 @@ export type Win = (typeof WINDOWS)[number];
 export const TARGETS = { discShowUp: 75, bookRate: 70, demoShowUp: 80, closeRate: 30 };
 
 const DAY = 86400_000;
+/* Less than this share of the last 90 days' rows = not a real seat (see buildSalesBoard). */
+const MIN_ACTIVE_SHARE = 0.05;
+/* A close counts on its close date only if the demo (or sign-up) was within
+   this long before it; an old row getting a new close date is a renewal of
+   an existing client, not a sale. */
+const MAX_CLOSE_LAG = 180 * DAY;
+export const FORMER = "Former reps";
 
 /* Sheet dates come in three shapes: "15/09/2026 13:08" (day first),
    "Thursday, September 17, 2026 16:30" (spelled out) and "9/17/2026"
@@ -146,7 +153,7 @@ function closerStats(list: Demo[]): CloserStats {
 
 // ── To-do lists ──────────────────────────────────────────────────────────────
 export type Todo = {
-  name: string; who: string; kind: "no_show" | "cancelled" | "didnt_book" | "no_status" | "demo_no_show" | "didnt_close" | "upcoming";
+  name: string; who: string; sheetWho: string; kind: "no_show" | "cancelled" | "didnt_book" | "no_status" | "demo_no_show" | "didnt_close" | "upcoming";
   when: string | null; ageDays: number; followUps: number; lastFollowUp: string; notes: string; status: string;
   urgent: boolean; // nothing logged yet, or stale
 };
@@ -156,11 +163,11 @@ function fuIndex(rows: FollowUp[]): Map<string, FollowUp> {
   for (const r of rows) if (r.name) m.set(norm(r.name), r); // newest wins (sheet lists newest last in the left table)
   return m;
 }
-function todo(kind: Todo["kind"], name: string, who: string, when: Date | null, status: string, fu: FollowUp | undefined, now: number, notes = ""): Todo {
+function todo(kind: Todo["kind"], name: string, who: string, when: Date | null, status: string, fu: FollowUp | undefined, now: number, notes = "", sheetWho = who): Todo {
   const fus = fu ? [fu.f1, fu.f2, fu.f3].filter(Boolean) : [];
   const ageDays = when ? Math.floor((now - when.getTime()) / DAY) : 0;
   return {
-    name, who, kind, when: when ? when.toISOString() : null, ageDays, status,
+    name, who, sheetWho, kind, when: when ? when.toISOString() : null, ageDays, status,
     followUps: fus.length, lastFollowUp: fus[fus.length - 1] ?? "", notes: notes || fu?.notes || "",
     urgent: kind === "upcoming" ? false : fus.length === 0 || (fus.length < 3 && ageDays >= 2),
   };
@@ -169,6 +176,9 @@ function todo(kind: Todo["kind"], name: string, who: string, when: Date | null, 
 export type SalesBoard = {
   generatedAt: string;
   setters: string[]; closers: string[];
+  /* Names the sheet still uses on a few recent rows that aren't a real seat
+     any more (row reused for a returning lead) → count in the last 90 days. */
+  formerSetters: Record<string, number>; formerClosers: Record<string, number>;
   setterStats: Record<string, Record<Win, SetterStats>>;
   closerStats: Record<string, Record<Win, CloserStats>>;
   setterTodos: Todo[]; closerTodos: Todo[];
@@ -185,24 +195,39 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   const demosByName = new Map<string, Demo[]>();
   for (const d of demos) { const k = norm(d.name); demosByName.set(k, [...(demosByName.get(k) ?? []), d]); }
 
-  // People = whoever has activity in the last 90 days (old reps drop off by themselves).
+  // People = whoever has real activity in the last 90 days. The sheet's
+  // "Assigned Person" is stale on a few rows — a returning lead gets written
+  // into their OLD row, which still names the setter from years ago (Diego,
+  // Edgar, George… all Jennifer's in GHL). Anyone under MIN_ACTIVE_SHARE of the rows is
+  // therefore not a seat of their own; their rows are pooled under FORMER so
+  // the leads still show up in "Everyone" and the to-do lists.
   const recent = (t: Date | null) => !!t && now - t.getTime() <= 90 * DAY;
-  const setters = [...new Set(discs.filter((d) => recent(d.signUp) && d.setter).map((d) => d.setter))].sort();
-  const closers = [...new Set(demos.filter((d) => recent(d.date) && d.closer).map((d) => d.closer))].sort();
+  const tally = (names: string[]) => names.reduce<Record<string, number>>((m, n) => ((m[n] = (m[n] ?? 0) + 1), m), {});
+  const dTally = tally(discs.filter((d) => recent(d.signUp) && d.setter).map((d) => d.setter));
+  const mTally = tally(demos.filter((d) => recent(d.date) && d.closer).map((d) => d.closer));
+  const minOf = (t: Record<string, number>) => Object.values(t).reduce((a, b) => a + b, 0) * MIN_ACTIVE_SHARE;
+  const setters = Object.keys(dTally).filter((n) => dTally[n] >= minOf(dTally)).sort();
+  const closers = Object.keys(mTally).filter((n) => mTally[n] >= minOf(mTally)).sort();
+  const formerSetters = Object.fromEntries(Object.entries(dTally).filter(([n]) => !setters.includes(n)));
+  const formerClosers = Object.fromEntries(Object.entries(mTally).filter(([n]) => !closers.includes(n)));
+  const setterOf = (d: Discovery) => (setters.includes(d.setter) ? d.setter : FORMER);
+  const closerOf = (d: Demo) => (closers.includes(d.closer) ? d.closer : FORMER);
+  const seatSetters = Object.keys(formerSetters).length ? [...setters, FORMER] : setters;
+  const seatClosers = Object.keys(formerClosers).length ? [...closers, FORMER] : closers;
 
   const inWin = (t: Date | null, w: Win) => !!t && now - t.getTime() <= w * DAY && t.getTime() <= now + DAY;
   const setterStatsOut: SalesBoard["setterStats"] = {};
-  for (const p of [...setters, "ALL"]) {
-    const mine = p === "ALL" ? discs : discs.filter((d) => d.setter === p);
+  for (const p of [...seatSetters, "ALL"]) {
+    const mine = p === "ALL" ? discs : discs.filter((d) => setterOf(d) === p);
     setterStatsOut[p] = Object.fromEntries(WINDOWS.map((w) => [w, setterStats(mine.filter((d) => inWin(d.signUp, w)), demosByName)])) as Record<Win, SetterStats>;
   }
   // Closer windows go by the DEMO date (the sheet's "Date" is the lead's
   // sign-up date, which can be weeks earlier); a close counts in the window
   // its close date falls in.
   const closerStatsOut: SalesBoard["closerStats"] = {};
-  for (const p of [...closers, "ALL"]) {
-    const mine = p === "ALL" ? demos : demos.filter((d) => d.closer === p);
-    closerStatsOut[p] = Object.fromEntries(WINDOWS.map((w) => [w, closerStats(mine.filter((d) => inWin(d.demoAt ?? d.date, w) || (isClosed(d.status) && inWin(d.closeDate, w))))])) as Record<Win, CloserStats>;
+  for (const p of [...seatClosers, "ALL"]) {
+    const mine = p === "ALL" ? demos : demos.filter((d) => closerOf(d) === p);
+    closerStatsOut[p] = Object.fromEntries(WINDOWS.map((w) => [w, closerStats(mine.filter((d) => inWin(d.demoAt ?? d.date, w) || (isClosed(d.status) && inWin(d.closeDate, w) && !!(d.demoAt ?? d.date) && d.closeDate!.getTime() - (d.demoAt ?? d.date)!.getTime() <= MAX_CLOSE_LAG)))])) as Record<Win, CloserStats>;
   }
 
   // Setter to-dos: last 30 days of sign-ups that need a hand.
@@ -211,11 +236,11 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   for (const d of discs) {
     if (!inWin(d.signUp, 30)) continue;
     const k = norm(d.name);
-    if (isNoShow(d.status)) setterTodos.push(todo("no_show", d.name, d.setter, d.discoveryAt ?? d.signUp, d.status, fuNS.get(k), now, d.notes));
-    else if (isCancelled(d.status)) setterTodos.push(todo("cancelled", d.name, d.setter, d.discoveryAt ?? d.signUp, d.status, fuCA.get(k), now, d.notes));
-    else if (/didn'?t schedule/i.test(d.status) && !isDisq(d.status)) setterTodos.push(todo("didnt_book", d.name, d.setter, d.signUp, d.status, fuDB.get(k), now, d.notes));
+    if (isNoShow(d.status)) setterTodos.push(todo("no_show", d.name, setterOf(d), d.discoveryAt ?? d.signUp, d.status, fuNS.get(k), now, d.notes, d.setter));
+    else if (isCancelled(d.status)) setterTodos.push(todo("cancelled", d.name, setterOf(d), d.discoveryAt ?? d.signUp, d.status, fuCA.get(k), now, d.notes, d.setter));
+    else if (/didn'?t schedule/i.test(d.status) && !isDisq(d.status)) setterTodos.push(todo("didnt_book", d.name, setterOf(d), d.signUp, d.status, fuDB.get(k), now, d.notes, d.setter));
     else if (!d.status && d.discoveryAt && d.discoveryAt.getTime() < now - 2 * 3600_000) {
-      const t = todo("no_status", d.name, d.setter, d.discoveryAt, "", undefined, now, d.notes); t.urgent = true; setterTodos.push(t);
+      const t = todo("no_status", d.name, setterOf(d), d.discoveryAt, "", undefined, now, d.notes, d.setter); t.urgent = true; setterTodos.push(t);
     }
   }
   // Closer to-dos.
@@ -224,13 +249,13 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   for (const d of demos) {
     if (!inWin(d.date, 30) && !(d.demoAt && d.demoAt.getTime() > now)) continue;
     const k = norm(d.name);
-    if (isNoShow(d.status)) closerTodos.push(todo("demo_no_show", d.name, d.closer, d.demoAt ?? d.date, d.status, fuDN.get(k), now));
-    else if (isDidntClose(d.status)) { const t = todo("didnt_close", d.name, d.closer, d.demoAt ?? d.date, d.status, undefined, now); t.urgent = t.ageDays >= 1; closerTodos.push(t); }
-    else if (!d.status && d.demoAt && d.demoAt.getTime() > now - 2 * 3600_000 && d.demoAt.getTime() < now + 7 * DAY) closerTodos.push(todo("upcoming", d.name, d.closer, d.demoAt, "", undefined, now));
-    else if (!d.status && d.demoAt && d.demoAt.getTime() <= now - 2 * 3600_000) { const t = todo("no_status", d.name, d.closer, d.demoAt, "", undefined, now); t.urgent = true; closerTodos.push(t); }
+    if (isNoShow(d.status)) closerTodos.push(todo("demo_no_show", d.name, closerOf(d), d.demoAt ?? d.date, d.status, fuDN.get(k), now, "", d.closer));
+    else if (isDidntClose(d.status)) { const t = todo("didnt_close", d.name, closerOf(d), d.demoAt ?? d.date, d.status, undefined, now, "", d.closer); t.urgent = t.ageDays >= 1; closerTodos.push(t); }
+    else if (!d.status && d.demoAt && d.demoAt.getTime() > now - 2 * 3600_000 && d.demoAt.getTime() < now + 7 * DAY) closerTodos.push(todo("upcoming", d.name, closerOf(d), d.demoAt, "", undefined, now, "", d.closer));
+    else if (!d.status && d.demoAt && d.demoAt.getTime() <= now - 2 * 3600_000) { const t = todo("no_status", d.name, closerOf(d), d.demoAt, "", undefined, now, "", d.closer); t.urgent = true; closerTodos.push(t); }
   }
   const byUrgency = (a: Todo, b: Todo) => Number(b.urgent) - Number(a.urgent) || (b.when ?? "").localeCompare(a.when ?? "");
   setterTodos.sort(byUrgency); closerTodos.sort(byUrgency);
 
-  return { generatedAt: new Date().toISOString(), setters, closers, setterStats: setterStatsOut, closerStats: closerStatsOut, setterTodos, closerTodos };
+  return { generatedAt: new Date().toISOString(), setters: seatSetters, closers: seatClosers, formerSetters, formerClosers, setterStats: setterStatsOut, closerStats: closerStatsOut, setterTodos, closerTodos };
 }
