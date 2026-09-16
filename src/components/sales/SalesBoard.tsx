@@ -161,8 +161,10 @@ function TeamTable({ b, win }: { b: Board; win: Win }) {
   );
 }
 
+type Scoped = Board & { scope?: { setter: boolean; closer: boolean; myName: string } };
+
 export function SalesBoardView() {
-  const [b, setB] = useState<Board | null>(null);
+  const [b, setB] = useState<Scoped | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [seat, setSeat] = useState<"setter" | "closer" | "team">("setter");
@@ -174,8 +176,18 @@ export function SalesBoardView() {
     catch (e) { setErr(e instanceof Error ? e.message : "failed"); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+  // A sales seat only gets its own side from the API: hide the other seat's
+  // button (and the team table), and land on the side they do have.
+  const scope = b?.scope;
+  const seats = useMemo(() => ([
+    ...(!scope || scope.setter ? [["setter", "📞 Appointment setter"] as const] : []),
+    ...(!scope || scope.closer ? [["closer", "🤝 Closer"] as const] : []),
+    ...(!scope ? [["team", "👥 Whole team"] as const] : []),
+  ]), [scope]);
+  useEffect(() => { if (scope && !seats.some(([k]) => k === seat)) setSeat(seats[0]?.[0] ?? "setter"); }, [scope, seats, seat]);
   const people = useMemo(() => !b ? [] : seat === "setter" ? b.setters : seat === "closer" ? b.closers : [], [b, seat]);
   useEffect(() => { if (who !== "ALL" && !people.includes(who)) setWho("ALL"); }, [people, who]);
+  useEffect(() => { if (scope?.closer && seat === "closer" && people.length === 1) setWho(people[0]); }, [scope, seat, people]);
 
   if (err) return <div className="mt-4 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] p-3 text-sm text-[#be123c]">{err}</div>;
   if (!b) return <div className="mt-6 flex items-center gap-2 text-sm text-[#697a91]"><Loader2 size={14} className="animate-spin" /> Loading the sales numbers…</div>;
@@ -184,7 +196,7 @@ export function SalesBoardView() {
     <div className="mt-3 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex gap-1 rounded-lg bg-[#eef2f7] p-1">
-          {([["setter", "📞 Appointment setter"], ["closer", "🤝 Closer"], ["team", "👥 Whole team"]] as const).map(([k, l]) => (
+          {seats.map(([k, l]) => (
             <button key={k} onClick={() => setSeat(k)} className={cn("px-3 py-1.5 rounded-md text-sm font-semibold", seat === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]")}>{l}</button>
           ))}
         </div>
@@ -193,7 +205,7 @@ export function SalesBoardView() {
         </div>
         {seat !== "team" && (
           <div className="flex gap-1 flex-wrap">
-            {["ALL", ...people].map((n) => <button key={n} onClick={() => setWho(n)} title={n === FORMER ? "Leads whose sheet row still names a rep who left — see the note below" : undefined} className={cn("px-2.5 py-1 rounded-lg text-xs font-semibold border", who === n ? "bg-[#1f3559] text-white border-[#1f3559]" : n === FORMER ? "bg-white text-[#8595a8] border-dashed border-[#c3cdd9]" : "bg-white text-[#34568a] border-[#d7e0ea] hover:bg-[#f6f9fc]")}>{n === "ALL" ? "Everyone" : n === FORMER ? "⚠ Former reps" : n}</button>)}
+            {[...(scope && people.length <= 1 ? [] : ["ALL"]), ...people].map((n) => <button key={n} onClick={() => setWho(n)} title={n === FORMER ? "Leads whose sheet row still names a rep who left — see the note below" : undefined} className={cn("px-2.5 py-1 rounded-lg text-xs font-semibold border", who === n ? "bg-[#1f3559] text-white border-[#1f3559]" : n === FORMER ? "bg-white text-[#8595a8] border-dashed border-[#c3cdd9]" : "bg-white text-[#34568a] border-[#d7e0ea] hover:bg-[#f6f9fc]")}>{n === "ALL" ? "Everyone" : n === FORMER ? "⚠ Former reps" : n}</button>)}
           </div>
         )}
         <button onClick={load} disabled={loading} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#d7e0ea] bg-white text-[#34568a] hover:bg-[#f6f9fc] disabled:opacity-60" title="The sheets sync every 15 minutes; this re-reads what's synced">
@@ -217,6 +229,13 @@ export function SalesBoardView() {
         );
       })()}
       {seat === "setter" && <SetterView b={b} who={who} win={win} />}
+      {seat === "closer" && scope?.closer && b.closers.length === 0 && (
+        <div className="rounded-lg border border-[#fcd9a8] bg-[#fff7ec] px-3 py-2 text-sm text-[#9a5b00]">
+          {scope.myName
+            ? <>No demos found under the name <b>{scope.myName}</b> in the last 90 days.</>
+            : <>Your login isn&apos;t linked to a name in the sales sheet yet — ask an admin to set it in Settings.</>}
+        </div>
+      )}
       {seat === "closer" && <CloserView b={b} who={who} win={win} />}
       {seat === "team" && <TeamTable b={b} win={win} />}
     </div>

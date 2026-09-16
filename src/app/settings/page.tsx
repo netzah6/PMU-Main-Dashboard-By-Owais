@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { UserPlus, Settings, Loader2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
-import { ROLE_LABELS, type UserRoleRecord, type UserRole } from "@/lib/types";
+import { ROLE_LABELS, SALES_ROLES, type UserRoleRecord, type UserRole } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
   const { user, role, loading: userLoading } = useUser();
@@ -99,6 +100,12 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleSalesName(userId: string, name: string) {
+    const { error } = await supabase.from("user_roles").update({ sales_name: name || null }).eq("user_id", userId);
+    if (error) toast.error("Failed to save the sales name");
+    else { toast.success(name ? `Sales name set to ${name}` : "Sales name cleared"); fetchUsers(); }
+  }
+
   async function handleRoleChange(userId: string, newRole: UserRole) {
     const { error } = await supabase
       .from("user_roles")
@@ -159,6 +166,9 @@ export default function SettingsPage() {
               <option value="editor">Client Success Coach</option>
               <option value="va">Virtual Assistant</option>
               <option value="media_buyer">Media Buyer</option>
+              <option value="setter">Appointment Setter</option>
+              <option value="closer">Closer</option>
+              <option value="sales">Setter + Closer</option>
             </select>
             <button
               type="submit"
@@ -202,7 +212,20 @@ export default function SettingsPage() {
                         <option value="editor">Client Success Coach</option>
                         <option value="va">Virtual Assistant</option>
                         <option value="media_buyer">Media Buyer</option>
+                        <option value="setter">Appointment Setter</option>
+                        <option value="closer">Closer</option>
+                        <option value="sales">Setter + Closer</option>
                       </select>
+                    )}
+                    {SALES_ROLES.includes(u.role) && (
+                      <input
+                        defaultValue={u.sales_name ?? ""}
+                        placeholder="Name in sales sheet (e.g. Maria)"
+                        title="The name this person goes by in the Sales Calls Stats sheet — a closer only sees the demos under this name"
+                        onBlur={(e) => { if (e.target.value.trim() !== (u.sales_name ?? "")) void handleSalesName(u.user_id, e.target.value.trim()); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                        className={cn("px-2 py-1 border rounded text-xs w-44 focus:outline-none focus:border-[#15B7AE]", u.sales_name ? "bg-white border-[#d7e0ea] text-[#1f3559]" : "bg-[#fff7ec] border-[#fcd9a8] text-[#9a5b00]")}
+                      />
                     )}
                     <button
                       onClick={() => handleResetPassword(u.email)}
@@ -235,6 +258,18 @@ export default function SettingsPage() {
             <div className="flex gap-3">
               <Badge variant="gray">Virtual Assistant</Badge>
               <span>Clients and Onboarding tabs only</span>
+            </div>
+            <div className="flex gap-3">
+              <Badge variant="gray">Appointment Setter</Badge>
+              <span>Sales tab only — the discovery-call side (all setters)</span>
+            </div>
+            <div className="flex gap-3">
+              <Badge variant="gray">Closer</Badge>
+              <span>Sales tab only — their own demos (needs the sales-sheet name)</span>
+            </div>
+            <div className="flex gap-3">
+              <Badge variant="gray">Setter + Closer</Badge>
+              <span>Both of the above for a team member who does both</span>
             </div>
           </div>
         </div>

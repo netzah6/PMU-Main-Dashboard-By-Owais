@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Navbar } from "./Navbar";
-import { TabNav, pathAllowedFor } from "./TabNav";
+import { TabNav, pathAllowedFor, homeFor } from "./TabNav";
 import { FetchActivity } from "./FetchActivity";
 import { useUser } from "@/lib/hooks/useUser";
 
@@ -17,8 +17,8 @@ function RoleGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const allowed = pathAllowedFor(role, pathname);
   useEffect(() => {
-    if (!loading && !allowed) router.replace("/clients");
-  }, [loading, allowed, router]);
+    if (!loading && !allowed) router.replace(homeFor(role));
+  }, [loading, allowed, role, router]);
   if (loading || !allowed) return null;
   return <>{children}</>;
 }
