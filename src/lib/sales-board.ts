@@ -103,6 +103,10 @@ const isCancelled = (s: string) => /cancel/i.test(s);
 const isDisq = (s: string) => /disqualif/i.test(s);
 const isDemoScheduled = (s: string) => /demo scheduled/i.test(s);
 const isClosed = (s: string) => /^closed|deposit collected/i.test(s);
+/* "Closed" on a reused row can be the OLD sale: Kim O'kelly, closed
+   26/1/2023, demo again 11/9/2026 with the 2023 close date still in the
+   cell. A close date well before the demo means the status is stale. */
+const isWon = (d: Demo) => isClosed(d.status) && !(d.closeDate && d.demoAt && d.closeDate.getTime() < d.demoAt.getTime() - 30 * DAY);
 const isDidntClose = (s: string) => /didn'?t close/i.test(s);
 
 export type SetterStats = {
@@ -142,13 +146,13 @@ function setterStats(list: Discovery[], demosByName: Map<string, Demo[]>): Sette
 }
 function closerStats(list: Demo[]): CloserStats {
   const total = list.length;
-  const closed = list.filter((d) => isClosed(d.status)).length;
+  const closed = list.filter(isWon).length;
   const didntClose = list.filter((d) => isDidntClose(d.status)).length;
   const noShow = list.filter((d) => isNoShow(d.status)).length;
   const cancelled = list.filter((d) => isCancelled(d.status)).length;
   const noStatus = list.filter((d) => !d.status).length;
   const shown = total - noShow - cancelled;
-  return { total, closed, didntClose, noShow, cancelled, noStatus, showUp: pct(shown, total), closeRate: pct(closed, shown), upfront: list.reduce((t, d) => t + d.upfront, 0) };
+  return { total, closed, didntClose, noShow, cancelled, noStatus, showUp: pct(shown, total), closeRate: pct(closed, shown), upfront: list.reduce((t, d) => t + (isWon(d) ? d.upfront : 0), 0) };
 }
 
 // ── To-do lists ──────────────────────────────────────────────────────────────
@@ -228,14 +232,15 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   const closerStatsOut: SalesBoard["closerStats"] = {};
   for (const p of [...seatClosers, "ALL"]) {
     const mine = p === "ALL" ? demos : demos.filter((d) => closerOf(d) === p);
-    closerStatsOut[p] = Object.fromEntries(WINDOWS.map((w) => [w, closerStats(mine.filter((d) => inWin(d.demoAt ?? d.date, w) || (isClosed(d.status) && inWin(d.closeDate, w) && !!(d.demoAt ?? d.date) && d.closeDate!.getTime() - (d.demoAt ?? d.date)!.getTime() <= MAX_CLOSE_LAG)))])) as Record<Win, CloserStats>;
+    closerStatsOut[p] = Object.fromEntries(WINDOWS.map((w) => [w, closerStats(mine.filter((d) => inWin(d.demoAt ?? d.date, w) || (isWon(d) && inWin(d.closeDate, w) && !!(d.demoAt ?? d.date) && d.closeDate!.getTime() - (d.demoAt ?? d.date)!.getTime() <= MAX_CLOSE_LAG)))])) as Record<Win, CloserStats>;
   }
 
-  // Setter to-dos: last 30 days of sign-ups that need a hand.
+  // Lists cover the longest window (90 d); the page narrows them to the
+  // selected 14/30/60/90 by each item's own date (ageDays).
   const fuNS = fuIndex(fuNoShow.map(followUp)), fuCA = fuIndex(fuCancelled.map(followUp)), fuDB = fuIndex(fuDidntBook.map(followUp));
   const setterTodos: Todo[] = [];
   for (const d of discs) {
-    if (!inWin(d.signUp, 30)) continue;
+    if (!inWin(d.signUp, 90)) continue;
     const k = norm(d.name);
     if (isNoShow(d.status)) setterTodos.push(todo("no_show", d.name, setterOf(d), d.discoveryAt ?? d.signUp, d.status, fuNS.get(k), now, d.notes, d.setter));
     else if (isCancelled(d.status)) setterTodos.push(todo("cancelled", d.name, setterOf(d), d.discoveryAt ?? d.signUp, d.status, fuCA.get(k), now, d.notes, d.setter));
@@ -248,10 +253,11 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   const fuDN = fuIndex(fuDemoNoShow.map(followUp));
   const closerTodos: Todo[] = [];
   for (const d of demos) {
-    const closedRecently = isClosed(d.status) && inWin(d.closeDate, 30) && !!(d.demoAt ?? d.date) && d.closeDate!.getTime() - (d.demoAt ?? d.date)!.getTime() <= MAX_CLOSE_LAG;
-    if (!inWin(d.demoAt ?? d.date, 30) && !(d.demoAt && d.demoAt.getTime() > now) && !closedRecently) continue;
+    const closedRecently = isWon(d) && inWin(d.closeDate, 90) && !!(d.demoAt ?? d.date) && d.closeDate!.getTime() - (d.demoAt ?? d.date)!.getTime() <= MAX_CLOSE_LAG;
+    if (!inWin(d.demoAt ?? d.date, 90) && !(d.demoAt && d.demoAt.getTime() > now) && !closedRecently) continue;
     const k = norm(d.name);
-    if (isClosed(d.status)) { const t = todo("closed", d.name, closerOf(d), d.closeDate ?? d.demoAt ?? d.date, d.status, undefined, now, "", d.closer); t.amount = d.upfront; closerTodos.push(t); }
+    if (isWon(d)) { const t = todo("closed", d.name, closerOf(d), d.closeDate ?? d.demoAt ?? d.date, d.status, undefined, now, "", d.closer); t.amount = d.upfront; closerTodos.push(t); }
+    else if (isClosed(d.status)) { const t = todo("no_status", d.name, closerOf(d), d.demoAt, "", undefined, now, `sheet says Closed on ${d.closeDate!.toLocaleDateString()} — that's the old sale, update the row`, d.closer); t.urgent = true; closerTodos.push(t); }
     else if (isNoShow(d.status)) closerTodos.push(todo("demo_no_show", d.name, closerOf(d), d.demoAt ?? d.date, d.status, fuDN.get(k), now, "", d.closer));
     else if (isDidntClose(d.status)) { const t = todo("didnt_close", d.name, closerOf(d), d.demoAt ?? d.date, d.status, undefined, now, "", d.closer); t.urgent = t.ageDays >= 1; closerTodos.push(t); }
     else if (!d.status && d.demoAt && d.demoAt.getTime() > now - 2 * 3600_000 && d.demoAt.getTime() < now + 7 * DAY) closerTodos.push(todo("upcoming", d.name, closerOf(d), d.demoAt, "", undefined, now, "", d.closer));

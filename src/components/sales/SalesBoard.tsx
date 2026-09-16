@@ -50,15 +50,15 @@ function CopyName({ name }: { name: string }) {
   );
 }
 
-function TodoList({ todos, who, kinds }: { todos: Todo[]; who: string; kinds: Todo["kind"][] }) {
+function TodoList({ todos, who, kinds, win }: { todos: Todo[]; who: string; kinds: Todo["kind"][]; win: Win }) {
   const [kind, setKind] = useState<Todo["kind"] | "all">("all");
-  const mine = todos.filter((t) => (who === "ALL" || t.who === who) && kinds.includes(t.kind));
+  const mine = todos.filter((t) => (who === "ALL" || t.who === who) && kinds.includes(t.kind) && (t.kind === "upcoming" || t.ageDays <= win));
   const shown = mine.filter((t) => kind === "all" || t.kind === kind);
   const counts = Object.fromEntries(kinds.map((k) => [k, mine.filter((t) => t.kind === k).length]));
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white">
       <div className="px-3 py-2 border-b border-[#eef3f8] flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-bold text-[#1f3559]">Last 30 days</span>
+        <span className="text-sm font-bold text-[#1f3559]">Last {win} days</span>
         <span className="text-[11px] text-[#697a91]">{mine.filter((t) => t.urgent).length} need attention now</span>
         <div className="ml-auto flex gap-1 flex-wrap">
           <button onClick={() => setKind("all")} className={cn("px-2 py-0.5 rounded text-[11px] font-semibold border", kind === "all" ? "bg-[#1f3559] text-white border-[#1f3559]" : "bg-white text-[#34568a] border-[#d7e0ea]")}>All ({mine.length})</button>
@@ -110,7 +110,7 @@ function SetterView({ b, who, win }: { b: Board; who: string; win: Win }) {
         <Kpi label="Book rate" value={p(s.bookRate)} sub={`target ${TARGETS.bookRate}% · ${p(s.bookRateExDisq)} excl. disqualified`} tone={grade(s.bookRate, TARGETS.bookRate)} hint="demos booked ÷ discoveries (the tracker's definition)" />
         <Kpi label="Demo show-up" value={p(s.demoShowUp)} sub={`target ${TARGETS.demoShowUp}%`} tone={grade(s.demoShowUp, TARGETS.demoShowUp)} hint="Of the demos this setter booked that have a status, how many actually happened" />
       </div>
-      <TodoList todos={b.setterTodos} who={who} kinds={["no_show", "cancelled", "didnt_book", "no_status"]} />
+      <TodoList todos={b.setterTodos} who={who} win={win} kinds={["no_show", "cancelled", "didnt_book", "no_status"]} />
     </div>
   );
 }
@@ -128,7 +128,7 @@ function CloserView({ b, who, win }: { b: Board; who: string; win: Win }) {
         <Kpi label="Close rate" value={p(s.closeRate)} sub={`target ${TARGETS.closeRate}%`} tone={grade(s.closeRate, TARGETS.closeRate)} hint="closed ÷ demos that happened" />
         <Kpi label="Upfront collected" value={`$${s.upfront.toLocaleString()}`} tone={s.upfront > 0 ? "green" : "gray"} />
       </div>
-      <TodoList todos={b.closerTodos} who={who} kinds={["closed", "upcoming", "demo_no_show", "didnt_close", "no_status"]} />
+      <TodoList todos={b.closerTodos} who={who} win={win} kinds={["closed", "upcoming", "demo_no_show", "didnt_close", "no_status"]} />
     </div>
   );
 }
