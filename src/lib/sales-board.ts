@@ -192,6 +192,18 @@ export type SalesBoard = {
   setterTodos: Todo[]; closerTodos: Todo[];
 };
 
+/* Won demos (for the closer payment tracker): every Closed row with a
+   usable close date, newest first. */
+export async function loadClosedDeals(svc: Svc): Promise<Demo[]> {
+  const rows = await loadAll(svc, "sales_demos");
+  const now = Date.now();
+  // Same renewal guard as the KPIs: a close date far after the demo is an
+  // existing client re-billed on their old row, not a closer's win.
+  const fresh = (d: Demo) => { const base = d.demoAt ?? d.date; const c = d.closeDate; return !c || !base || (c.getTime() - base.getTime() <= MAX_CLOSE_LAG && c.getTime() <= now + DAY); };
+  return rows.map(demo).filter((d) => d.name && !/test/i.test(d.name) && isWon(d) && fresh(d) && (d.closeDate ?? d.demoAt ?? d.date))
+    .sort((a, b) => (b.closeDate ?? b.demoAt ?? b.date)!.getTime() - (a.closeDate ?? a.demoAt ?? a.date)!.getTime());
+}
+
 export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   const [dRows, mRows, fuNoShow, fuCancelled, fuDidntBook, fuDemoNoShow] = await Promise.all([
     loadAll(svc, "sales_discoveries"), loadAll(svc, "sales_demos"),
