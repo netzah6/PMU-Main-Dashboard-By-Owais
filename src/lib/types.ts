@@ -2,7 +2,11 @@
 // Tasks, Performance, Onboarding, Leads, Pixel Checking). Page gating lives in
 // TabNav's pathAllowedFor (enforced by RoleGate on every navigation);
 // sensitive APIs re-check the role server-side.
-export type UserRole = "admin" | "editor" | "viewer" | "va" | "media_buyer";
+// Sales seats (2026-09-16): "setter" sees the discovery side of the Sales
+// tab, "closer" sees their own demos, "sales" is a team member who does both.
+// user_roles.sales_name ties the login to the name used in the sales sheets.
+export type UserRole = "admin" | "editor" | "viewer" | "va" | "media_buyer" | "setter" | "closer" | "sales";
+export const SALES_ROLES: UserRole[] = ["setter", "closer", "sales"];
 
 // What each stored role value is called in the UI. "editor" predates the
 // Client Success Coach title and stays as the stored value so every existing
@@ -13,6 +17,9 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   viewer: "Viewer",
   va: "Virtual Assistant",
   media_buyer: "Media Buyer",
+  setter: "Appointment Setter",
+  closer: "Closer",
+  sales: "Setter + Closer",
 };
 
 export interface UserRoleRecord {
@@ -21,6 +28,7 @@ export interface UserRoleRecord {
   role: UserRole;
   email: string;
   created_at: string;
+  sales_name?: string | null;
 }
 
 // Raw DB row: { id, data: jsonb }

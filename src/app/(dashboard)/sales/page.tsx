@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { DemoResult, DemoStatus } from "@/lib/demo-check";
 import { SalesBoardView } from "@/components/sales/SalesBoard";
+import { useUser } from "@/lib/hooks/useUser";
 
 const SECTIONS: Array<{ key: DemoStatus; label: string; emoji: string; tint: string; border: string }> = [
   { key: "showed",        label: "Showed",           emoji: "✅", tint: "#f0fbfa", border: "#15B7AE" },
@@ -95,6 +96,10 @@ function CoachTracker() {
 
 export default function SalesPage() {
   const [view, setView] = useState<"board" | "demos" | "coaches">("board");
+  // Sales seats (setter / closer / both) get the board only — the Demo
+  // Checker and Coach Tracker are salary tools for admins.
+  const { role } = useUser();
+  const isAdmin = role === "admin";
   const [raw, setRaw] = useState("");
   const [results, setResults] = useState<DemoResult[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -166,15 +171,15 @@ export default function SalesPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold text-[#1f3559] tracking-tight">💼 Sales</h1>
-      <div className="mt-3 flex gap-1 rounded-lg bg-[#eef2f7] p-1 w-fit flex-wrap">
+      {isAdmin && <div className="mt-3 flex gap-1 rounded-lg bg-[#eef2f7] p-1 w-fit flex-wrap">
         {([["board", "Sales board"], ["demos", "Demo Checker"], ["coaches", "Coach Tracker"]] as const).map(([k, label]) => (
           <button key={k} onClick={() => setView(k)}
             className={`px-4 py-1.5 rounded-md text-sm font-semibold ${view === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]"}`}>
             {label}
           </button>
         ))}
-      </div>
-      {view === "board" ? <SalesBoardView /> : view === "coaches" ? <CoachTracker /> : (<>
+      </div>}
+      {view === "board" || !isAdmin ? <SalesBoardView /> : view === "coaches" ? <CoachTracker /> : (<>
       <p className="mt-4 text-sm text-[#697a91]">
         Paste contact names (one per line). Each is checked against its sales-pipeline stage — the stage is what proves
         whether the demo actually happened, since a past demo stays &ldquo;confirmed&rdquo; on the calendar either way.

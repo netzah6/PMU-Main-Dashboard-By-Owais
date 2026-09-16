@@ -62,10 +62,26 @@ const MEDIA_BUYER_TABS = new Set([
   "/funnels", // read-only like coaches — user request 2026-09-15
 ]);
 
+// Sales seats: the Sales tab and nothing else (the API trims the board to
+// their side — setter / closer / both).
+const SALES_TABS = new Set(["/sales"]);
+
 const ALLOWLISTS: Partial<Record<NonNullable<UserRole>, Set<string>>> = {
   va: VA_TABS,
   media_buyer: MEDIA_BUYER_TABS,
+  setter: SALES_TABS,
+  closer: SALES_TABS,
+  sales: SALES_TABS,
 };
+
+// Where a role lands when it opens a page it may not see (RoleGate) — the
+// first tab it is allowed to open, so an allowlist role without /clients
+// never bounces in a loop.
+export function homeFor(role: UserRole | null): string {
+  const allow = role ? ALLOWLISTS[role] : undefined;
+  if (!allow) return "/clients";
+  return TABS.find((t) => allow.has(t.href))?.href ?? "/clients";
+}
 
 // Which pages each role may actually OPEN. Hiding a tab is not access
 // control — RoleGate in DashboardShell calls this on every navigation and
