@@ -4,6 +4,7 @@ import { Loader2, Copy, Check, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SalesBoard as Board, SetterStats, CloserStats, Todo, Win } from "@/lib/sales-board";
 import { TARGETS, WINDOWS, FORMER } from "@/lib/sales-board";
+import { CloserPayments } from "@/components/sales/CloserPayments";
 
 /* The Sales tab: two seats — the appointment setter (discovery calls) and the
    closer (demo calls). For each: the KPIs the trackers print, graded against
@@ -143,6 +144,7 @@ function CloserView({ b, who, win }: { b: Board; who: string; win: Win }) {
         <Kpi label="Close rate" value={p(s.closeRate)} sub={`target ${TARGETS.closeRate}%`} tone={grade(s.closeRate, TARGETS.closeRate)} hint="closed ÷ demos that happened" />
         <Kpi label="Upfront collected" value={`$${s.upfront.toLocaleString()}`} tone={s.upfront > 0 ? "green" : "gray"} />
       </div>
+      <CloserPayments who={who} />
       <TodoList todos={b.closerTodos} who={who} win={win} kinds={["closed", "upcoming", "demo_no_show", "didnt_close", "no_status"]} />
     </div>
   );
