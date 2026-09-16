@@ -1111,11 +1111,8 @@ export default function FunnelsPage() {
                   <span className="text-[#425466]">
                     Program for <b>{f.program.ownerName || f.clientName}</b> — one click changes it here, on the Clients tab, and on the Clients Master sheet together:
                   </span>
-                  {/* Only V3 and V1 are offered (user, 2026-09-14); a client still
-                      on another version shows it as the current, unclickable chip. */}
-                  {!["(V3)", "(V1)"].includes(f.program.version) && f.program.version && (
-                    <span className="text-[11px] font-semibold border rounded-md px-2.5 py-1 bg-[#0e9c9c] text-white border-[#0e9c9c]">{f.program.version}</span>
-                  )}
+                  {/* Only V3 and V1 are offered (user, 2026-09-14 / 16); a client
+                      still on an older version just has neither chip selected. */}
                   {["(V3)", "(V1)"].map((v) => (
                     <button key={v} onClick={() => void saveProgram(f, v)} disabled={progBusy === f.slug}
                       className={cn("text-[11px] font-semibold border rounded-md px-2.5 py-1 disabled:opacity-50",
