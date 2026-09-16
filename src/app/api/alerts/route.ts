@@ -41,12 +41,14 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { id?: string; action?: string };
   const id = String(body.id ?? "");
   const action = String(body.action ?? "");
-  if (!id || !["resolve", "reopen"].includes(action)) {
-    return NextResponse.json({ error: "id and action (resolve|reopen) required" }, { status: 400 });
+  if (!id || !["resolve", "mute", "reopen"].includes(action)) {
+    return NextResponse.json({ error: "id and action (resolve|mute|reopen) required" }, { status: 400 });
   }
-  const patch = action === "resolve"
-    ? { status: "resolved", resolved_by: user.email ?? user.id, resolved_at: new Date().toISOString() }
-    : { status: "open", resolved_by: null, resolved_at: null };
+  // mute = resolve + never file this alert again (the scanner skips muted
+  // twins); reopen clears it.
+  const patch = action === "reopen"
+    ? { status: "open", resolved_by: null, resolved_at: null, muted: false }
+    : { status: "resolved", resolved_by: user.email ?? user.id, resolved_at: new Date().toISOString(), muted: action === "mute" };
   const { error } = await svc.from("alerts").update(patch).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });
