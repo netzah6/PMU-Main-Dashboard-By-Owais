@@ -63,9 +63,9 @@ const MEDIA_BUYER_TABS = new Set([
   "/funnels", // read-only like coaches — user request 2026-09-15
 ]);
 
-// Sales seats: the Sales tab and nothing else (the API trims the board to
-// their side — setter / closer / both).
-const SALES_TABS = new Set(["/sales"]);
+// Sales seats: the Sales tab plus Tasks (the tasks API already shows a
+// non-admin only the tasks assigned to them — user request 2026-09-17).
+const SALES_TABS = new Set(["/sales", "/tasks"]);
 
 const ALLOWLISTS: Partial<Record<NonNullable<UserRole>, Set<string>>> = {
   va: VA_TABS,

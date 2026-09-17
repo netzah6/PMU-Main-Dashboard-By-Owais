@@ -261,11 +261,11 @@ export default function SettingsPage() {
             </div>
             <div className="flex gap-3">
               <Badge variant="gray">Appointment Setter</Badge>
-              <span>Sales tab only — the discovery-call side (all setters)</span>
+              <span>Sales tab (discovery-call side, all setters) + their own Tasks</span>
             </div>
             <div className="flex gap-3">
               <Badge variant="gray">Closer</Badge>
-              <span>Sales tab only — their own demos (needs the sales-sheet name)</span>
+              <span>Sales tab (their own demos — needs the sales-sheet name) + their own Tasks</span>
             </div>
             <div className="flex gap-3">
               <Badge variant="gray">Setter + Closer</Badge>
