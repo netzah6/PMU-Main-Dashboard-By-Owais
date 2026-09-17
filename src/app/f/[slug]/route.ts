@@ -3,6 +3,7 @@ import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { refreshOneboxConfig, parseFaqs, normalizeElfsight, buildFanbasisBlock, SYNC_TTL_MS } from "@/lib/onebox";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
+import { signLogoUrl } from "@/lib/logo-sign";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
 // the hosted engine public/onebox.js owns the DOM; a hydrated page would
@@ -263,8 +264,9 @@ export async function GET(
      engine's fastImg passes relative URLs through untouched, so cfg.logo
      can carry the proxied form. A changed logo changes the source URL,
      which changes the proxy URL — immutability is safe. */
-  const logoPreload = logoFast && /^https:\/\/(images\.leadconnectorhq\.com|assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr|services\.leadconnectorhq\.com)\//.test(logoFast)
-    ? `/api/onebox/logo?u=${encodeURIComponent(logoFast)}`
+  const logoSig = logoFast ? signLogoUrl(logoFast) : "";
+  const logoPreload = logoFast && logoSig && /^https:\/\/(images\.leadconnectorhq\.com|assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr|services\.leadconnectorhq\.com)\//.test(logoFast)
+    ? `/api/onebox/logo?u=${encodeURIComponent(logoFast)}&s=${logoSig}`
     : logoFast;
   if (logoPreload) cfg.logo = logoPreload;
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
@@ -321,10 +323,11 @@ ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</templat
       "Content-Type": "text/html; charset=utf-8",
       /* Served from the CDN for a minute, then refreshed in the
          background — visitors get an edge hit instead of a database
-         round trip, and a custom-value edit still appears within the
-         same ~5 minutes as before. respHeaders swaps in no-store (and the
-         sticky cookie) while a page-1 test is running for the slug. */
-      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=21600, stale-if-error=86400",
+         round trip. Dashboard saves re-warm the edge within ~2-3 min;
+         a GHL-direct edit shows up visitor-driven, worst case ~1h on a
+         quiet funnel. respHeaders swaps in no-store (and the sticky
+         cookie) while a page-1 test is running for the slug. */
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=3600, stale-if-error=86400",
     }),
   });
 }
@@ -365,7 +368,7 @@ function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, s
   return new Response(html, {
     headers: ab.respHeaders({
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=21600, stale-if-error=86400",
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=3600, stale-if-error=86400",
     }),
   });
 }
