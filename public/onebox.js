@@ -39,6 +39,12 @@
      The server sets flow:"v1" from the client's Clients Master program;
      ?obflow=v1 is the team's preview override. */
   var FLOW_V1 = String(C.flow || "") === "v1" || /[?&]obflow=v1/.test(location.search);
+  /* Per-client framing: consultMode:"video" (set in the client's dashboard
+     extras — e.g. Brows By Kali) presents the calendar slot as a VIDEO
+     CONSULTATION: same flow, same calendar, same deposit — only the wording
+     and the show-up/address promises change. Off for everyone else. */
+  var VIDEO = String(C.consultMode || "") === "video";
+  var APPT = VIDEO ? "video consultation" : "appointment";
   var BIZ = (C.biz || "").trim() || "Our Studio";
   var PHONE = (C.phone || "").trim();
   var ADDR = (C.address || "").trim();
@@ -554,13 +560,13 @@
         : q.k === "phone" ? ' inputmode="tel" enterkeyhint="next"'
         : ' autocapitalize="none" spellcheck="false" enterkeyhint="done"';
       var note = (q.k === "phone" || q.k === "email")
-        ? '<p class="trustnote">&#128274; Only used to confirm your appointment &mdash; no spam.</p>' : "";
+        ? '<p class="trustnote">&#128274; Only used to confirm your ' + APPT + ' &mdash; no spam.</p>' : "";
       var submitBtn = qi === N - 1
         ? (FLOW_V1
           /* V1 flow ends here — no booking step to promise. */
           ? '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>Claim My Offer &rarr;</b></button>'
           : '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>See My Available Times</b>' +
-            "<span>Next: pick your appointment</span></button>")
+            '<span>Next: pick your ' + APPT + "</span></button>")
         : '<button type="button" class="confyes" id="ob-submit" style="margin-top:16px"><b>Continue &rarr;</b></button>';
       return '<label class="qlabel" for="ob-f">' + esc(q.q) + '\u00A0<em>*</em></label>' +
         '<input class="field" id="ob-f" type="' + q.type + '" placeholder="' + esc(q.ph) + '" value="' +
@@ -591,9 +597,10 @@
       var n = new Date();
       calState.y = n.getFullYear(); calState.m = n.getMonth();
     }
+    var bookNoun = VIDEO ? "Video Consultation" : "Appointment";
     return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
-      ? 'Book Your Appointment NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR) + "</span>"
-      : "Book Your Appointment NOW!") + "</h2>" +
+      ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR) + "</span>"
+      : "Book Your " + bookNoun + " NOW!") + "</h2>" +
       '<div id="ob-calbox">' + calHTML() + "</div>" +
       '<button type="button" class="backlink" id="ob-prev">&larr; Back</button>';
   }
@@ -803,14 +810,14 @@
     return '<p class="vlabel">Your spot is saved for:</p>' +
       '<div class="chips" id="ob-vclock"></div>' +
       '<div class="confcard">' +
-        "<h3>" + esc(first) + ", please confirm your appointment</h3>" +
+        "<h3>" + esc(first) + ", please confirm your " + APPT + "</h3>" +
         "<p>We&rsquo;ll set this time aside exclusively for you and prepare in advance &mdash; please confirm you can attend:</p>" +
         '<p class="confwhen">' + esc(fmtWhen(state.pendingIso)) + "</p>" +
         '<p class="confrel">' + esc(relDay(state.pendingIso)) + "</p>" +
-        (ADDR ? '<p class="confaddr">' + esc(ADDR) + "</p>" : "") +
+        (ADDR && !VIDEO ? '<p class="confaddr">' + esc(ADDR) + "</p>" : "") +
       "</div>" +
-      '<button type="button" class="confyes" id="ob-yes"><b>Yes, I&rsquo;ll be there</b>' +
-      "<span>Continue to securing my appointment</span></button>" +
+      '<button type="button" class="confyes" id="ob-yes"><b>' + (VIDEO ? "Yes, I&rsquo;ll attend" : "Yes, I&rsquo;ll be there") + "</b>" +
+      '<span>Continue to securing my ' + APPT + "</span></button>" +
       '<button type="button" class="confalt" id="ob-alt">Choose a different time</button>';
   }
 
@@ -931,7 +938,7 @@
        to the sticky bar, and nothing competes with paying. */
     if (V2) {
       return '<h2 class="phead dephead v2dephead">' + (C.depositHead ? esc(C.depositHead)
-        : "Lock In Your Spot &mdash; " + esc(DEPOSIT) + ", Fully Refundable") + "</h2>" +
+        : "Lock In Your " + (VIDEO ? "Video Consultation" : "Spot") + " &mdash; " + esc(DEPOSIT) + ", Fully Refundable") + "</h2>" +
         '<div class="v2deprow">' +
           '<span>&#10004; Refunded in full or applied to your service &mdash; you&rsquo;re 100% covered</span>' +
         "</div>";
@@ -982,11 +989,11 @@
       '<h2 class="phead donehead">' + (first ? esc(first) + ", you" : "You") + "&rsquo;re booked!</h2>" +
       '<p class="donesub">Get excited &mdash; your transformation is officially on the calendar.</p>' +
       '<div class="confcard donecard">' +
-        "<h3>&#10004; Your appointment is confirmed</h3>" +
+        "<h3>&#10004; Your " + APPT + " is confirmed</h3>" +
         (state.slotIso ? '<p class="confwhen">' + esc(fmtWhen(state.slotIso)) + "</p>" +
           '<p class="confrel">' + esc(relDay(state.slotIso)) + "</p>" : "") +
-        (ADDR ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
-        "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service at your visit.</p>" +
+        (ADDR && !VIDEO ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
+        "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service" + (VIDEO ? "" : " at your visit") + ".</p>" +
       "</div>" +
       ((C.igWidget || C.elfsightId) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
         "&#128248; Follow us on Instagram for daily results</a>" : "") +
@@ -1079,7 +1086,7 @@
           root.appendChild(bar);
         }
         bar.innerHTML = '<span class="v2when">&#128197; ' +
-          (state.slotIso ? esc(fmtWhenShort(state.slotIso)) : "Your appointment") + "</span>" +
+          (state.slotIso ? esc(fmtWhenShort(state.slotIso)) : "Your " + APPT) + "</span>" +
           '<span class="v2hold">&#9203; <b id="ob-clock-mini"></b></span>';
         bar.classList.add("on");
         paintHold();
