@@ -10,9 +10,18 @@ export type ClientProgram = { version: string; sheetRow: number; ownerName: stri
 
 export const normBiz = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+/* The program rows change at sheet-sync cadence (~15 min), but the funnel
+   render was paying a full-view fetch (~65KB over the wire) per visitor.
+   Per-lambda memo, 60s — the same staleness class as the page's own CDN
+   window. Display-only data: never copy this pattern to anything that
+   gates writes or dedupes. */
+let memo: { at: number; rows: ProgramRow[] } | null = null;
 export async function fetchProgramRows(svc: SupabaseClient): Promise<ProgramRow[]> {
+  if (memo && Date.now() - memo.at < 60_000) return memo.rows;
   const { data } = await svc.from("client_program_rows").select("sheet_row, business_name, version, owner_name");
-  return (data ?? []) as ProgramRow[];
+  const rows = (data ?? []) as ProgramRow[];
+  if (data) memo = { at: Date.now(), rows };
+  return rows;
 }
 
 /* Exact normalized-name match first; a prefix match only when exactly ONE

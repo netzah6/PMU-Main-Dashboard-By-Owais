@@ -437,7 +437,7 @@
     '<div id="ob-extras"></div>' +
     "</div>" +
     '<div class="contactblock">' +
-    (LOGO ? '<img src="' + esc(LOGO) + '" alt="">' : "") +
+    (LOGO ? '<img src="' + esc(fastImg(LOGO, 160)) + '" alt="" loading="lazy">' : "") +
     (PHONE ? "<p>" + esc(PHONE) + "</p>" : "") +
     (ADDR ? "<p>" + esc(ADDR) + "</p>" : "") +
     "</div>" +

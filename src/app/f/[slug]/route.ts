@@ -9,6 +9,11 @@ import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 // fight it). Config comes from onebox_clients, synced from the client's
 // GHL custom values; extras hold FAQs, the Fanbasis block, Elfsight id.
 export const dynamic = "force-dynamic";
+/* The database lives in ap-northeast-1 (Tokyo); an unpinned function runs
+   in US East and pays ~300ms per DB roundtrip. Run next to the data — the
+   visitor pays one slightly longer edge hop instead of 2-3 Pacific ones.
+   Scoped to this route only: GHL-heavy crons must stay near GHL (US). */
+export const preferredRegion = "hnd1";
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
 
@@ -101,16 +106,23 @@ export async function GET(
          re-rolls as a brand-new visitor, matching the splitter. */
   const ua = req.headers.get("user-agent") ?? "";
   const isBot = /facebookexternalhit|AdsBot/i.test(ua);
-  const wantsSplit =
-    !req.nextUrl.searchParams.has("ob_e") &&
-    !req.nextUrl.searchParams.has("preview");
+  const obE = req.nextUrl.searchParams.get("ob_e") ?? "";
+  const obV = req.nextUrl.searchParams.get("ob_v") ?? "";
+  const wantsSplit = !req.nextUrl.searchParams.has("ob_e") && !req.nextUrl.searchParams.has("preview");
   type ProbeVar = { vkey: string; kind: string; weight: number; config_override: Record<string, string> | null };
-  const [clientRes, expRes] = await Promise.all([
+  const [clientRes, expRes, paramVarRes] = await Promise.all([
     svc.from("onebox_clients").select("*").eq("slug", slug).single(),
     wantsSplit
       ? svc.from("onebox_experiments").select("id, onebox_variants(vkey, kind, weight, config_override)")
           .eq("slug", slug).eq("status", "running")
           .order("created_at", { ascending: false }).limit(1).maybeSingle()
+      : Promise.resolve({ data: null }),
+    /* Explicit ?ob_e&ob_v (splitter / preview links): one embedded query
+       replaces the old two sequential lookups — the join also carries the
+       experiment's slug so ownership is still enforced. */
+    /^\d+$/.test(obE) && obV
+      ? svc.from("onebox_variants").select("config_override, kind, onebox_experiments!inner(slug)")
+          .eq("experiment_id", Number(obE)).eq("vkey", obV).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
   const row = clientRes.data as Row | null;
@@ -181,28 +193,14 @@ export async function GET(
      appends ob_e/ob_v, merge that variant's overrides over the config so
      the same slug can render different headlines, offers or copy. The
      experiment must belong to this slug — otherwise ignore. */
-  const obE = req.nextUrl.searchParams.get("ob_e") ?? "";
-  const obV = req.nextUrl.searchParams.get("ob_v") ?? "";
   const variantOverrides: Record<string, string> = {};
-  if (/^\d+$/.test(obE) && obV) {
-    const { data: ex } = await svc
-      .from("onebox_experiments")
-      .select("slug")
-      .eq("id", Number(obE))
-      .maybeSingle();
-    if (ex?.slug === slug) {
-      const { data: variant } = await svc
-        .from("onebox_variants")
-        .select("config_override, kind")
-        .eq("experiment_id", Number(obE))
-        .eq("vkey", obV)
-        .maybeSingle();
-      const override = (variant?.config_override ?? {}) as Record<string, unknown>;
-      for (const [k, v] of Object.entries(override)) {
-        if (typeof v === "string" && v.trim()) {
-          row.config[k] = v;
-          variantOverrides[k] = v;
-        }
+  const paramVar = paramVarRes.data as { config_override: Record<string, unknown> | null; onebox_experiments: { slug: string } } | null;
+  if (paramVar && paramVar.onebox_experiments?.slug === slug) {
+    const override = (paramVar.config_override ?? {}) as Record<string, unknown>;
+    for (const [k, v] of Object.entries(override)) {
+      if (typeof v === "string" && v.trim()) {
+        row.config[k] = v;
+        variantOverrides[k] = v;
       }
     }
   }
@@ -296,9 +294,10 @@ export async function GET(
 <title>${title.replace(/[<>&]/g, "")}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap"></noscript>
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
-<script src="/onebox.js?v=75" defer></script>
+<script src="/onebox.js?v=76" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
@@ -344,7 +343,8 @@ function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, s
 <title>PMU Bookings On Demand — Check Availability</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Lato:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Lato:wght@400;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Lato:wght@400;700&display=swap"></noscript>
 <script src="/onebox-b2b.js?v=1" defer></script>
 </head>
 <body style="margin:0">
