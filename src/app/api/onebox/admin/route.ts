@@ -10,7 +10,10 @@ import { listCheckoutTransactions } from "@/lib/fanbasis";
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
 
-export const maxDuration = 120;
+/* 300 not 120: the warm-after-save pings below run up to ~150s AFTER the
+   response via waitUntil, and a slow resync (pixel self-heal probing dead
+   pages) can eat ~60s before that — the timer must fit what remains. */
+export const maxDuration = 300;
 
 // Funnels tab (admin only): manage the one-box funnels.
 //   GET                       → all funnels + lead/booking counts
@@ -248,11 +251,17 @@ export async function POST(req: NextRequest) {
    a harmless no-op that mints no assignment row. */
 function warmFunnel(slug: string) {
   waitUntil((async () => {
-    await new Promise((r) => setTimeout(r, 65_000));
-    await fetch(`https://book.pmu-care.com/${slug}`, {
-      cache: "no-store",
-      headers: { "user-agent": "ob-warm/1 (cache refresh after dashboard save)" },
-    }).catch(() => {});
+    /* Two pings: an in-flight pre-save render can be stored by the CDN
+       seconds after the save, making a single +65s ping land inside that
+       entry's fresh minute and revalidate nothing. The second ping at
+       +150s is past any such window. */
+    for (const delayMs of [75_000, 150_000]) {
+      await new Promise((r) => setTimeout(r, delayMs === 75_000 ? delayMs : delayMs - 75_000));
+      await fetch(`https://book.pmu-care.com/${slug}`, {
+        cache: "no-store",
+        headers: { "user-agent": "ob-warm/1 (cache refresh after dashboard save)" },
+      }).catch(() => {});
+    }
   })());
 }
 
