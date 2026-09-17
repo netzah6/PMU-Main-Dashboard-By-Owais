@@ -348,7 +348,7 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
 // The client list is a real table: every number lives in a fixed column, so
 // rows align and can be compared down the page. NumCell keeps digits tabular.
 
-const COLS = 15; // for colSpan on the message/drill-down rows
+const COLS = 14; // for colSpan on the message/drill-down rows
 
 function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray" | "red"; title?: string }) {
   const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : tone === "red" ? "text-[#be123c]" : "text-[#1f3559]";
@@ -456,6 +456,19 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           sub={(c.selfBookedReady ?? 0) > 0 ? `${c.selfBookedReady} to charge` : "their end"}
           tone={(c.selfBookedReady ?? 0) > 0 ? "amber" : "gray"} />
         <NumCell value={c.noAppt} sub={c.noAppt > 0 ? "not booked" : undefined} tone={c.noAppt > 0 ? "amber" : "gray"} />
+        {/* Profitability, right after No appt (user, 2026-09-17): lifetime value
+            (COLLECTED fees + deposits − refunds; owed money is shown in the
+            tooltip but not counted until it lands) and the monthly average
+            since the client's first deposit. */}
+        <NumCell value={money(c.ltv ?? 0)} sub={`${c.monthsActive ?? 1} mo`} tone="teal"
+          title={`${money(c.ltvFees ?? 0)} service fees + ${money(c.ltvDeposits ?? 0)} deposits (${c.deposits}${(c.ltvAssumedDeposits ?? 0) > 0 ? `, ${c.ltvAssumedDeposits} with no amount in the sheet counted at $50` : ""}) − ${money(c.ltvRefunded ?? 0)} refunded (${c.refundedCount ?? 0})${owed > 0 ? ` · (${money(owed)} still owed — counted once collected)` : ""}`} />
+        {/* Deposits in the same rolling 30 days as the Last 30d column, so
+            the two always add up (user request 2026-09-17). */}
+        <NumCell value={c.last30DepositCount ?? 0} sub={money(c.last30Deposits ?? 0)}
+          tone={(c.last30DepositCount ?? 0) > 0 ? "green" : "gray"}
+          title={`Deposits taken in the last 30 days${(c.last30Refunded ?? 0) > 0 ? ` · ${money(c.last30Refunded ?? 0)} refunded in the same window` : ""}`} />
+        <NumCell value={money(c.last30 ?? 0)} sub="revenue" tone={(c.last30 ?? 0) > 0 ? "teal" : "gray"}
+          title={`Rolling 30 days: ${money(c.last30Fees ?? 0)} service fees + ${money(c.last30Deposits ?? 0)} deposits (${c.last30DepositCount ?? 0})${(c.last30Refunded ?? 0) > 0 ? ` − ${money(c.last30Refunded ?? 0)} refunded` : ""}`} />
 
         {/* Card · status · actions */}
         <td className="px-2 py-1 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
@@ -479,23 +492,6 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         </td>
         <td className="pl-2 pr-2 py-1 align-middle whitespace-nowrap"><ActionsCell v={v} onMsg={setPayMsg} onReload={reloadBoth} /></td>
 
-        {/* Profitability, at the far right per request: lifetime value
-            (COLLECTED fees + deposits − refunds; owed money is shown in the
-            tooltip but not counted until it lands) and the monthly average
-            since the client's first deposit. */}
-        <NumCell value={money(c.ltv ?? 0)} sub={`${c.monthsActive ?? 1} mo`} tone="teal"
-          title={`${money(c.ltvFees ?? 0)} service fees + ${money(c.ltvDeposits ?? 0)} deposits (${c.deposits}${(c.ltvAssumedDeposits ?? 0) > 0 ? `, ${c.ltvAssumedDeposits} with no amount in the sheet counted at $50` : ""}) − ${money(c.ltvRefunded ?? 0)} refunded (${c.refundedCount ?? 0})${owed > 0 ? ` · (${money(owed)} still owed — counted once collected)` : ""}`} />
-        {/* Deposits in the same rolling 30 days as the Last 30d column, so
-            the two always add up (user request 2026-09-17). */}
-        <NumCell value={c.last30DepositCount ?? 0} sub={money(c.last30Deposits ?? 0)}
-          tone={(c.last30DepositCount ?? 0) > 0 ? "green" : "gray"}
-          title={`Deposits taken in the last 30 days${(c.last30Refunded ?? 0) > 0 ? ` · ${money(c.last30Refunded ?? 0)} refunded in the same window` : ""}`} />
-        <NumCell value={money(c.last30 ?? 0)} sub="revenue" tone={(c.last30 ?? 0) > 0 ? "teal" : "gray"}
-          title={`Rolling 30 days: ${money(c.last30Fees ?? 0)} service fees + ${money(c.last30Deposits ?? 0)} deposits (${c.last30DepositCount ?? 0})${(c.last30Refunded ?? 0) > 0 ? ` − ${money(c.last30Refunded ?? 0)} refunded` : ""}`} />
-        {/* Cost side: Meta spend on their ad account (last 30 days) and the
-            net — the number that says whether the client is worth keeping. */}
-        <NumCell value={money(c.spend30 ?? 0)} sub="ad spend" tone={(c.spend30 ?? 0) > 0 ? "amber" : "gray"}
-          title="Meta spend on this client's ad account in the last 30 days (CPL 30-day sheet)" />
       </tr>
 
       {payMsg && (
@@ -951,8 +947,8 @@ function AdminBilling() {
                 {[
                   ["Client", "left"], ["Fee", "center"], ["Deposits · charged", "center"], ["Show %", "center"],
                   ["Upcoming", "center"], ["Ready", "center"], ["Self-booked", "center"],
-                  ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
-                  ["LTV", "center"], ["Dep 30d", "center"], ["Last 30d", "center"], ["Spend 30d", "center"],
+                  ["No appt", "center"], ["LTV", "center"], ["Dep 30d", "center"], ["Last 30d", "center"],
+                  ["Card", "left"], ["Status", "center"], ["Actions", "right"],
                 ].map(([h, align]) => (
                   <th key={h} className={cn("px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
                     align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
