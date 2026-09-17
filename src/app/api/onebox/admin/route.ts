@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
@@ -238,7 +239,24 @@ export async function POST(req: NextRequest) {
      that moves traffic or money stays admin-only. */
   // "status" = the Go live / Pause button: coaches publish their own
   // onboardings without waiting on an admin (Netzah, 2026-09-16).
-  const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status"]);
+  /* Under the funnel page's long stale-while-revalidate window, a quiet
+   funnel could keep serving pre-edit copy for as long as nobody visits.
+   After any dashboard-driven config change we act as the funnel's next
+   visitor once the 60s fresh window has lapsed, so the edge revalidates
+   with the new copy within ~2 minutes. The "ob-warm" UA is in the funnel
+   route's scraper list: on A/B-test clients (always no-store) the ping is
+   a harmless no-op that mints no assignment row. */
+function warmFunnel(slug: string) {
+  waitUntil((async () => {
+    await new Promise((r) => setTimeout(r, 65_000));
+    await fetch(`https://book.pmu-care.com/${slug}`, {
+      cache: "no-store",
+      headers: { "user-agent": "ob-warm/1 (cache refresh after dashboard save)" },
+    }).catch(() => {});
+  })());
+}
+
+const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status"]);
   if (auth.role !== "admin" && !(auth.role === "editor" && COACH_ACTIONS.has(String(body.action ?? "")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -344,6 +362,7 @@ export async function POST(req: NextRequest) {
       }
       if (!pixelNote) pixelNote = "pixel still not found on the original pages";
     }
+    warmFunnel(slug);
     return NextResponse.json({ ok: !!config, config, pixelNote });
   }
 
@@ -362,6 +381,7 @@ export async function POST(req: NextRequest) {
     if (body.oldFunnelUrl !== undefined) extras.oldFunnelUrl = String(body.oldFunnelUrl).trim();
     if (body.ownerName !== undefined) extras.ownerName = String(body.ownerName).trim();
     await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
+    warmFunnel(slug);
     return NextResponse.json({ ok: true, elfsightId: extras.elfsightId ?? "" });
   }
 
@@ -398,6 +418,7 @@ export async function POST(req: NextRequest) {
       .update({ config: cfg, cv_synced_at: new Date().toISOString() })
       .eq("slug", slug);
     const failed = entries.filter((e) => !writtenNames.has(e.name)).map((e) => e.name);
+    warmFunnel(slug);
     return NextResponse.json({ ok: true, written: res.written.length, failed, config: cfg });
   }
 
