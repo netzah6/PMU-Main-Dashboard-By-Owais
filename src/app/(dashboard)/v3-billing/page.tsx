@@ -348,7 +348,7 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
 // The client list is a real table: every number lives in a fixed column, so
 // rows align and can be compared down the page. NumCell keeps digits tabular.
 
-const COLS = 17; // for colSpan on the message/drill-down rows
+const COLS = 14; // for colSpan on the message/drill-down rows
 
 function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray" | "red"; title?: string }) {
   const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : tone === "red" ? "text-[#be123c]" : "text-[#1f3559]";
@@ -430,10 +430,18 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           )}
         </td>
 
-        {/* Deposits taken, with how many were refunded right next to it. */}
-        <NumCell value={c.deposits} sub={(c.refundedCount ?? 0) > 0 ? `${c.refundedCount} refunded` : undefined}
-          tone={(c.refundedCount ?? 0) > 0 ? "amber" : "gray"}
-          title={(c.refundedCount ?? 0) > 0 ? `${c.deposits} deposits taken · ${c.refundedCount} refunded · ${c.deposits - (c.refundedCount ?? 0)} kept` : undefined} />
+        {/* Deposits & charged in one cell (user, 2026-09-17): "29 − 4" when
+            some were refunded, then the service fees charged so far. */}
+        <td className="px-2 py-1 text-center align-middle"
+          title={`${c.deposits} deposits taken${(c.refundedCount ?? 0) > 0 ? ` · ${c.refundedCount} refunded · ${c.deposits - (c.refundedCount ?? 0)} kept` : ""}\n${c.chargedCount} service fee${c.chargedCount === 1 ? "" : "s"} charged · ${money(c.chargedAmount)}`}>
+          <div className="text-[13px] font-bold leading-none tabular-nums text-[#1f3559]">
+            {c.deposits}{(c.refundedCount ?? 0) > 0 && <span className="text-[#d97706]"> − {c.refundedCount}</span>}
+          </div>
+          {(c.refundedCount ?? 0) > 0 && <div className="text-[9px] text-[#d97706] leading-tight whitespace-nowrap">{c.refundedCount} deposit{c.refundedCount === 1 ? "" : "s"} refunded</div>}
+          <div className={cn("text-[9px] leading-tight whitespace-nowrap", c.chargedCount > 0 ? "text-[#0e8f88] font-semibold" : "text-[#8595a8]")}>
+            {c.chargedCount} charged · {money(c.chargedAmount)}
+          </div>
+        </td>
         <NumCell value={c.showRate == null ? "—" : `${c.showRate}%`}
           sub={c.showRate == null ? "no reviews" : `${c.showed}/${c.showed + c.noShowMarked}`}
           tone={c.showRate == null ? "gray" : c.showRate >= 60 ? "green" : "amber"} />
@@ -444,10 +452,6 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           sub={split && split.hers > 0 ? `${money(owed)} · ${split.ours}+${split.hers} her` : money(owed)}
           tone={ready > 0 ? "amber" : "gray"}
           title={v ? `${split!.ours} we booked · ${split!.hers} she booked (no deposit)\n${v.shows.map((sh) => `• ${sh.contactName ?? "—"}`).join("\n")}` : undefined} />
-        <NumCell value={c.chargedCount} sub={money(c.chargedAmount)} tone="teal" />
-        {/* Deposits taken this calendar month. */}
-        <NumCell value={c.depositsThisMonth ?? 0} sub={money(c.depositsThisMonthUsd ?? 0)}
-          tone={(c.depositsThisMonth ?? 0) > 0 ? "green" : "gray"} />
         <NumCell value={c.selfBooked ?? 0}
           sub={(c.selfBookedReady ?? 0) > 0 ? `${c.selfBookedReady} to charge` : "their end"}
           tone={(c.selfBookedReady ?? 0) > 0 ? "amber" : "gray"} />
@@ -487,8 +491,6 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
             net — the number that says whether the client is worth keeping. */}
         <NumCell value={money(c.spend30 ?? 0)} sub="ad spend" tone={(c.spend30 ?? 0) > 0 ? "amber" : "gray"}
           title="Meta spend on this client's ad account in the last 30 days (CPL 30-day sheet)" />
-        <NumCell value={money(c.net30 ?? 0)} sub="net 30d" tone={(c.net30 ?? 0) >= 0 ? "green" : "red"}
-          title={`${money(c.last30 ?? 0)} revenue − ${money(c.spend30 ?? 0)} ad spend, last 30 days`} />
       </tr>
 
       {payMsg && (
@@ -938,15 +940,14 @@ function AdminBilling() {
         <div className="py-12 text-center text-[#8595a8]">No clients match.</div>
       ) : (
         <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-x-auto" style={{ boxShadow: "0 1px 3px rgba(31,53,89,0.06)" }}>
-          <table className="w-full text-sm border-collapse min-w-[1480px]">
+          <table className="w-full text-sm border-collapse min-w-[1320px]">
             <thead>
               <tr className="border-b-2 border-[#e4ebf2] bg-[#f8fafc]">
                 {[
-                  ["Client", "left"], ["Fee", "center"], ["Deposits", "center"], ["Show %", "center"],
-                  ["Upcoming", "center"], ["Ready", "center"], ["Charged", "center"],
-                  ["Dep this mo", "center"], ["Self-booked", "center"],
+                  ["Client", "left"], ["Fee", "center"], ["Deposits · charged", "center"], ["Show %", "center"],
+                  ["Upcoming", "center"], ["Ready", "center"], ["Self-booked", "center"],
                   ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
-                  ["LTV", "center"], ["Last 30d", "center"], ["Spend 30d", "center"], ["Net 30d", "center"],
+                  ["LTV", "center"], ["Last 30d", "center"], ["Spend 30d", "center"],
                 ].map(([h, align]) => (
                   <th key={h} className={cn("px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
                     align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
