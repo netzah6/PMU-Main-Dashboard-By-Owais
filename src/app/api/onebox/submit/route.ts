@@ -160,6 +160,20 @@ export async function POST(req: NextRequest) {
      0-2. Disqualified leads still land in GHL with fields + note, but
      never get the onebox-survey tag - the survey workflows must not fire
      for them (the GHL-side triggers filter on "Disqualified is false"). */
+  if (!isB2B) {
+    /* Novel custom-survey questions (per-client surveys, engine v77+)
+       arrive as extra slug-keyed body fields; keep up to 10 so their
+       answers land in the stored lead and the contact note instead of
+       vanishing. */
+    const RESERVED = new Set(["stage", "slug", "experimentId", "variantKey", "eventId", "fbp", "fbc", "pageUrl", "surveyId", "locationId", "full_name", "phone", "email", "area", "had_pmu", "age", "commutable", "seriousness", "aftercare_kit", "source", "slotIso"]);
+    let extra = 0;
+    for (const [bk, bv] of Object.entries(body as Record<string, unknown>)) {
+      if (extra >= 10) break;
+      if (typeof bv !== "string" || !bv.trim() || RESERVED.has(bk) || !/^[a-z0-9_]{1,28}$/.test(bk)) continue;
+      answers[bk] = bv.trim().slice(0, 200);
+      extra++;
+    }
+  }
   const disqualified = !isB2B && (answers.commutable === "No" || answers.seriousness === "0-2");
   const surveyTag = isB2B ? (extras.b2b?.tag || "b2b-onebox-survey") : "onebox-survey";
 
@@ -251,6 +265,9 @@ export async function POST(req: NextRequest) {
         `Commutable: ${answers.commutable}`,
         `Seriousness: ${answers.seriousness}`,
         `Aftercare kit: ${answers.aftercare_kit}`,
+        ...Object.entries(answers)
+          .filter(([k, v]) => v && !["area", "had_pmu", "age", "commutable", "seriousness", "aftercare_kit"].includes(k))
+          .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`),
       ].join("\n");
       await fetch(
         `https://services.leadconnectorhq.com/contacts/${contactId}/notes`,
