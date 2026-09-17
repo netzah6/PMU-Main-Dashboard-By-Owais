@@ -128,10 +128,15 @@ export async function GET(
     let chosen = (sameExp && cvkey && expVars.find((v) => v.vkey === cvkey)) || null;
     const isNew = !chosen;
     if (!chosen) {
-      const total = expVars.reduce((s, v) => s + Math.max(0, v.weight ?? 0), 0);
-      let n = Math.random() * (total || 1);
-      chosen = expVars[expVars.length - 1];
-      for (const v of expVars) { n -= Math.max(0, v.weight ?? 0); if (n <= 0) { chosen = v; break; } }
+      // Mirror /s's pick exactly (vkey order, first variant on zero total) so
+      // both entry paths agree even on a misconfigured all-zero-weight test.
+      const ordered = [...expVars].sort((a, b) => a.vkey.localeCompare(b.vkey));
+      const total = ordered.reduce((s, v) => s + Math.max(0, v.weight ?? 0), 0);
+      chosen = ordered[0];
+      if (total > 0) {
+        let n = Math.random() * total;
+        for (const v of ordered) { n -= Math.max(0, v.weight ?? 0); if (n <= 0) { chosen = v; break; } }
+      }
     }
     if (isNew) {
       // Off the visitor's clock; waitUntil keeps the lambda alive until it lands.
