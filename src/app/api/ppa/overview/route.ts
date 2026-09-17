@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   await warmStageMap(locations, refresh);
   if (refresh) { await ingestAppointments(); await svc.rpc("refresh_ppa_facts"); }
 
-  const [sumRes, depRes, cfgRes, chgRes, refRes, sbRes, calRes] = await Promise.all([
+  const [sumRes, depRes, cfgRes, chgRes, refRes, sbRes, calRes, cplRes] = await Promise.all([
     svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*, billing_exempt").in("owner_key", ownerKeys),
@@ -42,6 +42,8 @@ export async function GET(req: NextRequest) {
     svc.from("deposit_refunds").select("business, email, contact_name, amount, decided_at").eq("status", "refunded"),
     svc.from("ppa_selfbooked").select("appt_id, owner_key").in("owner_key", ownerKeys),
     svc.from("ppa_calendar_booked").select("appt_id, owner_key, start_time").in("owner_key", ownerKeys),
+    // Meta spend, last 30 days, per ad account (one row per campaign).
+    svc.from("cpl_30days").select("data"),
   ]);
 
   // Every deposit row (amount + date) for the profitability columns — paged
@@ -75,6 +77,16 @@ export async function GET(req: NextRequest) {
       refund30UsdByBiz.set(k, (refund30UsdByBiz.get(k) ?? 0) + parseUsd(r.amount));
   }
 
+  // Ad spend (last 30 days) by ad-account name, normalized like bizNorm. For
+  // PPS clients the agency pays the ads, so this is the cost side of "what
+  // is this client worth" (owner request 2026-09-17).
+  const spend30ByBiz = new Map<string, number>();
+  for (const r of (cplRes.data ?? []) as Array<{ data: Record<string, unknown> }>) {
+    const k = refNorm(String(r.data?.["Account name"] ?? ""));
+    if (!k) continue;
+    spend30ByBiz.set(k, (spend30ByBiz.get(k) ?? 0) + (Number(r.data?.["Amount spent"]) || 0));
+  }
+
   // ── Profitability: deposits per month + lifetime value ─────────────────────
   // Sheet dates are DD/MM/YYYY, webhook dates ISO — parse both; a row with an
   // unparseable date still counts toward lifetime totals, just not toward the
@@ -92,11 +104,15 @@ export async function GET(req: NextRequest) {
   };
   const now = new Date();
   const thisMonthKey = now.getUTCFullYear() * 12 + now.getUTCMonth();
-  type LtvAgg = { depUsd: number; monthCount: number; monthUsd: number; d30Count: number; d30Usd: number; firstMonthKey: number | null };
+  // Early webhook rows (May 2026) carry no amount; every V3 deposit is $50,
+  // so they count at that instead of $0 — flagged in the tooltip.
+  const DEFAULT_DEPOSIT = 50;
+  type LtvAgg = { depUsd: number; assumed: number; monthCount: number; monthUsd: number; d30Count: number; d30Usd: number; firstMonthKey: number | null };
   const ltvByBiz = new Map<string, LtvAgg>();
   for (const r of depRows) {
-    const agg = ltvByBiz.get(r.biz_norm) ?? { depUsd: 0, monthCount: 0, monthUsd: 0, d30Count: 0, d30Usd: 0, firstMonthKey: null };
-    const usd = parseUsd(r.amount);
+    const agg = ltvByBiz.get(r.biz_norm) ?? { depUsd: 0, assumed: 0, monthCount: 0, monthUsd: 0, d30Count: 0, d30Usd: 0, firstMonthKey: null };
+    let usd = parseUsd(r.amount);
+    if (!usd) { usd = DEFAULT_DEPOSIT; agg.assumed++; }
     agg.depUsd += usd;
     const d = parseDepositDate(r.deposit_date);
     if (d) {
@@ -184,7 +200,8 @@ export async function GET(req: NextRequest) {
     // LTV = every service fee collected + every deposit taken − refunds given
     // back. Average per month spreads that over the months since the client's
     // first deposit (minimum 1, current month counts as a full month).
-    const ltvAgg = ltvByBiz.get(c.bizNorm) ?? { depUsd: 0, monthCount: 0, monthUsd: 0, d30Count: 0, d30Usd: 0, firstMonthKey: null };
+    const ltvAgg = ltvByBiz.get(c.bizNorm) ?? { depUsd: 0, assumed: 0, monthCount: 0, monthUsd: 0, d30Count: 0, d30Usd: 0, firstMonthKey: null };
+    const spend30 = Math.round((spend30ByBiz.get(c.bizNorm) ?? 0) * 100) / 100;
     const feesLtv = chgAmtBy.get(c.ownerKey) ?? 0;
     const refundUsd = refundUsdByBiz.get(c.bizNorm) ?? 0;
     const ltv = feesLtv + ltvAgg.depUsd - refundUsd;
@@ -238,6 +255,11 @@ export async function GET(req: NextRequest) {
       last30DepositCount: ltvAgg.d30Count,
       last30Refunded: refund30UsdByBiz.get(c.bizNorm) ?? 0,
       last30: Math.round(((chg30AmtBy.get(c.ownerKey) ?? 0) + ltvAgg.d30Usd - (refund30UsdByBiz.get(c.bizNorm) ?? 0)) * 100) / 100,
+      ltvAssumedDeposits: ltvAgg.assumed,
+      // Cost side: Meta spend on this client's ad account, last 30 days, and
+      // what's left after it.
+      spend30,
+      net30: Math.round(((chg30AmtBy.get(c.ownerKey) ?? 0) + ltvAgg.d30Usd - (refund30UsdByBiz.get(c.bizNorm) ?? 0) - spend30) * 100) / 100,
     };
   });
 
