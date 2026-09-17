@@ -105,7 +105,7 @@ export async function GET(
          same format /s writes) — a cookie minted under an earlier test
          re-rolls as a brand-new visitor, matching the splitter. */
   const ua = req.headers.get("user-agent") ?? "";
-  const isBot = /facebookexternalhit|AdsBot/i.test(ua);
+  const isBot = /facebookexternalhit|AdsBot|ob-warm/i.test(ua);
   const obE = req.nextUrl.searchParams.get("ob_e") ?? "";
   const obV = req.nextUrl.searchParams.get("ob_v") ?? "";
   const wantsSplit = !req.nextUrl.searchParams.has("ob_e") && !req.nextUrl.searchParams.has("preview");
@@ -253,10 +253,20 @@ export async function GET(
   /* Same URL the engine will render (its fastImg proxies media-library
      files) so the preload warms the right resource, never a second one. */
   const logoRaw = (cfg.logo || "").replace(/["\\]/g, "");
-  const logoPreload = !logoRaw ? ""
+  const logoFast = !logoRaw ? ""
     : /^https:\/\/(assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr)\//.test(logoRaw)
       ? `https://images.leadconnectorhq.com/image/f_webp/q_80/r_320/u_${logoRaw}`
       : logoRaw;
+  /* Serve the logo through our own immutable caching proxy: GHL's image
+     service costs ~0.3-1.2s per request; behind /api/onebox/logo the first
+     visitor per edge region warms it and everyone after gets ~30ms. The
+     engine's fastImg passes relative URLs through untouched, so cfg.logo
+     can carry the proxied form. A changed logo changes the source URL,
+     which changes the proxy URL — immutability is safe. */
+  const logoPreload = logoFast && /^https:\/\/(images\.leadconnectorhq\.com|assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr|services\.leadconnectorhq\.com)\//.test(logoFast)
+    ? `/api/onebox/logo?u=${encodeURIComponent(logoFast)}`
+    : logoFast;
+  if (logoPreload) cfg.logo = logoPreload;
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
   // </script> inside the JSON payloads must not terminate the script tag.
   // Fanbasis block, in order of preference:
@@ -314,7 +324,7 @@ ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</templat
          round trip, and a custom-value edit still appears within the
          same ~5 minutes as before. respHeaders swaps in no-store (and the
          sticky cookie) while a page-1 test is running for the slug. */
-      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=21600, stale-if-error=86400",
     }),
   });
 }
@@ -355,7 +365,7 @@ function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, s
   return new Response(html, {
     headers: ab.respHeaders({
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=21600, stale-if-error=86400",
     }),
   });
 }
