@@ -44,16 +44,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
          params); the pixel reads fbclid from the browser URL, which a
          rewrite doesn't touch. Everything else is dropped from the key. */
       const KEEP = new Set(["ob_e", "ob_v", "preview", "name"]);
-      /* The route still needs the FULL query for one thing: when it bounces
-         a visitor into the splitter (/s) to join a running page-1 test, the
-         redirect must carry fbclid & friends so the pixel keeps attribution.
-         The cache key stays stripped; the original rides along in a header. */
-      const h = new Headers(request.headers);
-      h.set("x-ob-orig-search", request.nextUrl.search);
       for (const k of [...url.searchParams.keys()]) {
         if (!KEEP.has(k)) url.searchParams.delete(k);
       }
-      return NextResponse.rewrite(url, { request: { headers: h } });
+      return NextResponse.rewrite(url);
     }
   }
 

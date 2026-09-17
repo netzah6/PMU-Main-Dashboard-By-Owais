@@ -78,29 +78,34 @@ export async function GET(
 ) {
   const { slug } = params;
   const svc = createServiceClient();
-  /* Auto-entry for same-funnel (page-1) tests: a visitor who lands on the
-     plain funnel URL while an all-onebox experiment is running is bounced
-     through the splitter so they get a sticky 50/50 assignment — ads and
-     bookmarks join the test without anyone repointing traffic. Rules that
-     keep this loop- and cache-safe (each is load-bearing):
-       · ob_e PRESENCE (not validity) skips the bounce — the splitter's
-         onebox destination always carries ob_e, so a second hop can never
-         redirect again, and stale AI-follow-up links keep their old page.
+  /* Auto-entry for same-funnel (page-1) tests, done INLINE: a visitor who
+     lands on the plain funnel URL while an all-onebox experiment is running
+     gets the sticky 50/50 coin flip right here — one request, no redirect
+     hop (the earlier /f→/s→/f bounce cost first-time visitors 1.5-3s).
+     Rules that keep this correct (each is load-bearing):
+       · ob_e PRESENCE (not validity) skips the flip — post-splitter and
+         preview links keep their explicit variant, and stale AI-follow-up
+         links keep their old page.
        · ?preview is the team's thank-you preview — never enter the test.
        · Link scrapers get the control page (no assignment-row churn).
-       · Experiments with an external side keep today's splitter-entry-only
-         behavior — a bookmark must never bounce to the client's old funnel.
-       · The 307 is no-store: its Location embeds this visitor's fbclid
-         while the funnel-host cache key is shared by everyone. */
+       · Experiments with an external side keep splitter-entry-only
+         behavior — a bookmark must never see the client's old funnel.
+       · Every during-test plain-URL response is no-store: it is
+         per-visitor (variant + Set-Cookie) or a scraper's control copy,
+         and the funnel-host cache key is shared by everyone.
+       · Stickiness is per EXPERIMENT (cookie ob_v_<slug> = id:vkey:expId,
+         same format /s writes) — a cookie minted under an earlier test
+         re-rolls as a brand-new visitor, matching the splitter. */
   const ua = req.headers.get("user-agent") ?? "";
   const isBot = /facebookexternalhit|AdsBot/i.test(ua);
   const wantsSplit =
     !req.nextUrl.searchParams.has("ob_e") &&
     !req.nextUrl.searchParams.has("preview");
+  type ProbeVar = { vkey: string; kind: string; weight: number; config_override: Record<string, string> | null };
   const [clientRes, expRes] = await Promise.all([
     svc.from("onebox_clients").select("*").eq("slug", slug).single(),
     wantsSplit
-      ? svc.from("onebox_experiments").select("id, onebox_variants(kind)")
+      ? svc.from("onebox_experiments").select("id, onebox_variants(vkey, kind, weight, config_override)")
           .eq("slug", slug).eq("status", "running")
           .order("created_at", { ascending: false }).limit(1).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -109,29 +114,36 @@ export async function GET(
   if (!row || row.status === "draft") {
     return new Response("Not found", { status: 404 });
   }
-  const exp = expRes.data as { id: number; onebox_variants: { kind: string }[] } | null;
+  const exp = expRes.data as { id: number; onebox_variants: ProbeVar[] } | null;
   const expVars = exp?.onebox_variants ?? [];
-  // [].every() is vacuously true — a variantless running row must not bounce
-  // (the splitter would send it straight back: a stable redirect loop).
+  // [].every() is vacuously true — a variantless running row is not a test.
   const testLive = !!exp && expVars.length > 0 && expVars.every((v) => v.kind === "onebox");
-  if (testLive && !isBot) {
-    // Only honor the middleware-minted header shape — a client-supplied
-    // header on an un-rewritten path must not steer the Location.
-    const hdr = req.headers.get("x-ob-orig-search") ?? "";
-    const search = hdr.startsWith("?") ? hdr : req.nextUrl.search || "";
-    return new Response(null, {
-      status: 307,
-      headers: {
-        Location: `${req.nextUrl.origin}/s/${slug}${search}`,
-        "Cache-Control": "no-store",
-      },
-    });
+  const uncacheable = testLive;
+  let flip: { expId: number; vkey: string; override: Record<string, string>; cookie: string } | null = null;
+  if (testLive && !isBot && exp) {
+    const raw = req.cookies.get(`ob_v_${slug}`)?.value ?? "";
+    const [cid, cvkey, cexp] = raw.split(":");
+    const sameExp = !!cid && cexp === String(exp.id);
+    const vid = sameExp ? cid : crypto.randomUUID();
+    let chosen = (sameExp && cvkey && expVars.find((v) => v.vkey === cvkey)) || null;
+    const isNew = !chosen;
+    if (!chosen) {
+      const total = expVars.reduce((s, v) => s + Math.max(0, v.weight ?? 0), 0);
+      let n = Math.random() * (total || 1);
+      chosen = expVars[expVars.length - 1];
+      for (const v of expVars) { n -= Math.max(0, v.weight ?? 0); if (n <= 0) { chosen = v; break; } }
+    }
+    if (isNew) {
+      // Off the visitor's clock; waitUntil keeps the lambda alive until it lands.
+      waitUntil(Promise.resolve(
+        svc.from("onebox_assignments")
+          .upsert({ experiment_id: exp.id, vkey: chosen.vkey, visitor_id: vid },
+                  { onConflict: "experiment_id,visitor_id", ignoreDuplicates: true })
+          .then(() => {})
+      ));
+    }
+    flip = { expId: exp.id, vkey: chosen.vkey, override: chosen.config_override ?? {}, cookie: `${vid}:${chosen.vkey}:${exp.id}` };
   }
-  /* A scraper mid-test gets the control page, but its 200 must not be
-     CDN-cached: the cache key ignores the user agent, so a stored copy
-     would serve every real visitor the control for the next cache window,
-     dropping them out of the test after each Meta re-scrape. */
-  const uncacheable = testLive && isBot;
 
   /* Resync from GHL when the stored copy is stale — but never on the
      visitor's clock. Awaiting this made one visitor every few minutes
@@ -186,16 +198,34 @@ export async function GET(
       }
     }
   }
+  /* The inline coin flip's variant, same merge rules as the param path. */
+  if (flip) {
+    for (const [k, v] of Object.entries(flip.override)) {
+      if (typeof v === "string" && v.trim()) {
+        row.config[k] = v;
+        variantOverrides[k] = v;
+      }
+    }
+  }
+  const expId = flip ? String(flip.expId) : req.nextUrl.searchParams.get("ob_e") ?? "";
+  const expVkey = flip ? flip.vkey : req.nextUrl.searchParams.get("ob_v") ?? "";
+  /* Per-visitor / mid-test responses must never enter the shared CDN cache. */
+  const respHeaders = (base: Record<string, string>): Record<string, string> => {
+    const h = { ...base };
+    if (uncacheable) h["Cache-Control"] = "no-store";
+    if (flip) h["Set-Cookie"] = `ob_v_${slug}=${encodeURIComponent(flip.cookie)}; Max-Age=31536000; Path=/; SameSite=Lax`;
+    return h;
+  };
 
-  if (isB2B) return serveB2B(row, req, variantOverrides);
+  if (isB2B) return serveB2B(row, req, variantOverrides, { expId, expVkey, respHeaders });
 
   const cfg: Record<string, string> = {
     ...row.config,
     slug: row.slug,
     locationId: row.location_id,
     submitUrl: "/api/onebox/submit",
-    experimentId: req.nextUrl.searchParams.get("ob_e") ?? "",
-    variantKey: req.nextUrl.searchParams.get("ob_v") ?? "",
+    experimentId: expId,
+    variantKey: expVkey,
     fanbasisSelector: "#fanbasis-checkout-wrapper",
     igWidget: normalizeElfsight(row.config.igWidget || row.config.elfsightId || row.extras.elfsightId || ""),
     googleWidget: normalizeElfsight(row.config.googleWidget || ""),
@@ -269,14 +299,15 @@ ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</templat
 </html>`;
 
   return new Response(html, {
-    headers: {
+    headers: respHeaders({
       "Content-Type": "text/html; charset=utf-8",
       /* Served from the CDN for a minute, then refreshed in the
          background — visitors get an edge hit instead of a database
          round trip, and a custom-value edit still appears within the
-         same ~5 minutes as before. */
-      "Cache-Control": uncacheable ? "no-store" : "public, s-maxage=60, stale-while-revalidate=300",
-    },
+         same ~5 minutes as before. respHeaders swaps in no-store (and the
+         sticky cookie) while a page-1 test is running for the slug. */
+      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+    }),
   });
 }
 
@@ -284,15 +315,16 @@ ${fanbasisHtml ? `<template id="onebox-fanbasis-holder">${fanbasisHtml}</templat
    from extras.b2b — dashboard-managed, out of the CV sync's reach — and
    the page runs its own engine. Split-test overrides still apply, so
    copy variants work the same way as on client funnels. */
-function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, string>) {
+type AbServe = { expId: string; expVkey: string; respHeaders: (base: Record<string, string>) => Record<string, string> };
+function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, string>, ab: AbServe) {
   const cfg: Record<string, string> = {
     ...(row.extras.b2b ?? {}),
     ...variantOverrides,
     slug: row.slug,
     locationId: row.location_id,
     submitUrl: "/api/onebox/submit",
-    experimentId: req.nextUrl.searchParams.get("ob_e") ?? "",
-    variantKey: req.nextUrl.searchParams.get("ob_v") ?? "",
+    experimentId: ab.expId,
+    variantKey: ab.expVkey,
   };
   const boot = `window.OB_CONFIG=${JSON.stringify(cfg)};`.replace(/<\//g, "<\\/");
   const html = `<!doctype html>
@@ -312,9 +344,9 @@ function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, s
 </body>
 </html>`;
   return new Response(html, {
-    headers: {
+    headers: ab.respHeaders({
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
-    },
+    }),
   });
 }
