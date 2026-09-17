@@ -467,8 +467,18 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         <NumCell value={c.last30DepositCount ?? 0} sub={money(c.last30Deposits ?? 0)}
           tone={(c.last30DepositCount ?? 0) > 0 ? "green" : "gray"}
           title={`Deposits taken in the last 30 days${(c.last30Refunded ?? 0) > 0 ? ` · ${money(c.last30Refunded ?? 0)} refunded in the same window` : ""}`} />
-        <NumCell value={money(c.last30 ?? 0)} sub="revenue" tone={(c.last30 ?? 0) > 0 ? "teal" : "gray"}
-          title={`Rolling 30 days: ${money(c.last30Fees ?? 0)} service fees + ${money(c.last30Deposits ?? 0)} deposits (${c.last30DepositCount ?? 0})${(c.last30Refunded ?? 0) > 0 ? ` − ${money(c.last30Refunded ?? 0)} refunded` : ""}`} />
+        {/* Collected (green) + what's ready to charge (orange) = what the
+            client can bring in this month (user request 2026-09-17). */}
+        <td className="px-2 py-1 text-center align-middle"
+          title={`Collected, rolling 30 days: ${money(c.last30Fees ?? 0)} service fees + ${money(c.last30Deposits ?? 0)} deposits (${c.last30DepositCount ?? 0})${(c.last30Refunded ?? 0) > 0 ? ` − ${money(c.last30Refunded ?? 0)} refunded` : ""}${owed > 0 ? `\n+ ${money(owed)} ready to charge (${ready} show${ready === 1 ? "" : "s"} × ${money(c.fee)}) — not collected yet` : ""}`}>
+          <div className="text-[13px] font-bold leading-none tabular-nums whitespace-nowrap">
+            <span className={(c.last30 ?? 0) > 0 ? "text-[#15803d]" : "text-[#8595a8]"}>{money(c.last30 ?? 0)}</span>
+            {owed > 0 && <span className="text-[#ea580c]"> + {money(owed)}</span>}
+          </div>
+          <div className="text-[9px] text-[#8595a8] leading-tight whitespace-nowrap">
+            {owed > 0 ? <>collected <span className="text-[#ea580c]">+ ready</span> = {money((c.last30 ?? 0) + owed)}</> : "collected"}
+          </div>
+        </td>
 
         {/* Card · status · actions */}
         <td className="px-2 py-1 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
