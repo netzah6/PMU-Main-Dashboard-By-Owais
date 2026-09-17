@@ -348,7 +348,7 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
 // The client list is a real table: every number lives in a fixed column, so
 // rows align and can be compared down the page. NumCell keeps digits tabular.
 
-const COLS = 14; // for colSpan on the message/drill-down rows
+const COLS = 15; // for colSpan on the message/drill-down rows
 
 function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray" | "red"; title?: string }) {
   const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : tone === "red" ? "text-[#be123c]" : "text-[#1f3559]";
@@ -485,6 +485,11 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
             since the client's first deposit. */}
         <NumCell value={money(c.ltv ?? 0)} sub={`${c.monthsActive ?? 1} mo`} tone="teal"
           title={`${money(c.ltvFees ?? 0)} service fees + ${money(c.ltvDeposits ?? 0)} deposits (${c.deposits}${(c.ltvAssumedDeposits ?? 0) > 0 ? `, ${c.ltvAssumedDeposits} with no amount in the sheet counted at $50` : ""}) − ${money(c.ltvRefunded ?? 0)} refunded (${c.refundedCount ?? 0})${owed > 0 ? ` · (${money(owed)} still owed — counted once collected)` : ""}`} />
+        {/* Deposits in the same rolling 30 days as the Last 30d column, so
+            the two always add up (user request 2026-09-17). */}
+        <NumCell value={c.last30DepositCount ?? 0} sub={money(c.last30Deposits ?? 0)}
+          tone={(c.last30DepositCount ?? 0) > 0 ? "green" : "gray"}
+          title={`Deposits taken in the last 30 days${(c.last30Refunded ?? 0) > 0 ? ` · ${money(c.last30Refunded ?? 0)} refunded in the same window` : ""}`} />
         <NumCell value={money(c.last30 ?? 0)} sub="revenue" tone={(c.last30 ?? 0) > 0 ? "teal" : "gray"}
           title={`Rolling 30 days: ${money(c.last30Fees ?? 0)} service fees + ${money(c.last30Deposits ?? 0)} deposits (${c.last30DepositCount ?? 0})${(c.last30Refunded ?? 0) > 0 ? ` − ${money(c.last30Refunded ?? 0)} refunded` : ""}`} />
         {/* Cost side: Meta spend on their ad account (last 30 days) and the
@@ -947,7 +952,7 @@ function AdminBilling() {
                   ["Client", "left"], ["Fee", "center"], ["Deposits · charged", "center"], ["Show %", "center"],
                   ["Upcoming", "center"], ["Ready", "center"], ["Self-booked", "center"],
                   ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
-                  ["LTV", "center"], ["Last 30d", "center"], ["Spend 30d", "center"],
+                  ["LTV", "center"], ["Dep 30d", "center"], ["Last 30d", "center"], ["Spend 30d", "center"],
                 ].map(([h, align]) => (
                   <th key={h} className={cn("px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
                     align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
