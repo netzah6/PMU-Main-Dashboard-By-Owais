@@ -25,6 +25,9 @@ type Row = {
     elfsightId?: string;
     resultImgs?: string;
     metaPixelId?: string;
+    /* "video" = this client's calendar slot is a video consultation, not an
+       in-studio visit — the engine reframes its wording (Brows By Kali). */
+    consultMode?: string;
     /* "b2b" = the agency's own artist-acquisition funnel: config lives in
        extras.b2b (the CV sync must never overwrite it) and the page runs
        the dedicated onebox-b2b.js engine — no Fanbasis, booking a free
@@ -238,6 +241,7 @@ export async function GET(
     studioImgs: row.config.studioImgs || "",
     metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),
     surveyRaw: row.config.surveyRaw || "",
+    consultMode: row.extras.consultMode || "",
   };
   /* Program-driven flow: a (V1) client's funnel is survey → thank-you
      ONLY — no booking page, no deposit page. The program comes from the
@@ -294,7 +298,7 @@ export async function GET(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap">
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
-<script src="/onebox.js?v=74" defer></script>
+<script src="/onebox.js?v=75" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>
