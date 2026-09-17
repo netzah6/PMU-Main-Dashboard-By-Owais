@@ -347,6 +347,22 @@
      keeps the standard six. Name/phone/email always close the survey —
      the lead submission depends on them. */
   var CUSTOM_SURVEY = [];
+  /* A custom question that IS one of the standard six (options edited,
+     wording tweaked) must keep the standard KEY: the submit payload, the
+     server's disqualify rules, and the GHL contact-field mapping all
+     depend on those keys. Slug keys are only for genuinely new questions
+     (bitten 2026-09-17: Brows By Kali's rebuilt survey slug-keyed all six
+     answers, so every contact field arrived empty and her workflows and
+     the disqualify gate silently broke). */
+  var CANON = [
+    [/which area/i, "area"],
+    [/permanent makeup before/i, "had_pmu"],
+    [/age group/i, "age"],
+    [/commutable/i, "commute"],
+    [/how serious/i, "serious"],
+    [/aftercare kit/i, "aftercare"]
+  ];
+  var usedK = {};
   String(C.surveyRaw || "").split(/\r?\n/).forEach(function (line, i) {
     if (/^\s*\/\//.test(line)) return; // question paused on the dashboard
     var bar = line.indexOf("|");
@@ -354,7 +370,15 @@
     var q = line.slice(0, bar).trim().replace(/\{address\}/gi, ADDR);
     var o = line.slice(bar + 1).split(";").map(function (s) { return s.trim(); }).filter(Boolean);
     if (!q || o.length < 2) return;
-    var k = q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 28) || "q" + (i + 1);
+    var k = null;
+    for (var ci = 0; ci < CANON.length; ci++) {
+      if (CANON[ci][0].test(q)) { k = CANON[ci][1]; break; }
+    }
+    if (!k || usedK[k]) {
+      k = q.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 28) || "q" + (i + 1);
+      if (usedK[k]) k = k.slice(0, 25) + "_q" + (i + 1);
+    }
+    usedK[k] = 1;
     CUSTOM_SURVEY.push({ k: k, q: q, o: o });
   });
   var QUESTIONS = (CUSTOM_SURVEY.length ? CUSTOM_SURVEY : DEFAULT_SURVEY).concat([
@@ -395,6 +419,12 @@
       aftercare_kit: a.aftercare || "",
       source: "onebox"
     };
+    /* Genuinely new custom-survey questions ride along too — anything in
+       the answers state the fixed fields above don't already carry. */
+    var FIXED = { full_name: 1, phone: 1, email: 1, area: 1, had_pmu: 1, age: 1, commute: 1, serious: 1, aftercare: 1 };
+    for (var ak in a) {
+      if (a[ak] && !FIXED[ak] && payload[ak] === undefined) payload[ak] = String(a[ak]).slice(0, 200);
+    }
     try {
       var url = C.submitUrl || "";
       if (!url) { console.warn("[onebox] no submitUrl configured; lead:", payload); return; }
