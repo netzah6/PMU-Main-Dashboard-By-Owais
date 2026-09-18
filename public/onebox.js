@@ -1342,8 +1342,14 @@
               "?slug=" + encodeURIComponent(C.slug || "") + "&t=" + encodeURIComponent(PAY_T))
           .then(function (r) { return r.ok ? r.json() : null; })
           .catch(function () { return null; });
+      var payReveal = function () {
+        var v = document.getElementById("ob-pay-veil");
+        if (v && v.parentNode) v.parentNode.removeChild(v);
+      };
+      /* Never leave the cover up if anything stalls. */
+      setTimeout(payReveal, 6000);
       Promise.resolve(pf).then(function (j) {
-        if (!j || !j.ok || !j.phone) { PAY_T = ""; show("survey"); return; }
+        if (!j || !j.ok || !j.phone) { PAY_T = ""; show("survey"); payReveal(); return; }
         state.answers.full_name = j.name || state.answers.full_name || "";
         state.answers.phone = j.phone;
         state.answers.email = j.email || state.answers.email || "";
@@ -1355,8 +1361,15 @@
           show("booking");
         }
         window.scrollTo(0, 0);
+        payReveal();
       });
     })();
+  }
+  /* Pay page opened without a token (shared/trimmed link): nothing to look
+     up — lift the cover immediately and serve the normal funnel. */
+  if (PAY && !PAY_T) {
+    var v0 = document.getElementById("ob-pay-veil");
+    if (v0 && v0.parentNode) v0.parentNode.removeChild(v0);
   }
 
   if (PREVIEW === "thankyou") {
