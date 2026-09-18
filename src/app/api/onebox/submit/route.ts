@@ -146,6 +146,14 @@ export async function POST(req: NextRequest) {
         edge: String(body.edge ?? "").slice(0, 1500),
         utm_ad: String(body.utm_ad ?? "").slice(0, 200),
         utm_adset: String(body.utm_adset ?? "").slice(0, 200),
+        /* Pay-per-appointment variant (2026-09-17); empty on the standard
+           application and then skipped by the field/note writers. */
+        services: String(body.services ?? "").slice(0, 300),
+        browprice: String(body.browprice ?? "").replace(/[^0-9]/g, "").slice(0, 6),
+        browflex: String(body.browflex ?? "").slice(0, 80),
+        instagram: String(body.instagram ?? "").slice(0, 200),
+        reviews: String(body.reviews ?? "").slice(0, 80),
+        program: String(body.program ?? "").slice(0, 20),
       }
     : {
         area: String(body.area ?? ""),
@@ -200,9 +208,18 @@ export async function POST(req: NextRequest) {
        sub-account's workflows (internal notifications, AI scripts) read
        those, not the note. Field ids matched by name per location. */
     const fieldMap = partial ? {} : isB2B ? (extras.b2b?.fieldMap ?? {}) : await getSurveyFieldMap(locationId, tok.token);
+    /* "Permanent Makeup Eyebrows" (the PPS survey's merged option) is written
+       to the existing multi-select as the three brow services it stands for,
+       so nothing built on that field changes. */
+    const BROWS = ["Powder Brows", "Nano Brows", "Microblading"];
     const customFields = Object.entries(answers)
       .filter(([k, v]) => v && fieldMap[k])
-      .map(([k, v]) => ({ id: fieldMap[k], value: v }));
+      .map(([k, v]) => ({
+        id: fieldMap[k],
+        value: k === "services"
+          ? v.split(/,\s*/).flatMap((svc) => (/eyebrow/i.test(svc) ? BROWS : [svc]))
+          : v,
+      }));
     const r = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
       method: "POST",
       headers: {
@@ -256,6 +273,13 @@ export async function POST(req: NextRequest) {
             `Current revenue: ${answers.rev}`,
             `Desired revenue: ${answers.want}`,
             `What sets them apart: ${answers.edge}`,
+            ...(answers.program ? [
+              `Program: ${answers.program}`,
+              `Services: ${answers.services}`,
+              `Brow price: $${answers.browprice}${answers.browflex ? ` · open to under $400: ${answers.browflex}` : ""}`,
+              `Instagram: ${answers.instagram || "—"}`,
+              `Google reviews: ${answers.reviews}`,
+            ] : []),
           ].join("\n")
         : [
         "One-Box survey:",
