@@ -1324,7 +1324,15 @@
      no time exists yet. Any failure (missing/unknown token, network) simply
      leaves the normal funnel, which is already on screen. */
   var PAY = String(C.pay || "") === "1";
-  var PAY_T = PAY && !FLOW_V1 ? (new URLSearchParams(location.search).get("t") || "") : "";
+  var PAY_T = "";
+  if (PAY && !FLOW_V1) {
+    PAY_T = new URLSearchParams(location.search).get("t") || "";
+    if (!PAY_T) {
+      /* Preferred link shape: /<slug>/<contactId>/confirm */
+      var payPm = location.pathname.match(/\/([A-Za-z0-9]{8,40})\/(confirm|last-step)\/?$/);
+      if (payPm) PAY_T = payPm[1];
+    }
+  }
   if (PAY_T) {
     (function () {
       /* The page injected an early fetch before this script even loaded
