@@ -208,18 +208,12 @@ export async function POST(req: NextRequest) {
        sub-account's workflows (internal notifications, AI scripts) read
        those, not the note. Field ids matched by name per location. */
     const fieldMap = partial ? {} : isB2B ? (extras.b2b?.fieldMap ?? {}) : await getSurveyFieldMap(locationId, tok.token);
-    /* "Permanent Makeup Eyebrows" (the PPS survey's merged option) is written
-       to the existing multi-select as the three brow services it stands for,
-       so nothing built on that field changes. */
-    const BROWS = ["Powder Brows", "Nano Brows", "Microblading"];
+    /* services is a multi-select: send the chosen options as an array. The
+       field's options were aligned to the survey's list (owner, 2026-09-18),
+       so values go through unchanged. */
     const customFields = Object.entries(answers)
       .filter(([k, v]) => v && fieldMap[k])
-      .map(([k, v]) => ({
-        id: fieldMap[k],
-        value: k === "services"
-          ? v.split(/,\s*/).flatMap((svc) => (/eyebrow/i.test(svc) ? BROWS : [svc]))
-          : v,
-      }));
+      .map(([k, v]) => ({ id: fieldMap[k], value: k === "services" ? v.split(/,\s*/) : v }));
     const r = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
       method: "POST",
       headers: {
@@ -239,10 +233,25 @@ export async function POST(req: NextRequest) {
         ...(customFields.length ? { customFields } : {}),
       }),
     });
-    const j = (await r.json()) as { contact?: { id?: string } };
+    const j = (await r.json()) as { contact?: { id?: string; email?: string | null } };
     if (!r.ok) throw new Error(`contacts/upsert ${r.status}`);
     contactId = j.contact?.id ?? null;
     ghlStatus = "created";
+
+    /* The upsert matches on phone and then quietly drops the email when
+       another contact already owns it (the sub-account refuses duplicate
+       emails). Seen on the 2026-09-18 PPS test: the contact came back with
+       no email at all. Try once more explicitly; if GHL still refuses, say
+       so in the note so the setter knows which contact has that email. */
+    let emailNote = "";
+    if (contactId && email && !(j.contact?.email ?? "").trim()) {
+      const put = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ email }),
+      }).catch(() => null);
+      if (!put || !put.ok) emailNote = `⚠ Email ${email} could not be saved on this contact — GHL says another contact already has it.`;
+    }
 
     /* Tag through the ADD endpoint, never through the upsert body: upsert
        REPLACES the whole tag array, which silently stripped tags other
@@ -280,6 +289,7 @@ export async function POST(req: NextRequest) {
               `Instagram: ${answers.instagram || "—"}`,
               `Google reviews: ${answers.reviews}`,
             ] : []),
+            ...(emailNote ? [emailNote] : []),
           ].join("\n")
         : [
         "One-Box survey:",
