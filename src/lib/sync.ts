@@ -279,6 +279,14 @@ export async function syncOneSheet(
       .from(table)
       .select("*", { count: "estimated", head: true });
 
+    // A run that wrote nothing still ran: the freshness badge reads this
+    // (data_freshness view → sheet_sync_runs), not max(synced_at), now that
+    // unchanged rows keep their old synced_at.
+    await supabase.from("sheet_sync_runs").upsert({
+      table_name: table, ran_at: now, sheet_rows: objects.length,
+      rows_written: changed.length, rows_unchanged: unchanged, status: "ok", error: null,
+    }, { onConflict: "table_name" }).then(() => undefined, () => undefined);
+
     return {
       table, sheetName,
       sheetRows: objects.length,
@@ -292,6 +300,9 @@ export async function syncOneSheet(
       durationMs: Date.now() - start,
     };
   } catch (err) {
+    await supabase.from("sheet_sync_runs").upsert({
+      table_name: table, ran_at: new Date().toISOString(), status: "error", error: String(err).slice(0, 500),
+    }, { onConflict: "table_name" }).then(() => undefined, () => undefined);
     return {
       table, sheetName,
       sheetRows: 0,
