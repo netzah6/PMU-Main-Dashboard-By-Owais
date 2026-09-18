@@ -82,8 +82,9 @@
 "*,*::before,*::after{box-sizing:border-box}" +
 "body{margin:0;font-family:var(--font-body);color:var(--ink);background:#fff;font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased}" +
 "#onebox-root img{max-width:100%;display:block}" +
-"#onebox-root h1,#onebox-root h2,#onebox-root h3{font-family:var(--font-head);line-height:1.22;text-wrap:balance;margin:0}" +
-"#onebox-root p{margin:0}#onebox-root button{font-family:inherit;cursor:pointer}" +
+/* :where() = zero specificity, so these resets never beat a class rule (they used to: an id-based reset cancelled every margin:auto and margin-bottom below). */
+":where(#onebox-root) h1,:where(#onebox-root) h2,:where(#onebox-root) h3{font-family:var(--font-head);line-height:1.22;text-wrap:balance;margin:0}" +
+":where(#onebox-root) p{margin:0}:where(#onebox-root) button{font-family:inherit;cursor:pointer}" +
 ".topbar{display:flex;align-items:center;justify-content:center;gap:12px;padding:14px 20px;background:#fff}" +
 ".topbar img{width:52px;height:52px}" +
 ".topbar .wordmark{font-family:var(--font-head);font-weight:800;font-size:21px;letter-spacing:-.2px}" +
@@ -191,7 +192,7 @@
 ".vidcard .ply svg{width:24px;height:24px;margin-left:3px}" +
 ".vidcard .cap{position:absolute;left:0;right:0;bottom:0;padding:22px 14px 10px;background:linear-gradient(transparent,rgba(7,25,22,.85));color:#fff;font-size:13.5px;font-weight:700;text-align:left}" +
 ".vidcard iframe{width:100%;aspect-ratio:16/9;border:0;display:block}" +
-"#onebox-root section{padding:64px 20px;display:block}" +
+":where(#onebox-root) section{padding:64px 20px;display:block}" +
 ".wrap{max-width:1020px;margin:0 auto}" +
 ".eyebrow{font-family:var(--font-head);font-weight:800;font-size:13px;letter-spacing:.18em;color:var(--teal-deep);text-transform:uppercase;text-align:center;margin-bottom:10px}" +
 ".sec-title{font-size:clamp(24px,3.4vw,34px);font-weight:800;text-align:center;margin-bottom:14px}" +
@@ -249,8 +250,6 @@
 ".obtoast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#12211f;color:#fff;font-size:14px;font-weight:600;padding:11px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:all .25s;z-index:99;max-width:92vw;text-align:center}" +
 ".obtoast.show{opacity:1;transform:translateX(-50%)}" +
 "#onebox-root :focus-visible{outline:3px solid rgba(0,204,187,.55);outline-offset:2px}" +
-/* The #onebox-root reset above outranks .hero h1{margin:0 auto}, which left the headline hugging the left edge on wide screens. */
-"#onebox-root .hero h1{margin:0 auto}#onebox-root .hero .sub{margin:18px auto 0}" +
 ".opt.multi .dot{border-radius:6px}.opt.multi.sel .dot::after{content:\"✓\";color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;width:100%;height:100%}" +
 ".pricewrap{position:relative}.pricewrap .cur{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-weight:800;color:var(--muted);font-size:18px}.pricewrap .tin{padding-left:36px}" +
 ".q-ask{font-family:var(--font-head);font-weight:700;font-size:17px;margin:-4px 0 6px}" +
@@ -398,7 +397,7 @@
     return null;
   }
   var QS_PPS = [
-    { key: "area", type: "text", title: "Is your area still open?", ask: "What area do you serve?", note: "Spots are limited per area — this decides everything.", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
+    { key: "area", type: "text", title: "Is your area still open?", ask: "What area do you serve?", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
     { key: "exp", type: "radio", title: "How long have you been a permanent makeup artist?", opts: ["I just started", "1 year", "2–3 years", "3–5 years", "5–10 years", "10–15 years", "15+ years"] },
     { key: "services", type: "multi", title: "Which services do you offer?", note: "Select everything you do — eyebrows are the service we book most.", opts: SERVICES },
     { key: "browprice", type: "price", when: function (a) { return hasBrows(a); }, title: "How much do you charge for permanent makeup eyebrows?", note: "Your price for a first-time (initial) eyebrow treatment — not the touch-up.", ph: "e.g. 350" },
