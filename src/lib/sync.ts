@@ -81,6 +81,9 @@ export interface SyncResult {
   supersededDirect?: number;
   /** Set when the tail-delete guard refused to run — says why. */
   deleteSkipped?: string;
+  /** Rows written this run (the rest were identical to what's stored). */
+  rowsWritten?: number;
+  rowsUnchanged?: number;
   status: "ok" | "error";
   error?: string;
   durationMs: number;
@@ -102,6 +105,38 @@ export interface ValidationResult {
   inSync: boolean;
   missingInSupabase: number;
   extraInSupabase: number;
+}
+
+/* Stable JSON for change detection: jsonb comes back with keys in its own
+   order, sheet objects in column order — sort keys so equal data compares
+   equal. */
+function canonical(o: Record<string, unknown>): string {
+  return JSON.stringify(o, Object.keys(o).sort());
+}
+
+/* Current rows keyed by sheet_row (canonical data), paged past PostgREST's
+   1,000-row cap. Returns null if the read fails, in which case the caller
+   falls back to upserting everything — a full rewrite is safe, just noisy. */
+async function loadExistingByRow(
+  supabase: ReturnType<typeof createServiceClient>,
+  table: string
+): Promise<Map<number, string> | null> {
+  const out = new Map<number, string>();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("sheet_row, data")
+      .not("sheet_row", "is", null)
+      .order("sheet_row")
+      .range(from, from + PAGE - 1);
+    if (error) return null;
+    for (const r of (data ?? []) as Array<{ sheet_row: number; data: Record<string, unknown> }>) {
+      out.set(Number(r.sheet_row), canonical(r.data ?? {}));
+    }
+    if (!data || data.length < PAGE) break;
+  }
+  return out;
 }
 
 /**
@@ -161,17 +196,46 @@ export async function syncOneSheet(
       };
     }
 
-    // 2. UPSERT by sheet_row in batches of 500
+    // 2. UPSERT by sheet_row in batches of 500 — but only rows whose data
+    //    actually changed. Rewriting every row every minute (deposits: ~1,000
+    //    rows × 1,440 runs/day) fired ~1.4M Realtime change events per day
+    //    per open Deposits/Clients tab and blew the org past its 5M/month
+    //    Realtime quota (16.9M by 2026-09-18), on top of the standing write
+    //    load behind the Aug-15 overload. Unchanged rows keep their synced_at
+    //    (= the moment the row first arrived, which is what
+    //    dropSupersededDirectRows wants anyway).
     const BATCH = 500;
     const now = new Date().toISOString();
     let maxSheetRow = 0;
+    const existing = await loadExistingByRow(supabase, table);
+    let unchanged = 0;
 
-    for (let i = 0; i < objects.length; i += BATCH) {
-      const batch = objects.slice(i, i + BATCH).map((data) => {
-        const sr = Number(data.row_number) || 0;
-        if (sr > maxSheetRow) maxSheetRow = sr;
-        return { sheet_row: sr, data, synced_at: now };
-      });
+    // Wrong-tab guard: readSheetValues falls back to a tab INDEX when the
+    // named tab is missing, so a wrong spreadsheet id (or a renamed tab)
+    // would happily pour another sheet's rows into this table. If the
+    // columns coming in barely overlap the columns already stored, this is
+    // not the same data — refuse rather than corrupt (2026-09-18 incident:
+    // the Deposits tab landed in clients_master for a few minutes).
+    if (existing && existing.size >= 20 && objects.length) {
+      const stored = new Set<string>();
+      for (const [, canon] of existing) { for (const k of Object.keys(JSON.parse(canon) as Record<string, unknown>)) stored.add(k); if (stored.size > 200) break; }
+      const incoming = Object.keys(objects[0]);
+      const overlap = incoming.filter((k) => stored.has(k)).length / Math.max(1, incoming.length);
+      if (overlap < 0.5) {
+        throw new Error(`refused: incoming columns match only ${Math.round(overlap * 100)}% of the stored columns — wrong sheet/tab for table "${table}"?`);
+      }
+    }
+
+    const changed = objects.filter((data) => {
+      const sr = Number(data.row_number) || 0;
+      if (sr > maxSheetRow) maxSheetRow = sr;
+      const prev = existing?.get(sr);
+      if (prev !== undefined && prev === canonical(data)) { unchanged++; return false; }
+      return true;
+    });
+
+    for (let i = 0; i < changed.length; i += BATCH) {
+      const batch = changed.slice(i, i + BATCH).map((data) => ({ sheet_row: Number(data.row_number) || 0, data, synced_at: now }));
       const { error } = await supabase
         .from(table)
         .upsert(batch, { onConflict: "sheet_row" });
@@ -222,6 +286,8 @@ export async function syncOneSheet(
       supabaseRowsAfter: afterCount ?? 0,
       supersededDirect,
       deleteSkipped,
+      rowsWritten: changed.length,
+      rowsUnchanged: unchanged,
       status: "ok",
       durationMs: Date.now() - start,
     };
