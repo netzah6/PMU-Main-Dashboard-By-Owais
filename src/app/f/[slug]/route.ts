@@ -314,7 +314,8 @@ export async function GET(
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap"></noscript>
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
-<script src="/onebox.js?v=78" defer></script>
+${isPay ? `<script>window.OB_PAYFETCH=(function(){try{var t=new URLSearchParams(location.search).get("t");if(!t)return null;return fetch("/api/onebox/paylead?slug=${row.slug}&t="+encodeURIComponent(t)).then(function(r){return r.ok?r.json():null}).catch(function(){return null});}catch(e){return null}})();</script>` : ""}
+<script src="/onebox.js?v=79" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>

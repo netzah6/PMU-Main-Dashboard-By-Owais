@@ -1324,28 +1324,30 @@
      no time exists yet. Any failure (missing/unknown token, network) simply
      leaves the normal funnel, which is already on screen. */
   var PAY = String(C.pay || "") === "1";
-  if (PAY && !FLOW_V1) {
+  var PAY_T = PAY && !FLOW_V1 ? (new URLSearchParams(location.search).get("t") || "") : "";
+  if (PAY_T) {
     (function () {
-      var t = new URLSearchParams(location.search).get("t") || "";
-      if (!t) return;
-      fetch((C.submitUrl || "").replace(/submit$/, "paylead") +
-            "?slug=" + encodeURIComponent(C.slug || "") + "&t=" + encodeURIComponent(t))
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) {
-          if (!j || !j.ok || !j.phone) return;
-          state.answers.full_name = j.name || state.answers.full_name || "";
-          state.answers.phone = j.phone;
-          state.answers.email = j.email || state.answers.email || "";
-          if (j.slotIso) {
-            /* book() re-syncs the slot to the server (idempotent) and
-               opens the deposit step with the hold + checkout. */
-            book(j.slotIso);
-          } else {
-            show("booking");
-          }
-          window.scrollTo(0, 0);
-        })
-        .catch(function () {});
+      /* The page injected an early fetch before this script even loaded
+         (window.OB_PAYFETCH), so the lookup overlaps engine parse time. */
+      var pf = window.OB_PAYFETCH ||
+        fetch((C.submitUrl || "").replace(/submit$/, "paylead") +
+              "?slug=" + encodeURIComponent(C.slug || "") + "&t=" + encodeURIComponent(PAY_T))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .catch(function () { return null; });
+      Promise.resolve(pf).then(function (j) {
+        if (!j || !j.ok || !j.phone) { PAY_T = ""; show("survey"); return; }
+        state.answers.full_name = j.name || state.answers.full_name || "";
+        state.answers.phone = j.phone;
+        state.answers.email = j.email || state.answers.email || "";
+        if (j.slotIso) {
+          /* book() re-syncs the slot to the server (idempotent) and
+             opens the deposit step with the hold + checkout. */
+          book(j.slotIso);
+        } else {
+          show("booking");
+        }
+        window.scrollTo(0, 0);
+      });
     })();
   }
 
@@ -1357,6 +1359,14 @@
     show("done");
   } else {
     show("survey");
+    /* Payment link: never flash the survey while the lead lookup runs —
+       the loader below replaces it in the same frame, and the lookup's
+       failure path calls show("survey") to bring the real survey back. */
+    if (PAY_T) {
+      slideEl.innerHTML = '<div style="text-align:center;padding:56px 16px">' +
+        '<p style="margin:0 0 6px;font-weight:700;font-size:18px">One moment&hellip;</p>' +
+        '<p style="margin:0;color:#667">Loading your reservation</p></div>';
+    }
     /* Warm the calendar during the quiz: by the time the visitor finishes
        (~30s), the month is memoized and the booking step paints with zero
        wait. The 2.5s delay keeps it off the first-paint critical path. */
