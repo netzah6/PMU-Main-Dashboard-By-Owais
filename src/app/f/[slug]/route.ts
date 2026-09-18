@@ -109,7 +109,11 @@ export async function GET(
   const isBot = /facebookexternalhit|AdsBot|ob-warm/i.test(ua);
   const obE = req.nextUrl.searchParams.get("ob_e") ?? "";
   const obV = req.nextUrl.searchParams.get("ob_v") ?? "";
-  const wantsSplit = !req.nextUrl.searchParams.has("ob_e") && !req.nextUrl.searchParams.has("preview");
+  // pay = a returning lead's payment link (/<slug>/confirm rewrites here
+  // with the x-ob-pay header; ?pay=1 covers direct/local use) — never
+  // re-enter an A/B split for someone who is coming back to pay.
+  const isPay = req.headers.get("x-ob-pay") === "1" || req.nextUrl.searchParams.has("pay");
+  const wantsSplit = !req.nextUrl.searchParams.has("ob_e") && !req.nextUrl.searchParams.has("preview") && !isPay;
   type ProbeVar = { vkey: string; kind: string; weight: number; config_override: Record<string, string> | null };
   const [clientRes, expRes, paramVarRes] = await Promise.all([
     svc.from("onebox_clients").select("*").eq("slug", slug).single(),
@@ -241,6 +245,7 @@ export async function GET(
     metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),
     surveyRaw: row.config.surveyRaw || "",
     consultMode: row.extras.consultMode || "",
+    pay: isPay ? "1" : "",
   };
   /* Program-driven flow: a (V1) client's funnel is survey → thank-you
      ONLY — no booking page, no deposit page. The program comes from the
@@ -309,7 +314,7 @@ export async function GET(
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap"></noscript>
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
-<script src="/onebox.js?v=77" defer></script>
+<script src="/onebox.js?v=78" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>

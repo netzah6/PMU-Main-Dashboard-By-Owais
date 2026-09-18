@@ -43,6 +43,23 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     return NextResponse.rewrite(url);
   }
   if (host === FUNNEL_HOST || host === AGENCY_HOST) {
+    /* AI follow-up payment links: /<slug>/confirm (or /last-step) lands the
+       returning lead straight on the deposit step. Rewritten to the funnel
+       page with pay=1; the personal ?t= token stays in the BROWSER url only
+       (the engine reads it client-side), so the server response stays one
+       cacheable entry per slug. */
+    const pm = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/(confirm|last-step)\/?$/i);
+    if (pm && !RESERVED.has(pm[1].toLowerCase())) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/f/${pm[1].toLowerCase()}`;
+      url.search = "";
+      /* Query params ADDED during a rewrite don't reach the route handler
+         (only the original request's params survive) — the pay signal rides
+         a request header instead, like x-ob-orig-search used to. */
+      const ph = new Headers(request.headers);
+      ph.set("x-ob-pay", "1");
+      return NextResponse.rewrite(url, { request: { headers: ph } });
+    }
     const m = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/?$/i);
     if (m && !RESERVED.has(m[1].toLowerCase())) {
       const url = request.nextUrl.clone();

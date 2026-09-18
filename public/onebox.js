@@ -1318,6 +1318,37 @@
     }
   } catch (e) {}
 
+  /* Payment-link flow (/​<slug>/confirm?t=<contact id>, sent by the
+     follow-up AI): look the lead up, fill their identity, and jump straight
+     to the deposit step with their reserved slot — or to the calendar when
+     no time exists yet. Any failure (missing/unknown token, network) simply
+     leaves the normal funnel, which is already on screen. */
+  var PAY = String(C.pay || "") === "1";
+  if (PAY && !FLOW_V1) {
+    (function () {
+      var t = new URLSearchParams(location.search).get("t") || "";
+      if (!t) return;
+      fetch((C.submitUrl || "").replace(/submit$/, "paylead") +
+            "?slug=" + encodeURIComponent(C.slug || "") + "&t=" + encodeURIComponent(t))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j || !j.ok || !j.phone) return;
+          state.answers.full_name = j.name || state.answers.full_name || "";
+          state.answers.phone = j.phone;
+          state.answers.email = j.email || state.answers.email || "";
+          if (j.slotIso) {
+            /* book() re-syncs the slot to the server (idempotent) and
+               opens the deposit step with the hold + checkout. */
+            book(j.slotIso);
+          } else {
+            show("booking");
+          }
+          window.scrollTo(0, 0);
+        })
+        .catch(function () {});
+    })();
+  }
+
   if (PREVIEW === "thankyou") {
     state.answers.full_name = new URLSearchParams(location.search).get("name") || "Gorgeous";
     var pvd = new Date(Date.now() + 2 * 86400000);
