@@ -752,14 +752,15 @@
     var f = firstName(), area = esc(S.area || "your area");
     var h = '<h2 class="goodnews">🎉 Good news' + (f ? ", " + esc(f) : "") + "!</h2>";
     h += '<p class="goodsub">' + T.goodSub.replace("{area}", area) + "</p>";
-    h += '<div class="hold">⏳ We’re holding your ' + area + ' spot for <span id="ob-holdt" style="min-width:44px;text-align:left">15:00</span></div>';
+    /* PPS: no countdown — the owner didn't want the pressure line (2026-09-18). */
+    if (!PPS) h += '<div class="hold">⏳ We’re holding your ' + area + ' spot for <span id="ob-holdt" style="min-width:44px;text-align:left">15:00</span></div>';
     h += '<div class="hostrow"><img src="' + IMG.avatar + '" alt="Nicolas"><div><div class="hn">Nicolas — Founder &amp; CEO</div><div class="hm">Discovery call · 15 min · Zoom or phone</div></div></div>';
     h += '<div id="ob-calarea"></div>';
     h += '<p class="tznote">All times shown in your local timezone</p>';
     h += '<button type="button" class="cta" id="ob-bookgo" disabled><span class="stack"><span>Claim My ' + area + " Spot</span><small>book the free 15-min call</small></span></button>";
     h += '<div class="backrow"><button type="button" class="backlink" id="ob-qback">← Back to my answers</button></div>';
     render(h, back);
-    startHold();
+    if (!PPS) startHold();
     $("ob-qback").onclick = function () { S.step = QS.length - 1; showStep(true); };
     $("ob-bookgo").onclick = confirmBooking;
     paintCalArea();
