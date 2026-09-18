@@ -48,6 +48,19 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
        page with pay=1; the personal ?t= token stays in the BROWSER url only
        (the engine reads it client-side), so the server response stays one
        cacheable entry per slug. */
+    /* Preferred link shape ends with the friendly word, token in the
+       middle: /<slug>/<contactId>/confirm — reads less spammy in a text
+       than a trailing ?t= token (Netzah, 2026-09-18). The token stays in
+       the BROWSER url; the engine parses it from the path. */
+    const pt = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/([A-Za-z0-9]{8,40})\/(confirm|last-step)\/?$/);
+    if (pt && !RESERVED.has(pt[1].toLowerCase())) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/f/${pt[1].toLowerCase()}`;
+      url.search = "";
+      const th = new Headers(request.headers);
+      th.set("x-ob-pay", "1");
+      return NextResponse.rewrite(url, { request: { headers: th } });
+    }
     const pm = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/(confirm|last-step)\/?$/i);
     if (pm && !RESERVED.has(pm[1].toLowerCase())) {
       const url = request.nextUrl.clone();
