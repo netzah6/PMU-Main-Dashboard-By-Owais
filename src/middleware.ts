@@ -6,6 +6,11 @@ import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server
 // The /f/ namespace still exists everywhere — it's what keeps funnel slugs
 // from colliding with dashboard routes on the main deployment domain.
 const FUNNEL_HOST = "book.pmu-care.com";
+/* The agency's own application funnel gets its own host: the root of
+   book.pmubookingsondemand.com IS the pay-per-appointment funnel (slug
+   "pps"); /<slug> under it works like book.pmu-care.com. */
+const AGENCY_HOST = "book.pmubookingsondemand.com";
+const AGENCY_ROOT_SLUG = "pps";
 const RESERVED = new Set(["api", "f", "s", "login", "auth", "deck", "manifest.webmanifest"]);
 
 /* This repo is deployed by TWO Vercel projects (pmu-main-dashboard-by-owais
@@ -32,7 +37,12 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     return NextResponse.json({ skipped: "secondary Vercel project — crons run on production only" });
   }
   const host = (request.headers.get("host") ?? "").toLowerCase();
-  if (host === FUNNEL_HOST) {
+  if (host === AGENCY_HOST && /^\/?$/.test(request.nextUrl.pathname)) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/f/${AGENCY_ROOT_SLUG}`;
+    return NextResponse.rewrite(url);
+  }
+  if (host === FUNNEL_HOST || host === AGENCY_HOST) {
     const m = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/?$/i);
     if (m && !RESERVED.has(m[1].toLowerCase())) {
       const url = request.nextUrl.clone();

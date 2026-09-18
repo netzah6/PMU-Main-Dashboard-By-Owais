@@ -1,5 +1,8 @@
 /* One-Box B2B funnel engine — the agency's own artist-acquisition funnel
-   (pmu-bookings.com rebuilt as a single swapping card). Phases: 9-question
+   (pmu-bookings.com rebuilt as a single swapping card). Two variants share
+   it: the standard (retainer) application and, with extras.b2b.variant =
+   "pps", the pay-per-appointment application (different questions, a
+   price-qualification branch and a disqualified screen; 2026-09-17). Phases: 9-question
    application -> territory scan -> discovery-call booking (real GHL
    availability) -> confirmation. Server side: /api/onebox/submit books
    nothing and tags "b2b-onebox-survey"; /api/onebox/book creates the
@@ -38,8 +41,40 @@
   ];
   var INTRO_VIDEO = { id: "o009b7n55c", thumb: W + "af2125c514399fa1e7fc6102dbb7eb0f" + CROP };
 
-  var HEADLINE = C.headline || "15–30 Financially Qualified Bookings Every Month <span class=\"hl\">On Autopilot</span> With Our AI System";
-  var SUB = C.sub || "Without Discount Services… GUARANTEED Or 100% Money-Back";
+  var PPS = C.variant === "pps";
+  var STD_FUNNEL = C.standardFunnelUrl || "https://www.pmu-bookings.com/bookings-3-6131";
+  var HEADLINE = C.headline || (PPS
+    ? "Get Booked With Qualified PMU Clients — <span class=\"hl\">Pay Only For The Ones Who Show Up</span>"
+    : "15–30 Financially Qualified Bookings Every Month <span class=\"hl\">On Autopilot</span> With Our AI System");
+  var SUB = C.sub || (PPS
+    ? "No Retainer. No Upfront Fee. You Pay A Small Fee Per Appointment That Shows Up."
+    : "Without Discount Services… GUARANTEED Or 100% Money-Back");
+  /* Page copy that differs between the two offers. */
+  var T = PPS ? {
+    heroSmall: "We open a <b>limited number of pay-per-appointment spots per area</b> — check if yours is still open below.",
+    resultsSub: "Screenshots from client ad accounts — these are the booking opportunities we send, and you only pay for the ones that show up.",
+    gTitle: "No Show, No Fee",
+    g1: "You pay per appointment that shows up in your chair — <b>not per lead, not per month, not per promise.</b>",
+    g2: "No retainer. No long contract. If nobody shows up, you owe nothing.",
+    g3: "That’s why we’re careful about who we take on — we only partner with artists we’re confident we can fill.",
+    founderGoal: "The goal: give permanent makeup artists an additional <b>3–6 quality bookings every single week</b> — and with pay-per-appointment, you only ever pay for results.",
+    finalTitle: "Is a pay-per-appointment spot open in your area?",
+    finalSub: "Spots are limited per area. If yours is taken, you can join the waitlist.",
+    sticky: "See If You Qualify — 60 sec",
+    goodSub: "A <b>pay-per-appointment spot is open in {area}</b>. Book your free 15-minute call to lock it in — we’ll walk you through exactly how it works.",
+  } : {
+    heroSmall: "We partner with only <b>one PMU artist per area</b> — check if yours is still open below.",
+    resultsSub: "Screenshots from client ad accounts — this is what “on autopilot” actually looks like.",
+    gTitle: "Guaranteed Bookings — Or It’s Free",
+    g1: "Usually, the clients we accept don’t need a money-back guarantee.",
+    g2: "However, just to make it a no-brainer for you: <b>you get PMU bookings, or you don’t pay.</b>",
+    g3: "We put our money where our mouth is — this is the proof.",
+    founderGoal: "The goal: help permanent makeup artists skyrocket their business with an additional <b>3–6 quality bookings every single week</b> — backed by a money-back guarantee.",
+    finalTitle: "Is your area still open?",
+    finalSub: "We work with only one PMU artist per area. If yours is taken, you can join the waitlist.",
+    sticky: "Check Availability In Your Area — 60 sec",
+    goodSub: "We have <b>1 spot available in {area}</b>. Book your free 15-minute discovery call to claim it.",
+  };
 
   /* ---------- styles ---------- */
   var CSS = "" +
@@ -213,7 +248,16 @@
 "@media (min-width:721px){.sticky-cta.show{display:none}}" +
 ".obtoast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#12211f;color:#fff;font-size:14px;font-weight:600;padding:11px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:all .25s;z-index:99;max-width:92vw;text-align:center}" +
 ".obtoast.show{opacity:1;transform:translateX(-50%)}" +
-"#onebox-root :focus-visible{outline:3px solid rgba(0,204,187,.55);outline-offset:2px}";
+"#onebox-root :focus-visible{outline:3px solid rgba(0,204,187,.55);outline-offset:2px}" +
+/* The #onebox-root reset above outranks .hero h1{margin:0 auto}, which left the headline hugging the left edge on wide screens. */
+"#onebox-root .hero h1{margin:0 auto}#onebox-root .hero .sub{margin:18px auto 0}" +
+".opt.multi .dot{border-radius:6px}.opt.multi.sel .dot::after{content:\"✓\";color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;width:100%;height:100%}" +
+".pricewrap{position:relative}.pricewrap .cur{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-weight:800;color:var(--muted);font-size:18px}.pricewrap .tin{padding-left:36px}" +
+".q-ask{font-family:var(--font-head);font-weight:700;font-size:17px;margin:-4px 0 6px}" +
+(PPS ? ".ob-steplabel{display:none}.q-title{margin-bottom:14px}.q-note{margin-bottom:18px}.q-frame{margin-bottom:16px}" +
+".vids-grid{gap:28px}.vt{background:#fff;border-radius:22px;padding:14px 14px 20px;box-shadow:0 22px 50px -24px rgba(10,60,55,.35),0 2px 10px rgba(10,60,55,.06);border:1px solid rgba(0,163,150,.08);transition:transform .2s,box-shadow .2s}.vt:hover{transform:translateY(-3px);box-shadow:0 30px 60px -24px rgba(10,60,55,.45),0 4px 14px rgba(10,60,55,.08)}" +
+".vt .vidcard{border-radius:16px}.vt .vidcard img{transform:scale(1.02);transition:transform .35s}.vt .vidcard:hover img{transform:scale(1.07)}.vt .vidcard .ply{width:72px;height:72px;box-shadow:0 0 0 10px rgba(255,255,255,.22),0 14px 30px -6px rgba(0,0,0,.5)}.vt .vidcard .cap{padding:34px 16px 12px;font-size:12.5px;letter-spacing:.2px;text-transform:uppercase;background:linear-gradient(transparent,rgba(7,25,22,.9))}" +
+".vt blockquote{margin:16px 2px 8px;font-size:16px;line-height:1.6;font-style:italic}.vt .who{font-size:14px;margin-top:2px}.vt .who::before{content:\"★★★★★  \";color:#f5b301;letter-spacing:1px;font-style:normal}.vt .loc{font-size:12.5px}" : "");
 
   /* ---------- page skeleton ---------- */
   var root = document.getElementById("onebox-root");
@@ -230,22 +274,23 @@
 
   var PLAY_SVG = '<span class="play"><span class="ply"><svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span></span>';
   function vidCardHTML(id, thumb, cap) {
+    var label = PPS ? cap.replace(/^Interview — /, "").replace(", ", " · ") : "▶️ " + cap;
     return '<button type="button" class="vidcard" data-wid="' + esc(id) + '">' +
       '<img src="' + thumb + '" alt="' + esc(cap) + '" loading="lazy">' + PLAY_SVG +
-      '<span class="cap">▶️ ' + esc(cap) + "</span></button>";
+      '<span class="cap">' + esc(label) + "</span></button>";
   }
 
   var page = "" +
     '<div class="topbar"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span class="wordmark">PMU Bookings On Demand</span></div>' +
     '<header class="hero"><h1>' + HEADLINE + '</h1>' +
-    '<p class="sub">' + SUB + '<small>We partner with only <b>one PMU artist per area</b> — check if yours is still open below.</small></p></header>' +
+    '<p class="sub">' + SUB + '<small>' + T.heroSmall + '</small></p></header>' +
     '<div class="boxwrap" id="boxanchor"><div class="obox" id="obox">' +
-    '<div class="ob-head"><div class="ob-progress"><div class="ob-track"><div class="ob-fill" id="obfill"></div></div><div class="ob-steplabel" id="obstep">Step 1 of 9</div></div></div>' +
+    '<div class="ob-head"><div class="ob-progress"><div class="ob-track"><div class="ob-fill" id="obfill"></div></div><div class="ob-steplabel" id="obstep">Step 1</div></div></div>' +
     '<div class="ob-body"><div class="slide" id="obslide"></div></div>' +
     "</div></div>" +
     '<div class="truststrip"><img class="stars" src="' + IMG.stars + '" alt="5 star rating"><p>Rated 5.0 by over 300 permanent makeup artists across the USA</p></div>' +
     '<section id="ob-results"><div class="wrap"><div class="eyebrow">Results</div><h2 class="sec-title">Real campaigns. Real booking opportunities.</h2>' +
-    '<p class="sec-sub">Screenshots from client ad accounts — this is what “on autopilot” actually looks like.</p><div class="results-grid">' +
+    '<p class="sec-sub">' + T.resultsSub + '</p><div class="results-grid">' +
     '<div class="rescard"><img src="' + IMG.res1 + '" alt="Ad results" loading="lazy"><div class="cap"><b>183</b> booking opportunities in 30 days — <b>$7.94</b> each</div></div>' +
     '<div class="rescard"><img src="' + IMG.res2 + '" alt="Ad results" loading="lazy"><div class="cap"><b>79</b> booking opportunities in 30 days — <b>$10.50</b> each</div></div>' +
     '<div class="rescard"><img src="' + IMG.res3 + '" alt="Ad results" loading="lazy"><div class="cap"><b>93</b> booking opportunities in 30 days — <b>$8.39</b> each</div></div>' +
@@ -272,20 +317,20 @@
     }).join("") +
     "</div></div></section>" +
     '<section class="guarantee"><div class="g-card"><img src="' + IMG.badge + '" alt="100% money-back guarantee seal">' +
-    "<h2>Guaranteed Bookings — Or It’s Free</h2>" +
-    "<p>Usually, the clients we accept don’t need a money-back guarantee.</p>" +
-    "<p>However, just to make it a no-brainer for you: <b>you get PMU bookings, or you don’t pay.</b></p>" +
-    "<p>We put our money where our mouth is — this is the proof.</p></div></section>" +
+    "<h2>" + T.gTitle + "</h2>" +
+    "<p>" + T.g1 + "</p>" +
+    "<p>" + T.g2 + "</p>" +
+    "<p>" + T.g3 + "</p></div></section>" +
     '<section class="founder"><div class="wrap"><img src="' + IMG.founder + '" alt="Nicolas, founder of PMU Bookings On Demand" loading="lazy"><div>' +
     '<div class="eyebrow" style="text-align:left">Meet The Founder</div><h2>Nicolas — Founder &amp; CEO</h2>' +
     "<p>After spending over <b>$300,000 on marketing</b> for his businesses, with 6 years of experience in advertising &amp; sales, Nicolas took his digital marketing expertise and passion for beauty and founded PMU Bookings On Demand.</p>" +
-    "<p>The goal: help permanent makeup artists skyrocket their business with an additional <b>3–6 quality bookings every single week</b> — backed by a money-back guarantee.</p>" +
+    "<p>" + T.founderGoal + "</p>" +
     "</div></div></section>" +
-    '<section class="finalcta"><h2>Is your area still open?</h2><p>We work with only one PMU artist per area. If yours is taken, you can join the waitlist.</p>' +
+    '<section class="finalcta"><h2>' + T.finalTitle + '</h2><p>' + T.finalSub + '</p>' +
     '<a class="cta2" href="#boxanchor" id="ob-finalbtn">Check Availability<small>takes about 60 seconds</small></a></section>' +
     '<footer class="obfooter"><div class="fl"><img src="' + IMG.logo + '" alt=""><span>PMU Bookings On Demand</span></div>' +
     "<div>© " + new Date().getFullYear() + " PMU Bookings On Demand. All Rights Reserved.</div></footer>" +
-    '<div class="sticky-cta" id="ob-sticky"><button type="button" id="ob-stickybtn">Check Availability In Your Area — 60 sec</button></div>' +
+    '<div class="sticky-cta" id="ob-sticky"><button type="button" id="ob-stickybtn">' + T.sticky + '</button></div>' +
     '<div class="obtoast" id="ob-toast"></div>';
 
   root.innerHTML = page;
@@ -329,7 +374,7 @@
   }
 
   /* ---------- survey definition (mirrors the original 9-slide survey) ---------- */
-  var QS = [
+  var QS_STD = [
     { key: "area", type: "text", title: "First — what area do you serve?", note: "We partner with one PMU artist per area, so this decides everything.", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
     { key: "spots", type: "radio", title: "How many spots do you need?", opts: ["I'm a single PMU artist", "2 locations", "3 locations", "4 locations", "5+ locations"] },
     { key: "weekly", type: "radio", title: "How many bookings can you handle every week?", opts: ["10–20 bookings", "20–50 bookings", "50–100 bookings", "100–200 bookings", "200+ bookings"] },
@@ -340,6 +385,39 @@
     { key: "edge", type: "textarea", title: "What sets YOU apart from other PMU artists in your area?", frame: "We guarantee bookings or it’s free — if you don’t make money, we don’t either. That’s why we can only work with top artists and accept <b>about 20% of applications</b>.", ph: "Tell us in a sentence or two…" },
     { key: "contact", type: "contact", title: "Where should we send your availability report?" },
   ];
+  /* Pay-per-appointment application. Qualification (owner rule 2026-09-17):
+     must offer permanent-makeup eyebrows, and the initial treatment must be
+     under $400 — or they agree to price it there. */
+  var SERVICES = ["Permanent Makeup Eyebrows", "Lip Blush", "Eyeliner", "Scar Camouflage", "Scalp Micropigmentation", "Tattoo Removal"];
+  function hasBrows(a) { return (a.services || []).some(function (s) { return /eyebrow/i.test(s); }); }
+  function browPrice(a) { return Number(a.browprice) || 0; }
+  function disqualifiedReason(a) {
+    if (!PPS) return null;
+    if (a.services && !hasBrows(a)) return "nobrows";
+    if (a.browflex === "No — I’d rather keep my current price") return "price";
+    return null;
+  }
+  var QS_PPS = [
+    { key: "area", type: "text", title: "Is your area still open?", ask: "What area do you serve?", note: "Spots are limited per area — this decides everything.", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
+    { key: "exp", type: "radio", title: "How long have you been a permanent makeup artist?", opts: ["I just started", "1 year", "2–3 years", "3–5 years", "5–10 years", "10–15 years", "15+ years"] },
+    { key: "services", type: "multi", title: "Which services do you offer?", note: "Select everything you do — eyebrows are the service we book most.", opts: SERVICES },
+    { key: "browprice", type: "price", when: function (a) { return hasBrows(a); }, title: "How much do you charge for permanent makeup eyebrows?", note: "Your price for a first-time (initial) eyebrow treatment — not the touch-up.", ph: "e.g. 350" },
+    { key: "browflex", type: "radio", when: function (a) { return hasBrows(a) && browPrice(a) >= 400; },
+      title: "One quick thing about pricing",
+      frame: "Our setup converts best when the <b>initial brow treatment is priced below $400</b> — you can charge more on touch-ups and add-ons. Are you open to setting your initial treatment below $400?",
+      opts: ["Yes — I’m open to that", "No — I’d rather keep my current price"] },
+    { key: "start", type: "radio", title: "If accepted, how soon are you ready to start receiving qualified booking opportunities?", opts: ["I'm ready right now", "I'm ready in a few weeks", "I'm ready in a few months"] },
+    { key: "spots", type: "radio", title: "How many spots do you need?", opts: ["I'm a single PMU artist", "2 locations", "3 locations", "4 locations", "5+ locations"] },
+    { key: "weekly", type: "radio", title: "How many bookings can you handle every week?", opts: ["10–20 bookings", "20–50 bookings", "50–100 bookings", "100–200 bookings", "200+ bookings"] },
+    { key: "instagram", type: "text", title: "What’s your Instagram?", note: "We look at your work before the call — a handle or a link is fine.", ph: "@yourstudio or instagram.com/yourstudio", btn: "Continue", skip: "I don’t have one yet" },
+    { key: "reviews", type: "radio", title: "Do you have Google reviews?", opts: ["Yes — 50+ reviews", "Yes — 10–50 reviews", "Yes — under 10 reviews", "Not yet"] },
+    { key: "edge", type: "textarea", title: "What sets YOU apart from other PMU artists in your area?", frame: "With pay-per-appointment <b>you only pay when a client shows up</b> — so the risk is on us, not you. That’s why we don’t work with everyone: we’re careful about who we take on and only partner with artists we’re confident we can fill.", ph: "Tell us in a sentence or two…" },
+    { key: "contact", type: "contact", title: "Where should we send your availability report?" },
+  ];
+  var QS = PPS ? QS_PPS : QS_STD;
+  function visibleSteps() { return QS.filter(function (q) { return !q.when || q.when(S.answers); }); }
+  function stepPos() { var v = visibleSteps(); return { i: v.indexOf(QS[S.step]), n: v.length }; }
+
 
   function firstName() {
     var n = (S.name || "").trim().split(/\s+/)[0] || "";
@@ -348,7 +426,8 @@
 
   function setProgress() {
     var pct, label;
-    if (S.phase === "qa") { pct = 8 + Math.round((S.step / (QS.length - 1)) * 80); label = "Step " + (S.step + 1) + " of " + QS.length; }
+    if (S.phase === "qa") { var sp = stepPos(); pct = 8 + Math.round((Math.max(0, sp.i) / (sp.n - 1)) * 80); label = "Step " + (sp.i + 1) + " of " + sp.n; }
+    else if (S.phase === "dq") { pct = 100; label = "Application reviewed"; }
     else if (S.phase === "checking") { pct = 92; label = "Checking…"; }
     else if (S.phase === "booking") { pct = 96; label = "Almost done"; }
     else { pct = 100; label = "Confirmed ✓"; }
@@ -396,6 +475,14 @@
   }
   function sendComplete() {
     var b = leadBase();
+    if (PPS) {
+      b.services = (S.answers.services || []).join(", ");
+      b.browprice = S.answers.browprice || "";
+      b.browflex = S.answers.browflex || "";
+      b.instagram = S.answers.instagram || "";
+      b.reviews = S.answers.reviews || "";
+      b.program = "PPS";
+    }
     b.email = S.email;
     b.area = S.answers.area || "";
     b.spots = S.answers.spots || "";
@@ -416,12 +503,26 @@
     S.phase = "qa";
     var q = QS[S.step], h = "";
     h += '<h2 class="q-title">' + q.title + "</h2>";
+    if (q.ask) h += '<p class="q-ask">' + q.ask + "</p>";
     if (q.note) h += '<p class="q-note">' + q.note + "</p>";
     if (q.frame) h += '<div class="q-frame">' + q.frame + "</div>";
 
     if (q.type === "text") {
-      h += '<input class="tin" id="ob-qin" type="text" autocomplete="address-level2" placeholder="' + q.ph + '" value="' + esc(S.answers[q.key] || "") + '">';
+      h += '<input class="tin" id="ob-qin" type="text" autocomplete="' + (q.key === "area" ? "address-level2" : "off") + '" placeholder="' + q.ph + '" value="' + esc(S.answers[q.key] || "") + '">';
       h += '<button type="button" class="cta" id="ob-qgo">' + q.btn + " →</button>";
+      if (q.skip) h += '<div class="backrow" style="margin-top:6px"><button type="button" class="backlink" id="ob-qskip">' + q.skip + " →</button></div>";
+    } else if (q.type === "multi") {
+      var chosen = S.answers[q.key] || [];
+      h += '<div class="opts">';
+      q.opts.forEach(function (o, i) {
+        var msel = chosen.indexOf(o) >= 0 ? " sel" : "";
+        h += '<button type="button" class="opt multi' + msel + '" data-i="' + i + '"><span class="dot"></span>' + esc(o) + "</button>";
+      });
+      h += "</div>";
+      h += '<button type="button" class="cta" id="ob-qgo">Continue →</button>';
+    } else if (q.type === "price") {
+      h += '<div class="pricewrap"><span class="cur">$</span><input class="tin" id="ob-qin" type="text" inputmode="numeric" placeholder="' + q.ph + '" value="' + esc(S.answers[q.key] || "") + '"></div>';
+      h += '<button type="button" class="cta" id="ob-qgo">Continue →</button>';
     } else if (q.type === "radio") {
       h += '<div class="opts">';
       q.opts.forEach(function (o, i) {
@@ -445,7 +546,7 @@
     render(h, back);
 
     var go = $("ob-qgo"), bk = $("ob-qback");
-    if (bk) bk.onclick = function () { S.step--; showStep(true); };
+    if (bk) bk.onclick = prev;
 
     if (q.type === "radio") {
       var opts = slideEl.querySelectorAll(".opt");
@@ -457,8 +558,37 @@
           setTimeout(next, 260);
         };
       });
+    } else if (q.type === "multi") {
+      var mopts = slideEl.querySelectorAll(".opt");
+      Array.prototype.forEach.call(mopts, function (b) {
+        b.onclick = function () {
+          b.classList.toggle("sel");
+          var picked = [];
+          Array.prototype.forEach.call(mopts, function (x) { if (x.classList.contains("sel")) picked.push(q.opts[+x.getAttribute("data-i")]); });
+          S.answers[q.key] = picked;
+        };
+      });
+      go.onclick = function () {
+        if (!(S.answers[q.key] || []).length) { toast("Pick at least one service"); return; }
+        next();
+      };
+    } else if (q.type === "price") {
+      var pin = $("ob-qin");
+      pin.focus();
+      pin.addEventListener("input", function () { pin.value = pin.value.replace(/[^0-9]/g, "").slice(0, 5); });
+      pin.addEventListener("keydown", function (e) { if (e.key === "Enter") go.click(); });
+      go.onclick = function () {
+        var v = pin.value.replace(/[^0-9]/g, "");
+        if (!v || +v < 50) { pin.classList.add("err"); pin.focus(); return; }
+        pin.classList.remove("err");
+        S.answers[q.key] = v;
+        if (+v < 400) delete S.answers.browflex; /* the price question no longer applies */
+        next();
+      };
     } else if (q.type === "text" || q.type === "textarea") {
       var inp = $("ob-qin");
+      var sk = $("ob-qskip");
+      if (sk) sk.onclick = function () { S.answers[q.key] = ""; next(); };
       if (S.step === 0 && !S.answers[q.key]) { /* don't steal focus on load */ }
       else inp.focus();
       if (q.type === "text") inp.addEventListener("keydown", function (e) { if (e.key === "Enter") go.click(); });
@@ -508,7 +638,42 @@
       };
     }
   }
-  function next() { if (S.step < QS.length - 1) { S.step++; showStep(false); } }
+  function next() {
+    var why = disqualifiedReason(S.answers);
+    if (why) { showDisqualified(why); return; }
+    var i = S.step + 1;
+    while (i < QS.length && QS[i].when && !QS[i].when(S.answers)) i++;
+    if (i < QS.length) { S.step = i; showStep(false); }
+  }
+  function prev() {
+    var i = S.step - 1;
+    while (i > 0 && QS[i].when && !QS[i].when(S.answers)) i--;
+    S.step = Math.max(0, i); showStep(true);
+  }
+  /* ---------- disqualified (PPS: not a fit for pay-per-appointment) ---------- */
+  function showDisqualified(why) {
+    S.phase = "dq";
+    var f = firstName();
+    /* Disqualification happens before contact details are asked, so there
+       is nothing to send to GHL here — the standard-program button below
+       is the lead's next step. */
+    var h = '<div class="donewrap">';
+    h += '<h2 class="q-title" style="text-align:center">Thanks' + (f ? ", " + esc(f) : "") + " — not a match for pay-per-appointment yet</h2>";
+    if (why === "nobrows") h += '<p class="q-note" style="text-align:center">Our pay-per-appointment program is built around <b>permanent makeup eyebrows</b> — that’s what we book on autopilot. Right now we can’t fill a calendar without eyebrows on the menu.</p>';
+    else h += '<p class="q-note" style="text-align:center">Pay-per-appointment only works when the <b>initial brow treatment is under $400</b> — that’s the price point our booking system converts at. At a higher initial price we can’t guarantee the volume, so we don’t take the spot.</p>';
+    h += '<div class="q-frame" style="margin-top:14px">You may still be a great fit for our <b>standard program</b> — a full done-for-you setup with a guarantee. Apply there instead:</div>';
+    h += '<a class="cta" id="ob-dqstd" href="' + STD_FUNNEL + '" style="display:block;text-align:center;text-decoration:none;margin-top:12px"><span class="stack"><span>Apply For The Standard Program</span><small>takes you to our main application</small></span></a>';
+    h += '<div class="backrow"><button type="button" class="backlink" id="ob-qback">← Change my answers</button></div>';
+    h += "</div>";
+    render(h, false);
+    /* Back = a real second chance: drop the answer that disqualified them
+       and land on that question again. */
+    $("ob-qback").onclick = function () {
+      if (why === "price") { delete S.answers.browflex; S.step = QS.findIndex(function (q) { return q.key === "browflex"; }); }
+      else { S.step = QS.findIndex(function (q) { return q.key === "services"; }); }
+      showStep(true);
+    };
+  }
 
   /* ---------- checking phase (territory scan) ---------- */
   function startChecking() {
@@ -587,7 +752,7 @@
     S.phase = "booking";
     var f = firstName(), area = esc(S.area || "your area");
     var h = '<h2 class="goodnews">🎉 Good news' + (f ? ", " + esc(f) : "") + "!</h2>";
-    h += '<p class="goodsub">We have <b>1 spot available in ' + area + "</b>. Book your free 15-minute discovery call to claim it.</p>";
+    h += '<p class="goodsub">' + T.goodSub.replace("{area}", area) + "</p>";
     h += '<div class="hold">⏳ We’re holding your ' + area + ' spot for <span id="ob-holdt" style="min-width:44px;text-align:left">15:00</span></div>';
     h += '<div class="hostrow"><img src="' + IMG.avatar + '" alt="Nicolas"><div><div class="hn">Nicolas — Founder &amp; CEO</div><div class="hm">Discovery call · 15 min · Zoom or phone</div></div></div>';
     h += '<div id="ob-calarea"></div>';
