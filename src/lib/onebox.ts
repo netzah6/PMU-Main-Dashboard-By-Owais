@@ -202,8 +202,10 @@ export async function healFunnelPhotos(
     const what = [needBa ? "before/after" : "", needStudio ? "studio" : ""].filter(Boolean).join(" + ");
     return { note: `${what} photos are still the template's stock pictures (or empty) and ${bookingUrl} has none of the client's own — upload theirs into the photo custom values in GHL`, config };
   }
-  await setOneboxCustomValues(locationId, entries);
-  const fresh = await refreshOneboxConfig(svc, slug, locationId);
+  const res = await setOneboxCustomValues(locationId, entries);
+  const written = new Set(res.written);
+  const fresh = await refreshOneboxConfig(svc, slug, locationId,
+    Object.fromEntries(entries.filter((e) => written.has(e.name)).map((e) => [e.name, e.value])));
   const parts: string[] = [];
   if (needBa && photos.ba.length) parts.push(`${photos.ba.length} before/after`);
   if (needStudio && photos.studio.length) parts.push(`${photos.studio.length} studio`);
@@ -359,10 +361,17 @@ export async function setOneboxCustomValues(
 
 // Re-pull the location's custom values and persist the fresh config.
 // Returns the fresh config, or null on any failure (caller keeps stale).
+/* `justWritten` = custom values (by GHL name) this same request has just
+   saved. GHL's list endpoint lags its own writes, so a read straight after
+   a write can come back with the OLD value and clobber the config (the
+   survey seed for Browzandbeauties landed in GHL but the row stayed empty,
+   2026-09-19). What GHL accepted IS the truth — merge it over the read;
+   the regular resync reconciles once their list catches up. */
 export async function refreshOneboxConfig(
   svc: SupabaseClient,
   slug: string,
-  locationId: string
+  locationId: string,
+  justWritten: Record<string, string> = {},
 ): Promise<Record<string, string> | null> {
   try {
     const tok = await getAppLocationToken(locationId);
@@ -383,6 +392,7 @@ export async function refreshOneboxConfig(
     };
     const byName: Record<string, string> = {};
     for (const v of customValues ?? []) byName[String(v.name ?? "")] = String(v.value ?? "");
+    for (const [name, value] of Object.entries(justWritten)) byName[name] = value;
     const config = buildConfig(byName);
     await svc
       .from("onebox_clients")
