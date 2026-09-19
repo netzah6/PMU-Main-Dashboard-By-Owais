@@ -22,6 +22,7 @@ export const maxDuration = 300;
 //   POST {action:"extras", slug, fanbasisHtml?, elfsightId?, resultImgs?, metaPixelId?}
 //   POST {action:"status", slug, status}         (live | paused)
 //   POST {action:"health", slug}                 → live checks for one funnel
+//   POST {action:"verifyRedirect", slug, adUrl}  → is the ad link redirecting onto this funnel? (Start Setup step 5)
 
 type Extras = {
   faqs?: { q: string; a: string }[];
@@ -32,6 +33,12 @@ type Extras = {
   oldFunnelUrl?: string;
   ownerName?: string;
   template?: string;
+  /* Start Setup step 5: does the ad link (the GHL funnel URL already
+     running in the ads) get a GHL URL Redirect onto this funnel? "yes" =
+     redirect SOP + live verification gate Go live; "no" = ads use the
+     one-box link directly. redirectVerifiedAt is set by verifyRedirect. */
+  adRedirect?: "yes" | "no";
+  redirectVerifiedAt?: string;
 };
 
 // Public funnel URL on the branded domain (book.pmu-care.com is a
@@ -201,6 +208,8 @@ export async function GET(req: NextRequest) {
       hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
       pixelId: (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, ""),
       oldFunnelUrl: extras.oldFunnelUrl ?? "",
+      adRedirect: extras.adRedirect ?? "",
+      redirectVerifiedAt: extras.redirectVerifiedAt ?? null,
       template: extras.template ?? "",
       cv: Object.fromEntries(Object.keys(ONEBOX_EDITABLE_CVS).map((k) => [k, config[k] ?? ""])),
       visitors: hitCounts[r.slug] ?? 0,
@@ -265,7 +274,7 @@ function warmFunnel(slug: string) {
   })());
 }
 
-const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health"]);
+const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "verifyRedirect"]);
   if (auth.role !== "admin" && !(auth.role === "editor" && COACH_ACTIONS.has(String(body.action ?? "")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -414,6 +423,10 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health"]);
     if (body.metaPixelId !== undefined) extras.metaPixelId = String(body.metaPixelId).replace(/\D/g, "");
     if (body.oldFunnelUrl !== undefined) extras.oldFunnelUrl = String(body.oldFunnelUrl).trim();
     if (body.ownerName !== undefined) extras.ownerName = String(body.ownerName).trim();
+    if (body.adRedirect !== undefined) {
+      const v = String(body.adRedirect);
+      if (v === "yes" || v === "no") extras.adRedirect = v; else delete extras.adRedirect;
+    }
     await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
     warmFunnel(slug);
     return NextResponse.json({ ok: true, elfsightId: extras.elfsightId ?? "" });
@@ -454,6 +467,65 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health"]);
     const failed = entries.filter((e) => !writtenNames.has(e.name)).map((e) => e.name);
     warmFunnel(slug);
     return NextResponse.json({ ok: true, written: res.written.length, failed, config: cfg });
+  }
+
+  /* Start Setup step 5 — live check that the ad link now lands on this
+     funnel. Only the ad URL's redirect header is inspected (redirect:
+     manual), so a still-draft funnel doesn't fail it: the point is to
+     confirm the GHL redirect BEFORE Go live, exactly in the SOP order.
+     The renamed original (…-old) is checked too, as information only —
+     it is the rollback, not a requirement. On success the ad URL and the
+     verification time are stored on the funnel so the card shows it. */
+  if (action === "verifyRedirect") {
+    const adUrlRaw = String(body.adUrl ?? "").trim();
+    let au: URL;
+    try { au = new URL(adUrlRaw); } catch { return NextResponse.json({ error: "the ad link is not a valid URL" }, { status: 400 }); }
+    au.search = ""; au.hash = "";
+    au.pathname = au.pathname.replace(/\/+$/, "");
+    /* The redirect target is the splitter (/s/<slug>): with no test running
+       it is simply the funnel, and a later split test needs no redirect
+       change. The plain and /f/ paths are accepted too. */
+    const target = `${FUNNEL_ORIGIN}/s/${slug}`;
+    const okPaths = new Set([`/${slug}`, `/s/${slug}`, `/f/${slug}`]);
+    const landsHere = (loc: string): boolean => {
+      try {
+        const lu = new URL(loc, au.toString());
+        const path = lu.pathname.replace(/\/+$/, "");
+        return lu.hostname === new URL(target).hostname && okPaths.has(path);
+      } catch { return false; }
+    };
+    let redirectLive = false, redirectNote = "", landsOn = "";
+    try {
+      const r = await fetch(au.toString(), { redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(12000) });
+      const loc = r.headers.get("location") ?? "";
+      landsOn = loc;
+      if (r.status >= 300 && r.status < 400 && landsHere(loc)) redirectLive = true;
+      else if (r.status >= 300 && r.status < 400) redirectNote = `the ad link redirects to ${loc.slice(0, 120)} — expected ${target}`;
+      else if (r.status === 404) redirectNote = "the ad link is a dead 404 right now — ad clicks are being wasted; create the URL Redirect";
+      else redirectNote = "no redirect yet — the ad link still opens the GHL page directly";
+    } catch { redirectNote = "could not reach the ad link — try again"; }
+
+    const ou = new URL(au.toString());
+    ou.pathname = ou.pathname + "-old";
+    let originalKept = false, originalNote = "";
+    try {
+      const r = await fetch(ou.toString(), { redirect: "follow", cache: "no-store", signal: AbortSignal.timeout(12000) });
+      if (r.ok && !/book\.pmu-care\.com|\/s\/|\/f\//.test(r.url)) { originalKept = true; originalNote = `original page kept at ${ou.pathname} (rollback ready)`; }
+      else if (r.ok) originalNote = `${ou.pathname} also redirects here — the original page was not renamed, fine but no rollback copy`;
+      else originalNote = `no page at ${ou.pathname} — the original page was not renamed to -old (optional: keeps a rollback copy)`;
+    } catch { originalNote = "could not check the -old page"; }
+
+    if (redirectLive) {
+      const extras = { ...(row.extras as Extras) };
+      extras.oldFunnelUrl = au.toString();
+      extras.adRedirect = "yes";
+      extras.redirectVerifiedAt = new Date().toISOString();
+      await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
+    }
+    return NextResponse.json({
+      ok: redirectLive, adUrl: au.toString(), target, landsOn,
+      checks: { redirectLive, redirectNote, originalKept, originalNote },
+    });
   }
 
   if (action === "health") {

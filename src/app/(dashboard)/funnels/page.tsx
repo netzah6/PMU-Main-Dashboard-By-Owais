@@ -43,6 +43,8 @@ type Funnel = {
   cvSyncedAt: string | null; url: string;
   hasCalendar: boolean; hasFanbasis: boolean; hasWidget: boolean; hasPixel: boolean; pixelId?: string;
   oldFunnelUrl: string;
+  adRedirect: "" | "yes" | "no";
+  redirectVerifiedAt: string | null;
   cv: Record<string, string>;
   visitors: number;
   leads: number;
@@ -306,6 +308,13 @@ export default function FunnelsPage() {
   const [leadsBusy, setLeadsBusy] = useState(false);
   const [cvForm, setCvForm] = useState<Record<string, string>>({});
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
+  /* Start Setup step 5 — redirect the ad link onto this funnel? The choice
+     is saved on the funnel (extras.adRedirect); the verification result is
+     per open panel and re-checked live each time. */
+  const [redirectChoice, setRedirectChoice] = useState<"" | "yes" | "no">("");
+  const [adUrlForm, setAdUrlForm] = useState("");
+  const [redirectVerify, setRedirectVerify] = useState<{ loading?: boolean; error?: string; ok?: boolean; adUrl?: string; target?: string;
+    checks?: { redirectLive: boolean; redirectNote: string; originalKept: boolean; originalNote: string } } | null>(null);
   const [pixelOther, setPixelOther] = useState(false);
   /* Pixels in use across all funnels. Shared ones (2+ funnels) are the
      agency's template pixels — named "PMU For all (A)", "(B)", … by how many
@@ -629,6 +638,23 @@ export default function FunnelsPage() {
       setStartVerify(j.error ? { error: j.error } : j);
     } catch {
       setStartVerify({ error: "network error — try again" });
+    }
+  }
+
+  async function verifyRedirect(slug: string) {
+    const adUrl = adUrlForm.trim();
+    if (!adUrl) { setToast("Paste the ad link first (the GHL funnel URL running in the ads)"); return; }
+    setRedirectVerify({ loading: true });
+    try {
+      const r = await fetch("/api/onebox/admin", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verifyRedirect", slug, adUrl }),
+      });
+      const j = await r.json();
+      setRedirectVerify(j.error ? { error: j.error } : j);
+      if (j.ok) await load();
+    } catch {
+      setRedirectVerify({ error: "network error — try again" });
     }
   }
 
@@ -1085,6 +1111,7 @@ export default function FunnelsPage() {
                       redirect: <a href={f.oldFunnelUrl} target="_blank" rel="noopener" className="hover:underline">{f.oldFunnelUrl}</a>
                       {" → "}
                       <span className="text-[#0e9c9c]">{f.url}</span>
+                      {f.redirectVerifiedAt && <span className="text-[#15803d]"> ✓ verified {ago(f.redirectVerifiedAt)}</span>}
                     </div>
                   )}
                 </div>
@@ -1208,10 +1235,6 @@ export default function FunnelsPage() {
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `resync:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sync Custom Values From GHL
                 </button>
-                <button onClick={() => void act("health", f.slug)} disabled={busy === `health:${f.slug}`}
-                  className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
-                  {busy === `health:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Stethoscope className="w-3 h-3" />} Health check
-                </button>
                 </>)}
                 {canEdit && (
                 <button onClick={() => {
@@ -1225,6 +1248,9 @@ export default function FunnelsPage() {
                       setAbOrigUrl(f.oldFunnelUrl ? f.oldFunnelUrl.replace(/\/?$/, "") + "-ab-ghl" : "");
                       setSop({ renamed: false, redirect: false, values: false, workflow: false });
                       setStartVerify(null);
+                      setRedirectChoice(f.adRedirect);
+                      setAdUrlForm(f.oldFunnelUrl || "");
+                      setRedirectVerify(null);
                     }
                   }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
@@ -1242,18 +1268,6 @@ export default function FunnelsPage() {
                 </button>
                 )}
               </div>
-
-              {health[f.slug] && (
-                <div className="mt-3 border-t border-[#eef2f6] pt-2 grid md:grid-cols-2 gap-1">
-                  {health[f.slug].map((c) => (
-                    <div key={c.name} className="text-xs flex items-center gap-2">
-                      {c.ok ? <Check className="w-3.5 h-3.5 text-[#15803d]" /> : <X className="w-3.5 h-3.5 text-[#b91c1c]" />}
-                      <span className="text-[#1c2b3a]">{c.name}</span>
-                      <span className="text-[#697a91]">— {c.note}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
 
               {leadsFor === f.slug && (
                 <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
@@ -1453,20 +1467,124 @@ export default function FunnelsPage() {
                       {busy === `health:${f.slug}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
                       Run verification
                     </button>
-                    <span className="text-[10px] text-[#697a91]">The checklist appears below the card&rsquo;s buttons — every line should be green.</span>
+                    {health[f.slug] ? (
+                      <div className="w-full grid md:grid-cols-2 gap-1 mt-1">
+                        {health[f.slug].map((c) => (
+                          <div key={c.name} className="text-xs flex items-center gap-2">
+                            {c.ok ? <Check className="w-3.5 h-3.5 text-[#15803d]" /> : <X className="w-3.5 h-3.5 text-[#b91c1c]" />}
+                            <span className="text-[#1c2b3a]">{c.name}</span>
+                            <span className="text-[#697a91]">— {c.note}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-[#697a91]">Every line should come back green before going live.</span>
+                    )}
+                  </div>
+                  {/* Step 5 — the ads already carry the client's GHL funnel link
+                      and that link must NOT change (a new ad URL resets Meta's
+                      learning phase), so most launches need a GHL URL Redirect
+                      from the ad link onto this funnel (user, 2026-09-19). The
+                      SOP is the zero-flash cutover: rename the old page to -old
+                      (keeps a rollback copy), then 301 the original path here.
+                      Verified live before Go live, in that order. */}
+                  {(() => {
+                    const adPath = (() => { try { return new URL(adUrlForm.trim()).pathname.replace(/\/+$/, ""); } catch { return ""; } })();
+                    const verifiedNow = !!redirectVerify?.ok;
+                    const verifiedBefore = !!f.redirectVerifiedAt && f.adRedirect === "yes";
+                    const needsVerify = redirectChoice === "yes" && !verifiedNow && !verifiedBefore;
+                    const pick = (v: "yes" | "no") => {
+                      setRedirectChoice(v); setRedirectVerify(null);
+                      if (v !== f.adRedirect) void act("extras", f.slug, { adRedirect: v });
+                    };
+                    return (<>
+                  <div className="border-t border-[#eef2f6] pt-3 grid gap-1.5 justify-items-start">
+                    <p className="text-[11px] font-bold text-[#0b7f7f]">Step 5 &middot; Redirect the ad link here?</p>
+                    <span className="text-[10px] text-[#697a91]">
+                      The ads keep their current GHL funnel link (changing it would reset the learning phase) — so the GHL link should redirect to this funnel.
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button type="button" onClick={() => pick("yes")}
+                        className={cn("text-xs rounded-lg px-3 py-1.5 border font-medium",
+                          redirectChoice === "yes" ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] bg-white hover:bg-[#f6f9fc] text-[#1c2b3a]")}>
+                        Yes — redirect the GHL link
+                      </button>
+                      <button type="button" onClick={() => pick("no")}
+                        className={cn("text-xs rounded-lg px-3 py-1.5 border font-medium",
+                          redirectChoice === "no" ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] bg-white hover:bg-[#f6f9fc] text-[#1c2b3a]")}>
+                        No — the ads will use the one-box link directly
+                      </button>
+                    </div>
+                    {redirectChoice === "yes" && (
+                      <div className="w-full border border-[#e4ebf2] rounded-xl p-3 grid gap-2 text-xs bg-white">
+                        <label className="grid gap-0.5">
+                          <span className="text-[10px] font-medium text-[#697a91]">Ad link (the GHL funnel URL running in the ads)</span>
+                          <input value={adUrlForm} placeholder="https://pmu-care.com/care-pmu-survey-12"
+                            onChange={(e) => { setAdUrlForm(e.target.value); setRedirectVerify(null); }}
+                            className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                        </label>
+                        <b className="text-[11px] text-[#1c2b3a]">In GHL, in this order (ad clicks switch over the moment step 2 is saved — do Go live right after):</b>
+                        <div className="grid gap-1 text-[#697a91]">
+                          <span>1. Sites &rarr; Funnels &rarr; open the client&rsquo;s funnel &rarr; the survey step &rarr; Settings &rarr; Path: add{" "}
+                            <CopyChip text="-old" onCopied={() => setToast("Copied ✓")} /> to the END of the path &rarr; Save.
+                            (Keeps the old page as a rollback copy; nothing goes dark.)</span>
+                          <span>2. Sites &rarr; URL Redirects &rarr; + Add: Domain = the ad link&rsquo;s domain, Path ={" "}
+                            {adPath ? <CopyChip text={adPath} onCopied={() => setToast("Copied ✓")} /> : <i>paste the ad link above first</i>}
+                            , Action = Redirect to URL, Target ={" "}
+                            <CopyChip text={f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)} onCopied={() => setToast("Copied ✓")} />, type 301 &rarr; Save.</span>
+                          <span>3. Click <b>Verify redirect</b> — it opens the ad link and checks it lands on this funnel.</span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button type="button" onClick={() => void verifyRedirect(f.slug)} disabled={!!redirectVerify?.loading}
+                            className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60 inline-flex items-center gap-1.5">
+                            {redirectVerify?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
+                            {redirectVerify?.checks ? "Re-check" : "Verify redirect"}
+                          </button>
+                          {verifiedBefore && !redirectVerify?.checks && (
+                            <span className="text-[#15803d]">&#10004; verified {new Date(f.redirectVerifiedAt as string).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                          )}
+                        </div>
+                        {redirectVerify?.error && <span className="text-[#b91c1c]">{redirectVerify.error}</span>}
+                        {redirectVerify?.checks && !redirectVerify.loading && (
+                          <div className="grid gap-0.5">
+                            <span className={redirectVerify.checks.redirectLive ? "text-[#15803d]" : "text-[#b91c1c]"}>
+                              {redirectVerify.checks.redirectLive
+                                ? `✓ Ad link redirects to ${redirectVerify.target}`
+                                : `✗ ${redirectVerify.checks.redirectNote}`}
+                            </span>
+                            <span className={redirectVerify.checks.originalKept ? "text-[#15803d]" : "text-[#697a91]"}>
+                              {redirectVerify.checks.originalKept ? "✓ " : "· "}{redirectVerify.checks.originalNote}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {redirectChoice === "no" && (
+                      <span className="text-[10px] text-[#697a91]">OK — no redirect. Use <b>{f.url}</b> in the ads.</span>
+                    )}
                   </div>
                   <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
-                    <p className="text-[11px] font-bold text-[#0b7f7f]">Step 5 &middot; Go live</p>
+                    <p className="text-[11px] font-bold text-[#0b7f7f]">Step 6 &middot; Go live</p>
                     {f.status === "live" ? (
                       <span className="text-xs font-medium text-[#15803d]">&#10004; This funnel is live</span>
                     ) : (
-                      <button onClick={() => void act("status", f.slug, { status: "live" })}
-                        disabled={busy === `status:${f.slug}`}
-                        className="ob-golive text-xs rounded-lg px-3 py-2 border font-medium border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]">
-                        Go live
-                      </button>
+                      <>
+                        <button onClick={() => void act("status", f.slug, { status: "live" })}
+                          disabled={busy === `status:${f.slug}` || needsVerify}
+                          title={needsVerify ? "Verify the redirect in Step 5 first" : undefined}
+                          className="ob-golive text-xs rounded-lg px-3 py-2 border font-medium border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df] disabled:opacity-40 disabled:cursor-not-allowed">
+                          Go live
+                        </button>
+                        {needsVerify
+                          ? <span className="text-[10px] text-[#c2410c]">Verify the redirect in Step 5 first — ad clicks are already switching over, so go live right after it passes.</span>
+                          : verifiedNow
+                            ? <span className="text-[10px] text-[#15803d]">Redirect is live — go live now so the ad clicks land on the new funnel.</span>
+                            : null}
+                      </>
                     )}
                   </div>
+                    </>);
+                  })()}
                   {isAdmin && (
                     <div className="border-t border-[#eef2f6] pt-2">
                       <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
