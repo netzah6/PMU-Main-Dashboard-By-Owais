@@ -1232,13 +1232,6 @@ export default function FunnelsPage() {
                   Start Setup {cvFor === f.slug ? "▲" : ""}
                 </button>
                 )}
-                {isAdmin && (
-                <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
-                  className={cn("text-[11px] border rounded-lg px-2 py-0.5",
-                    abFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
-                  Split test {abFor === f.slug ? "▲" : ""}
-                </button>
-                )}
                 {/* Coaches publish their own onboardings — Go live is not admin-gated. */}
                 {canEdit && (
                 <button onClick={() => void act("status", f.slug, { status: f.status === "live" ? "paused" : "live" })}
@@ -1329,9 +1322,10 @@ export default function FunnelsPage() {
               {cvFor === f.slug && (
                 <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
                   <p className="text-[11px] text-[#697a91]">
-                    These save straight into the sub-account&rsquo;s GHL custom values and the funnel updates
-                    immediately — no need to open GHL.
+                    Everything here saves straight into the sub-account&rsquo;s GHL custom values and the funnel
+                    updates immediately — no need to open GHL. Follow the steps top to bottom.
                   </p>
+                  <p className="text-[11px] font-bold text-[#0b7f7f]">Step 1 &middot; Business details</p>
                   <div className="grid md:grid-cols-2 gap-2">
                     {([
                       ["biz", "Business name"],
@@ -1377,8 +1371,9 @@ export default function FunnelsPage() {
                     </label>
                   </div>
                   <div className="grid gap-1">
+                    <p className="text-[11px] font-bold text-[#0b7f7f] mt-1">Step 2 &middot; Survey questions</p>
                     <span className="text-[10px] font-medium text-[#697a91]">
-                      Survey questions — ON/OFF hides a question, drag &#8801; (or &#9650;&#9660;) to reorder;
+                      ON/OFF hides a question, drag &#8801; (or &#9650;&#9660;) to reorder;
                       name, phone &amp; email always close the survey. {"{address}"} becomes the studio address.
                     </span>
                     {surveyRows.map((row, i) => (
@@ -1428,7 +1423,8 @@ export default function FunnelsPage() {
                     </button>
                   </div>
 
-                  <div className="border-t border-[#eef2f6] pt-3">
+                  <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
+                    <p className="text-[11px] font-bold text-[#0b7f7f]">Step 3 &middot; Save to GoHighLevel</p>
                     <button
                       onClick={() => {
                         const changed: Record<string, string> = {};
@@ -1444,13 +1440,41 @@ export default function FunnelsPage() {
                         if (!Object.keys(changed).length && !Object.keys(extras).length) { setToast("Nothing changed"); return; }
                         if (Object.keys(changed).length) void act("cvs", f.slug, { values: JSON.stringify(changed) });
                         if (Object.keys(extras).length) void act("extras", f.slug, extras);
-                        setCvFor(null);
                       }}
                       disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`}
                       className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
                       {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
                     </button>
                   </div>
+                  <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
+                    <p className="text-[11px] font-bold text-[#0b7f7f]">Step 4 &middot; Verify the setup</p>
+                    <button onClick={() => void act("health", f.slug)} disabled={busy === `health:${f.slug}`}
+                      className="text-xs border border-[#e4ebf2] rounded-lg px-3 py-2 hover:bg-white inline-flex items-center gap-1.5 bg-white font-medium">
+                      {busy === `health:${f.slug}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
+                      Run verification
+                    </button>
+                    <span className="text-[10px] text-[#697a91]">The checklist appears below the card&rsquo;s buttons — every line should be green.</span>
+                  </div>
+                  <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
+                    <p className="text-[11px] font-bold text-[#0b7f7f]">Step 5 &middot; Go live</p>
+                    {f.status === "live" ? (
+                      <span className="text-xs font-medium text-[#15803d]">&#10004; This funnel is live</span>
+                    ) : (
+                      <button onClick={() => void act("status", f.slug, { status: "live" })}
+                        disabled={busy === `status:${f.slug}`}
+                        className="ob-golive text-xs rounded-lg px-3 py-2 border font-medium border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]">
+                        Go live
+                      </button>
+                    )}
+                  </div>
+                  {isAdmin && (
+                    <div className="border-t border-[#eef2f6] pt-2">
+                      <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) { if (!abOrigUrl) setAbOrigUrl(f.oldFunnelUrl || ""); void loadAb(f.slug); } }}
+                        className="text-[11px] text-[#697a91] hover:text-[#1c2b3a] hover:underline">
+                        Advanced &middot; Split test vs the original GHL funnel {abFor === f.slug ? "▲" : "▸"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

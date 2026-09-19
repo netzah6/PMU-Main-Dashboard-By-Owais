@@ -265,7 +265,7 @@ function warmFunnel(slug: string) {
   })());
 }
 
-const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status"]);
+const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health"]);
   if (auth.role !== "admin" && !(auth.role === "editor" && COACH_ACTIONS.has(String(body.action ?? "")))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
