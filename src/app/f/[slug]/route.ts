@@ -10,11 +10,9 @@ import { signLogoUrl } from "@/lib/logo-sign";
 // fight it). Config comes from onebox_clients, synced from the client's
 // GHL custom values; extras hold FAQs, the Fanbasis block, Elfsight id.
 export const dynamic = "force-dynamic";
-/* The database lives in ap-northeast-1 (Tokyo); an unpinned function runs
-   in US East and pays ~300ms per DB roundtrip. Run next to the data — the
-   visitor pays one slightly longer edge hop instead of 2-3 Pacific ones.
-   Scoped to this route only: GHL-heavy crons must stay near GHL (US). */
-export const preferredRegion = "hnd1";
+/* The database moved to us-east-1 on 2026-09-19 (was Tokyo, which is why
+   this route used to be pinned to hnd1). Default region = iad1, next to
+   both the database and GHL — no pin needed any more. */
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
 

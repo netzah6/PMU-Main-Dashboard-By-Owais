@@ -11,7 +11,6 @@ import { getAppLocationToken } from "@/lib/ghl-app";
 // the bearer credential — GHL ids are long random strings the lead received
 // in their own text message; nothing here is served without one.
 export const dynamic = "force-dynamic";
-export const preferredRegion = "hnd1";
 export const fetchCache = "force-no-store";
 
 /* "Friday, September 20, 2026 5:00 PM" (the exact shape fmtReservedTime
