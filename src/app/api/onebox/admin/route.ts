@@ -280,7 +280,7 @@ async function seedSurveyFromAccount(
   ].join("\n");
   const res = await setOneboxCustomValues(locationId, [{ name: "OB - Survey Questions", value: surveyRaw }]);
   if (res.error) return { config, note: `survey not seeded (${res.error})`, seeded: false };
-  const fresh = await refreshOneboxConfig(svc, slug, locationId);
+  const fresh = await refreshOneboxConfig(svc, slug, locationId, { "OB - Survey Questions": surveyRaw });
   return { config: fresh, note: `survey seeded with the account's services: ${areas.join(", ")}`, seeded: true };
 }
 
