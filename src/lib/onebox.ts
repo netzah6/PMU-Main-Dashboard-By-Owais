@@ -230,6 +230,29 @@ export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
 // Write custom values straight to the sub-account — update when the
 // value exists, create when it doesn't — so the team never has to hunt
 // for them inside GHL.
+/* New-client survey seeding: many sub-accounts already carry the client's
+   real service list as the OPTIONS of the "CC - Which Area(s) Would You
+   Like Treated?" contact field. Read them so Add-client can build the
+   funnel's first survey question from the account's own data. */
+export async function getAreaFieldOptions(locationId: string): Promise<string[]> {
+  try {
+    const tok = await getAppLocationToken(locationId);
+    if (!tok.token) return [];
+    const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customFields`, {
+      headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" },
+    });
+    if (!r.ok) return [];
+    const { customFields } = (await r.json()) as { customFields?: Array<Record<string, unknown>> };
+    const f = (customFields ?? []).find((x) => /which area/i.test(String(x.name ?? "")));
+    if (!f) return [];
+    const raw = (f.picklistOptions ?? f.options ?? f.textBoxListOptions ?? []) as unknown[];
+    const opts = raw
+      .map((o) => typeof o === "string" ? o : String((o as { label?: unknown }).label ?? (o as { name?: unknown }).name ?? (o as { value?: unknown }).value ?? ""))
+      .map((x) => x.trim()).filter(Boolean);
+    return [...new Set(opts)];
+  } catch { return []; }
+}
+
 export async function setOneboxCustomValues(
   locationId: string,
   entries: { name: string; value: string }[]

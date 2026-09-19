@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, getAreaFieldOptions, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
@@ -327,8 +327,33 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status"]);
         photoNote = `no photos found on ${bookingUrl} — fill the photo custom values in GHL`;
       }
     }
+    /* First survey question from the account's own data: the options on
+       the "CC - Which Area(s)…" contact field ARE the client's service
+       list (Netzah, 2026-09-19). Seed OB - Survey Questions with them so
+       a new funnel offers the right services from day one — only when no
+       survey exists yet, never over an edited one. */
+    let surveyNote = "";
+    if (!(config?.surveyRaw ?? "").trim()) {
+      const areas = await getAreaFieldOptions(locationId);
+      if (areas.length >= 2) {
+        const surveyRaw = [
+          `Which Area(s) Would You Like Treated? | ${areas.join("; ")}`,
+          "Have You Ever Had Permanent Makeup Before? | Yes; No",
+          "What Age Group Are You In? | 18-24; 24-30; 30-36; 36-42; 42-54; 54-65; 65+",
+          "Our Address is {address}. Is This commutable for you? | Yes; No",
+          "On A Scale From 1-10 How Serious Are You About Getting This Treatment? | 0-2; 3-6; 7-9; 10 I Want This Treatment!",
+          "Would you like a FREE Aftercare Kit? | Yes; No",
+        ].join("\n");
+        const surveyRes = await setOneboxCustomValues(locationId, [{ name: "OB - Survey Questions", value: surveyRaw }]);
+        if (!surveyRes.error) {
+          config = await refreshOneboxConfig(svc, slug, locationId);
+          surveyNote = `survey seeded with the account's services: ${areas.join(", ")}`;
+        }
+      }
+      if (!surveyNote) surveyNote = "standard survey (no service list on the CC - Which Area(s) field)";
+    }
     return NextResponse.json({
-      ok: true, slug, url: funnelUrl(req, slug), pixelNote, photoNote,
+      ok: true, slug, url: funnelUrl(req, slug), pixelNote, photoNote, surveyNote,
       cvNote: ensured.created.length
         ? `created ${ensured.created.length} missing custom values: ${ensured.created.join(", ")} — fill them in GHL`
         : "all one-box custom values already existed",
