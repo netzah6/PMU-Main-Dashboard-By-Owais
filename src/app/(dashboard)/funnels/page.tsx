@@ -141,15 +141,30 @@ type Insight = {
 };
 
 /* Click-to-copy pill for SOP values — the exact string, one click. */
+/* The chip itself flashes green "Copied ✓" for a moment, so the copy is
+   confirmed right where the click happened (user, 2026-09-19). */
 function CopyChip({ text, label, onCopied }: { text: string; label?: string; onCopied: () => void }) {
+  const [done, setDone] = useState(false);
   return (
     <button
       type="button"
       title={`Copy: ${text}`}
-      onClick={(e) => { e.preventDefault(); void navigator.clipboard.writeText(text).then(onCopied); }}
-      className="inline-flex items-center gap-1 align-middle font-mono text-[11px] bg-[#f0f6f6] text-[#0b7285] border border-[#bfe3e3] rounded-md px-1.5 py-0.5 hover:bg-[#e2f1f1] cursor-copy max-w-[300px]">
-      <span className="truncate">{label ?? text}</span>
-      <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      onClick={(e) => {
+        e.preventDefault();
+        void navigator.clipboard.writeText(text).then(() => {
+          onCopied();
+          setDone(true);
+          window.setTimeout(() => setDone(false), 1400);
+        });
+      }}
+      className={cn("inline-flex items-center gap-1 align-middle font-mono text-[11px] border rounded-md px-1.5 py-0.5 cursor-copy max-w-[300px] transition-colors duration-200",
+        done ? "bg-[#e7f6ec] text-[#15803d] border-[#86d3a3] scale-105" : "bg-[#f0f6f6] text-[#0b7285] border-[#bfe3e3] hover:bg-[#e2f1f1]")}>
+      <span className="truncate">{done ? "Copied ✓" : (label ?? text)}</span>
+      {done ? (
+        <Check className="w-3 h-3 shrink-0" />
+      ) : (
+        <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      )}
     </button>
   );
 }
@@ -313,6 +328,10 @@ export default function FunnelsPage() {
      per open panel and re-checked live each time. */
   const [redirectChoice, setRedirectChoice] = useState<"" | "yes" | "no">("");
   const [adUrlForm, setAdUrlForm] = useState("");
+  /* Tick-boxes for the three GHL steps of the redirect SOP; Verify unlocks
+     once all three are ticked (same pattern as the split-test SOP). The
+     workflow tag step can't be machine-checked, so the box is the record. */
+  const [sop5, setSop5] = useState({ renamed: false, redirect: false, workflow: false });
   const [redirectVerify, setRedirectVerify] = useState<{ loading?: boolean; error?: string; ok?: boolean; adUrl?: string; target?: string;
     checks?: { redirectLive: boolean; redirectNote: string; originalKept: boolean; originalNote: string } } | null>(null);
   const [pixelOther, setPixelOther] = useState(false);
@@ -1251,6 +1270,7 @@ export default function FunnelsPage() {
                       setRedirectChoice(f.adRedirect);
                       setAdUrlForm(f.oldFunnelUrl || "");
                       setRedirectVerify(null);
+                      setSop5({ renamed: false, redirect: false, workflow: false });
                     }
                   }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
@@ -1335,10 +1355,6 @@ export default function FunnelsPage() {
 
               {cvFor === f.slug && (
                 <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
-                  <p className="text-[11px] text-[#697a91]">
-                    Everything here saves straight into the sub-account&rsquo;s GHL custom values and the funnel
-                    updates immediately — no need to open GHL. Follow the steps top to bottom.
-                  </p>
                   <p className="text-[11px] font-bold text-[#0b7f7f]">Step 1 &middot; Business details</p>
                   <div className="grid md:grid-cols-2 gap-2">
                     {([
@@ -1386,10 +1402,6 @@ export default function FunnelsPage() {
                   </div>
                   <div className="grid gap-1">
                     <p className="text-[11px] font-bold text-[#0b7f7f] mt-1">Step 2 &middot; Survey questions</p>
-                    <span className="text-[10px] font-medium text-[#697a91]">
-                      ON/OFF hides a question, drag &#8801; (or &#9650;&#9660;) to reorder;
-                      name, phone &amp; email always close the survey. {"{address}"} becomes the studio address.
-                    </span>
                     {surveyRows.map((row, i) => (
                       <div key={i} draggable
                         onDragStart={() => { surveyDragIdx.current = i; }}
@@ -1500,9 +1512,6 @@ export default function FunnelsPage() {
                     return (<>
                   <div className="border-t border-[#eef2f6] pt-3 grid gap-1.5 justify-items-start">
                     <p className="text-[11px] font-bold text-[#0b7f7f]">Step 5 &middot; Redirect the ad link here?</p>
-                    <span className="text-[10px] text-[#697a91]">
-                      The ads keep their current GHL funnel link (changing it would reset the learning phase) — so the GHL link should redirect to this funnel.
-                    </span>
                     <div className="flex flex-wrap gap-1.5">
                       <button type="button" onClick={() => pick("yes")}
                         className={cn("text-xs rounded-lg px-3 py-1.5 border font-medium",
@@ -1523,20 +1532,34 @@ export default function FunnelsPage() {
                             onChange={(e) => { setAdUrlForm(e.target.value); setRedirectVerify(null); }}
                             className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                         </label>
-                        <b className="text-[11px] text-[#1c2b3a]">In GHL, in this order (ad clicks switch over the moment step 2 is saved — do Go live right after):</b>
-                        <div className="grid gap-1 text-[#697a91]">
-                          <span>1. Sites &rarr; Funnels &rarr; open the client&rsquo;s funnel &rarr; the survey step &rarr; Settings &rarr; Path: add{" "}
-                            <CopyChip text="-old" onCopied={() => setToast("Copied ✓")} /> to the END of the path &rarr; Save.
-                            (Keeps the old page as a rollback copy; nothing goes dark.)</span>
-                          <span>2. Sites &rarr; URL Redirects &rarr; + Add: Domain = the ad link&rsquo;s domain, Path ={" "}
-                            {adPath ? <CopyChip text={adPath} onCopied={() => setToast("Copied ✓")} /> : <i>paste the ad link above first</i>}
-                            , Action = Redirect to URL, Target ={" "}
-                            <CopyChip text={f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)} onCopied={() => setToast("Copied ✓")} />, type 301 &rarr; Save.</span>
-                          <span>3. Click <b>Verify redirect</b> — it opens the ad link and checks it lands on this funnel.</span>
+                        <div className="grid gap-1.5 text-[#697a91]">
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" className="mt-0.5" checked={sop5.renamed}
+                              onChange={(e) => { setSop5((x) => ({ ...x, renamed: e.target.checked })); setRedirectVerify(null); }} />
+                            <span>1. Survey step path: add <CopyChip text="-old" onCopied={() => setToast("Copied ✓")} /> at the end.</span>
+                          </label>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" className="mt-0.5" checked={sop5.redirect}
+                              onChange={(e) => { setSop5((x) => ({ ...x, redirect: e.target.checked })); setRedirectVerify(null); }} />
+                            <span>2. URL Redirect:{" "}
+                              {adPath ? <CopyChip text={adPath} onCopied={() => setToast("Copied ✓")} /> : <i>paste the ad link above first</i>}
+                              {" "}&rarr;{" "}
+                              <CopyChip text={f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)} onCopied={() => setToast("Copied ✓")} /></span>
+                          </label>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" className="mt-0.5" checked={sop5.workflow}
+                              onChange={(e) => { setSop5((x) => ({ ...x, workflow: e.target.checked })); setRedirectVerify(null); }} />
+                            <span>3. Workflow <b>CC- Funnel Survey</b>: add a Contact Tag trigger{" "}
+                              <CopyChip text="onebox-survey" onCopied={() => setToast("Copied ✓")} />
+                              {" "}(+ the same tag as an OR condition in the program branch), Publish.</span>
+                          </label>
+                          <span>4. Verify, then Go live.</span>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <button type="button" onClick={() => void verifyRedirect(f.slug)} disabled={!!redirectVerify?.loading}
-                            className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60 inline-flex items-center gap-1.5">
+                          <button type="button" onClick={() => void verifyRedirect(f.slug)}
+                            disabled={!!redirectVerify?.loading || !(sop5.renamed && sop5.redirect && sop5.workflow)}
+                            title={!(sop5.renamed && sop5.redirect && sop5.workflow) ? "Tick the three GHL steps first" : undefined}
+                            className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
                             {redirectVerify?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
                             {redirectVerify?.checks ? "Re-check" : "Verify redirect"}
                           </button>
