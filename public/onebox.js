@@ -369,7 +369,11 @@
     if (bar < 0) return;
     var q = line.slice(0, bar).trim().replace(/\{address\}/gi, ADDR);
     var o = line.slice(bar + 1).split(";").map(function (s) { return s.trim(); }).filter(Boolean);
-    if (!q || o.length < 2) return;
+    /* A single-option question still matters (a one-service artist's
+       "Which Area?" = Eyebrows): dropping it silently removed the question
+       from Two.FacedxBae's funnel and left the contact field empty. Only a
+       line with NO options is skipped. */
+    if (!q || o.length < 1) return;
     var k = null;
     for (var ci = 0; ci < CANON.length; ci++) {
       if (CANON[ci][0].test(q)) { k = CANON[ci][1]; break; }
