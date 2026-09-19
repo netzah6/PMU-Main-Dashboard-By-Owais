@@ -311,8 +311,15 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
   if (action === "add") {
     const locationId = String(body.locationId ?? "").trim();
     if (!slug || !locationId) return NextResponse.json({ error: "slug and locationId required" }, { status: 400 });
-    const { data: existing } = await svc.from("onebox_clients").select("slug").eq("slug", slug).maybeSingle();
-    if (existing) return NextResponse.json({ error: `slug "${slug}" already exists` }, { status: 409 });
+    const { data: existing } = await svc.from("onebox_clients").select("slug, client_name, location_id").eq("slug", slug).maybeSingle();
+    if (existing) {
+      const sameAccount = String(existing.location_id) === locationId;
+      return NextResponse.json({
+        error: sameAccount
+          ? `this sub-account already has a funnel: "${existing.client_name}" (slug ${slug}) — search for it above`
+          : `slug "${slug}" is already used by "${existing.client_name}" (a different sub-account) — pick another slug, or search for "${existing.client_name}" if that funnel is misnamed`,
+      }, { status: 409 });
+    }
 
     /* Meta pixel: GHL injects it on the BOOKING page, not always on the
        survey page — so harvest tries the given URL, then the derived

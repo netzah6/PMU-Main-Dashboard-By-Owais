@@ -310,6 +310,12 @@ export default function FunnelsPage() {
   const [health, setHealth] = useState<Record<string, HealthCheck[]>>({});
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
+  /* The slug follows the client name until the user types in the slug box
+     themselves. It used to lock on the FIRST name typed, so renaming the
+     client afterwards left a stranger's slug (Eye Select Beauty was
+     created as "the-healing-design", 2026-09-19). */
+  const [slugTouched, setSlugTouched] = useState(false);
+  const slugify = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   // Search line at the top — dozens of funnel boxes now (user, 2026-09-14).
   const [search, setSearch] = useState("");
   const [addNote, setAddNote] = useState<string | null>(null);
@@ -703,6 +709,7 @@ export default function FunnelsPage() {
       if (j.error) { setAddNote(`Error: ${j.error}`); return; }
       // Success needs no prose — the new funnel card appears in the list below.
       setAddForm({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
+      setSlugTouched(false);
       await load();
     } finally { setBusy(null); }
   }
@@ -747,10 +754,10 @@ export default function FunnelsPage() {
           <div className="font-medium text-sm mb-3 text-[#1c2b3a]">Add a client funnel</div>
           <div className="grid md:grid-cols-2 gap-3">
             <input placeholder="Client / business name" value={addForm.clientName}
-              onChange={(e) => setAddForm((f) => ({ ...f, clientName: e.target.value, slug: f.slug || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") }))}
+              onChange={(e) => setAddForm((f) => ({ ...f, clientName: e.target.value, slug: slugTouched && f.slug ? f.slug : slugify(e.target.value) }))}
               className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-sm" />
             <input placeholder="Slug (URL path, e.g. pmu-by-ivan)" value={addForm.slug}
-              onChange={(e) => setAddForm((f) => ({ ...f, slug: e.target.value }))}
+              onChange={(e) => { setSlugTouched(e.target.value.trim().length > 0); setAddForm((f) => ({ ...f, slug: e.target.value })); }}
               className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-sm" />
             <input placeholder="GHL sub-account (location) ID" value={addForm.locationId}
               onChange={(e) => setAddForm((f) => ({ ...f, locationId: e.target.value }))}
