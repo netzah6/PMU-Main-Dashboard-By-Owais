@@ -258,6 +258,32 @@ export async function POST(req: NextRequest) {
    with the new copy within ~2 minutes. The "ob-warm" UA is in the funnel
    route's scraper list: on A/B-test clients (always no-store) the ping is
    a harmless no-op that mints no assignment row. */
+/* First survey question from the account's own data: the options of the
+   "CC - Which Area(s) Would You Like Treated?" contact field are what the
+   client's GHL survey maps onto, so the one-box asks exactly those — one
+   service or five. Runs only while no survey exists yet (never over an
+   edited one). Even ONE option is seeded: the dashboard's fallback
+   template says "Lips; Eyebrows", which is wrong for a brows-only studio. */
+async function seedSurveyFromAccount(
+  svc: ReturnType<typeof createServiceClient>, slug: string, locationId: string, config: Record<string, string> | null,
+): Promise<{ config: Record<string, string> | null; note: string; seeded: boolean }> {
+  if ((config?.surveyRaw ?? "").trim()) return { config, note: "", seeded: false };
+  const areas = await getAreaFieldOptions(locationId);
+  if (!areas.length) return { config, note: "standard survey (no service list on the CC - Which Area(s) field)", seeded: false };
+  const surveyRaw = [
+    `Which Area(s) Would You Like Treated? | ${areas.join("; ")}`,
+    "Have You Ever Had Permanent Makeup Before? | Yes; No",
+    "What Age Group Are You In? | 18-24; 24-30; 30-36; 36-42; 42-54; 54-65; 65+",
+    "Our Address is {address}. Is This commutable for you? | Yes; No",
+    "On A Scale From 1-10 How Serious Are You About Getting This Treatment? | 0-2; 3-6; 7-9; 10 I Want This Treatment!",
+    "Would you like a FREE Aftercare Kit? | Yes; No",
+  ].join("\n");
+  const res = await setOneboxCustomValues(locationId, [{ name: "OB - Survey Questions", value: surveyRaw }]);
+  if (res.error) return { config, note: `survey not seeded (${res.error})`, seeded: false };
+  const fresh = await refreshOneboxConfig(svc, slug, locationId);
+  return { config: fresh, note: `survey seeded with the account's services: ${areas.join(", ")}`, seeded: true };
+}
+
 function warmFunnel(slug: string) {
   waitUntil((async () => {
     /* Two pings: an in-flight pre-save render can be stored by the CDN
@@ -330,26 +356,9 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        list (Netzah, 2026-09-19). Seed OB - Survey Questions with them so
        a new funnel offers the right services from day one — only when no
        survey exists yet, never over an edited one. */
-    let surveyNote = "";
-    if (!(config?.surveyRaw ?? "").trim()) {
-      const areas = await getAreaFieldOptions(locationId);
-      if (areas.length >= 2) {
-        const surveyRaw = [
-          `Which Area(s) Would You Like Treated? | ${areas.join("; ")}`,
-          "Have You Ever Had Permanent Makeup Before? | Yes; No",
-          "What Age Group Are You In? | 18-24; 24-30; 30-36; 36-42; 42-54; 54-65; 65+",
-          "Our Address is {address}. Is This commutable for you? | Yes; No",
-          "On A Scale From 1-10 How Serious Are You About Getting This Treatment? | 0-2; 3-6; 7-9; 10 I Want This Treatment!",
-          "Would you like a FREE Aftercare Kit? | Yes; No",
-        ].join("\n");
-        const surveyRes = await setOneboxCustomValues(locationId, [{ name: "OB - Survey Questions", value: surveyRaw }]);
-        if (!surveyRes.error) {
-          config = await refreshOneboxConfig(svc, slug, locationId);
-          surveyNote = `survey seeded with the account's services: ${areas.join(", ")}`;
-        }
-      }
-      if (!surveyNote) surveyNote = "standard survey (no service list on the CC - Which Area(s) field)";
-    }
+    const seeded = await seedSurveyFromAccount(svc, slug, locationId, config);
+    config = seeded.config;
+    const surveyNote = seeded.note;
     return NextResponse.json({
       ok: true, slug, url: funnelUrl(req, slug), pixelNote, photoNote, surveyNote,
       cvNote: ensured.created.length
@@ -401,8 +410,12 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       ? oldUrlForPhotos.replace(/-survey[a-z0-9-]*\/?$/i, "-booking")
       : `https://pmu-care.com/${slug}-booking`;
     const healed = await healFunnelPhotos(svc, slug, row.location_id as string, bookingUrl, config);
+    /* Survey self-heal: a funnel still on the default question set gets
+       the account's own services (the seed used to skip single-service
+       accounts, so those showed "Lips; Eyebrows" — The Wellness Place). */
+    const seeded = await seedSurveyFromAccount(svc, slug, row.location_id as string, healed.config);
     warmFunnel(slug);
-    return NextResponse.json({ ok: !!healed.config, config: healed.config, pixelNote, photoNote: healed.note || undefined });
+    return NextResponse.json({ ok: !!seeded.config, config: seeded.config, pixelNote, photoNote: healed.note || undefined, surveyNote: seeded.seeded ? seeded.note : undefined });
   }
 
   if (action === "status") {
