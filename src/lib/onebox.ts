@@ -142,6 +142,51 @@ export async function harvestFunnelPhotos(bookingUrl: string, locationId: string
   }
 }
 
+/* Are these photo CVs the client's OWN pictures? The snapshot every new
+   sub-account is built from ships the photo custom values pre-filled with
+   stock before/afters and another studio's rooms (leadconnector "documents"
+   links), so "not empty" never meant "the client's". A client's own uploads
+   live under their location's media folder — that is the test. Empty
+   counts as not-own so the caller harvests either way (Diana Dye,
+   2026-09-19: her funnel went live with the stock photos). */
+export function photosAreOwn(list: string | undefined, locationId: string): boolean {
+  const urls = String(list ?? "").split(",").map((u) => u.trim()).filter(Boolean);
+  if (!urls.length) return false;
+  const loc = locationId.toLowerCase();
+  return urls.every((u) => {
+    const l = u.toLowerCase();
+    return l.includes(`/${loc}/media/`) || l.includes(`location%2f${loc}`);
+  });
+}
+
+export const STUDIO_CV_SLOTS = ["CC - Picture of Studio 1", "CC - Picture of Studio 2", "CC - Picture of Studio 3"];
+
+/* Fill whichever photo group (before/after, studio) is not the client's
+   own from the original funnel's booking page. Every slot of a replaced
+   group is rewritten, so no stock photo survives next to the real ones.
+   Returns a short note for the dashboard toast, or "" when nothing was
+   needed. Shared by Add-client and Sync so both self-heal the same way. */
+export async function healFunnelPhotos(
+  svc: SupabaseClient, slug: string, locationId: string, bookingUrl: string, config: Record<string, string> | null,
+): Promise<{ note: string; config: Record<string, string> | null }> {
+  const needBa = !photosAreOwn(config?.resultCvImgs, locationId);
+  const needStudio = !photosAreOwn(config?.studioCvImgs, locationId);
+  if (!needBa && !needStudio) return { note: "", config };
+  const photos = await harvestFunnelPhotos(bookingUrl, locationId);
+  const entries: { name: string; value: string }[] = [];
+  if (needBa && photos.ba.length) BA_CV_SLOTS.forEach((n, i) => entries.push({ name: n, value: photos.ba[i] ?? "" }));
+  if (needStudio && photos.studio.length) STUDIO_CV_SLOTS.forEach((n, i) => entries.push({ name: n, value: photos.studio[i] ?? "" }));
+  if (!entries.length) {
+    return { note: `no client photos found on ${bookingUrl} — the photo custom values still hold template pictures; fill them in GHL`, config };
+  }
+  await setOneboxCustomValues(locationId, entries);
+  const fresh = await refreshOneboxConfig(svc, slug, locationId);
+  const parts: string[] = [];
+  if (needBa && photos.ba.length) parts.push(`${photos.ba.length} before/after`);
+  if (needStudio && photos.studio.length) parts.push(`${photos.studio.length} studio`);
+  return { note: `${parts.join(" + ")} photos pulled from ${bookingUrl}`, config: fresh };
+}
+
 // The 9 before/after CV slots, in the order harvested photos fill them.
 export const BA_CV_SLOTS = [
   "CC - Eyebrows Before & After 1", "CC - Eyebrows Before & After 2", "CC - Eyebrows Before & After 3",

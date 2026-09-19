@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, getAreaFieldOptions, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, healFunnelPhotos, photosAreOwn, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
@@ -316,26 +316,15 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     // absent ones (empty) so the team only has to fill values in GHL.
     const ensured = await ensureOneboxCustomValues(locationId);
     let config = await refreshOneboxConfig(svc, slug, locationId);
-    /* Photos come along automatically: when the photo CVs are empty and
-       we know the client's original funnel, harvest the before/after and
-       studio pictures from its booking page and fill the CVs. */
-    let photoNote = "";
-    if (!(config?.resultCvImgs || config?.studioCvImgs)) {
-      const bookingUrl = oldUrl
-        ? oldUrl.replace(/-survey[a-z0-9-]*\/?$/i, "-booking")
-        : `https://pmu-care.com/${slug}-booking`;
-      const photos = await harvestFunnelPhotos(bookingUrl, locationId);
-      const entries: { name: string; value: string }[] = [];
-      photos.ba.forEach((u, i) => { if (BA_CV_SLOTS[i]) entries.push({ name: BA_CV_SLOTS[i], value: u }); });
-      photos.studio.forEach((u, i) => { if (i < 3) entries.push({ name: `CC - Picture of Studio ${i + 1}`, value: u }); });
-      if (entries.length) {
-        await setOneboxCustomValues(locationId, entries);
-        config = await refreshOneboxConfig(svc, slug, locationId);
-        photoNote = `${photos.ba.length} before/after + ${photos.studio.length} studio photos harvested from ${bookingUrl}`;
-      } else {
-        photoNote = `no photos found on ${bookingUrl} — fill the photo custom values in GHL`;
-      }
-    }
+    /* Photos come along automatically: whenever the photo CVs are empty
+       OR still the snapshot's stock pictures, harvest the client's own
+       before/after and studio photos from the original booking page. */
+    const bookingUrl = oldUrl
+      ? oldUrl.replace(/-survey[a-z0-9-]*\/?$/i, "-booking")
+      : `https://pmu-care.com/${slug}-booking`;
+    const healed = await healFunnelPhotos(svc, slug, locationId, bookingUrl, config);
+    config = healed.config;
+    const photoNote = healed.note;
     /* First survey question from the account's own data: the options on
        the "CC - Which Area(s)…" contact field ARE the client's service
        list (Netzah, 2026-09-19). Seed OB - Survey Questions with them so
@@ -405,8 +394,15 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       }
       if (!pixelNote) pixelNote = "pixel still not found on the original pages";
     }
+    /* Photo self-heal, same idea: stock snapshot pictures in the photo
+       CVs are replaced with the client's own from the original funnel. */
+    const oldUrlForPhotos = (ex.oldFunnelUrl ?? "").trim();
+    const bookingUrl = oldUrlForPhotos
+      ? oldUrlForPhotos.replace(/-survey[a-z0-9-]*\/?$/i, "-booking")
+      : `https://pmu-care.com/${slug}-booking`;
+    const healed = await healFunnelPhotos(svc, slug, row.location_id as string, bookingUrl, config);
     warmFunnel(slug);
-    return NextResponse.json({ ok: !!config, config, pixelNote });
+    return NextResponse.json({ ok: !!healed.config, config: healed.config, pixelNote, photoNote: healed.note || undefined });
   }
 
   if (action === "status") {
@@ -564,6 +560,17 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     });
     const pixel = (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "");
     checks.push({ name: "Meta pixel", ok: !!pixel, note: pixel ? `pixel ${pixel}` : "no pixel — harvest or set OB - Meta Pixel ID" });
+    /* Stock snapshot photos look "filled" but are not the client's — the
+       page would show strangers' brows and someone else's studio. */
+    const locId = String(row.location_id ?? "");
+    const ownBa = photosAreOwn(config.resultCvImgs || config.resultImgs, locId);
+    const ownStudio = photosAreOwn(config.studioCvImgs || config.studioImgs, locId);
+    checks.push({
+      name: "Client photos",
+      ok: ownBa && ownStudio,
+      note: ownBa && ownStudio ? "before/after + studio photos are the client's own"
+        : `${!ownBa ? "before/after" : ""}${!ownBa && !ownStudio ? " and " : ""}${!ownStudio ? "studio" : ""} photos are empty or the template's stock pictures — click Sync Custom Values From GHL to pull the client's own`,
+    });
     // Which required values are still empty on the account.
     const requiredCfg: [string, string][] = [
       ["biz", "Business Name"], ["phone", "CC - Business Phone Number"],

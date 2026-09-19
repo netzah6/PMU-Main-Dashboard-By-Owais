@@ -577,7 +577,7 @@ export default function FunnelsPage() {
       if (action === "health") setHealth((h) => ({ ...h, [slug]: j.checks ?? [] }));
       else if (j.error) setToast(`Error: ${j.error}`);
       else if (Array.isArray(j.failed) && j.failed.length) setToast(`Saved, but GHL rejected: ${j.failed.join(", ")}`);
-      else setToast(action === "resync" ? "Synced from GHL ✓" : "Saved ✓");
+      else setToast(action === "resync" ? `Synced from GHL ✓${j.photoNote ? ` · ${j.photoNote}` : ""}` : "Saved ✓");
       if (action !== "health") await load();
     } finally { setBusy(null); }
   }
