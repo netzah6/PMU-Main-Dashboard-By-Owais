@@ -328,6 +328,10 @@ export default function FunnelsPage() {
      per open panel and re-checked live each time. */
   const [redirectChoice, setRedirectChoice] = useState<"" | "yes" | "no">("");
   const [adUrlForm, setAdUrlForm] = useState("");
+  /* Tick-boxes for the three GHL steps of the redirect SOP; Verify unlocks
+     once all three are ticked (same pattern as the split-test SOP). The
+     workflow tag step can't be machine-checked, so the box is the record. */
+  const [sop5, setSop5] = useState({ renamed: false, redirect: false, workflow: false });
   const [redirectVerify, setRedirectVerify] = useState<{ loading?: boolean; error?: string; ok?: boolean; adUrl?: string; target?: string;
     checks?: { redirectLive: boolean; redirectNote: string; originalKept: boolean; originalNote: string } } | null>(null);
   const [pixelOther, setPixelOther] = useState(false);
@@ -1266,6 +1270,7 @@ export default function FunnelsPage() {
                       setRedirectChoice(f.adRedirect);
                       setAdUrlForm(f.oldFunnelUrl || "");
                       setRedirectVerify(null);
+                      setSop5({ renamed: false, redirect: false, workflow: false });
                     }
                   }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
@@ -1527,17 +1532,34 @@ export default function FunnelsPage() {
                             onChange={(e) => { setAdUrlForm(e.target.value); setRedirectVerify(null); }}
                             className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                         </label>
-                        <div className="grid gap-1 text-[#697a91]">
-                          <span>1. Survey step path: add <CopyChip text="-old" onCopied={() => setToast("Copied ✓")} /> at the end.</span>
-                          <span>2. URL Redirect:{" "}
-                            {adPath ? <CopyChip text={adPath} onCopied={() => setToast("Copied ✓")} /> : <i>paste the ad link above first</i>}
-                            {" "}&rarr;{" "}
-                            <CopyChip text={f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)} onCopied={() => setToast("Copied ✓")} /></span>
-                          <span>3. Verify, then Go live.</span>
+                        <div className="grid gap-1.5 text-[#697a91]">
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" className="mt-0.5" checked={sop5.renamed}
+                              onChange={(e) => { setSop5((x) => ({ ...x, renamed: e.target.checked })); setRedirectVerify(null); }} />
+                            <span>1. Survey step path: add <CopyChip text="-old" onCopied={() => setToast("Copied ✓")} /> at the end.</span>
+                          </label>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" className="mt-0.5" checked={sop5.redirect}
+                              onChange={(e) => { setSop5((x) => ({ ...x, redirect: e.target.checked })); setRedirectVerify(null); }} />
+                            <span>2. URL Redirect:{" "}
+                              {adPath ? <CopyChip text={adPath} onCopied={() => setToast("Copied ✓")} /> : <i>paste the ad link above first</i>}
+                              {" "}&rarr;{" "}
+                              <CopyChip text={f.url.replace(`.com/${f.slug}`, `.com/s/${f.slug}`)} onCopied={() => setToast("Copied ✓")} /></span>
+                          </label>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input type="checkbox" className="mt-0.5" checked={sop5.workflow}
+                              onChange={(e) => { setSop5((x) => ({ ...x, workflow: e.target.checked })); setRedirectVerify(null); }} />
+                            <span>3. Workflow <b>CC- Funnel Survey</b>: add a Contact Tag trigger{" "}
+                              <CopyChip text="onebox-survey" onCopied={() => setToast("Copied ✓")} />
+                              {" "}(+ the same tag as an OR condition in the program branch), Publish.</span>
+                          </label>
+                          <span>4. Verify, then Go live.</span>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <button type="button" onClick={() => void verifyRedirect(f.slug)} disabled={!!redirectVerify?.loading}
-                            className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60 inline-flex items-center gap-1.5">
+                          <button type="button" onClick={() => void verifyRedirect(f.slug)}
+                            disabled={!!redirectVerify?.loading || !(sop5.renamed && sop5.redirect && sop5.workflow)}
+                            title={!(sop5.renamed && sop5.redirect && sop5.workflow) ? "Tick the three GHL steps first" : undefined}
+                            className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
                             {redirectVerify?.loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
                             {redirectVerify?.checks ? "Re-check" : "Verify redirect"}
                           </button>
