@@ -3,7 +3,7 @@ import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, harvestFunnelPhotos, BA_CV_SLOTS, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
-import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME } from "@/lib/onebox-insights";
+import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 
@@ -57,8 +57,8 @@ export async function GET(req: NextRequest) {
      matched by the pinned Extras owner name, else the client name and
      its distinctive words — the same matching the split tables used. */
   const statsWin = req.nextUrl.searchParams.get("stats");
-  if (statsWin === "7" || statsWin === "14" || statsWin === "30") {
-    const days = Number(statsWin) as 7 | 14 | 30;
+  if (statsWin === "7" || statsWin === "14" || statsWin === "30" || statsWin === "since") {
+    const days: StatsWindow = statsWin === "since" ? "since" : (Number(statsWin) as 7 | 14 | 30);
     const stats = await computeFunnelStats(svc, days);
     /* Which clients have a page-1 A/B test right now — the table shows
        its button next to the lead rate. */

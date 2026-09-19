@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { StatsWindow } from "@/lib/onebox-insights";
 
 // Funnels — the one-box funnels hosted on Vercel: which client has one,
 // its live URL, health, leads and bookings. Content itself is edited in
@@ -379,11 +380,11 @@ export default function FunnelsPage() {
   type StatRow = { slug: string; clientName: string; visitors: number; leads: number; leadRate: number | null;
     picked: number; pickRate: number | null; deposits: number; aiDeposits: number; spend: number | null; costPerBooking: number | null };
   const [statsOpen, setStatsOpen] = useState(false);
-  const [statsWin, setStatsWin] = useState<7 | 14 | 30>(30);
+  const [statsWin, setStatsWin] = useState<StatsWindow>(30);
   const [stats, setStats] = useState<StatRow[] | null>(null);
   const [page1Map, setPage1Map] = useState<Record<string, number>>({});
   const [statsLoading, setStatsLoading] = useState(false);
-  const loadStats = useCallback(async (win: 7 | 14 | 30) => {
+  const loadStats = useCallback(async (win: StatsWindow) => {
     setStatsLoading(true);
     try {
       const r = await fetch(`/api/onebox/admin?stats=${win}`);
@@ -748,12 +749,13 @@ export default function FunnelsPage() {
               {statsOpen && (
                 <div className="mt-3">
                   <div className="flex items-center gap-1.5 mb-2">
-                    {( [7, 14, 30] as const).map((w) => (
+                    {( [7, 14, 30, "since"] as const).map((w) => (
                       <button key={w}
                         onClick={() => { setStatsWin(w); void loadStats(w); }}
+                        title={w === "since" ? "Only visits and leads after the database moved to the US (faster pages) — Sep 19, 2026. No ad spend for this window." : undefined}
                         className={cn("text-[11px] font-semibold rounded-md px-2.5 py-1 border",
                           statsWin === w ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] text-[#697a91] hover:bg-[#f6f9fc]")}>
-                        Last {w} days
+                        {w === "since" ? "Since US switch (Sep 19)" : `Last ${w} days`}
                       </button>
                     ))}
                     {statsLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#697a91]" />}

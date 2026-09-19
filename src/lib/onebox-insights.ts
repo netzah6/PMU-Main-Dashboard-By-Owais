@@ -48,8 +48,14 @@ export async function fetchAllRows<T>(page: (from: number, to: number) => Promis
    journey rules the split tables used (21-day person dedupe; paid implies
    picked). Shared by the performance overview and the optimizer so the two
    can never disagree. */
-export async function computeFunnelStats(svc: SupabaseClient, days: 7 | 14 | 30): Promise<FunnelStat[]> {
-  const since = new Date(Date.now() - days * 86400000).toISOString();
+/* The DB moved from Tokyo to US-East on 2026-09-19 11:39 UTC, making every
+   funnel page noticeably faster. "since" anchors the window there so the
+   before/after can be read off the same table. */
+export const DB_SWITCH_AT = "2026-09-19T11:39:00Z";
+export type StatsWindow = 7 | 14 | 30 | "since";
+
+export async function computeFunnelStats(svc: SupabaseClient, days: StatsWindow): Promise<FunnelStat[]> {
+  const since = days === "since" ? DB_SWITCH_AT : new Date(Date.now() - days * 86400000).toISOString();
   const { data: clients } = await svc
     .from("onebox_clients")
     .select("slug, client_name, status, extras")
@@ -105,9 +111,11 @@ export async function computeFunnelStats(svc: SupabaseClient, days: 7 | 14 | 30)
       const low = cand.toLowerCase();
       const perf = (perfRows ?? []).find((p) => String(p.owner_name ?? "").toLowerCase().includes(low));
       /* The ad sheet has no spent30 column, but CPL × leads IS spend, so
-         the 30-day window derives it from cpl30 · l30 (same source data). */
+         the 30-day window derives it from cpl30 · l30 (same source data).
+         The "since" window has no matching spend column → left blank. */
       const val = perf
-        ? days === 7 ? perf.spent7
+        ? days === "since" ? null
+          : days === 7 ? perf.spent7
           : days === 14 ? perf.spent14
           : perf.cpl30 != null && perf.l30 != null ? Number(perf.cpl30) * Number(perf.l30) : null
         : null;
