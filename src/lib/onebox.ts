@@ -1,5 +1,6 @@
 import { getAppLocationToken } from "@/lib/ghl-app";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 
 // One-Box funnel content, synced from the client's GHL custom values.
 // Base values are the ones every sub-account already has; "OB - *" values
@@ -142,21 +143,41 @@ export async function harvestFunnelPhotos(bookingUrl: string, locationId: string
   }
 }
 
-/* Are these photo CVs the client's OWN pictures? The snapshot every new
-   sub-account is built from ships the photo custom values pre-filled with
-   stock before/afters and another studio's rooms (leadconnector "documents"
-   links), so "not empty" never meant "the client's". A client's own uploads
-   live under their location's media folder — that is the test. Empty
-   counts as not-own so the caller harvests either way (Diana Dye,
-   2026-09-19: her funnel went live with the stock photos). */
-export function photosAreOwn(list: string | undefined, locationId: string): boolean {
+/* The snapshot every sub-account is built from ships the photo custom
+   values pre-filled with 6 stock before/afters (two brows, two lips, one
+   eyeliner, one with BEFORE/AFTER text) and 2 stock studio rooms. GHL
+   re-uploads them per account, so the URLs differ everywhere — only the
+   bytes match. These are their md5s (fleet scan 2026-09-19: 27 of 44
+   funnels showed them under "See Real Client Results"). A URL's host says
+   nothing: real client photos are often "documents" links too. */
+export const STOCK_PHOTO_MD5 = new Set([
+  "7d439e24487dac010738de2eea9ba489", "cc8ea6a6618455ca9314f26685776a92", "3123b1e7d65d4097d788b0592c384c58",
+  "cf7e32ff4183f5840678413ffeb7946a", "e5156bf2cdbff7c2988b9f86694c7821", "385e014044f9e6f549bb58af0daf00aa",
+  "23e84e0a13f734ae5200b6b3d3c8ce75", "efc084844915edf971ddf1a317cd29c7",
+]);
+
+export type PhotoKind = "own" | "stock" | "broken";
+
+/* Fetch each photo and say what it is. Small lists (≤ 9 + 3), fetched in
+   parallel; a photo that doesn't load is "broken" (dead link / deleted). */
+export async function classifyPhotos(list: string | undefined): Promise<{ url: string; kind: PhotoKind }[]> {
   const urls = String(list ?? "").split(",").map((u) => u.trim()).filter(Boolean);
-  if (!urls.length) return false;
-  const loc = locationId.toLowerCase();
-  return urls.every((u) => {
-    const l = u.toLowerCase();
-    return l.includes(`/${loc}/media/`) || l.includes(`location%2f${loc}`);
-  });
+  return Promise.all(urls.map(async (url) => {
+    try {
+      const r = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 (photo-check)" }, cache: "no-store", signal: AbortSignal.timeout(15000) });
+      if (!r.ok) return { url, kind: "broken" as const };
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length < 500) return { url, kind: "broken" as const };
+      const md5 = createHash("md5").update(buf).digest("hex");
+      return { url, kind: STOCK_PHOTO_MD5.has(md5) ? "stock" as const : "own" as const };
+    } catch { return { url, kind: "broken" as const }; }
+  }));
+}
+
+/* A photo group is the client's own only when it has photos and none of
+   them is stock or broken. Empty counts as not-own so callers harvest. */
+export function photosAreOwn(kinds: { kind: PhotoKind }[]): boolean {
+  return kinds.length > 0 && kinds.every((p) => p.kind === "own");
 }
 
 export const STUDIO_CV_SLOTS = ["CC - Picture of Studio 1", "CC - Picture of Studio 2", "CC - Picture of Studio 3"];
@@ -169,15 +190,17 @@ export const STUDIO_CV_SLOTS = ["CC - Picture of Studio 1", "CC - Picture of Stu
 export async function healFunnelPhotos(
   svc: SupabaseClient, slug: string, locationId: string, bookingUrl: string, config: Record<string, string> | null,
 ): Promise<{ note: string; config: Record<string, string> | null }> {
-  const needBa = !photosAreOwn(config?.resultCvImgs, locationId);
-  const needStudio = !photosAreOwn(config?.studioCvImgs, locationId);
+  const [baKinds, stKinds] = await Promise.all([classifyPhotos(config?.resultCvImgs), classifyPhotos(config?.studioCvImgs)]);
+  const needBa = !photosAreOwn(baKinds);
+  const needStudio = !photosAreOwn(stKinds);
   if (!needBa && !needStudio) return { note: "", config };
   const photos = await harvestFunnelPhotos(bookingUrl, locationId);
   const entries: { name: string; value: string }[] = [];
   if (needBa && photos.ba.length) BA_CV_SLOTS.forEach((n, i) => entries.push({ name: n, value: photos.ba[i] ?? "" }));
   if (needStudio && photos.studio.length) STUDIO_CV_SLOTS.forEach((n, i) => entries.push({ name: n, value: photos.studio[i] ?? "" }));
   if (!entries.length) {
-    return { note: `no client photos found on ${bookingUrl} — the photo custom values still hold template pictures; fill them in GHL`, config };
+    const what = [needBa ? "before/after" : "", needStudio ? "studio" : ""].filter(Boolean).join(" + ");
+    return { note: `${what} photos are still the template's stock pictures (or empty) and ${bookingUrl} has none of the client's own — upload theirs into the photo custom values in GHL`, config };
   }
   await setOneboxCustomValues(locationId, entries);
   const fresh = await refreshOneboxConfig(svc, slug, locationId);

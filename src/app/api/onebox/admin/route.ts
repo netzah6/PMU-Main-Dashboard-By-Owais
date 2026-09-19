@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, healFunnelPhotos, photosAreOwn, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, healFunnelPhotos, photosAreOwn, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
@@ -562,14 +562,21 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     checks.push({ name: "Meta pixel", ok: !!pixel, note: pixel ? `pixel ${pixel}` : "no pixel — harvest or set OB - Meta Pixel ID" });
     /* Stock snapshot photos look "filled" but are not the client's — the
        page would show strangers' brows and someone else's studio. */
-    const locId = String(row.location_id ?? "");
-    const ownBa = photosAreOwn(config.resultCvImgs || config.resultImgs, locId);
-    const ownStudio = photosAreOwn(config.studioCvImgs || config.studioImgs, locId);
+    const [baKinds, stKinds] = await Promise.all([
+      classifyPhotos(config.resultCvImgs || config.resultImgs || extras.resultImgs),
+      classifyPhotos(config.studioCvImgs || config.studioImgs),
+    ]);
+    const describe = (label: string, kinds: { kind: string }[]) => {
+      if (!kinds.length) return `${label}: none`;
+      const stock = kinds.filter((k) => k.kind === "stock").length, broken = kinds.filter((k) => k.kind === "broken").length;
+      if (!stock && !broken) return `${label}: ${kinds.length} own`;
+      return `${label}: ${stock ? `${stock} of ${kinds.length} are the template's stock pictures` : ""}${stock && broken ? ", " : ""}${broken ? `${broken} broken` : ""}`;
+    };
+    const ownBa = photosAreOwn(baKinds), ownStudio = photosAreOwn(stKinds);
     checks.push({
       name: "Client photos",
       ok: ownBa && ownStudio,
-      note: ownBa && ownStudio ? "before/after + studio photos are the client's own"
-        : `${!ownBa ? "before/after" : ""}${!ownBa && !ownStudio ? " and " : ""}${!ownStudio ? "studio" : ""} photos are empty or the template's stock pictures — click Sync Custom Values From GHL to pull the client's own`,
+      note: `${describe("before/after", baKinds)} · ${describe("studio", stKinds)}${ownBa && ownStudio ? "" : " — upload the client's own into the photo custom values in GHL (Sync pulls them from the original page when it has them)"}`,
     });
     // Which required values are still empty on the account.
     const requiredCfg: [string, string][] = [
