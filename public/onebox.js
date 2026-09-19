@@ -281,7 +281,7 @@
     "#onebox-root .results{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}" +
     "#onebox-root .results img{width:100%;height:100%;aspect-ratio:4/5;object-fit:cover;display:block}" +
     "#onebox-root .mapcard{max-width:640px;margin:0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 8px 20px -12px rgba(17,19,21,.25)}" +
-    "#onebox-root .mapcard iframe{width:100%;height:280px;border:0;display:block}" +
+    "#onebox-root .mapcard iframe{width:100%;height:280px;border:0;display:block;pointer-events:none}" +
     "#onebox-root .faqs{max-width:640px;margin:0 auto}" +
     "#onebox-root .faqs details{border-bottom:1px solid var(--line)}" +
     "#onebox-root .faqs summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 2px;font-family:var(--form);font-size:14.5px;font-weight:600}" +
@@ -297,7 +297,7 @@
     "#onebox-root .eapps-instagram-feed-header-inner{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center;justify-content:center;column-gap:12px;row-gap:6px}" +
     "#onebox-root .eapps-instagram-feed-header-inner > :first-child{flex-basis:100%}" +
     "#onebox-root .eapps-instagram-feed-header-stats{margin:0!important;flex:0 1 auto;min-width:0}" +
-    "#onebox-root .eapps-instagram-feed-header-follow-button-wrapper{margin:0!important;flex:0 0 auto}" +
+    "#onebox-root .eapps-instagram-feed-header-follow-button-wrapper,[class*=\"eapps-\"][class*=\"follow-button\"]{display:none!important}" +
     "#onebox-root .doneburst{font-size:54px;text-align:center;margin:2px 0 4px;line-height:1;animation:obpop .45s cubic-bezier(.2,1.6,.4,1) both}" +
     "@keyframes obpop{0%{transform:scale(.3);opacity:0}100%{transform:scale(1);opacity:1}}" +
     "#onebox-root .donehead{font-size:clamp(22px,4vw,27px);color:var(--teal-deep)}" +
@@ -540,11 +540,36 @@
      lightbox. Bound on document so the portaled popup is covered too. */
   document.addEventListener("click", function (e) {
     if (phase === "done") return; // paid — following on Instagram is welcome now
-    var a = e.target && e.target.closest
-      ? e.target.closest('a[class*="eapps-"][href*="instagram.com"], [class*="eapps-"] a[href*="instagram.com"], [class*="es-popup"] a[href*="instagram.com"]')
-      : null;
-    if (a) e.preventDefault();
+    if (!e.target || !e.target.closest) return;
+    /* Any Instagram-bound anchor, anywhere (some widget templates render
+       the header links CLASSLESS, so ancestor-class selectors miss them).
+       Post links (/p/, /reel/) only cancel navigation — Elfsight's own
+       handler still opens the on-page lightbox; profile/header/follow
+       links die completely. */
+    var ig = e.target.closest('a[href*="instagram.com"]');
+    if (ig) {
+      e.preventDefault();
+      if (!/instagram\.com\/(p|reel|tv)\//i.test(String(ig.href || ""))) e.stopImmediatePropagation();
+      return;
+    }
+    /* Anything else that would carry the visitor OUT of the funnel from a
+       widget (Follow buttons the CSS missed, profile links, Google-review
+       "view on Google" links) dies completely — Elfsight opens these via
+       its own JS, so preventDefault alone was not enough (bitten: the
+       Follow button kept leaking visitors mid-booking, Netzah 2026-09-19). */
+    var leak = e.target.closest('[class*="eapps-"] a[target="_blank"], [class*="eapps-"] [class*="follow"], [class*="es-popup"] a[target="_blank"]');
+    if (leak) { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);
+  /* Elfsight navigates via window.open, which no click handler can veto —
+     filter the destinations instead. Checkout popups (Commas 3-D Secure)
+     are untouched. */
+  (function () {
+    var realOpen = window.open;
+    window.open = function (u) {
+      if (phase !== "done" && /instagram\.com|facebook\.com|google\.[a-z.]+\/(maps|search)|goo\.gl/i.test(String(u || ""))) return null;
+      return realOpen.apply(window, arguments);
+    };
+  })();
 
   document.getElementById("ob-extras").addEventListener("click", function (e) {
     var t = e.target;
