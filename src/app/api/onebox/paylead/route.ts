@@ -43,34 +43,48 @@ export async function GET(req: NextRequest) {
       .eq("slug", slug).eq("ghl_contact_id", t)
       .order("created_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
-  if (!client || !lead) {
+  if (!client) {
     return NextResponse.json({ ok: false }, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
-  let slotIso = String(lead.slot_iso ?? "");
-  if (!slotIso) {
-    /* No slot picked on the funnel — the AI may have agreed a time in chat
-       and written it into the contact's reserved-time field. Best-effort:
-       a miss just means the lead picks on the calendar. */
-    try {
-      const tok = await getAppLocationToken(client.location_id as string);
-      if (tok.token) {
-        const fieldMap = await getSurveyFieldMap(client.location_id as string, tok.token);
-        if (fieldMap.reserved_time) {
-          const r = await fetch(`https://services.leadconnectorhq.com/contacts/${t}`, {
-            headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" },
-          });
-          if (r.ok) {
-            const j = (await r.json()) as { contact?: { customFields?: { id?: string; value?: unknown }[] } };
-            const f = (j.contact?.customFields ?? []).find((x) => x.id === fieldMap.reserved_time);
-            if (f?.value) slotIso = parseReservedTime(String(f.value));
-          }
+  /* One GHL read serves two needs: the reserved time the AI may have
+     agreed in chat, and — for leads who never came through the one-box
+     (everyone from before the client's traffic moved, plus anyone the AI
+     is texting who arrived on the old GHL page) — the identity itself.
+     Without this the confirm link only worked for one-box leads and
+     everyone else got the plain funnel (Christina Edison / Archery,
+     2026-09-20). The contact endpoint is location-scoped, so an id from
+     another account simply 404s. */
+  let ghl: { name: string; phone: string; email: string; reserved: string } | null = null;
+  try {
+    const tok = await getAppLocationToken(client.location_id as string);
+    if (tok.token) {
+      const [fieldMap, r] = await Promise.all([
+        getSurveyFieldMap(client.location_id as string, tok.token),
+        fetch(`https://services.leadconnectorhq.com/contacts/${t}`, {
+          headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" },
+        }),
+      ]);
+      if (r.ok) {
+        const j = (await r.json()) as { contact?: { firstName?: string; lastName?: string; name?: string; phone?: string; email?: string; locationId?: string; customFields?: { id?: string; value?: unknown }[] } };
+        const c = j.contact;
+        if (c && (!c.locationId || c.locationId === client.location_id)) {
+          const f = fieldMap.reserved_time ? (c.customFields ?? []).find((x) => x.id === fieldMap.reserved_time) : undefined;
+          ghl = {
+            name: String(c.name || [c.firstName, c.lastName].filter(Boolean).join(" ") || "").trim(),
+            phone: String(c.phone ?? ""), email: String(c.email ?? ""),
+            reserved: f?.value ? parseReservedTime(String(f.value)) : "",
+          };
         }
       }
-    } catch { /* calendar fallback */ }
+    }
+  } catch { /* fall through: one-box record or 404 */ }
+  if (!lead && !ghl) {
+    return NextResponse.json({ ok: false }, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
-  const email = String((lead.answers as { email?: string } | null)?.email ?? "");
+  const slotIso = String(lead?.slot_iso ?? "") || ghl?.reserved || "";
+  const email = String((lead?.answers as { email?: string } | null)?.email ?? "") || ghl?.email || "";
   return NextResponse.json(
-    { ok: true, name: String(lead.full_name ?? ""), phone: String(lead.phone ?? ""), email, slotIso },
+    { ok: true, name: String(lead?.full_name ?? "") || ghl?.name || "", phone: String(lead?.phone ?? "") || ghl?.phone || "", email, slotIso },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
