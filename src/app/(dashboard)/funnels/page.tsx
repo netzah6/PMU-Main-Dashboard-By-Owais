@@ -315,6 +315,9 @@ export default function FunnelsPage() {
      client afterwards left a stranger's slug (Eye Select Beauty was
      created as "the-healing-design", 2026-09-19). */
   const [slugTouched, setSlugTouched] = useState(false);
+  /* "Saved ✓" shown on the Save button itself for a moment after a
+     successful write, so the confirmation is where the click happened. */
+  const [savedFlash, setSavedFlash] = useState<string | null>(null);
   const slugify = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   // Search line at the top — dozens of funnel boxes now (user, 2026-09-14).
   const [search, setSearch] = useState("");
@@ -397,12 +400,18 @@ export default function FunnelsPage() {
       oneboxReady: boolean; oneboxNote: string };
     error?: string } | null>(null);
 
+  /* The full-page spinner is for the FIRST load only. A refresh after a
+     save used to swap the whole list for the spinner, which unmounted the
+     open Start Setup panel and threw the page back to the top (user,
+     2026-09-20). Background refreshes now update the list in place. */
+  const loadedOnce = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!loadedOnce.current) setLoading(true);
     try {
       const r = await fetch("/api/onebox/admin");
       const j = await r.json();
       setFunnels(j.funnels ?? []);
+      loadedOnce.current = true;
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -603,6 +612,10 @@ export default function FunnelsPage() {
       else if (j.error) setToast(`Error: ${j.error}`);
       else if (Array.isArray(j.failed) && j.failed.length) setToast(`Saved, but GHL rejected: ${j.failed.join(", ")}`);
       else setToast(action === "resync" ? `Synced from GHL ✓${j.photoNote ? ` · ${j.photoNote}` : ""}${j.surveyNote ? ` · ${j.surveyNote}` : ""}` : "Saved ✓");
+      if (!j.error && (action === "cvs" || action === "extras")) {
+        setSavedFlash(slug);
+        window.setTimeout(() => setSavedFlash((cur) => (cur === slug ? null : cur)), 2500);
+      }
       if (action !== "health") await load();
     } finally { setBusy(null); }
   }
@@ -1475,8 +1488,13 @@ export default function FunnelsPage() {
                         if (Object.keys(extras).length) void act("extras", f.slug, extras);
                       }}
                       disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`}
-                      className="text-xs rounded-lg px-3 py-2 bg-[#0e9c9c] text-white font-medium disabled:opacity-60">
-                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` ? "Saving…" : "Save to GHL"}
+                      className={cn("text-xs rounded-lg px-3 py-2 text-white font-medium disabled:opacity-80 inline-flex items-center gap-1.5 transition-colors",
+                        savedFlash === f.slug ? "bg-[#15803d]" : "bg-[#0e9c9c]")}>
+                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`
+                        ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+                        : savedFlash === f.slug
+                          ? <><Check className="w-3.5 h-3.5" /> Saved ✓</>
+                          : "Save to GHL"}
                     </button>
                   </div>
                   <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
