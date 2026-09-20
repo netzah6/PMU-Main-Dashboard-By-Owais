@@ -1,7 +1,8 @@
 "use client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
-import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search } from "lucide-react";
+import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search, Trash2 } from "lucide-react";
+import { SERVICE_OPTIONS } from "@/lib/onboarding-steps";
 import { cn } from "@/lib/utils";
 import type { StatsWindow } from "@/lib/onebox-insights";
 
@@ -141,6 +142,45 @@ type Insight = {
 };
 
 /* Click-to-copy pill for SOP values — the exact string, one click. */
+/* Photo slot of the full setup form: upload to the dashboard's public
+   bucket (same endpoint as the Onboarding tab) or paste a URL; the URL is
+   what goes into the GHL custom value the funnel renders. */
+function ImageField({ value, onChange, onToast }: { value: string; onChange: (url: string) => void; onToast: (m: string) => void }) {
+  const [uploading, setUploading] = useState(false);
+  const pick = async (file: File | null) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/onboarding/upload", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Upload failed");
+      onChange(json.url);
+    } catch (e) {
+      onToast(`Upload failed: ${String(e).replace("Error: ", "")}`);
+    } finally { setUploading(false); }
+  };
+  return (
+    <div className="flex items-center gap-1.5">
+      {value ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={value} alt="" className="w-9 h-9 rounded-lg object-cover border border-[#e4ebf2] shrink-0" />
+      ) : null}
+      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder="Upload or paste an image URL"
+        className="flex-1 min-w-0 border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+      <label className={cn("shrink-0 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer border",
+        uploading ? "opacity-50 pointer-events-none border-[#e4ebf2] text-[#8595a8]" : "border-[#bfe6e2] text-[#0b7f7f] hover:bg-[#f0fbfa]")}>
+        {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : "Upload"}
+        <input type="file" accept="image/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0] ?? null)} />
+      </label>
+      {value && (
+        <button type="button" onClick={() => onChange("")} title="Remove" className="shrink-0 p-1.5 rounded text-[#94a3b8] hover:text-[#e11d48]"><Trash2 className="w-3.5 h-3.5" /></button>
+      )}
+    </div>
+  );
+}
+
 /* The chip itself flashes green "Copied ✓" for a moment, so the copy is
    confirmed right where the click happened (user, 2026-09-19). */
 function CopyChip({ text, label, onCopied }: { text: string; label?: string; onCopied: () => void }) {
@@ -318,6 +358,11 @@ export default function FunnelsPage() {
   /* "Saved ✓" shown on the Save button itself for a moment after a
      successful write, so the confirmation is where the click happened. */
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
+  /* Step 1's "New client — full setup form": the rest of the old GHL
+     "CC - 🎀 Funnel Form (V2 + V3)" (owner, links, V3 details, prices,
+     photos). Existing clients already have these values, so it stays
+     folded unless the team opens it. */
+  const [fullForm, setFullForm] = useState(false);
   const slugify = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   // Search line at the top — dozens of funnel boxes now (user, 2026-09-14).
   const [search, setSearch] = useState("");
@@ -1291,6 +1336,7 @@ export default function FunnelsPage() {
                       setAdUrlForm(f.oldFunnelUrl || "");
                       setRedirectVerify(null);
                       setSop5({ renamed: false, redirect: false, workflow: false });
+                      setFullForm(false);
                     }
                   }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
@@ -1420,6 +1466,101 @@ export default function FunnelsPage() {
                       )}
                     </label>
                   </div>
+                  <button type="button" onClick={() => setFullForm((v) => !v)}
+                    className="justify-self-start text-[11px] font-semibold text-[#0b7f7f] hover:underline">
+                    {fullForm ? "▾" : "▸"} New client? Fill the full setup form (owner, links, V3 details, prices, photos)
+                  </button>
+                  {fullForm && (() => {
+                    const T = (k: string, label: string, ph = "") => (
+                      <label key={k} className="grid gap-0.5">
+                        <span className="text-[10px] font-medium text-[#697a91]">{label}</span>
+                        <input value={cvForm[k] ?? ""} placeholder={ph}
+                          onChange={(e) => setCvForm((x) => ({ ...x, [k]: e.target.value }))}
+                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                      </label>
+                    );
+                    const P = (k: string, label: string) => (
+                      <label key={k} className="grid gap-0.5">
+                        <span className="text-[10px] font-medium text-[#697a91]">{label}</span>
+                        <ImageField value={cvForm[k] ?? ""} onChange={(u) => setCvForm((x) => ({ ...x, [k]: u }))} onToast={setToast} />
+                      </label>
+                    );
+                    const H = (t: string) => <p className="text-[10px] font-bold text-[#697a91] uppercase tracking-wide mt-1 md:col-span-2">{t}</p>;
+                    const picked = new Set((cvForm.services ?? "").split(",").map((x) => x.trim()).filter(Boolean));
+                    const oneboxUrl = f.url;
+                    return (
+                      <div className="border border-[#bfe6e2] rounded-xl p-3 bg-[#f7fdfc] grid md:grid-cols-2 gap-2">
+                        {H("Owner & links")}
+                        {T("ownerName", "Owner's name (V3)")}
+                        {T("igLink", "Instagram page link", "https://www.instagram.com/…")}
+                        {T("fbLink", "Facebook page link", "https://www.facebook.com/…")}
+                        {T("gmbLink", "Google My Business link", "https://g.page/r/… or maps link")}
+                        {H("Prices (V3)")}
+                        {T("originalPrice", "Original price for brows", "$597")}
+                        {T("discountedPrice", "Discounted price for brows", "$397")}
+                        {T("touchupPrice", "Touch-up price", "$150")}
+                        {H("V3 details")}
+                        <label className="grid gap-0.5 md:col-span-2">
+                          <span className="text-[10px] font-medium text-[#697a91]">Permanent makeup services (tick all that apply)</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[...SERVICE_OPTIONS, ...[...picked].filter((x) => !SERVICE_OPTIONS.includes(x))].map((opt) => (
+                              <button key={opt} type="button"
+                                onClick={() => {
+                                  const next = new Set(picked);
+                                  if (next.has(opt)) next.delete(opt); else next.add(opt);
+                                  setCvForm((x) => ({ ...x, services: [...next].join(", ") }));
+                                }}
+                                className={cn("text-[11px] rounded-full px-2.5 py-1 border",
+                                  picked.has(opt) ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "bg-white border-[#e4ebf2] text-[#475569] hover:bg-[#f6f9fc]")}>
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        </label>
+                        {T("yearsInBusiness", "Years in business", "5")}
+                        {T("businessHours", "Business hours", "Mon–Fri 9 AM–6 PM, Sat 10 AM–3 PM")}
+                        {T("firstTouchup", "When is the first touch-up?", "6–8 weeks after the first session")}
+                        {T("otherLocations", "Other locations", "none")}
+                        <label className="grid gap-0.5 md:col-span-2">
+                          <span className="text-[10px] font-medium text-[#697a91]">Extra notes for the AI (V3)</span>
+                          <textarea value={cvForm.extraNotes ?? ""} rows={2}
+                            onChange={(e) => setCvForm((x) => ({ ...x, extraNotes: e.target.value }))}
+                            className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                        </label>
+                        <label className="grid gap-0.5 md:col-span-2">
+                          <span className="text-[10px] font-medium text-[#697a91]">Deposit funnel URL (the AI&rsquo;s pay link — normally this funnel)</span>
+                          <div className="flex gap-1.5">
+                            <input value={cvForm.depositFunnelUrl ?? ""} placeholder={oneboxUrl}
+                              onChange={(e) => setCvForm((x) => ({ ...x, depositFunnelUrl: e.target.value }))}
+                              className="flex-1 min-w-0 border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                            {(cvForm.depositFunnelUrl ?? "") !== oneboxUrl && (
+                              <button type="button" onClick={() => setCvForm((x) => ({ ...x, depositFunnelUrl: oneboxUrl }))}
+                                className="shrink-0 text-[11px] border border-[#bfe6e2] text-[#0b7f7f] rounded-lg px-2.5 hover:bg-white">Use this funnel</button>
+                            )}
+                          </div>
+                        </label>
+                        {H("Photos")}
+                        {P("logo", "Funnel logo")}
+                        <div className="hidden md:block" />
+                        {P("studio1", "Studio picture 1")}
+                        {P("studio2", "Studio picture 2")}
+                        {P("studio3", "Studio picture 3")}
+                        <div className="hidden md:block" />
+                        {P("brows1", "Eyebrows before & after 1")}
+                        {P("brows2", "Eyebrows before & after 2")}
+                        {P("brows3", "Eyebrows before & after 3")}
+                        <div className="hidden md:block" />
+                        {P("lips1", "Lips before & after 1")}
+                        {P("lips2", "Lips before & after 2")}
+                        {P("lips3", "Lips before & after 3")}
+                        <div className="hidden md:block" />
+                        {P("liner1", "Eyeliner before & after 1")}
+                        {P("liner2", "Eyeliner before & after 2")}
+                        {P("liner3", "Eyeliner before & after 3")}
+                        <p className="text-[10px] text-[#697a91] md:col-span-2">Everything here is saved by <b>Step 3 &middot; Save to GoHighLevel</b> — straight into the sub-account&rsquo;s custom values, exactly what the old GHL form did.</p>
+                      </div>
+                    );
+                  })()}
                   <div className="grid gap-1">
                     <p className="text-[11px] font-bold text-[#0b7f7f] mt-1">Step 2 &middot; Survey questions</p>
                     {surveyRows.map((row, i) => (
