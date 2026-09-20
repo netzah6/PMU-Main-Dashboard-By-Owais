@@ -20,6 +20,26 @@ const pickers: [key: string, ...names: string[]][] = [
   ["logo", "CC - Funnel Logo"],
   ["igLink", "CC - IG Business Page Link"],
   ["calendarId", "CC - Permanent Makeup Transformation Calendar ID🔵"],
+  /* The rest of the "CC - 🎀 Funnel Form (V2 + V3)" — filled from Start
+     Setup's full form for a NEW client (the GHL form + its workflow are no
+     longer needed), prefilled here so an existing client's data shows. */
+  ["ownerName", "CC - Owner's Name (V3)🔵", "CC - Owner's Name"],
+  ["fbLink", "CC - FB Business Page Link"],
+  ["gmbLink", "CC - Google My Business Link"],
+  ["yearsInBusiness", "CC - Years in Business (V3)🔵"],
+  ["businessHours", "CC - Business Hours (V3)🔵"],
+  ["services", "CC - Permanent Makeup Services (V3 ONLY)🔵"],
+  ["firstTouchup", "CC - When is the first touch-up? (V3)🔵"],
+  ["otherLocations", "CC - Other Locations (V3)🔵"],
+  ["discountedPrice", "CC - Discounted Price for Brows - (V3)🔵"],
+  ["originalPrice", "CC - Original Price for Brows - (V3)🔵"],
+  ["touchupPrice", "CC - Touch-up price? (V3)🔵"],
+  ["extraNotes", "CC - Extra Notes (V3)🔵"],
+  ["depositFunnelUrl", "CC - Deposit Funnel URL (V3)🔵", "CC - Deposit Funnel URL"],
+  ["studio1", "CC - Picture of Studio 1"], ["studio2", "CC - Picture of Studio 2"], ["studio3", "CC - Picture of Studio 3"],
+  ["brows1", "CC - Eyebrows Before & After 1"], ["brows2", "CC - Eyebrows Before & After 2"], ["brows3", "CC - Eyebrows Before & After 3"],
+  ["lips1", "CC - Lip blush Before & After 1"], ["lips2", "CC - Lip blush Before & After 2"], ["lips3", "CC - Lip blush Before & After 3"],
+  ["liner1", "CC - Eyeliner Before & After 1"], ["liner2", "CC - Eyeliner Before & After 2"], ["liner3", "CC - Eyeliner Before & After 3"],
   // Optional team-editable overrides (create the custom value in GHL to use):
   ["headline", "OB - Headline"],
   ["sub", "OB - Subheadline"],
@@ -293,8 +313,29 @@ export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
   igWidget: "CC - IG Widget LINK",
   googleWidget: "CC - Google Widget LINK",
   surveyRaw: "OB - Survey Questions",
-  // Before/after + studio photos are managed ONLY in the GHL sub-account
-  // (the 12 template custom values) — deliberately not dashboard-editable.
+  /* Full setup form (new client) — the same values the GHL form
+     "CC - 🎀 Funnel Form (V2 + V3)" + its workflow used to write. Photos
+     included since 2026-09-20: the snapshot ships stock pictures in these
+     slots, so the team needs a place to put the client's own. */
+  logo: "CC - Funnel Logo",
+  igLink: "CC - IG Business Page Link",
+  ownerName: "CC - Owner's Name (V3)🔵",
+  fbLink: "CC - FB Business Page Link",
+  gmbLink: "CC - Google My Business Link",
+  yearsInBusiness: "CC - Years in Business (V3)🔵",
+  businessHours: "CC - Business Hours (V3)🔵",
+  services: "CC - Permanent Makeup Services (V3 ONLY)🔵",
+  firstTouchup: "CC - When is the first touch-up? (V3)🔵",
+  otherLocations: "CC - Other Locations (V3)🔵",
+  discountedPrice: "CC - Discounted Price for Brows - (V3)🔵",
+  originalPrice: "CC - Original Price for Brows - (V3)🔵",
+  touchupPrice: "CC - Touch-up price? (V3)🔵",
+  extraNotes: "CC - Extra Notes (V3)🔵",
+  depositFunnelUrl: "CC - Deposit Funnel URL (V3)🔵",
+  studio1: "CC - Picture of Studio 1", studio2: "CC - Picture of Studio 2", studio3: "CC - Picture of Studio 3",
+  brows1: "CC - Eyebrows Before & After 1", brows2: "CC - Eyebrows Before & After 2", brows3: "CC - Eyebrows Before & After 3",
+  lips1: "CC - Lip blush Before & After 1", lips2: "CC - Lip blush Before & After 2", lips3: "CC - Lip blush Before & After 3",
+  liner1: "CC - Eyeliner Before & After 1", liner2: "CC - Eyeliner Before & After 2", liner3: "CC - Eyeliner Before & After 3",
 };
 
 // Write custom values straight to the sub-account — update when the

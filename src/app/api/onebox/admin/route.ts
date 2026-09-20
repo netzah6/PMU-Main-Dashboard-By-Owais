@@ -474,16 +474,11 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        just accepted IS the truth; merge it in ourselves and let the
        regular 5-minute resync reconcile once their list catches up. */
     const writtenNames = new Set(res.written);
-    const cfg = { ...((row.config ?? {}) as Record<string, string>) };
-    for (const [key, cvName] of Object.entries(ONEBOX_EDITABLE_CVS)) {
-      if (key in values && typeof values[key] === "string" && writtenNames.has(cvName)) {
-        cfg[key] = (values[key] as string).trim().slice(0, 2000);
-      }
-    }
-    await svc
-      .from("onebox_clients")
-      .update({ config: cfg, cv_synced_at: new Date().toISOString() })
-      .eq("slug", slug);
+    /* Re-read with the just-written values merged over GHL's (lagging)
+       list, so aggregated fields (resultCvImgs / studioCvImgs from the
+       photo slots) are rebuilt in the same request. */
+    const justWritten = Object.fromEntries(entries.filter((e) => writtenNames.has(e.name)).map((e) => [e.name, e.value]));
+    const cfg = (await refreshOneboxConfig(svc, slug, row.location_id as string, justWritten)) ?? { ...((row.config ?? {}) as Record<string, string>), ...Object.fromEntries(Object.entries(ONEBOX_EDITABLE_CVS).filter(([, n]) => n in justWritten).map(([k, n]) => [k, justWritten[n]])) };
     const failed = entries.filter((e) => !writtenNames.has(e.name)).map((e) => e.name);
     warmFunnel(slug);
     return NextResponse.json({ ok: true, written: res.written.length, failed, config: cfg });
