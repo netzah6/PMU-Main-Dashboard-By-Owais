@@ -392,6 +392,10 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       const candidates = new Set<string>();
       const oldUrl = (ex.oldFunnelUrl ?? "").trim();
       if (oldUrl) {
+        /* After the cutover the ad link 301s to us and carries no pixel —
+           the renamed -old page is where the original (and its pixel)
+           still lives; check it first. */
+        candidates.add(oldUrl.replace(/\/?$/, "") + "-old");
         candidates.add(oldUrl);
         candidates.add(oldUrl.replace(/-survey(?:-ab-ghl)?\/?$/, "-booking"));
       }
