@@ -37,7 +37,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -701,4 +701,67 @@ export async function scanAgreementMissing(svc: Svc): Promise<{ seeded: number; 
     if (ok) filed++;
   }
   return { seeded: 0, newlyLive, filed, resolved };
+}
+
+
+/* Leads arriving for a client whose Clients-sheet status is NOT Live
+   (Paused, blank, Offboarded): ads are running but nobody flipped the
+   status, so the client is invisible to billing, coaching and the
+   dashboards. Alert once leads have been coming in for 2+ days with the
+   status unchanged (owner, 2026-09-21); clears itself when the status
+   turns Live. Lead dates come from the sheet's own Date column — synced_at
+   is not a lead date (the Sep-19 migration re-stamped it). */
+export async function scanLeadsWhileNotLive(svc: Svc): Promise<{ checked: number; filed: number; resolved: number; error?: string }> {
+  const { data: rows, error } = await svc.rpc("ask_ai_query", {
+    q: `WITH cm AS (
+           SELECT trim(data->>'Business Name') AS biz,
+                  coalesce(nullif(trim(data->>'col_1'), ''), '(blank)') AS status,
+                  trim(data->>'Owner Full Name') AS owner,
+                  trim(data->>'Assigned') AS assigned
+           FROM clients_master),
+         l AS (
+           SELECT trim(data->>'Business Name') AS biz, to_date(data->>'Date', 'DD/MM/YYYY') AS d
+           FROM leads_master
+           WHERE data->>'Date' ~ '^\\d{1,2}/\\d{1,2}/\\d{4}'),
+         a AS (
+           SELECT biz,
+                  count(*) FILTER (WHERE d > current_date - 7)::int AS n7,
+                  min(d) FILTER (WHERE d > current_date - 7) AS first7,
+                  max(d) AS last
+           FROM l GROUP BY biz)
+         SELECT cm.status, cm.biz, cm.owner, cm.assigned, a.n7, a.first7::text AS first7, a.last::text AS last
+         FROM cm JOIN a ON lower(a.biz) = lower(cm.biz)
+         WHERE cm.status NOT IN ('Live', 'Onboarding') AND a.n7 > 0`,
+  });
+  if (error) return { checked: 0, filed: 0, resolved: 0, error: error.message };
+  type R = { status: string; biz: string; owner: string; assigned: string; n7: number; first7: string; last: string };
+  const list = (rows ?? []) as R[];
+  let filed = 0, resolved = 0;
+  const DAY = 86_400_000;
+  const flagged = new Set<string>();
+  for (const r of list) {
+    const key = `leads-not-live:${r.biz.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const daysRunning = Math.floor((Date.now() - new Date(r.first7).getTime()) / DAY);
+    const stale = Date.now() - new Date(r.last).getTime() > 3 * DAY; // leads stopped → nothing to chase
+    if (daysRunning < 2 || stale) continue;
+    flagged.add(key);
+    const ok = await fileAlert(svc, {
+      type: "status",
+      severity: "high",
+      title: `${r.biz}: getting leads but status is ${r.status === "(blank)" ? "EMPTY" : r.status.toUpperCase()}`,
+      detail: `${r.n7} lead${r.n7 === 1 ? "" : "s"} in the last 7 days (since ${r.first7}, latest ${r.last}) while the Clients sheet says "${r.status}". Ads are running for a client nobody marked Live — set the status on the Clients tab (or pause the ads). Clears itself once the status is Live.`,
+      source_key: key,
+      meta: { business: r.biz, owner: r.owner || null, status: r.status, leads_7d: r.n7, first_lead: r.first7, last_lead: r.last, csm: r.assigned || null },
+      resurfaceAfterDays: 7,
+    });
+    if (ok) filed++;
+  }
+  // Status turned Live (or leads stopped): close the open alerts quietly.
+  const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "status").eq("status", "open");
+  const toClose = (open ?? []).filter((o) => !flagged.has(String(o.source_key))).map((o) => o.id);
+  if (toClose.length) {
+    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (status is Live / leads stopped)", resolved_at: new Date().toISOString() }).in("id", toClose);
+    resolved = toClose.length;
+  }
+  return { checked: list.length, filed, resolved };
 }
