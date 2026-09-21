@@ -142,6 +142,28 @@ type Insight = {
 };
 
 /* Click-to-copy pill for SOP values — the exact string, one click. */
+/* Which program needs a Start Setup field. V1 = survey → thank-you only
+   (no booking, no deposit, no AI follow-up), so everything that feeds the
+   booking/deposit pages or the AI script is V3-only. Shown as a tag on each
+   field, and V3-only fields dim when the client's program is V1. */
+const V3_ONLY_KEYS = new Set([
+  "deposit", "calendarId", "fanbasisProductId", "depositFunnelUrl",
+  "ownerName", "originalPrice", "discountedPrice", "touchupPrice",
+  "services", "yearsInBusiness", "businessHours", "firstTouchup", "otherLocations", "extraNotes",
+  "studio1", "studio2", "studio3", "brows1", "brows2", "brows3", "lips1", "lips2", "lips3", "liner1", "liner2", "liner3",
+  "igWidget", "googleWidget",
+]);
+function ProgTag({ v3only, clientIsV1 }: { v3only: boolean; clientIsV1: boolean }) {
+  return v3only ? (
+    <span className={cn("ml-1 text-[9px] font-bold rounded px-1 py-px border align-middle",
+      clientIsV1 ? "border-[#e4ebf2] text-[#97a5b8] line-through" : "border-[#93c5fd] text-[#1d4ed8] bg-[#eff6ff]")}
+      title={clientIsV1 ? "Not needed for a V1 client" : "Needed for V3 (booking page, deposit or the AI)"}>V3</span>
+  ) : (
+    <span className="ml-1 text-[9px] font-bold rounded px-1 py-px border border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] align-middle"
+      title="Needed for every program (V1 and V3)">V1 + V3</span>
+  );
+}
+
 /* Photo slot of the full setup form: upload to the dashboard's public
    bucket (same endpoint as the Onboarding tab) or paste a URL; the URL is
    what goes into the GHL custom value the funnel renders. */
@@ -1422,6 +1444,18 @@ export default function FunnelsPage() {
               {cvFor === f.slug && (
                 <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
                   <p className="text-[11px] font-bold text-[#0b7f7f]">Step 1 &middot; Business details</p>
+                  {(() => {
+                    const ver = f.program?.version ?? "";
+                    const isV1 = /v1/i.test(ver);
+                    return (
+                      <p className="text-[10px] text-[#697a91]">
+                        {ver ? <>This client is <b className={isV1 ? "text-[#b45309]" : "text-[#1d4ed8]"}>{ver.replace(/[()]/g, "")}</b> (Clients sheet). </> : <>Program unknown — set it on the Clients tab. </>}
+                        <span className="text-[9px] font-bold rounded px-1 py-px border border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec]">V1 + V3</span> = fill for every client ·{" "}
+                        <span className="text-[9px] font-bold rounded px-1 py-px border border-[#93c5fd] text-[#1d4ed8] bg-[#eff6ff]">V3</span> = booking page, deposit &amp; AI only
+                        {isV1 && <> — greyed fields can stay empty for this client</>}
+                      </p>
+                    );
+                  })()}
                   <div className="grid md:grid-cols-2 gap-2">
                     {([
                       ["biz", "Business name"],
@@ -1433,16 +1467,20 @@ export default function FunnelsPage() {
                       ["fanbasisProductId", "Commas product ID"],
                       ["igWidget", "Instagram widget link (elf.site)"],
                       ["googleWidget", "Google reviews widget link (elf.site)"],
-                    ] as [string, string][]).map(([k, label]) => (
-                      <label key={k} className="grid gap-0.5">
-                        <span className="text-[10px] font-medium text-[#697a91]">{label}</span>
+                    ] as [string, string][]).map(([k, label]) => {
+                      const isV1 = /v1/i.test(f.program?.version ?? "");
+                      const dim = isV1 && V3_ONLY_KEYS.has(k);
+                      return (
+                      <label key={k} className={cn("grid gap-0.5", dim && "opacity-50")}>
+                        <span className="text-[10px] font-medium text-[#697a91]">{label}<ProgTag v3only={V3_ONLY_KEYS.has(k)} clientIsV1={isV1} /></span>
                         <input value={cvForm[k] ?? ""}
                           onChange={(e) => setCvForm((x) => ({ ...x, [k]: e.target.value }))}
                           className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                       </label>
-                    ))}
+                      );
+                    })}
                     <label className="grid gap-0.5">
-                      <span className="text-[10px] font-medium text-[#697a91]">Meta pixel ID{f.hasPixel ? "" : " (not set)"}</span>
+                      <span className="text-[10px] font-medium text-[#697a91]">Meta pixel ID{f.hasPixel ? "" : " (not set)"}<ProgTag v3only={false} clientIsV1={/v1/i.test(f.program?.version ?? "")} /></span>
                       {/* Every pixel already in use across the funnels, so a new
                           client is dropped onto the right shared pixel instead
                           of a typo (user, 2026-09-14). "Other…" opens a box. */}
@@ -1471,21 +1509,30 @@ export default function FunnelsPage() {
                     {fullForm ? "▾" : "▸"} New client? Fill the full setup form (owner, links, V3 details, prices, photos)
                   </button>
                   {fullForm && (() => {
+                    const isV1 = /v1/i.test(f.program?.version ?? "");
+                    const dimCls = (k: string) => (isV1 && V3_ONLY_KEYS.has(k) ? "opacity-50" : "");
+                    const Lbl = (k: string, label: string) => (
+                      <span className="text-[10px] font-medium text-[#697a91]">{label}<ProgTag v3only={V3_ONLY_KEYS.has(k)} clientIsV1={isV1} /></span>
+                    );
                     const T = (k: string, label: string, ph = "") => (
-                      <label key={k} className="grid gap-0.5">
-                        <span className="text-[10px] font-medium text-[#697a91]">{label}</span>
+                      <label key={k} className={cn("grid gap-0.5", dimCls(k))}>
+                        {Lbl(k, label)}
                         <input value={cvForm[k] ?? ""} placeholder={ph}
                           onChange={(e) => setCvForm((x) => ({ ...x, [k]: e.target.value }))}
                           className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                       </label>
                     );
                     const P = (k: string, label: string) => (
-                      <label key={k} className="grid gap-0.5">
-                        <span className="text-[10px] font-medium text-[#697a91]">{label}</span>
+                      <label key={k} className={cn("grid gap-0.5", dimCls(k))}>
+                        {Lbl(k, label)}
                         <ImageField value={cvForm[k] ?? ""} onChange={(u) => setCvForm((x) => ({ ...x, [k]: u }))} onToast={setToast} />
                       </label>
                     );
-                    const H = (t: string) => <p className="text-[10px] font-bold text-[#697a91] uppercase tracking-wide mt-1 md:col-span-2">{t}</p>;
+                    const H = (t: string, v3 = false) => (
+                      <p className="text-[10px] font-bold text-[#697a91] uppercase tracking-wide mt-1 md:col-span-2">
+                        {t}{v3 && <ProgTag v3only clientIsV1={isV1} />}
+                      </p>
+                    );
                     const picked = new Set((cvForm.services ?? "").split(",").map((x) => x.trim()).filter(Boolean));
                     const oneboxUrl = f.url;
                     return (
@@ -1495,13 +1542,13 @@ export default function FunnelsPage() {
                         {T("igLink", "Instagram page link", "https://www.instagram.com/…")}
                         {T("fbLink", "Facebook page link", "https://www.facebook.com/…")}
                         {T("gmbLink", "Google My Business link", "https://g.page/r/… or maps link")}
-                        {H("Prices (V3)")}
+                        {H("Prices", true)}
                         {T("originalPrice", "Original price for brows", "$597")}
                         {T("discountedPrice", "Discounted price for brows", "$397")}
                         {T("touchupPrice", "Touch-up price", "$150")}
-                        {H("V3 details")}
-                        <label className="grid gap-0.5 md:col-span-2">
-                          <span className="text-[10px] font-medium text-[#697a91]">Permanent makeup services (tick all that apply)</span>
+                        {H("Details for the AI script", true)}
+                        <label className={cn("grid gap-0.5 md:col-span-2", dimCls("services"))}>
+                          {Lbl("services", "Permanent makeup services (tick all that apply)")}
                           <div className="flex flex-wrap gap-1.5">
                             {[...SERVICE_OPTIONS, ...[...picked].filter((x) => !SERVICE_OPTIONS.includes(x))].map((opt) => (
                               <button key={opt} type="button"
@@ -1521,14 +1568,14 @@ export default function FunnelsPage() {
                         {T("businessHours", "Business hours", "Mon–Fri 9 AM–6 PM, Sat 10 AM–3 PM")}
                         {T("firstTouchup", "When is the first touch-up?", "6–8 weeks after the first session")}
                         {T("otherLocations", "Other locations", "none")}
-                        <label className="grid gap-0.5 md:col-span-2">
-                          <span className="text-[10px] font-medium text-[#697a91]">Extra notes for the AI (V3)</span>
+                        <label className={cn("grid gap-0.5 md:col-span-2", dimCls("extraNotes"))}>
+                          {Lbl("extraNotes", "Extra notes for the AI")}
                           <textarea value={cvForm.extraNotes ?? ""} rows={2}
                             onChange={(e) => setCvForm((x) => ({ ...x, extraNotes: e.target.value }))}
                             className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                         </label>
-                        <label className="grid gap-0.5 md:col-span-2">
-                          <span className="text-[10px] font-medium text-[#697a91]">Deposit funnel URL (the AI&rsquo;s pay link — normally this funnel)</span>
+                        <label className={cn("grid gap-0.5 md:col-span-2", dimCls("depositFunnelUrl"))}>
+                          {Lbl("depositFunnelUrl", "Deposit funnel URL (the AI’s pay link — normally this funnel)")}
                           <div className="flex gap-1.5">
                             <input value={cvForm.depositFunnelUrl ?? ""} placeholder={oneboxUrl}
                               onChange={(e) => setCvForm((x) => ({ ...x, depositFunnelUrl: e.target.value }))}
@@ -1539,7 +1586,7 @@ export default function FunnelsPage() {
                             )}
                           </div>
                         </label>
-                        {H("Photos")}
+                        {H("Photos (booking page)", true)}
                         {P("logo", "Funnel logo")}
                         <div className="hidden md:block" />
                         {P("studio1", "Studio picture 1")}
