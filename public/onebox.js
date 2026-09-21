@@ -252,6 +252,8 @@
     "#ob-v2bar .v2hold b{font-variant-numeric:tabular-nums;background:rgba(255,255,255,.45);border-radius:6px;padding:2px 7px;margin-left:4px}" +
     "#onebox-root h2.phead.v2dephead{margin-bottom:8px;font-size:clamp(19px,5.6vw,26px);line-height:1.25;overflow-wrap:break-word;white-space:normal}" +
     "#onebox-root .v2deprow{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 10px;padding:9px 12px;border:1px solid #cdeae4;border-radius:10px;background:#f2fbf8;font-size:13px;color:#116b52;font-weight:600;text-align:center}" +
+    "#onebox-root .payhint{margin:0 0 10px;padding:8px 12px;border:1px solid #dbe7f3;border-radius:10px;background:#f4f9ff;font-size:12.5px;color:#28527a;text-align:center;line-height:1.45}" +
+    "#onebox-root .payhint b{white-space:nowrap}" +
     "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
     "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:6px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
     "#onebox-root .depwhen{margin:0;font-size:14.5px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
@@ -991,6 +993,21 @@
     })(0);
   }
 
+  /* The Commas checkout hides the wallet buttons behind "More" on phones
+     (device-based, not width — verified 2026-09-21: even an 800px-wide
+     iframe under a mobile identity shows Card+More only), and clients
+     missed them entirely. We can't restyle inside their iframe, so the
+     page itself says what's available, leading with the visitor's own
+     wallet. Shown on narrow screens only — desktop shows all tiles. */
+  function payHint() {
+    if (window.innerWidth > 700) return "";
+    var ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    var order = ios ? "<b>&#63743; Apple Pay</b>, <b>Cash App</b>, <b>Google Pay</b>"
+      : "<b>Google Pay</b>, <b>Cash App</b>, <b>&#63743; Apple Pay</b>";
+    return '<div class="payhint">You can also pay with ' + order +
+      ' &mdash; tap <b>&ldquo;More&rdquo;</b> under Payment Methods to choose.</div>';
+  }
+
   function slideDeposit() {
     /* V2: everything above the checkout compresses into two short rows —
        the payment box lands (nearly) above the fold, the countdown moves
@@ -1000,7 +1017,7 @@
         : "Lock In Your " + (VIDEO ? "Video Consultation" : "Spot") + " &mdash; " + esc(DEPOSIT) + ", Fully Refundable") + "</h2>" +
         '<div class="v2deprow">' +
           '<span>&#10004; Refunded in full or applied to your service &mdash; you&rsquo;re 100% covered</span>' +
-        "</div>";
+        "</div>" + payHint();
     }
     return '<h2 class="phead dephead">' + (C.depositHead ? esc(C.depositHead)
       : esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
