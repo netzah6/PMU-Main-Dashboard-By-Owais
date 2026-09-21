@@ -17,6 +17,7 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   onboarding: { label: "Onboarding", icon: "🚀", chip: "bg-blue-50 text-blue-700 border-blue-200" },
   agreement: { label: "Agreement not signed", icon: "📝", chip: "bg-red-50 text-red-700 border-red-200" },
   status: { label: "Leads but not Live", icon: "🚦", chip: "bg-amber-50 text-amber-800 border-amber-200" },
+  coach_tracker: { label: "Coach report", icon: "📋", chip: "bg-teal-50 text-teal-700 border-teal-200" },
 };
 
 function typeMeta(t: string) {
