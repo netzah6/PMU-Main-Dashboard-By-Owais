@@ -153,6 +153,24 @@ const V3_ONLY_KEYS = new Set([
   "studio1", "studio2", "studio3", "brows1", "brows2", "brows3", "lips1", "lips2", "lips3", "liner1", "liner2", "liner3",
   "igWidget", "googleWidget",
 ]);
+/* What a client MUST have before the program can become V3: the values
+   the booking page, the deposit step and the AI script cannot run without.
+   Photos, years, touch-up, other locations and notes stay optional. */
+const V3_REQUIRED: [key: string, label: string][] = [
+  ["deposit", "Deposit amount"],
+  ["calendarId", "Calendar ID"],
+  ["fanbasisProductId", "Commas product ID"],
+  ["depositFunnelUrl", "Deposit funnel URL"],
+  ["ownerName", "Owner's name"],
+  ["originalPrice", "Original price for brows"],
+  ["discountedPrice", "Discounted price for brows"],
+  ["services", "Permanent makeup services"],
+  ["businessHours", "Business hours"],
+];
+function v3Missing(cv: Record<string, string>): [string, string][] {
+  return V3_REQUIRED.filter(([k]) => !(cv[k] ?? "").trim());
+}
+
 function ProgTag({ v3only, clientIsV1 }: { v3only: boolean; clientIsV1: boolean }) {
   return v3only ? (
     <span className={cn("ml-1 text-[9px] font-bold rounded px-1 py-px border align-middle",
@@ -385,6 +403,9 @@ export default function FunnelsPage() {
      photos). Existing clients already have these values, so it stays
      folded unless the team opens it. */
   const [fullForm, setFullForm] = useState(false);
+  /* Keys still empty when the team tried to switch this funnel to V3 —
+     outlined in red in Start Setup until they are filled and saved. */
+  const [v3Gap, setV3Gap] = useState<Record<string, string[]>>({});
   const slugify = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   // Search line at the top — dozens of funnel boxes now (user, 2026-09-14).
   const [search, setSearch] = useState("");
@@ -523,6 +544,33 @@ export default function FunnelsPage() {
   const [progBusy, setProgBusy] = useState<string | null>(null);
   const saveProgram = useCallback(async (f: Funnel, newVersion: string) => {
     if (!f.program || newVersion === f.program.version) { setProgFor(null); return; }
+    /* V3 needs data V1 never had. Refuse the switch while any of it is
+       missing, open Start Setup on the full form and outline the gaps —
+       the switch works once they are filled and saved (user, 2026-09-21). */
+    if (/v3/i.test(newVersion)) {
+      const missing = v3Missing(f.cv);
+      if (missing.length) {
+        setV3Gap((g) => ({ ...g, [f.slug]: missing.map(([k]) => k) }));
+        setToast(`Can't switch to V3 yet — fill in: ${missing.map(([, l]) => l).join(", ")} (Start Setup → Step 1 → full form), save, then try again`);
+        setProgFor(null);
+        if (cvFor !== f.slug) {
+          setCvFor(f.slug);
+          setCvForm({ ...f.cv });
+          setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); setPixelOther(false);
+          setSurveyRows(parseSurvey((f.cv.surveyRaw ?? "").trim() || DEFAULT_SURVEY_TEMPLATE));
+          setSurveyDirty(false);
+          setAbOrigUrl(f.oldFunnelUrl ? f.oldFunnelUrl.replace(/\/?$/, "") + "-ab-ghl" : "");
+          setSop({ renamed: false, redirect: false, values: false, workflow: false });
+          setStartVerify(null);
+          setRedirectChoice(f.adRedirect);
+          setAdUrlForm(f.oldFunnelUrl || "");
+          setRedirectVerify(null);
+          setSop5({ renamed: false, redirect: false, workflow: false });
+        }
+        setFullForm(true);
+        return;
+      }
+    }
     setProgBusy(f.slug);
     try {
       const r = await fetch("/api/sync/clients_master", {
@@ -537,7 +585,7 @@ export default function FunnelsPage() {
       setProgFor(null);
       await load();
     } finally { setProgBusy(null); }
-  }, [load]);
+  }, [load, cvFor]);
   const loadInsights = useCallback(async () => {
     try {
       const r = await fetch("/api/onebox/insights");
@@ -1447,14 +1495,20 @@ export default function FunnelsPage() {
                   {(() => {
                     const ver = f.program?.version ?? "";
                     const isV1 = /v1/i.test(ver);
-                    return (
+                    const gap = (v3Gap[f.slug] ?? []).filter((k) => !(f.cv[k] ?? "").trim());
+                    return (<>
+                      {gap.length > 0 && (
+                        <p className="text-[11px] font-medium text-[#b91c1c] bg-[#fef2f2] border border-[#fecaca] rounded-lg px-3 py-2">
+                          Can&rsquo;t switch to V3 yet — still missing: {V3_REQUIRED.filter(([k]) => gap.includes(k)).map(([, l]) => l).join(", ")}. Fill the red fields below, save (Step 3), then switch again.
+                        </p>
+                      )}
                       <p className="text-[10px] text-[#697a91]">
                         {ver ? <>This client is <b className={isV1 ? "text-[#b45309]" : "text-[#1d4ed8]"}>{ver.replace(/[()]/g, "")}</b> (Clients sheet). </> : <>Program unknown — set it on the Clients tab. </>}
                         <span className="text-[9px] font-bold rounded px-1 py-px border border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec]">V1 + V3</span> = fill for every client ·{" "}
                         <span className="text-[9px] font-bold rounded px-1 py-px border border-[#93c5fd] text-[#1d4ed8] bg-[#eff6ff]">V3</span> = booking page, deposit &amp; AI only
                         {isV1 && <> — greyed fields can stay empty for this client</>}
                       </p>
-                    );
+                    </>);
                   })()}
                   <div className="grid md:grid-cols-2 gap-2">
                     {([
@@ -1470,12 +1524,13 @@ export default function FunnelsPage() {
                     ] as [string, string][]).map(([k, label]) => {
                       const isV1 = /v1/i.test(f.program?.version ?? "");
                       const dim = isV1 && V3_ONLY_KEYS.has(k);
+                      const red = (v3Gap[f.slug] ?? []).includes(k) && !(cvForm[k] ?? "").trim();
                       return (
                       <label key={k} className={cn("grid gap-0.5", dim && "opacity-50")}>
-                        <span className="text-[10px] font-medium text-[#697a91]">{label}<ProgTag v3only={V3_ONLY_KEYS.has(k)} clientIsV1={isV1} /></span>
+                        <span className={cn("text-[10px] font-medium", red ? "text-[#b91c1c]" : "text-[#697a91]")}>{label}<ProgTag v3only={V3_ONLY_KEYS.has(k)} clientIsV1={isV1} />{red && " — required for V3"}</span>
                         <input value={cvForm[k] ?? ""}
                           onChange={(e) => setCvForm((x) => ({ ...x, [k]: e.target.value }))}
-                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                          className={cn("border rounded-lg px-3 py-2 text-xs", red ? "border-[#ef4444] bg-[#fef2f2]" : "border-[#e4ebf2]")} />
                       </label>
                       );
                     })}
@@ -1511,15 +1566,17 @@ export default function FunnelsPage() {
                   {fullForm && (() => {
                     const isV1 = /v1/i.test(f.program?.version ?? "");
                     const dimCls = (k: string) => (isV1 && V3_ONLY_KEYS.has(k) ? "opacity-50" : "");
+                    const isRed = (k: string) => (v3Gap[f.slug] ?? []).includes(k) && !(cvForm[k] ?? "").trim();
                     const Lbl = (k: string, label: string) => (
-                      <span className="text-[10px] font-medium text-[#697a91]">{label}<ProgTag v3only={V3_ONLY_KEYS.has(k)} clientIsV1={isV1} /></span>
+                      <span className={cn("text-[10px] font-medium", isRed(k) ? "text-[#b91c1c]" : "text-[#697a91]")}>{label}<ProgTag v3only={V3_ONLY_KEYS.has(k)} clientIsV1={isV1} />{isRed(k) && " — required for V3"}</span>
                     );
+                    const inputCls = (k: string) => cn("border rounded-lg px-3 py-2 text-xs", isRed(k) ? "border-[#ef4444] bg-[#fef2f2]" : "border-[#e4ebf2]");
                     const T = (k: string, label: string, ph = "") => (
                       <label key={k} className={cn("grid gap-0.5", dimCls(k))}>
                         {Lbl(k, label)}
                         <input value={cvForm[k] ?? ""} placeholder={ph}
                           onChange={(e) => setCvForm((x) => ({ ...x, [k]: e.target.value }))}
-                          className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                          className={inputCls(k)} />
                       </label>
                     );
                     const P = (k: string, label: string) => (
@@ -1549,7 +1606,7 @@ export default function FunnelsPage() {
                         {H("Details for the AI script", true)}
                         <label className={cn("grid gap-0.5 md:col-span-2", dimCls("services"))}>
                           {Lbl("services", "Permanent makeup services (tick all that apply)")}
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className={cn("flex flex-wrap gap-1.5", isRed("services") && "rounded-lg border border-[#ef4444] bg-[#fef2f2] p-1.5")}>
                             {[...SERVICE_OPTIONS, ...[...picked].filter((x) => !SERVICE_OPTIONS.includes(x))].map((opt) => (
                               <button key={opt} type="button"
                                 onClick={() => {
@@ -1579,7 +1636,7 @@ export default function FunnelsPage() {
                           <div className="flex gap-1.5">
                             <input value={cvForm.depositFunnelUrl ?? ""} placeholder={oneboxUrl}
                               onChange={(e) => setCvForm((x) => ({ ...x, depositFunnelUrl: e.target.value }))}
-                              className="flex-1 min-w-0 border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
+                              className={cn("flex-1 min-w-0", inputCls("depositFunnelUrl"))} />
                             {(cvForm.depositFunnelUrl ?? "") !== oneboxUrl && (
                               <button type="button" onClick={() => setCvForm((x) => ({ ...x, depositFunnelUrl: oneboxUrl }))}
                                 className="shrink-0 text-[11px] border border-[#bfe6e2] text-[#0b7f7f] rounded-lg px-2.5 hover:bg-white">Use this funnel</button>
