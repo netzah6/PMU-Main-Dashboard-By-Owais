@@ -24,12 +24,23 @@ async function dropSupersededDirectRows(
   if (!t) return 0;
 
   const supabase = createServiceClient();
-  const { data: direct } = await supabase
-    .from(table)
-    .select("id, data, synced_at")
-    .not("external_id", "is", null)
-    .is("sheet_row", null);
-  if (!direct || direct.length === 0) return 0;
+  /* Page through ALL direct rows. PostgREST caps an un-ranged select at
+     1,000 rows and this query had no order, so once bookings passed 1,000
+     webhook rows the newest ones were never even looked at — every new
+     booking showed twice (Beauty by May, 2026-09-21; 1,037 stale twins). */
+  const direct: { id: string; data: unknown; synced_at: string | null }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: page } = await supabase
+      .from(table)
+      .select("id, data, synced_at")
+      .not("external_id", "is", null)
+      .is("sheet_row", null)
+      .order("id")
+      .range(from, from + 999);
+    direct.push(...(page ?? []));
+    if (!page || page.length < 1000) break;
+  }
+  if (direct.length === 0) return 0;
 
   // Every identifier the sheet knows about. Matching per identifier (rather
   // than one all-fields fingerprint) is what lets a webhook row carrying a
