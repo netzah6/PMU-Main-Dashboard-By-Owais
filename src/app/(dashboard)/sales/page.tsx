@@ -39,18 +39,28 @@ function delta(now: number, prev: number, hasPrev: boolean) {
 function CoachTracker() {
   const [rows, setRows] = useState<CoachRow[] | null>(null);
   const [prevDate, setPrevDate] = useState<string | null>(null);
+  const [hidden, setHidden] = useState<string[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => {
+  const load = useCallback(() => {
     fetch("/api/sales/coaches").then(async (r) => {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      setRows(j.coaches); setPrevDate(j.prevDate);
+      setRows(j.coaches); setPrevDate(j.prevDate); setHidden(j.hidden ?? []);
     }).catch((e) => setErr(String(e)));
   }, []);
+  useEffect(() => { load(); }, [load]);
+  const setCoachHidden = (coach: string, hide: boolean) => {
+    void fetch("/api/sales/coaches", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: hide ? "hide" : "unhide", coach }),
+    }).then(load);
+  };
 
   if (err) return <div className="mt-6 rounded-lg border border-[#d97070] bg-[#fdf3f3] p-3 text-sm text-[#8a3a3a]">{err}</div>;
   if (!rows) return <div className="mt-8 text-sm text-[#697a91]">Loading coach numbers…</div>;
   const hasPrev = !!prevDate;
+  const visible = rows.filter((c) => !hidden.includes(c.coach));
+  const hiddenRows = rows.filter((c) => hidden.includes(c.coach));
   return (
     <div className="mt-5">
       <p className="text-sm text-[#697a91]">
@@ -75,9 +85,16 @@ function CoachTracker() {
             </tr>
           </thead>
           <tbody className="divide-y divide-[#eef3f8]">
-            {rows.map((c) => (
+            {visible.map((c) => (
               <tr key={c.coach}>
-                <td className="px-4 py-2.5 font-semibold text-[#1f3559]">{c.coach}</td>
+                <td className="px-4 py-2.5 font-semibold text-[#1f3559]">
+                  {c.coach}
+                  {c.coach !== "(unassigned)" && (
+                    <button onClick={() => setCoachHidden(c.coach, true)}
+                      title="Hide from the tracker (former coach / not a coach) — reversible below"
+                      className="ml-2 text-[10px] font-normal text-[#97a5b8] hover:text-[#b4485c] hover:underline">hide</button>
+                  )}
+                </td>
                 <td className="px-4 py-2.5">
                   {c.history.length === 0 ? (
                     <span className="text-xs text-[#8595a8]" title="No snapshot yet — first one lands on the 20th">
@@ -120,6 +137,24 @@ function CoachTracker() {
           </tbody>
         </table>
       </div>
+      {hiddenRows.length > 0 && (
+        <details className="mt-3 text-sm text-[#697a91]">
+          <summary className="cursor-pointer text-xs">
+            Hidden ({hiddenRows.length}) — former coaches &amp; non-coaches, history kept
+          </summary>
+          <ul className="mt-2 grid gap-1">
+            {hiddenRows.map((c) => (
+              <li key={c.coach} className="flex items-center gap-2 border border-[#e4ebf2] rounded-lg px-3 py-1.5 bg-[#f9fbfd] text-xs">
+                <span className="font-semibold text-[#1f3559]">{c.coach}</span>
+                <span>{c.live} live client{c.live === 1 ? "" : "s"} still assigned</span>
+                {c.live > 0 && <span className="text-[#b4485c] font-medium">&#9888; reassign them</span>}
+                <button onClick={() => setCoachHidden(c.coach, false)}
+                  className="ml-auto text-[#0b7f7f] hover:underline">unhide</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

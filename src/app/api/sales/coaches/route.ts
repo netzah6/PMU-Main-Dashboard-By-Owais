@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/ppa";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -114,5 +114,29 @@ export async function GET() {
         .map(([date, liveCount]) => ({ date, live: liveCount }))
         .sort((a, b) => b.date.localeCompare(a.date)),
     }));
-  return NextResponse.json({ prevDate, coaches: list });
+  const { data: hiddenRows } = await sb.from("coach_tracker_hidden").select("coach");
+  const hidden = (hiddenRows ?? []).map((r) => r.coach as string);
+  return NextResponse.json({ prevDate, coaches: list, hidden });
+}
+
+/* Hide a former coach (or the owner) from the tracker, reversibly — the
+   snapshots keep their history, and "(unassigned)" can never be hidden
+   (it is the missed-contacts safety net). */
+export async function POST(req: NextRequest) {
+  const auth = await getAuth();
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
+  const body = (await req.json().catch(() => ({}))) as { action?: string; coach?: string };
+  const coach = String(body.coach ?? "").trim();
+  if (!coach || coach === "(unassigned)") return NextResponse.json({ error: "bad coach" }, { status: 400 });
+  const sb = createServiceClient();
+  if (body.action === "hide") {
+    await sb.from("coach_tracker_hidden").upsert({ coach, hidden_by: auth.email ?? "admin" });
+    return NextResponse.json({ ok: true });
+  }
+  if (body.action === "unhide") {
+    await sb.from("coach_tracker_hidden").delete().eq("coach", coach);
+    return NextResponse.json({ ok: true });
+  }
+  return NextResponse.json({ error: "unknown action" }, { status: 400 });
 }
