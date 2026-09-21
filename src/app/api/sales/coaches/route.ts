@@ -93,8 +93,26 @@ export async function GET() {
     if (prevDate && (!was || was.status !== "live")) bucket(r.coach).newLive.push(r.owner || r.biz);
   }
 
+  /* Salary breakdown: live-client count per coach at EVERY snapshot (the
+     20th of each month + the baseline) — the payroll cutoff Netzah pays
+     against ($400 base + $30/client, computed client-side). */
+  const { data: hist } = await sb.from("coach_snapshots").select("taken_at, coach, status");
+  const histMap = new Map<string, Map<string, number>>();
+  for (const r of hist ?? []) {
+    if (String(r.status ?? "").toLowerCase() !== "live") continue;
+    const c = (r.coach || "(unassigned)").trim() || "(unassigned)";
+    if (!histMap.has(c)) histMap.set(c, new Map());
+    const m = histMap.get(c)!;
+    m.set(r.taken_at as string, (m.get(r.taken_at as string) ?? 0) + 1);
+  }
   const list = [...coaches.values()]
     .filter((c) => c.live + c.paused + c.prevLive > 0) // skip pure-offboarded history buckets
-    .sort((a, b) => b.live - a.live);
+    .sort((a, b) => b.live - a.live)
+    .map((c) => ({
+      ...c,
+      history: [...(histMap.get(c.coach) ?? new Map<string, number>()).entries()]
+        .map(([date, liveCount]) => ({ date, live: liveCount }))
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    }));
   return NextResponse.json({ prevDate, coaches: list });
 }

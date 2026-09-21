@@ -20,7 +20,14 @@ type CoachRow = {
   prevLive: number; prevPaused: number; prevOffboarded: number;
   churned: { name: string; to: string }[];
   newLive: string[];
+  history: { date: string; live: number }[];
 };
+
+/* Coach pay (Netzah, 2026-09-21): a flat base plus a per-client amount,
+   counted from the live clients at the month's 20th snapshot. */
+const SALARY_BASE = 400;
+const SALARY_PER_CLIENT = 30;
+const salary = (n: number) => SALARY_BASE + SALARY_PER_CLIENT * n;
 
 function delta(now: number, prev: number, hasPrev: boolean) {
   if (!hasPrev) return null;
@@ -51,12 +58,15 @@ function CoachTracker() {
         {prevDate ? <> (taken <strong>{prevDate}</strong>)</> : " — no previous snapshot yet"}.
         A new snapshot is saved automatically on the <strong>20th of every month</strong>.
         Churned = was Live at the snapshot, isn&apos;t Live today.
+        Salary = <strong>${SALARY_BASE} base + ${SALARY_PER_CLIENT} per live client</strong>, counted at that month&apos;s 20th — click a
+        salary to see every month&apos;s calculation.
       </p>
       <div className="mt-3 rounded-xl border border-[#e4ebf2] overflow-hidden bg-white">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-[#f5f8fc] text-left text-xs uppercase tracking-wide text-[#697a91]">
               <th className="px-4 py-2.5">Coach</th>
+              <th className="px-4 py-2.5">Salary</th>
               <th className="px-4 py-2.5">Live</th>
               <th className="px-4 py-2.5">Paused</th>
               <th className="px-4 py-2.5">Offboarded</th>
@@ -68,6 +78,26 @@ function CoachTracker() {
             {rows.map((c) => (
               <tr key={c.coach}>
                 <td className="px-4 py-2.5 font-semibold text-[#1f3559]">{c.coach}</td>
+                <td className="px-4 py-2.5">
+                  {c.history.length === 0 ? (
+                    <span className="text-xs text-[#8595a8]" title="No snapshot yet — first one lands on the 20th">
+                      ${salary(c.live)} <span className="font-normal">(today, no snapshot yet)</span>
+                    </span>
+                  ) : (
+                    <details>
+                      <summary className="cursor-pointer font-bold text-[#0e8f88] whitespace-nowrap">
+                        ${salary(c.history[0].live)} <span className="font-normal text-xs text-[#8595a8]">as of {c.history[0].date}</span>
+                      </summary>
+                      <ul className="mt-1.5 grid gap-1 text-xs text-[#697a91] whitespace-nowrap">
+                        {c.history.map((h) => (
+                          <li key={h.date} className="border border-[#e4ebf2] rounded-md px-2 py-1 bg-[#f9fbfd]">
+                            <strong className="text-[#1f3559]">{h.date}</strong> &middot; {h.live} client{h.live === 1 ? "" : "s"} &rarr; ${SALARY_BASE} + {h.live} &times; ${SALARY_PER_CLIENT} = <strong className="text-[#0e8f88]">${salary(h.live)}</strong>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </td>
                 <td className="px-4 py-2.5"><strong>{c.live}</strong>{delta(c.live, c.prevLive, hasPrev)}{hasPrev && <span className="text-xs text-[#8595a8]"> · was {c.prevLive}</span>}</td>
                 <td className="px-4 py-2.5">{c.paused}{delta(c.paused, c.prevPaused, hasPrev)}</td>
                 <td className="px-4 py-2.5">{c.offboarded}{delta(c.offboarded, c.prevOffboarded, hasPrev)}</td>
