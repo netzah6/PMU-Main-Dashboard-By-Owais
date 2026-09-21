@@ -251,7 +251,7 @@
     "#ob-v2bar.on{display:flex}" +
     "#ob-v2bar .v2hold b{font-variant-numeric:tabular-nums;background:rgba(255,255,255,.45);border-radius:6px;padding:2px 7px;margin-left:4px}" +
     "#onebox-root h2.phead.v2dephead{margin-bottom:8px;font-size:clamp(19px,5.6vw,26px);line-height:1.25;overflow-wrap:break-word;white-space:normal}" +
-    "#onebox-root .v2deprow{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 10px;padding:9px 12px;border:1px solid #cdeae4;border-radius:10px;background:#f2fbf8;font-size:13px;color:#116b52;font-weight:600;text-align:center}" +
+    "#onebox-root .v2deprow{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 10px;padding:9px 12px;border:1px solid #9ed9b5;border-radius:10px;background:#e2f6e9;font-size:13px;color:#0d6b3f;font-weight:600;text-align:center;box-shadow:0 1px 2px rgba(13,107,63,.08)}" +
         "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
     "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:6px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
     "#onebox-root .depwhen{margin:0;font-size:14.5px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
@@ -1005,7 +1005,13 @@
       return '<h2 class="phead dephead v2dephead">' + (C.depositHead ? esc(C.depositHead)
         : "Lock In Your " + (VIDEO ? "Video Consultation" : "Spot") + " &mdash; " + esc(DEPOSIT) + ", Fully Refundable") + "</h2>" +
         '<div class="v2deprow">' +
-          '<span>&#10004; Refunded in full or applied to your service &mdash; you&rsquo;re 100% covered</span>' +
+          "<span>" + (window.innerWidth > 700
+            ? "&#10004; Refunded in full or applied to your service &mdash; you&rsquo;re 100% covered"
+            : "&#128274; Secure checkout &middot; 100% refundable &middot; " +
+              (/iPhone|iPad|iPod/i.test(navigator.userAgent)
+                ? "<b>&#63743;&nbsp;Pay</b> &amp; <b>Cash&nbsp;App</b>"
+                : "<b>G&nbsp;Pay</b> &amp; <b>Cash&nbsp;App</b>") +
+              " accepted &mdash; tap &ldquo;More&rdquo;") + "</span>" +
         "</div>";
     }
     return '<h2 class="phead dephead">' + (C.depositHead ? esc(C.depositHead)
