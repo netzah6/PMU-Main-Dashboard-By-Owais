@@ -107,13 +107,23 @@ export function PayMsg({ msg }: { msg: PayMsgData }) {
 // ── Header cluster: payment status + Charge + Auto toggle ────────────────────
 // ── Table cells (the client list is an aligned table) ────────────────────────
 
-export function CardCell({ v, loading }: { v: VRow | undefined; loading: boolean }) {
+export function CardCell({ v, loading, onOpen }: { v: VRow | undefined; loading: boolean; onOpen?: () => void }) {
   if (loading && !v) {
     return <span className="flex items-center gap-1.5 text-[10px] text-[#8595a8]"><Loader2 size={11} className="animate-spin" /> checking…</span>;
   }
   if (!v) return <span className="text-[10px] text-[#b9c3d0]">—</span>;
   const card = v.cards.find((c) => c.wouldCharge);
   if (!card) {
+    // No customer matched: the fix lives in the drill-down ("Find & link her
+    // Square profile"), so point straight at it instead of a dead-end label.
+    if (!v.match && onOpen) {
+      return (
+        <button onClick={onOpen} title="Open the row to search Square and link her profile"
+          className="flex items-center gap-1 text-[11px] font-semibold text-[#be123c] whitespace-nowrap hover:underline">
+          No Square customer <span className="text-[9px] font-bold text-[#0e8f88] border border-[#a7e3df] bg-[#e6f7f5] rounded px-1 py-px">link ↓</span>
+        </button>
+      );
+    }
     return <span className="text-[11px] font-semibold text-[#be123c] whitespace-nowrap">{v.match ? (v.cards.length ? "No usable card" : "No card on file") : "No Square customer"}</span>;
   }
   return (
