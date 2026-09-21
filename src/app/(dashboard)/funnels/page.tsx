@@ -182,6 +182,14 @@ function ProgTag({ v3only, clientIsV1 }: { v3only: boolean; clientIsV1: boolean 
   );
 }
 
+/* The full setup form's fields — the whole "CC - 🎀 Funnel Form (V2 + V3)"
+   minus Step-1 basics. Used to count what's still empty, and to auto-open
+   the form for a client who clearly hasn't been through it yet. */
+const FULL_FORM_TEXT_KEYS = ["ownerName", "igLink", "fbLink", "gmbLink", "originalPrice", "discountedPrice", "touchupPrice", "services", "yearsInBusiness", "businessHours", "firstTouchup", "otherLocations", "depositFunnelUrl"] as const;
+const FULL_FORM_PHOTO_KEYS = ["logo", "studio1", "studio2", "studio3", "brows1", "brows2", "brows3", "lips1", "lips2", "lips3", "liner1", "liner2", "liner3"] as const;
+const fullFormEmpty = (cv: Record<string, string>) =>
+  [...FULL_FORM_TEXT_KEYS, ...FULL_FORM_PHOTO_KEYS].filter((k) => !(cv[k] ?? "").trim()).length;
+
 /* Photo slot of the full setup form: upload to the dashboard's public
    bucket (same endpoint as the Onboarding tab) or paste a URL; the URL is
    what goes into the GHL custom value the funnel renders. */
@@ -1470,7 +1478,11 @@ export default function FunnelsPage() {
                       setAdUrlForm(f.oldFunnelUrl || "");
                       setRedirectVerify(null);
                       setSop5({ renamed: false, redirect: false, workflow: false });
-                      setFullForm(false);
+                      /* A client with most of the form still empty is a NEW
+                         client — open the full form for them instead of
+                         hiding it behind the fold (user couldn't find it,
+                         2026-09-21). */
+                      setFullForm(FULL_FORM_TEXT_KEYS.filter((k) => !(f.cv[k] ?? "").trim()).length > FULL_FORM_TEXT_KEYS.length / 2);
                     }
                   }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
@@ -1623,10 +1635,22 @@ export default function FunnelsPage() {
                       )}
                     </label>
                   </div>
-                  <button type="button" onClick={() => setFullForm((v) => !v)}
-                    className="justify-self-start text-[11px] font-semibold text-[#0b7f7f] hover:underline">
-                    {fullForm ? "▾" : "▸"} New client? Fill the full setup form (owner, links, V3 details, prices, photos)
-                  </button>
+                  {(() => {
+                    const nEmpty = fullFormEmpty(f.cv);
+                    return (
+                      <button type="button" onClick={() => setFullForm((v) => !v)}
+                        className={cn("justify-self-start inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg border px-2.5 py-1.5",
+                          fullForm ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#bfe6e2] text-[#0b7f7f] bg-[#f7fdfc] hover:bg-[#effaf8]")}>
+                        {fullForm ? "▾" : "▸"} Full setup form — the whole “CC 🎀 Funnel Form” (owner, links, prices, AI details, photos)
+                        {nEmpty > 0 ? (
+                          <span className={cn("rounded-full px-1.5 py-px text-[10px] font-bold",
+                            fullForm ? "bg-white/25" : "bg-[#fff3e6] text-[#c2410c] border border-[#fdba74]")}>{nEmpty} empty</span>
+                        ) : (
+                          <span className="rounded-full px-1.5 py-px text-[10px] font-bold bg-[#e7f6ec] text-[#15803d] border border-[#bfe3cd]">all filled ✓</span>
+                        )}
+                      </button>
+                    );
+                  })()}
                   {fullForm && (() => {
                     const isV1 = /v1/i.test(f.program?.version ?? "");
                     const dimCls = (k: string) => (isV1 && V3_ONLY_KEYS.has(k) ? "opacity-50" : "");
