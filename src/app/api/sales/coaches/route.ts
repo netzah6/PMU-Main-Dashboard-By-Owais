@@ -1,18 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/ppa";
 import { createServiceClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/onebox-insights";
 
 // Coach Tracker: current Live/Paused/Offboarded per Client Success Coach from
 // Clients Master, compared against the newest snapshot older than today
 // (snapshots are taken automatically on the 20th of each month — the day these
 // numbers are reviewed — plus the 2026-08-21 baseline). Churn is a real
 // transition: a client who was Live in the previous snapshot and isn't now.
-export async function GET() {
+export async function GET(req: NextRequest) {
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (auth.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
 
   const sb = createServiceClient();
+
+  /* Drill-down: ?coach=X&date=YYYY-MM-DD (a snapshot date) or date=current.
+     Returns that coach's clients with status then, plus what changed vs the
+     previous snapshot — so every count is auditable client by client. */
+  const qCoach = req.nextUrl.searchParams.get("coach");
+  if (qCoach) {
+    const qDate = req.nextUrl.searchParams.get("date") || "current";
+    const { data: dateRows } = await sb.from("coach_snapshots").select("taken_at").order("taken_at");
+    const dates = [...new Set((dateRows ?? []).map((r) => r.taken_at as string))].sort().reverse();
+    type CRow = { owner: string; biz: string; status: string };
+    const key = (r: CRow) => `${r.owner.toLowerCase()}|${r.biz.toLowerCase()}`;
+    const snapAt = async (d: string): Promise<CRow[]> =>
+      (await fetchAllRows((from, to) =>
+        sb.from("coach_snapshots").select("coach, owner_name, business_name, status")
+          .eq("taken_at", d).eq("coach", qCoach).order("owner_name").range(from, to)))
+        .map((r) => ({ owner: String(r.owner_name ?? ""), biz: String(r.business_name ?? ""), status: String(r.status ?? "").toLowerCase() }));
+    let cur: CRow[];
+    let prevD: string | null;
+    if (qDate === "current") {
+      const { data: cm } = await sb.from("clients_master").select("data");
+      cur = (cm ?? []).map((r) => {
+        const d = (r.data ?? {}) as Record<string, string>;
+        return { owner: String(d["Owner Full Name"] ?? "").trim(), biz: String(d["Business Name"] ?? "").trim(), status: String(d["col_1"] ?? "").trim().toLowerCase(), coach: String(d["Assigned"] ?? "").trim() || "(unassigned)" };
+      }).filter((r) => (r as CRow & { coach: string }).coach === qCoach && r.owner && r.status);
+      prevD = dates[0] ?? null;
+    } else {
+      cur = await snapAt(qDate);
+      prevD = dates.find((d) => d < qDate) ?? null;
+    }
+    const prev = prevD ? await snapAt(prevD) : [];
+    const prevBy = new Map(prev.map((r) => [key(r), r.status]));
+    const clientsOut = cur
+      .map((r) => ({ owner: r.owner, biz: r.biz, status: r.status, prevStatus: prevBy.get(key(r)) ?? null }))
+      .sort((a, b) => (a.status === b.status ? a.owner.localeCompare(b.owner) : a.status.localeCompare(b.status)));
+    /* clients the coach HAD at the previous snapshot but no longer has at
+       this one (reassigned away or removed) — they explain drops too */
+    const curKeys = new Set(cur.map(key));
+    const gone = prev.filter((r) => !curKeys.has(key(r))).map((r) => ({ owner: r.owner, biz: r.biz, was: r.status }));
+    return NextResponse.json({ coach: qCoach, date: qDate, prevDate: prevD, dates, clients: clientsOut, gone });
+  }
 
   const { data: clients } = await sb.from("clients_master").select("data");
   type Row = { coach: string; owner: string; biz: string; status: string };
@@ -96,7 +137,12 @@ export async function GET() {
   /* Salary breakdown: live-client count per coach at EVERY snapshot (the
      20th of each month + the baseline) — the payroll cutoff Netzah pays
      against ($400 base + $30/client, computed client-side). */
-  const { data: hist } = await sb.from("coach_snapshots").select("taken_at, coach, status");
+  /* Paginated: coach_snapshots is already past PostgREST's silent 1,000-row
+     cap (1,283 rows on 2026-09-21) — the unpaginated first version of this
+     fetch truncated the history and misreported salaries (Dana showed 11 of
+     her real 27; the same trap as the onebox_hits undercount of Sep 12). */
+  const hist = await fetchAllRows((from, to) =>
+    sb.from("coach_snapshots").select("taken_at, coach, status").order("taken_at").order("owner_name").range(from, to));
   const histMap = new Map<string, Map<string, number>>();
   for (const r of hist ?? []) {
     if (String(r.status ?? "").toLowerCase() !== "live") continue;
