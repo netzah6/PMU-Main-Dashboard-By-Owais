@@ -495,7 +495,7 @@ function businessDaysSince(iso: string): number {
 const GHL = "https://services.leadconnectorhq.com";
 const ghlHeaders = (token: string, v: string) => ({ Authorization: `Bearer ${token}`, Version: v, Accept: "application/json" });
 
-export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: number; missingCall: number; error?: string }> {
+export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: number; missingCall: number; resolved?: number; error?: string }> {
   const app = await getAppLocationToken(MAIN_LOC);
   if (!app.token) return { overdue: 0, missingCall: 0, error: `main token: ${app.error}` };
   const tok = app.token;
@@ -512,6 +512,10 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
         (e) => !/cancel/i.test(String(e.appointmentStatus ?? ""))
       )
     : [];
+  // A dead or empty calendar read must not be mistaken for "nobody has a
+  // launch call" — on 2026-09-19 one such blip filed 7 false "no launch call"
+  // alerts (incl. clients who were long Live). Only trust a non-empty list.
+  const eventsTrusted = evR.ok && events.length > 0;
 
   // Clients Master snapshot (owner -> status), for the "is it Live yet" check.
   const { data: cm } = await svc.from("clients_master").select("data");
@@ -519,6 +523,25 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     owner: String(r.data?.["Owner Full Name"] ?? "").trim(),
     status: String(r.data?.["col_1"] ?? "").trim().toLowerCase(),
   })).filter((c) => c.owner);
+
+  // Match by 2-token overlap first; fall back to a UNIQUE long-token match
+  // (handles GHL-vs-sheet name drift like "Henry Nordenflycht" vs
+  // "Henry Von Norden").
+  const findClient = (cname: string) => {
+    let match = clients.find((c) => nameMatches(c.owner, cname));
+    if (!match) {
+      const toks = nameNorm(cname).split(" ").filter((t) => t.length >= 4);
+      for (const t of toks) {
+        const hits = clients.filter((c) => nameNorm(c.owner).split(" ").includes(t));
+        if (hits.length === 1) { match = hits[0]; break; }
+      }
+    }
+    return match;
+  };
+  // Any non-blank status (live/paused/offboarded/lost) means the account
+  // was set up at some point — only blank/"onboarding" is truly stuck.
+  const isStuck = (match: { status: string } | undefined) =>
+    !match || match.status === "" || match.status === "onboarding";
 
   // 1. Overdue onboarding: confirmed launch call 3+ business days past, client not Live.
   let overdue = 0;
@@ -546,21 +569,8 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
         if (full) cname = full;
       }
     } catch { /* fall back to the event title */ }
-    // Match by 2-token overlap first; fall back to a UNIQUE long-token match
-    // (handles GHL-vs-sheet name drift like "Henry Nordenflycht" vs
-    // "Henry Von Norden").
-    let match = clients.find((c) => nameMatches(c.owner, cname));
-    if (!match) {
-      const toks = nameNorm(cname).split(" ").filter((t) => t.length >= 4);
-      for (const t of toks) {
-        const hits = clients.filter((c) => nameNorm(c.owner).split(" ").includes(t));
-        if (hits.length === 1) { match = hits[0]; break; }
-      }
-    }
-    // Any non-blank status (live/paused/offboarded/lost) means the account
-    // was set up at some point — only blank/"onboarding" is truly stuck.
-    const stuck = !match || match.status === "" || match.status === "onboarding";
-    if (!stuck) continue;
+    const match = findClient(cname);
+    if (!isStuck(match)) continue;
     const ok = await fileAlert(svc, {
       type: "onboarding",
       title: `${cname}: not LIVE ${bd} business days after the launch call`,
@@ -590,6 +600,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     page = j.meta?.nextPageUrl ?? null;
   }
   for (const o of opps) {
+    if (!eventsTrusted) break; // can't tell who has a call — file nothing
     const stageId = String(o.pipelineStageId ?? "");
     if (stageId !== STAGE_CLOSED_PAYING && stageId !== STAGE_PAY_PER_APPT) continue;
     const entered = String(o.lastStageChangeAt ?? o.updatedAt ?? "");
@@ -620,7 +631,38 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     });
     if (ok) missingCall++;
   }
-  return { overdue, missingCall };
+
+  // 3. Clear alerts that stopped being true (owner request 2026-09-21: "at the
+  //    moment their status went live it should remove those alerts").
+  //    launch-overdue → the client now has a real status in Clients Master.
+  //    launch-missing → a launch call exists for them now, or they're already
+  //    set up (status not blank/onboarding) so the call no longer matters.
+  let resolved = 0;
+  const { data: open } = await svc.from("alerts").select("id, source_key, meta").eq("type", "onboarding").eq("status", "open");
+  const toClose: Array<{ id: string; why: string }> = [];
+  for (const a of (open ?? []) as Array<{ id: string; source_key: string; meta: Record<string, unknown> | null }>) {
+    const cname = String(a.meta?.contact_name ?? "").trim();
+    const contactId = String(a.meta?.contact_id ?? "").trim();
+    const client = cname ? findClient(cname) : undefined;
+    const setUp = !isStuck(client);
+    if (a.source_key.startsWith("launch-overdue:")) {
+      if (setUp) toClose.push({ id: a.id, why: `status is ${client!.status}` });
+    } else if (a.source_key.startsWith("launch-missing:")) {
+      const hasCall = eventsTrusted && (
+        (!!contactId && eventContactIds.has(contactId)) ||
+        (!!cname && events.some((e) => nameMatches(String(e.title ?? ""), cname)))
+      );
+      if (hasCall) toClose.push({ id: a.id, why: "launch call booked" });
+      else if (setUp) toClose.push({ id: a.id, why: `status is ${client!.status}` });
+    }
+  }
+  for (const c of toClose) {
+    const { error } = await svc.from("alerts")
+      .update({ status: "resolved", resolved_by: `system (${c.why})`, resolved_at: new Date().toISOString() })
+      .eq("id", c.id).eq("status", "open");
+    if (!error) resolved++;
+  }
+  return { overdue, missingCall, resolved };
 }
 
 /* ── Agreement not signed ──────────────────────────────────────────────
