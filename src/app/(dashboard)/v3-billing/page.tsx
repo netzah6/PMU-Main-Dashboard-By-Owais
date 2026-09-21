@@ -481,7 +481,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         </td>
 
         {/* Card · status · actions */}
-        <td className="px-2 py-1 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} /></td>
+        <td className="px-2 py-1 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} onOpen={open ? undefined : onToggle} /></td>
         <td className="px-2 py-1 text-center align-middle">
           {c.billingExempt ? (
             <button onClick={() => saveConfig({ billing_exempt: false })}

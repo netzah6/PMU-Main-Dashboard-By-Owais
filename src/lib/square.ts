@@ -257,6 +257,26 @@ export function searchCustomersByPhone(phone: string): Promise<SquareCustomer[]>
   return searchCustomers({ phone_number: { fuzzy: phone } });
 }
 
+/** Customers created since `sinceIso`, newest first — always live, never
+ *  from the cached bulk list, so a profile the admin created in Square a
+ *  minute ago is findable right away (Tara Edge, 2026-09-21: the tab said
+ *  "no Square customer" for half an hour after she was added). */
+export async function searchCustomersCreatedSince(sinceIso: string): Promise<SquareCustomer[]> {
+  const r = await squareFetch(`${BASE}/v2/customers/search`, {
+    method: "POST",
+    body: JSON.stringify({
+      limit: 50,
+      query: { filter: { created_at: { start_at: sinceIso } }, sort: { field: "CREATED_AT", order: "DESC" } },
+    }),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`Square customer search ${r.status}: ${text.slice(0, 300)}`);
+  }
+  const j = (await r.json()) as { customers?: Array<Record<string, unknown>> };
+  return (j.customers ?? []).map((c) => customerFromRaw(String(c.id), c));
+}
+
 // ── The full customer list ───────────────────────────────────────────────────
 // Matching artists to Square customers reads the WHOLE list once and matches
 // locally (email/phone/name) instead of calling SearchCustomers per client —
