@@ -65,19 +65,25 @@ export async function GET(req: NextRequest) {
   if (phone) add("search phone", await searchCustomersByPhone(phone).catch(() => []));
 
   const out = [];
-  const cardIndex = new Map<string, { brand: string; last4: string }>(); // card id → what it is
+  type CardRef = { id: string; brand: string; last4: string; fingerprint: string | null };
+  const allCards: CardRef[] = []; // every card on every candidate profile
   for (const [id, { source, profile }] of candidates) {
     const cards = await listCards(id).catch((e) => `cards error: ${e instanceof Error ? e.message : "?"}`);
-    if (Array.isArray(cards)) for (const k of cards) cardIndex.set(k.id, { brand: k.brand, last4: k.last4 });
+    if (Array.isArray(cards)) for (const k of cards) allCards.push({ id: k.id, brand: k.brand, last4: k.last4, fingerprint: k.fingerprint });
     out.push({
       profileId: id,
       foundVia: source,
       profile,
       cards: Array.isArray(cards)
-        ? cards.map((k) => ({ id: k.id, brand: k.brand, last4: k.last4, exp: `${k.expMonth}/${k.expYear}`, enabled: k.enabled }))
+        ? cards.map((k) => ({ id: k.id, brand: k.brand, last4: k.last4, exp: `${k.expMonth}/${k.expYear}`, enabled: k.enabled, fingerprint: k.fingerprint }))
         : cards,
     });
   }
+  // A payment keyed in by hand carries no card id, only the card's
+  // fingerprint — the same signal lastUsedCard() uses to recognise the
+  // physical card among the copies on file.
+  const cardFor = (p: { cardId: string | null; cardFingerprint: string | null }): CardRef | null =>
+    allCards.find((c) => (p.cardId && c.id === p.cardId) || (p.cardFingerprint && c.fingerprint === p.cardFingerprint)) ?? null;
 
   // Recent Square payments on any of this client's profiles — for reconciling
   // "charged directly in Square" against the dashboard's charge records
@@ -92,7 +98,9 @@ export async function GET(req: NextRequest) {
       // Which card on file took it — so a charge the owner ran by hand in
       // Square can be pinned on the dashboard subscription afterwards.
       cardId: p.cardId,
-      card: p.cardId && cardIndex.has(p.cardId) ? `${cardIndex.get(p.cardId)!.brand} ••${cardIndex.get(p.cardId)!.last4}` : null,
+      cardFingerprint: p.cardFingerprint,
+      matchedCardId: cardFor(p)?.id ?? null,
+      card: cardFor(p) ? `${cardFor(p)!.brand} ••${cardFor(p)!.last4}` : null,
     }));
 
   return NextResponse.json({
