@@ -28,19 +28,25 @@ export async function GET(req: NextRequest) {
   const ownerKey = (req.nextUrl.searchParams.get("owner_key") ?? "").trim().toLowerCase();
   if (!ownerKey) return NextResponse.json({ error: "owner_key required" }, { status: 400 });
 
-  const { clients } = await getPpaRoster();
-  const client = clients.find((c) => c.ownerKey === ownerKey);
-  if (!client) return NextResponse.json({ error: "not on the PPS roster" }, { status: 404 });
-
+  // Any client on Clients Master qualifies — dashboard subscriptions bill
+  // retainer clients too, and their "no usable card" cases need the same
+  // look inside Square (Sara J Ghahferokhi, 2026-09-21: two Square records
+  // with cards, owner charged one of them by hand). PPS roster is a bonus for
+  // the business name only.
   const svc = createServiceClient();
   const { data: masterRows } = await svc.from("clients_master").select("data");
-  let email: string | null = null, phone: string | null = null;
+  let email: string | null = null, phone: string | null = null, ownerName = "", business = "";
   for (const r of (masterRows ?? []) as Array<{ data: Record<string, unknown> }>) {
     if (String(r.data?.["Owner Full Name"] ?? "").trim().toLowerCase() !== ownerKey) continue;
+    ownerName = String(r.data?.["Owner Full Name"] ?? "").trim();
+    business = String(r.data?.["Business Name"] ?? "").trim();
     email = String(r.data?.["Email"] ?? "").trim().toLowerCase() || null;
     phone = String(r.data?.["Phone"] ?? "").trim() || null;
     break;
   }
+  if (!ownerName) return NextResponse.json({ error: "not on Clients Master" }, { status: 404 });
+  const { clients } = await getPpaRoster();
+  const client = clients.find((c) => c.ownerKey === ownerKey) ?? { ownerName, business };
 
   const { customers, truncated } = await listAllCustomers();
   const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -59,14 +65,16 @@ export async function GET(req: NextRequest) {
   if (phone) add("search phone", await searchCustomersByPhone(phone).catch(() => []));
 
   const out = [];
+  const cardIndex = new Map<string, { brand: string; last4: string }>(); // card id → what it is
   for (const [id, { source, profile }] of candidates) {
     const cards = await listCards(id).catch((e) => `cards error: ${e instanceof Error ? e.message : "?"}`);
+    if (Array.isArray(cards)) for (const k of cards) cardIndex.set(k.id, { brand: k.brand, last4: k.last4 });
     out.push({
       profileId: id,
       foundVia: source,
       profile,
       cards: Array.isArray(cards)
-        ? cards.map((k) => ({ brand: k.brand, last4: k.last4, exp: `${k.expMonth}/${k.expYear}`, enabled: k.enabled }))
+        ? cards.map((k) => ({ id: k.id, brand: k.brand, last4: k.last4, exp: `${k.expMonth}/${k.expYear}`, enabled: k.enabled }))
         : cards,
     });
   }
@@ -79,11 +87,17 @@ export async function GET(req: NextRequest) {
   const ids = new Set(candidates.keys());
   const recentPayments = (await listRecentPayments().catch(() => []))
     .filter((p) => p.customerId && ids.has(p.customerId) && new Date(p.createdAt).getTime() >= since)
-    .map((p) => ({ paymentId: p.id, profileId: p.customerId, amount: p.amountCents / 100, at: p.createdAt, note: p.note }));
+    .map((p) => ({
+      paymentId: p.id, profileId: p.customerId, amount: p.amountCents / 100, at: p.createdAt, note: p.note,
+      // Which card on file took it — so a charge the owner ran by hand in
+      // Square can be pinned on the dashboard subscription afterwards.
+      cardId: p.cardId,
+      card: p.cardId && cardIndex.has(p.cardId) ? `${cardIndex.get(p.cardId)!.brand} ••${cardIndex.get(p.cardId)!.last4}` : null,
+    }));
 
   return NextResponse.json({
     ownerKey,
-    sheet: { email, phone, name: client.ownerName, business: client.business },
+    sheet: { email, phone, name: client.ownerName, business: client.business, onPpsRoster: clients.some((c) => c.ownerKey === ownerKey) },
     bulkList: { size: customers.length, truncated },
     candidates: out,
     recentPayments,
