@@ -382,6 +382,68 @@ function SplitOverviewTable({ rows, ab, showTotals, footnote }: {
   );
 }
 
+/* Fleet-wide deposit-line test (engine v89): the one A/B that runs on
+   EVERY funnel at once — the wording of the reassurance line above the
+   payment box. Read straight off onebox_leads.answers.deprow; the fair
+   comparison is pay-through (picked a time -> paid), since the line only
+   exists on the deposit step. */
+function DeprowTestCard() {
+  type Side = { leads: number; picked: number; paid: number };
+  const [d, setD] = useState<{ since: string; a: Side; b: Side } | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    fetch("/api/onebox/deprow").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
+  }, []);
+  if (!d) return null;
+  const pct = (s: Side) => (s.picked > 0 ? Math.round((s.paid / s.picked) * 1000) / 10 : null);
+  const enough = d.a.picked >= 40 && d.b.picked >= 40;
+  const pa = pct(d.a), pb = pct(d.b);
+  const leader = enough && pa !== null && pb !== null && pa !== pb ? (pa > pb ? "a" : "b") : null;
+  const SIDES: { k: "a" | "b"; name: string; text: string }[] = [
+    { k: "a", name: "A — original", text: "\u2714 Refunded in full or applied to your service — you\u2019re 100% covered" },
+    { k: "b", name: "B — secure green", text: "\ud83d\udd12 Secure checkout \u00b7 100% refundable \u00b7 \uf8ff Pay & Cash App accepted — tap \u201cMore\u201d (green box; mobile only, desktop keeps the original words)" },
+  ];
+  return (
+    <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
+        <span className="text-sm font-medium text-[#1c2b3a]">🧪 Deposit-line test — all funnels, 50/50</span>
+        <span className="text-xs text-[#697a91]">since {new Date(d.since).toLocaleDateString()}</span>
+        <span className={cn("ml-auto text-xs font-semibold", leader ? "text-[#15803d]" : "text-[#697a91]")}>
+          {leader ? `${leader.toUpperCase()} is ahead — ${leader === "a" ? pa : pb}% vs ${leader === "a" ? pb : pa}% pay-through`
+            : `A ${d.a.paid}/${d.a.picked} paid \u00b7 B ${d.b.paid}/${d.b.picked} paid \u00b7 too early to call`}
+        </span>
+        <span className="text-[#697a91] text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3">
+          <table className="w-full text-xs">
+            <thead><tr className="text-left text-[#697a91]">
+              <th className="py-1 font-medium">Side</th><th className="py-1 font-medium">Leads</th>
+              <th className="py-1 font-medium">Picked a time</th><th className="py-1 font-medium">Paid deposit</th>
+              <th className="py-1 font-medium">Pay-through</th>
+            </tr></thead>
+            <tbody>
+              {SIDES.map((v) => {
+                const sd = d[v.k]; const p = pct(sd);
+                return (
+                  <tr key={v.k} className={cn("border-t border-[#f0f4f8]", leader === v.k && "bg-[#f0faf3]")}>
+                    <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{v.name}</b><div className="text-[#8595a8] max-w-[420px]">{v.text}</div></td>
+                    <td className="py-1.5">{sd.leads}</td><td className="py-1.5">{sd.picked}</td><td className="py-1.5">{sd.paid}</td>
+                    <td className="py-1.5 font-semibold">{p === null ? "—" : `${p}%`}{leader === v.k && " 🏆"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-1.5 text-[11px] text-[#8595a8]">
+            Every visitor is stuck to one side (per browser), on every funnel at once. Pay-through = of the people who picked a time, how many paid — the line only appears on the deposit step, so that&rsquo;s the number it can move. Wait for at least ~40 picks per side before trusting a winner.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FunnelsPage() {
   const { role, loading: userLoading } = useUser();
   const [funnels, setFunnels] = useState<Funnel[]>([]);
@@ -876,6 +938,8 @@ export default function FunnelsPage() {
       </div>
 
       {toast && <div className="mb-3 text-sm bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] rounded-lg px-3 py-2">{toast}</div>}
+
+      <DeprowTestCard />
 
       {showAdd && (
         <div className="mb-4 border border-[#e4ebf2] rounded-xl p-4 bg-white">
