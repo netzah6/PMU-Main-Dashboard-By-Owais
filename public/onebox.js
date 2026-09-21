@@ -997,17 +997,6 @@
      missed them entirely. We can't restyle inside their iframe, so the
      page itself says what's available, leading with the visitor's own
      wallet. Shown on narrow screens only — desktop shows all tiles. */
-  function depRowText() {
-    if (window.innerWidth > 700) {
-      return "&#10004; Refunded in full or applied to your service &mdash; you&rsquo;re 100% covered";
-    }
-    var ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    var wallets = ios ? "<b>&#63743;&nbsp;Pay</b> &middot; <b>Cash&nbsp;App</b> &middot; <b>G&nbsp;Pay</b>"
-      : "<b>G&nbsp;Pay</b> &middot; <b>Cash&nbsp;App</b> &middot; <b>&#63743;&nbsp;Pay</b>";
-    return "&#10004; 100% refundable &middot; Pay with " + wallets +
-      " &mdash; tap <b>&ldquo;More&rdquo;</b> below";
-  }
-
   function slideDeposit() {
     /* V2: everything above the checkout compresses into two short rows —
        the payment box lands (nearly) above the fold, the countdown moves
@@ -1016,7 +1005,7 @@
       return '<h2 class="phead dephead v2dephead">' + (C.depositHead ? esc(C.depositHead)
         : "Lock In Your " + (VIDEO ? "Video Consultation" : "Spot") + " &mdash; " + esc(DEPOSIT) + ", Fully Refundable") + "</h2>" +
         '<div class="v2deprow">' +
-          "<span>" + depRowText() + "</span>" +
+          '<span>&#10004; Refunded in full or applied to your service &mdash; you&rsquo;re 100% covered</span>' +
         "</div>";
     }
     return '<h2 class="phead dephead">' + (C.depositHead ? esc(C.depositHead)
