@@ -49,6 +49,15 @@ function CoachTracker() {
     }).catch((e) => setErr(String(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
+  type Detail = { coach: string; date: string; prevDate: string | null; dates: string[]; clients: { owner: string; biz: string; status: string; prevStatus: string | null }[]; gone: { owner: string; biz: string; was: string }[] };
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const openDetail = (coach: string, date: string) => {
+    setDetailBusy(true);
+    fetch(`/api/sales/coaches?coach=${encodeURIComponent(coach)}&date=${encodeURIComponent(date)}`)
+      .then(async (r) => { const j = await r.json(); if (r.ok) setDetail(j); })
+      .finally(() => setDetailBusy(false));
+  };
   const setCoachHidden = (coach: string, hide: boolean) => {
     void fetch("/api/sales/coaches", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -88,7 +97,9 @@ function CoachTracker() {
             {visible.map((c) => (
               <tr key={c.coach}>
                 <td className="px-4 py-2.5 font-semibold text-[#1f3559]">
-                  {c.coach}
+                  <button onClick={() => (detail?.coach === c.coach ? setDetail(null) : openDetail(c.coach, "current"))}
+                    title="Click for the client-by-client breakdown"
+                    className="hover:underline text-left">{c.coach}</button>
                   {c.coach !== "(unassigned)" && (
                     <button onClick={() => setCoachHidden(c.coach, true)}
                       title="Hide from the tracker (former coach / not a coach) — reversible below"
@@ -137,6 +148,55 @@ function CoachTracker() {
           </tbody>
         </table>
       </div>
+      {(detail || detailBusy) && (
+        <div className="mt-3 rounded-xl border border-[#cfe0f0] bg-[#f8fbff] p-4">
+          {detailBusy && <div className="text-sm text-[#697a91]"><Loader2 className="w-4 h-4 animate-spin inline" /> Loading breakdown…</div>}
+          {detail && !detailBusy && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-[#1f3559]">{detail.coach} — client breakdown</span>
+                <div className="flex flex-wrap gap-1 ml-2">
+                  {["current", ...detail.dates].map((d) => (
+                    <button key={d} onClick={() => openDetail(detail.coach, d)}
+                      className={`text-[11px] rounded-md border px-2 py-0.5 ${detail.date === d ? "bg-[#1f3559] text-white border-[#1f3559]" : "border-[#cfe0f0] bg-white hover:bg-[#eef5fc]"}`}>
+                      {d === "current" ? "Today" : d}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setDetail(null)} className="ml-auto text-xs text-[#697a91] hover:underline">close</button>
+              </div>
+              <p className="mt-1 text-xs text-[#697a91]">
+                {detail.clients.filter((x) => x.status === "live").length} live &middot; {detail.clients.filter((x) => x.status === "paused").length} paused &middot; {detail.clients.filter((x) => x.status === "offboarded").length} offboarded
+                {detail.prevDate && <> &middot; changes shown vs {detail.prevDate}</>}
+              </p>
+              <div className="mt-2 grid md:grid-cols-2 gap-1">
+                {detail.clients.map((cl, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs border border-[#e4ebf2] rounded-lg px-2.5 py-1.5 bg-white">
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                      cl.status === "live" ? "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]"
+                      : cl.status === "paused" ? "bg-[#fff3e6] text-[#c2410c] border-[#fdba74]"
+                      : "bg-[#f6f6f8] text-[#697a91] border-[#e4ebf2]"}`}>{cl.status}</span>
+                    <span className="font-medium text-[#1f3559] truncate">{cl.owner}</span>
+                    <span className="text-[#8595a8] truncate">{cl.biz}</span>
+                    {cl.prevStatus !== null && cl.prevStatus !== cl.status && (
+                      <span className="ml-auto shrink-0 text-[10px] font-semibold text-[#7c3aed]">{cl.prevStatus || "new"} &rarr; {cl.status}</span>
+                    )}
+                    {cl.prevStatus === null && detail.prevDate && (
+                      <span className="ml-auto shrink-0 text-[10px] font-semibold text-[#0e8f88]">new to {detail.coach}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {detail.gone.length > 0 && (
+                <details className="mt-2 text-xs text-[#697a91]">
+                  <summary className="cursor-pointer">No longer with {detail.coach} ({detail.gone.length}) — reassigned or removed since {detail.prevDate}</summary>
+                  <ul className="mt-1 ml-4 list-disc">{detail.gone.map((g, i) => <li key={i}>{g.owner} ({g.biz}) — was {g.was}</li>)}</ul>
+                </details>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {hiddenRows.length > 0 && (
         <details className="mt-3 text-sm text-[#697a91]">
           <summary className="cursor-pointer text-xs">
