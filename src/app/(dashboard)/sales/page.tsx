@@ -14,6 +14,24 @@ const SECTIONS: Array<{ key: DemoStatus; label: string; emoji: string; tint: str
   { key: "not_in_system", label: "Not in the system",emoji: "❓", tint: "#f7f7f9", border: "#a3adbb" },
 ];
 
+// Calendar strings are account-local ("2026-09-25 14:00:00", Pacific) — show
+// them as they are, just friendlier; converting would shift the time.
+function fmtLocal(s?: string, withTime = true): string {
+  if (!s) return "";
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return s;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], m[4] ? +m[4] : 12, m[5] ? +m[5] : 0));
+  const day = d.toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+  if (!withTime || !m[4]) return day;
+  return `${day}, ${d.toLocaleTimeString("en-US", { timeZone: "UTC", hour: "numeric", minute: "2-digit" })}`;
+}
+// "booked Sep 18 · demo Thu Sep 25, 2:00 PM PT" — the two dates the owner
+// wants on every demo that hasn't happened yet.
+function whenLine(r: DemoResult): string {
+  if (!r.appointmentAt) return "";
+  return `booked ${fmtLocal(r.bookedAt, false)} · demo ${fmtLocal(r.appointmentAt)} PT`;
+}
+
 type CoachRow = {
   coach: string;
   live: number; paused: number; offboarded: number;
@@ -230,6 +248,8 @@ export default function SalesPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Names pasted more than once — checked once, but the owner wants to know.
+  const [duplicates, setDuplicates] = useState<string[]>([]);
   // Every run is saved server-side; this is the list to bring one back.
   type PastCheck = { id: string; user_email: string | null; names: string[]; results: DemoResult[]; showed: number; total: number; created_at: string };
   const [history, setHistory] = useState<PastCheck[]>([]);
@@ -245,8 +265,15 @@ export default function SalesPage() {
     setViewingPast(c);
     setRaw(c.names.join("\n"));
     setResults(c.results);
+    setDuplicates([]);
     setErr(null);
   };
+  // One entry per day — the last check of that day. Re-running the same list
+  // several times an afternoon used to fill the picker with near-identical rows.
+  const historyByDay = history.filter((c, i, all) => {
+    const day = new Date(c.created_at).toDateString();
+    return all.findIndex((o) => new Date(o.created_at).toDateString() === day) === i; // newest-first, so first hit = last check
+  });
 
   const names = raw.split(/[\n,]/).map((n) => n.trim()).filter(Boolean);
 
@@ -263,6 +290,7 @@ export default function SalesPage() {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setResults(j.results as DemoResult[]);
+      setDuplicates((j.duplicates as string[]) ?? []);
       setViewingPast(null);
       loadHistory();
     } catch (e) {
@@ -284,9 +312,13 @@ export default function SalesPage() {
       const rows = results.filter((r) => r.status === sec.key);
       if (!rows.length) continue;
       const count = sec.key === "showed" ? `(${rows.length}/${results.length})` : `${rows.length}`;
-      const lines = rows.map((r) => (r.note ? `${r.query} — ${r.note}` : r.query));
+      const lines = rows.map((r) => {
+        const extra = [sec.key === "not_yet" ? whenLine(r) : "", r.note].filter(Boolean).join(" — ");
+        return extra ? `${r.query} — ${extra}` : r.query;
+      });
       blocks.push(`${sec.emoji} ${sec.label} — ${count}\n${lines.join("\n")}`);
     }
+    if (duplicates.length) blocks.push(`🔁 Pasted twice, counted once: ${duplicates.join(", ")}`);
     navigator.clipboard.writeText(blocks.join("\n\n")).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
@@ -319,7 +351,7 @@ export default function SalesPage() {
             className="px-2 py-1.5 rounded-lg border border-[#e4ebf2] bg-white text-xs text-[#34568a] max-w-[420px]"
           >
             <option value="">Bring back an earlier list…</option>
-            {history.map((c) => (
+            {historyByDay.map((c) => (
               <option key={c.id} value={c.id}>
                 {new Date(c.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                 {" — "}{c.total} name{c.total === 1 ? "" : "s"}, {c.showed} showed
@@ -363,6 +395,11 @@ export default function SalesPage() {
 
       {results && (
         <>
+          {duplicates.length > 0 && (
+            <div className="mt-4 rounded-lg border border-[#d0a05e] bg-[#fbf7f1] px-4 py-2.5 text-sm text-[#7a5a1e]">
+              🔁 <b>{duplicates.length === 1 ? "1 name was" : `${duplicates.length} names were`} pasted more than once</b> — checked and counted once: {duplicates.join(", ")}
+            </div>
+          )}
           <div className="mt-6 rounded-xl border border-[#e4ebf2] bg-white px-4 py-3 text-sm text-[#1f3559] flex items-center gap-3 flex-wrap">
             <span>
               <strong>{shown}</strong> showed out of <strong>{resolved}</strong> resolved
@@ -401,6 +438,11 @@ export default function SalesPage() {
                           <div className="text-xs text-[#8595a8] truncate">
                             {r.contactName}
                             {r.email ? ` · ${r.email}` : ""}
+                          </div>
+                        )}
+                        {s.key === "not_yet" && r.appointmentAt && (
+                          <div className="text-xs text-[#34568a] mt-0.5">
+                            📅 Booked <b>{fmtLocal(r.bookedAt)}</b> · demo <b>{fmtLocal(r.appointmentAt)}</b> <span className="text-[#8595a8]">(Pacific)</span>
                           </div>
                         )}
                         {r.note && <div className="text-xs text-[#a3616b] mt-0.5">{r.note}</div>}
