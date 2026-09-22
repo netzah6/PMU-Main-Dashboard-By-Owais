@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
+import { pushLeadToGhl } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
@@ -197,133 +198,24 @@ export async function POST(req: NextRequest) {
         .select("id")
         .single();
 
-  // Create/upsert the contact in GHL so automations fire.
-  let ghlStatus = "failed";
-  let contactId: string | null = null;
-  try {
-    const tok = await getAppLocationToken(locationId);
-    if (!tok.token) throw new Error(tok.error ?? "no location token");
-    const [firstName, ...rest] = fullName.split(/\s+/);
-    /* Survey answers also land in the contact's CUSTOM FIELDS — the
-       sub-account's workflows (internal notifications, AI scripts) read
-       those, not the note. Field ids matched by name per location. */
-    const fieldMap = partial ? {} : isB2B ? (extras.b2b?.fieldMap ?? {}) : await getSurveyFieldMap(locationId, tok.token);
-    /* services is a multi-select: send the chosen options as an array. The
-       field's options were aligned to the survey's list (owner, 2026-09-18),
-       so values go through unchanged. */
-    const customFields = Object.entries(answers)
-      .filter(([k, v]) => v && fieldMap[k])
-      .map(([k, v]) => ({ id: fieldMap[k], value: k === "services" ? v.split(/,\s*/) : v }));
-    const r = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${tok.token}`,
-        Version: "2021-07-28",
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        locationId,
-        firstName,
-        lastName: rest.join(" "),
-        name: fullName,
-        phone,
-        ...(email ? { email } : {}),
-        source: "One-Box Funnel",
-        ...(customFields.length ? { customFields } : {}),
-      }),
-    });
-    const j = (await r.json()) as { contact?: { id?: string; email?: string | null } };
-    if (!r.ok) throw new Error(`contacts/upsert ${r.status}`);
-    contactId = j.contact?.id ?? null;
-    ghlStatus = "created";
-
-    /* The upsert matches on phone and then quietly drops the email when
-       another contact already owns it (the sub-account refuses duplicate
-       emails). Seen on the 2026-09-18 PPS test: the contact came back with
-       no email at all. Try once more explicitly; if GHL still refuses, say
-       so in the note so the setter knows which contact has that email. */
-    let emailNote = "";
-    if (contactId && email && !(j.contact?.email ?? "").trim()) {
-      const put = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ email }),
-      }).catch(() => null);
-      if (!put || !put.ok) emailNote = `⚠ Email ${email} could not be saved on this contact — GHL says another contact already has it.`;
-    }
-
-    /* Tag through the ADD endpoint, never through the upsert body: upsert
-       REPLACES the whole tag array, which silently stripped tags other
-       workflows had added (Browology's "(v3)"/"ai off", Aug 19 audit log).
-       This endpoint only ever adds. */
-    if (contactId && !disqualified) {
-      await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${tok.token}`,
-          Version: "2021-07-28",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ tags: [surveyTag] }),
-      }).catch(() => {});
-    }
-
-    // Survey answers as a note on the contact (visible in the timeline).
-    if (contactId && !partial) {
-      const note = isB2B
-        ? [
-            "One-Box application:",
-            `Area: ${answers.area}`,
-            `Spots needed: ${answers.spots}`,
-            `Weekly capacity: ${answers.weekly}`,
-            `Ready to start: ${answers.start}`,
-            `Experience: ${answers.exp}`,
-            `Current revenue: ${answers.rev}`,
-            `Desired revenue: ${answers.want}`,
-            `What sets them apart: ${answers.edge}`,
-            ...(answers.program ? [
-              `Program: ${answers.program}`,
-              `Services: ${answers.services}`,
-              `Brow price: $${answers.browprice}${answers.browflex ? ` · open to under $400: ${answers.browflex}` : ""}`,
-              `Instagram: ${answers.instagram || "—"}`,
-              `Google reviews: ${answers.reviews}`,
-            ] : []),
-            ...(emailNote ? [emailNote] : []),
-          ].join("\n")
-        : [
-        "One-Box survey:",
-        `Area: ${answers.area}`,
-        `Had PMU before: ${answers.had_pmu}`,
-        `Age group: ${answers.age}`,
-        `Commutable: ${answers.commutable}`,
-        `Seriousness: ${answers.seriousness}`,
-        `Aftercare kit: ${answers.aftercare_kit}`,
-        ...Object.entries(answers)
-          .filter(([k, v]) => v && !["area", "had_pmu", "age", "commutable", "seriousness", "aftercare_kit"].includes(k))
-          .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`),
-      ].join("\n");
-      await fetch(
-        `https://services.leadconnectorhq.com/contacts/${contactId}/notes`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${tok.token}`,
-            Version: "2021-07-28",
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ body: note }),
-        }
-      ).catch(() => {});
-    }
-  } catch (e) {
-    console.error("[onebox/submit] GHL upsert failed:", e);
-  }
+  // Create/upsert the contact in GHL so automations fire. Extracted to
+  // src/lib/ghl-push.ts so the ghl-retry cron can re-run failed pushes.
+  const push = await pushLeadToGhl({
+    locationId, fullName, phone, email, answers,
+    isB2B, b2bFieldMap: extras.b2b?.fieldMap, surveyTag,
+    withTag: true, partial, disqualified,
+  });
+  const contactId = push.contactId;
+  const ghlStatus = contactId ? "created" : "failed";
+  if (push.error) console.error("[onebox/submit] GHL upsert failed:", push.error);
 
   if (leadRow?.id) {
     await svc
       .from("onebox_leads")
-      .update({ ghl_status: ghlStatus, ghl_contact_id: contactId })
+      .update({
+        ghl_status: ghlStatus, ghl_contact_id: contactId,
+        ...(push.error ? { answers: { ...answers, email, ...(disqualified ? { disqualified: true } : {}), ghl_error: push.error } } : {}),
+      })
       .eq("id", leadRow.id);
   }
 
