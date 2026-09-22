@@ -363,7 +363,7 @@ function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, s
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Lato:wght@400;700&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Lato:wght@400;700&display=swap"></noscript>
-<script src="/onebox-b2b.js?v=4" defer></script>
+<script src="/onebox-b2b.js?v=5" defer></script>
 </head>
 <body style="margin:0">
 <div id="onebox-root"></div>

@@ -46,8 +46,10 @@
   var HEADLINE = C.headline || (PPS
     ? "Get Booked With Qualified PMU Clients — <span class=\"hl\">Pay Only For The Ones Who Show Up</span>"
     : "15–30 Financially Qualified Bookings Every Month <span class=\"hl\">On Autopilot</span> With Our AI System");
+  /* PPS sub: explicit two-line break + a tighter clamp (PPS CSS below) so
+     it never wraps to a third line on a phone — scroll depth matters. */
   var SUB = C.sub || (PPS
-    ? "No Retainer. No Upfront Fee. You Pay A Small Fee Per Appointment That Shows Up."
+    ? "No Retainer. No Upfront Fee.<br>You Pay A Small Fee Per Appointment That Shows Up."
     : "Without Discount Services… GUARANTEED Or 100% Money-Back");
   /* Page copy that differs between the two offers. */
   var T = PPS ? {
@@ -256,7 +258,14 @@
 (PPS ? ".ob-steplabel{display:none}.q-title{margin-bottom:14px}.q-note{margin-bottom:18px}.q-frame{margin-bottom:16px}" +
 ".vids-grid{gap:28px}.vt{background:#fff;border-radius:22px;padding:14px 14px 20px;box-shadow:0 22px 50px -24px rgba(10,60,55,.35),0 2px 10px rgba(10,60,55,.06);border:1px solid rgba(0,163,150,.08);transition:transform .2s,box-shadow .2s}.vt:hover{transform:translateY(-3px);box-shadow:0 30px 60px -24px rgba(10,60,55,.45),0 4px 14px rgba(10,60,55,.08)}" +
 ".vt .vidcard{border-radius:16px}.vt .vidcard img{transform:scale(1.02);transition:transform .35s}.vt .vidcard:hover img{transform:scale(1.07)}.vt .vidcard .ply{width:72px;height:72px;box-shadow:0 0 0 10px rgba(255,255,255,.22),0 14px 30px -6px rgba(0,0,0,.5)}.vt .vidcard .cap{padding:34px 16px 12px;font-size:12.5px;letter-spacing:.2px;text-transform:uppercase;background:linear-gradient(transparent,rgba(7,25,22,.9))}" +
-".vt blockquote{margin:16px 2px 8px;font-size:16px;line-height:1.6;font-style:italic}.vt .who{font-size:14px;margin-top:2px}.vt .who::before{content:\"★★★★★  \";color:#f5b301;letter-spacing:1px;font-style:normal}.vt .loc{font-size:12.5px}" : "");
+".vt blockquote{margin:16px 2px 8px;font-size:16px;line-height:1.6;font-style:italic}.vt .who{font-size:14px;margin-top:2px}.vt .who::before{content:\"★★★★★  \";color:#f5b301;letter-spacing:1px;font-style:normal}.vt .loc{font-size:12.5px}" +
+/* Scroll-depth trims (owner, 2026-09-22): no logo band (the hero carries
+   the brand; the footer keeps the logo), tighter hero top, and a sub
+   sized to hold its two <br> lines on one row each at phone width. */
+".hero{padding-top:40px}" +
+".hero .sub{font-size:clamp(11.5px,3.15vw,19px);line-height:1.45}" +
+/* Slot tap books directly — the Claim button only mirrors busy state. */
+"#ob-bookgo{display:none}" : "");
 
   /* ---------- page skeleton ---------- */
   var root = document.getElementById("onebox-root");
@@ -280,7 +289,9 @@
   }
 
   var page = "" +
-    '<div class="topbar"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span class="wordmark">PMU Bookings On Demand</span></div>' +
+    /* PPS: no white logo band — the hero opens the page and the logo still
+       lives in the footer; saves a full band of scrolling on phones. */
+    (PPS ? "" : '<div class="topbar"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span class="wordmark">PMU Bookings On Demand</span></div>') +
     '<header class="hero"><h1>' + HEADLINE + '</h1>' +
     '<p class="sub">' + SUB + '<small>' + T.heroSmall + '</small></p></header>' +
     '<div class="boxwrap" id="boxanchor"><div class="obox" id="obox">' +
@@ -817,6 +828,7 @@
       b.className = "slot" + (S.slot === iso ? " sel" : "");
       b.textContent = slotLabel(iso);
       b.onclick = function () {
+        if (S.booking) return;
         Array.prototype.forEach.call(box.querySelectorAll(".slot"), function (x) { x.classList.remove("sel"); });
         b.classList.add("sel");
         S.slot = iso;
@@ -825,6 +837,12 @@
         body.stage = "slot";
         body.slotIso = iso;
         post("submit", body).catch(function () {});
+        /* PPS: tapping the time IS the booking — no extra Claim click
+           (owner, 2026-09-22). The tapped chip shows the busy state. */
+        if (PPS) {
+          b.textContent = "Booking…";
+          confirmBooking();
+        }
       };
       box.appendChild(b);
     });
@@ -859,6 +877,9 @@
       .catch(function () {
         S.booking = false;
         toast("Connection hiccup — please try again.");
+        /* PPS has no visible Claim button — repaint the slots so the
+           tapped chip loses its "Booking…" label and can be tapped again. */
+        if (PPS) { showBooking(false); return; }
         var b2 = $("ob-bookgo");
         if (b2) {
           b2.removeAttribute("disabled");
