@@ -1,5 +1,5 @@
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { getSurveyFieldMap } from "@/lib/onebox";
+import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 
 /* The one-box → GHL contact push (upsert + custom fields + tag + survey
    note), extracted from /api/onebox/submit so the ghl-retry cron can re-run
@@ -141,5 +141,71 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
     return { contactId };
   } catch (e) {
     return { contactId: null, error: String(e).slice(0, 180) };
+  }
+}
+
+/* Create the native GHL appointment a paid lead should already have —
+   the same call /api/onebox/book makes (confirmed status, calendar's own
+   duration + title, reserved-time custom field), so all appointment
+   automations (confirmations, reminders) fire exactly as if the booking
+   had worked live. Skips contacts that already have an upcoming
+   appointment, so a manual booking by the team is never duplicated. */
+export async function bookAppointmentForLead(inp: {
+  locationId: string; calendarId: string; contactId: string; slotIso: string;
+}): Promise<{ appointmentId?: string; alreadyBooked?: boolean; error?: string }> {
+  try {
+    const tok = await getAppLocationToken(inp.locationId);
+    if (!tok.token) throw new Error(tok.error ?? "no location token");
+    const H = { Authorization: `Bearer ${tok.token}`, "Content-Type": "application/json", Accept: "application/json" };
+
+    const existing = await fetch(`https://services.leadconnectorhq.com/contacts/${inp.contactId}/appointments`, {
+      headers: { ...H, Version: "2021-07-28" },
+    }).then((r) => (r.ok ? r.json() : { events: [] })).catch(() => ({ events: [] })) as { events?: { startTime?: string; appointmentStatus?: string }[] };
+    const hasUpcoming = (existing.events ?? []).some((e) => {
+      const ms = Date.parse(String(e.startTime ?? ""));
+      return Number.isFinite(ms) && ms > Date.now() && String(e.appointmentStatus ?? "") !== "cancelled";
+    });
+    if (hasUpcoming) return { alreadyBooked: true };
+
+    let durationMin = 30;
+    let title = "Appointment";
+    const calR = await fetch(`https://services.leadconnectorhq.com/calendars/${inp.calendarId}`, {
+      headers: { ...H, Version: "2021-04-15" },
+    }).catch(() => null);
+    if (calR?.ok) {
+      const calJ = (await calR.json()) as { calendar?: { slotDuration?: number; name?: string } };
+      if (calJ.calendar?.slotDuration) durationMin = calJ.calendar.slotDuration;
+      if (calJ.calendar?.name) title = calJ.calendar.name;
+    }
+    const endTime = new Date(new Date(inp.slotIso).getTime() + durationMin * 60000).toISOString();
+    const ar = await fetch("https://services.leadconnectorhq.com/calendars/events/appointments", {
+      method: "POST",
+      headers: { ...H, Version: "2021-04-15" },
+      body: JSON.stringify({
+        calendarId: inp.calendarId,
+        locationId: inp.locationId,
+        contactId: inp.contactId,
+        startTime: inp.slotIso,
+        endTime,
+        title,
+        appointmentStatus: "confirmed",
+      }),
+    });
+    const aj = (await ar.json().catch(() => ({}))) as { id?: string; message?: string };
+    if (!ar.ok) throw new Error(aj.message ?? `appointment ${ar.status}`);
+
+    try {
+      const fieldMap = await getSurveyFieldMap(inp.locationId, tok.token);
+      if (fieldMap.reserved_time) {
+        await fetch(`https://services.leadconnectorhq.com/contacts/${inp.contactId}`, {
+          method: "PUT",
+          headers: { ...H, Version: "2021-07-28" },
+          body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(inp.slotIso) }] }),
+        });
+      }
+    } catch { /* best effort — the appointment itself is booked */ }
+    return { appointmentId: aj.id };
+  } catch (e) {
+    return { error: String(e).slice(0, 180) };
   }
 }
