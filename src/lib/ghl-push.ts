@@ -40,25 +40,36 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
     const customFields = Object.entries(inp.answers)
       .filter(([k, v]) => v && fieldMap[k])
       .map(([k, v]) => ({ id: fieldMap[k], value: k === "services" ? v.split(/,\s*/) : v }));
-    const r = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${tok.token}`,
-        Version: "2021-07-28",
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        locationId: inp.locationId,
-        firstName,
-        lastName: rest.join(" "),
-        name: inp.fullName,
-        phone: inp.phone,
-        ...(inp.email ? { email: inp.email } : {}),
-        source: "One-Box Funnel",
-        ...(customFields.length ? { customFields } : {}),
-      }),
-    });
+    const upsert = (withEmail: boolean) =>
+      fetch("https://services.leadconnectorhq.com/contacts/upsert", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tok.token}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          locationId: inp.locationId,
+          firstName,
+          lastName: rest.join(" "),
+          name: inp.fullName,
+          phone: inp.phone,
+          ...(withEmail && inp.email ? { email: inp.email } : {}),
+          source: "One-Box Funnel",
+          ...(customFields.length ? { customFields } : {}),
+        }),
+      });
+    let r = await upsert(true);
+    /* 422 = GHL rejected the payload — in practice a lead-typed email that
+       fails validation ("x@.yahoo.com", trailing dot). Losing the whole
+       contact over a typo'd email cost 3 leads their follow-up
+       (2026-09-22); drop the email and keep the lead, noting the typo. */
+    let badEmail = "";
+    if (r.status === 422 && inp.email) {
+      badEmail = inp.email;
+      r = await upsert(false);
+    }
     const j = (await r.json().catch(() => ({}))) as { contact?: { id?: string; email?: string | null } };
     if (!r.ok) throw new Error(`contacts/upsert ${r.status}`);
     const contactId = j.contact?.id ?? null;
@@ -66,8 +77,8 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
     /* The upsert matches on phone and quietly drops the email when another
        contact already owns it (sub-accounts refuse duplicate emails). Try
        once more explicitly; if GHL still refuses, say so in the note. */
-    let emailNote = "";
-    if (contactId && inp.email && !(j.contact?.email ?? "").trim()) {
+    let emailNote = badEmail ? `⚠ The email the lead typed (${badEmail}) is invalid — GHL rejected it, contact saved without it.` : "";
+    if (!badEmail && contactId && inp.email && !(j.contact?.email ?? "").trim()) {
       const put = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" },
