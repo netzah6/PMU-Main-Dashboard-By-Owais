@@ -25,7 +25,7 @@ const TABS: Tab[] = [
   { label: "✅ Tasks", href: "/tasks" },
   { label: "📈 Performance", href: "/performance" },
   { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
-  { label: "💰 Cost / Deposit", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27
+  { label: "💰 CPD", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27; renamed from "Cost / Deposit" 2026-09-22
   { label: "💵 Deposits", href: "/deposits" },
   { label: "📅 Bookings", href: "/bookings", collapsed: true },
   { label: "🧲 Leads", href: "/leads", collapsed: true },
