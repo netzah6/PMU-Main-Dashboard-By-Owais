@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/ppa";
 import { createServiceClient } from "@/lib/supabase/server";
-import { checkDemos } from "@/lib/demo-check";
+import { checkDemos, dedupeNames } from "@/lib/demo-check";
 
 export const maxDuration = 300; // a long paste hits GHL twice per name
 
@@ -13,10 +13,10 @@ export async function POST(req: NextRequest) {
   if (auth.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as { names?: string[]; raw?: string };
-  const names = (body.names ?? String(body.raw ?? "").split(/[\n,]/))
-    .map((n) => String(n).trim())
-    .filter(Boolean)
-    .slice(0, 150); // guard against a runaway paste
+  // A name pasted twice is checked and counted once, and reported back.
+  const { unique: names, duplicates } = dedupeNames(
+    (body.names ?? String(body.raw ?? "").split(/[\n,]/)).map((n) => String(n)).slice(0, 150) // guard against a runaway paste
+  );
 
   if (!names.length) return NextResponse.json({ error: "Paste at least one contact name" }, { status: 400 });
 
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       showed: results.filter((r) => r.status === "showed").length,
       total: results.length,
     }).select("id, created_at").single();
-    return NextResponse.json({ results, checkId: saved?.id ?? null, checkedAt: saved?.created_at ?? null });
+    return NextResponse.json({ results, duplicates, checkId: saved?.id ?? null, checkedAt: saved?.created_at ?? null });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
