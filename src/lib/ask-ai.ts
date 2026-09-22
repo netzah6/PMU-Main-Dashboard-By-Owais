@@ -306,7 +306,9 @@ const queryTool: Anthropic.Tool = {
 };
 
 export type AskMessage = { role: "user" | "assistant"; content: string };
-export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId: string };
+// contactId is what the dashboard's Send button needs — without it the card
+// can only offer Copy, so it must ride along with every draft.
+export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId: string; contactId: string | null };
 export type AskResult = { answer: string; queries: string[]; drafts?: AskDraft[]; reports?: string[] };
 
 // Find the conversation in the agency account that best matches a lead name
@@ -376,6 +378,7 @@ async function runDraftReply(leadName: string, instructions: string | undefined,
     contactName: found.contactName,
     channel: found.channel,
     conversationId: found.conversationId,
+    contactId: found.contactId,
     lastMessage: { direction: last.direction, body: last.body.slice(0, 300), at: last.dateAdded },
     draft,
     draftVoice: agentName,
@@ -448,6 +451,7 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
               contactName: String(r.contactName ?? ""), channel: String(r.channel ?? ""),
               draft: r.draft, voice: String(r.draftVoice ?? ""), conversationUrl: r.conversationUrl,
               conversationId: String(r.conversationId ?? ""),
+              contactId: (r.contactId as string | null) ?? null,
             });
           }
           content = JSON.stringify(r).slice(0, 30000);
