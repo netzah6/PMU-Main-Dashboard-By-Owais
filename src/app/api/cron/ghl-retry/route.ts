@@ -34,7 +34,12 @@ export async function GET(req: NextRequest) {
     .gte("created_at", new Date(Date.now() - 7 * 86400_000).toISOString())
     .order("created_at", { ascending: false })
     .limit(40);
-  if (!leads?.length) return NextResponse.json({ retried: 0 });
+  /* No failed leads must NOT short-circuit phase 2 — that early return is
+     exactly how the 2026-09-22 16:39 run skipped the paid-lead healing. */
+  if (!leads?.length) {
+    const paidHealOnly = await healPaidLeads(svc);
+    return NextResponse.json({ retried: 0, paidHeal: paidHealOnly });
+  }
 
   const { data: clients } = await svc
     .from("onebox_clients")
