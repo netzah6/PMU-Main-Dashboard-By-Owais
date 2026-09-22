@@ -164,6 +164,24 @@ const locCache = new Map<string, { ts: number; token: string }>();
    kept winning. The agency location always works via agency minting, so
    it skips the per-location branch entirely. */
 const AGENCY_LOCATION_ID = process.env.GHL_LOCATION_ID || "SfpNMJ5YU9lBkxss47lK";
+/* The agency-location problem above turned out to be fleet-wide: on
+   2026-09-22, 143 of 271 stored ghl_oauth_locations tokens were READ-ONLY
+   (no contacts.write — reads pass, contact upserts 401), which silently
+   dropped the GHL push for most one-box leads since 2026-09-20. The scopes
+   are visible in the token itself (JWT payload → oauthMeta.scopes), so
+   instead of trusting any stored row, verify it can write contacts and
+   otherwise fall through to agency minting, which carries the full scope
+   set. Fail-open on decode errors — an undecodable token behaves as
+   before. */
+function tokenCanWriteContacts(token: string): boolean {
+  try {
+    const seg = token.split(".")[1] ?? "";
+    const b64 = seg.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (seg.length % 4)) % 4);
+    const meta = (JSON.parse(Buffer.from(b64, "base64").toString("utf8")) as { oauthMeta?: { scopes?: string[] } }).oauthMeta;
+    if (!meta || !Array.isArray(meta.scopes)) return true;
+    return meta.scopes.includes("contacts.write");
+  } catch { return true; }
+}
 export async function getAppLocationToken(locationId: string): Promise<{ token?: string; error?: string }> {
   const hit = locCache.get(locationId);
   if (hit && Date.now() - hit.ts < 50 * 60 * 1000) return { token: hit.token };
@@ -171,7 +189,7 @@ export async function getAppLocationToken(locationId: string): Promise<{ token?:
   if (locationId !== AGENCY_LOCATION_ID) try {
     const svc = createServiceClient();
     const { data } = await svc.from("ghl_oauth_locations").select("*").eq("location_id", locationId).single();
-    if (data?.access_token) {
+    if (data?.access_token && tokenCanWriteContacts(data.access_token as string)) {
       if (new Date(data.expires_at as string).getTime() > Date.now()) {
         locCache.set(locationId, { ts: Date.now(), token: data.access_token as string });
         return { token: data.access_token as string };
@@ -187,7 +205,7 @@ export async function getAppLocationToken(locationId: string): Promise<{ token?:
         updated_at: new Date().toISOString(),
       });
       const tok = String(j.access_token ?? "");
-      if (tok) { locCache.set(locationId, { ts: Date.now(), token: tok }); return { token: tok }; }
+      if (tok && tokenCanWriteContacts(tok)) { locCache.set(locationId, { ts: Date.now(), token: tok }); return { token: tok }; }
     }
   } catch { /* fall through to agency minting */ }
   try {
