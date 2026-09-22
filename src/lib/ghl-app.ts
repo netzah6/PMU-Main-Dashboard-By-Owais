@@ -155,11 +155,20 @@ export async function getAppAgencyToken(): Promise<{ token: string; companyId: s
 // Sources, in order: stored per-location install token (refreshing as needed),
 // then minting from the agency-level token.
 const locCache = new Map<string, { ts: number; token: string }>();
+/* The agency's own location. A ghl_oauth_locations row exists for it that
+   was written by a DIFFERENT OAuth app (its refresh token rejects our
+   client credentials, and its access token lacks contacts.write — reads
+   pass, contact upserts 401). Discovered 2026-09-22 when the /f/pps and
+   /f/pmu-bookings funnels stopped creating contacts: the row looked fresh
+   (something rewrites it daily ~00:30 UTC), so the stored-token branch
+   kept winning. The agency location always works via agency minting, so
+   it skips the per-location branch entirely. */
+const AGENCY_LOCATION_ID = process.env.GHL_LOCATION_ID || "SfpNMJ5YU9lBkxss47lK";
 export async function getAppLocationToken(locationId: string): Promise<{ token?: string; error?: string }> {
   const hit = locCache.get(locationId);
   if (hit && Date.now() - hit.ts < 50 * 60 * 1000) return { token: hit.token };
-  // Per-location install token?
-  try {
+  // Per-location install token? (never for the agency's own location — see above)
+  if (locationId !== AGENCY_LOCATION_ID) try {
     const svc = createServiceClient();
     const { data } = await svc.from("ghl_oauth_locations").select("*").eq("location_id", locationId).single();
     if (data?.access_token) {
