@@ -623,6 +623,13 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
   const canEdit = !!(onEdit && d.conversationId);
   // Manual send of THIS exact draft text — one explicit click, no automation.
   const canSend = !!d.contactId && d.channel !== "Email" && d.channel !== "Call";
+  // When Send can't be offered, say why — a silently missing button reads as
+  // "the feature was removed" (owner asked where it went, 2026-09-22).
+  const noSendReason = canSend
+    ? ""
+    : d.channel === "Email" || d.channel === "Call"
+      ? `${d.channel} can't be sent from here — open the chat in GHL`
+      : "no contact id on this chat — open it in GHL to reply";
   const sendDraft = useCallback(async () => {
     if (!d.contactId || sendState !== "idle" || !text.trim()) return;
     setSendState("sending");
@@ -686,7 +693,7 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
             <Sparkles size={12} /> AI edit
           </button>
         )}
-        <span className="text-[10px] text-[#8595a8]">draft only — you send it</span>
+        <span className="text-[10px] text-[#8595a8]">{canSend ? "nothing sends until you click Send" : noSendReason}</span>
       </div>
       {editOpen && canEdit && (
         <div className="mt-2.5 rounded-lg border border-[#ffd8a8] bg-[#fffaf2] p-2">
