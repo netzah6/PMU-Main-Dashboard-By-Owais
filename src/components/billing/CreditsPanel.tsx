@@ -24,10 +24,14 @@ const money = (n: number) => `$${Number(n).toLocaleString(undefined, { maximumFr
  * service-fee charge automatically, so nothing has to be remembered on the day.
  */
 export function CreditsPanel({
-  clients, onChanged,
+  clients, onChanged, open: openProp, onOpenChange, onSummary,
 }: {
   clients: Array<{ ownerKey: string; label: string }>;
   onChanged?: () => void;
+  /** Controlled mode + a summary feed, so the PPS Billing tab can show the
+   *  unused balance on its panel bar without opening the panel. */
+  open?: boolean; onOpenChange?: (open: boolean) => void;
+  onSummary?: (s: { unused: number; pending: number }) => void;
 }) {
   const [credits, setCredits] = useState<Credit[]>([]);
   const [role, setRole] = useState<string | null>(null);
@@ -35,7 +39,12 @@ export function CreditsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [openSelf, setOpenSelf] = useState(false);
+  const open = openProp ?? openSelf;
+  const setOpen = (v: boolean | ((o: boolean) => boolean)) => {
+    const next = typeof v === "function" ? v(open) : v;
+    if (onOpenChange) onOpenChange(next); else setOpenSelf(next);
+  };
   const [ownerKey, setOwnerKey] = useState("");
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -60,6 +69,7 @@ export function CreditsPanel({
   const isAdmin = role === "admin";
   const pending = credits.filter((c) => c.status === "pending");
   const active = credits.filter((c) => c.status === "approved" && Number(c.amount) - Number(c.applied) > 0);
+  const unusedTotal = active.reduce((t, c) => t + (Number(c.amount) - Number(c.applied)), 0);
   // One chip per client: several approved credits add up to one balance
   // (billing draws them down together, oldest first) — user request 2026-09-16.
   const balances = Object.values(active.reduce<Record<string, { key: string; label: string; left: number; parts: Credit[] }>>((m, c) => {
@@ -111,6 +121,10 @@ export function CreditsPanel({
     }
   }
 
+  // Feed the headline numbers to the parent so a collapsed panel can still
+  // show "$395 unused" on the PPS Billing panel bar.
+  useEffect(() => { onSummary?.({ unused: unusedTotal, pending: pending.length }); }, [unusedTotal, pending.length, onSummary]);
+
   if (loading) {
     return <div className="flex items-center gap-2 text-xs text-[#697a91] py-2"><Loader2 size={13} className="animate-spin" />Loading credits…</div>;
   }
@@ -129,7 +143,7 @@ export function CreditsPanel({
         )}
         {active.length > 0 && (
           <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#e6f7ee] text-[#15803d] border border-[#c7edd4]">
-            {money(active.reduce((t, c) => t + (Number(c.amount) - Number(c.applied)), 0))} unused
+            {money(unusedTotal)} unused
           </span>
         )}
         {canRequest && (

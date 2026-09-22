@@ -537,8 +537,9 @@ interface ChatFlag {
   billableAfter?: string | null;
 }
 
-function ChatFlagsPanel({ feeByOwner, nameByOwner, onBilled }: {
+function ChatFlagsPanel({ feeByOwner, nameByOwner, onBilled, onSummary }: {
   feeByOwner: Map<string, number>; nameByOwner: Map<string, string>; onBilled: () => void;
+  onSummary?: (toReview: number) => void;
 }) {
   const [flags, setFlags] = useState<ChatFlag[]>([]);
   const [lastScanAt, setLastScanAt] = useState<string | null>(null);
@@ -554,6 +555,8 @@ function ChatFlagsPanel({ feeByOwner, nameByOwner, onBilled }: {
     } catch { /* panel is best-effort */ }
   }, []);
   useEffect(() => { load(); }, [load]);
+  // The panel bar shows "3 to review" without the panel being open.
+  useEffect(() => { onSummary?.(flags.length); }, [flags.length, onSummary]);
 
   const scan = async () => {
     setScanning(true); setMsg(null);
@@ -649,7 +652,7 @@ interface AutoLogRow { owner_key: string; owner_name: string | null; status: str
 // on reload while the next run still announces itself.
 const AUTORUN_DISMISSED = "pps.autorun.dismissed";
 
-function AutoRunBanner() {
+function AutoRunBanner({ onSummary }: { onSummary?: (s: { failed: number; charged: number; runAt: string } | null) => void }) {
   const [run, setRun] = useState<{ runAt: string; rows: AutoLogRow[] } | null>(null);
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -657,8 +660,15 @@ function AutoRunBanner() {
     fetch("/api/ppa/autocharge-log").then((r) => r.json()).then((j) => setRun(j.run ?? null)).catch(() => {});
     try { setDismissed(localStorage.getItem(AUTORUN_DISMISSED)); } catch { /* private mode */ }
   }, []);
-  if (!run || run.rows.length === 0) return null;
-  if (dismissed && dismissed === run.runAt) return null;
+  const hidden = !run || run.rows.length === 0 || (!!dismissed && dismissed === run.runAt);
+  useEffect(() => {
+    onSummary?.(hidden || !run ? null : {
+      failed: run.rows.filter((r) => r.status === "failed").length,
+      charged: run.rows.filter((r) => r.status === "charged").length,
+      runAt: run.runAt,
+    });
+  }, [hidden, run, onSummary]);
+  if (hidden || !run) return null;
   const charged = run.rows.filter((r) => r.status === "charged");
   const skipped = run.rows.filter((r) => r.status === "skipped");
   const failed = run.rows.filter((r) => r.status === "failed");
@@ -698,6 +708,37 @@ function AutoRunBanner() {
   );
 }
 
+// The boxes that used to stack above the client table; one opens at a time.
+type PanelKey = "auto" | "billing" | "credit" | "chat" | "missing" | "charge";
+
+/** One dropdown in the PPS Billing panel bar. The badge carries the number
+ *  that decides whether it is worth opening, so a shut panel still speaks. */
+function PanelChip({ k, panel, onClick, label, icon, badge, alert }: {
+  k: PanelKey; panel: PanelKey | null; onClick: (k: PanelKey) => void;
+  label: string; icon: string; badge?: string; alert?: boolean;
+}) {
+  const open = panel === k;
+  return (
+    <button onClick={() => onClick(k)} aria-expanded={open}
+      className={cn(
+        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors",
+        open ? "bg-[#e6f7f5] text-[#0e8f88] border-[#15B7AE]"
+          : alert ? "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf] hover:border-[#be123c]"
+            : "bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE]",
+      )}>
+      <span aria-hidden>{icon}</span>
+      {label}
+      {badge && (
+        <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold",
+          open ? "bg-white text-[#0e8f88]" : alert ? "bg-white text-[#be123c]" : "bg-[#eef2f7] text-[#697a91]")}>
+          {badge}
+        </span>
+      )}
+      <ChevronDown size={12} className={cn("transition-transform", open && "rotate-180")} />
+    </button>
+  );
+}
+
 // The tab shows two different pages. An admin gets the full billing desk
 // below; a Client Success Coach gets their own book and the money already
 // collected (CoachBilling) — no pending amounts, no charge buttons. The split
@@ -724,7 +765,16 @@ function AdminBilling() {
   const [filter, setFilter] = useState<Filter>("all");
   // One client expanded at a time — every dropdown open at once was unreadable.
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [chargeOpen, setChargeOpen] = useState(false);
+  // One panel open at a time, none by default — the client table is what the
+  // tab is for, so the boxes above it live behind a single row of dropdowns
+  // (owner request 2026-09-22: "keep all the drop-downs in one line").
+  const [panel, setPanel] = useState<PanelKey | null>(null);
+  const togglePanel = useCallback((k: PanelKey) => setPanel((p) => (p === k ? null : k)), []);
+  // Headline numbers the collapsed panels report up, so a chip can say what is
+  // inside without being opened.
+  const [autoRun, setAutoRun] = useState<{ failed: number; charged: number; runAt: string } | null>(null);
+  const [creditSummary, setCreditSummary] = useState<{ unused: number; pending: number }>({ unused: 0, pending: 0 });
+  const [chatToReview, setChatToReview] = useState(0);
   // Which coach's book to show. "" = the whole roster.
   const [coach, setCoach] = useState("");
   // Bumped whenever money moves, so the Recent-billing panel re-pulls.
@@ -864,23 +914,55 @@ function AdminBilling() {
         </div>
       </div>
 
-      {/* Latest Monday auto-charge run (only shows once a run has happened) */}
-      <AutoRunBanner />
+      {/* One line of dropdowns. Everything that used to stack above the client
+          table now hides behind these chips; each chip still carries the one
+          number that says whether it needs attention. */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {autoRun && (
+          <PanelChip k="auto" panel={panel} onClick={togglePanel} label="Auto-charge run"
+            icon="⚡" alert={autoRun.failed > 0}
+            badge={autoRun.failed > 0 ? `${autoRun.failed} failed` : `${autoRun.charged} charged`} />
+        )}
+        <PanelChip k="billing" panel={panel} onClick={togglePanel} label="Recent billing" icon="💵" />
+        {(creditSummary.unused > 0 || creditSummary.pending > 0) && (
+          <PanelChip k="credit" panel={panel} onClick={togglePanel} label="Account credit" icon="💳"
+            alert={creditSummary.pending > 0}
+            badge={creditSummary.pending > 0 ? `${creditSummary.pending} to approve` : money(creditSummary.unused)} />
+        )}
+        {chatToReview > 0 && (
+          <PanelChip k="chat" panel={panel} onClick={togglePanel} label="Booked in chat" icon="💬"
+            badge={`${chatToReview} to review`} />
+        )}
+        {missing.length > 0 && (
+          <PanelChip k="missing" panel={panel} onClick={togglePanel} label="Not in Clients Master" icon="⚠️"
+            alert badge={String(missing.length)} />
+        )}
+        <PanelChip k="charge" panel={panel} onClick={togglePanel} label="To charge" icon="🗓️"
+          badge={totals.ready > 0 ? `${totals.ready} · ${money(totals.readyUsd)}` : "all caught up"} />
+      </div>
 
-      {/* Every service fee that actually went through, newest first — open a
-          day to see which clients made up that total. */}
-      <RecentBilling coach={coach || undefined} refreshKey={billingKey} />
-
-      {/* Account credit: coaches request, admin approves, approved balance comes
-          off the client's next service-fee charge automatically. */}
-      <CreditsPanel
-        clients={clients.map((c) => ({ ownerKey: c.ownerKey, label: `${c.ownerName}${c.business ? ` — ${c.business}` : ""}` }))}
-        onChanged={() => { load(); loadVerify(); }}
-      />
-
-      {/* Chat-detected bookings — reviewed by a human, then billed via the
-          normal charge record (appt_id chat:<conversation>). */}
-      <ChatFlagsPanel feeByOwner={feeByOwner} nameByOwner={nameByOwner} onBilled={() => { load(); loadVerify(); }} />
+      {/* The panels themselves. They stay mounted so their chips keep showing
+          live numbers, and only the open one is on screen. */}
+      <div className={cn(panel !== "auto" && "hidden")}>
+        <AutoRunBanner onSummary={setAutoRun} />
+      </div>
+      <div className={cn(panel !== "billing" && "hidden")}>
+        {/* History is fetched only while its panel is open — it is long. */}
+        <RecentBilling coach={coach || undefined} refreshKey={billingKey}
+          open={panel === "billing"} onOpenChange={(o) => setPanel(o ? "billing" : null)} />
+      </div>
+      <div className={cn(panel !== "credit" && "hidden")}>
+        <CreditsPanel
+          clients={clients.map((c) => ({ ownerKey: c.ownerKey, label: `${c.ownerName}${c.business ? ` — ${c.business}` : ""}` }))}
+          onChanged={() => { load(); loadVerify(); }}
+          open={panel === "credit"} onOpenChange={(o) => setPanel(o ? "credit" : null)}
+          onSummary={setCreditSummary}
+        />
+      </div>
+      <div className={cn(panel !== "chat" && "hidden")}>
+        <ChatFlagsPanel feeByOwner={feeByOwner} nameByOwner={nameByOwner}
+          onBilled={() => { load(); loadVerify(); }} onSummary={setChatToReview} />
+      </div>
 
       {verifyError && (
         <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] px-3 py-2 text-[12px] text-[#b45309]">
@@ -890,24 +972,23 @@ function AdminBilling() {
 
       {/* PPA names in the financing sheet with no Clients Master row — they
           can't be tracked until they're added to the Master sheet. */}
-      {missing.length > 0 && (
+      {missing.length > 0 && panel === "missing" && (
         <div className="rounded-xl border border-[#f5c2cf] bg-[#fde8ee] px-3 py-2 text-sm text-[#be123c]">
           <strong>Not in Clients Master:</strong> {missing.join(", ")} — marked PPA in the financing sheet but missing from the Clients Master sheet, so they can&apos;t be tracked here. Add them to the Master sheet to include them.
         </div>
       )}
 
-      {/* Monday worklist — the totals always show; the per-client breakdown is
-          behind the dropdown so the top of the page stays short. */}
+      {/* Monday worklist — opened from the panel bar above. */}
+      {panel === "charge" && (
       <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7]">
-        <button onClick={() => setChargeOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
+        <div className="w-full flex items-center gap-2 px-3 py-2 text-left">
           <CalendarClock size={15} className="text-[#d97706] shrink-0" />
           <h2 className="text-sm font-bold text-[#1f3559]">To charge</h2>
           {totals.ready > 0
             ? <span className="text-xs font-semibold text-[#d97706]">{totals.ready} appointment{totals.ready === 1 ? "" : "s"} · {money(totals.readyUsd)} across {worklist.length} client{worklist.length === 1 ? "" : "s"}</span>
             : <span className="text-xs text-[#15803d] font-semibold">All caught up 🎉</span>}
-          {worklist.length > 0 && <span className="ml-auto text-[#d97706] text-xs">{chargeOpen ? "▲" : "▼"}</span>}
-        </button>
-        {chargeOpen && worklist.length > 0 && (
+        </div>
+        {worklist.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pb-3">
             {worklist.map((c) => (
               <button key={c.ownerKey} onClick={() => { setFilter("ready"); setSearch(c.ownerName); }}
@@ -920,6 +1001,7 @@ function AdminBilling() {
           </div>
         )}
       </div>
+      )}
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
