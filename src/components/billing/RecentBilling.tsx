@@ -85,11 +85,18 @@ function GiveCreditButton({ ownerKey, ownerName, lead, amount }: {
   );
 }
 
-export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKey?: number }) {
+export function RecentBilling({ coach, refreshKey, open: openProp, onOpenChange }: {
+  coach?: string; refreshKey?: number;
+  /** Controlled mode: the PPS Billing tab drives this from its panel bar, so
+   *  the history still fetches only when it is actually on screen. */
+  open?: boolean; onOpenChange?: (open: boolean) => void;
+}) {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [openSelf, setOpenSelf] = useState(false);
+  const open = openProp ?? openSelf;
+  const toggleOpen = () => (onOpenChange ? onOpenChange(!open) : setOpenSelf((o) => !o));
   const [openDay, setOpenDay] = useState<string | null>(null);
   // "Why was I charged $100?" arrives as an artist's name, not a date — so the
   // panel narrows to one client and shows every day she was billed.
@@ -138,7 +145,7 @@ export function RecentBilling({ coach, refreshKey }: { coach?: string; refreshKe
 
   return (
     <div className="rounded-xl border border-[#c7edd4] bg-[#f4fbf7]">
-      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
+      <button onClick={() => toggleOpen()} className="w-full flex items-center gap-2 px-3 py-2 text-left">
         <Receipt size={15} className="text-[#15803d] shrink-0" />
         <h2 className="text-sm font-bold text-[#1f3559]">Recent billing</h2>
         {runs
