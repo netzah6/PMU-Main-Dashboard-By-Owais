@@ -132,7 +132,7 @@ function ExpandText({ value }: { value: string | null }) {
   );
 }
 
-const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Sched", "1-Box", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
+const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Sched", "1-Box", "Kill %", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
 
 /* One row per sub-account where the Meta "Schedule" event was installed on
    the funnel's deposit page — written by the rollout, read here so the team
@@ -229,17 +229,22 @@ export default function CostPerDepositPage() {
   /* owner (lowercased) → one-box funnel status, from the onebox_active_clients
      view (onebox_clients joined to Clients Master by normalized business name). */
   const [oneboxMap, setOneboxMap] = useState<Map<string, { status: string; business: string }> | null>(null);
+  /* owner (lowercased) -> call-kill stats (daily cron): of the leads the
+     artist CALLED, how many lost the AI afterwards — the outgoing-call
+     workflow removes them from the AI flow (2026-09-22 finding). */
+  const [killMap, setKillMap] = useState<Map<string, { called: number; dead: number; ignored: number }> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
     (async () => {
       // booking_stats is a tiny pre-aggregated view (one row per GHL owner) —
       // much cheaper than scanning ghl_lead_status for the "No GHL" flags.
-      const [ovRes, bkRes, sfRes, obRes] = await Promise.all([
+      const [ovRes, bkRes, sfRes, obRes, kkRes] = await Promise.all([
         supabase.from("deposit_overview").select("*"),
         supabase.from("booking_stats").select("owner_key, leads_total, contacts_total"),
         supabase.from("funnel_tracking_flags").select("owner_name, schedule_installed_at, lead_status, notes"),
         supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status"),
+        supabase.from("call_kill_stats").select("owner_key, called, dead, ignored"),
       ]);
       if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
       setRows(((ovRes.data as Row[]) ?? []));
@@ -247,6 +252,13 @@ export default function CostPerDepositPage() {
         const m = new Map<string, SchedFlag>();
         for (const f of sfRes.data as SchedFlag[]) m.set(f.owner_name.toLowerCase().trim(), f);
         setSchedFlags(m);
+      }
+      if (!kkRes.error && kkRes.data) {
+        const m = new Map<string, { called: number; dead: number; ignored: number }>();
+        for (const k of kkRes.data as { owner_key: string; called: number; dead: number; ignored: number }[]) {
+          if (k.owner_key) m.set(k.owner_key.toLowerCase().trim(), { called: k.called, dead: k.dead, ignored: k.ignored });
+        }
+        setKillMap(m);
       }
       if (!obRes.error && obRes.data) {
         const m = new Map<string, { status: string; business: string }>();
@@ -316,7 +328,7 @@ export default function CostPerDepositPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-lg font-semibold text-[#1f3559]">Cost Per Deposit</h1>
+            <h1 className="text-lg font-semibold text-[#1f3559]">CPD</h1>
             <DataFreshness />
           </div>
         </div>
@@ -398,7 +410,7 @@ export default function CostPerDepositPage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 10 || idx === 14 || idx === 16 || idx === 20 || idx === 23 || idx === 26; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7 (+1 Sched, +1 1-Box)
+                  const divider = idx === 11 || idx === 15 || idx === 17 || idx === 21 || idx === 24 || idx === 27; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7 (+1 Sched, +1 1-Box, +1 Kill %)
                   return (
                     <th key={h} className={cn("sticky top-0 px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
                       idx === 0 || idx === 1 ? "z-30" : "z-20", divider && "border-r-2 border-[#9fb0c4]")}
@@ -475,6 +487,21 @@ export default function CostPerDepositPage() {
                           <span className={cn("font-bold text-[13px] cursor-default", live ? "text-[#0e9c9c]" : "text-[#8595a8]")}
                             title={live ? `One-box funnel LIVE (${ob.business}) — traffic runs on the one-box` : `One-box funnel exists but is paused (${ob.business})`}>
                             {live ? "✓" : "⏸"}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap">
+                      {(() => {
+                        const k = killMap?.get((r.owner_name ?? "").toLowerCase().trim());
+                        if (!k || k.called === 0) return <span className="text-[#c3cdd9]">—</span>;
+                        const pct = Math.round((k.dead / k.called) * 100);
+                        const tone = pct >= 50 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 25 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
+                        const label = k.called < 3 ? `${k.dead}/${k.called}` : `${pct}%`;
+                        return (
+                          <span className="rounded px-1.5 py-0.5 cursor-default" style={{ background: tone.bg, color: tone.fg }}
+                            title={`Of ${k.called} leads the artist CALLED (last 21d), ${k.dead} lost the AI afterwards${k.ignored ? ` — ${k.ignored} replied and got silence` : ""}. Cause: the outgoing-call workflow removes the lead from the AI flow.${k.called < 3 ? " Small sample." : ""}`}>
+                            {label}
                           </span>
                         );
                       })()}

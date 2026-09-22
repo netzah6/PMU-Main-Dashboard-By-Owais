@@ -37,6 +37,10 @@
       "schedule": "9,39 * * * *"
     },
     {
+      "path": "/api/cron/call-kill",
+      "schedule": "45 7 * * *"
+    },
+    {
       "path": "/api/cron/ppa-appointments",
       "schedule": "0 */12 * * *"
     },
