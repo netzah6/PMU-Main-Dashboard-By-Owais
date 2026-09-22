@@ -12,7 +12,10 @@ import { cn } from "@/lib/utils";
 
 type Reported = "active" | "paused_resuming" | "churned";
 type RosterRow = { owner: string; biz: string; status: string };
-type Submission = { id: number; coach: string; report_month: string; snapshot_date: string | null; entries: { reported: Reported }[]; mismatches: string[]; extra: string; created_at: string };
+type Referral = { referred_name: string; referred_by: string; note: string };
+type Submission = { id: number; coach: string; report_month: string; snapshot_date: string | null; entries: { reported: Reported }[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string };
+// Each referral the coach brings in is a $100 bonus (owner, 2026-09-22).
+const REFERRAL_BONUS = 100;
 
 const CHOICES: { k: Reported; label: string; on: string }[] = [
   { k: "active", label: "Active ✅", on: "bg-[#e7f6ec] text-[#15803d] border-[#15803d]" },
@@ -42,6 +45,13 @@ export default function CoachReportPage() {
   const [month, setMonth] = useState(monthOptions()[0].v);
   const [choice, setChoice] = useState<Record<string, Reported>>({});
   const [extra, setExtra] = useState("");
+  // Referrals claimed this month — a new PMU artist sent in by a client the
+  // coach already manages. One blank row is always present to type into.
+  const [referrals, setReferrals] = useState<Referral[]>([{ referred_name: "", referred_by: "", note: "" }]);
+  const filledReferrals = referrals.filter((r) => r.referred_name.trim() || r.referred_by.trim());
+  const setRef = (i: number, patch: Partial<Referral>) =>
+    setReferrals((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const incompleteReferral = filledReferrals.some((r) => !r.referred_name.trim() || !r.referred_by.trim());
   const [confirm, setConfirm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -84,12 +94,14 @@ export default function CoachReportPage() {
         body: JSON.stringify({
           coach: isAdmin ? coach : undefined, month, extra, confirm,
           entries: roster.map((x) => ({ owner: x.owner, biz: x.biz, reported: choice[key(x)] })),
+          referrals: filledReferrals,
         }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setError(j.error ?? "Submit failed"); return; }
       await load(isAdmin ? coach : undefined);
-      setDone(`Report submitted ✓ — Netzah gets it on the Alerts tab${j.mismatchCount ? ` (${j.mismatchCount} thing${j.mismatchCount === 1 ? "" : "s"} flagged for review)` : ""}.`);
+      setDone(`Report submitted ✓ — Netzah gets it on the Alerts tab${j.mismatchCount ? ` (${j.mismatchCount} thing${j.mismatchCount === 1 ? "" : "s"} flagged for review)` : ""}${j.referrals ? ` · ${j.referrals} referral${j.referrals === 1 ? "" : "s"} claimed = $${j.referralBonus} bonus` : ""}.`);
+      setReferrals([{ referred_name: "", referred_by: "", note: "" }]);
     } catch { setError("Network error — the report may not have been sent; try again"); } finally { setBusy(false); }
   }
 
@@ -175,6 +187,44 @@ export default function CoachReportPage() {
               </button>
             )}
 
+            {/* Referrals — a new PMU artist sent in by one of the clients above.
+                $100 each, approved by the admin on the same Alerts card. */}
+            <div className="mt-4 rounded-xl border border-[#ffe0b8] bg-[#fffaf3] p-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-[#1c2b3a]">🎁 Referrals this month</span>
+                <span className="text-[10px] text-[#8a6d3b]">a new artist referred in by a client you manage — ${REFERRAL_BONUS} bonus each</span>
+                {filledReferrals.length > 0 && (
+                  <span className="ml-auto text-xs font-bold text-[#b45309]">
+                    {filledReferrals.length} × ${REFERRAL_BONUS} = ${filledReferrals.length * REFERRAL_BONUS}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 grid gap-1.5">
+                {referrals.map((r, i) => (
+                  <div key={i} className="grid sm:grid-cols-[1fr_1fr_1fr_auto] gap-1.5">
+                    <input value={r.referred_name} onChange={(e) => setRef(i, { referred_name: e.target.value })}
+                      placeholder="New artist's name" className="border border-[#e4ebf2] rounded-lg px-2.5 py-1.5 text-xs bg-white" />
+                    <input value={r.referred_by} onChange={(e) => setRef(i, { referred_by: e.target.value })}
+                      list="coach-roster-names" placeholder="Referred by (your client)" className="border border-[#e4ebf2] rounded-lg px-2.5 py-1.5 text-xs bg-white" />
+                    <input value={r.note} onChange={(e) => setRef(i, { note: e.target.value })}
+                      placeholder="Note (optional)" className="border border-[#e4ebf2] rounded-lg px-2.5 py-1.5 text-xs bg-white" />
+                    <button type="button" onClick={() => setReferrals((rs) => (rs.length === 1 ? [{ referred_name: "", referred_by: "", note: "" }] : rs.filter((_, j) => j !== i)))}
+                      className="px-2 text-[#b45309] text-xs font-bold" title="Remove this referral">×</button>
+                  </div>
+                ))}
+                <datalist id="coach-roster-names">
+                  {roster.map((x) => <option key={key(x)} value={x.owner} />)}
+                </datalist>
+              </div>
+              <button type="button" onClick={() => setReferrals((rs) => [...rs, { referred_name: "", referred_by: "", note: "" }])}
+                className="mt-1.5 text-[11px] font-semibold text-[#b45309] border border-[#ffe0b8] bg-white rounded-lg px-2.5 py-1 hover:bg-[#fffaf3]">
+                + Add another referral
+              </button>
+              {incompleteReferral && (
+                <p className="mt-1 text-[10px] text-[#c2410c]">Each referral needs both names — the new artist and who referred them.</p>
+              )}
+            </div>
+
             <label className="grid gap-0.5 mt-3">
               <span className="text-[10px] font-medium text-[#697a91]">Anything else (a client not on this list, context on a pause…) — optional</span>
               <textarea value={extra} rows={2} onChange={(e) => setExtra(e.target.value)}
@@ -186,7 +236,7 @@ export default function CoachReportPage() {
               <span className="font-semibold">I confirm that the pipeline has been organized and all clients are assigned to the correct stages prior to this form submission.</span>
             </label>
 
-            <button onClick={() => void submit()} disabled={busy || !confirm || unset.length > 0 || roster.length === 0}
+            <button onClick={() => void submit()} disabled={busy || !confirm || unset.length > 0 || roster.length === 0 || incompleteReferral}
               className="mt-3 w-full sm:w-auto flex items-center justify-center gap-2 text-sm font-semibold bg-[#15B7AE] text-white rounded-lg px-6 py-2.5 hover:bg-[#0e9c9c] disabled:opacity-40">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Yes I Confirm — Submit!
             </button>
@@ -204,6 +254,9 @@ export default function CoachReportPage() {
                     <b className="text-[#1c2b3a]">{new Date(s.report_month + "T12:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })}</b>
                     {isAdmin && !coach ? <span className="text-[#697a91]">{s.coach}</span> : null}
                     <span className="text-[#697a91]">{s.entries.filter((e) => e.reported === "active").length} active · {s.entries.filter((e) => e.reported === "paused_resuming").length} resuming · {s.entries.filter((e) => e.reported === "churned").length} churned</span>
+                    {(s.referrals?.length ?? 0) > 0 && (
+                      <span className="font-semibold text-[#b45309]">🎁 {s.referrals!.length} referral{s.referrals!.length === 1 ? "" : "s"} (${s.referrals!.length * REFERRAL_BONUS})</span>
+                    )}
                     <span className={cn("ml-auto font-semibold", s.mismatches.length ? "text-[#c2410c]" : "text-[#15803d]")}>
                       {s.mismatches.length ? `${s.mismatches.length} flagged` : "all matched ✓"}
                     </span>

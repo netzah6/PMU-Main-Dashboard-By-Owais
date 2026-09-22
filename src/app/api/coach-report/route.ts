@@ -22,6 +22,12 @@ const REPORTED_LABEL: Record<Reported, string> = {
 
 const keyOf = (owner: string, biz: string) => `${owner.trim().toLowerCase()}|${biz.trim().toLowerCase()}`;
 
+/* A referral = a NEW PMU artist brought in by a client the coach already
+   manages. Each one is a $100 bonus on top of salary, so they are claimed on
+   the same monthly report and land on the same alert for the admin to approve. */
+const REFERRAL_BONUS = 100;
+type Referral = { referred_name: string; referred_by: string; note: string };
+
 type RosterRow = { owner: string; biz: string; status: string };
 
 /* The coach's book straight from Clients Master: live + paused clients whose
@@ -69,7 +75,7 @@ export async function GET(req: NextRequest) {
      must see nothing, never everyone (the /api/credits leak class). */
   let q = svc
     .from("coach_reports")
-    .select("id, coach, report_month, snapshot_date, entries, mismatches, extra, created_at")
+    .select("id, coach, report_month, snapshot_date, entries, referrals, mismatches, extra, created_at")
     .order("created_at", { ascending: false })
     .limit(24);
   if (coach) q = q.ilike("coach", coach);
@@ -83,7 +89,7 @@ export async function POST(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (auth.role !== "admin" && auth.role !== "editor") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = (await req.json().catch(() => null)) as { coach?: string; month?: string; entries?: { owner?: string; biz?: string; reported?: string }[]; extra?: string; confirm?: boolean } | null;
+  const body = (await req.json().catch(() => null)) as { coach?: string; month?: string; entries?: { owner?: string; biz?: string; reported?: string }[]; referrals?: { referred_name?: string; referred_by?: string; note?: string }[]; extra?: string; confirm?: boolean } | null;
   if (!body || !/^\d{4}-\d{2}$/.test(String(body.month ?? "")) || !Array.isArray(body.entries) || body.entries.length === 0) {
     return NextResponse.json({ error: "month + entries required" }, { status: 400 });
   }
@@ -108,6 +114,22 @@ export async function POST(req: NextRequest) {
   /* Compare against the dashboard's CURRENT truth (Clients Master). The
      roster is re-read server-side so a stale browser can't misreport. */
   const roster = await rosterFor(svc, coach);
+
+  /* Referrals. Both names are required — a claim with no referrer cannot be
+     checked, and each one is real money. Capped so a runaway paste can't
+     invent a payday. */
+  const referrals: Referral[] = [];
+  for (const r of body.referrals ?? []) {
+    const referred_name = clean(r.referred_name);
+    const referred_by = clean(r.referred_by);
+    if (!referred_name && !referred_by) continue; // blank row from the form
+    if (!referred_name || !referred_by) {
+      return NextResponse.json({ error: `Every referral needs both the new artist's name and who referred them (check "${referred_name || referred_by}")` }, { status: 400 });
+    }
+    if (referrals.some((x) => x.referred_name.toLowerCase() === referred_name.toLowerCase())) continue; // same claim twice
+    referrals.push({ referred_name: referred_name.slice(0, 120), referred_by: referred_by.slice(0, 120), note: clean(r.note).slice(0, 200) });
+    if (referrals.length >= 25) break;
+  }
   const rosterBy = new Map(roster.map((r) => [keyOf(r.owner, r.biz), r]));
   const entryKeys = new Set(entries.map((e) => keyOf(e.owner, e.biz)));
 
@@ -120,6 +142,16 @@ export async function POST(req: NextRequest) {
   }
   for (const r of roster) {
     if (!entryKeys.has(keyOf(r.owner, r.biz))) mismatches.push(`${r.owner} (${r.biz}): in ${coach}'s book (${r.status}) but missing from the report`);
+  }
+  /* The referrer should be a client this coach actually manages — that is the
+     whole basis of the bonus. Flag it rather than reject it: sheet names drift
+     (aliases in brackets), and the admin approves the payout anyway. */
+  const rosterNames = roster.map((r) => `${r.owner} ${r.biz}`.toLowerCase());
+  for (const r of referrals) {
+    const needle = r.referred_by.toLowerCase();
+    if (!rosterNames.some((n) => n.includes(needle) || needle.includes(n.split(" ")[0]))) {
+      mismatches.push(`Referral "${r.referred_name}": referrer "${r.referred_by}" is not a client in ${coach}'s book — check the name before paying the bonus`);
+    }
   }
 
   /* The month is paid from its 20th snapshot — pull it for the pay line.
@@ -148,7 +180,7 @@ export async function POST(req: NextRequest) {
 
   const { data: inserted, error: insErr } = await svc
     .from("coach_reports")
-    .insert({ coach, coach_email: auth.email ?? "", report_month: `${month}-01`, snapshot_date: snapshotDate, entries, extra, mismatches })
+    .insert({ coach, coach_email: auth.email ?? "", report_month: `${month}-01`, snapshot_date: snapshotDate, entries, referrals, extra, mismatches })
     .select("id")
     .single();
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
@@ -164,6 +196,10 @@ export async function POST(req: NextRequest) {
   const detailLines = [
     `${coach} — ${monthLabel}: ${counts.active} active · ${counts.paused_resuming} paused-resuming · ${counts.churned} churned`,
     snapshotDate ? `Pay check: the ${snapshotDate} snapshot has ${snapLive} live for ${coach} → salary $${400 + 30 * snapLive}. Coach reports ${counts.active} active.` : `No ${monthLabel} snapshot yet (taken on the 20th) — pay line will use it once taken.`,
+    ...(referrals.length
+      ? [`Referrals claimed: ${referrals.length} × $${REFERRAL_BONUS} = $${referrals.length * REFERRAL_BONUS} bonus`,
+         ...referrals.map((r) => `   • ${r.referred_name} — referred by ${r.referred_by}${r.note ? ` (${r.note})` : ""}`)]
+      : []),
     ...(mismatches.length
       ? ["", `MISMATCHES (${mismatches.length}):`, ...mismatches.slice(0, 12).map((m) => `• ${m}`),
          ...(mismatches.length > 12 ? [`…and ${mismatches.length - 12} more — full list on the Coach Report tab`] : [])]
@@ -173,11 +209,12 @@ export async function POST(req: NextRequest) {
   await fileAlert(svc, {
     type: "coach_tracker",
     severity: mismatches.length ? "high" : "medium",
-    title: `Coach report — ${coach} — ${monthLabel}: ${mismatches.length ? `${mismatches.length} mismatch${mismatches.length === 1 ? "" : "es"}` : "all matches ✓"}`,
+    title: `Coach report — ${coach} — ${monthLabel}: ${mismatches.length ? `${mismatches.length} mismatch${mismatches.length === 1 ? "" : "es"}` : "all matches ✓"}${referrals.length ? ` · ${referrals.length} referral${referrals.length === 1 ? "" : "s"} ($${referrals.length * REFERRAL_BONUS})` : ""}`,
     detail: detailLines.join("\n"),
     source_key: `coach-report:${coach.toLowerCase()}:${month}:${inserted.id}`,
-    meta: { csm: coach, month, counts, snapshot_date: snapshotDate, snapshot_live: snapLive, mismatch_count: mismatches.length, report_id: inserted.id },
+    meta: { csm: coach, month, counts, snapshot_date: snapshotDate, snapshot_live: snapLive, mismatch_count: mismatches.length, report_id: inserted.id,
+            referrals: referrals.length, referral_bonus: referrals.length * REFERRAL_BONUS },
   });
 
-  return NextResponse.json({ ok: true, id: inserted.id, mismatchCount: mismatches.length });
+  return NextResponse.json({ ok: true, id: inserted.id, mismatchCount: mismatches.length, referrals: referrals.length, referralBonus: referrals.length * REFERRAL_BONUS });
 }
