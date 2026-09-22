@@ -92,6 +92,8 @@ export interface SyncResult {
   supersededDirect?: number;
   /** Set when the tail-delete guard refused to run — says why. */
   deleteSkipped?: string;
+  /** Stale DB rows removed because their sheet row is now VOID/blank. */
+  voidedDeleted?: number;
   /** Rows written this run (the rest were identical to what's stored). */
   rowsWritten?: number;
   rowsUnchanged?: number;
@@ -187,12 +189,18 @@ export async function syncOneSheet(
     // rows with an Email/Name-style value, which silently emptied every table
     // whose sheet has no such column (the CPL tabs, campaign_spent, ltv_sheet2,
     // v3_pricing) — their syncs returned "ok, 0 rows" from Aug 20 onward.
+    const voidedRows: number[] = [];
     const objects = rowsToObjects(rawRows).filter((o) => {
       const values = Object.entries(o)
         .filter(([k]) => k !== "row_number")
         .map(([, v]) => String(v ?? "").trim());
-      if (!values.some((v) => v !== "")) return false; // fully blank
-      if ((values[0] ?? "").toUpperCase() === "VOID") return false; // dedupe marker
+      const dead = !values.some((v) => v !== "") // fully blank
+        || (values[0] ?? "").toUpperCase() === "VOID"; // dedupe marker
+      if (dead) {
+        const rn = Number(o.row_number) || 0;
+        if (rn > 0) voidedRows.push(rn);
+        return false;
+      }
       return true;
     });
 
@@ -282,6 +290,22 @@ export async function syncOneSheet(
       await tailQuery();
     }
 
+    /* 3b. A VOID/blank sheet row means "this row is dead" — but because dead
+       rows are skipped by the upsert, whatever the DB stored at that
+       sheet_row BEFORE it was voided stays behind forever (that's how a
+       VOID-deduped client kept double-counting a coach's live total,
+       2026-09-22). Delete those positions explicitly. sheet_row-keyed rows
+       are sheet-owned by definition, so direct-ingest rows (sheet_row null)
+       can't be touched here. */
+    let voidedDeleted = 0;
+    for (let i = 0; i < voidedRows.length; i += 100) {
+      const { count } = await supabase
+        .from(table)
+        .delete({ count: "exact" })
+        .in("sheet_row", voidedRows.slice(i, i + 100));
+      voidedDeleted += count ?? 0;
+    }
+
     // 4. Retire direct-ingest rows the sheet has now caught up on, so a record
     //    that arrived by webhook first isn't shown twice.
     const supersededDirect = await dropSupersededDirectRows(table, objects);
@@ -305,6 +329,7 @@ export async function syncOneSheet(
       supabaseRowsAfter: afterCount ?? 0,
       supersededDirect,
       deleteSkipped,
+      voidedDeleted,
       rowsWritten: changed.length,
       rowsUnchanged: unchanged,
       status: "ok",
