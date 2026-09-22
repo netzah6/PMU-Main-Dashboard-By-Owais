@@ -33,6 +33,10 @@
       "schedule": "0 */3 * * *"
     },
     {
+      "path": "/api/cron/ghl-retry",
+      "schedule": "9,39 * * * *"
+    },
+    {
       "path": "/api/cron/ppa-appointments",
       "schedule": "0 */12 * * *"
     },
