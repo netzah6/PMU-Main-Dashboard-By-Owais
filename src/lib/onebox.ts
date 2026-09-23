@@ -364,6 +364,44 @@ export async function getAreaFieldOptions(locationId: string): Promise<string[]>
   } catch { return []; }
 }
 
+/* On Go Live (B2C), the sub-account's deposit-funnel-URL custom value must
+   point at THIS client's one-box (book.pmu-care.com/<slug>) — it's what the
+   AI's payment link and the template workflows send leads to (owner rule,
+   2026-09-23). Accounts carry the CV under two historical names; update
+   every variant that exists so no workflow reads a stale copy, and only
+   create the canonical 🔵 name when none exists at all. */
+const DEPOSIT_URL_CV_NAMES = ["CC - Deposit Funnel URL (V3)🔵", "CC - Deposit Funnel URL"];
+export async function setDepositFunnelUrl(locationId: string, url: string): Promise<{ ok: boolean; updated: string[]; error?: string }> {
+  try {
+    const tok = await getAppLocationToken(locationId);
+    if (!tok.token) return { ok: false, updated: [], error: "no token" };
+    const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" };
+    const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, { headers: H });
+    if (!r.ok) return { ok: false, updated: [], error: `list ${r.status}` };
+    const { customValues } = (await r.json()) as { customValues?: { id?: string; name?: string }[] };
+    const matches = (customValues ?? []).filter((v) => DEPOSIT_URL_CV_NAMES.includes(String(v.name ?? "")));
+    const updated: string[] = [];
+    if (matches.length === 0) {
+      const c = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, {
+        method: "POST", headers: H, body: JSON.stringify({ name: DEPOSIT_URL_CV_NAMES[0], value: url }),
+      });
+      if (!c.ok) return { ok: false, updated: [], error: `create ${c.status}` };
+      updated.push(DEPOSIT_URL_CV_NAMES[0]);
+    } else {
+      for (const m of matches) {
+        const u = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues/${m.id}`, {
+          method: "PUT", headers: H, body: JSON.stringify({ name: m.name, value: url }),
+        });
+        if (u.ok) updated.push(String(m.name));
+      }
+      if (!updated.length) return { ok: false, updated, error: "all updates failed" };
+    }
+    return { ok: true, updated };
+  } catch (e) {
+    return { ok: false, updated: [], error: e instanceof Error ? e.message : "failed" };
+  }
+}
+
 export async function setOneboxCustomValues(
   locationId: string,
   entries: { name: string; value: string }[]

@@ -796,7 +796,7 @@ export default function FunnelsPage() {
       if (action === "health") setHealth((h) => ({ ...h, [slug]: j.checks ?? [] }));
       else if (j.error) setToast(`Error: ${j.error}`);
       else if (Array.isArray(j.failed) && j.failed.length) setToast(`Saved, but GHL rejected: ${j.failed.join(", ")}`);
-      else setToast(action === "resync" ? `Synced from GHL ✓${j.photoNote ? ` · ${j.photoNote}` : ""}${j.surveyNote ? ` · ${j.surveyNote}` : ""}` : "Saved ✓");
+      else setToast(action === "resync" ? `Synced from GHL ✓${j.photoNote ? ` · ${j.photoNote}` : ""}${j.surveyNote ? ` · ${j.surveyNote}` : ""}` : j.depositUrlNote ? `Saved ✓ · ${j.depositUrlNote}` : "Saved ✓");
       if (!j.error && (action === "cvs" || action === "extras")) {
         setSavedFlash(slug);
         window.setTimeout(() => setSavedFlash((cur) => (cur === slug ? null : cur)), 2500);
