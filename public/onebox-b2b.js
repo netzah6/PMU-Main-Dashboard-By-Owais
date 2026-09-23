@@ -969,6 +969,17 @@
     h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Watch this 2-min message from Nicolas before your call");
     h += "</div>";
     render(h, false);
+    /* The bottom "check availability" band makes no sense once the call is
+       booked (owner, 2026-09-23) — swap it for a booked-state message that
+       points back up to the confirmation details. */
+    var fc = root.querySelector(".finalcta");
+    if (fc) {
+      fc.innerHTML = "<h2>You’re all set — your call is booked ✅</h2>" +
+        "<p>Add it to your calendar and watch the short video above so you’re ready.</p>" +
+        '<a class="cta2" href="#boxanchor" id="ob-donecta">See My Booking Details<small>date, time &amp; calendar links</small></a>';
+      var dc = document.getElementById("ob-donecta");
+      if (dc) dc.addEventListener("click", function (e) { e.preventDefault(); toBox(); });
+    }
     window.scrollTo(0, 0);
   }
 
