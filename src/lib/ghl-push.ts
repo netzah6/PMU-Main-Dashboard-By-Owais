@@ -113,7 +113,8 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
             ...(a.program ? [
               `Program: ${a.program}`,
               `Services: ${a.services}`,
-              `Brow price: $${a.browprice}${a.browflex ? ` · open to under $400: ${a.browflex}` : ""}`,
+              ...(a.browprice ? [`Brow price: $${a.browprice}${a.browflex ? ` · open to under $400: ${a.browflex}` : ""}`] : []),
+              ...(a.lipprice ? [`Lip blush price: $${a.lipprice}${a.lipflex ? ` · open to under $400: ${a.lipflex}` : ""}`] : []),
               `Instagram: ${a.instagram || "—"}`,
               `Google reviews: ${a.reviews}`,
             ] : []),

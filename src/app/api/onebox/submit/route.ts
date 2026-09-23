@@ -152,6 +152,9 @@ export async function POST(req: NextRequest) {
         services: String(body.services ?? "").slice(0, 300),
         browprice: String(body.browprice ?? "").replace(/[^0-9]/g, "").slice(0, 6),
         browflex: String(body.browflex ?? "").slice(0, 80),
+        // Lip blush qualifies too since 2026-09-23 (same under-$400 rule).
+        lipprice: String(body.lipprice ?? "").replace(/[^0-9]/g, "").slice(0, 6),
+        lipflex: String(body.lipflex ?? "").slice(0, 80),
         instagram: String(body.instagram ?? "").slice(0, 200),
         reviews: String(body.reviews ?? "").slice(0, 80),
         program: String(body.program ?? "").slice(0, 20),

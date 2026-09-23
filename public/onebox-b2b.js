@@ -254,7 +254,9 @@
 ".obtoast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:#12211f;color:#fff;font-size:14px;font-weight:600;padding:11px 20px;border-radius:999px;opacity:0;pointer-events:none;transition:all .25s;z-index:99;max-width:92vw;text-align:center}" +
 ".obtoast.show{opacity:1;transform:translateX(-50%)}" +
 "#onebox-root :focus-visible{outline:3px solid rgba(0,204,187,.55);outline-offset:2px}" +
-".opt.multi .dot{border-radius:6px}.opt.multi.sel .dot::after{content:\"✓\";color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;width:100%;height:100%}" +
+/* Checkbox check: neutralize the radio rule's inherited white CIRCLE
+   (position/inset/radius/background), or a circle floats in the square. */
+".opt.multi .dot{border-radius:6px}.opt.multi.sel .dot::after{content:\"✓\";position:absolute;inset:0;border-radius:0;background:transparent;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;width:100%;height:100%}" +
 ".pricewrap{position:relative}.pricewrap .cur{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-weight:800;color:var(--muted);font-size:18px}.pricewrap .tin{padding-left:36px}" +
 ".q-ask{font-family:var(--font-head);font-weight:700;font-size:17px;margin:-4px 0 6px}" +
 (PPS ? ".ob-steplabel{display:none}.q-title{margin-bottom:14px}.q-note{margin-bottom:18px}.q-frame{margin-bottom:16px}" +
@@ -412,26 +414,35 @@
     { key: "edge", type: "textarea", title: "What sets YOU apart from other PMU artists in your area?", frame: "We guarantee bookings or it’s free — if you don’t make money, we don’t either. That’s why we can only work with top artists and accept <b>about 20% of applications</b>.", ph: "Tell us in a sentence or two…" },
     { key: "contact", type: "contact", title: "Where should we send your availability report?" },
   ];
-  /* Pay-per-appointment application. Qualification (owner rule 2026-09-17):
-     must offer permanent-makeup eyebrows, and the initial treatment must be
-     under $400 — or they agree to price it there. */
+  /* Pay-per-appointment application. Qualification (owner rule 2026-09-23,
+     widened from eyebrows-only): must offer permanent-makeup EYEBROWS or
+     LIP BLUSH; each offered one's initial treatment must be under $400 —
+     or they agree to price it there. */
   var SERVICES = ["Permanent Makeup Eyebrows", "Lip Blush", "Eyeliner", "Scar Camouflage", "Scalp Micropigmentation", "Tattoo Removal"];
   function hasBrows(a) { return (a.services || []).some(function (s) { return /eyebrow/i.test(s); }); }
+  function hasLip(a) { return (a.services || []).some(function (s) { return /lip/i.test(s); }); }
   function browPrice(a) { return Number(a.browprice) || 0; }
+  function lipPrice(a) { return Number(a.lipprice) || 0; }
+  var FLEX_NO = "No — I’d rather keep my current price";
   function disqualifiedReason(a) {
     if (!PPS) return null;
-    if (a.services && !hasBrows(a)) return "nobrows";
-    if (a.browflex === "No — I’d rather keep my current price") return "price";
+    if (a.services && !hasBrows(a) && !hasLip(a)) return "noservice";
+    if (a.browflex === FLEX_NO || a.lipflex === FLEX_NO) return "price";
     return null;
   }
   var QS_PPS = [
     { key: "area", type: "text", title: "Check if your area is still open below:", ask: "What area do you serve?", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
     { key: "exp", type: "radio", title: "How long have you been a permanent makeup artist?", opts: ["I just started", "1 year", "2–3 years", "3–5 years", "5–10 years", "10–15 years", "15+ years"] },
-    { key: "services", type: "multi", title: "Which services do you offer?", note: "Select everything you do — eyebrows are the service we book most.", opts: SERVICES },
+    { key: "services", type: "multi", title: "Which services do you offer?", note: "We only serve permanent makeup artists.", opts: SERVICES },
     { key: "browprice", type: "price", when: function (a) { return hasBrows(a); }, title: "How much do you charge for permanent makeup eyebrows?", note: "Your price for a first-time (initial) eyebrow treatment — not the touch-up.", ph: "e.g. 350" },
     { key: "browflex", type: "radio", when: function (a) { return hasBrows(a) && browPrice(a) >= 400; },
-      title: "One quick thing about pricing",
+      title: "One quick thing about your eyebrow pricing",
       frame: "Our setup converts best when the <b>initial brow treatment is priced below $400</b> — you can charge more on touch-ups and add-ons. Are you open to setting your initial treatment below $400?",
+      opts: ["Yes — I’m open to that", "No — I’d rather keep my current price"] },
+    { key: "lipprice", type: "price", when: function (a) { return hasLip(a); }, title: "How much do you charge for lip blush?", note: "Your price for a first-time (initial) lip blush treatment — not the touch-up.", ph: "e.g. 350" },
+    { key: "lipflex", type: "radio", when: function (a) { return hasLip(a) && lipPrice(a) >= 400; },
+      title: "One quick thing about your lip blush pricing",
+      frame: "Our setup converts best when the <b>initial lip blush treatment is priced below $400</b> — you can charge more on touch-ups and add-ons. Are you open to setting your initial lip blush treatment below $400?",
       opts: ["Yes — I’m open to that", "No — I’d rather keep my current price"] },
     { key: "start", type: "radio", title: "If accepted, how soon are you ready to start receiving qualified booking opportunities?", opts: ["I'm ready right now", "I'm ready in a few weeks", "I'm ready in a few months"] },
     { key: "spots", type: "radio", title: "How many spots do you need?", opts: ["I'm a single PMU artist", "2 locations", "3 locations", "4 locations", "5+ locations"] },
@@ -506,6 +517,8 @@
       b.services = (S.answers.services || []).join(", ");
       b.browprice = S.answers.browprice || "";
       b.browflex = S.answers.browflex || "";
+      b.lipprice = S.answers.lipprice || "";
+      b.lipflex = S.answers.lipflex || "";
       b.instagram = S.answers.instagram || "";
       b.reviews = S.answers.reviews || "";
       b.program = "PPS";
@@ -609,7 +622,8 @@
         if (!v || +v < 50) { pin.classList.add("err"); pin.focus(); return; }
         pin.classList.remove("err");
         S.answers[q.key] = v;
-        if (+v < 400) delete S.answers.browflex; /* the price question no longer applies */
+        /* Lowering a price below 400 retires ITS flex question's answer. */
+        if (+v < 400) delete S.answers[q.key === "lipprice" ? "lipflex" : "browflex"];
         next();
       };
     } else if (q.type === "text" || q.type === "textarea") {
@@ -686,8 +700,8 @@
        is the lead's next step. */
     var h = '<div class="donewrap">';
     h += '<h2 class="q-title" style="text-align:center">Thanks' + (f ? ", " + esc(f) : "") + " — not a match for pay-per-appointment yet</h2>";
-    if (why === "nobrows") h += '<p class="q-note" style="text-align:center">Our pay-per-appointment program is built around <b>permanent makeup eyebrows</b> — that’s what we book on autopilot. Right now we can’t fill a calendar without eyebrows on the menu.</p>';
-    else h += '<p class="q-note" style="text-align:center">Pay-per-appointment only works when the <b>initial brow treatment is under $400</b> — that’s the price point our booking system converts at. At a higher initial price we can’t guarantee the volume, so we don’t take the spot.</p>';
+    if (why === "noservice") h += '<p class="q-note" style="text-align:center">Our pay-per-appointment program is built around <b>permanent makeup eyebrows and lip blush</b> — that’s what we book on autopilot. Right now we can’t fill a calendar without at least one of them on the menu.</p>';
+    else h += '<p class="q-note" style="text-align:center">Pay-per-appointment only works when the <b>initial treatment (eyebrows or lip blush) is under $400</b> — that’s the price point our booking system converts at. At a higher initial price we can’t guarantee the volume, so we don’t take the spot.</p>';
     h += '<div class="q-frame" style="margin-top:14px">You may still be a great fit for our <b>standard program</b> — a full done-for-you setup with a guarantee. Apply there instead:</div>';
     h += '<a class="cta" id="ob-dqstd" href="' + STD_FUNNEL + '" style="display:block;text-align:center;text-decoration:none;margin-top:12px"><span class="stack"><span>Apply For The Standard Program</span><small>takes you to our main application</small></span></a>';
     h += '<div class="backrow"><button type="button" class="backlink" id="ob-qback">← Change my answers</button></div>';
@@ -696,7 +710,12 @@
     /* Back = a real second chance: drop the answer that disqualified them
        and land on that question again. */
     $("ob-qback").onclick = function () {
-      if (why === "price") { delete S.answers.browflex; S.step = QS.findIndex(function (q) { return q.key === "browflex"; }); }
+      if (why === "price") {
+        /* Land on whichever flex question said no, answer cleared. */
+        var flexKey = S.answers.browflex === FLEX_NO ? "browflex" : "lipflex";
+        delete S.answers[flexKey];
+        S.step = QS.findIndex(function (q) { return q.key === flexKey; });
+      }
       else { S.step = QS.findIndex(function (q) { return q.key === "services"; }); }
       showStep(true);
     };
