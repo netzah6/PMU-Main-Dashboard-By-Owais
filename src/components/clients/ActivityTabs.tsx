@@ -22,6 +22,67 @@ function parseMs(s: string): number {
   return isNaN(dt.getTime()) ? NaN : dt.getTime();
 }
 
+// ── booking de-duplication ───────────────────────────────────────────────────
+// The bookings sheet repeats the same appointment: 1,383 of 3,750 dated rows
+// (37%) are the same person on the same day, and another 143 are the same
+// person within three days — a reschedule written as a second row rather than
+// an edit. Both read as "double bookings" in this list (owner, 2026-09-23).
+//
+// Collapsed here, NOT filtered away: the kept row carries how many raw rows it
+// stands for, so the count on screen still traces back to the sheet.
+//
+// Three days is the window the owner already uses to call duplicate DEPOSITS
+// the same payment, so bookings follow the same rule. Anything further apart is
+// a genuine repeat visit (295 fleet-wide) and stays its own row — several of
+// this agency's clients rebook every few weeks.
+const DUP_WINDOW_DAYS = 3;
+
+/** phone (digits) > email > name — the first one this row actually has. */
+function personKey(r: Record<string, unknown>): string {
+  const phone = String(r.phone ?? "").replace(/\D/g, "");
+  if (phone.length >= 7) return "p:" + phone;
+  const email = String(r.email ?? "").trim().toLowerCase();
+  if (email) return "e:" + email;
+  return "n:" + String(r.name ?? "").trim().toLowerCase();
+}
+
+type Deduped = Record<string, unknown> & { _dupes?: number };
+
+/** Collapse same-person bookings within DUP_WINDOW_DAYS; keep the latest. */
+function dedupeBookings(rows: Record<string, unknown>[]): Deduped[] {
+  const byPerson = new Map<string, Record<string, unknown>[]>();
+  const undated: Deduped[] = [];
+  for (const r of rows) {
+    const key = personKey(r);
+    // No person and no date to group on — never merge, or unrelated blanks
+    // would collapse into one another.
+    if (key === "n:" || isNaN(parseMs(String(r.date ?? "")))) { undated.push(r); continue; }
+    byPerson.set(key, [...(byPerson.get(key) ?? []), r]);
+  }
+
+  const kept: Deduped[] = [];
+  for (const group of byPerson.values()) {
+    const sorted = [...group].sort((a, b) => parseMs(String(a.date ?? "")) - parseMs(String(b.date ?? "")));
+    let run: Record<string, unknown>[] = [];
+    const flush = () => {
+      if (!run.length) return;
+      // Keep the LAST row of the run: for a reschedule that is the date the
+      // appointment actually moved to.
+      kept.push({ ...run[run.length - 1], _dupes: run.length });
+      run = [];
+    };
+    for (const r of sorted) {
+      if (!run.length) { run = [r]; continue; }
+      const gap = (parseMs(String(r.date ?? "")) - parseMs(String(run[run.length - 1].date ?? ""))) / 86400000;
+      // Compare against the PREVIOUS row, not the run's first, so a genuine
+      // weekly series does not chain into one row.
+      if (gap <= DUP_WINDOW_DAYS) run.push(r); else { flush(); run = [r]; }
+    }
+    flush();
+  }
+  return [...kept, ...undated];
+}
+
 interface ActivityTabsProps {
   clientName: string;
   deposits: Record<string, unknown>[];
@@ -45,7 +106,9 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: A
   };
 
   const dDeposits = sortNewestFirst(deposits.filter((r) => normalize(String(r.client_name ?? "")) === cn2 && inRange(r.date)));
-  const dBookings = sortNewestFirst(bookings.filter((r) => normalize(String(r.client_name ?? "")) === cn2 && inRange(r.date)));
+  const dBookings = sortNewestFirst(dedupeBookings(
+    bookings.filter((r) => normalize(String(r.client_name ?? "")) === cn2 && inRange(r.date))));
+  const bookingDupes = dBookings.reduce((n, r) => n + ((r._dupes ?? 1) - 1), 0);
   const dLeads = sortNewestFirst(leads.filter((r) => normalize(String(r.business ?? r.name ?? "")) === cn2 && inRange(r.date)));
   const dCalls = sortNewestFirst(calls.filter((r) => normalize(String(r.client_name ?? "")) === cn2 && inRange(r.date)));
 
@@ -96,11 +159,23 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: A
         count={dBookings.length}
         rows={dBookings}
         empty="No bookings matched."
+        subtitle={bookingDupes > 0 ? (
+          <span title={`The bookings sheet holds ${dBookings.length + bookingDupes} rows for this client. Rows for the same person on the same day — or within ${DUP_WINDOW_DAYS} days, which is a reschedule — are shown once. Repeat visits further apart are still listed separately.`}>
+            {bookingDupes} duplicate {bookingDupes === 1 ? "row" : "rows"} merged
+          </span>
+        ) : null}
         render={(r) => (
           <>
             <span className="text-[#697a91] whitespace-nowrap">{formatDate(String(r.date ?? ""))}</span>
             <span className="flex-1 text-[#1f3559] truncate px-2">{String(r.name ?? r.type ?? "—")}</span>
-            <span className="text-[#697a91] whitespace-nowrap">{String(r.status ?? "")}</span>
+            {Number(r._dupes ?? 1) > 1 ? (
+              <span title={`${Number(r._dupes)} rows in the sheet for this appointment — shown once`}
+                className="shrink-0 px-1.5 py-px rounded text-[10px] font-bold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">
+                &times;{Number(r._dupes)}
+              </span>
+            ) : (
+              <span className="text-[#697a91] whitespace-nowrap">{String(r.status ?? "")}</span>
+            )}
           </>
         )}
       />
