@@ -4,7 +4,7 @@ import { useTableData } from "@/lib/hooks/useTableData";
 import { usePayments, lookupPayment, programOf } from "@/lib/hooks/usePayments";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, cn } from "@/lib/utils";
-import { dateGuess, resolveDates, dateLabel, dateShort } from "@/lib/report-dates";
+import { buildDateIndex, dateLabel, dateShort, msFromIndex } from "@/lib/report-dates";
 import { Search, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,6 +29,14 @@ function parseMs(s: string): number {
   return isNaN(dt.getTime()) ? 0 : dt.getTime();
 }
 
+// Render a secondary date (Last Strategy) the same way the Date column decided
+// to render that exact string; fall back to the old parser when unseen.
+function strategyLabel(index: Map<string, number>, raw: string): string {
+  const s = raw.trim();
+  if (!s) return "—";
+  const ms = msFromIndex(index, s);
+  return isNaN(ms) ? formatDate(s, true) : dateLabel(ms);
+}
 function versionStyle(v: string): { bg: string; text: string; border: string } {
   const u = v.toLowerCase();
   if (u.includes("not interested")) return { bg: "#fde8ee", text: "#e11d48", border: "#f5c2cf" };
@@ -236,6 +244,23 @@ export default function ReportsPage() {
     refetch();
   }, [refetch]);
 
+  // One agreed reading per date STRING, decided from every client at once --
+  // the sheet files one row per client on a shared reporting day, so the same
+  // string must render as the same day on every client's tab. Reused by every
+  // other date on the page (e.g. "Last Strategy?") so one literal never renders
+  // two ways a few pixels apart.
+  const dateIndex = useMemo(() => {
+    const byClient = new Map<string, string[]>();
+    data.forEach((r) => {
+      const name = String(r["Name"] ?? "").trim();
+      const date = String(r["Date"] ?? "").trim();
+      if (!name || !date) return;
+      const list = byClient.get(name);
+      if (list) list.push(date); else byClient.set(name, [date]);
+    });
+    return buildDateIndex(Array.from(byClient.values()));
+  }, [data]);
+
   // group reports by client
   const clients = useMemo(() => {
     // useTableData returns rows already ordered by sheet_row, and that order is
@@ -254,10 +279,11 @@ export default function ReportsPage() {
       (map.get(name) ?? map.set(name, []).get(name)!).push(rep);
     });
     return Array.from(map.entries()).map(([name, reps]) => {
-      resolveDates(reps.map((r) => dateGuess(r.date))).forEach((ms, i) => {
-        reps[i].ms = ms;
-        reps[i].label = isNaN(ms) ? reps[i].date : dateLabel(ms);
-        reps[i].short = isNaN(ms) ? reps[i].date : dateShort(ms);
+      reps.forEach((r) => {
+        const ms = dateIndex.get(r.date) ?? NaN;
+        r.ms = ms;
+        r.label = isNaN(ms) ? r.date : dateLabel(ms);
+        r.short = isNaN(ms) ? r.date : dateShort(ms);
       });
       // A date we could not read at all keeps its sheet position rather than
       // being dumped at the front (the old parse returned 0 = Jan 1970).
@@ -272,7 +298,7 @@ export default function ReportsPage() {
       const growth = first.leads && last.leads != null ? ((last.leads - first.leads) / first.leads) * 100 : 0;
       return { name, reports: reps, leadsTotal, sessionsTotal, bookingRate, count: reps.length, growth, last };
     });
-  }, [data]);
+  }, [data, dateIndex]);
 
   const listed = useMemo(() => {
     let list = clients;
@@ -552,7 +578,7 @@ export default function ReportsPage() {
                     <span className="text-xs text-[#697a91]">{current.count} reports · {reps[0].label} – {current.last.label}</span>
                     {String(r["Last Strategy?"] ?? "").trim() && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">
-                        Last Strategy Call: {formatDate(String(r["Last Strategy?"]), true)}
+                        Last Strategy Call: {strategyLabel(dateIndex, String(r["Last Strategy?"]))}
                       </span>
                     )}
                   </>
@@ -608,7 +634,7 @@ export default function ReportsPage() {
                   </thead>
                   <tbody>
                     <ContextRow label="Call or Chat" reps={reps} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
-                    <ContextRow label="Last Strategy" reps={reps} get={(r) => { const d = String(r.raw["Last Strategy?"] ?? ""); return d ? formatDate(d, true) : "—"; }} />
+                    <ContextRow label="Last Strategy" reps={reps} get={(r) => strategyLabel(dateIndex, String(r.raw["Last Strategy?"] ?? ""))} />
                     <ActionRow reps={reps} edits={actionEdits} onSave={saveAction} />
 
                     <NumRow label="Total Leads" reps={reps} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
