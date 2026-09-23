@@ -265,7 +265,16 @@
 ".hero{padding-top:40px}" +
 ".hero .sub{font-size:clamp(11.5px,3.15vw,19px);line-height:1.45}" +
 /* Slot tap books directly — the Claim button only mirrors busy state. */
-"#ob-bookgo{display:none}" : "");
+"#ob-bookgo{display:none}" +
+/* White footer: bigger logo stacked over the wordmark, legal links inline. */
+".obfooter{background:#fff;color:var(--muted);border-top:1px solid var(--line);padding:40px 20px 46px}" +
+".obfooter .fl{flex-direction:column;gap:10px;margin-bottom:10px}" +
+".obfooter .fl img{width:84px;height:84px;border-radius:0}" +
+".obfooter .fl span{color:var(--ink);font-size:18px}" +
+".obfooter .flinks{margin-top:10px;font-size:13px;display:flex;gap:10px;justify-content:center;align-items:center}" +
+".obfooter .flinks a{color:var(--muted);text-decoration:underline;text-underline-offset:3px}" +
+".obfooter .flinks a:hover{color:var(--ink)}" +
+".obfooter .flinks span{color:var(--line)}" : "");
 
   /* ---------- page skeleton ---------- */
   var root = document.getElementById("onebox-root");
@@ -338,8 +347,14 @@
     "</div></div></section>" +
     '<section class="finalcta"><h2>' + T.finalTitle + '</h2><p>' + T.finalSub + '</p>' +
     '<a class="cta2" href="#boxanchor" id="ob-finalbtn">Check Availability<small>takes about 60 seconds</small></a></section>' +
-    '<footer class="obfooter"><div class="fl"><img src="' + IMG.logo + '" alt=""><span>PMU Bookings On Demand</span></div>' +
-    "<div>© " + new Date().getFullYear() + " PMU Bookings On Demand. All Rights Reserved.</div></footer>" +
+    /* PPS footer (owner, 2026-09-23): white, bigger logo stacked over the
+       wordmark, and the Terms/Privacy links right there with it. */
+    (PPS
+      ? '<footer class="obfooter"><div class="fl"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span>PMU Bookings On Demand</span></div>' +
+        "<div>© " + new Date().getFullYear() + " PMU Bookings On Demand. All Rights Reserved.</div>" +
+        '<div class="flinks"><a href="https://www.pmu-bookings.com/8-terms" target="_blank" rel="noopener">Terms &amp; Conditions</a><span>|</span><a href="https://www.pmu-bookings.com/7-privacy-policy" target="_blank" rel="noopener">Privacy Policy</a></div></footer>'
+      : '<footer class="obfooter"><div class="fl"><img src="' + IMG.logo + '" alt=""><span>PMU Bookings On Demand</span></div>' +
+        "<div>© " + new Date().getFullYear() + " PMU Bookings On Demand. All Rights Reserved.</div></footer>") +
     '<div class="sticky-cta" id="ob-sticky"><button type="button" id="ob-stickybtn">' + T.sticky + '</button></div>' +
     '<div class="obtoast" id="ob-toast"></div>';
 
