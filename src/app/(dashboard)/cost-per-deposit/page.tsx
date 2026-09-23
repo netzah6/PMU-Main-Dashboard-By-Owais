@@ -217,7 +217,7 @@ export default function CostPerDepositPage() {
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("All");
   const [versionFilter, setVersionFilter] = useState("All");
-  const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst">("default");
+  const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst" | "kill-worst">("default");
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [dups, setDups] = useState<Dup[]>([]);
   const [dupOpen, setDupOpen] = useState(false);
@@ -256,7 +256,20 @@ export default function CostPerDepositPage() {
       if (!kkRes.error && kkRes.data) {
         const m = new Map<string, { called: number; dead: number; ignored: number }>();
         for (const k of kkRes.data as { owner_key: string; called: number; dead: number; ignored: number }[]) {
-          if (k.owner_key) m.set(k.owner_key.toLowerCase().trim(), { called: k.called, dead: k.dead, ignored: k.ignored });
+          const v = { called: k.called, dead: k.dead, ignored: k.ignored };
+          const raw = String(k.owner_key ?? "").toLowerCase().trim();
+          if (!raw) continue;
+          /* The sheet writes alias forms ("nyla lamb (nyla sheree)") and
+             middle initials ("maria a blanco") that the deposit view spells
+             differently — index every reasonable spelling of the same name. */
+          const keys = new Set<string>([raw]);
+          const paren = raw.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+          if (paren) { keys.add(paren[1].trim()); keys.add(paren[2].trim()); }
+          for (const base of [...keys]) {
+            const words = base.split(/\s+/).filter(Boolean);
+            if (words.length >= 3) keys.add(`${words[0]} ${words[words.length - 1]}`);
+          }
+          for (const key of keys) if (key) m.set(key, v);
         }
         setKillMap(m);
       }
@@ -304,6 +317,22 @@ export default function CostPerDepositPage() {
     if (sortMode === "default") {
       return list.sort((a, b) => rank(a.client_status) - rank(b.client_status) || b.d30 - a.d30);
     }
+    if (sortMode === "kill-worst") {
+      const killOf = (r: Row) => {
+        const k = killMap?.get((r.owner_name ?? "").toLowerCase().trim());
+        return k && k.called > 0 ? k.dead / k.called : null;
+      };
+      return list.sort((a, b) => {
+        const pr = rank(a.client_status) - rank(b.client_status);
+        if (pr !== 0) return pr;
+        const ka = killOf(a), kb = killOf(b);
+        if (ka == null && kb == null) return b.d30 - a.d30;
+        if (ka == null) return 1;
+        if (kb == null) return -1;
+        if (ka !== kb) return kb - ka; // worst first
+        return b.d30 - a.d30;
+      });
+    }
     // Funnel Health sort: score from Leads/Dep 30+14 and Conv% 30+14.
     // Clients with no lead data (null score) go last in both directions.
     const dir = sortMode === "fh-best" ? -1 : 1;
@@ -317,7 +346,7 @@ export default function CostPerDepositPage() {
       if (ha !== hb) return dir * (ha - hb);
       return b.d30 - a.d30; // tie-break: more deposits first
     });
-  }, [rows, search, assignee, versionFilter, sortMode]);
+  }, [rows, search, assignee, versionFilter, sortMode, killMap]);
 
   return (
     <div className="p-3 md:p-4 space-y-3">
@@ -355,6 +384,7 @@ export default function CostPerDepositPage() {
             <option value="default">Sort: Deposits</option>
             <option value="fh-best">Funnel Health: best → worst</option>
             <option value="fh-worst">Funnel Health: worst → best</option>
+            <option value="kill-worst">Kill %: worst → best</option>
           </select>
 
           {/* Duplicate-deposit tracker */}
@@ -448,7 +478,7 @@ export default function CostPerDepositPage() {
                       style={{ left: 0, width: 180, minWidth: 180, maxWidth: 180 }} title="Click to view / add activity"
                       onClick={() => setOpenRow(isOpen ? null : rowId)}>
                       <ChevronRight size={13} className={cn("inline-block -ml-0.5 mr-0.5 transition-transform align-[-2px]", isOpen && "rotate-90", ghl === "ok" ? "text-[#94a3b8]" : "text-[#ea580c]")} />
-                      {sortMode !== "default" && (() => { const h = funnelHealth(r); const t = healthTone(h); return (
+                      {(sortMode === "fh-best" || sortMode === "fh-worst") && (() => { const h = funnelHealth(r); const t = healthTone(h); return (
                         <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-[-1px] border border-black/10"
                           style={{ background: t.bg }}
                           title={h == null ? "Funnel Health: no lead data" : `Funnel Health score: ${h.toFixed(1)} / 3`} />
@@ -494,7 +524,11 @@ export default function CostPerDepositPage() {
                     <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap">
                       {(() => {
                         const k = killMap?.get((r.owner_name ?? "").toLowerCase().trim());
-                        if (!k || k.called === 0) return <span className="text-[#c3cdd9]">—</span>;
+                        const isV3 = /v3/i.test(r.version ?? "");
+                        if (!k || k.called === 0) {
+                          if (!isV3) return <span className="text-[#c3cdd9] cursor-default" title="Kill Rate is tracked for V3 accounts only (AI follow-up)">—</span>;
+                          return <span className="text-[#8595a8] text-[10px] cursor-default" title="V3 account, tracked — no leads were called in the last 21 days">0 calls</span>;
+                        }
                         const pct = Math.round((k.dead / k.called) * 100);
                         const tone = pct >= 50 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 25 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
                         const label = k.called < 3 ? `${k.dead}/${k.called}` : `${pct}%`;
