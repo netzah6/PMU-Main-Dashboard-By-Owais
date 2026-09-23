@@ -53,7 +53,9 @@
     : "Without Discount Services… GUARANTEED Or 100% Money-Back");
   /* Page copy that differs between the two offers. */
   var T = PPS ? {
-    heroSmall: "We open a <b>limited number of pay-per-appointment spots per area</b> — check if yours is still open below.",
+    /* No hero small line (owner, 2026-09-23) — the box's first question
+       carries the "check below" call to action instead. */
+    heroSmall: "",
     resultsSub: "Screenshots from client ad accounts — these are the booking opportunities we send, and you only pay for the ones that show up.",
     gTitle: "No Show, No Fee",
     g1: "You pay per appointment that shows up in your chair — <b>not per lead, not per month, not per promise.</b>",
@@ -302,7 +304,7 @@
        lives in the footer; saves a full band of scrolling on phones. */
     (PPS ? "" : '<div class="topbar"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span class="wordmark">PMU Bookings On Demand</span></div>') +
     '<header class="hero"><h1>' + HEADLINE + '</h1>' +
-    '<p class="sub">' + SUB + '<small>' + T.heroSmall + '</small></p></header>' +
+    '<p class="sub">' + SUB + (T.heroSmall ? '<small>' + T.heroSmall + '</small>' : '') + '</p></header>' +
     '<div class="boxwrap" id="boxanchor"><div class="obox" id="obox">' +
     '<div class="ob-head"><div class="ob-progress"><div class="ob-track"><div class="ob-fill" id="obfill"></div></div><div class="ob-steplabel" id="obstep">Step 1</div></div></div>' +
     '<div class="ob-body"><div class="slide" id="obslide"></div></div>' +
@@ -423,7 +425,7 @@
     return null;
   }
   var QS_PPS = [
-    { key: "area", type: "text", title: "Is your area still open?", ask: "What area do you serve?", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
+    { key: "area", type: "text", title: "Check if your area is still open below:", ask: "What area do you serve?", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
     { key: "exp", type: "radio", title: "How long have you been a permanent makeup artist?", opts: ["I just started", "1 year", "2–3 years", "3–5 years", "5–10 years", "10–15 years", "15+ years"] },
     { key: "services", type: "multi", title: "Which services do you offer?", note: "Select everything you do — eyebrows are the service we book most.", opts: SERVICES },
     { key: "browprice", type: "price", when: function (a) { return hasBrows(a); }, title: "How much do you charge for permanent makeup eyebrows?", note: "Your price for a first-time (initial) eyebrow treatment — not the touch-up.", ph: "e.g. 350" },
