@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, healFunnelPhotos, photosAreOwn, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, setDepositFunnelUrl, healFunnelPhotos, photosAreOwn, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
@@ -432,7 +432,26 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
   if (action === "status") {
     const status = body.status === "live" ? "live" : "paused";
     await svc.from("onebox_clients").update({ status, updated_at: new Date().toISOString() }).eq("slug", slug);
-    return NextResponse.json({ ok: true, status });
+    /* Going LIVE on a B2C one-box also points the sub-account's
+       deposit-funnel-URL custom value at this client's own funnel
+       (book.pmu-care.com/<slug>) — the AI's pay link and the template
+       workflows read it, and a stale value sends paid traffic to the old
+       GHL funnel (owner rule, 2026-09-23). Never blocks the status flip. */
+    let depositUrlNote: string | undefined;
+    const isB2BStatus = ((row.extras ?? {}) as Extras).template === "b2b";
+    if (status === "live" && !isB2BStatus) {
+      const url = funnelUrl(req, slug);
+      const res = await setDepositFunnelUrl(row.location_id as string, url);
+      if (res.ok) {
+        depositUrlNote = `Deposit funnel URL → ${url}`;
+        const cfg = { ...((row.config ?? {}) as Record<string, string>), depositFunnelUrl: url };
+        await svc.from("onebox_clients").update({ config: cfg }).eq("slug", slug);
+        warmFunnel(slug);
+      } else {
+        depositUrlNote = `⚠ Deposit funnel URL not updated (${res.error ?? "GHL error"}) — set it in Start Setup`;
+      }
+    }
+    return NextResponse.json({ ok: true, status, depositUrlNote });
   }
 
   if (action === "extras") {
