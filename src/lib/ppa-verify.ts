@@ -215,10 +215,17 @@ type ChargeRow = {
 };
 type DepRow = { appt_id: string; biz_norm: string; contact_name: string | null };
 
-export async function buildVerifyReport(ownerKeyFilter?: string): Promise<VerifyReport> {
+/**
+ * @param ownerKeyFilter one owner key, or a set of them (a coach's book).
+ *   Undefined = the whole roster.
+ */
+export async function buildVerifyReport(ownerKeyFilter?: string | Set<string>): Promise<VerifyReport> {
   const svc = createServiceClient();
   const { clients: allRoster, missingFromMaster } = await getPpaRoster();
-  const roster = ownerKeyFilter ? allRoster.filter((c) => c.ownerKey === ownerKeyFilter) : allRoster;
+  const keep = typeof ownerKeyFilter === "string"
+    ? (k: string) => k === ownerKeyFilter
+    : ownerKeyFilter instanceof Set ? (k: string) => ownerKeyFilter.has(k) : null;
+  const roster = keep ? allRoster.filter((c) => keep(c.ownerKey)) : allRoster;
   const ownerKeys = roster.map((c) => c.ownerKey);
   const bizNorms = roster.map((c) => c.bizNorm).filter(Boolean);
 
