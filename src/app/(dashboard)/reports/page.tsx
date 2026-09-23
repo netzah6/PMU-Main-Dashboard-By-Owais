@@ -1,8 +1,10 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
+import { usePayments, lookupPayment, programOf } from "@/lib/hooks/usePayments";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate, cn } from "@/lib/utils";
+import { dateGuess, resolveDates, dateLabel, dateShort } from "@/lib/report-dates";
 import { Search, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,7 +14,9 @@ const num = (v: unknown): number | null => {
   const n = parseFloat(String(v).replace(/[$,%]/g, ""));
   return isNaN(n) ? null : n;
 };
-// performance_tracking dates are mostly MM/DD/YYYY (with some DD/MM)
+// performance_tracking dates are mostly MM/DD/YYYY, but a real share of rows
+// were typed DD/MM/YYYY (the sheet accepts both). Used for one-off fields like
+// "Last Strategy?" where there is no sequence to lean on.
 function parseMs(s: string): number {
   const m = s.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) {
@@ -24,6 +28,7 @@ function parseMs(s: string): number {
   const dt = new Date(s);
   return isNaN(dt.getTime()) ? 0 : dt.getTime();
 }
+
 function versionStyle(v: string): { bg: string; text: string; border: string } {
   const u = v.toLowerCase();
   if (u.includes("not interested")) return { bg: "#fde8ee", text: "#e11d48", border: "#f5c2cf" };
@@ -42,7 +47,9 @@ function onState(v: unknown): boolean | null {
 }
 
 interface Report {
-  date: string; ms: number; raw: Record<string, unknown>;
+  // `date` is the raw sheet string (written back verbatim on save); `label` is
+  // the resolved date actually shown, so an ambiguous D/M row can't read as M/D.
+  date: string; label: string; short: string; ms: number; raw: Record<string, unknown>;
   leads: number | null; booking: number | null; sessions: number | null; declining: number | null;
 }
 
@@ -195,25 +202,23 @@ export default function ReportsPage() {
   // client name → daily budget + ad spend (performance_overview, one row per owner)
   const [aiOpen, setAiOpen] = useState(false);
   const [budgetMap, setBudgetMap] = useState<Map<string, number>>(new Map());
-  const [spendMap, setSpendMap] = useState<Map<string, { all: number; d14: number }>>(new Map());
   useEffect(() => {
     const supabase = createClient();
-    supabase.from("performance_overview").select("owner_name, daily_budget, spent_all, spent14").then(({ data }) => {
+    supabase.from("performance_overview").select("owner_name, daily_budget").then(({ data }) => {
       const m = new Map<string, number>();
-      const sp = new Map<string, { all: number; d14: number }>();
       (data ?? []).forEach((r) => {
-        const row = r as { owner_name?: string; daily_budget?: unknown; spent_all?: unknown; spent14?: unknown };
+        const row = r as { owner_name?: string; daily_budget?: unknown };
         const k = String(row.owner_name ?? "").trim().toLowerCase();
         if (!k) return;
         const b = Number(row.daily_budget);
         if (!isNaN(b)) m.set(k, b);
-        const all = Number(row.spent_all), d14 = Number(row.spent14);
-        sp.set(k, { all: isNaN(all) ? 0 : all, d14: isNaN(d14) ? 0 : d14 });
       });
       setBudgetMap(m);
-      setSpendMap(sp);
     });
   }, []);
+
+  // Billing program (PPS vs Standard) from the financing-sheet snapshot.
+  const payments = usePayments();
 
   // Write an edited Action (col T) back to Supabase + the "Add Data - Tracking" sheet.
   const saveAction = useCallback(async (rowNumber: number, raw: Record<string, unknown>, value: string) => {
@@ -233,19 +238,30 @@ export default function ReportsPage() {
 
   // group reports by client
   const clients = useMemo(() => {
+    // useTableData returns rows already ordered by sheet_row, and that order is
+    // what resolveDates() leans on to read the ambiguous dates — so group
+    // without re-ordering, resolve per client, and only then sort by date.
     const map = new Map<string, Report[]>();
     data.forEach((r) => {
       const name = String(r["Name"] ?? "").trim();
       const date = String(r["Date"] ?? "").trim();
       if (!name || !date) return;
       const rep: Report = {
-        date, ms: parseMs(date), raw: r,
+        date, label: date, short: date, ms: NaN, raw: r,
         leads: num(r["Total Leads"]), booking: num(r["Booking %"]),
         sessions: num(r["Sessions Done?"]), declining: num(r["Declining %"]),
       };
       (map.get(name) ?? map.set(name, []).get(name)!).push(rep);
     });
     return Array.from(map.entries()).map(([name, reps]) => {
+      resolveDates(reps.map((r) => dateGuess(r.date))).forEach((ms, i) => {
+        reps[i].ms = ms;
+        reps[i].label = isNaN(ms) ? reps[i].date : dateLabel(ms);
+        reps[i].short = isNaN(ms) ? reps[i].date : dateShort(ms);
+      });
+      // A date we could not read at all keeps its sheet position rather than
+      // being dumped at the front (the old parse returned 0 = Jan 1970).
+      reps.forEach((r, i) => { if (isNaN(r.ms)) r.ms = i > 0 ? reps[i - 1].ms : 0; });
       reps.sort((a, b) => a.ms - b.ms);
       const first = reps[0], last = reps[reps.length - 1];
       // "amount we got" = highest recorded value (the latest report can reset to 0)
@@ -326,6 +342,7 @@ export default function ReportsPage() {
     const times = depositsByBiz.get(biz) ?? [];
     return current.reports.map((r) => times.filter((t) => t <= r.ms + 86399999).length);
   }, [current, bizResolve, depositsByBiz]);
+  const payRow = useMemo(() => (current ? lookupPayment(payments, current.name) : null), [current, payments]);
   const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
   const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
 
@@ -505,14 +522,21 @@ export default function ReportsPage() {
                         Budget: ${Math.round(dailyBudget).toLocaleString()}/d
                       </span>
                     )}
+                    {/* Was the ad-spend badge ("Spent: $x · $y last 14d"). Replaced
+                        with the billing program the client is on (user, 2026-09-23) —
+                        same PPS/Standard rule as the Clients tab. */}
                     {(() => {
-                      const sp = spendMap.get(current.name.trim().toLowerCase());
-                      if (!sp || (!sp.all && !sp.d14)) return null;
+                      const prog = programOf(lookupPayment(payments, current.name));
                       return (
-                        <span title="Total ad spend on this client's ad account (all time), and the last 14 days"
-                          className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#eef7ff] text-[#1d4ed8] border border-[#bfdbfe]">
-                          Spent: ${Math.round(sp.all).toLocaleString()}
-                          {sp.d14 ? ` · $${Math.round(sp.d14).toLocaleString()} last 14d` : ""}
+                        <span title={prog
+                          ? `Billing program from the financing sheet${payRow?.month ? ` (${payRow.month})` : ""}` +
+                            `${payRow?.payment_status ? ` — Payment Status: ${payRow.payment_status}` : " — Payment Status blank, so a standard monthly plan"}`
+                          : "No row for this client in the financing sheet"}
+                          className={cn("px-2 py-0.5 rounded-full text-xs font-semibold border",
+                            prog === "PPS" ? "bg-[#eef2ff] text-[#3a5a8c] border-[#c7d2fe]"
+                              : prog === "Standard" ? "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
+                              : "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]")}>
+                          Program: {prog === "PPS" ? "PPS (Pay Per Show)" : prog ?? "—"}
                         </span>
                       );
                     })()}
@@ -525,7 +549,7 @@ export default function ReportsPage() {
                       const vs = versionStyle(ver);
                       return <span className="px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>Version: {ver}</span>;
                     })()}
-                    <span className="text-xs text-[#697a91]">{current.count} reports · {formatDate(reps[0].date, true)} – {formatDate(current.last.date, true)}</span>
+                    <span className="text-xs text-[#697a91]">{current.count} reports · {reps[0].label} – {current.last.label}</span>
                     {String(r["Last Strategy?"] ?? "").trim() && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">
                         Last Strategy Call: {formatDate(String(r["Last Strategy?"]), true)}
@@ -562,10 +586,10 @@ export default function ReportsPage() {
 
             {/* Charts */}
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
-              <ChartCard title="Total Leads Over Time" color="#34568a" values={reps.map((r) => r.leads ?? 0)} dates={reps.map((r) => r.date)} yFmt={(v) => String(Math.round(v))} />
-              <ChartCard title="Booking Rate %" color="#15B7AE" values={reps.map((r) => (r.booking ?? 0) * 100)} dates={reps.map((r) => r.date)} yFmt={(v) => `${Math.round(v)}%`} />
-              <ChartCard title="Sessions Booked" color="#7e8fc4" values={reps.map((r) => r.sessions ?? 0)} dates={reps.map((r) => r.date)} yFmt={(v) => String(Math.round(v))} />
-              <ChartCard title="Deposits (Total)" color="#d97706" values={depositCum} dates={reps.map((r) => r.date)} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Total Leads Over Time" color="#34568a" values={reps.map((r) => r.leads ?? 0)} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Booking Rate %" color="#15B7AE" values={reps.map((r) => (r.booking ?? 0) * 100)} dates={reps.map((r) => r.short)} yFmt={(v) => `${Math.round(v)}%`} />
+              <ChartCard title="Sessions Booked" color="#7e8fc4" values={reps.map((r) => r.sessions ?? 0)} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Deposits (Total)" color="#d97706" values={depositCum} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
             </div>
 
             {/* Date-by-date comparison */}
@@ -577,7 +601,7 @@ export default function ReportsPage() {
                       <th className="px-3 py-0.5 text-left text-[10px] font-bold uppercase tracking-wider sticky left-0 z-10" style={{ background: "#2d4c79" }}>Metric</th>
                       {reps.map((r, i) => (
                         <th key={i} className="px-3 py-0.5 text-center text-[10px] font-bold uppercase whitespace-nowrap">
-                          #{i + 1}<br /><span className="font-medium opacity-80">{r.date}</span>
+                          #{i + 1}<br /><span className="font-medium opacity-80" title={r.date === r.label ? undefined : `Sheet value: ${r.date}`}>{r.label}</span>
                         </th>
                       ))}
                     </tr>
