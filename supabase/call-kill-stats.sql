@@ -3,11 +3,15 @@
 -- Webhook" removes the lead from the AI flow — found via Venita Lewis /
 -- Tangilaya Thomas). Computed daily by /api/cron/call-kill over a 21-day
 -- window; the Cost/Deposit (CPD) tab reads it as the "Kill %" column.
+-- Kill % (owner's definition, 2026-09-22): dead / QUALIFIED — the share of
+-- ALL qualified leads the account received that lost the AI to a call,
+-- not just the share of called leads.
 -- Applied to production (rtmiakhhohhfaqghieri) 2026-09-22.
 create table if not exists public.call_kill_stats (
   slug text primary key,
   owner_key text not null default '',
-  called int not null default 0,      -- called, non-paid, qualified one-box leads
+  qualified int not null default 0,   -- ALL qualified (non-disqualified) leads in the window — the denominator
+  called int not null default 0,      -- of those, how many the artist called
   dead int not null default 0,        -- AI never spoke again (incl. ignored)
   ignored int not null default 0,     -- lead replied after the call, AI silent >2h
   closures int not null default 0,    -- STOP / not interested — excluded from dead

@@ -232,7 +232,7 @@ export default function CostPerDepositPage() {
   /* owner (lowercased) -> call-kill stats (daily cron): of the leads the
      artist CALLED, how many lost the AI afterwards — the outgoing-call
      workflow removes them from the AI flow (2026-09-22 finding). */
-  const [killMap, setKillMap] = useState<Map<string, { called: number; dead: number; ignored: number }> | null>(null);
+  const [killMap, setKillMap] = useState<Map<string, { qualified: number; called: number; dead: number; ignored: number }> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -244,7 +244,7 @@ export default function CostPerDepositPage() {
         supabase.from("booking_stats").select("owner_key, leads_total, contacts_total"),
         supabase.from("funnel_tracking_flags").select("owner_name, schedule_installed_at, lead_status, notes"),
         supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status"),
-        supabase.from("call_kill_stats").select("owner_key, called, dead, ignored"),
+        supabase.from("call_kill_stats").select("owner_key, qualified, called, dead, ignored"),
       ]);
       if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
       setRows(((ovRes.data as Row[]) ?? []));
@@ -254,9 +254,9 @@ export default function CostPerDepositPage() {
         setSchedFlags(m);
       }
       if (!kkRes.error && kkRes.data) {
-        const m = new Map<string, { called: number; dead: number; ignored: number }>();
-        for (const k of kkRes.data as { owner_key: string; called: number; dead: number; ignored: number }[]) {
-          const v = { called: k.called, dead: k.dead, ignored: k.ignored };
+        const m = new Map<string, { qualified: number; called: number; dead: number; ignored: number }>();
+        for (const k of kkRes.data as { owner_key: string; qualified: number; called: number; dead: number; ignored: number }[]) {
+          const v = { qualified: k.qualified, called: k.called, dead: k.dead, ignored: k.ignored };
           const raw = String(k.owner_key ?? "").toLowerCase().trim();
           if (!raw) continue;
           /* The sheet writes alias forms ("nyla lamb (nyla sheree)") and
@@ -320,7 +320,7 @@ export default function CostPerDepositPage() {
     if (sortMode === "kill-worst") {
       const killOf = (r: Row) => {
         const k = killMap?.get((r.owner_name ?? "").toLowerCase().trim());
-        return k && k.called > 0 ? k.dead / k.called : null;
+        return k && k.qualified > 0 ? k.dead / k.qualified : null;
       };
       return list.sort((a, b) => {
         const pr = rank(a.client_status) - rank(b.client_status);
@@ -525,16 +525,17 @@ export default function CostPerDepositPage() {
                       {(() => {
                         const k = killMap?.get((r.owner_name ?? "").toLowerCase().trim());
                         const isV3 = /v3/i.test(r.version ?? "");
-                        if (!k || k.called === 0) {
-                          if (!isV3) return <span className="text-[#c3cdd9] cursor-default" title="Kill Rate is tracked for V3 accounts only (AI follow-up)">—</span>;
-                          return <span className="text-[#8595a8] text-[10px] cursor-default" title="V3 account, tracked — no leads were called in the last 21 days">0 calls</span>;
-                        }
-                        const pct = Math.round((k.dead / k.called) * 100);
-                        const tone = pct >= 50 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 25 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
-                        const label = k.called < 3 ? `${k.dead}/${k.called}` : `${pct}%`;
+                        if (!isV3) return <span className="text-[#c3cdd9] cursor-default" title="Kill Rate is tracked for V3 accounts only (AI follow-up)">—</span>;
+                        if (!k || k.qualified === 0) return <span className="text-[#8595a8] text-[10px] cursor-default" title="V3 account, tracked — no qualified leads in the last 21 days">no leads</span>;
+                        /* Kill % = dead / ALL qualified leads (owner's definition):
+                           the share of the account's whole lead flow that lost the
+                           AI to an artist call while the flow was still active. */
+                        const pct = Math.round((k.dead / k.qualified) * 100);
+                        const tone = pct >= 15 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 7 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
+                        const label = k.qualified < 3 ? `${k.dead}/${k.qualified}` : `${pct}%`;
                         return (
                           <span className="rounded px-1.5 py-0.5 cursor-default" style={{ background: tone.bg, color: tone.fg }}
-                            title={`Of ${k.called} leads the artist CALLED (last 21d), ${k.dead} lost the AI afterwards${k.ignored ? ` — ${k.ignored} replied and got silence` : ""}. Cause: the outgoing-call workflow removes the lead from the AI flow.${k.called < 3 ? " Small sample." : ""}`}>
+                            title={`${k.dead} of ${k.qualified} qualified leads (21d) lost the AI after an artist call — the artist called ${k.called} of them${k.ignored ? `, ${k.ignored} replied and got silence` : ""}. Cause: the outgoing-call workflow stops the CC- Funnel Survey flow while it's still active.`}>
                             {label}
                           </span>
                         );
