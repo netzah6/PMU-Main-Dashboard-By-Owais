@@ -182,8 +182,9 @@
 ".calbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:14px 0 4px}" +
 ".calbtn{display:inline-flex;align-items:center;gap:8px;border:2px solid var(--line);background:#fff;border-radius:999px;padding:10px 18px;font-weight:700;font-size:14px;color:var(--ink);text-decoration:none;transition:border-color .15s}" +
 ".calbtn:hover{border-color:var(--teal)}" +
-".warnbox{border:2px dashed #e0b4b4;background:#fff9f9;border-radius:12px;padding:12px 16px;font-size:14px;color:#7c3a3a;margin:16px 0;text-align:left}" +
-".warnbox b{color:#b02a2a}" +
+/* Louder warning (owner, 2026-09-23): solid red, bigger, unmissable. */
+".warnbox{border:2px solid #dc2626;background:#fef2f2;border-radius:12px;padding:14px 18px;font-size:16px;font-weight:600;line-height:1.55;color:#b91c1c;margin:16px 0;text-align:left}" +
+".warnbox b{color:#dc2626;font-size:17px;letter-spacing:.03em}" +
 ".howcall{text-align:left;margin:18px 0 4px}" +
 ".howcall h3{font-size:16px;margin-bottom:10px}" +
 ".howcall .hc{display:flex;gap:12px;align-items:flex-start;padding:7px 0;font-size:14.5px}" +
@@ -262,7 +263,9 @@
 (PPS ? ".ob-steplabel{display:none}.q-title{margin-bottom:14px}.q-note{margin-bottom:18px}.q-frame{margin-bottom:16px}" +
 ".vids-grid{gap:28px}.vt{background:#fff;border-radius:22px;padding:14px 14px 20px;box-shadow:0 22px 50px -24px rgba(10,60,55,.35),0 2px 10px rgba(10,60,55,.06);border:1px solid rgba(0,163,150,.08);transition:transform .2s,box-shadow .2s}.vt:hover{transform:translateY(-3px);box-shadow:0 30px 60px -24px rgba(10,60,55,.45),0 4px 14px rgba(10,60,55,.08)}" +
 ".vt .vidcard{border-radius:16px}.vt .vidcard img{transform:scale(1.02);transition:transform .35s}.vt .vidcard:hover img{transform:scale(1.07)}.vt .vidcard .ply{width:72px;height:72px;box-shadow:0 0 0 10px rgba(255,255,255,.22),0 14px 30px -6px rgba(0,0,0,.5)}.vt .vidcard .cap{padding:34px 16px 12px;font-size:12.5px;letter-spacing:.2px;text-transform:uppercase;background:linear-gradient(transparent,rgba(7,25,22,.9))}" +
-".vt blockquote{margin:16px 2px 8px;font-size:16px;line-height:1.6;font-style:italic}.vt .who{font-size:14px;margin-top:2px}.vt .who::before{content:\"★★★★★  \";color:#f5b301;letter-spacing:1px;font-style:normal}.vt .loc{font-size:12.5px}" +
+/* Interview cards (owner, 2026-09-23): bigger text; stars on their own
+   line, name — business on the next. */
+".vt blockquote{margin:16px 2px 8px;font-size:17.5px;line-height:1.6;font-style:italic}.vt .who{font-size:15.5px;margin-top:2px}.vt .who::before{content:\"★★★★★\";display:block;margin-bottom:4px;font-size:15px;color:#f5b301;letter-spacing:2px;font-style:normal}.vt .loc{font-size:13.5px}" +
 /* Scroll-depth trims (owner, 2026-09-22): no logo band (the hero carries
    the brand; the footer keeps the logo), tighter hero top, and a sub
    sized to hold its two <br> lines on one row each at phone width. */
