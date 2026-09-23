@@ -9,6 +9,10 @@ import { getAppLocationToken } from "@/lib/ghl-app";
    texts back. Measured fleet-wide: 34% of called leads died; a control
    group (INKredible, Angone, Permanent Perfection) sits at 0%.
 
+   Kill %% (owner's definition): dead / QUALIFIED — the share of ALL
+   qualified leads the account received in the window that lost the AI to
+   a call, not merely the share of called leads.
+
    A lead counts as DEAD when its thread has an outgoing call and either
    (a) the lead's last inbound SMS came after our last outbound SMS and
    sat unanswered for 2+ hours (excluding closures: STOP / not
@@ -49,17 +53,24 @@ export async function computeCallKillStats(svc: Svc, deadlineMs = 240_000): Prom
     if (p.length === 10) calledP10.add(p);
   }
 
-  type Lead = { slug: string; full_name: string; phone: string; ghl_contact_id: string; location_id: string; answers: Record<string, unknown> | null };
+  type Lead = { slug: string; full_name: string; phone: string; ghl_contact_id: string | null; location_id: string; ghl_status: string; answers: Record<string, unknown> | null };
   const leads = await allRows<Lead>((f, t) =>
     svc.from("onebox_leads")
-      .select("slug, full_name, phone, ghl_contact_id, location_id, answers")
+      .select("slug, full_name, phone, ghl_contact_id, location_id, ghl_status, answers")
       .gte("created_at", sinceIso)
-      .eq("ghl_status", "created")
-      .not("ghl_contact_id", "is", null)
       .range(f, t));
-  const cands = leads
+  const qualified = leads
     .filter((l) => !(l.answers ?? {}).disqualified)
-    .filter((l) => !/test/i.test(l.full_name ?? ""))
+    .filter((l) => !/test/i.test(l.full_name ?? ""));
+  const qualBySlug = new Map<string, { n: number; loc: string }>();
+  for (const l of qualified) {
+    const q = qualBySlug.get(l.slug) ?? { n: 0, loc: l.location_id };
+    q.n++; qualBySlug.set(l.slug, q);
+  }
+  // Only still-active (unpaid) called leads can be victims — a paid lead's
+  // AI going quiet is expected, not a kill.
+  const cands = qualified
+    .filter((l) => l.ghl_status === "created" && l.ghl_contact_id)
     .filter((l) => calledP10.has(String(l.phone ?? "").replace(/\D/g, "").slice(-10)));
 
   const { data: sync } = await svc.from("ghl_sync_status").select("location_id, owner_key");
@@ -86,6 +97,7 @@ export async function computeCallKillStats(svc: Svc, deadlineMs = 240_000): Prom
     if (!t) return;
     const H4 = { Authorization: `Bearer ${t}`, Version: "2021-04-15", Accept: "application/json" };
     const H7 = { ...H4, Version: "2021-07-28" };
+    if (!l.ghl_contact_id) return;
     const vr = await fetch(`https://services.leadconnectorhq.com/conversations/search?locationId=${l.location_id}&contactId=${l.ghl_contact_id}`, { headers: H4 }).catch(() => null);
     if (!vr || !vr.ok) return;
     const conv = (((await vr.json()) as { conversations?: { id: string }[] }).conversations ?? [])[0];
@@ -127,9 +139,10 @@ export async function computeCallKillStats(svc: Svc, deadlineMs = 240_000): Prom
     })
   );
 
-  const rows = [...acc.entries()].map(([slug, a]) => ({
-    slug, ...a, window_start: windowStart.toISOString().slice(0, 10), computed_at: new Date().toISOString(),
-  }));
+  const rows = [...qualBySlug.entries()].map(([slug, q]) => {
+    const a = acc.get(slug) ?? { owner_key: ownerByLoc.get(q.loc) ?? "", called: 0, dead: 0, ignored: 0, closures: 0 };
+    return { slug, ...a, qualified: q.n, window_start: windowStart.toISOString().slice(0, 10), computed_at: new Date().toISOString() };
+  });
   // Full refresh: an account whose calls aged out of the window must drop off.
   if (!partial) await svc.from("call_kill_stats").delete().neq("slug", "");
   if (rows.length) await svc.from("call_kill_stats").upsert(rows, { onConflict: "slug" });
