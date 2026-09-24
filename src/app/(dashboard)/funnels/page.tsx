@@ -1341,6 +1341,9 @@ export default function FunnelsPage() {
                     <a href={f.url} target="_blank" rel="noopener" className="text-xs text-[#0e9c9c] hover:underline inline-flex items-center gap-1">
                       {f.url} <ExternalLink className="w-3 h-3" />
                     </a>
+                    {/* The GHL sub-account behind this funnel, checkable without
+                        asking (owner, 2026-09-24) — click copies the ID. */}
+                    <CopyChip text={f.locationId} label={`sub-account: ${f.locationId}`} onCopied={() => setToast("Sub-account ID copied ✓")} />
                   </div>
                   {f.oldFunnelUrl && (
                     <div className="text-[11px] text-[#697a91]">
