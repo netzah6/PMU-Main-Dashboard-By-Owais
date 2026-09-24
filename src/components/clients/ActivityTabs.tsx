@@ -24,18 +24,18 @@ function parseMs(s: string): number {
 
 // ── booking de-duplication ───────────────────────────────────────────────────
 // The bookings sheet repeats the same appointment: 1,383 of 3,750 dated rows
-// (37%) are the same person on the same day, and another 143 are the same
-// person within three days — a reschedule written as a second row rather than
-// an edit. Both read as "double bookings" in this list (owner, 2026-09-23).
+// (37%) are the same person on the same day, and more are the same person one
+// day later — a reschedule written as a second row rather than an edit. Both
+// read as "double bookings" in this list (owner, 2026-09-23).
 //
 // Collapsed here, NOT filtered away: the kept row carries how many raw rows it
 // stands for, so the count on screen still traces back to the sheet.
 //
-// Three days is the window the owner already uses to call duplicate DEPOSITS
-// the same payment, so bookings follow the same rule. Anything further apart is
-// a genuine repeat visit (295 fleet-wide) and stays its own row — several of
-// this agency's clients rebook every few weeks.
-const DUP_WINDOW_DAYS = 3;
+// Same day or next day ONLY (owner, 2026-09-24): "if they are a few days apart
+// separate them as few different bookings but if it's the same or next day merge
+// them as 1". A next-day row is the same appointment moved; two days out is
+// already a different appointment and keeps its own row.
+const DUP_WINDOW_DAYS = 1;
 
 /** phone (digits) > email > name — the first one this row actually has. */
 function personKey(r: Record<string, unknown>): string {
@@ -160,7 +160,7 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: A
         rows={dBookings}
         empty="No bookings matched."
         subtitle={bookingDupes > 0 ? (
-          <span title={`The bookings sheet holds ${dBookings.length + bookingDupes} rows for this client. Rows for the same person on the same day — or within ${DUP_WINDOW_DAYS} days, which is a reschedule — are shown once. Repeat visits further apart are still listed separately.`}>
+          <span title={`The bookings sheet holds ${dBookings.length + bookingDupes} rows for this client. Rows for the same person on the same day, or one day apart (a reschedule), are shown once. Bookings further apart are separate appointments and stay separate rows.`}>
             {bookingDupes} duplicate {bookingDupes === 1 ? "row" : "rows"} merged
           </span>
         ) : null}
