@@ -182,13 +182,29 @@ function ProgTag({ v3only, clientIsV1 }: { v3only: boolean; clientIsV1: boolean 
   );
 }
 
-/* The full setup form's fields — the whole "CC - 🎀 Funnel Form (V2 + V3)"
-   minus Step-1 basics. Used to count what's still empty, and to auto-open
-   the form for a client who clearly hasn't been through it yet. */
-const FULL_FORM_TEXT_KEYS = ["ownerName", "igLink", "fbLink", "gmbLink", "originalPrice", "discountedPrice", "touchupPrice", "services", "yearsInBusiness", "businessHours", "firstTouchup", "otherLocations", "depositFunnelUrl"] as const;
-const FULL_FORM_PHOTO_KEYS = ["logo", "studio1", "studio2", "studio3", "brows1", "brows2", "brows3", "lips1", "lips2", "lips3", "liner1", "liner2", "liner3"] as const;
-const fullFormEmpty = (cv: Record<string, string>) =>
-  [...FULL_FORM_TEXT_KEYS, ...FULL_FORM_PHOTO_KEYS].filter((k) => !(cv[k] ?? "").trim()).length;
+/* Which Step-1 fields are REQUIRED, by the account's program (owner spec,
+   2026-09-24): "always" = every client, "v23" = V2.3 and V3, "v3" = V3 only.
+   Anything absent (widgets, GMB, touch-up price, notes, photos, …) is
+   optional — photos and empty optionals are pulled from the sub-account
+   automatically. firstTouchup and depositFunnelUrl get V3 defaults at save
+   time (see the Step-3 handler). */
+const REQ_RULES: Record<string, "always" | "v23" | "v3"> = {
+  biz: "always", address: "always", phone: "always", fbLink: "always",
+  deposit: "v23", fanbasisProductId: "v23", calendarId: "v23", offer: "v23",
+  ownerName: "v3", originalPrice: "v3", discountedPrice: "v3", igLink: "v3",
+  services: "v3", yearsInBusiness: "v3", businessHours: "v3",
+};
+function reqFor(version: string, k: string): boolean {
+  const rule = REQ_RULES[k];
+  if (!rule) return false;
+  const v3 = /v3/i.test(version);         // "V3"/"(V3)" — never matches "V2.3"
+  const v23 = v3 || /v2\.3/i.test(version);
+  return rule === "always" || (rule === "v23" && v23) || (rule === "v3" && v3);
+}
+/* Red star on required fields — the form itself IS the old GHL form now. */
+function Must({ on }: { on: boolean }) {
+  return on ? <span className="text-[#e11d48] font-bold" title="Required for this account's program"> *</span> : null;
+}
 
 /* Photo slot of the full setup form: upload to the dashboard's public
    bucket (same endpoint as the Onboarding tab) or paste a URL; the URL is
@@ -468,11 +484,7 @@ export default function FunnelsPage() {
   /* "Saved ✓" shown on the Save button itself for a moment after a
      successful write, so the confirmation is where the click happened. */
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
-  /* Step 1's "New client — full setup form": the rest of the old GHL
-     "CC - 🎀 Funnel Form (V2 + V3)" (owner, links, V3 details, prices,
-     photos). Existing clients already have these values, so it stays
-     folded unless the team opens it. */
-  const [fullForm, setFullForm] = useState(false);
+
   /* Keys still empty when the team tried to switch this funnel to V3 —
      outlined in red in Start Setup until they are filled and saved. */
   const [v3Gap, setV3Gap] = useState<Record<string, string[]>>({});
@@ -637,7 +649,7 @@ export default function FunnelsPage() {
           setRedirectVerify(null);
           setSop5({ renamed: false, redirect: false, workflow: false });
         }
-        setFullForm(true);
+        // The full form is always visible in Step 1 now — nothing to unfold.
         return;
       }
     }
@@ -1478,11 +1490,7 @@ export default function FunnelsPage() {
                       setAdUrlForm(f.oldFunnelUrl || "");
                       setRedirectVerify(null);
                       setSop5({ renamed: false, redirect: false, workflow: false });
-                      /* A client with most of the form still empty is a NEW
-                         client — open the full form for them instead of
-                         hiding it behind the fold (user couldn't find it,
-                         2026-09-21). */
-                      setFullForm(FULL_FORM_TEXT_KEYS.filter((k) => !(f.cv[k] ?? "").trim()).length > FULL_FORM_TEXT_KEYS.length / 2);
+
                     }
                   }}
                   className={cn("text-[11px] border rounded-lg px-2 py-0.5",
@@ -1580,9 +1588,8 @@ export default function FunnelsPage() {
                       )}
                       <p className="text-[10px] text-[#697a91]">
                         {ver ? <>This client is <b className={isV1 ? "text-[#b45309]" : "text-[#1d4ed8]"}>{ver.replace(/[()]/g, "")}</b> (Clients sheet). </> : <>Program unknown — set it on the Clients tab. </>}
-                        <span className="text-[9px] font-bold rounded px-1 py-px border border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec]">V1 + V3</span> = fill for every client ·{" "}
-                        <span className="text-[9px] font-bold rounded px-1 py-px border border-[#93c5fd] text-[#1d4ed8] bg-[#eff6ff]">V3</span> = booking page, deposit &amp; AI only
-                        {isV1 && <> — greyed fields can stay empty for this client</>}
+                        Fields marked <span className="text-[#e11d48] font-bold">*</span> are required for this account&rsquo;s program; everything else is optional — photos and empty optionals are pulled from the sub-account automatically.
+                        {isV1 && <> Greyed fields can stay empty for this V1 client.</>}
                       </p>
                     </>);
                   })()}
@@ -1598,12 +1605,14 @@ export default function FunnelsPage() {
                       ["igWidget", "Instagram widget link (elf.site)"],
                       ["googleWidget", "Google reviews widget link (elf.site)"],
                     ] as [string, string][]).map(([k, label]) => {
-                      const isV1 = /v1/i.test(f.program?.version ?? "");
-                      const dim = isV1 && V3_ONLY_KEYS.has(k);
-                      const red = (v3Gap[f.slug] ?? []).includes(k) && !(cvForm[k] ?? "").trim();
+                      const ver = f.program?.version ?? "";
+                      const isV1 = /v1/i.test(ver);
+                      const must = reqFor(ver, k);
+                      const dim = isV1 && !must && V3_ONLY_KEYS.has(k);
+                      const red = (must || (v3Gap[f.slug] ?? []).includes(k)) && !(cvForm[k] ?? "").trim();
                       return (
                       <label key={k} className={cn("grid gap-0.5", dim && "opacity-50")}>
-                        <span className={cn("text-[10px] font-medium", red ? "text-[#b91c1c]" : "text-[#697a91]")}>{label}<ProgTag v3only={V3_ONLY_KEYS.has(k)} clientIsV1={isV1} />{red && " — required for V3"}</span>
+                        <span className={cn("text-[10px] font-medium", red ? "text-[#b91c1c]" : "text-[#697a91]")}>{label}<Must on={must} />{red && " — required"}</span>
                         <input value={cvForm[k] ?? ""}
                           onChange={(e) => setCvForm((x) => ({ ...x, [k]: e.target.value }))}
                           className={cn("border rounded-lg px-3 py-2 text-xs", red ? "border-[#ef4444] bg-[#fef2f2]" : "border-[#e4ebf2]")} />
@@ -1611,7 +1620,7 @@ export default function FunnelsPage() {
                       );
                     })}
                     <label className="grid gap-0.5">
-                      <span className="text-[10px] font-medium text-[#697a91]">Meta pixel ID{f.hasPixel ? "" : " (not set)"}<ProgTag v3only={false} clientIsV1={/v1/i.test(f.program?.version ?? "")} /></span>
+                      <span className="text-[10px] font-medium text-[#697a91]">Meta pixel ID{f.hasPixel ? "" : " (not set)"}</span>
                       {/* Every pixel already in use across the funnels, so a new
                           client is dropped onto the right shared pixel instead
                           of a typo (user, 2026-09-14). "Other…" opens a box. */}
@@ -1636,27 +1645,12 @@ export default function FunnelsPage() {
                     </label>
                   </div>
                   {(() => {
-                    const nEmpty = fullFormEmpty(f.cv);
-                    return (
-                      <button type="button" onClick={() => setFullForm((v) => !v)}
-                        className={cn("justify-self-start inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg border px-2.5 py-1.5",
-                          fullForm ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#bfe6e2] text-[#0b7f7f] bg-[#f7fdfc] hover:bg-[#effaf8]")}>
-                        {fullForm ? "▾" : "▸"} Full setup form — the whole “CC 🎀 Funnel Form” (owner, links, prices, AI details, photos)
-                        {nEmpty > 0 ? (
-                          <span className={cn("rounded-full px-1.5 py-px text-[10px] font-bold",
-                            fullForm ? "bg-white/25" : "bg-[#fff3e6] text-[#c2410c] border border-[#fdba74]")}>{nEmpty} empty</span>
-                        ) : (
-                          <span className="rounded-full px-1.5 py-px text-[10px] font-bold bg-[#e7f6ec] text-[#15803d] border border-[#bfe3cd]">all filled ✓</span>
-                        )}
-                      </button>
-                    );
-                  })()}
-                  {fullForm && (() => {
-                    const isV1 = /v1/i.test(f.program?.version ?? "");
-                    const dimCls = (k: string) => (isV1 && V3_ONLY_KEYS.has(k) ? "opacity-50" : "");
-                    const isRed = (k: string) => (v3Gap[f.slug] ?? []).includes(k) && !(cvForm[k] ?? "").trim();
+                    const ver = f.program?.version ?? "";
+                    const isV1 = /v1/i.test(ver);
+                    const dimCls = (k: string) => (isV1 && !reqFor(ver, k) && V3_ONLY_KEYS.has(k) ? "opacity-50" : "");
+                    const isRed = (k: string) => (reqFor(ver, k) || (v3Gap[f.slug] ?? []).includes(k)) && !(cvForm[k] ?? "").trim();
                     const Lbl = (k: string, label: string) => (
-                      <span className={cn("text-[10px] font-medium", isRed(k) ? "text-[#b91c1c]" : "text-[#697a91]")}>{label}<ProgTag v3only={V3_ONLY_KEYS.has(k)} clientIsV1={isV1} />{isRed(k) && " — required for V3"}</span>
+                      <span className={cn("text-[10px] font-medium", isRed(k) ? "text-[#b91c1c]" : "text-[#697a91]")}>{label}<Must on={reqFor(ver, k)} />{isRed(k) && " — required"}</span>
                     );
                     const inputCls = (k: string) => cn("border rounded-lg px-3 py-2 text-xs", isRed(k) ? "border-[#ef4444] bg-[#fef2f2]" : "border-[#e4ebf2]");
                     const T = (k: string, label: string, ph = "") => (
@@ -1810,6 +1804,13 @@ export default function FunnelsPage() {
                         for (const [k, v] of Object.entries(cvForm)) {
                           if (k === "surveyRaw") continue; // managed by the row editor below
                           if ((f.cv[k] ?? "") !== v) changed[k] = v;
+                        }
+                        /* V3 defaults (owner, 2026-09-24): an empty first-touch-up
+                           answer becomes the standard line, and an empty deposit
+                           funnel URL becomes this client's own one-box link. */
+                        if (/v3/i.test(f.program?.version ?? "")) {
+                          if (!(cvForm.firstTouchup ?? "").trim() && !(f.cv.firstTouchup ?? "").trim()) changed.firstTouchup = "6-8 weeks after the first session";
+                          if (!(cvForm.depositFunnelUrl ?? "").trim() && !(f.cv.depositFunnelUrl ?? "").trim()) changed.depositFunnelUrl = f.url;
                         }
                         if (surveyDirty) changed.surveyRaw = serializeSurvey(surveyRows);
                         const extras: Record<string, string> = {};
