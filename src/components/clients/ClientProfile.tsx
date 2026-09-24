@@ -533,7 +533,7 @@ export function ClientProfile({
             {/* Was "Campaign" (Campaign Status from the master sheet) — that
                 column is empty for every client, so the badge only ever read
                 "—". Replaced with the plan the client is actually on. */}
-            <Badge variant={program === "PPS (Pay Per Show)" ? "blue" : program === "Standard" ? "yellow" : "gray"}>
+            <Badge variant={program === "PPS (Pay Per Show)" ? "blue" : program === "Standard" ? "purple" : "gray"}>
               Program:{" "}
               <strong className="ml-1"
                 title={program

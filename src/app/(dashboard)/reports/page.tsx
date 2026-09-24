@@ -560,7 +560,7 @@ export default function ReportsPage() {
                           : "No row for this client in the financing sheet"}
                           className={cn("px-2 py-0.5 rounded-full text-xs font-semibold border",
                             prog === "PPS" ? "bg-[#eef2ff] text-[#3a5a8c] border-[#c7d2fe]"
-                              : prog === "Standard" ? "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
+                              : prog === "Standard" ? "bg-[#f3e8ff] text-[#7e22ce] border-[#e3cffb]"
                               : "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]")}>
                           Program: {prog === "PPS" ? "PPS (Pay Per Show)" : prog ?? "—"}
                         </span>
