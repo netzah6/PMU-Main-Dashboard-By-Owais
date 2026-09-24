@@ -146,13 +146,6 @@ type Insight = {
    (no booking, no deposit, no AI follow-up), so everything that feeds the
    booking/deposit pages or the AI script is V3-only. Shown as a tag on each
    field, and V3-only fields dim when the client's program is V1. */
-const V3_ONLY_KEYS = new Set([
-  "deposit", "calendarId", "fanbasisProductId", "depositFunnelUrl",
-  "ownerName", "originalPrice", "discountedPrice", "touchupPrice",
-  "services", "yearsInBusiness", "businessHours", "firstTouchup", "otherLocations", "extraNotes",
-  "studio1", "studio2", "studio3", "brows1", "brows2", "brows3", "lips1", "lips2", "lips3", "liner1", "liner2", "liner3",
-  "igWidget", "googleWidget",
-]);
 /* What a client MUST have before the program can become V3: the values
    the booking page, the deposit step and the AI script cannot run without.
    Photos, years, touch-up, other locations and notes stay optional. */
@@ -485,6 +478,11 @@ export default function FunnelsPage() {
      successful write, so the confirmation is where the click happened. */
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
 
+  /* Which program the team is setting THIS funnel up as. Defaults to the
+     Clients-sheet version when the panel opens; changing it only reshapes
+     the form (fields shown + required stars) — the sheet stays the source
+     of truth for the real program (owner, 2026-09-24). */
+  const [setupVer, setSetupVer] = useState<"V1" | "V2.3" | "V3">("V3");
   /* Keys still empty when the team tried to switch this funnel to V3 —
      outlined in red in Start Setup until they are filled and saved. */
   const [v3Gap, setV3Gap] = useState<Record<string, string[]>>({});
@@ -1490,6 +1488,10 @@ export default function FunnelsPage() {
                       setAdUrlForm(f.oldFunnelUrl || "");
                       setRedirectVerify(null);
                       setSop5({ renamed: false, redirect: false, workflow: false });
+                      {
+                        const v = f.program?.version ?? "";
+                        setSetupVer(/v1/i.test(v) ? "V1" : /v2\.3/i.test(v) ? "V2.3" : "V3");
+                      }
 
                     }
                   }}
@@ -1586,10 +1588,21 @@ export default function FunnelsPage() {
                           Can&rsquo;t switch to V3 yet — still missing: {V3_REQUIRED.filter(([k]) => gap.includes(k)).map(([, l]) => l).join(", ")}. Fill the red fields below, save (Step 3), then switch again.
                         </p>
                       )}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-medium text-[#697a91]">Setting up as:</span>
+                        {(["V1", "V2.3", "V3"] as const).map((v) => (
+                          <button key={v} type="button" onClick={() => setSetupVer(v)}
+                            className={cn("text-[11px] font-bold rounded-lg px-3 py-1 border",
+                              setupVer === v ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] bg-white text-[#1c2b3a] hover:bg-[#f6f9fc]")}>
+                            {v}
+                          </button>
+                        ))}
+                        <span className="text-[10px] text-[#697a91]">
+                          {ver ? <>Clients sheet says <b>{ver.replace(/[()]/g, "")}</b>{setupVer !== (isV1 ? "V1" : /v2\.3/i.test(ver) ? "V2.3" : "V3") && <> — this choice only changes the form view</>}.</> : <>Program unknown on the Clients tab — pick the one you&rsquo;re setting up.</>}
+                        </span>
+                      </div>
                       <p className="text-[10px] text-[#697a91]">
-                        {ver ? <>This client is <b className={isV1 ? "text-[#b45309]" : "text-[#1d4ed8]"}>{ver.replace(/[()]/g, "")}</b> (Clients sheet). </> : <>Program unknown — set it on the Clients tab. </>}
-                        Fields marked <span className="text-[#e11d48] font-bold">*</span> are required for this account&rsquo;s program; everything else is optional — photos and empty optionals are pulled from the sub-account automatically.
-                        {isV1 && <> Greyed fields can stay empty for this V1 client.</>}
+                        The form shows what a <b>{setupVer}</b> setup needs. Fields marked <span className="text-[#e11d48] font-bold">*</span> are required; everything else is optional — photos and empty optionals are pulled from the sub-account automatically.
                       </p>
                     </>);
                   })()}
@@ -1604,11 +1617,11 @@ export default function FunnelsPage() {
                       ["fanbasisProductId", "Commas product ID"],
                       ["igWidget", "Instagram widget link (elf.site)"],
                       ["googleWidget", "Google reviews widget link (elf.site)"],
-                    ] as [string, string][]).map(([k, label]) => {
-                      const ver = f.program?.version ?? "";
-                      const isV1 = /v1/i.test(ver);
-                      const must = reqFor(ver, k);
-                      const dim = isV1 && !must && V3_ONLY_KEYS.has(k);
+                    ] as [string, string][])
+                      .filter(([k]) => setupVer !== "V1" || !["offer", "deposit", "calendarId", "fanbasisProductId"].includes(k))
+                      .map(([k, label]) => {
+                      const must = reqFor(setupVer, k);
+                      const dim = false;
                       const red = (must || (v3Gap[f.slug] ?? []).includes(k)) && !(cvForm[k] ?? "").trim();
                       return (
                       <label key={k} className={cn("grid gap-0.5", dim && "opacity-50")}>
@@ -1645,16 +1658,15 @@ export default function FunnelsPage() {
                     </label>
                   </div>
                   {(() => {
-                    const ver = f.program?.version ?? "";
-                    const isV1 = /v1/i.test(ver);
-                    const dimCls = (k: string) => (isV1 && !reqFor(ver, k) && V3_ONLY_KEYS.has(k) ? "opacity-50" : "");
+                    const ver = setupVer;
+                    const isV1 = ver === "V1";
                     const isRed = (k: string) => (reqFor(ver, k) || (v3Gap[f.slug] ?? []).includes(k)) && !(cvForm[k] ?? "").trim();
                     const Lbl = (k: string, label: string) => (
                       <span className={cn("text-[10px] font-medium", isRed(k) ? "text-[#b91c1c]" : "text-[#697a91]")}>{label}<Must on={reqFor(ver, k)} />{isRed(k) && " — required"}</span>
                     );
                     const inputCls = (k: string) => cn("border rounded-lg px-3 py-2 text-xs", isRed(k) ? "border-[#ef4444] bg-[#fef2f2]" : "border-[#e4ebf2]");
                     const T = (k: string, label: string, ph = "") => (
-                      <label key={k} className={cn("grid gap-0.5", dimCls(k))}>
+                      <label key={k} className="grid gap-0.5">
                         {Lbl(k, label)}
                         <input value={cvForm[k] ?? ""} placeholder={ph}
                           onChange={(e) => setCvForm((x) => ({ ...x, [k]: e.target.value }))}
@@ -1662,7 +1674,7 @@ export default function FunnelsPage() {
                       </label>
                     );
                     const P = (k: string, label: string) => (
-                      <label key={k} className={cn("grid gap-0.5", dimCls(k))}>
+                      <label key={k} className="grid gap-0.5">
                         {Lbl(k, label)}
                         <ImageField value={cvForm[k] ?? ""} onChange={(u) => setCvForm((x) => ({ ...x, [k]: u }))} onToast={setToast} />
                       </label>
@@ -1677,16 +1689,17 @@ export default function FunnelsPage() {
                     return (
                       <div className="border border-[#bfe6e2] rounded-xl p-3 bg-[#f7fdfc] grid md:grid-cols-2 gap-2">
                         {H("Owner & links")}
-                        {T("ownerName", "Owner's name (V3)")}
+                        {T("ownerName", "Owner's name")}
                         {T("igLink", "Instagram page link", "https://www.instagram.com/…")}
                         {T("fbLink", "Facebook page link", "https://www.facebook.com/…")}
                         {T("gmbLink", "Google My Business link", "https://g.page/r/… or maps link")}
+                        {ver === "V3" && (<>
                         {H("Prices", true)}
                         {T("originalPrice", "Original price for brows", "$597")}
                         {T("discountedPrice", "Discounted price for brows", "$397")}
                         {T("touchupPrice", "Touch-up price", "$150")}
                         {H("Details for the AI script", true)}
-                        <label className={cn("grid gap-0.5 md:col-span-2", dimCls("services"))}>
+                        <label className="grid gap-0.5 md:col-span-2">
                           {Lbl("services", "Permanent makeup services (tick all that apply)")}
                           <div className={cn("flex flex-wrap gap-1.5", isRed("services") && "rounded-lg border border-[#ef4444] bg-[#fef2f2] p-1.5")}>
                             {[...SERVICE_OPTIONS, ...[...picked].filter((x) => !SERVICE_OPTIONS.includes(x))].map((opt) => (
@@ -1707,13 +1720,13 @@ export default function FunnelsPage() {
                         {T("businessHours", "Business hours", "Mon–Fri 9 AM–6 PM, Sat 10 AM–3 PM")}
                         {T("firstTouchup", "When is the first touch-up?", "6–8 weeks after the first session")}
                         {T("otherLocations", "Other locations", "none")}
-                        <label className={cn("grid gap-0.5 md:col-span-2", dimCls("extraNotes"))}>
+                        <label className="grid gap-0.5 md:col-span-2">
                           {Lbl("extraNotes", "Extra notes for the AI")}
                           <textarea value={cvForm.extraNotes ?? ""} rows={2}
                             onChange={(e) => setCvForm((x) => ({ ...x, extraNotes: e.target.value }))}
                             className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
                         </label>
-                        <label className={cn("grid gap-0.5 md:col-span-2", dimCls("depositFunnelUrl"))}>
+                        <label className="grid gap-0.5 md:col-span-2">
                           {Lbl("depositFunnelUrl", "Deposit funnel URL (the AI’s pay link — normally this funnel)")}
                           <div className="flex gap-1.5">
                             <input value={cvForm.depositFunnelUrl ?? ""} placeholder={oneboxUrl}
@@ -1725,7 +1738,8 @@ export default function FunnelsPage() {
                             )}
                           </div>
                         </label>
-                        {H("Photos (booking page)", true)}
+                        </>)}
+                        {H("Photos (booking page)", ver === "V3")}
                         {P("logo", "Funnel logo")}
                         <div className="hidden md:block" />
                         {P("studio1", "Studio picture 1")}
@@ -1807,8 +1821,10 @@ export default function FunnelsPage() {
                         }
                         /* V3 defaults (owner, 2026-09-24): an empty first-touch-up
                            answer becomes the standard line, and an empty deposit
-                           funnel URL becomes this client's own one-box link. */
-                        if (/v3/i.test(f.program?.version ?? "")) {
+                           funnel URL becomes this client's own one-box link.
+                           Keyed to the picker so defaults follow the version the
+                           form was filled as, not only the sheet. */
+                        if (setupVer === "V3") {
                           if (!(cvForm.firstTouchup ?? "").trim() && !(f.cv.firstTouchup ?? "").trim()) changed.firstTouchup = "6-8 weeks after the first session";
                           if (!(cvForm.depositFunnelUrl ?? "").trim() && !(f.cv.depositFunnelUrl ?? "").trim()) changed.depositFunnelUrl = f.url;
                         }
