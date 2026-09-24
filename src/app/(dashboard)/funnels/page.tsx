@@ -1941,7 +1941,8 @@ export default function FunnelsPage() {
                       </div>
                     )}
                     {redirectChoice === "no" && (
-                      <span className="text-[10px] text-[#697a91]">OK — no redirect. Use <b>{f.url}</b> in the ads.</span>
+                      <span className="text-[10px] text-[#697a91]">OK — no redirect. Use this link in the ads (click to copy):{" "}
+                        <CopyChip text={f.url} onCopied={() => setToast("Ad link copied ✓")} /></span>
                     )}
                   </div>
                   <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
