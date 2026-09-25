@@ -4,7 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, setDepositFunnelUrl, healFunnelPhotos, photosAreOwn, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
-import { findClientProgram, type ProgramRow } from "@/lib/client-program";
+import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
@@ -590,6 +590,12 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     const config = (row.config ?? {}) as Record<string, string>;
     const extras = (row.extras ?? {}) as Extras;
     const checks: { name: string; ok: boolean; note: string }[] = [];
+    /* V1 has no deposit checkout, so no Commas product is expected — and
+       the owner keeps V1 setups photo-light too, so the client-photos
+       check only applies from V2.3 up (owner, 2026-09-25). Same version
+       source as the card's program chip. */
+    const program = findClientProgram(await fetchProgramRows(svc), String(row.client_name ?? ""));
+    const isV1Client = /v1/i.test(program?.version ?? "");
 
     // page serves
     let pageOk = false;
@@ -615,7 +621,7 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
 
     const fbPid = (config.fanbasisProductId || "").trim();
     const fbCode = (config.fanbasisCode || "").trim() || extras.fanbasisHtml || "";
-    checks.push({
+    if (!isV1Client) checks.push({
       name: "Commas checkout",
       ok: !!(fbPid || fbCode),
       note: fbPid ? `product ${fbPid} (custom value)` : fbCode ? `${fbCode.length} chars` : "add 'CC - Fanbasis Product ID' custom value",
@@ -635,7 +641,7 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       return `${label}: ${stock ? `${stock} of ${kinds.length} are the template's stock pictures` : ""}${stock && broken ? ", " : ""}${broken ? `${broken} broken` : ""}`;
     };
     const ownBa = photosAreOwn(baKinds), ownStudio = photosAreOwn(stKinds);
-    checks.push({
+    if (!isV1Client) checks.push({
       name: "Client photos",
       ok: ownBa && ownStudio,
       note: `${describe("before/after", baKinds)} · ${describe("studio", stKinds)}${ownBa && ownStudio ? "" : " — upload the client's own into the photo custom values in GHL (Sync pulls them from the original page when it has them)"}`,
@@ -645,7 +651,7 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       ["biz", "Business Name"], ["phone", "CC - Business Phone Number"],
       ["address", "CC - Full Business Address"], ["offer", "CC - Offer"],
       ["calendarId", "CC - Permanent Makeup Transformation Calendar ID🔵"],
-      ["fanbasisProductId", "CC - Fanbasis Product ID"],
+      ...(isV1Client ? [] : [["fanbasisProductId", "CC - Fanbasis Product ID"] as [string, string]]),
     ];
     const missingCvs = requiredCfg.filter(([k]) => !(config[k] ?? "").trim()).map(([, n]) => n);
     checks.push({
