@@ -573,13 +573,15 @@ export default function FunnelsPage() {
      open Start Setup panel and threw the page back to the top (user,
      2026-09-20). Background refreshes now update the list in place. */
   const loadedOnce = useRef(false);
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<Funnel[]> => {
     if (!loadedOnce.current) setLoading(true);
     try {
       const r = await fetch("/api/onebox/admin");
       const j = await r.json();
-      setFunnels(j.funnels ?? []);
+      const rows: Funnel[] = j.funnels ?? [];
+      setFunnels(rows);
       loadedOnce.current = true;
+      return rows;
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -811,7 +813,23 @@ export default function FunnelsPage() {
         setSavedFlash(slug);
         window.setTimeout(() => setSavedFlash((cur) => (cur === slug ? null : cur)), 2500);
       }
-      if (action !== "health") await load();
+      if (action !== "health") {
+        const fresh = await load();
+        /* The Start Setup form snapshots f.cv when the panel opens, so a
+           "Sync Custom Values From GHL" click used to update the DB and the
+           card but leave the OPEN form's fields stale — the pulled values
+           only appeared after closing and reopening Start Setup (Wholeness
+           Wellness Spa, 2026-09-25). Re-seed the visible form from the
+           freshly synced values. */
+        if (action === "resync" && cvFor === slug) {
+          const row = fresh.find((x) => x.slug === slug);
+          if (row) {
+            setCvForm({ ...row.cv });
+            setSurveyRows(parseSurvey((row.cv.surveyRaw ?? "").trim() || DEFAULT_SURVEY_TEMPLATE));
+            setSurveyDirty(false);
+          }
+        }
+      }
     } finally { setBusy(null); }
   }
 
