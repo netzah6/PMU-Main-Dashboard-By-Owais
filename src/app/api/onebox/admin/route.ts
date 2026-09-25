@@ -76,10 +76,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ window: days, stats, page1 });
   }
 
-  const { data: rows } = await svc
+  const { data: allRows } = await svc
     .from("onebox_clients")
     .select("slug, location_id, client_name, status, cv_synced_at, config, extras, created_at")
     .order("created_at", { ascending: true });
+  /* Coaches and the media buyer see CLIENT (B2C) funnels only — the
+     agency's own B2B funnels never leave the server for them (owner,
+     2026-09-25; the page used to filter client-side). */
+  const rows = auth.role === "admin"
+    ? allRows
+    : (allRows ?? []).filter((r) => ((r.extras ?? {}) as Extras).template !== "b2b");
 
   /* Leads are paged and visitors are COUNTED per slug — PostgREST caps
      any plain select at 1,000 rows, which silently froze these counters
@@ -301,7 +307,15 @@ function warmFunnel(slug: string) {
 }
 
 const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "verifyRedirect"]);
-  if (auth.role !== "admin" && !(auth.role === "editor" && COACH_ACTIONS.has(String(body.action ?? "")))) {
+  /* The media buyer updates funnel OFFERS (owner, 2026-09-25): only the
+     "cvs" action, and the cvs handler below restricts them to the offer
+     field. Everything else stays admin/coach territory. */
+  const MEDIA_BUYER_ACTIONS = new Set(["cvs"]);
+  if (
+    auth.role !== "admin" &&
+    !(auth.role === "editor" && COACH_ACTIONS.has(String(body.action ?? ""))) &&
+    !(auth.role === "media_buyer" && MEDIA_BUYER_ACTIONS.has(String(body.action ?? "")))
+  ) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const svc = createServiceClient();
@@ -378,6 +392,11 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
   if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
   const { data: row } = await svc.from("onebox_clients").select("*").eq("slug", slug).single();
   if (!row) return NextResponse.json({ error: "unknown slug" }, { status: 404 });
+  /* Coaches and the media buyer work on CLIENT (B2C) funnels only — the
+     agency's own B2B funnels are admin territory (owner, 2026-09-25). */
+  if (auth.role !== "admin" && ((row.extras ?? {}) as Extras).template === "b2b") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   if (action === "resync") {
     const config = await refreshOneboxConfig(svc, slug, row.location_id as string);
@@ -476,6 +495,11 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     // values, then resync so the funnel reflects them immediately.
     let values: Record<string, unknown> = {};
     try { values = JSON.parse(String(body.values ?? "{}")); } catch { /* empty */ }
+    // The media buyer may change the offer and nothing else.
+    if (auth.role === "media_buyer") {
+      values = "offer" in values ? { offer: values.offer } : {};
+      if (!Object.keys(values).length) return NextResponse.json({ error: "media buyers can only update the offer" }, { status: 403 });
+    }
     const entries: { name: string; value: string }[] = [];
     for (const [key, cvName] of Object.entries(ONEBOX_EDITABLE_CVS)) {
       if (key in values && typeof values[key] === "string") {

@@ -499,6 +499,8 @@ export default function FunnelsPage() {
   const [leadFilter, setLeadFilter] = useState<string>("all");
   const [leadsBusy, setLeadsBusy] = useState(false);
   const [cvForm, setCvForm] = useState<Record<string, string>>({});
+  // Media buyer's per-card offer edits (their only editable field).
+  const [offerDraft, setOfferDraft] = useState<Record<string, string>>({});
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
   /* Start Setup step 5 — redirect the ad link onto this funnel? The choice
      is saved on the funnel (extras.adRedirect); the verification result is
@@ -949,6 +951,9 @@ export default function FunnelsPage() {
      Add client + Start Setup (with Save to GHL); everything that moves
      traffic or money stays admin-only. */
   const canEdit = isAdmin || role === "editor";
+  /* The media buyer edits ONE thing: the funnel's offer (owner,
+     2026-09-25). The API enforces the same limit server-side. */
+  const isMediaBuyer = role === "media_buyer";
 
   return (
     <div className="p-3 md:p-6 max-w-[1200px] mx-auto">
@@ -1487,6 +1492,23 @@ export default function FunnelsPage() {
                 <Dot ok={f.hasWidget} label="results widget" />
                 <Dot ok={f.hasPixel} label="pixel" />
                 <div className="flex-1" />
+                {isMediaBuyer && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="text-[11px] text-[#697a91]">Offer:</span>
+                    <input
+                      value={offerDraft[f.slug] ?? f.cv.offer ?? ""}
+                      onChange={(e) => setOfferDraft((x) => ({ ...x, [f.slug]: e.target.value }))}
+                      placeholder="$200 OFF All Packages"
+                      className="text-xs border border-[#e4ebf2] rounded-lg px-2 py-1 w-56 focus:outline-none focus:border-[#0e9c9c]"
+                    />
+                    <button
+                      onClick={() => void act("cvs", f.slug, { values: JSON.stringify({ offer: (offerDraft[f.slug] ?? f.cv.offer ?? "").trim() }) })}
+                      disabled={busy === `cvs:${f.slug}` || (offerDraft[f.slug] ?? f.cv.offer ?? "") === (f.cv.offer ?? "")}
+                      className="text-xs bg-[#0e9c9c] text-white rounded-lg px-2.5 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
+                      {busy === `cvs:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save
+                    </button>
+                  </span>
+                )}
                 {isAdmin && (<>
                 <button onClick={() => void act("resync", f.slug)} disabled={busy === `resync:${f.slug}`}
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
