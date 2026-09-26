@@ -65,6 +65,13 @@ export async function GET(req: NextRequest) {
      its distinctive words — the same matching the split tables used. */
   const statsWin = req.nextUrl.searchParams.get("stats");
   if (statsWin === "7" || statsWin === "14" || statsWin === "30" || statsWin === "since") {
+    /* The fleet traffic table is admin + media-buyer only (owner, 2026-09-26):
+       coaches lost the "One-box performance — all clients" box on the Funnels
+       tab, and hiding it in the UI alone would leave every client's visitors,
+       leads and spend one hand-typed URL away. Gate the DATA, not the box. */
+    if (auth.role !== "admin" && auth.role !== "media_buyer") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const days: StatsWindow = statsWin === "since" ? "since" : (Number(statsWin) as 7 | 14 | 30);
     const stats = await computeFunnelStats(svc, days);
     /* Which clients have a page-1 A/B test right now — the table shows

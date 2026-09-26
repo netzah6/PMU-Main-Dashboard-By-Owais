@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, Plus, X, Play, Pause, Check, Trash2, ExternalLink, AlertTriangle, CreditCard } from "lucide-react";
+import { Loader2, Plus, X, Play, Pause, Check, Trash2, ExternalLink, AlertTriangle, CreditCard, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Subscriptions billed from here instead of Square, so pausing one never sends
@@ -21,7 +21,18 @@ type Sub = {
   square_customer_id: string | null; square_card_id: string | null; square_card_label: string | null;
   retry_attempt?: number | null; pause_reason?: string | null;
 };
-type CardOpt = { id: string; brand: string; last4: string; exp: string | null; holder: string | null; enabled: boolean };
+/* A card belongs to a Square customer, and one business can have two of them:
+   Bombshell Beauty is Erin Heidecke and Ayesha Ali, partners who each pay from
+   their own card (owner, 2026-09-26). So a card carries its customer and the
+   person it belongs to, and the subscription is pointed at that pair. */
+type CardOpt = {
+  id: string; customerId: string; person: string | null; personEmail: string | null;
+  brand: string; last4: string; exp: string | null; holder: string | null; enabled: boolean;
+};
+type Payer = { customerId: string; name: string; email: string | null };
+/* A Square customer as the manual search returns it — any contact in the
+   account, not just ones already matched to this client. */
+type SquareContact = { id: string; name: string; email: string | null; phone: string | null; company: string | null };
 type Charge = {
   id: string; subscription_id: string; owner_key: string; amount_cents: number;
   status: "succeeded" | "failed"; square_payment_id: string | null; receipt_url: string | null;
@@ -59,29 +70,86 @@ export function DashboardSubscriptions() {
   const [showMatches, setShowMatches] = useState(false);
   // Which subscription is having its next-charge date changed inline.
   const [dateEdit, setDateEdit] = useState<{ id: string; value: string } | null>(null);
-  // Card picker: which subscription is open, the cards Square returned for
-  // that client, and which one would be used if nothing is chosen.
-  const [cardPick, setCardPick] = useState<{ id: string; loading: boolean; error?: string; customerId?: string; cards: CardOpt[]; defaultCardId: string | null; pinnedInPps: boolean; lastUsed?: boolean } | null>(null);
+  // Card picker: which subscription is open, the people paying for that client
+  // and the cards Square returned for each, and which card would be used if
+  // nothing is chosen. `mustChoose` = two payers, so there is no default.
+  const [cardPick, setCardPick] = useState<{ id: string; loading: boolean; error?: string; people: Payer[]; cards: CardOpt[]; defaultCardId: string | null; pinnedInPps: boolean; lastUsed?: boolean; mustChoose?: boolean; foundBySearch?: boolean } | null>(null);
   // last4 by card id, so a row can show "••4242" without a lookup each render
   const [cardLabels, setCardLabels] = useState<Record<string, string>>({});
+  /* Find ANY Square contact by hand. Automatic discovery matches on the sheet's
+     email, phone, business and the names in the Owner Full Name cell — which
+     cannot reach a payer the sheet never names (a partner, a spouse, a manager,
+     a record opened under a nickname). This box makes the picker work for every
+     client, not only the ones whose partners are written down (owner,
+     2026-09-26). Once attached, the customer is remembered for next time. */
+  const [custQ, setCustQ] = useState("");
+  const [custHits, setCustHits] = useState<SquareContact[]>([]);
+  const [custBusy, setCustBusy] = useState(false);
+  const [custNote, setCustNote] = useState<string | null>(null);
+
+  const searchContacts = async () => {
+    const q = custQ.trim();
+    if (q.length < 3) { setCustNote("Type at least 3 characters."); return; }
+    setCustBusy(true); setCustNote(null); setCustHits([]);
+    try {
+      const r = await fetch(`/api/ppa/customer-search?q=${encodeURIComponent(q)}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Search failed");
+      const hits = (j.customers ?? []) as SquareContact[];
+      setCustHits(hits);
+      if (!hits.length) setCustNote(`Nothing in Square matches "${q}".`);
+    } catch (e) {
+      setCustNote(e instanceof Error ? e.message : "Search failed");
+    } finally { setCustBusy(false); }
+  };
+
+  /* Load one hand-picked contact's cards into the open picker. */
+  const attachContact = async (subId: string, c: SquareContact) => {
+    setCustBusy(true); setCustNote(null);
+    try {
+      const r = await fetch(`/api/subscriptions/cards?customerId=${encodeURIComponent(c.id)}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Could not load that contact's cards");
+      const people = (j.people ?? []) as Payer[];
+      setCardPick({
+        id: subId, loading: false, people, cards: j.cards, defaultCardId: null,
+        pinnedInPps: false, lastUsed: false, mustChoose: true, foundBySearch: true,
+      });
+      const labels: Record<string, string> = {};
+      for (const k of j.cards as CardOpt[]) {
+        labels[k.id] = `${k.person ? `${k.person.split(" ")[0]} · ` : ""}${k.brand} ••${k.last4}`;
+      }
+      setCardLabels((m) => ({ ...m, ...labels }));
+      setCustHits([]); setCustQ("");
+    } catch (e) {
+      setCustNote(e instanceof Error ? e.message : "Could not load that contact's cards");
+    } finally { setCustBusy(false); }
+  };
 
   const openCardPicker = async (s: Sub) => {
-    setCardPick({ id: s.id, loading: true, cards: [], defaultCardId: null, pinnedInPps: false });
+    setCardPick({ id: s.id, loading: true, people: [], cards: [], defaultCardId: null, pinnedInPps: false });
     try {
       const r = await fetch(`/api/subscriptions/cards?ownerKey=${encodeURIComponent(s.owner_key)}`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Could not load cards");
-      setCardPick({ id: s.id, loading: false, customerId: j.customerId, cards: j.cards, defaultCardId: j.defaultCardId, pinnedInPps: !!j.pinnedInPps, lastUsed: !!j.lastUsed });
+      const people = (j.people ?? []) as Payer[];
+      setCardPick({ id: s.id, loading: false, people, cards: j.cards, defaultCardId: j.defaultCardId, pinnedInPps: !!j.pinnedInPps, lastUsed: !!j.lastUsed, mustChoose: !!j.mustChoose });
       const labels: Record<string, string> = {};
-      for (const c of j.cards as CardOpt[]) labels[c.id] = `${c.brand} ••${c.last4}`;
+      // With two partners on one business the badge has to say WHOSE card it
+      // is — "VISA ••1234" alone would not tell the admin who gets charged.
+      for (const c of j.cards as CardOpt[]) {
+        const who = people.length > 1 && c.person ? `${c.person.split(" ")[0]} · ` : "";
+        labels[c.id] = `${who}${c.brand} ••${c.last4}`;
+      }
       setCardLabels((m) => ({ ...m, ...labels }));
     } catch (e) {
-      setCardPick({ id: s.id, loading: false, error: e instanceof Error ? e.message : "Could not load cards", cards: [], defaultCardId: null, pinnedInPps: false });
+      setCardPick({ id: s.id, loading: false, error: e instanceof Error ? e.message : "Could not load cards", people: [], cards: [], defaultCardId: null, pinnedInPps: false });
     }
   };
   const chooseCard = async (s: Sub, customerId: string | null, cardId: string | null) => {
     const cardLabel = cardId ? (cardLabels[cardId] ?? "") : "";
-    const ok = await act({ action: "set_card", id: s.id, customerId: customerId ?? "", cardId: cardId ?? "", cardLabel }, `card:${s.id}`);
+    // Tagged per card, so only the button that was clicked spins.
+    const ok = await act({ action: "set_card", id: s.id, customerId: customerId ?? "", cardId: cardId ?? "", cardLabel }, `card:${s.id}:${cardId ?? "default"}`);
     if (ok) {
       setCardPick(null);
       setMsg(cardId
@@ -172,7 +240,6 @@ export function DashboardSubscriptions() {
     <div className="rounded-xl border border-[#cfe3f7] bg-[#f7fbff] p-3 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="text-sm font-bold text-[#1d4ed8]">Dashboard subscriptions</h2>
-        <span className="text-[11px] text-[#5b7aa8]">billed from here, so pausing never emails the client</span>
         {activeTotal > 0 && (
           <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#e6f7ee] text-[#15803d] border border-[#c7edd4]">
             {money(activeTotal)}/mo active
@@ -193,11 +260,11 @@ export function DashboardSubscriptions() {
         <span className={cn("text-[11px] font-bold", autocharge ? "text-[#15803d]" : "text-[#b45309]")}>
           {autocharge ? "Automatic charging is ON" : "Automatic charging is OFF"}
         </span>
-        <span className="text-[11px] text-[#697a91]">
-          {autocharge
-            ? "The daily run charges active subscriptions on their due date."
-            : "Nothing is charged automatically. Active subscriptions still show what is due, and “Charge now” still works."}
-        </span>
+        {!autocharge && (
+          <span className="text-[11px] text-[#697a91]">
+            Nothing is charged automatically. Active subscriptions still show what is due, and “Charge now” still works.
+          </span>
+        )}
         <button
           onClick={() => {
             if (!autocharge && !window.confirm("Turn ON automatic charging?\n\nFrom now on the daily run will charge every ACTIVE subscription on its due date, without asking.")) return;
@@ -339,7 +406,9 @@ export function DashboardSubscriptions() {
 
                   {s.status !== "ended" && (
                     <button onClick={() => openCardPicker(s)}
-                      title={s.square_card_id ? "This subscription charges a specific card — click to change" : "No card chosen — the charge uses the PPS-pinned card or the first card on file. Click to choose."}
+                      title={s.square_card_id
+                        ? "This subscription charges a specific card — click to change"
+                        : "No card chosen — the charge uses the PPS-pinned card or the first card on file, and fails when two people pay for the business. Click to choose."}
                       className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border",
                         s.square_card_id ? "bg-[#eef4ff] text-[#1d4ed8] border-[#c9dbfb]" : "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]")}>
                       <CreditCard size={10} />
@@ -384,48 +453,146 @@ export function DashboardSubscriptions() {
                     {cardPick.loading ? (
                       <div className="flex items-center gap-2 text-[11px] text-[#697a91]"><Loader2 size={12} className="animate-spin" /> Looking up cards on file in Square…</div>
                     ) : cardPick.error ? (
-                      <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#be123c]">
-                        {cardPick.error}
-                        <button onClick={() => setCardPick(null)} className="ml-auto text-[#8595a8]">close</button>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#be123c]">
+                          {cardPick.error}
+                          <button onClick={() => setCardPick(null)} className="ml-auto text-[#8595a8]">close</button>
+                        </div>
+                        {/* Find any Square contact by hand — the general escape hatch when
+                            automatic matching cannot reach a payer (owner, 2026-09-26). */}
+                        <div className="border-t border-[#e4ebf2] pt-1.5 mt-1.5 space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <Search size={11} className="text-[#697a91] shrink-0" />
+                            <input
+                              value={custQ}
+                              onChange={(e) => setCustQ(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchContacts(); } }}
+                              placeholder="Find another Square contact — name, email, phone or business…"
+                              className="flex-1 min-w-0 px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] text-[#1f3559] placeholder:text-[#a6b3c4] focus:outline-none focus:border-[#15B7AE]" />
+                            <button onClick={() => void searchContacts()} disabled={custBusy}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50">
+                              {custBusy ? <Loader2 size={10} className="animate-spin" /> : null} Search
+                            </button>
+                          </div>
+                          {custNote && <p className="text-[10.5px] text-[#b45309]">{custNote}</p>}
+                          {custHits.length > 0 && (
+                            <div className="space-y-1">
+                              {custHits.map((c) => (
+                                <button key={c.id} onClick={() => void attachContact(s.id, c)} disabled={custBusy}
+                                  className="w-full flex items-center gap-2 px-2 py-1 rounded-md border border-[#e4ebf2] bg-white text-left hover:border-[#15B7AE] disabled:opacity-50">
+                                  <span className="text-[11px] font-semibold text-[#1f3559] truncate">{c.name || "(no name)"}</span>
+                                  <span className="text-[10px] text-[#8595a8] truncate">{c.email ?? c.company ?? c.phone ?? ""}</span>
+                                  <span className="ml-auto text-[10px] font-bold text-[#0e8f88] shrink-0">use →</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <>
                         <div className="text-[11px] font-semibold text-[#1f3559]">
                           Which card should this subscription charge?
+                          {/* Two payers on one business is normal for a partner studio —
+                              say so, and say what "leave it" would do. */}
+                          {cardPick.foundBySearch ? (
+                            <span className="ml-2 font-normal text-[#0e8f88]">
+                              showing a contact you found by hand — pick the card to attach
+                            </span>
+                          ) : cardPick.mustChoose && (
+                            <span className="ml-2 font-normal text-[#b45309]">
+                              {cardPick.people.length} people pay for this business — pick whose card this one charges
+                            </span>
+                          )}
                           {cardPick.pinnedInPps
                             ? <span className="ml-2 font-normal text-[#697a91]">(the default is the card pinned on PPS Billing)</span>
                             : cardPick.lastUsed
                               ? <span className="ml-2 font-normal text-[#697a91]">(the default is the card she last paid with)</span>
-                              : null}
+                              : !cardPick.defaultCardId
+                                ? <span className="ml-2 font-normal text-[#697a91]">(there is no default — a charge with no card chosen will fail)</span>
+                                : null}
                         </div>
                         {cardPick.cards.length === 0 ? (
                           <p className="text-[11px] text-[#be123c]">This client has no cards on file in Square.</p>
                         ) : (
-                          <div className="flex flex-wrap gap-1.5">
-                            {cardPick.cards.map((c) => {
-                              const chosen = s.square_card_id === c.id;
-                              const isDefault = !s.square_card_id && c.id === cardPick.defaultCardId;
-                              return (
-                                <button key={c.id} disabled={!c.enabled || busy === `card:${s.id}`}
-                                  onClick={() => chooseCard(s, cardPick.customerId ?? null, c.id)}
-                                  title={!c.enabled ? "Disabled in Square — cannot be charged" : c.holder ?? undefined}
-                                  className={cn("flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] text-left",
-                                    chosen ? "bg-[#eef4ff] border-[#1d4ed8] text-[#1d4ed8] font-semibold"
-                                      : c.enabled ? "bg-white border-[#d7e0ea] text-[#1f3559] hover:border-[#15B7AE]"
-                                        : "bg-[#f6f7f9] border-[#e2e8f0] text-[#94a3b8] line-through")}>
-                                  <CreditCard size={12} />
-                                  <span>{c.brand} ••{c.last4}{c.exp ? ` · exp ${c.exp}` : ""}</span>
-                                  {chosen && <span className="text-[9px] font-bold uppercase">chosen</span>}
-                                  {isDefault && <span className="text-[9px] font-bold uppercase text-[#0e8f88]">default</span>}
-                                </button>
-                              );
-                            })}
+                          /* One group per Square customer. Partners keep their own
+                             heading so "MASTERCARD ••6282" is never ambiguous. */
+                          <div className="space-y-1.5">
+                            {cardPick.people.map((p) => (
+                              <div key={p.customerId} className="space-y-1">
+                                {cardPick.people.length > 1 && (
+                                  <div className="text-[10px] font-bold uppercase tracking-wide text-[#34568a]">
+                                    {p.name}
+                                    {p.email && <span className="ml-1.5 font-normal normal-case tracking-normal text-[#8595a8]">{p.email}</span>}
+                                  </div>
+                                )}
+                                <div className="flex flex-wrap gap-1.5">
+                                  {cardPick.cards.filter((c) => c.customerId === p.customerId).map((c) => {
+                                    const chosen = s.square_card_id === c.id;
+                                    const isDefault = !s.square_card_id && c.id === cardPick.defaultCardId;
+                                    return (
+                                      <button key={c.id} disabled={!c.enabled || !!busy?.startsWith(`card:${s.id}`)}
+                                        /* The card's OWN customer — charging Erin's card
+                                           against Ayesha's Square record would fail. */
+                                        onClick={() => chooseCard(s, c.customerId, c.id)}
+                                        title={!c.enabled ? "Disabled in Square — cannot be charged" : c.holder ?? undefined}
+                                        className={cn("flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[12px] text-left",
+                                          chosen ? "bg-[#eef4ff] border-[#1d4ed8] text-[#1d4ed8] font-semibold"
+                                            : c.enabled ? "bg-white border-[#d7e0ea] text-[#1f3559] hover:border-[#15B7AE]"
+                                              : "bg-[#f6f7f9] border-[#e2e8f0] text-[#94a3b8] line-through")}>
+                                        {busy === `card:${s.id}:${c.id}` ? <Loader2 size={12} className="animate-spin" /> : <CreditCard size={12} />}
+                                        <span>{c.brand} ••{c.last4}{c.exp ? ` · exp ${c.exp}` : ""}</span>
+                                        {chosen && <span className="text-[9px] font-bold uppercase">chosen</span>}
+                                        {isDefault && <span className="text-[9px] font-bold uppercase text-[#0e8f88]">default</span>}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
+                        {/* Find any Square contact by hand — the general escape hatch when
+                            automatic matching cannot reach a payer (owner, 2026-09-26). */}
+                        <div className="border-t border-[#e4ebf2] pt-1.5 mt-1.5 space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <Search size={11} className="text-[#697a91] shrink-0" />
+                            <input
+                              value={custQ}
+                              onChange={(e) => setCustQ(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchContacts(); } }}
+                              placeholder="Find another Square contact — name, email, phone or business…"
+                              className="flex-1 min-w-0 px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] text-[#1f3559] placeholder:text-[#a6b3c4] focus:outline-none focus:border-[#15B7AE]" />
+                            <button onClick={() => void searchContacts()} disabled={custBusy}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50">
+                              {custBusy ? <Loader2 size={10} className="animate-spin" /> : null} Search
+                            </button>
+                          </div>
+                          {custNote && <p className="text-[10.5px] text-[#b45309]">{custNote}</p>}
+                          {custHits.length > 0 && (
+                            <div className="space-y-1">
+                              {custHits.map((c) => (
+                                <button key={c.id} onClick={() => void attachContact(s.id, c)} disabled={custBusy}
+                                  className="w-full flex items-center gap-2 px-2 py-1 rounded-md border border-[#e4ebf2] bg-white text-left hover:border-[#15B7AE] disabled:opacity-50">
+                                  <span className="text-[11px] font-semibold text-[#1f3559] truncate">{c.name || "(no name)"}</span>
+                                  <span className="text-[10px] text-[#8595a8] truncate">{c.email ?? c.company ?? c.phone ?? ""}</span>
+                                  <span className="ml-auto text-[10px] font-bold text-[#0e8f88] shrink-0">use →</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
                         <div className="flex items-center gap-2 text-[11px]">
-                          {s.square_card_id && (
-                            <button onClick={() => chooseCard(s, null, null)} disabled={busy === `card:${s.id}`}
-                              className="text-[#34568a] underline decoration-dotted">Use the default card instead</button>
+                          {/* Clearing the choice is only an option when there IS a
+                              default — with two payers it would leave the charge
+                              with nothing to fall back on. */}
+                          {s.square_card_id && !cardPick.mustChoose && (
+                            <button onClick={() => chooseCard(s, null, null)} disabled={!!busy?.startsWith(`card:${s.id}`)}
+                              className="flex items-center gap-1 text-[#34568a] underline decoration-dotted disabled:opacity-50">
+                              {busy === `card:${s.id}:default` && <Loader2 size={10} className="animate-spin" />}
+                              Use the default card instead
+                            </button>
                           )}
                           <button onClick={() => setCardPick(null)} className="ml-auto text-[#8595a8]">close</button>
                         </div>

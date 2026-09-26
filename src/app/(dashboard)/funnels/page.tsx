@@ -4,6 +4,7 @@ import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search, Trash2 } from "lucide-react";
 import { SERVICE_OPTIONS } from "@/lib/onboarding-steps";
 import { cn } from "@/lib/utils";
+import { versionStyle } from "@/lib/version-style";
 import type { StatsWindow } from "@/lib/onebox-insights";
 
 // Funnels — the one-box funnels hosted on Vercel: which client has one,
@@ -130,6 +131,30 @@ function programSection(f: Funnel): string {
   if (f.program.version === "(V2.3)") return "V2.3 CLIENTS";
   if (f.program.version === "(V1)") return "V1 CLIENTS";
   return `${f.program.version || "NO VERSION"} CLIENTS`;
+}
+
+/* Every V3 / V2.3 / V1 mark on this tab wears the Clients-tab palette, so a
+   program reads the same colour everywhere (owner, 2026-09-26) — this is just
+   the canonical versionStyle() as an inline-style object. */
+/* Selected/unselected styling for a program chip row. The fill is the Clients
+   tab's own colour for that program, but V1's canonical colour IS a pale grey —
+   so a selected V1 chip filled with it read as DISABLED next to white siblings.
+   The ring makes "picked" legible independently of the palette, and the text is
+   darkened when the fill is the grey fallback. */
+function vsChipStyle(version: string, selected: boolean): React.CSSProperties {
+  const vs = versionStyle(version);
+  if (!selected) return { borderColor: vs.border };
+  const GREY_FALLBACK_TEXT = "#64748b";
+  return {
+    ...vsStyle(version),
+    color: vs.text === GREY_FALLBACK_TEXT ? "#334155" : vs.text,
+    boxShadow: `0 0 0 2px ${vs.border}`,
+    fontWeight: 700,
+  };
+}
+function vsStyle(version: string): React.CSSProperties {
+  const vs = versionStyle(version);
+  return { background: vs.bg, color: vs.text, borderColor: vs.border };
 }
 
 /* One optimizer flag: the problem, the evidence, the proposed fix — and
@@ -520,7 +545,12 @@ export default function FunnelsPage() {
      client. */
   const pixelOptions = useMemo(() => {
     const use = new Map<string, { n: number; who: string }>();
-    for (const x of funnels) {
+    /* Non-admins never see the agency's B2B funnel, so it must not name
+       itself in their pixel list either — a shared pixel's "· N funnels"
+       count would otherwise carry it too (owner, 2026-09-26). The API
+       already strips B2B rows for them; this keeps the page honest on its
+       own. */
+    for (const x of funnels.filter((y) => role === "admin" || y.template !== "b2b")) {
       const id = (x.pixelId ?? "").replace(/\D/g, "");
       if (!id) continue;
       const u = use.get(id) ?? { n: 0, who: x.clientName };
@@ -532,15 +562,21 @@ export default function FunnelsPage() {
     shared.forEach(([id, u], i) => out.push({ id, label: `PMU For all (${String.fromCharCode(65 + i)}) — ${id} · ${u.n} funnels` }));
     single.forEach(([id, u]) => out.push({ id, label: `${u.who} — ${id}` }));
     return out;
-  }, [funnels]);
+  }, [funnels, role]);
   const pixelLabel = (id: string) => pixelOptions.find((o) => o.id === id)?.label ?? id;
   /* What the list shows: sorted B2C-first as before, narrowed by the search
      line; a coach never sees the agency's B2B funnel. */
   const visibleFunnels = useMemo(() => {
     const q = search.trim().toLowerCase();
+    /* Everything one box can be found by (owner, 2026-09-26): the business
+       name, the GHL sub-account (location) ID — the value the card's chip
+       copies — the client owner's full name off the Clients Master row, and
+       the slug. */
+    const haystack = (f: Funnel) =>
+      `${f.clientName} ${f.slug} ${f.locationId} ${f.program?.ownerName ?? ""}`.toLowerCase();
     return [...funnels]
       .filter((f) => role === "admin" || f.template !== "b2b")
-      .filter((f) => !q || `${f.clientName} ${f.slug}`.toLowerCase().includes(q))
+      .filter((f) => !q || haystack(f).includes(q))
       .sort((a, b) =>
         programRank(a) - programRank(b) ||
         Number(b.status === "live") - Number(a.status === "live") ||
@@ -954,6 +990,14 @@ export default function FunnelsPage() {
   /* The media buyer edits ONE thing: the funnel's offer (owner,
      2026-09-25). The API enforces the same limit server-side. */
   const isMediaBuyer = role === "media_buyer";
+  /* Fleet traffic is not a coach's job: the "One-box performance — all
+     clients" box is the only place on this tab that shows every client's
+     traffic side by side and flags the drops (orange = 25%+ under the fleet
+     average), and the owner asked that a Client Success Coach not see it
+     (2026-09-26). Admins and the media buyer — whose work IS the traffic —
+     keep it. Hidden also means its /api/onebox/admin?stats= fetch never
+     happens for a coach, since only opening the box triggers it. */
+  const seesFleetTraffic = isAdmin || isMediaBuyer;
 
   return (
     <div className="p-3 md:p-6 max-w-[1200px] mx-auto">
@@ -974,7 +1018,7 @@ export default function FunnelsPage() {
 
       <div className="relative mb-3">
         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search a client…"
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search a client — business name, owner's full name, sub-account ID or slug…"
           className="w-full pl-9 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1c2b3a] focus:outline-none focus:border-[#15B7AE]" />
       </div>
 
@@ -1015,7 +1059,7 @@ export default function FunnelsPage() {
         <div className="p-10 text-center text-[#697a91] text-sm">No funnels yet — add the first client.</div>
       ) : (
         <div className="space-y-1.5">
-          {funnels.some((f) => f.status === "live" && f.slug !== "demo-v3" && f.template !== "b2b") && (
+          {seesFleetTraffic && funnels.some((f) => f.status === "live" && f.slug !== "demo-v3" && f.template !== "b2b") && (
             <div className="border border-[#bfe6e2] rounded-xl bg-white p-4">
               <button
                 onClick={() => {
@@ -1255,18 +1299,29 @@ export default function FunnelsPage() {
           {visibleFunnels
             .map((f, i, arr) => (
             <Fragment key={f.slug}>
-            {f.template !== "b2b" && (i === 0 || programSection(arr[i - 1]) !== programSection(f)) && (
+            {f.template !== "b2b" && (i === 0 || programSection(arr[i - 1]) !== programSection(f)) && (() => {
+              /* The group heading is a program mark too, so it wears the
+                 Clients-tab colours — V3 blue, V2.3 purple (owner,
+                 2026-09-26). White-on-blue only reads as a filled pill, so
+                 the label became one and the divider lines took the same
+                 border colour. */
+              const section = programSection(f);
+              const line = { background: versionStyle(section).border };
+              return (
               <div className={cn("flex items-center gap-3", i === 0 ? "pt-1" : "pt-3")}>
-                <div className={cn("h-px flex-1", programSection(f) === "V3 CLIENTS" ? "bg-[#bfe6e2]" : "bg-[#e4ebf2]")} />
-                <span className={cn("text-[11px] font-semibold tracking-wide",
-                  programSection(f) === "V3 CLIENTS" ? "text-[#0b7f7f]"
-                  : programSection(f) === "V1 CLIENTS" ? "text-[#c2410c]" : "text-[#697a91]")}>
-                  {programSection(f)} ({arr.filter((x) => programSection(x) === programSection(f)).length})
+                <div className="h-px flex-1" style={line} />
+                <span className="text-[11px] font-semibold tracking-wide rounded-full border px-2 py-0.5" style={vsStyle(section)}>
+                  {section} ({arr.filter((x) => programSection(x) === section).length})
                 </span>
-                <div className={cn("h-px flex-1", programSection(f) === "V3 CLIENTS" ? "bg-[#bfe6e2]" : "bg-[#e4ebf2]")} />
+                <div className="h-px flex-1" style={line} />
               </div>
-            )}
-            {f.template === "b2b" && (i === 0 || arr[i - 1].template !== "b2b") && (
+              );
+            })()}
+            {/* The agency's own funnel and its split box: admins only. The API
+                already withholds B2B rows from everyone else, so this branch is
+                unreachable for them — said out loud here so a future change to
+                the list filter can't quietly open it (owner, 2026-09-26). */}
+            {isAdmin && f.template === "b2b" && (i === 0 || arr[i - 1].template !== "b2b") && (
               <>
                 <div className="flex items-center gap-3 pt-8">
                   <div className="h-px flex-1 bg-[#9fd8d4]" />
@@ -1317,10 +1372,11 @@ export default function FunnelsPage() {
                           (f.program.via === "prefix" ? " — matched by name prefix" : "") +
                           " — click to change (updates the Clients tab + sheet)"}
                         onClick={() => setProgFor(progFor === f.slug ? null : f.slug)}
-                        className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5 border",
-                          f.program.version === "(V3)" ? "bg-[#e7f6f6] text-[#0b7f7f] border-[#bfe6e2] hover:bg-[#d8f0ef]"
-                          : f.program.version === "(V1)" ? "bg-[#fff3e6] text-[#c2410c] border-[#fdba74] hover:bg-[#ffe9d1]"
-                          : "bg-[#f6f9fc] text-[#697a91] border-[#e4ebf2] hover:bg-[#eef3f8]")}>
+                        /* Same chip as the Clients tab's Version mark — one
+                           palette for the program, wherever it is shown
+                           (owner, 2026-09-26). */
+                        style={vsStyle(f.program.version)}
+                        className="text-[11px] font-semibold rounded-full px-2 py-0.5 border hover:opacity-90">
                         {f.program.version.replace(/[()]/g, "") || "no version"}{f.program.matches > 1 ? " ⚠" : ""}
                       </button>
                     ) : (
@@ -1404,10 +1460,14 @@ export default function FunnelsPage() {
                   </span>
                   {/* Only V3 and V1 are offered (user, 2026-09-14 / 16); a client
                       still on an older version just has neither chip selected. */}
+                  {/* The chosen chip wears its own program colour — the same
+                      blue/purple as the Clients tab (owner, 2026-09-26); the
+                      other stays white so the choice is unmistakable, keeping
+                      only that program's border colour. */}
                   {["(V3)", "(V1)"].map((v) => (
                     <button key={v} onClick={() => void saveProgram(f, v)} disabled={progBusy === f.slug}
-                      className={cn("text-[11px] font-semibold border rounded-md px-2.5 py-1 disabled:opacity-50",
-                        f.program!.version === v ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] bg-white hover:bg-[#eef6f6]")}>
+                      style={vsChipStyle(v, f.program!.version === v)}
+                      className="text-[11px] font-semibold border rounded-md px-2.5 py-1 disabled:opacity-50 bg-white text-[#1c2b3a] hover:opacity-90">
                       {progBusy === f.slug ? <Loader2 className="w-3 h-3 animate-spin inline" /> : v}
                     </button>
                   ))}
@@ -1633,15 +1693,20 @@ export default function FunnelsPage() {
                       )}
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-[10px] font-medium text-[#697a91]">Setting up as:</span>
+                        {/* Same program palette as everywhere else (owner,
+                            2026-09-26): the picked version fills with its own
+                            colour, the rest stay white with its border. */}
                         {(["V1", "V2.3", "V3"] as const).map((v) => (
                           <button key={v} type="button" onClick={() => setSetupVer(v)}
-                            className={cn("text-[11px] font-bold rounded-lg px-3 py-1 border",
-                              setupVer === v ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "border-[#e4ebf2] bg-white text-[#1c2b3a] hover:bg-[#f6f9fc]")}>
+                            style={vsChipStyle(v, setupVer === v)}
+                            className="text-[11px] font-bold rounded-lg px-3 py-1 border bg-white text-[#1c2b3a] hover:opacity-90">
                             {v}
                           </button>
                         ))}
                         <span className="text-[10px] text-[#697a91]">
-                          {ver ? <>Clients sheet says <b>{ver.replace(/[()]/g, "")}</b>{setupVer !== (isV1 ? "V1" : /v2\.3/i.test(ver) ? "V2.3" : "V3") && <> — this choice only changes the form view</>}.</> : <>Program unknown on the Clients tab — pick the one you&rsquo;re setting up.</>}
+                          {ver ? <>Clients sheet says{" "}
+                            <span className="text-[10px] font-semibold rounded-full border px-1.5 py-px align-middle" style={vsStyle(ver)}>{ver.replace(/[()]/g, "")}</span>
+                            {setupVer !== (isV1 ? "V1" : /v2\.3/i.test(ver) ? "V2.3" : "V3") && <> — this choice only changes the form view</>}.</> : <>Program unknown on the Clients tab — pick the one you&rsquo;re setting up.</>}
                         </span>
                       </div>
                       <p className="text-[10px] text-[#697a91]">
