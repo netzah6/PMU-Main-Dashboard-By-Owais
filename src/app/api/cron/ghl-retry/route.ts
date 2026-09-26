@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { bookAppointmentForLead, pushLeadToGhl } from "@/lib/ghl-push";
-import { notifyArtistOfBooking } from "@/lib/artist-notify";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 300;
@@ -159,16 +158,8 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       if (booked.appointmentId) {
         apptsCreated++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: booked.appointmentId }).eq("id", lead.id);
-        /* A healed booking is as new to the artist as a live one — send
-           the same "new appointment" text the live path sends (the GHL
-           internal notification can't fire on a pre-confirmed booking). */
-        const n = await notifyArtistOfBooking({
-          locationId: client.location_id as string,
-          leadName: String(lead.full_name ?? ""),
-          area: String((lead.answers as { area?: string } | null)?.area ?? ""),
-          slotIso: String(lead.slot_iso),
-        });
-        if (!n.ok) errors.push(`${lead.full_name}: artist notify — ${n.note}`);
+        // The artist hears about this via /api/cron/artist-notify, which
+        // picks up freshly booked leads and checks their thread first.
       } else if (booked.alreadyBooked) {
         alreadyBooked++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: "manual" }).eq("id", lead.id);
