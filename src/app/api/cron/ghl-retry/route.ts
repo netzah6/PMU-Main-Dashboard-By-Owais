@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { bookAppointmentForLead, pushLeadToGhl } from "@/lib/ghl-push";
-import { addOneboxBookedTag } from "@/lib/artist-notify";
+import { addOneboxBookedTag, ensureContactOwner } from "@/lib/artist-notify";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 300;
@@ -162,7 +162,9 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
         /* A healed booking is as new to the artist as a live one — the
            "onebox-booked" tag fires the account's notification workflow
            (bookAppointmentForLead already wrote the reserved-time field
-           the message reads). */
+           the message reads). The notification targets the CONTACT OWNER,
+           so guarantee one exists before the tag lands. */
+        await ensureContactOwner(client.location_id as string, contactId);
         const tagged = await addOneboxBookedTag(client.location_id as string, contactId);
         if (tagged.ok) {
           await svc.from("onebox_leads")

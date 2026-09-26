@@ -14,13 +14,13 @@ import { fmtReservedTime } from "@/lib/onebox";
    number their lead and appointment notifications already come from
    (owner rule, 2026-09-26; the first draft used the agency number). */
 
-type GhlUser = { deleted?: boolean; name?: string; phone?: string; roles?: { type?: string; role?: string } };
+type GhlUser = { id?: string; deleted?: boolean; name?: string; phone?: string; roles?: { type?: string; role?: string } };
 
 /* The sub-account user who should hear about bookings: an account-type
    member (agency staff are filtered out so they never get a client's
    notification), not deleted, with a real phone; the account admin wins
    over other members. */
-export async function findArtistUser(locationId: string): Promise<{ name: string; phone: string } | null> {
+export async function findArtistUser(locationId: string): Promise<{ id: string; name: string; phone: string } | null> {
   const tok = await getAppLocationToken(locationId);
   if (!tok.token) return null;
   const r = await fetch(`https://services.leadconnectorhq.com/users/?locationId=${locationId}`, {
@@ -30,7 +30,32 @@ export async function findArtistUser(locationId: string): Promise<{ name: string
   const users = (((await r.json()) as { users?: GhlUser[] }).users ?? [])
     .filter((u) => !u.deleted && String(u.roles?.type ?? "") === "account" && String(u.phone ?? "").replace(/\D/g, "").length >= 10);
   const pick = users.find((u) => String(u.roles?.role ?? "") === "admin") ?? users[0];
-  return pick ? { name: String(pick.name ?? ""), phone: String(pick.phone) } : null;
+  return pick ? { id: String(pick.id ?? ""), name: String(pick.name ?? ""), phone: String(pick.phone) } : null;
+}
+
+/* The notify workflow's recipient is "Contact owner", so a contact nobody
+   owns makes the workflow fire into silence — 10 of the 36 backfilled
+   bookings (7 accounts) hit exactly that on 2026-09-26. Called right
+   before the onebox-booked tag lands: give an ownerless contact the
+   account's artist (same pick as findArtistUser). Never reassigns an
+   existing owner — lead distribution stays whatever the account set up. */
+export async function ensureContactOwner(locationId: string, contactId: string): Promise<{ ok: boolean; note: string }> {
+  try {
+    const tok = await getAppLocationToken(locationId);
+    if (!tok.token) return { ok: false, note: tok.error ?? "no location token" };
+    const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" };
+    const cr = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: H });
+    if (!cr.ok) return { ok: false, note: `contact ${cr.status}` };
+    if (((await cr.json()) as { contact?: { assignedTo?: string } }).contact?.assignedTo) return { ok: true, note: "already owned" };
+    const artist = await findArtistUser(locationId);
+    if (!artist?.id) return { ok: false, note: "no account user with a phone to assign" };
+    const pu = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
+      method: "PUT", headers: H, body: JSON.stringify({ assignedTo: artist.id }),
+    });
+    return pu.ok ? { ok: true, note: `assigned ${artist.name}` } : { ok: false, note: `assign ${pu.status}` };
+  } catch (e) {
+    return { ok: false, note: String(e).slice(0, 120) };
+  }
 }
 
 export function bookingMessage(area: string, leadName: string, slotIso: string): string {

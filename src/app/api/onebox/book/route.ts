@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
+import { ensureContactOwner } from "@/lib/artist-notify";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -186,6 +187,10 @@ export async function POST(req: NextRequest) {
             body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(startTime) }] }),
           });
         }
+        /* The notification goes to the CONTACT OWNER — make sure there is
+           one before the tag fires the workflow (ownerless contacts made
+           10 of the 36 backfilled notifications vanish, 2026-09-26). */
+        await ensureContactOwner(locationId, contactId);
         const tr = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
           method: "POST",
           headers: { ...H, Version: "2021-07-28" },
