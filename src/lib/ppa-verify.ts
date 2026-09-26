@@ -90,6 +90,16 @@ export interface VerifyRow {
   pastDue: number;
   /** Set only on a partial charge: how many shows were ready in full. */
   partialOfShows?: number;
+  /* An ARBITRARY-amount collection (owner, 2026-09-26: "I'd like to charge any
+     amount"). The amount is cash off the card; it settles as many whole ready
+     shows as it covers and the remainder below one fee becomes account credit,
+     so a $30 payment against a $45 show is not lost — it comes off the next
+     charge. Set even when it settles ZERO shows, which is the whole point. */
+  amountOnly?: boolean;
+  /** Cash collected beyond the whole shows it settled — becomes credit. */
+  overpayCredit?: number;
+  /** Extra entropy for the Square idempotency key — see restrictRowToAmount. */
+  idempotencyBasis?: string;
   shows: VerifyShow[];
   match: VerifyMatch | null;
   cards: VerifyCard[];
@@ -691,6 +701,68 @@ export function restrictRowToShows(row: VerifyRow, apptIds: string[]): VerifyRow
   };
 }
 
+/**
+ * Narrow a row to an ARBITRARY cash amount instead of a set of shows.
+ *
+ * The amount is what comes off the card. It settles as many whole ready shows
+ * as it covers, oldest first, and whatever is left over (always less than one
+ * fee) is recorded as approved account credit, which the next charge draws
+ * down automatically. So $30 against a $45 show settles nothing today and
+ * leaves $15 owed next time — the money is never lost and never double-counted.
+ *
+ * Deliberately does NOT spend existing credit: the admin typed a cash figure,
+ * and the cap is the NET amount owed (gross minus credit already approved), so
+ * the client is never asked for money they do not owe. Any untouched credit
+ * still applies to their next charge, and the totals reconcile across the two.
+ */
+export function restrictRowToAmount(row: VerifyRow, amountUsd: number): VerifyRow {
+  const cents = Math.round(Number(amountUsd) * 100);
+  if (!Number.isFinite(cents) || cents <= 0) {
+    throw new ChargeRefused("Enter an amount greater than $0 to charge.");
+  }
+  /* Compare in CENTS. row.amount is shows x fee minus credit in floats, so
+     5 x 44.99 is 224.94999999999996 and typing the 224.95 the screen shows
+     was refused as "more than owed" by a fraction of a cent. */
+  const owedCents = Math.round(row.amount * 100);
+  if (cents > owedCents) {
+    throw new ChargeRefused(
+      `$${(cents / 100).toFixed(2)} is more than the $${(owedCents / 100).toFixed(2)} this client owes right now — lower the amount.`,
+    );
+  }
+  const feeCents = Math.round(row.fee * 100);
+  /* Integer division, for the same reason: with a $32.50 fee, 97.5/32.5 is
+     2.9999999999999996 in floats, so an exact 3-show payment floored to 2 and
+     banked a whole fee as "leftover" credit. */
+  const covered = feeCents > 0 ? Math.min(row.shows.length, Math.floor(cents / feeCents)) : 0;
+  /* OLDEST first — a balance is paid down from the front. buildVerifyReport
+     sorts row.shows NEWEST first (line ~397), so slicing it directly settled
+     the most recent appointments and left the most past-due ones outstanding. */
+  const oldestFirst = [...row.shows].sort((a, b) =>
+    String(a.apptDate ?? "").localeCompare(String(b.apptDate ?? "")));
+  const shows = oldestFirst.slice(0, covered);
+  /* Square is asked to be idempotent on the show set + amount, but an amount
+     below one fee settles NO show, so that key collapsed to owner+amount and a
+     second identical part payment was answered with the FIRST payment: nothing
+     collected, "Charged" on screen. Bind the key to the client's billing state
+     as well — the ready shows and the credit already approved. A double-click
+     on one screen shares that state (still idempotent, as intended); a genuine
+     second collection cannot, because the first one moved it (credit banked,
+     and/or shows settled). */
+  const basis = `${[...row.shows].map((sh) => sh.apptId).sort().join(",")}|${Math.round(row.creditApplied * 100)}|${Math.round(row.grossAmount * 100)}`;
+  return {
+    ...row,
+    shows,
+    readyToCharge: shows.length,
+    partialOfShows: row.readyToCharge,
+    amountOnly: true,
+    idempotencyBasis: basis,
+    grossAmount: cents / 100,
+    creditApplied: 0,
+    amount: cents / 100,
+    overpayCredit: (cents - covered * feeCents) / 100,
+  };
+}
+
 export interface ChargeOutcome {
   /** null when account credit covered the whole bill and no card was charged. */
   paymentId: string | null;
@@ -703,7 +775,10 @@ export interface ChargeOutcome {
 }
 
 export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Promise<ChargeOutcome> {
-  if (row.readyToCharge === 0) throw new ChargeRefused("Nothing to charge — no ready shows.");
+  /* A cash amount that settles no whole show yet (e.g. $30 of a $45 show) is
+     still a real collection — it becomes credit — so only the show-based paths
+     require a ready show. */
+  if (row.readyToCharge === 0 && !row.amountOnly) throw new ChargeRefused("Nothing to charge — no ready shows.");
   const blocks = row.flags.filter((f) => f.level === "block");
   if (blocks.length) throw new ChargeRefused(blocks.map((b) => b.message).join(" "));
   const apptIds = row.shows.map((s) => s.apptId).sort();
@@ -752,7 +827,7 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
   // return the first payment — money never collected, shows marked charged.
   // Max 45 chars for Square.
   const idempotencyKey = createHash("sha256")
-    .update(`pps:${row.ownerKey}:${apptIds.join(",")}:${row.amount}`)
+    .update(`pps:${row.ownerKey}:${apptIds.join(",")}:${row.amount}:${row.idempotencyBasis ?? ""}`)
     .digest("hex")
     .slice(0, 45);
 
@@ -761,7 +836,9 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
     cardId: card.id,
     amountCents: Math.round(row.amount * 100),
     idempotencyKey,
-    note: `PPS ${row.readyToCharge}${row.partialOfShows ? ` of ${row.partialOfShows}` : ""} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee}${row.creditApplied > 0 ? ` less $${row.creditApplied} credit` : ""}${row.partialOfShows ? " (partial)" : ""} — ${row.ownerName} (${row.business})`,
+    note: row.amountOnly
+      ? `PPS part payment $${row.amount}${row.readyToCharge ? ` — settles ${row.readyToCharge} of ${row.partialOfShows} show${row.partialOfShows === 1 ? "" : "s"} × $${row.fee}` : ""}${(row.overpayCredit ?? 0) > 0 ? `, $${row.overpayCredit} to account credit` : ""} — ${row.ownerName} (${row.business})`
+      : `PPS ${row.readyToCharge}${row.partialOfShows ? ` of ${row.partialOfShows}` : ""} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee}${row.creditApplied > 0 ? ` less $${row.creditApplied} credit` : ""}${row.partialOfShows ? " (partial)" : ""} — ${row.ownerName} (${row.business})`,
     referenceId: row.ownerKey,
   });
 
@@ -790,6 +867,44 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
   // The charge was reduced by this much, so the credit is now spent.
   if (row.creditApplied > 0) await consumeCredit(svc, row.ownerKey, row.creditApplied, payment.id);
 
+  /* Cash collected beyond the whole shows it settled is money we now hold for
+     this client: bank it as APPROVED credit (it is a payment received, not a
+     discretionary grant, so it needs no second approval) and the next charge
+     draws it down automatically. Keyed on the Square payment id and written
+     only if absent, so a retry that Square answers with the SAME payment
+     cannot bank the remainder twice. */
+  let creditWarning: string | null = null;
+  const overpay = row.overpayCredit ?? 0;
+  if (overpay > 0) {
+    const reason = `Part payment ${payment.id} — $${overpay} left over after ${row.readyToCharge} show${row.readyToCharge === 1 ? "" : "s"}`;
+    const { data: already } = await svc
+      .from("client_credits").select("id").eq("owner_key", row.ownerKey).eq("reason", reason).limit(1);
+    if (!already?.length) {
+      const { error: creditErr } = await svc.from("client_credits").insert({
+        owner_key: row.ownerKey,
+        client_label: row.ownerName,
+        amount: overpay,
+        reason,
+        status: "approved",
+        applied: 0,
+        requested_by: chargedBy,
+        decided_by: chargedBy,
+        decided_at: now,
+      });
+      /* This row is the ONLY record of the leftover — and when the amount
+         settled no whole show it is the only record of the payment at all,
+         because the ppa_charges upsert was handed an empty list. Swallowing
+         the error would lose collected cash silently, so say it loudly with
+         everything needed to repair it by hand. The payment already went
+         through, so this must NOT throw. */
+      if (creditErr) {
+        creditWarning =
+          `Charged $${row.amount} (Square ${payment.id}) but FAILED to record the $${overpay} leftover as credit: ${creditErr.message}.` +
+          ` Add $${overpay} of approved credit to ${row.ownerName} by hand, or the client is short that much.`;
+      }
+    }
+  }
+
   return {
     paymentId: payment.id,
     receiptUrl: payment.receiptUrl,
@@ -799,8 +914,11 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
     // The payment went through — a bookkeeping failure must be loud but must
     // NOT read as "charge failed" (an explicit retry is safe thanks to the
     // idempotency key, but the human needs to know money moved).
-    ...(error ? {
-      warning: `CHARGED $${row.amount} (Square ${payment.id}) but recording it in the dashboard failed: ${error.message}. Mark the appointments charged manually.`,
+    ...(error || creditWarning ? {
+      warning: [
+        error && `CHARGED $${row.amount} (Square ${payment.id}) but recording it in the dashboard failed: ${error.message}. Mark the appointments charged manually.`,
+        creditWarning,
+      ].filter(Boolean).join(" "),
     } : {}),
   };
 }

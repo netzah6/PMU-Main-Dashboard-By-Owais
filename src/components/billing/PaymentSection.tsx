@@ -187,10 +187,18 @@ export function StatusCell({ v }: { v: VRow | undefined }) {
 // the bill" is a subset of the ready shows: every dollar stays tied to the show
 // it paid for, and the shows left out stay in Ready as the remainder. Oldest
 // first, because that is the order a balance gets paid down in.
-function PartialChargePanel({ v, card, busy, onCancel, onConfirm }: {
+function PartialChargePanel({ v, card, busy, onCancel, onConfirm, onConfirmAmount }: {
   v: VRow; card: VCard; busy: boolean;
-  onCancel: () => void; onConfirm: (apptIds: string[]) => void;
+  onCancel: () => void;
+  onConfirm: (apptIds: string[]) => void;
+  onConfirmAmount: (amount: number) => void;
 }) {
+  /* Two ways to say "part of it" (owner, 2026-09-26: "I'd like to charge any
+     amount"). By shows keeps every dollar tied to the appointment it paid for;
+     by amount collects a flat figure, settles the whole shows it covers and
+     banks the sub-fee remainder as account credit for the next charge. */
+  const [mode, setMode] = useState<"shows" | "amount">(v.readyToCharge > 1 ? "shows" : "amount");
+  const [amountText, setAmountText] = useState("");
   const ordered = useMemo(
     () => [...v.shows].sort((a, b) => String(a.apptDate ?? "").localeCompare(String(b.apptDate ?? ""))),
     [v.shows]);
@@ -211,7 +219,85 @@ function PartialChargePanel({ v, card, busy, onCancel, onConfirm }: {
   return (
     <div className="absolute right-0 z-30 mt-1 w-[320px] rounded-xl border border-[#e4ebf2] bg-white p-2.5 text-left whitespace-normal"
       style={{ boxShadow: "0 8px 20px -6px rgba(0,0,0,0.25)" }}>
-      <div className="text-[11px] font-bold text-[#1f3559]">Charge part of it — pick the shows to collect now</div>
+      <div className="flex items-center gap-1.5">
+        <div className="text-[11px] font-bold text-[#1f3559]">Charge part of it</div>
+        <div className="ml-auto flex rounded-lg border border-[#e4ebf2] overflow-hidden">
+          {(["shows", "amount"] as const).map((m) => (
+            <button key={m} type="button" onClick={() => setMode(m)} disabled={busy}
+              className={cn("px-2 py-0.5 text-[10px] font-bold disabled:opacity-50",
+                mode === m ? "bg-[#0e8f88] text-white" : "bg-white text-[#697a91] hover:text-[#0e8f88]")}>
+              {m === "shows" ? "By shows" : "By amount"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mode === "amount" ? (() => {
+        /* Mirrors restrictRowToAmount on the server exactly: whole shows the
+           amount covers, oldest first, and the sub-fee remainder to credit. */
+        /* CENTS, exactly like restrictRowToAmount on the server — floats made
+           the screen promise one settlement and the server do another. The
+           regex also collapses "1.2.3" and "$1,000" to something Number() can
+           read, and anything it cannot becomes 0 (the button stays disabled). */
+        const cleaned = amountText.replace(/[^0-9.]/g, "").replace(/(\..*?)\./g, "$1");
+        const cents = Math.round(Number(cleaned) * 100);
+        const amt = Number.isFinite(cents) && cents > 0 ? cents / 100 : 0;
+        const owedCents = Math.round(v.amount * 100);
+        const feeCents = Math.round(v.fee * 100);
+        const tooMuch = Math.round(amt * 100) > owedCents;
+        const settles = feeCents > 0 ? Math.min(v.shows.length, Math.floor(Math.round(amt * 100) / feeCents)) : 0;
+        const toCredit = (Math.round(amt * 100) - settles * feeCents) / 100;
+        const ok = amt > 0 && !tooMuch;
+        return (
+          <div className="mt-1.5 space-y-1.5">
+            <label className="block text-[10px] font-semibold uppercase tracking-wide text-[#697a91]">
+              Amount to collect now
+            </label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-[#8595a8]">$</span>
+              <input value={amountText} onChange={(e) => setAmountText(e.target.value)} disabled={busy}
+                inputMode="decimal" placeholder={String(v.amount)}
+                className={cn("w-full pl-5 pr-2 py-1 rounded-lg border text-[12px] text-[#1f3559] focus:outline-none",
+                  tooMuch ? "border-[#e11d48]" : "border-[#d7e0ea] focus:border-[#15B7AE]")} />
+            </div>
+            <div className="text-[11px] space-y-0.5">
+              {tooMuch ? (
+                <p className="font-semibold text-[#e11d48]">
+                  More than the {money(v.amount)} owed right now — lower it.
+                </p>
+              ) : amt > 0 ? (
+                <>
+                  <p className="text-[#1f3559]">
+                    Settles <b>{settles}</b> of {v.readyToCharge} show{v.readyToCharge === 1 ? "" : "s"} × {money(v.fee)}
+                  </p>
+                  {toCredit > 0 && (
+                    <p className="text-[#0e8f88]">
+                      {money(toCredit)} left over → account credit, comes off their next charge
+                    </p>
+                  )}
+                  <p className={cn("font-semibold", v.readyToCharge - settles > 0 ? "text-[#b45309]" : "text-[#15803d]")}>
+                    {v.readyToCharge - settles > 0
+                      ? `Still in Ready after: ${v.readyToCharge - settles} show${v.readyToCharge - settles === 1 ? "" : "s"}`
+                      : "Nothing left in Ready"}
+                  </p>
+                </>
+              ) : (
+                <p className="text-[#8595a8]">Any amount up to {money(v.amount)}.</p>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => onConfirmAmount(amt)} disabled={busy || !ok}
+                title={`Charge ${card.brand} ••${card.last4} ${money(amt)}`}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74] disabled:opacity-50">
+                {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+                Charge {money(amt)} to ••{card.last4}
+              </button>
+              <button onClick={onCancel} disabled={busy}
+                className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
+            </div>
+          </div>
+        );
+      })() : (
+      <>
       <div className="mt-1.5 space-y-0.5 max-h-[150px] overflow-auto">
         {ordered.map((s) => (
           <label key={s.apptId} className="flex items-center gap-1.5 px-1 py-0.5 rounded cursor-pointer hover:bg-[#f8fafc]">
@@ -262,8 +348,10 @@ function PartialChargePanel({ v, card, busy, onCancel, onConfirm }: {
           className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
       </div>
       <div className="mt-1 text-[10px] text-[#8595a8]">
-        One show is the smallest piece — the fee is recorded per appointment, so a partial always lands on whole shows.
+        One show is the smallest piece here — switch to <b>By amount</b> to collect any figure; the part below a whole fee becomes account credit.
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -286,15 +374,18 @@ export function ActionsCell({ v, onMsg, onReload }: {
 
   // apptIds = a partial charge: only those ready shows are collected. Omitted
   // = the whole ready amount, exactly as before.
-  const runCharge = async (apptIds?: string[]) => {
-    const expected = apptIds ? partialTotals(v, apptIds).amount : v.amount;
+  const runCharge = async (apptIds?: string[], amount?: number) => {
+    const expected = amount != null ? amount : apptIds ? partialTotals(v, apptIds).amount : v.amount;
     setBusy(true); setConfirming(false); onMsg(null);
     try {
       const res = await fetch("/api/ppa/charge-run", {
         method: "POST", headers: { "Content-Type": "application/json" },
         // The server re-verifies and refuses if the live amount differs from
         // the one that was on screen when the human confirmed.
-        body: JSON.stringify({ owner_key: v.ownerKey, expected_amount: expected, ...(apptIds ? { appt_ids: apptIds } : {}) }),
+        body: JSON.stringify({
+          owner_key: v.ownerKey, expected_amount: expected,
+          ...(amount != null ? { amount } : apptIds ? { appt_ids: apptIds } : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Charge failed");
@@ -392,10 +483,13 @@ export function ActionsCell({ v, onMsg, onReload }: {
             {/* Collect only part of it (owner request 2026-09-26). Offered from
                 two ready shows up: with one show there is nothing smaller than
                 its fee to collect, because the fee is recorded per show. */}
-            {v.readyToCharge > 1 && (
+            {/* One ready show still qualifies: "By amount" can collect part of a
+                single fee (owner, 2026-09-26), which is exactly the case the
+                old `> 1` gate excluded. */}
+            {v.readyToCharge >= 1 && (
               <div className="relative">
                 <button onClick={() => { setConfirming(false); setPartialOpen((p) => !p); }} disabled={busy}
-                  title={`Collect part of the ${money(v.amount)} now — pick which of the ${v.readyToCharge} ready shows to charge; the rest stay in Ready.`}
+                  title={`Collect part of the ${money(v.amount)} now — either pick which of the ${v.readyToCharge} ready show${v.readyToCharge === 1 ? "" : "s"} to charge, or type any amount. The rest stays in Ready.`}
                   className={cn("flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border",
                     partialOpen
                       ? "bg-[#e6f7f5] text-[#0e8f88] border-[#15B7AE]"
@@ -404,7 +498,9 @@ export function ActionsCell({ v, onMsg, onReload }: {
                 </button>
                 {partialOpen && (
                   <PartialChargePanel v={v} card={card!} busy={busy}
-                    onCancel={() => setPartialOpen(false)} onConfirm={(ids) => runCharge(ids)} />
+                    onCancel={() => setPartialOpen(false)}
+                    onConfirm={(ids) => runCharge(ids)}
+                    onConfirmAmount={(amt) => runCharge(undefined, amt)} />
                 )}
               </div>
             )}

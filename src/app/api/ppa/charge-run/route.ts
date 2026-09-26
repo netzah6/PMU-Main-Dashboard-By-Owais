@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/ppa";
-import { buildVerifyReport, executeChargeForRow, restrictRowToShows, ChargeRefused } from "@/lib/ppa-verify";
+import { buildVerifyReport, executeChargeForRow, restrictRowToShows, restrictRowToAmount, ChargeRefused } from "@/lib/ppa-verify";
 import { isDeclineError, scheduleRetry, resolveRetry, RETRY_OFFSETS_DAYS } from "@/lib/ppa-retry";
 import { squareConfigured } from "@/lib/square";
 
@@ -43,7 +43,29 @@ export async function POST(req: NextRequest) {
   if (sentPick && picked.length === 0) {
     return NextResponse.json({ error: "Refusing to charge — pick at least one show to charge." }, { status: 409 });
   }
-  if (picked.length) {
+  /* An explicit cash amount (owner, 2026-09-26: "I'd like to charge any
+     amount"). Mutually exclusive with picking shows — two different answers to
+     "how much", and honouring both would be ambiguous. */
+  const rawAmount = (body as { amount?: unknown }).amount;
+  const wantsAmount = rawAmount !== undefined && rawAmount !== null && rawAmount !== "";
+  if (wantsAmount && picked.length) {
+    return NextResponse.json(
+      { error: "Refusing to charge — pick shows OR enter an amount, not both." },
+      { status: 400 },
+    );
+  }
+  if (wantsAmount) {
+    const amount = Number(rawAmount);
+    if (!Number.isFinite(amount)) {
+      return NextResponse.json({ error: "Refusing to charge — that amount is not a number." }, { status: 400 });
+    }
+    try {
+      row = restrictRowToAmount(fullRow, amount);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Bad amount";
+      return NextResponse.json({ error: `Refusing to charge — ${message}` }, { status: 409 });
+    }
+  } else if (picked.length) {
     try {
       row = restrictRowToShows(fullRow, picked);
     } catch (e) {
@@ -88,6 +110,16 @@ export async function POST(req: NextRequest) {
     // A DECLINE starts the automatic retry clock (+1d, +3d, +3d) — cards often
     // recover once funds land or a fraud hold lifts. Config errors don't
     // retry; they'd fail identically.
+    /* The retry cron re-charges the client's WHOLE ready row, so arming it
+       after a partial or a typed amount would collect far more than the admin
+       authorised. Only a full charge may schedule one; a declined part payment
+       is reported and left to the human. */
+    const wasPartial = row !== fullRow;
+    if (isDeclineError(message) && wasPartial) {
+      return NextResponse.json({
+        error: `${message} — the bank refused the card. No automatic retry was scheduled, because this was a part payment and the retry would collect the full balance. Try again when the card works.`,
+      }, { status: 502 });
+    }
     if (isDeclineError(message)) {
       const next = await scheduleRetry(ownerKey, message, auth.email ?? "admin");
       return NextResponse.json({
