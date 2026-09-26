@@ -100,13 +100,24 @@ export type CardTarget = { customerId: string; cardId: string; label: string };
    "Erin Heidecke / Ayesha Ali" — and each partner is her own Square customer
    paying from her own card (owner, 2026-09-26). So every name in the cell is a
    key to match Square records on, not just the cell as a whole. */
-function peopleKeys(name: unknown): string[] {
-  return String(name ?? "")
-    .split(/\s*(?:\/|&|\+|\band\b)\s*/i)
-    .map((p) => normalizeOwnerKey(p))
-    // A one-word part is an initial or a suffix ("LLC"), not a person, so
-    // "R & B Brow Studio" is not split into two phantom artists.
-    .filter((k) => k.includes(" "));
+export function peopleKeys(name: unknown): string[] {
+  const raw = String(name ?? "");
+  /* Split on "/" ONLY. That is the separator the sheet actually uses for two
+     people ("Erin Heidecke / Ayesha Ali", "Martin Aba / Alise Herrera").
+     Splitting on & / + / "and" as well looked more thorough but shredded
+     ordinary business names into phantom artists: "R & B Brow Studio" became
+     the key "b brow studio", "Brows + Beyond LLC" became "beyond llc", and
+     "George V&Aesthetics / Fariba Gharai" became "george v" — each of which
+     would then exact-match a real Square customer who happened to be called
+     that, and hand one client another client's card. */
+  const parts = raw.split("/").map((p) => normalizeOwnerKey(p)).filter(Boolean);
+  // A lone cell is the client themselves, not a partnership.
+  if (parts.length < 2) return [];
+  /* With a real separator present, a ONE-WORD part is a second person, not a
+     suffix: "Emma Chung Thai / Mark (husband)" must still surface Mark, who
+     the old ">= 2 words" rule dropped. Corporate tails are excluded by name. */
+  const SUFFIX = new Set(["llc", "inc", "co", "ltd", "spa", "studio", "salon", "beauty", "pmu", "artistry"]);
+  return parts.filter((k) => k.includes(" ") || !SUFFIX.has(k));
 }
 
 /** The Square customer + card pinned on PPS Billing, if an admin pinned one. */
@@ -143,6 +154,7 @@ async function gatherCandidates(svc: Svc, ownerKey: string): Promise<{ customers
   if (!row) return { error: "No Clients Master row for this client" };
 
   const keys = new Set<string>([key, ...peopleKeys(row.data["Owner Full Name"])]);
+  const business = normalizeOwnerKey(row.data["Business Name"]);
   const email = String(row.data["Email"] ?? "").trim();
   const phone = String(row.data["Phone"] ?? "").trim();
   const seen = new Map<string, SquareCustomer>();
@@ -152,9 +164,33 @@ async function gatherCandidates(svc: Svc, ownerKey: string): Promise<{ customers
   for (const e of await subscriptionEmailsFor(svc, keys)) {
     if (e && e.toLowerCase() !== email.toLowerCase()) add(await searchCustomersByEmail(e));
   }
+  /* Anyone an admin already attached to a subscription for this client is a
+     known payer — including a partner found by hand through the search box,
+     whose name may appear nowhere in the sheet. Remembering them is what makes
+     a manual link stick for the NEXT subscription (owner, 2026-09-26: "I want
+     it to work for other clients in the future... so I can find all the Square
+     contacts"). */
+  const { data: linked } = await svc
+    .from("client_subscriptions").select("square_customer_id").eq("owner_key", ownerKey);
+  const linkedIds = [...new Set((linked ?? [])
+    .map((r) => (r as { square_customer_id: string | null }).square_customer_id)
+    .filter((id): id is string => !!id))]
+    .filter((id) => !seen.has(id));
+  if (linkedIds.length) {
+    const found = await getCustomers(linkedIds);
+    add([...found.values()]);
+  }
   try {
     const { customers } = await listAllCustomers();
-    add(customers.filter((c) => keys.has(normalizeOwnerKey(c.name))));
+    /* Match a Square record by the client's name, either partner's name, or
+       the BUSINESS — a partner often opens her record under the studio name
+       rather than her own, and matching only on person names missed her. */
+    add(customers.filter((c) => {
+      const n = normalizeOwnerKey(c.name);
+      const co = normalizeOwnerKey(c.company);
+      if (keys.has(n)) return true;
+      return !!business && (co === business || n === business);
+    }));
   } catch { /* the scan is a bonus — the direct lookups above still stand */ }
 
   return { customers: [...seen.values()] };
