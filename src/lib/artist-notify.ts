@@ -38,6 +38,29 @@ export function bookingMessage(area: string, leadName: string, slotIso: string):
   return `New ${what} secured! 🎉\n\n${leadName} at ${fmtReservedTime(slotIso)}.\n\nPlease call to confirm!`;
 }
 
+/* The production notification path (owner design 2026-09-26, 100% inside
+   GHL): the dashboard adds this tag right after a paid booking (and after
+   the reserved-time field is written), and the account's "CC - One-Box
+   Booking -> Notify Artist" workflow sends the internal notification from
+   the sub-account's own number, then removes the tag so a future
+   re-booking fires again. Manual GHL bookings never get the tag, so they
+   never text the artist. Additive tag endpoint only — an upsert body
+   would wipe the contact's tag list. */
+export async function addOneboxBookedTag(locationId: string, contactId: string): Promise<{ ok: boolean; note: string }> {
+  try {
+    const tok = await getAppLocationToken(locationId);
+    if (!tok.token) return { ok: false, note: tok.error ?? "no location token" };
+    const r = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", "Content-Type": "application/json" },
+      body: JSON.stringify({ tags: ["onebox-booked"] }),
+    });
+    return r.ok ? { ok: true, note: "tag added" } : { ok: false, note: `tags ${r.status}` };
+  } catch (e) {
+    return { ok: false, note: String(e).slice(0, 120) };
+  }
+}
+
 /* Did the account's OWN workflow already notify the artist about this
    lead? Most sub-accounts carry a "Fanbasis tag added" workflow that
    sends the same "appointment secured" text ~1-2 min after the Commas

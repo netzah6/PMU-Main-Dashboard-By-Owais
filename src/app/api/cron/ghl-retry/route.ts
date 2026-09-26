@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { bookAppointmentForLead, pushLeadToGhl } from "@/lib/ghl-push";
+import { addOneboxBookedTag } from "@/lib/artist-notify";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 300;
@@ -158,8 +159,18 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       if (booked.appointmentId) {
         apptsCreated++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: booked.appointmentId }).eq("id", lead.id);
-        // The artist hears about this via /api/cron/artist-notify, which
-        // picks up freshly booked leads and checks their thread first.
+        /* A healed booking is as new to the artist as a live one — the
+           "onebox-booked" tag fires the account's notification workflow
+           (bookAppointmentForLead already wrote the reserved-time field
+           the message reads). */
+        const tagged = await addOneboxBookedTag(client.location_id as string, contactId);
+        if (tagged.ok) {
+          await svc.from("onebox_leads")
+            .update({ artist_notified_at: new Date().toISOString(), artist_notify_note: "onebox-booked tag added (heal) — GHL workflow notifies" })
+            .eq("id", lead.id);
+        } else {
+          errors.push(`${lead.full_name}: onebox-booked tag — ${tagged.note}`);
+        }
       } else if (booked.alreadyBooked) {
         alreadyBooked++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: "manual" }).eq("id", lead.id);
