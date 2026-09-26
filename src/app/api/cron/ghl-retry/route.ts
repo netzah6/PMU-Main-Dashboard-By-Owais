@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { bookAppointmentForLead, pushLeadToGhl } from "@/lib/ghl-push";
-import { notifyArtistOfBooking } from "@/lib/artist-notify";
+import { addOneboxBookedTag } from "@/lib/artist-notify";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 300;
@@ -159,16 +159,18 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       if (booked.appointmentId) {
         apptsCreated++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: booked.appointmentId }).eq("id", lead.id);
-        /* A healed booking is as new to the artist as a live one — send
-           the same "new appointment" text the live path sends (the GHL
-           internal notification can't fire on a pre-confirmed booking). */
-        const n = await notifyArtistOfBooking({
-          locationId: client.location_id as string,
-          leadName: String(lead.full_name ?? ""),
-          area: String((lead.answers as { area?: string } | null)?.area ?? ""),
-          slotIso: String(lead.slot_iso),
-        });
-        if (!n.ok) errors.push(`${lead.full_name}: artist notify — ${n.note}`);
+        /* A healed booking is as new to the artist as a live one — the
+           "onebox-booked" tag fires the account's notification workflow
+           (bookAppointmentForLead already wrote the reserved-time field
+           the message reads). */
+        const tagged = await addOneboxBookedTag(client.location_id as string, contactId);
+        if (tagged.ok) {
+          await svc.from("onebox_leads")
+            .update({ artist_notified_at: new Date().toISOString(), artist_notify_note: "onebox-booked tag added (heal) — GHL workflow notifies" })
+            .eq("id", lead.id);
+        } else {
+          errors.push(`${lead.full_name}: onebox-booked tag — ${tagged.note}`);
+        }
       } else if (booked.alreadyBooked) {
         alreadyBooked++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: "manual" }).eq("id", lead.id);

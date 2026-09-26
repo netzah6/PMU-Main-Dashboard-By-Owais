@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
-import { notifyArtistOfBooking } from "@/lib/artist-notify";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -156,7 +154,7 @@ export async function POST(req: NextRequest) {
   /* The appointment exists — everything left is bookkeeping on
      independent systems (lead row, reserved-time field, Meta CAPI).
      Run the three together; each is individually best-effort. */
-  const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string };
+  const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string; selfNotifies?: boolean };
   const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
   const token = capiToken(ex);
   const eventId = String(body.eventId ?? "");
@@ -170,7 +168,13 @@ export async function POST(req: NextRequest) {
       .then(() => {}),
     /* The template's workflows read the booked slot from the contact's
        "CC - Reserved Appointment Time" field — keep it filled here too.
-       (B2C only: the agency's B2B workflows read the appointment itself.) */
+       (B2C only: the agency's B2B workflows read the appointment itself.)
+       THEN tag "onebox-booked": the "CC - One-Box Booking -> Notify
+       Artist" workflow fires the artist's internal notification on that
+       tag (owner design 2026-09-26 — 100% inside GHL, and manual GHL
+       bookings never get the tag, so they never text the artist). The
+       tag must land AFTER the reserved-time field, because the
+       notification's time merge-field reads it. */
     (async () => {
       if (isB2B) return;
       try {
@@ -181,6 +185,16 @@ export async function POST(req: NextRequest) {
             headers: { ...H, Version: "2021-07-28" },
             body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(startTime) }] }),
           });
+        }
+        const tr = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+          method: "POST",
+          headers: { ...H, Version: "2021-07-28" },
+          body: JSON.stringify({ tags: ["onebox-booked"] }),
+        });
+        if (tr.ok) {
+          await svc.from("onebox_leads")
+            .update({ artist_notified_at: new Date().toISOString(), artist_notify_note: "onebox-booked tag added — GHL workflow notifies" })
+            .eq("slug", slug).eq("phone", phone);
         }
       } catch { /* best effort — the appointment itself is already booked */ }
     })(),
@@ -205,21 +219,6 @@ export async function POST(req: NextRequest) {
       }).catch(() => {});
     })(),
   ]);
-
-  /* Tell the artist about the booking. The template's internal
-     notification lived in "Appointment Status Invalid -> Confirm if
-     Fanbasis tag in 3 days", which only fires on UNCONFIRMED
-     appointments — the one-box books paid appointments as confirmed, so
-     that workflow (and its notification) never runs. B2C only: the
-     agency's own B2B workflows fire on the appointment itself. Off the
-     lead's clock; waitUntil keeps the lambda alive until the send lands. */
-  if (!isB2B) {
-    const area = String((leadPreRes.data?.answers as { area?: string } | null)?.area ?? "");
-    waitUntil(
-      notifyArtistOfBooking({ locationId, leadName: fullName, area, slotIso: startTime })
-        .then((n) => { if (!n.ok) console.error(`[onebox] artist notify failed (${slug}): ${n.note}`); })
-    );
-  }
 
   return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
 }
