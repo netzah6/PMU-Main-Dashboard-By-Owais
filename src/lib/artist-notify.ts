@@ -9,11 +9,10 @@ import { fmtReservedTime } from "@/lib/onebox";
    heard about new bookings (found 2026-09-26 via Glam Brows By Sara /
    The Brow and Ink Atelier / browology+ / INKredible Body Art).
 
-   Same channel and recipe as the Sep-22 outage notifications: the
-   recipient is the sub-account's own STAFF user (never a sheet), and the
-   SMS goes out from the agency sub-account, like the Blast tab. */
-
-const AGENCY_LOCATION_ID = "SfpNMJ5YU9lBkxss47lK";
+   The recipient is the sub-account's own STAFF user (never a sheet),
+   and the SMS goes out FROM THE CLIENT'S OWN SUB-ACCOUNT — the same
+   number their lead and appointment notifications already come from
+   (owner rule, 2026-09-26; the first draft used the agency number). */
 
 type GhlUser = { deleted?: boolean; name?: string; phone?: string; roles?: { type?: string; role?: string } };
 
@@ -47,20 +46,24 @@ export async function notifyArtistOfBooking(inp: {
   try {
     const artist = await findArtistUser(inp.locationId);
     if (!artist) return { ok: false, note: "no account user with a phone on the sub-account" };
-    const agencyTok = await getAppLocationToken(AGENCY_LOCATION_ID);
-    if (!agencyTok.token) return { ok: false, note: `agency token: ${agencyTok.error ?? "missing"}` };
+    /* Send from the client's OWN sub-account so the artist sees the same
+       number their other internal notifications come from. The artist is
+       upserted as a contact in their own account (no tags — nothing for
+       the survey workflows to trigger on). */
+    const tok = await getAppLocationToken(inp.locationId);
+    if (!tok.token) return { ok: false, note: `location token: ${tok.error ?? "missing"}` };
     const up = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
       method: "POST",
-      headers: { Authorization: `Bearer ${agencyTok.token}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ locationId: AGENCY_LOCATION_ID, name: artist.name, phone: artist.phone }),
+      headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ locationId: inp.locationId, name: artist.name, phone: artist.phone }),
     });
     const contactId = ((await up.json().catch(() => ({}))) as { contact?: { id?: string } }).contact?.id;
-    if (!contactId) return { ok: false, note: `agency contact upsert failed (${up.status})` };
+    if (!contactId) return { ok: false, note: `artist contact upsert failed (${up.status})` };
     /* conversations/messages wants Version 2021-04-15 — 2021-07-28 is the
        classic silent failure on this endpoint. */
     const sr = await fetch("https://services.leadconnectorhq.com/conversations/messages", {
       method: "POST",
-      headers: { Authorization: `Bearer ${agencyTok.token}`, Version: "2021-04-15", "Content-Type": "application/json", Accept: "application/json" },
+      headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-04-15", "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ type: "SMS", contactId, message: bookingMessage(inp.area, inp.leadName, inp.slotIso) }),
     });
     if (!sr.ok) return { ok: false, note: `SMS send ${sr.status}: ${(await sr.text().catch(() => "")).slice(0, 120)}` };
