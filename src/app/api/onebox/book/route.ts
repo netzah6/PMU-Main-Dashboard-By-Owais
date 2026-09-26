@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
+import { notifyArtistOfBooking } from "@/lib/artist-notify";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -203,6 +205,21 @@ export async function POST(req: NextRequest) {
       }).catch(() => {});
     })(),
   ]);
+
+  /* Tell the artist about the booking. The template's internal
+     notification lived in "Appointment Status Invalid -> Confirm if
+     Fanbasis tag in 3 days", which only fires on UNCONFIRMED
+     appointments — the one-box books paid appointments as confirmed, so
+     that workflow (and its notification) never runs. B2C only: the
+     agency's own B2B workflows fire on the appointment itself. Off the
+     lead's clock; waitUntil keeps the lambda alive until the send lands. */
+  if (!isB2B) {
+    const area = String((leadPreRes.data?.answers as { area?: string } | null)?.area ?? "");
+    waitUntil(
+      notifyArtistOfBooking({ locationId, leadName: fullName, area, slotIso: startTime })
+        .then((n) => { if (!n.ok) console.error(`[onebox] artist notify failed (${slug}): ${n.note}`); })
+    );
+  }
 
   return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
 }
