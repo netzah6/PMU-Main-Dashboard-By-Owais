@@ -418,19 +418,37 @@ export async function setOneboxCustomValues(
     const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, { headers: H });
     if (!r.ok) return { written: [], error: `list ${r.status}` };
     const { customValues } = (await r.json()) as { customValues?: { id?: string; name?: string }[] };
-    const idByName = new Map((customValues ?? []).map((v) => [String(v.name ?? ""), String(v.id ?? "")]));
+    /* Same duplicate problem on the way OUT: two custom values can share a
+       name, and keeping one id per name wrote to whichever the API listed
+       last — which may not be the one the funnel template actually renders,
+       so a saved value silently did nothing on the page. Write to EVERY twin
+       with that name: the funnel gets its value whichever key it reads, and
+       the pair stops drifting apart. */
+    const idsByName = new Map<string, string[]>();
+    for (const v of customValues ?? []) {
+      const name = String(v.name ?? "");
+      const id = String(v.id ?? "");
+      if (!id) continue;
+      idsByName.set(name, [...(idsByName.get(name) ?? []), id]);
+    }
     const written: string[] = [];
     for (const { name, value } of entries) {
-      const id = idByName.get(name);
-      const url = id
-        ? `https://services.leadconnectorhq.com/locations/${locationId}/customValues/${id}`
-        : `https://services.leadconnectorhq.com/locations/${locationId}/customValues`;
-      const res = await fetch(url, {
-        method: id ? "PUT" : "POST",
-        headers: H,
-        body: JSON.stringify({ name, value }),
-      });
-      if (res.ok) written.push(name);
+      const ids = idsByName.get(name) ?? [];
+      if (!ids.length) {
+        const res = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, {
+          method: "POST", headers: H, body: JSON.stringify({ name, value }),
+        });
+        if (res.ok) written.push(name);
+        continue;
+      }
+      let anyOk = false;
+      for (const id of ids) {
+        const res = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues/${id}`, {
+          method: "PUT", headers: H, body: JSON.stringify({ name, value }),
+        });
+        if (res.ok) anyOk = true;
+      }
+      if (anyOk) written.push(name);
     }
     return { written };
   } catch {
@@ -469,8 +487,22 @@ export async function refreshOneboxConfig(
     const { customValues } = (await r.json()) as {
       customValues?: { name?: string; value?: string }[];
     };
+    /* Sub-accounts carry DUPLICATE custom values — the same display name on
+       two different keys, one holding the client's answer and one left empty
+       by an older snapshot. Beauty By Size has four such pairs, e.g.
+         "CC - Owner's Name (V3)🔵"  cc__owners_name_v3 = "Denise Size"
+         "CC - Owner's Name (V3)🔵"  cc__owners_name    = ""
+       Keying by name alone let the LAST one the API returned win, so the
+       empty twin erased the real answer — and because a resync REPLACES the
+       stored config, the dashboard then showed blanks for data the artist had
+       filled in and saved (owner, 2026-09-26). Prefer the twin that has a
+       value; only fall back to an empty one when every twin is empty. */
     const byName: Record<string, string> = {};
-    for (const v of customValues ?? []) byName[String(v.name ?? "")] = String(v.value ?? "");
+    for (const v of customValues ?? []) {
+      const name = String(v.name ?? "");
+      const value = String(v.value ?? "");
+      if (value.trim() || !(byName[name] ?? "").trim()) byName[name] = value;
+    }
     for (const [name, value] of Object.entries(justWritten)) byName[name] = value;
     const config = buildConfig(byName);
     await svc
