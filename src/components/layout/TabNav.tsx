@@ -47,7 +47,9 @@ const TABS: Tab[] = [
   { label: "📋 Coach Report", href: "/coach-report", adminOnly: true, alsoRoles: ["editor"] },
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true, alsoRoles: ["editor"] }, // one-box funnels — coaches see the client funnels read-only (user request 2026-09-14)
-  { label: "📡 Pixel Checking", href: "/pixel-checking", adminOnly: true }, // per-client funnel pixel/conversion audit — user request 2026-09-01
+  // Removed 2026-09-26 (user request "we don't need it anymore on the dashboard"):
+  // Pixel Checking — the tab, the /pixel-checking page and the /api/pixel-check
+  // route are all gone. The pixel_checks table still holds the audit rows.
   { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true, collapsed: true }, // offboarded sub-account wipe + pool recycling — admins only
   { label: "👑 CEO", href: "/ceo", adminOnly: true },
   { label: "🕵️ Logs", href: "/activity", adminOnly: true, collapsed: true }, // team-member change log
@@ -59,10 +61,10 @@ const TABS: Tab[] = [
 // Strict per-role allowlists — these roles see ONLY the listed tabs.
 const VA_TABS = new Set(["/clients", "/onboarding"]);
 const MEDIA_BUYER_TABS = new Set([
-  // Clients dropped 2026-09-08 — a media buyer works from Performance and
-  // Pixel Checking; the client profiles carry contact and billing detail they
-  // do not need.
-  "/tasks", "/performance", "/onboarding", "/leads", "/pixel-checking",
+  // Clients dropped 2026-09-08 — a media buyer works from Performance and the
+  // funnels; the client profiles carry contact and billing detail they do not
+  // need. Pixel Checking sat in here too until it was removed 2026-09-26.
+  "/tasks", "/performance", "/onboarding", "/leads",
   "/funnels", // B2C only; may edit each funnel's OFFER (user request 2026-09-25)
 ]);
 
@@ -94,7 +96,7 @@ export function homeFor(role: UserRole | null): string {
 export function pathAllowedFor(role: UserRole | null, pathname: string): boolean {
   const hit = TABS.find((t) => pathname === t.href || pathname.startsWith(t.href + "/"));
   // Allowlist roles (VA, Media Buyer): their tabs and nothing else — the
-  // allowlist wins over adminOnly (e.g. Pixel Checking for media buyers).
+  // allowlist wins over adminOnly (e.g. Funnels for media buyers).
   const allow = role ? ALLOWLISTS[role] : undefined;
   if (allow) return !!hit && allow.has(hit.href);
   // Pages outside the tab list guard themselves (/settings is admin-gated).

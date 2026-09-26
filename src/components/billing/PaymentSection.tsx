@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { Loader2, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap, Link2, Search } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, ShieldCheck, ShieldAlert, CreditCard, Mail, Phone, User, Star, Zap, Link2, Search, PieChart } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Payment-method pieces of the merged PPS Billing card ─────────────────────
@@ -45,6 +45,28 @@ export function showSplit(v: VRow): { ours: number; hers: number } {
     else ours++;
   }
   return { ours, hers };
+}
+
+// What a PARTIAL charge collects and what it leaves behind (owner request
+// 2026-09-26). Mirrors restrictRowToShows in src/lib/ppa-verify.ts — the server
+// re-does this off a fresh report and is the authority; this copy only exists
+// so the panel can show the numbers before anyone clicks.
+export function partialTotals(v: VRow, apptIds: string[]): {
+  shows: number; gross: number; credit: number; amount: number;
+  remainingShows: number; remainingAmount: number;
+} {
+  const picked = new Set(apptIds);
+  const shows = v.shows.filter((s) => picked.has(s.apptId)).length;
+  const gross = shows * v.fee;
+  // Credit comes off the gross, capped at the credit the full charge would
+  // have used — so a partial can never be bigger than the whole bill.
+  const credit = Math.min(v.creditApplied, gross);
+  const amount = Math.max(0, gross - credit);
+  return {
+    shows, gross, credit, amount,
+    remainingShows: v.readyToCharge - shows,
+    remainingAmount: Math.max(0, v.amount - amount),
+  };
 }
 export interface VReport {
   clients: VRow[]; missingFromMaster: string[]; customerScanTruncated: boolean;
@@ -160,6 +182,92 @@ export function StatusCell({ v }: { v: VRow | undefined }) {
   );
 }
 
+// ── Partial charge: collect SOME of what is owed now ─────────────────────────
+// Owner request 2026-09-26. The fee is recorded per appointment, so "part of
+// the bill" is a subset of the ready shows: every dollar stays tied to the show
+// it paid for, and the shows left out stay in Ready as the remainder. Oldest
+// first, because that is the order a balance gets paid down in.
+function PartialChargePanel({ v, card, busy, onCancel, onConfirm }: {
+  v: VRow; card: VCard; busy: boolean;
+  onCancel: () => void; onConfirm: (apptIds: string[]) => void;
+}) {
+  const ordered = useMemo(
+    () => [...v.shows].sort((a, b) => String(a.apptDate ?? "").localeCompare(String(b.apptDate ?? ""))),
+    [v.shows]);
+  // Start at the smallest partial (the oldest single show) — the admin adds to
+  // it, so nothing is ever collected because a checkbox was pre-ticked.
+  const [sel, setSel] = useState<Set<string>>(() => new Set(ordered.length ? [ordered[0].apptId] : []));
+  // Ticked AND still ready: if a background refresh takes a show away (the
+  // Monday cron charged it), it drops out of the total and out of what gets
+  // sent, so the amount on screen is always the amount collected.
+  const pickedIds = ordered.filter((s) => sel.has(s.apptId)).map((s) => s.apptId);
+  const t = partialTotals(v, pickedIds);
+  const toggle = (id: string) => setSel((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+
+  return (
+    <div className="absolute right-0 z-30 mt-1 w-[320px] rounded-xl border border-[#e4ebf2] bg-white p-2.5 text-left whitespace-normal"
+      style={{ boxShadow: "0 8px 20px -6px rgba(0,0,0,0.25)" }}>
+      <div className="text-[11px] font-bold text-[#1f3559]">Charge part of it — pick the shows to collect now</div>
+      <div className="mt-1.5 space-y-0.5 max-h-[150px] overflow-auto">
+        {ordered.map((s) => (
+          <label key={s.apptId} className="flex items-center gap-1.5 px-1 py-0.5 rounded cursor-pointer hover:bg-[#f8fafc]">
+            <input type="checkbox" checked={sel.has(s.apptId)} onChange={() => toggle(s.apptId)} disabled={busy}
+              className="shrink-0 accent-[#0e8f88]" />
+            <span className="flex-1 min-w-0 truncate text-[11px] font-semibold text-[#1f3559]">{s.contactName ?? "—"}</span>
+            {/* Same purple as the self-booked / calendar / chat chips on the
+                billing table: a show the artist booked herself, no deposit. */}
+            {(s.chargeStatus === "self_booked" || s.chargeStatus === "calendar_booked" || s.chargeStatus === "chat_booked") && (
+              <span title="She booked this one herself — no deposit through us, same fee"
+                className="shrink-0 px-1 py-0.5 rounded text-[9px] font-bold bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">hers</span>
+            )}
+            <span className="shrink-0 text-[10px] text-[#8595a8] whitespace-nowrap">{fmtDate(s.apptDate)}</span>
+            <span className="shrink-0 text-[10px] font-semibold text-[#0e8f88] whitespace-nowrap">{money(v.fee)}</span>
+          </label>
+        ))}
+      </div>
+      {/* Exactly what leaves her card and exactly what is still owed after —
+          both spelled out before the confirm button is reachable. */}
+      <div className="mt-1.5 pt-1.5 border-t border-[#eef3f8] space-y-0.5 text-[11px]">
+        <div className="font-bold text-[#1f3559]">
+          Collecting now: {money(t.amount)}
+          <span className="ml-1 font-semibold text-[#697a91]">
+            ({t.shows} of {v.readyToCharge} shows × {money(v.fee)}{t.credit > 0 ? `, less ${money(t.credit)} credit` : ""})
+          </span>
+        </div>
+        {/* Keyed on the SHOWS left, not the money left. When account credit
+            covers the picked subset the amount is $0 while shows are still
+            sitting in Ready, and keying on money alone printed "Nothing left
+            owed" over a client who still owed for every other show. */}
+        <div className={cn("font-semibold", t.remainingShows > 0 ? "text-[#b45309]" : "text-[#15803d]")}>
+          {t.remainingShows > 0
+            ? `Still in Ready after: ${t.remainingShows} show${t.remainingShows === 1 ? "" : "s"}` +
+              (t.remainingAmount > 0 ? ` · ${money(t.remainingAmount)}` : "")
+            : "Nothing left in Ready — this settles every ready show"}
+        </div>
+      </div>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <button onClick={() => onConfirm(pickedIds)} disabled={busy || t.shows === 0}
+          title={`Charge ${card.brand} ••${card.last4} for the ${t.shows} show${t.shows === 1 ? "" : "s"} ticked above`}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74] disabled:opacity-50">
+          {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+          {t.amount === 0 && t.credit > 0
+            ? `Settle ${t.shows} show${t.shows === 1 ? "" : "s"} with ${money(t.credit)} credit`
+            : `Charge ${money(t.amount)} to ••${card.last4}`}
+        </button>
+        <button onClick={onCancel} disabled={busy}
+          className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
+      </div>
+      <div className="mt-1 text-[10px] text-[#8595a8]">
+        One show is the smallest piece — the fee is recorded per appointment, so a partial always lands on whole shows.
+      </div>
+    </div>
+  );
+}
+
 export function ActionsCell({ v, onMsg, onReload }: {
   v: VRow | undefined;
   onMsg: (m: PayMsgData | null) => void;
@@ -167,6 +275,7 @@ export function ActionsCell({ v, onMsg, onReload }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [partialOpen, setPartialOpen] = useState(false);
 
   if (!v) return null;
 
@@ -175,20 +284,29 @@ export function ActionsCell({ v, onMsg, onReload }: {
   const warnings = v.flags.filter((f) => f.level === "warn");
   const canCharge = v.readyToCharge > 0 && blocking.length === 0 && !!card;
 
-  const runCharge = async () => {
+  // apptIds = a partial charge: only those ready shows are collected. Omitted
+  // = the whole ready amount, exactly as before.
+  const runCharge = async (apptIds?: string[]) => {
+    const expected = apptIds ? partialTotals(v, apptIds).amount : v.amount;
     setBusy(true); setConfirming(false); onMsg(null);
     try {
       const res = await fetch("/api/ppa/charge-run", {
         method: "POST", headers: { "Content-Type": "application/json" },
         // The server re-verifies and refuses if the live amount differs from
         // the one that was on screen when the human confirmed.
-        body: JSON.stringify({ owner_key: v.ownerKey, expected_amount: v.amount }),
+        body: JSON.stringify({ owner_key: v.ownerKey, expected_amount: expected, ...(apptIds ? { appt_ids: apptIds } : {}) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Charge failed");
+      setPartialOpen(false);
+      // After a partial, say what is still owed — the shows left out are back
+      // in Ready waiting for the next collection.
+      const left = json.partial && json.remainingShows > 0
+        ? ` · ${money(json.remainingAmount ?? 0)} still owed (${json.remainingShows} show${json.remainingShows === 1 ? "" : "s"}) — still in Ready`
+        : "";
       onMsg({
         ok: true,
-        text: json.warning ?? `Charged ${money(json.amount ?? v.amount)} to ${json.card ?? "card"} — Square payment ${json.paymentId}`,
+        text: json.warning ?? `Charged ${money(json.amount ?? expected)} to ${json.card ?? "card"} — Square payment ${json.paymentId}${left}`,
         receiptUrl: json.receiptUrl,
       });
       onReload();
@@ -245,7 +363,9 @@ export function ActionsCell({ v, onMsg, onReload }: {
         const breakdown = `${v.readyToCharge} show${v.readyToCharge === 1 ? "" : "s"} × ${money(v.fee)}: ${ours} we booked${hers ? ` + ${hers} she booked (no deposit)` : ""}`;
         return confirming ? (
           <span className="flex items-center gap-1.5">
-            <button onClick={runCharge} disabled={busy} title={breakdown}
+            {/* Arrow, not a bare reference: runCharge's first argument is the
+                partial show list, and a click event must never land there. */}
+            <button onClick={() => runCharge()} disabled={busy} title={breakdown}
               className="flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold border bg-[#0e8f88] text-white border-[#0e8f88] hover:bg-[#0a7a74]">
               {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
               Yes, charge {money(v.amount)} ({ours}{hers ? `+${hers}` : ""} shows{v.creditApplied ? `, less ${money(v.creditApplied)} credit` : ""}) to ••{card!.last4}
@@ -254,20 +374,41 @@ export function ActionsCell({ v, onMsg, onReload }: {
               className="px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
           </span>
         ) : (
-          <button onClick={() => setConfirming(true)} disabled={busy}
-            title={`${breakdown}${warnings.length ? ` — charges despite ${warnings.length} warning${warnings.length === 1 ? "" : "s"}, read them first` : ""}`}
-            className={cn("flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold border",
-              warnings.length
-                ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]"
-                : "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]")}>
-            {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />} Charge {money(v.amount)}
-            {v.creditApplied > 0 && (
-              <span title={`${money(v.grossAmount)} in fees less ${money(v.creditApplied)} approved account credit`}
-                className="ml-1 px-1 py-0.5 rounded text-[9px] font-bold bg-[#eff6ff] text-[#1d4ed8] border border-[#bfdbfe]">
-                −{money(v.creditApplied)}
-              </span>
+          <span className="flex items-center gap-1.5">
+            <button onClick={() => { setPartialOpen(false); setConfirming(true); }} disabled={busy}
+              title={`${breakdown}${warnings.length ? ` — charges despite ${warnings.length} warning${warnings.length === 1 ? "" : "s"}, read them first` : ""}`}
+              className={cn("flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold border",
+                warnings.length
+                  ? "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8] hover:border-[#d97706]"
+                  : "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d6f0ed]")}>
+              {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />} Charge {money(v.amount)}
+              {v.creditApplied > 0 && (
+                <span title={`${money(v.grossAmount)} in fees less ${money(v.creditApplied)} approved account credit`}
+                  className="ml-1 px-1 py-0.5 rounded text-[9px] font-bold bg-[#eff6ff] text-[#1d4ed8] border border-[#bfdbfe]">
+                  −{money(v.creditApplied)}
+                </span>
+              )}
+            </button>
+            {/* Collect only part of it (owner request 2026-09-26). Offered from
+                two ready shows up: with one show there is nothing smaller than
+                its fee to collect, because the fee is recorded per show. */}
+            {v.readyToCharge > 1 && (
+              <div className="relative">
+                <button onClick={() => { setConfirming(false); setPartialOpen((p) => !p); }} disabled={busy}
+                  title={`Collect part of the ${money(v.amount)} now — pick which of the ${v.readyToCharge} ready shows to charge; the rest stay in Ready.`}
+                  className={cn("flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border",
+                    partialOpen
+                      ? "bg-[#e6f7f5] text-[#0e8f88] border-[#15B7AE]"
+                      : "bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]")}>
+                  <PieChart size={11} /> Part
+                </button>
+                {partialOpen && (
+                  <PartialChargePanel v={v} card={card!} busy={busy}
+                    onCancel={() => setPartialOpen(false)} onConfirm={(ids) => runCharge(ids)} />
+                )}
+              </div>
             )}
-          </button>
+          </span>
         );
       })()}
 
