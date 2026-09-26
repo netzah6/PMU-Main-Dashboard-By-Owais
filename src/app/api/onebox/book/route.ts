@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
+import { notifyArtistOfBooking } from "@/lib/artist-notify";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -154,7 +156,7 @@ export async function POST(req: NextRequest) {
   /* The appointment exists — everything left is bookkeeping on
      independent systems (lead row, reserved-time field, Meta CAPI).
      Run the three together; each is individually best-effort. */
-  const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string };
+  const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string; selfNotifies?: boolean };
   const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
   const token = capiToken(ex);
   const eventId = String(body.eventId ?? "");
@@ -204,11 +206,28 @@ export async function POST(req: NextRequest) {
     })(),
   ]);
 
-  /* The artist's "new appointment" text is NOT sent here: about half the
-     sub-account workflows send their own within ~2 minutes (the Commas
-     tag race — see /api/cron/artist-notify), so the cron checks the
-     artist's thread a few minutes after booking and sends ours only when
-     their workflow stayed silent. */
+  /* The artist's "new appointment" text — INSTANT on accounts whose own
+     workflow no longer sends it (extras.selfNotifies unset). Accounts
+     with the live workflow notification (57 confirmed 2026-09-26) are
+     flagged selfNotifies and handled by /api/cron/artist-notify instead
+     (check-then-send, so nothing doubles) until the owner removes their
+     workflow step. Off the lead's clock; waitUntil keeps the lambda
+     alive until the send lands; a failed send leaves the marker null so
+     the cron retries. */
+  if (!isB2B && !ex.selfNotifies) {
+    const area = String((leadPreRes.data?.answers as { area?: string } | null)?.area ?? "");
+    waitUntil(
+      notifyArtistOfBooking({ locationId, leadName: fullName, area, slotIso: startTime }).then(async (n) => {
+        if (n.ok) {
+          await svc.from("onebox_leads")
+            .update({ artist_notified_at: new Date().toISOString(), artist_notify_note: `sent instantly — ${n.note}` })
+            .eq("slug", slug).eq("phone", phone);
+        } else {
+          console.error(`[onebox] instant artist notify failed (${slug}): ${n.note} — cron will retry`);
+        }
+      })
+    );
+  }
 
   return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
 }
