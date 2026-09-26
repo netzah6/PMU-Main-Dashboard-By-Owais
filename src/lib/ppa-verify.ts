@@ -88,6 +88,8 @@ export interface VerifyRow {
   /** Approved credit being applied to this charge (0 when there is none). */
   creditApplied: number;
   pastDue: number;
+  /** Set only on a partial charge: how many shows were ready in full. */
+  partialOfShows?: number;
   shows: VerifyShow[];
   match: VerifyMatch | null;
   cards: VerifyCard[];
@@ -647,6 +649,48 @@ export async function buildVerifyReport(ownerKeyFilter?: string | Set<string>): 
 
 export class ChargeRefused extends Error {}
 
+// ── Partial charges ──────────────────────────────────────────────────────────
+// Owner request 2026-09-26: "option to charge partially a client". A charge is
+// recorded PER APPOINTMENT (one ppa_charges row each, carrying the Square
+// payment id that covered it), so the honest way to collect part of the money
+// is to charge a SUBSET of the ready shows: every dollar still maps to the
+// exact shows it paid for, and the shows left out stay in Ready, so the
+// remainder is never lost. Anything finer than one show has nowhere to live —
+// a half-paid appointment would be marked charged for less than its fee and
+// the difference would vanish from the ledger.
+//
+// Returns the row narrowed to `apptIds` with the money recomputed. The clamp
+// lives HERE, server-side, so a stale or hand-edited request can only ever
+// charge LESS than the ready amount, never more.
+export function restrictRowToShows(row: VerifyRow, apptIds: string[]): VerifyRow {
+  const wanted = new Set(apptIds.map((id) => String(id).trim()).filter(Boolean));
+  if (wanted.size === 0) throw new ChargeRefused("Pick at least one show to charge.");
+  // Only shows that are ready on THIS freshly built row count — an id that was
+  // ready when the page rendered but has since been charged or voided is gone.
+  const shows = row.shows.filter((s) => wanted.has(s.apptId));
+  if (shows.length !== wanted.size) {
+    throw new ChargeRefused(
+      `${wanted.size - shows.length} of the ${wanted.size} shows you picked are no longer ready to charge (already charged, voided, or the list moved) — reload and pick again.`,
+    );
+  }
+  const gross = shows.length * row.fee;
+  // Credit comes off the gross, same as a full charge. Capped at the full
+  // charge's credit (all we know is approved) and at this partial's own gross,
+  // so `amount` here can never exceed the full ready amount.
+  const credit = Math.min(row.creditApplied, gross);
+  return {
+    ...row,
+    shows,
+    readyToCharge: shows.length,
+    // Kept so the Square note (and any later dispute) reads "3 of 9 shows"
+    // rather than looking like the client only ever owed 3.
+    partialOfShows: shows.length < row.readyToCharge ? row.readyToCharge : undefined,
+    grossAmount: gross,
+    creditApplied: credit,
+    amount: Math.max(0, gross - credit),
+  };
+}
+
 export interface ChargeOutcome {
   /** null when account credit covered the whole bill and no card was charged. */
   paymentId: string | null;
@@ -679,19 +723,34 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
       })),
       { onConflict: "appt_id" }
     );
+    /* Fail CLOSED: if the shows were not recorded, the credit must not be
+       spent. This used to consume the credit regardless and return a soft
+       warning, so a failed upsert burned the client's balance while leaving
+       every show still sitting in Ready — collectable a second time. Partial
+       charges made this reachable for any picked subset whose gross fits
+       inside the balance, not just a whole bill. */
+    if (freeErr) {
+      throw new ChargeRefused(
+        `Could not record the shows, so the credit was NOT spent: ${freeErr.message}`
+      );
+    }
     await consumeCredit(svcFree, row.ownerKey, row.creditApplied, null);
     return {
       paymentId: null, receiptUrl: null, amount: 0, shows: row.readyToCharge,
       card: `account credit ($${row.creditApplied})`,
-      ...(freeErr ? { warning: `Credit applied but recording it failed: ${freeErr.message}` } : {}),
     };
   }
 
   if (!row.match) throw new ChargeRefused("No Square customer matched.");
   const card = row.cards.find((c) => c.wouldCharge);
   if (!card) throw new ChargeRefused("No usable card to charge.");
-  // Same client + same exact show set → same key → Square returns the one
-  // existing payment instead of creating another. Max 45 chars for Square.
+  // Same client + same exact show set + same amount → same key → Square
+  // returns the one existing payment instead of creating another. The show set
+  // AND the amount are both in the key on purpose: with partial charges, two
+  // collections on the same client differ only in which shows (and how much)
+  // they cover, and a key that ignored that would make the second one silently
+  // return the first payment — money never collected, shows marked charged.
+  // Max 45 chars for Square.
   const idempotencyKey = createHash("sha256")
     .update(`pps:${row.ownerKey}:${apptIds.join(",")}:${row.amount}`)
     .digest("hex")
@@ -702,7 +761,7 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
     cardId: card.id,
     amountCents: Math.round(row.amount * 100),
     idempotencyKey,
-    note: `PPS ${row.readyToCharge} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee}${row.creditApplied > 0 ? ` less $${row.creditApplied} credit` : ""} — ${row.ownerName} (${row.business})`,
+    note: `PPS ${row.readyToCharge}${row.partialOfShows ? ` of ${row.partialOfShows}` : ""} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee}${row.creditApplied > 0 ? ` less $${row.creditApplied} credit` : ""}${row.partialOfShows ? " (partial)" : ""} — ${row.ownerName} (${row.business})`,
     referenceId: row.ownerKey,
   });
 

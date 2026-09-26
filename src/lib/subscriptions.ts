@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
-import { createCardPayment, listCards, listAllCustomers, listRecentPayments, searchCustomersByEmail, searchCustomersByPhone, type SquareCard, type SquareCustomer } from "@/lib/square";
+import { createCardPayment, getCustomers, listCards, listAllCustomers, listRecentPayments, searchCustomersByEmail, searchCustomersByPhone, type SquareCard, type SquareCustomer } from "@/lib/square";
 import { normalizeOwnerKey } from "@/lib/normalizers";
 
 // Recurring billing run from the dashboard rather than Square Subscriptions.
@@ -95,43 +95,81 @@ export function advance(sub: Subscription, on: string): string | null {
 
 export type CardTarget = { customerId: string; cardId: string; label: string };
 
-/** The Square customer for a client: the ppa_card_prefs pin's customer if one
- *  exists, otherwise found by the email or phone on their Clients Master row.
- *  Never guesses across clients — two matches is a refusal. */
-export async function resolveCustomer(svc: Svc, ownerKey: string): Promise<{ customerId: string; pinnedCardId: string | null } | { error: string }> {
-  const { data: pin } = await svc
-    .from("ppa_card_prefs").select("customer_id, card_id").eq("owner_key", ownerKey).maybeSingle();
-  if (pin?.customer_id) return { customerId: pin.customer_id as string, pinnedCardId: (pin.card_id as string) ?? null };
+/* The people named in one "Owner Full Name" cell. Usually one artist, but a
+   studio run by partners is written with both names — Bombshell Beauty is
+   "Erin Heidecke / Ayesha Ali" — and each partner is her own Square customer
+   paying from her own card (owner, 2026-09-26). So every name in the cell is a
+   key to match Square records on, not just the cell as a whole. */
+function peopleKeys(name: unknown): string[] {
+  return String(name ?? "")
+    .split(/\s*(?:\/|&|\+|\band\b)\s*/i)
+    .map((p) => normalizeOwnerKey(p))
+    // A one-word part is an initial or a suffix ("LLC"), not a person, so
+    // "R & B Brow Studio" is not split into two phantom artists.
+    .filter((k) => k.includes(" "));
+}
 
+/** The Square customer + card pinned on PPS Billing, if an admin pinned one. */
+async function pinnedCard(svc: Svc, ownerKey: string): Promise<{ customerId: string; cardId: string | null } | null> {
+  // Subscriptions key their client by the lowercased owner name and PPS pins
+  // key theirs by the normalized one, so look under both spellings.
+  const keys = [...new Set([ownerKey, normalizeOwnerKey(ownerKey)])];
+  const { data } = await svc
+    .from("ppa_card_prefs").select("customer_id, card_id").in("owner_key", keys).limit(1);
+  const pin = data?.[0];
+  if (!pin?.customer_id) return null;
+  return { customerId: pin.customer_id as string, cardId: (pin.card_id as string) ?? null };
+}
+
+/* Every Square customer record that could belong to this client.
+   Square keeps a separate customer record per checkout, so one artist is
+   often two or three records — and the card lives on only one of them.
+   Casandra Brown (2026-09-14): Clients Master has sabbybeautyacademy@…,
+   her card sits on the record under sabbybeauty1@… (the one her old Square
+   subscription bills), so the email match found a card-less twin and the
+   picker said "no cards on file". Gather every plausible record — master
+   email, master phone, the email on her Square subscription, and any record
+   named after the client or, for a partner studio, after EITHER partner —
+   then let the caller decide which one is wanted. */
+async function gatherCandidates(svc: Svc, ownerKey: string): Promise<{ customers: SquareCustomer[] } | { error: string }> {
+  /* Normalize BOTH sides of the Clients Master match: the client picker keys a
+     subscription by the lowercased owner name, so punctuation in the cell
+     ("Erin Heidecke / Ayesha Ali") used to miss the client's own row. */
+  const key = normalizeOwnerKey(ownerKey);
   const { data: rows } = await svc.from("clients_master").select("data");
   const row = (rows ?? []).find(
-    (r) => normalizeOwnerKey((r as { data: Record<string, unknown> }).data?.["Owner Full Name"]) === ownerKey
+    (r) => normalizeOwnerKey((r as { data: Record<string, unknown> }).data?.["Owner Full Name"]) === key
   ) as { data: Record<string, string> } | undefined;
   if (!row) return { error: "No Clients Master row for this client" };
 
-  /* Square keeps a separate customer record per checkout, so one artist is
-     often two or three records — and the card lives on only one of them.
-     Casandra Brown (2026-09-14): Clients Master has sabbybeautyacademy@…,
-     her card sits on the record under sabbybeauty1@… (the one her old Square
-     subscription bills), so the email match found a card-less twin and the
-     picker said "no cards on file". Gather every plausible record — master
-     email, master phone, the email on her Square subscription, and any record
-     whose name matches — then let the cards decide which one is hers. */
+  const keys = new Set<string>([key, ...peopleKeys(row.data["Owner Full Name"])]);
   const email = String(row.data["Email"] ?? "").trim();
   const phone = String(row.data["Phone"] ?? "").trim();
   const seen = new Map<string, SquareCustomer>();
   const add = (list: SquareCustomer[]) => { for (const c of list) if (!seen.has(c.id)) seen.set(c.id, c); };
   if (email) add(await searchCustomersByEmail(email));
   if (phone) add(await searchCustomersByPhone(phone));
-  for (const e of await subscriptionEmailsFor(svc, ownerKey)) {
+  for (const e of await subscriptionEmailsFor(svc, keys)) {
     if (e && e.toLowerCase() !== email.toLowerCase()) add(await searchCustomersByEmail(e));
   }
   try {
     const { customers } = await listAllCustomers();
-    add(customers.filter((c) => normalizeOwnerKey(c.name) === ownerKey));
+    add(customers.filter((c) => keys.has(normalizeOwnerKey(c.name))));
   } catch { /* the scan is a bonus — the direct lookups above still stand */ }
 
-  const candidates = [...seen.values()];
+  return { customers: [...seen.values()] };
+}
+
+/** The Square customer for a client: the ppa_card_prefs pin's customer if one
+ *  exists, otherwise found by the email or phone on their Clients Master row.
+ *  Never guesses across clients — two matches is a refusal. */
+export async function resolveCustomer(svc: Svc, ownerKey: string): Promise<{ customerId: string; pinnedCardId: string | null } | { error: string }> {
+  const pin = await pinnedCard(svc, ownerKey);
+  if (pin) return { customerId: pin.customerId, pinnedCardId: pin.cardId };
+
+  const found = await gatherCandidates(svc, ownerKey);
+  if ("error" in found) return found;
+  const candidates = found.customers;
   if (!candidates.length) return { error: "No Square customer found by email, phone or name" };
   if (candidates.length === 1) return { customerId: candidates[0].id, pinnedCardId: null };
 
@@ -145,19 +183,61 @@ export async function resolveCustomer(svc: Svc, ownerKey: string): Promise<{ cus
   if (withCards.length === 1) return { customerId: withCards[0].id, pinnedCardId: null };
   if (withCards.length === 0)
     return { error: `${candidates.length} Square customers match (${describe(candidates)}) and none has a card on file` };
-  return { error: `${withCards.length} Square customers with cards match (${describe(withCards)}) — pin the right card on PPS Billing first` };
+  /* Two people really do pay for some businesses (partners), so there is no
+     right answer to guess at here — the subscription has to name its card. */
+  return { error: `${withCards.length} Square customers with cards match (${describe(withCards)}) — choose this subscription's card with the card button, or pin one on PPS Billing` };
+}
+
+export type CustomerCards = { customerId: string; name: string; email: string | null; cards: SquareCard[] };
+
+/**
+ * Every Square record holding a card for this client, kept SEPARATE and
+ * labelled with the person it belongs to. One business can be two payers:
+ * Bombshell Beauty is Erin Heidecke and Ayesha Ali, two Square customers with
+ * a card each, and collapsing them into one record is what left the picker
+ * offering a single card (owner, 2026-09-26). Card-less twins are dropped, so
+ * an artist whose record split across checkouts still sees only her own cards.
+ */
+export async function listCustomerCards(svc: Svc, ownerKey: string): Promise<
+  { customers: CustomerCards[]; pinnedCustomerId: string | null; pinnedCardId: string | null } | { error: string }
+> {
+  const pin = await pinnedCard(svc, ownerKey);
+  const found = await gatherCandidates(svc, ownerKey);
+  // A pin stands on its own — its cards are listable with no Clients Master row.
+  if ("error" in found && !pin) return found;
+
+  const byId = new Map<string, SquareCustomer>();
+  if (!("error" in found)) for (const c of found.customers) byId.set(c.id, c);
+  if (pin && !byId.has(pin.customerId)) {
+    const one = (await getCustomers([pin.customerId])).get(pin.customerId);
+    byId.set(pin.customerId, one ?? { id: pin.customerId, name: "pinned Square customer", email: null });
+  }
+
+  const customers: CustomerCards[] = [];
+  for (const c of byId.values()) {
+    const cards = await listCards(c.id, true);
+    if (cards.length) customers.push({ customerId: c.id, name: c.name, email: c.email ?? null, cards });
+  }
+  if (!customers.length)
+    return {
+      error: byId.size
+        ? `${byId.size} Square customer${byId.size === 1 ? "" : "s"} match this client and none has a card on file`
+        : "No Square customer found by email, phone or name",
+    };
+  return { customers, pinnedCustomerId: pin?.customerId ?? null, pinnedCardId: pin?.cardId ?? null };
 }
 
 /* Emails Square itself has for this artist, taken from the stored Square
    Subscriptions snapshot (one row per subscription, with the customer's
    name + email). A record the artist was billed on before is the best lead
-   to the one carrying her card. */
-async function subscriptionEmailsFor(svc: Svc, ownerKey: string): Promise<string[]> {
+   to the one carrying her card — and for a partner studio it is where the
+   second partner's own email shows up (Ayesha Ali, mail4ayeshaali@…). */
+async function subscriptionEmailsFor(svc: Svc, keys: Set<string>): Promise<string[]> {
   const { data } = await svc.from("square_subscriptions_snapshot").select("payload").eq("id", 1).maybeSingle();
   const subs = ((data?.payload as { subscriptions?: Array<{ customerName?: string; customerEmail?: string | null }> } | null)?.subscriptions) ?? [];
   const out = new Set<string>();
   for (const s of subs) {
-    if (s.customerEmail && normalizeOwnerKey(s.customerName) === ownerKey) out.add(s.customerEmail.trim());
+    if (s.customerEmail && keys.has(normalizeOwnerKey(s.customerName))) out.add(s.customerEmail.trim());
   }
   return [...out];
 }

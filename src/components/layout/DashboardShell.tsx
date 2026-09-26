@@ -31,13 +31,25 @@ interface DashboardShellProps {
 
 export function DashboardShell({ children, userEmail, syncing }: DashboardShellProps) {
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
-      <Navbar userEmail={userEmail} syncing={syncing} />
+    // h-screen is 100vh, which on a phone is the LARGE viewport — the height
+    // the page would have if the browser's toolbars were gone. They aren't, so
+    // the shell hung off the bottom of the screen, the page itself started
+    // scrolling behind the bar and the tabs, and the bottom of every page sat
+    // under the browser chrome ("fix the phone view on side", 2026-09-26).
+    // 100dvh is the height actually on screen; the h-screen class stays as the
+    // fallback for browsers that don't know dvh (an unparsable inline value is
+    // dropped and the class wins), and on desktop the two are the same number.
+    <div className="flex flex-col h-screen overflow-hidden" style={{ height: "100dvh" }}>
+      <Navbar userEmail={userEmail} syncing={syncing} sticky={false} />
       <TabNav />
       <FetchActivity />
       {/* overflow-x-hidden: pages must never scroll sideways into dead space —
-          wide tables scroll inside their own overflow-x-auto containers */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden">
+          wide tables scroll inside their own overflow-x-auto containers.
+          min-h-0: a flex child refuses to shrink under its content unless it
+          is told it may, and a long page must not be able to push the tab row
+          off the top. In-page `sticky top-0` headers stick to THIS box, which
+          is why the bar and the tabs have to stay outside it. */}
+      <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
         <RoleGate>{children}</RoleGate>
       </main>
     </div>

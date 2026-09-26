@@ -1,5 +1,5 @@
 // Allowlist roles: "va" (Clients + Onboarding) and "media_buyer" (Clients,
-// Tasks, Performance, Onboarding, Leads, Pixel Checking). Page gating lives in
+// Tasks, Performance, Onboarding, Leads, Funnels). Page gating lives in
 // TabNav's pathAllowedFor (enforced by RoleGate on every navigation);
 // sensitive APIs re-check the role server-side.
 // Sales seats (2026-09-16): "setter" sees the discovery side of the Sales
