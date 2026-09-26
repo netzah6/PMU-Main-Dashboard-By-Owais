@@ -178,6 +178,7 @@ const V3_REQUIRED: [key: string, label: string][] = [
   ["deposit", "Deposit amount"],
   ["calendarId", "Calendar ID"],
   ["fanbasisProductId", "Commas product ID"],
+  ["offer", "Offer"], // REQ_RULES marks offer "v23" = required from V2.3 up, V3 included
   ["depositFunnelUrl", "Deposit funnel URL"],
   ["ownerName", "Owner's name"],
   ["originalPrice", "Original price for brows"],
@@ -187,6 +188,17 @@ const V3_REQUIRED: [key: string, label: string][] = [
 ];
 function v3Missing(cv: Record<string, string>): [string, string][] {
   return V3_REQUIRED.filter(([k]) => !(cv[k] ?? "").trim());
+}
+/* What a V2.3 switch needs — the REQ_RULES "v23" tier (booking + deposit
+   work, but none of the V3-only AI-script fields). */
+const V23_REQUIRED: [key: string, label: string][] = [
+  ["deposit", "Deposit amount"],
+  ["calendarId", "Calendar ID"],
+  ["fanbasisProductId", "Commas product ID"],
+  ["offer", "Offer"],
+];
+function v23Missing(cv: Record<string, string>): [string, string][] {
+  return V23_REQUIRED.filter(([k]) => !(cv[k] ?? "").trim());
 }
 
 function ProgTag({ v3only, clientIsV1 }: { v3only: boolean; clientIsV1: boolean }) {
@@ -511,6 +523,14 @@ export default function FunnelsPage() {
   /* Keys still empty when the team tried to switch this funnel to V3 —
      outlined in red in Start Setup until they are filled and saved. */
   const [v3Gap, setV3Gap] = useState<Record<string, string[]>>({});
+  /* Which program a refused switch was aiming at — the Step-1 gap banner
+     names it (a V2.3 refusal must not read "Can't switch to V3"). */
+  const [gapVer, setGapVer] = useState<Record<string, string>>({});
+  /* True only after the operator CLICKS a picker chip. The picker's seed
+     collapses unknown sheet versions (V2, V2.2, blank …) to "V3", so an
+     untouched picker must never be allowed to write that default through
+     to the sheet on Go live (review, 2026-09-26). */
+  const [setupVerPicked, setSetupVerPicked] = useState(false);
   const slugify = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   // Search line at the top — dozens of funnel boxes now (user, 2026-09-14).
   const [search, setSearch] = useState("");
@@ -662,16 +682,28 @@ export default function FunnelsPage() {
      so the two tabs can never disagree. */
   const [progFor, setProgFor] = useState<string | null>(null);
   const [progBusy, setProgBusy] = useState<string | null>(null);
-  const saveProgram = useCallback(async (f: Funnel, newVersion: string) => {
-    if (!f.program || newVersion === f.program.version) { setProgFor(null); return; }
-    /* V3 needs data V1 never had. Refuse the switch while any of it is
-       missing, open Start Setup on the full form and outline the gaps —
-       the switch works once they are filled and saved (user, 2026-09-21). */
-    if (/v3/i.test(newVersion)) {
-      const missing = v3Missing(f.cv);
+  /* Returns true when the client's program now matches newVersion (wrote
+     it, or it already did) — false on a refused gate or a failed save, so
+     Go live can stop instead of publishing a funnel on the wrong program
+     (review, 2026-09-26). */
+  const saveProgram = useCallback(async (f: Funnel, newVersion: string): Promise<boolean> => {
+    if (!f.program) { setProgFor(null); return false; }
+    if (newVersion === f.program.version) { setProgFor(null); return true; }
+    /* V3 (and, lighter, V2.3) need data V1 never had. Refuse the switch
+       while any of it is missing, open Start Setup on the full form and
+       outline the gaps — the switch works once they are filled and saved
+       (user, 2026-09-21; V2.3 added 2026-09-26). */
+    if (/v3|v2\.3/i.test(newVersion)) {
+      const missing = /v3/i.test(newVersion) ? v3Missing(f.cv) : v23Missing(f.cv);
       if (missing.length) {
         setV3Gap((g) => ({ ...g, [f.slug]: missing.map(([k]) => k) }));
-        setToast(`Can't switch to V3 yet — fill in: ${missing.map(([, l]) => l).join(", ")} (Start Setup → Step 1 → full form), save, then try again`);
+        setGapVer((g) => ({ ...g, [f.slug]: newVersion }));
+        /* Seed the picker with the program the operator just asked for —
+           the form opening below must not show a stale choice whose stars
+           (and a later Go live) belong to a different version. */
+        setSetupVer(/v1/i.test(newVersion) ? "V1" : /v2\.3/i.test(newVersion) ? "V2.3" : "V3");
+        setSetupVerPicked(true);
+        setToast(`Can't switch to ${newVersion.replace(/[()]/g, "")} yet — fill in: ${missing.map(([, l]) => l).join(", ")} (Start Setup → Step 1 → full form), save, then try again`);
         setProgFor(null);
         if (cvFor !== f.slug) {
           setCvFor(f.slug);
@@ -688,7 +720,7 @@ export default function FunnelsPage() {
           setSop5({ renamed: false, redirect: false, workflow: false });
         }
         // The full form is always visible in Step 1 now — nothing to unfold.
-        return;
+        return false;
       }
     }
     setProgBusy(f.slug);
@@ -698,12 +730,17 @@ export default function FunnelsPage() {
         body: JSON.stringify({ rowNumber: f.program.sheetRow, rowData: { Version: newVersion }, columns: ["Version"] }),
       });
       const j = await r.json();
-      if (!r.ok) { setToast(`Version save failed: ${j.error ?? r.status}`); return; }
+      if (!r.ok) { setToast(`Version save failed: ${j.error ?? r.status}`); return false; }
       setToast(j.sheetsUpdated
         ? `${f.clientName || f.slug}: Version → ${newVersion} — Clients sheet updated ✓`
         : `${f.clientName || f.slug}: Version → ${newVersion} (sheet write-back failed — check the Clients tab)`);
       setProgFor(null);
+      setV3Gap((g) => ({ ...g, [f.slug]: [] }));
       await load();
+      return true;
+    } catch (e) {
+      setToast(`Version save failed: ${String(e).slice(0, 80)}`);
+      return false;
     } finally { setProgBusy(null); }
   }, [load, cvFor]);
   const loadInsights = useCallback(async () => {
@@ -835,7 +872,10 @@ export default function FunnelsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  async function act(action: string, slug: string, extra: Record<string, string> = {}) {
+  /* Returns whether the API accepted the action — Go live must not lock
+     in a program version for a status change that failed (review,
+     2026-09-26). Callers that don't care keep ignoring it. */
+  async function act(action: string, slug: string, extra: Record<string, string> = {}): Promise<boolean> {
     setBusy(`${action}:${slug}`);
     try {
       const r = await fetch("/api/onebox/admin", {
@@ -868,6 +908,10 @@ export default function FunnelsPage() {
           }
         }
       }
+      return !j.error;
+    } catch {
+      setToast("Network error — this change may not have gone through");
+      return false;
     } finally { setBusy(null); }
   }
 
@@ -1458,13 +1502,13 @@ export default function FunnelsPage() {
                   <span className="text-[#425466]">
                     Program for <b>{f.program.ownerName || f.clientName}</b> — one click changes it here, on the Clients tab, and on the Clients Master sheet together:
                   </span>
-                  {/* Only V3 and V1 are offered (user, 2026-09-14 / 16); a client
-                      still on an older version just has neither chip selected. */}
+                  {/* All three programs are offered (owner, 2026-09-26 —
+                      supersedes the V3/V1-only spec of 2026-09-14/16). */}
                   {/* The chosen chip wears its own program colour — the same
                       blue/purple as the Clients tab (owner, 2026-09-26); the
-                      other stays white so the choice is unmistakable, keeping
+                      others stay white so the choice is unmistakable, keeping
                       only that program's border colour. */}
-                  {["(V3)", "(V1)"].map((v) => (
+                  {["(V3)", "(V2.3)", "(V1)"].map((v) => (
                     <button key={v} onClick={() => void saveProgram(f, v)} disabled={progBusy === f.slug}
                       style={vsChipStyle(v, f.program!.version === v)}
                       className="text-[11px] font-semibold border rounded-md px-2.5 py-1 disabled:opacity-50 bg-white text-[#1c2b3a] hover:opacity-90">
@@ -1594,6 +1638,9 @@ export default function FunnelsPage() {
                       {
                         const v = f.program?.version ?? "";
                         setSetupVer(/v1/i.test(v) ? "V1" : /v2\.3/i.test(v) ? "V2.3" : "V3");
+                        /* Seed only — until the operator clicks a chip, Go
+                           live must not treat this default as a choice. */
+                        setSetupVerPicked(false);
                       }
 
                     }
@@ -1605,8 +1652,31 @@ export default function FunnelsPage() {
                 )}
                 {/* Coaches publish their own onboardings — Go live is not admin-gated. */}
                 {canEdit && (
-                <button onClick={() => void act("status", f.slug, { status: f.status === "live" ? "paused" : "live" })}
-                  disabled={busy === `status:${f.slug}`}
+                <button onClick={() => void (async () => {
+                    const goingLive = f.status !== "live";
+                    /* Going live locks in the program picked in Start Setup
+                       (owner, 2026-09-26: "whenever I set up a client as a V
+                       something and click Go Live, it has to stay on that
+                       status"). The version is settled BEFORE the status
+                       flips, so a refused gate never leaves a live funnel on
+                       the wrong program. Guards: only when the form is open
+                       for THIS funnel, and only when the sheet version is one
+                       of the three picker values OR the operator actually
+                       clicked a chip — the picker's seed collapses V2/V2.2/
+                       blank to "V3", and that leftover default must never
+                       write through (review, 2026-09-26). */
+                    if (goingLive && cvFor === f.slug && f.program) {
+                      const target = `(${setupVer})`;
+                      const canonical = /^\((v1|v2\.3|v3)\)$/i.test(f.program.version.trim());
+                      if (target !== f.program.version && (canonical || setupVerPicked)) {
+                        if (!(await saveProgram(f, target))) return; // gaps shown; funnel stays paused
+                      }
+                    }
+                    const ok = await act("status", f.slug, { status: goingLive ? "live" : "paused" });
+                    if (ok && goingLive && cvFor === f.slug && !f.program)
+                      setToast("Live ✓ — but no Clients-sheet row matches this client, so the program can't be saved there");
+                  })()}
+                  disabled={busy === `status:${f.slug}` || busy === `cvs:${f.slug}` || progBusy === f.slug}
                   className={cn("text-xs rounded-lg px-2.5 py-1 border font-medium",
                     f.status === "live" ? "border-[#fdba74] text-[#c2410c] hover:bg-[#fff3e6]" : "ob-golive border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]")}>
                   {f.status === "live" ? "Pause" : "Go live"}
@@ -1683,12 +1753,14 @@ export default function FunnelsPage() {
                   <p className="text-[11px] font-bold text-[#0b7f7f]">Step 1 &middot; Business details</p>
                   {(() => {
                     const ver = f.program?.version ?? "";
-                    const isV1 = /v1/i.test(ver);
                     const gap = (v3Gap[f.slug] ?? []).filter((k) => !(f.cv[k] ?? "").trim());
                     return (<>
                       {gap.length > 0 && (
                         <p className="text-[11px] font-medium text-[#b91c1c] bg-[#fef2f2] border border-[#fecaca] rounded-lg px-3 py-2">
-                          Can&rsquo;t switch to V3 yet — still missing: {V3_REQUIRED.filter(([k]) => gap.includes(k)).map(([, l]) => l).join(", ")}. Fill the red fields below, save (Step 3), then switch again.
+                          {/* Named for the program the refused switch aimed at;
+                              labels come from BOTH gate lists, deduped, so
+                              every gap key resolves whichever list it is on. */}
+                          Can&rsquo;t switch to {(gapVer[f.slug] ?? "(V3)").replace(/[()]/g, "")} yet — still missing: {[...V3_REQUIRED, ...V23_REQUIRED].filter(([k]) => gap.includes(k)).map(([, l]) => l).filter((l, i, a) => a.indexOf(l) === i).join(", ")}. Fill the red fields below, save (Step 3), then switch again.
                         </p>
                       )}
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -1697,16 +1769,20 @@ export default function FunnelsPage() {
                             2026-09-26): the picked version fills with its own
                             colour, the rest stay white with its border. */}
                         {(["V1", "V2.3", "V3"] as const).map((v) => (
-                          <button key={v} type="button" onClick={() => setSetupVer(v)}
+                          <button key={v} type="button" onClick={() => { setSetupVer(v); setSetupVerPicked(true); }}
                             style={vsChipStyle(v, setupVer === v)}
                             className="text-[11px] font-bold rounded-lg px-3 py-1 border bg-white text-[#1c2b3a] hover:opacity-90">
                             {v}
                           </button>
                         ))}
                         <span className="text-[10px] text-[#697a91]">
+                          {/* The clause mirrors the Go-live write condition
+                              exactly (canonical-or-picked) — it must never
+                              stay silent when a write will happen, nor
+                              promise one that won't (review, 2026-09-26). */}
                           {ver ? <>Clients sheet says{" "}
                             <span className="text-[10px] font-semibold rounded-full border px-1.5 py-px align-middle" style={vsStyle(ver)}>{ver.replace(/[()]/g, "")}</span>
-                            {setupVer !== (isV1 ? "V1" : /v2\.3/i.test(ver) ? "V2.3" : "V3") && <> — this choice only changes the form view</>}.</> : <>Program unknown on the Clients tab — pick the one you&rsquo;re setting up.</>}
+                            {f.status !== "live" && `(${setupVer})` !== ver && (/^\((v1|v2\.3|v3)\)$/i.test(ver.trim()) || setupVerPicked) && <> — Go live will set the client&rsquo;s program to <b>{setupVer}</b> everywhere</>}.</> : <>Program unknown on the Clients tab — pick the one you&rsquo;re setting up.{f.program && setupVerPicked && f.status !== "live" && <> Go live will set it to <b>{setupVer}</b> everywhere.</>}</>}
                         </span>
                       </div>
                       <p className="text-[10px] text-[#697a91]">
@@ -2076,8 +2152,24 @@ export default function FunnelsPage() {
                       <span className="text-xs font-medium text-[#15803d]">&#10004; This funnel is live</span>
                     ) : (
                       <>
-                        <button onClick={() => void act("status", f.slug, { status: "live" })}
-                          disabled={busy === `status:${f.slug}` || needsVerify}
+                        <button onClick={() => void (async () => {
+                            /* Version first, status second (review, 2026-09-26):
+                               a refused V2.3/V3 gate keeps the funnel paused and
+                               shows the gaps instead of publishing it on the old
+                               program. The same lossy-default guard as the card
+                               button: an untouched picker never writes over a
+                               non-V1/V2.3/V3 sheet version. */
+                            if (f.program) {
+                              const target = `(${setupVer})`;
+                              const canonical = /^\((v1|v2\.3|v3)\)$/i.test(f.program.version.trim());
+                              if (target !== f.program.version && (canonical || setupVerPicked)) {
+                                if (!(await saveProgram(f, target))) return; // gaps shown; still paused
+                              }
+                            }
+                            const ok = await act("status", f.slug, { status: "live" });
+                            if (ok && !f.program) setToast("Live ✓ — but no Clients-sheet row matches this client, so the program can't be saved there");
+                          })()}
+                          disabled={busy === `status:${f.slug}` || busy === `cvs:${f.slug}` || progBusy === f.slug || needsVerify}
                           title={needsVerify ? "Verify the redirect in Step 5 first" : undefined}
                           className="ob-golive text-xs rounded-lg px-3 py-2 border font-medium border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df] disabled:opacity-40 disabled:cursor-not-allowed">
                           Go live
