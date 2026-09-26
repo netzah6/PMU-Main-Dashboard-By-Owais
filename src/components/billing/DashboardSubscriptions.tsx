@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, Plus, X, Play, Pause, Check, Trash2, ExternalLink, AlertTriangle, CreditCard } from "lucide-react";
+import { Loader2, Plus, X, Play, Pause, Check, Trash2, ExternalLink, AlertTriangle, CreditCard, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Subscriptions billed from here instead of Square, so pausing one never sends
@@ -30,6 +30,9 @@ type CardOpt = {
   brand: string; last4: string; exp: string | null; holder: string | null; enabled: boolean;
 };
 type Payer = { customerId: string; name: string; email: string | null };
+/* A Square customer as the manual search returns it — any contact in the
+   account, not just ones already matched to this client. */
+type SquareContact = { id: string; name: string; email: string | null; phone: string | null; company: string | null };
 type Charge = {
   id: string; subscription_id: string; owner_key: string; amount_cents: number;
   status: "succeeded" | "failed"; square_payment_id: string | null; receipt_url: string | null;
@@ -70,9 +73,58 @@ export function DashboardSubscriptions() {
   // Card picker: which subscription is open, the people paying for that client
   // and the cards Square returned for each, and which card would be used if
   // nothing is chosen. `mustChoose` = two payers, so there is no default.
-  const [cardPick, setCardPick] = useState<{ id: string; loading: boolean; error?: string; people: Payer[]; cards: CardOpt[]; defaultCardId: string | null; pinnedInPps: boolean; lastUsed?: boolean; mustChoose?: boolean } | null>(null);
+  const [cardPick, setCardPick] = useState<{ id: string; loading: boolean; error?: string; people: Payer[]; cards: CardOpt[]; defaultCardId: string | null; pinnedInPps: boolean; lastUsed?: boolean; mustChoose?: boolean; foundBySearch?: boolean } | null>(null);
   // last4 by card id, so a row can show "••4242" without a lookup each render
   const [cardLabels, setCardLabels] = useState<Record<string, string>>({});
+  /* Find ANY Square contact by hand. Automatic discovery matches on the sheet's
+     email, phone, business and the names in the Owner Full Name cell — which
+     cannot reach a payer the sheet never names (a partner, a spouse, a manager,
+     a record opened under a nickname). This box makes the picker work for every
+     client, not only the ones whose partners are written down (owner,
+     2026-09-26). Once attached, the customer is remembered for next time. */
+  const [custQ, setCustQ] = useState("");
+  const [custHits, setCustHits] = useState<SquareContact[]>([]);
+  const [custBusy, setCustBusy] = useState(false);
+  const [custNote, setCustNote] = useState<string | null>(null);
+
+  const searchContacts = async () => {
+    const q = custQ.trim();
+    if (q.length < 3) { setCustNote("Type at least 3 characters."); return; }
+    setCustBusy(true); setCustNote(null); setCustHits([]);
+    try {
+      const r = await fetch(`/api/ppa/customer-search?q=${encodeURIComponent(q)}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Search failed");
+      const hits = (j.customers ?? []) as SquareContact[];
+      setCustHits(hits);
+      if (!hits.length) setCustNote(`Nothing in Square matches "${q}".`);
+    } catch (e) {
+      setCustNote(e instanceof Error ? e.message : "Search failed");
+    } finally { setCustBusy(false); }
+  };
+
+  /* Load one hand-picked contact's cards into the open picker. */
+  const attachContact = async (subId: string, c: SquareContact) => {
+    setCustBusy(true); setCustNote(null);
+    try {
+      const r = await fetch(`/api/subscriptions/cards?customerId=${encodeURIComponent(c.id)}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Could not load that contact's cards");
+      const people = (j.people ?? []) as Payer[];
+      setCardPick({
+        id: subId, loading: false, people, cards: j.cards, defaultCardId: null,
+        pinnedInPps: false, lastUsed: false, mustChoose: true, foundBySearch: true,
+      });
+      const labels: Record<string, string> = {};
+      for (const k of j.cards as CardOpt[]) {
+        labels[k.id] = `${k.person ? `${k.person.split(" ")[0]} · ` : ""}${k.brand} ••${k.last4}`;
+      }
+      setCardLabels((m) => ({ ...m, ...labels }));
+      setCustHits([]); setCustQ("");
+    } catch (e) {
+      setCustNote(e instanceof Error ? e.message : "Could not load that contact's cards");
+    } finally { setCustBusy(false); }
+  };
 
   const openCardPicker = async (s: Sub) => {
     setCardPick({ id: s.id, loading: true, people: [], cards: [], defaultCardId: null, pinnedInPps: false });
@@ -401,9 +453,41 @@ export function DashboardSubscriptions() {
                     {cardPick.loading ? (
                       <div className="flex items-center gap-2 text-[11px] text-[#697a91]"><Loader2 size={12} className="animate-spin" /> Looking up cards on file in Square…</div>
                     ) : cardPick.error ? (
-                      <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#be123c]">
-                        {cardPick.error}
-                        <button onClick={() => setCardPick(null)} className="ml-auto text-[#8595a8]">close</button>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#be123c]">
+                          {cardPick.error}
+                          <button onClick={() => setCardPick(null)} className="ml-auto text-[#8595a8]">close</button>
+                        </div>
+                        {/* Find any Square contact by hand — the general escape hatch when
+                            automatic matching cannot reach a payer (owner, 2026-09-26). */}
+                        <div className="border-t border-[#e4ebf2] pt-1.5 mt-1.5 space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <Search size={11} className="text-[#697a91] shrink-0" />
+                            <input
+                              value={custQ}
+                              onChange={(e) => setCustQ(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchContacts(); } }}
+                              placeholder="Find another Square contact — name, email, phone or business…"
+                              className="flex-1 min-w-0 px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] text-[#1f3559] placeholder:text-[#a6b3c4] focus:outline-none focus:border-[#15B7AE]" />
+                            <button onClick={() => void searchContacts()} disabled={custBusy}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50">
+                              {custBusy ? <Loader2 size={10} className="animate-spin" /> : null} Search
+                            </button>
+                          </div>
+                          {custNote && <p className="text-[10.5px] text-[#b45309]">{custNote}</p>}
+                          {custHits.length > 0 && (
+                            <div className="space-y-1">
+                              {custHits.map((c) => (
+                                <button key={c.id} onClick={() => void attachContact(s.id, c)} disabled={custBusy}
+                                  className="w-full flex items-center gap-2 px-2 py-1 rounded-md border border-[#e4ebf2] bg-white text-left hover:border-[#15B7AE] disabled:opacity-50">
+                                  <span className="text-[11px] font-semibold text-[#1f3559] truncate">{c.name || "(no name)"}</span>
+                                  <span className="text-[10px] text-[#8595a8] truncate">{c.email ?? c.company ?? c.phone ?? ""}</span>
+                                  <span className="ml-auto text-[10px] font-bold text-[#0e8f88] shrink-0">use →</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <>
@@ -411,7 +495,11 @@ export function DashboardSubscriptions() {
                           Which card should this subscription charge?
                           {/* Two payers on one business is normal for a partner studio —
                               say so, and say what "leave it" would do. */}
-                          {cardPick.mustChoose && (
+                          {cardPick.foundBySearch ? (
+                            <span className="ml-2 font-normal text-[#0e8f88]">
+                              showing a contact you found by hand — pick the card to attach
+                            </span>
+                          ) : cardPick.mustChoose && (
                             <span className="ml-2 font-normal text-[#b45309]">
                               {cardPick.people.length} people pay for this business — pick whose card this one charges
                             </span>
@@ -464,6 +552,37 @@ export function DashboardSubscriptions() {
                             ))}
                           </div>
                         )}
+                        {/* Find any Square contact by hand — the general escape hatch when
+                            automatic matching cannot reach a payer (owner, 2026-09-26). */}
+                        <div className="border-t border-[#e4ebf2] pt-1.5 mt-1.5 space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <Search size={11} className="text-[#697a91] shrink-0" />
+                            <input
+                              value={custQ}
+                              onChange={(e) => setCustQ(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchContacts(); } }}
+                              placeholder="Find another Square contact — name, email, phone or business…"
+                              className="flex-1 min-w-0 px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] text-[#1f3559] placeholder:text-[#a6b3c4] focus:outline-none focus:border-[#15B7AE]" />
+                            <button onClick={() => void searchContacts()} disabled={custBusy}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50">
+                              {custBusy ? <Loader2 size={10} className="animate-spin" /> : null} Search
+                            </button>
+                          </div>
+                          {custNote && <p className="text-[10.5px] text-[#b45309]">{custNote}</p>}
+                          {custHits.length > 0 && (
+                            <div className="space-y-1">
+                              {custHits.map((c) => (
+                                <button key={c.id} onClick={() => void attachContact(s.id, c)} disabled={custBusy}
+                                  className="w-full flex items-center gap-2 px-2 py-1 rounded-md border border-[#e4ebf2] bg-white text-left hover:border-[#15B7AE] disabled:opacity-50">
+                                  <span className="text-[11px] font-semibold text-[#1f3559] truncate">{c.name || "(no name)"}</span>
+                                  <span className="text-[10px] text-[#8595a8] truncate">{c.email ?? c.company ?? c.phone ?? ""}</span>
+                                  <span className="ml-auto text-[10px] font-bold text-[#0e8f88] shrink-0">use →</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
                         <div className="flex items-center gap-2 text-[11px]">
                           {/* Clearing the choice is only an option when there IS a
                               default — with two payers it would leave the charge

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { listCustomerCards, lastUsedCard } from "@/lib/subscriptions";
+import { getCustomers, listCards } from "@/lib/square";
 
 export const maxDuration = 30;
 
@@ -19,7 +20,41 @@ export async function GET(req: NextRequest) {
   const auth = await getAuth();
   if (!auth || auth.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
   const ownerKey = (req.nextUrl.searchParams.get("ownerKey") ?? "").trim().toLowerCase();
-  if (!ownerKey) return NextResponse.json({ error: "ownerKey required" }, { status: 400 });
+  if (!ownerKey && !req.nextUrl.searchParams.get("customerId")) {
+    return NextResponse.json({ error: "ownerKey required" }, { status: 400 });
+  }
+
+  /* ?customerId= — the cards of ONE Square customer the admin found by hand
+     through the search box, for a payer automatic discovery cannot reach:
+     a partner, a spouse, a manager, a record opened under a name that appears
+     nowhere in the sheet (owner, 2026-09-26). Same response shape as the
+     normal load so the picker renders it identically. */
+  const oneCustomer = (req.nextUrl.searchParams.get("customerId") ?? "").trim();
+  if (oneCustomer) {
+    const who = (await getCustomers([oneCustomer])).get(oneCustomer);
+    if (!who) return NextResponse.json({ error: "No such Square customer" }, { status: 404 });
+    const theirCards = await listCards(oneCustomer, true);
+    if (!theirCards.length) {
+      return NextResponse.json(
+        { error: `${who.name || who.email || "That customer"} has no card on file in Square` },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json({
+      customerId: oneCustomer,
+      people: [{ customerId: oneCustomer, name: who.name, email: who.email ?? null }],
+      cards: theirCards.map((c) => ({
+        id: c.id, customerId: oneCustomer, person: who.name, personEmail: who.email ?? null,
+        brand: c.brand, last4: c.last4,
+        exp: c.expMonth && c.expYear ? `${String(c.expMonth).padStart(2, "0")}/${String(c.expYear).slice(-2)}` : null,
+        holder: c.cardholderName, enabled: c.enabled !== false,
+      })),
+      // A hand-picked record is never silently defaulted to — the admin chose
+      // to go looking, so they say which card.
+      defaultCardId: null, pinnedInPps: false, lastUsed: false, mustChoose: true,
+      foundBySearch: true,
+    });
+  }
 
   const svc = createServiceClient();
   const found = await listCustomerCards(svc, ownerKey);
