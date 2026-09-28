@@ -1070,7 +1070,14 @@ export default function FunnelsPage() {
 
       <DeprowTestCard />
 
-      {showAdd && (
+      {showAdd && (() => {
+        /* One sub-account, one funnel: flag a location ID that already has
+           a funnel the moment it is typed, before the API refuses it too
+           (H3 Brows was created on Beauty Beyond Scars' ID by mistake —
+           owner, 2026-09-28). */
+        const typedLoc = addForm.locationId.trim();
+        const locationTaken = typedLoc ? funnels.find((f) => f.locationId === typedLoc) : undefined;
+        return (
         <div className="mb-4 border border-[#e4ebf2] rounded-xl p-4 bg-white">
           <div className="font-medium text-sm mb-3 text-[#1c2b3a]">Add a client funnel</div>
           <div className="grid md:grid-cols-2 gap-3">
@@ -1080,22 +1087,32 @@ export default function FunnelsPage() {
             <input placeholder="Slug (URL path, e.g. pmu-by-ivan)" value={addForm.slug}
               onChange={(e) => { setSlugTouched(e.target.value.trim().length > 0); setAddForm((f) => ({ ...f, slug: e.target.value })); }}
               className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-sm" />
-            <input placeholder="GHL sub-account (location) ID" value={addForm.locationId}
-              onChange={(e) => setAddForm((f) => ({ ...f, locationId: e.target.value }))}
-              className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-sm" />
+            <div>
+              <input placeholder="GHL sub-account (location) ID" value={addForm.locationId}
+                onChange={(e) => setAddForm((f) => ({ ...f, locationId: e.target.value }))}
+                aria-invalid={!!locationTaken}
+                className={`w-full border rounded-lg px-3 py-2 text-sm ${locationTaken ? "border-[#e0908a] bg-[#fef3f2] text-[#b42318]" : "border-[#e4ebf2]"}`} />
+              {locationTaken && (
+                <div className="mt-1 text-xs text-[#b42318]">
+                  ⚠ This location ID is already used by <b>{locationTaken.clientName}</b> (/{locationTaken.slug}, {locationTaken.status}). Each sub-account can have only one funnel — check the ID in GHL.
+                </div>
+              )}
+            </div>
             <input placeholder="Current funnel URL (for pixel harvest, optional)" value={addForm.oldFunnelUrl}
               onChange={(e) => setAddForm((f) => ({ ...f, oldFunnelUrl: e.target.value }))}
               className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-sm" />
           </div>
           <div className="mt-3 flex items-center gap-3">
-            <button onClick={() => void addFunnel()} disabled={busy === "add"}
+            <button onClick={() => void addFunnel()} disabled={busy === "add" || !!locationTaken}
+              title={locationTaken ? `Location ID already used by ${locationTaken.clientName}` : undefined}
               className="flex items-center gap-1.5 text-sm bg-[#0e9c9c] text-white rounded-lg px-4 py-2 hover:bg-[#0b8383] disabled:opacity-50">
               {busy === "add" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Create &amp; sync from GHL
             </button>
-            {addNote && <span className="text-xs text-[#697a91]">{addNote}</span>}
+            {addNote && <span className={`text-xs ${addNote.startsWith("Error:") ? "text-[#b42318]" : "text-[#697a91]"}`}>{addNote}</span>}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {loading ? (
         <div className="p-10 text-center text-[#697a91]"><Loader2 className="w-5 h-5 animate-spin inline" /></div>
