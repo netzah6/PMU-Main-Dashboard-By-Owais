@@ -21,8 +21,11 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const proposals = data ?? [];
+  // What the last scan did (and why it skipped what it skipped).
+  const { data: lastScan } = await svc.from("app_settings").select("value").eq("key", "agent_scan_last").maybeSingle();
   return NextResponse.json({
     proposals,
     pending: proposals.filter((p: { status: string }) => p.status === "pending").length,
+    lastScan: (lastScan as { value?: unknown } | null)?.value ?? null,
   });
 }
