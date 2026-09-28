@@ -20,6 +20,27 @@ function uniqueSorted(clients: ClientRecord[], key: keyof ClientRecord) {
     .sort();
 }
 
+// "Assigned to no one" — the Assigned filter's extra option (owner request
+// 2026-09-28). Nearly half the sheet rows have a blank Assigned cell.
+const UNASSIGNED = "__unassigned__";
+
+// Version filter (owner request 2026-09-28). The sheet spells a version many
+// ways — "(V3)", "V3", "(V2.3)", "V2.3" — so options are the normalized
+// family and matching normalizes both sides. "(V2.2)" (one client) files
+// under V2.3, the same way the profile's version colours treat it.
+const VERSION_OPTIONS = ["V1", "V2", "V2.3", "V3", "Not Interested", "No version"] as const;
+const NO_VERSION = "No version";
+export function versionFamily(raw: unknown): string {
+  const v = String(raw ?? "").replace(/[()]/g, "").trim().toUpperCase();
+  if (!v) return NO_VERSION;
+  if (v.startsWith("V2.3") || v.startsWith("V2.2")) return "V2.3";
+  if (v.startsWith("V3")) return "V3";
+  if (v.startsWith("V2")) return "V2";
+  if (v.startsWith("V1")) return "V1";
+  if (v.startsWith("NOT INTERESTED")) return "Not Interested";
+  return String(raw).trim();
+}
+
 // Soft, deterministic avatar colors so the list reads bright and lively.
 const AVATARS = [
   { bg: "#dff5f1", fg: "#0e8f88" },
@@ -41,22 +62,34 @@ export function ClientList({ clients, selectedId, onSelect, programOf }: ClientL
   const [statusFilter, setStatusFilter] = useState("All");
   const [assignedFilter, setAssignedFilter] = useState("All");
   const [mediaBuyerFilter, setMediaBuyerFilter] = useState("All");
+  const [versionFilter, setVersionFilter] = useState("All");
 
-  const assignedOptions = useMemo(() => ["All", ...uniqueSorted(clients, "assigned")], [clients]);
+  const assignedOptions = useMemo(() => ["All", UNASSIGNED, ...uniqueSorted(clients, "assigned")], [clients]);
   const mediaBuyerOptions = useMemo(() => ["All", ...uniqueSorted(clients, "media_buyer")], [clients]);
+  // Only offer version families that actually occur, so the list never shows
+  // an option that filters to nothing.
+  const versionOptions = useMemo(() => {
+    const present = new Set(clients.map((c) => versionFamily(c.version)));
+    const known = VERSION_OPTIONS.filter((v) => present.has(v));
+    const extra = Array.from(present).filter((v) => !(VERSION_OPTIONS as readonly string[]).includes(v)).sort();
+    return ["All", ...known, ...extra];
+  }, [clients]);
 
   const filtered = useMemo(() => {
     return clients.filter((c) => {
       const name = `${c.business_name ?? ""} ${c.owner_name ?? ""}`.toLowerCase();
       if (search && !name.includes(search.toLowerCase())) return false;
       if (statusFilter !== "All" && String(c.status ?? "").toLowerCase() !== statusFilter.toLowerCase()) return false;
-      if (assignedFilter !== "All" && String(c.assigned ?? "") !== assignedFilter) return false;
+      if (assignedFilter === UNASSIGNED) {
+        if (String(c.assigned ?? "").trim() !== "") return false;
+      } else if (assignedFilter !== "All" && String(c.assigned ?? "") !== assignedFilter) return false;
       if (mediaBuyerFilter !== "All" && String(c.media_buyer ?? "") !== mediaBuyerFilter) return false;
+      if (versionFilter !== "All" && versionFamily(c.version) !== versionFilter) return false;
       return true;
     });
-  }, [clients, search, statusFilter, assignedFilter, mediaBuyerFilter]);
+  }, [clients, search, statusFilter, assignedFilter, mediaBuyerFilter, versionFilter]);
 
-  const hasFilters = statusFilter !== "All" || assignedFilter !== "All" || mediaBuyerFilter !== "All" || search;
+  const hasFilters = statusFilter !== "All" || assignedFilter !== "All" || mediaBuyerFilter !== "All" || versionFilter !== "All" || search;
 
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = { live: 0, paused: 0, lost: 0, offboarded: 0, other: 0 };
@@ -107,7 +140,8 @@ export function ClientList({ clients, selectedId, onSelect, programOf }: ClientL
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-3 gap-1.5">
+        {/* 2×2 so the four selects keep a readable width in the 200–300px panel */}
+        <div className="grid grid-cols-2 gap-1.5">
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
             className="px-2 py-1.5 bg-white border border-[#d7e0ea] rounded text-xs text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
             <option value="All">All Status</option>
@@ -115,10 +149,19 @@ export function ClientList({ clients, selectedId, onSelect, programOf }: ClientL
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
+          <select value={versionFilter} onChange={(e) => setVersionFilter(e.target.value)}
+            title="Program version from the Clients Master sheet"
+            className={cn("px-2 py-1.5 bg-white border rounded text-xs focus:outline-none focus:border-[#15B7AE]",
+              versionFilter === "All" ? "border-[#d7e0ea] text-[#34568a]" : "border-[#15B7AE] text-[#0e8f88] font-semibold")}>
+            {versionOptions.map((o) => (
+              <option key={o} value={o}>{o === "All" ? "All Versions" : o}</option>
+            ))}
+          </select>
           <select value={assignedFilter} onChange={(e) => setAssignedFilter(e.target.value)}
-            className="px-2 py-1.5 bg-white border border-[#d7e0ea] rounded text-xs text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+            className={cn("px-2 py-1.5 bg-white border rounded text-xs focus:outline-none focus:border-[#15B7AE]",
+              assignedFilter === UNASSIGNED ? "border-[#fcd9a8] bg-[#fff7ec] text-[#9a5b00] font-semibold" : "border-[#d7e0ea] text-[#34568a]")}>
             {assignedOptions.map((o) => (
-              <option key={o} value={o}>{o === "All" ? "All Assigned" : o}</option>
+              <option key={o} value={o}>{o === "All" ? "All Assigned" : o === UNASSIGNED ? "⚠ Not assigned" : o}</option>
             ))}
           </select>
           <select value={mediaBuyerFilter} onChange={(e) => setMediaBuyerFilter(e.target.value)}
@@ -130,7 +173,7 @@ export function ClientList({ clients, selectedId, onSelect, programOf }: ClientL
         </div>
 
         {hasFilters && (
-          <button onClick={() => { setSearch(""); setStatusFilter("All"); setAssignedFilter("All"); setMediaBuyerFilter("All"); }}
+          <button onClick={() => { setSearch(""); setStatusFilter("All"); setAssignedFilter("All"); setMediaBuyerFilter("All"); setVersionFilter("All"); }}
             className="text-xs text-[#0e8f88] hover:text-[#0e8f88] flex items-center gap-1">
             <X size={11} /> Clear filters ({filtered.length} showing)
           </button>

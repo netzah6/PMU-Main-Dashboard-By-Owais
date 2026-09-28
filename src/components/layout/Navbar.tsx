@@ -1,10 +1,14 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { LogOut, User, RefreshCw, Database, Settings, BadgeCheck, Loader2 } from "lucide-react";
+import { LogOut, User, RefreshCw, Database, Settings, BadgeCheck, Loader2, Eye, X } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/hooks/useUser";
-import { ROLE_LABELS } from "@/lib/types";
+import { ROLE_LABELS, type UserRole } from "@/lib/types";
+
+// Roles an admin can preview the dashboard as (top-bar "View as"). CSM and
+// Media Buyer are the ones the owner asked for; the rest cost nothing.
+const VIEW_AS_OPTIONS: UserRole[] = ["editor", "media_buyer", "va", "setter", "closer", "sales"];
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -22,8 +26,12 @@ interface NavbarProps {
 export function Navbar({ userEmail, syncing, sticky = true }: NavbarProps) {
   const router = useRouter();
   const supabase = createClient();
-  const { role } = useUser();
+  // `role` is what the bar renders for (the preview role while an admin is
+  // "viewing as" someone); `realRole` decides who gets the switcher itself,
+  // so an admin previewing as a coach can always switch back.
+  const { role, realRole, viewAs, setViewAs } = useUser();
   const [loggingOut, setLoggingOut] = useState(false);
+  const previewing = realRole === "admin" && !!viewAs;
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -80,7 +88,7 @@ export function Navbar({ userEmail, syncing, sticky = true }: NavbarProps) {
           </p>
           <p className="text-sm font-bold text-[#34568a] leading-tight tracking-tight truncate">Master Dashboard</p>
         </div>
-        {role && (
+        {role && !previewing && (
           // md, not sm: at 640–767 (phone on its side) the badge was part of
           // what squeezed the title out of the bar.
           <span
@@ -93,6 +101,25 @@ export function Navbar({ userEmail, syncing, sticky = true }: NavbarProps) {
           >
             <BadgeCheck size={13} />
             {ROLE_LABELS[role] ?? role}
+          </span>
+        )}
+        {previewing && role && (
+          // Amber, always visible (even on a phone): an admin must never
+          // forget they are looking at someone else's dashboard.
+          <span
+            className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full text-xs font-bold tracking-tight flex-shrink-0"
+            style={{ color: "#9a5b00", background: "#fff7ec", border: "1px solid #fcd9a8" }}
+            title="You are previewing the dashboard as this role. Tabs and layout follow the role; data still loads with your admin access."
+          >
+            <Eye size={13} />
+            <span className="hidden sm:inline">Viewing as</span> {ROLE_LABELS[role] ?? role}
+            <button
+              onClick={() => setViewAs(null)}
+              title="Back to your admin view"
+              className="ml-0.5 w-5 h-5 rounded-full flex items-center justify-center hover:bg-[#fcd9a8]/60"
+            >
+              <X size={12} />
+            </button>
           </span>
         )}
       </div>
@@ -110,6 +137,28 @@ export function Navbar({ userEmail, syncing, sticky = true }: NavbarProps) {
           what buys "Master Dashboard" enough room to read in full down to a
           320px screen. */}
       <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        {realRole === "admin" && (
+          // "View as": see the dashboard the way a CSM / Media Buyer sees it
+          // (owner request 2026-09-28). Keyed on the REAL role so it stays
+          // put while previewing — it is the way back.
+          <label
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] cursor-pointer"
+            title="Preview the dashboard as another role — tabs and pages switch to what that role sees"
+          >
+            <Eye size={12} className="flex-shrink-0" />
+            <select
+              value={viewAs ?? ""}
+              onChange={(e) => setViewAs((e.target.value || null) as UserRole | null)}
+              className="bg-transparent focus:outline-none cursor-pointer max-w-[7.5rem] sm:max-w-none"
+              aria-label="View dashboard as"
+            >
+              <option value="">View as: me (Admin)</option>
+              {VIEW_AS_OPTIONS.map((r) => (
+                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+              ))}
+            </select>
+          </label>
+        )}
         {role === "admin" && (
           <>
             <Link
