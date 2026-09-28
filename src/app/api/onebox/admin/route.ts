@@ -341,6 +341,24 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
           : `slug "${slug}" is already used by "${existing.client_name}" (a different sub-account) — pick another slug, or search for "${existing.client_name}" if that funnel is misnamed`,
       }, { status: 409 });
     }
+    /* One sub-account, one funnel. The config (deposit URL, calendar,
+       photos, survey) is read from the location's custom values, so a
+       second funnel on the same location ID is the same business wearing
+       another name — H3 Brows Beauty Bar was created on Beauty Beyond
+       Scars' location by mistake (owner, 2026-09-28). Refuse, and say who
+       holds the ID so a typo is obvious. */
+    const { data: sameLocation } = await svc
+      .from("onebox_clients")
+      .select("slug, client_name, status")
+      .eq("location_id", locationId)
+      .order("created_at", { ascending: true });
+    if (sameLocation && sameLocation.length > 0) {
+      const holder = sameLocation[0];
+      return NextResponse.json({
+        error: `location ID ${locationId} is already used by "${holder.client_name}" (slug ${holder.slug}, ${holder.status}) — each sub-account can have only one funnel. Check the ID in GHL: if this is a different business, it has a different location ID`,
+        conflict: { slug: holder.slug, clientName: holder.client_name, status: holder.status },
+      }, { status: 409 });
+    }
 
     /* Meta pixel: GHL injects it on the BOOKING page, not always on the
        survey page — so harvest tries the given URL, then the derived
