@@ -8,6 +8,11 @@ import {
   sendConversationMessage,
   type PmuAccount,
 } from "@/lib/ghl-conversations";
+import {
+  PLAN_SCHEMA_TEXT, sanitizePlan, planFromDetail, resolveClientLocation, executePlan, formatResults,
+  type PlanStep,
+} from "@/lib/agent-exec";
+import { notifyOwner, type NotifyItem } from "@/lib/agent-notify";
 
 // ── CEO Agent (phase 1) ──────────────────────────────────────────────────────
 // Watches client conversations in the main sub-account, detects messages that
@@ -36,6 +41,11 @@ export type Proposal = {
   decided_at: string | null;
   executed_at: string | null;
   result: string | null;
+  // Phase 2 (2026-09-28): the typed steps Approve runs, the client's own
+  // sub-account they run in, and when the owner was texted about the card.
+  action_plan?: PlanStep[] | null;
+  location_id?: string | null;
+  notified_at?: string | null;
 };
 
 type Classification = {
@@ -44,6 +54,7 @@ type Classification = {
   action_type?: "reply" | "account_change";
   proposed_reply?: string;
   action_detail?: string;
+  action_plan?: unknown;
   // Churn-risk read of the SAME conversation — independent of actionable.
   upset?: boolean;
   upset_reason?: string;
@@ -73,11 +84,17 @@ Reply with ONLY a JSON object, no other text:
   "action_type": "reply" | "account_change",
   "proposed_reply": "<a short, warm reply in the agency's casual texting style, confirming what will be done or answering the question>",
   "action_detail": "<for account_change: exactly what to change, where (which setting/page), so a teammate could do it>",
+  ${PLAN_SCHEMA_TEXT}
   "upset": true/false,
   "upset_reason": "<only when upset: one sentence on why this client is a churn risk>"
 }
 
+Today is ${new Date().toISOString().slice(0, 10)}.
+
 Rules:
+- "summary": at most 12 words, plain and direct, the ask itself — no "Client wants", no explanation (e.g. "Block Oct 8, 9, 15, 16, 22 on the calendar").
+- "proposed_reply": at most 2 short sentences, no filler.
+- "action_detail": one short sentence per change, nothing else.
 - "reply" = a message back fully handles it (a question, confirmation, scheduling info).
 - "account_change" = something in their account/funnel/ads must actually be changed. Still include proposed_reply (an acknowledgment).
 - Refunds, payments, cancellations of the agency service: action_type "account_change", and START action_detail with "SENSITIVE:".
@@ -109,6 +126,10 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
   const convs = await getRecentConversations(acct, 30, { unreadOnly: true });
   let filed = 0;
   let scanned = 0;
+  // Why each unread chat did NOT become a card — Tammy's request went
+  // missing on 2026-09-28 and nothing said why. Shown on the Agent panel.
+  const skipped: Array<{ who: string; why: string }> = [];
+  const filedItems: NotifyItem[] = [];
 
   // Owner name -> business name, so alerts can say WHO the client is
   // ("Christy Ray (Ink & Ivory Beauty)") — user request 2026-08-30.
@@ -160,9 +181,9 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
     if (scanned >= 20) break; // stay well inside the cron's time budget
     try {
       const thread = await getThread(acct, c.id);
-      if (!thread.length) continue;
+      if (!thread.length) { skipped.push({ who: c.contactName, why: "no readable messages (call/voicemail only?)" }); continue; }
       const last = thread[thread.length - 1];
-      if (last.direction !== "inbound") continue; // already answered
+      if (last.direction !== "inbound") { skipped.push({ who: c.contactName, why: "last message is ours — already answered" }); continue; }
       // Skip if this exact message was already proposed (or decided).
       const { data: existing } = await svc
         .from("agent_proposals")
@@ -170,11 +191,13 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
         .eq("conversation_id", c.id)
         .eq("message_id", last.id)
         .maybeSingle();
-      if (existing) continue;
+      if (existing) continue; // already a card — not worth listing every 10 min
 
       scanned++;
       const tail = thread.slice(-10).map((m) => ({ direction: m.direction, body: m.body }));
       const cls = await classify(anthropic, c.contactName, tail);
+      if (!cls) skipped.push({ who: c.contactName, why: "classifier returned nothing" });
+      else if (!cls.actionable || !cls.summary) skipped.push({ who: c.contactName, why: `not a request (AI read: ${cls.summary ?? "chatting / already handled"})` });
       // Churn-risk clients hit the Alerts board whether or not there's a
       // concrete ask to act on — the CEO wants to know either way. The alert
       // carries the business name and the client's actual recent messages so
@@ -210,25 +233,57 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       }
       if (!cls?.actionable || !cls.summary) continue;
 
-      const { error } = await svc.from("agent_proposals").insert({
+      const actionType = cls.action_type === "account_change" ? "account_change" : "reply";
+      const plan = actionType === "account_change" ? sanitizePlan(cls.action_plan) : [];
+      // The client's OWN sub-account, where an approved change will land.
+      let locationId: string | null = null;
+      if (actionType === "account_change") {
+        try { locationId = (await resolveClientLocation(svc, c.contactId, c.contactName))?.locationId ?? null; } catch { /* resolved again at approve */ }
+      }
+      // The client's latest texts, not just the last one — "Can we add a
+      // column" / "Before declining" / "Please and thank you" arrive as three
+      // messages and the card must show all three.
+      const recentInbound: string[] = [];
+      for (let i = thread.length - 1; i >= 0 && thread[i].direction === "inbound" && recentInbound.length < 5; i--) recentInbound.unshift(thread[i].body);
+      const { data: inserted, error } = await svc.from("agent_proposals").insert({
         conversation_id: c.id,
         message_id: last.id,
         contact_id: c.contactId,
         contact_name: c.contactName,
         channel: c.channel,
-        client_message: last.body.slice(0, 2000),
+        client_message: recentInbound.join("\n").slice(0, 2000),
         summary: cls.summary.slice(0, 500),
-        action_type: cls.action_type === "account_change" ? "account_change" : "reply",
+        action_type: actionType,
         proposed_reply: cls.proposed_reply?.slice(0, 1500) ?? null,
         action_detail: cls.action_detail?.slice(0, 1500) ?? null,
-      });
+        action_plan: plan.length ? plan : null,
+        location_id: locationId,
+      }).select("id").maybeSingle();
       if (error) {
         if (!/duplicate/i.test(error.message)) errors.push(`${c.contactName}: ${error.message}`);
-      } else filed++;
+      } else {
+        filed++;
+        const id = (inserted as { id?: string } | null)?.id;
+        if (id) filedItems.push({ id, contact_name: c.contactName, business: businessFor(c.contactName), summary: cls.summary, action_type: actionType });
+      }
     } catch (e) {
       errors.push(`${c.contactName}: ${e instanceof Error ? e.message.slice(0, 120) : "error"}`);
     }
   }
+
+  // Tell the owner — one text per scan, however many cards it filed.
+  let notify = { sent: false, note: "nothing filed" };
+  if (filedItems.length) {
+    try { notify = await notifyOwner(svc, filedItems); } catch (e) { notify = { sent: false, note: e instanceof Error ? e.message : "notify error" }; }
+  }
+  // Last-scan log for the Agent panel (no new table — one settings row).
+  try {
+    await svc.from("app_settings").upsert({
+      key: "agent_scan_last",
+      value: { at: new Date().toISOString(), unread: convs.length, scanned, filed, skipped: skipped.slice(0, 30), errors: errors.slice(0, 10), notify },
+      updated_by: "cron", updated_at: new Date().toISOString(),
+    });
+  } catch { /* the scan itself succeeded */ }
   return { scanned, filed, errors };
 }
 
@@ -261,9 +316,36 @@ export async function executeProposal(
     }
   }
 
-  const needsBrowser = p.action_type === "account_change";
-  const status: Proposal["status"] = !ok ? "failed" : needsBrowser ? "queued_browser" : "done";
-  const result = needsBrowser ? `${sendNote} · account change queued for the browser worker` : sendNote;
+  // Phase 2: run the account change in the client's sub-account and keep
+  // the before → after per step as proof. "SENSITIVE:" (refunds, payments,
+  // cancellations) is never executed — a person handles money.
+  let status: Proposal["status"] = ok ? "done" : "failed";
+  let result = sendNote;
+  let plan: PlanStep[] | null = null;
+  if (p.action_type === "account_change") {
+    const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
+    if (sensitive) {
+      status = ok ? "queued_browser" : "failed";
+      result = `${sendNote}\n👤 Sensitive (money) — a teammate must handle this by hand`;
+    } else {
+      plan = p.action_plan && p.action_plan.length
+        ? p.action_plan
+        : await planFromDetail({ summary: p.summary, actionDetail: p.action_detail, clientMessage: p.client_message });
+      const loc = p.location_id
+        ? { locationId: p.location_id }
+        : await resolveClientLocation(svc, p.contact_id, p.contact_name);
+      if (!loc) {
+        status = "failed";
+        result = `${sendNote}\n✗ Could not find ${p.contact_name}'s sub-account (no Clients Master match) — do it by hand`;
+      } else {
+        const run = await executePlan(plan, loc.locationId);
+        const lines = formatResults(run.steps);
+        status = !ok || !run.allOk ? "failed" : run.anyManual ? "queued_browser" : "done";
+        result = `${sendNote}\n${lines}`;
+        if (!p.location_id) await svc.from("agent_proposals").update({ location_id: loc.locationId }).eq("id", p.id);
+      }
+    }
+  }
 
   await svc.from("agent_proposals").update({
     status,
@@ -271,6 +353,7 @@ export async function executeProposal(
     decided_at: new Date().toISOString(),
     executed_at: new Date().toISOString(),
     result,
+    ...(plan ? { action_plan: plan } : {}),
     ...(replyText && replyText.trim() ? { proposed_reply: replyText.trim() } : {}),
   }).eq("id", p.id);
 

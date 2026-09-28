@@ -61,6 +61,17 @@ export default function AskPage() {
   // Admin-only agent inbox view toggle.
   const [view, setView] = useState<"chat" | "agent">("chat");
   const [agentPending, setAgentPending] = useState(0);
+  // The owner's text says "Approve or deny: …/ask?view=agent&p=<id>" — land
+  // on the Agent inbox with that card first (window.location, not
+  // useSearchParams, so the page needs no Suspense boundary).
+  const [focusProposal, setFocusProposal] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("view") === "agent") setView("agent");
+      if (q.get("p")) setFocusProposal(q.get("p"));
+    } catch { /* no query string */ }
+  }, []);
 
   const loadConvs = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) { setConvsLoading(true); setConvsError(null); }
@@ -332,7 +343,7 @@ export default function AskPage() {
       </div>
 
       {view === "agent" && role === "admin" ? (
-        <AgentPanel onCount={setAgentPending} />
+        <AgentPanel onCount={setAgentPending} focusId={focusProposal} />
       ) : (
       <>
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
@@ -480,19 +491,41 @@ export default function AskPage() {
 
 // ── CEO Agent inbox (admin only) ─────────────────────────────────────────────
 // Client requests the scanner detected, waiting for an explicit Approve/Deny.
-// Approve sends the (editable) reply; account changes queue for the browser
-// worker. Nothing ever executes without a click here.
+// Approve sends the (editable) reply and — phase 2, 2026-09-28 — runs the
+// account change in the client's own sub-account through the GHL API,
+// keeping a before → after line per step as proof. Steps the API cannot
+// reach (pipeline stages, workflows) park the card as "needs a teammate".
+// Nothing ever executes without a click here.
+type PlanStep = { type: string; [k: string]: unknown };
 type AgentProposal = {
   id: string; created_at: string; contact_name: string; channel: string | null;
   client_message: string; summary: string; action_type: "reply" | "account_change";
   proposed_reply: string | null; action_detail: string | null;
   status: string; decided_by: string | null; result: string | null;
+  action_plan?: PlanStep[] | null; location_id?: string | null; notified_at?: string | null;
 };
+type ScanLog = { at: string; unread: number; scanned: number; filed: number; skipped: Array<{ who: string; why: string }>; errors: string[]; notify?: { sent: boolean; note: string } };
 
-function AgentPanel({ onCount }: { onCount: (n: number) => void }) {
+// Plain-English line per planned step (mirrors describeStep on the server).
+function stepText(s: PlanStep): string {
+  const D = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  switch (s.type) {
+    case "custom_value_set": return `Set "${s.name}" to "${s.value}"`;
+    case "calendar_block_dates": return `Block ${(s.dates as string[]).join(", ")}${s.calendar ? ` on "${s.calendar}"` : ""}`;
+    case "calendar_hours_set": return `Hours${s.calendar ? ` on "${s.calendar}"` : ""}: ${(s.hours as Array<{ days: number[]; open: string; close: string }>).map((h) => `${h.days.map((d) => D[d]).join("/")} ${h.open}–${h.close}`).join(", ")}`;
+    case "location_address_set": return `Address → ${[s.address1, s.city, s.state, s.postalCode].filter(Boolean).join(", ")}`;
+    case "manual": return `Needs a teammate: ${s.what}`;
+    default: return JSON.stringify(s);
+  }
+}
+const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "needs a teammate", pending: "pending" };
+
+function AgentPanel({ onCount, focusId }: { onCount: (n: number) => void; focusId: string | null }) {
   const [proposals, setProposals] = useState<AgentProposal[]>([]);
+  const [lastScan, setLastScan] = useState<ScanLog | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [showSkipped, setShowSkipped] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -501,6 +534,7 @@ function AgentPanel({ onCount }: { onCount: (n: number) => void }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load proposals");
       setProposals(json.proposals ?? []);
+      setLastScan(json.lastScan ?? null);
       onCount(json.pending ?? 0);
     } catch (e) {
       setErr(`${e}`.replace("Error: ", ""));
@@ -510,38 +544,61 @@ function AgentPanel({ onCount }: { onCount: (n: number) => void }) {
   }, [onCount]);
   useEffect(() => { load(); }, [load]);
 
+  // Arriving from the owner's text: bring that card into view once loaded.
+  useEffect(() => {
+    if (!focusId || loading) return;
+    const el = document.getElementById(`proposal-${focusId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusId, loading]);
+
   const pending = proposals.filter((p) => p.status === "pending");
   const history = proposals.filter((p) => p.status !== "pending");
 
   return (
     <div className="flex-1 overflow-y-auto space-y-3 pb-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-[#697a91]">
-          The agent reads incoming client messages every 10 minutes and files requests here. <b>Nothing runs without your Approve.</b>
-        </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-[#697a91]">Client requests, checked every 10 minutes. <b>Nothing runs without your Approve.</b></p>
         <button onClick={load} title="Refresh" className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88]">
           <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
         </button>
       </div>
+      <NotifySettingsBox />
+      {lastScan && (
+        <div className="text-[11px] text-[#8595a8] flex items-center gap-2 flex-wrap">
+          <span>Last scan {timeAgo(lastScan.at)} ago · {lastScan.unread} unread chats · {lastScan.scanned} new checked · <b className="text-[#1f3559]">{lastScan.filed} filed</b>{lastScan.notify?.sent ? " · you were texted" : ""}</span>
+          {lastScan.skipped?.length > 0 && (
+            <button onClick={() => setShowSkipped((s) => !s)} className="text-[#0e8f88] hover:underline">
+              {showSkipped ? "hide" : "why skipped"} ({lastScan.skipped.length})
+            </button>
+          )}
+          {lastScan.errors?.length > 0 && <span className="text-[#c2620a]">{lastScan.errors.length} error{lastScan.errors.length === 1 ? "" : "s"}</span>}
+        </div>
+      )}
+      {showSkipped && lastScan && (
+        <div className="rounded-lg border border-[#eef3f8] bg-white px-3 py-2 text-[11px] text-[#697a91] space-y-0.5">
+          {lastScan.skipped.map((s, i) => <div key={i}><b className="text-[#1f3559]">{s.who}</b> — {s.why}</div>)}
+          {lastScan.errors.map((e, i) => <div key={`e${i}`} className="text-[#c2620a]">⚠ {e}</div>)}
+        </div>
+      )}
       {err && <div className="px-3 py-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-xs">{err}</div>}
       {loading && proposals.length === 0 ? (
         <p className="text-xs text-[#8595a8] flex items-center gap-1.5 py-8 justify-center"><Loader2 size={13} className="animate-spin" /> Loading the agent inbox…</p>
       ) : pending.length === 0 ? (
         <div className="text-center py-8 text-sm text-[#8595a8]">No pending requests — the agent found nothing that needs you right now 🎉</div>
       ) : (
-        pending.map((p) => <ProposalCard key={p.id} p={p} onDecided={load} />)
+        pending.map((p) => <ProposalCard key={p.id} p={p} onDecided={load} focused={p.id === focusId} />)
       )}
       {history.length > 0 && (
         <div>
           <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] mb-1 mt-4">History</div>
           <div className="space-y-1">
             {history.map((p) => (
-              <div key={p.id} className="rounded-lg border border-[#eef3f8] bg-white px-3 py-2 text-[11px] text-[#697a91]">
-                <span className={cn("font-bold mr-1.5", p.status === "denied" ? "text-[#e11d48]" : p.status === "failed" ? "text-[#c2620a]" : "text-[#15803d]")}>
-                  {p.status === "queued_browser" ? "queued for browser" : p.status}
+              <div key={p.id} id={`proposal-${p.id}`} className={cn("rounded-lg border bg-white px-3 py-2 text-[11px] text-[#697a91]", p.id === focusId ? "border-[#15B7AE]" : "border-[#eef3f8]")}>
+                <span className={cn("font-bold mr-1.5", p.status === "denied" ? "text-[#e11d48]" : p.status === "failed" ? "text-[#c2620a]" : p.status === "queued_browser" ? "text-[#9a5b00]" : "text-[#15803d]")}>
+                  {STATUS_LABEL[p.status] ?? p.status}
                 </span>
                 <span className="font-semibold text-[#1f3559]">{p.contact_name}</span> — {p.summary}
-                {p.result && <span className="text-[#8595a8]"> · {p.result}</span>}
+                {p.result && <pre className="mt-1 whitespace-pre-wrap font-sans text-[#8595a8]">{p.result}</pre>}
               </div>
             ))}
           </div>
@@ -551,10 +608,76 @@ function AgentPanel({ onCount }: { onCount: (n: number) => void }) {
   );
 }
 
-function ProposalCard({ p, onDecided }: { p: AgentProposal; onDecided: () => void }) {
+// "Text me when a request comes in" — the owner's number, saved once. The
+// text goes out through the main account, so the owner becomes a contact
+// there; the API does that and stores the contact id.
+function NotifySettingsBox() {
+  const [settings, setSettings] = useState<{ enabled: boolean; phone: string } | null | undefined>(undefined);
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState<"save" | "test" | "toggle" | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    fetch("/api/agent/notify").then((r) => r.json()).then((j) => setSettings(j.settings ?? null)).catch(() => setSettings(null));
+  }, []);
+  const post = async (body: Record<string, unknown>, kind: "save" | "test" | "toggle", okMsg: string) => {
+    setBusy(kind);
+    try {
+      const r = await fetch("/api/agent/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Failed");
+      if (j.settings) setSettings(j.settings);
+      toast.success(okMsg);
+      if (kind === "save") { setPhone(""); setOpen(false); }
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally { setBusy(null); }
+  };
+  if (settings === undefined) return null;
+  return (
+    <div className={cn("rounded-lg border px-3 py-2 text-xs", settings?.enabled ? "border-[#bfe3cd] bg-[#f3fbf6]" : "border-[#fcd9a8] bg-[#fff7ec]")}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className={settings?.enabled ? "text-[#15803d]" : "text-[#9a5b00]"}>
+          {settings ? (settings.enabled ? `📱 Texting you at ${settings.phone} when a request comes in` : `⏸ Texts paused (${settings.phone})`) : "⚠ Not texting you yet — add your mobile number so new requests reach you"}
+        </span>
+        <div className="flex items-center gap-1.5">
+          {settings && (
+            <>
+              <button onClick={() => post({ enabled: !settings.enabled }, "toggle", settings.enabled ? "Texts paused" : "Texts resumed")} disabled={!!busy}
+                className="px-2 py-1 rounded border border-[#d7e0ea] bg-white text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50 flex items-center gap-1">
+                {busy === "toggle" && <Loader2 size={11} className="animate-spin" />}{settings.enabled ? "Pause" : "Resume"}
+              </button>
+              <button onClick={() => post({ test: true }, "test", "Test text sent")} disabled={!!busy}
+                className="px-2 py-1 rounded border border-[#d7e0ea] bg-white text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50 flex items-center gap-1">
+                {busy === "test" && <Loader2 size={11} className="animate-spin" />}Send test
+              </button>
+            </>
+          )}
+          <button onClick={() => setOpen((o) => !o)} className="px-2 py-1 rounded bg-[#15B7AE] text-white hover:bg-[#0e8f88]">
+            {settings ? "Change number" : "Add my number"}
+          </button>
+        </div>
+      </div>
+      {open && (
+        <form className="mt-2 flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void post({ phone }, "save", "Saved — you'll be texted on the next request"); }}>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Your mobile, e.g. 213-555-0100" inputMode="tel" autoFocus
+            className="flex-1 px-2 py-1.5 bg-white border border-[#d7e0ea] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
+          <button type="submit" disabled={!!busy || !phone.trim()} className="px-3 py-1.5 rounded bg-[#15803d] text-white disabled:opacity-50 flex items-center gap-1">
+            {busy === "save" ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Save
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function ProposalCard({ p, onDecided, focused }: { p: AgentProposal; onDecided: () => void; focused?: boolean }) {
   const [reply, setReply] = useState(p.proposed_reply ?? "");
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
+  const [outcome, setOutcome] = useState<{ status: string; result: string } | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
   const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
+  const plan = p.action_plan ?? [];
+  const manualOnly = plan.length > 0 && plan.every((s) => s.type === "manual");
 
   const decide = useCallback(async (decision: "approve" | "deny") => {
     if (busy) return;
@@ -567,35 +690,72 @@ function ProposalCard({ p, onDecided }: { p: AgentProposal; onDecided: () => voi
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed");
-      toast.success(decision === "deny" ? "Denied — nothing sent" : json.status === "queued_browser" ? "Reply sent · account change queued for the browser worker" : "Approved — reply sent");
-      onDecided();
+      if (decision === "deny") { toast.success("Denied — nothing sent or changed"); onDecided(); return; }
+      // Keep the card up with the proof until the owner has read it.
+      setOutcome({ status: json.status, result: json.result ?? "" });
+      toast.success(json.status === "done" ? "Done — change made and reply sent" : json.status === "queued_browser" ? "Reply sent · a teammate must finish this one" : "Something failed — see the card");
+      setBusy(null);
     } catch (e) {
       toast.error(`${e}`.replace("Error: ", ""));
       setBusy(null);
     }
   }, [busy, p.id, reply, onDecided]);
 
-  return (
-    <div className={cn("rounded-xl border p-3", sensitive ? "border-[#f5c2cf] bg-[#fffafb]" : "border-[#c9dbfb] bg-[#f7faff]")}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[13px] font-bold text-[#1f3559]">{p.contact_name}</span>
-        <span className="text-[10px] text-[#8595a8]">{timeAgo(p.created_at)} ago{p.channel ? ` · ${p.channel}` : ""}</span>
+  if (outcome) {
+    const ok = outcome.status === "done";
+    return (
+      <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", ok ? "border-[#bfe3cd] bg-[#f3fbf6]" : outcome.status === "failed" ? "border-[#f5c2cf] bg-[#fffafb]" : "border-[#fcd9a8] bg-[#fff7ec]")}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[13px] font-bold text-[#1f3559]">{p.contact_name} — {ok ? "✅ done" : outcome.status === "failed" ? "❌ failed" : "👤 needs a teammate"}</span>
+          <button onClick={onDecided} className="text-[11px] text-[#0e8f88] hover:underline">dismiss</button>
+        </div>
+        <p className="mt-1 text-xs text-[#697a91]">{p.summary}</p>
+        <pre className="mt-2 whitespace-pre-wrap font-sans text-[12px] text-[#1f3559] bg-white/70 rounded-lg px-2.5 py-2 border border-black/5">{outcome.result}</pre>
       </div>
-      <p className="mt-1.5 text-[12px] text-[#697a91] border-l-2 border-[#d7e0ea] pl-2 whitespace-pre-wrap">&ldquo;{p.client_message}&rdquo;</p>
-      <p className="mt-2 text-sm text-[#1f3559]"><b>Wants:</b> {p.summary}</p>
-      {p.action_type === "account_change" && (
-        <div className={cn("mt-1.5 rounded-lg border px-2.5 py-1.5 text-[12px]", sensitive ? "border-[#f5c2cf] bg-[#fde8ee] text-[#9f1239]" : "border-[#ffd8a8] bg-[#fffaf2] text-[#c2620a]")}>
-          {sensitive ? "⚠️ SENSITIVE — " : "🔧 "}Account change: {(p.action_detail ?? "").replace(/^SENSITIVE:\s*/, "")}
-          <span className="block text-[10px] mt-0.5 opacity-80">Approve sends the reply below and queues this change for the browser worker — it is NOT auto-executed.</span>
+    );
+  }
+
+  // Compact by default (owner: "a lot of text, messy to track"): who, one
+  // line of what they want, the steps, the reply. The raw message and the
+  // AI's notes sit behind "details".
+  const tag = sensitive ? "💰 money" : p.action_type === "account_change" ? (manualOnly ? "👤 teammate" : "🔧 change") : "💬 reply";
+  return (
+    <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", sensitive ? "border-[#f5c2cf] bg-[#fffafb]" : "border-[#c9dbfb] bg-[#f7faff]", focused && "ring-2 ring-[#15B7AE]")}>
+      <div className="flex items-center gap-2">
+        <span className="text-[13px] font-bold text-[#1f3559]">{p.contact_name}</span>
+        <span className={cn("text-[10px] font-bold px-1.5 py-px rounded", sensitive ? "bg-[#fde8ee] text-[#9f1239]" : p.action_type === "account_change" ? "bg-[#fff1e0] text-[#c2410c]" : "bg-[#e3eefb] text-[#185fa5]")}>{tag}</span>
+        <span className="ml-auto text-[10px] text-[#8595a8]">{timeAgo(p.created_at)}{p.channel ? ` · ${p.channel}` : ""}</span>
+      </div>
+      <p className="mt-1 text-sm text-[#1f3559]">{p.summary}</p>
+      {plan.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 text-[12px] text-[#34568a]">
+          {plan.map((s, i) => (
+            <li key={i} className="flex gap-1.5"><span className="text-[#8595a8]">{s.type === "manual" ? "👤" : "▸"}</span><span>{stepText(s)}</span></li>
+          ))}
+        </ul>
+      )}
+      <button onClick={() => setShowDetails((d) => !d)} className="mt-1.5 text-[11px] text-[#0e8f88] hover:underline">
+        {showDetails ? "hide details" : "details"}
+      </button>
+      {showDetails && (
+        <div className="mt-1 space-y-1.5 text-[12px] text-[#697a91]">
+          <p className="border-l-2 border-[#d7e0ea] pl-2 whitespace-pre-wrap">&ldquo;{p.client_message}&rdquo;</p>
+          {p.action_detail && <p>{p.action_detail.replace(/^SENSITIVE:\s*/, "")}</p>}
+          <p className="text-[11px] text-[#8595a8]">
+            {sensitive ? "Money involved: Approve sends the reply only, a teammate makes the change."
+              : manualOnly ? "Not reachable by API: Approve sends the reply and marks it for a teammate."
+              : p.action_type === "account_change" ? `Approve sends the reply, makes the change in ${p.contact_name}'s account, and shows before → after.`
+              : "Approve sends the reply."}
+            {p.notified_at ? " You were texted about this." : ""}
+          </p>
         </div>
       )}
-      <label className="block mt-2 text-[11px] font-bold text-[#34568a]">Reply to send (edit freely — empty = send nothing):</label>
-      <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2}
-        className="w-full mt-1 px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none" />
+      <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2} placeholder="Reply to the client (empty = send nothing)"
+        className="w-full mt-2 px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none" />
       <div className="flex items-center gap-2 mt-2">
         <button onClick={() => decide("approve")} disabled={!!busy}
           className="px-3 py-1.5 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
-          {busy === "approve" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Approve{reply.trim() ? " & send" : ""}
+          {busy === "approve" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} {busy === "approve" ? "Working…" : "Approve"}
         </button>
         <button onClick={() => decide("deny")} disabled={!!busy}
           className="px-3 py-1.5 rounded-lg border border-[#f5c2cf] text-[#e11d48] hover:bg-[#fde8ee] text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">

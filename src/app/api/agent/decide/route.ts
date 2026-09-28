@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { executeProposal, type Proposal } from "@/lib/agent";
 
-export const maxDuration = 30;
+export const maxDuration = 60; // approve now also runs the account change against GHL
 
 // Approve / deny one agent proposal — admin only. Approve sends the (possibly
 // edited) reply and, for account changes, queues the browser-worker job.
