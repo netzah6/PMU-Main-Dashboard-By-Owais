@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/layout/Navbar";
 import { Badge } from "@/components/ui/Badge";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { UserPlus, Settings, Loader2, KeyRound } from "lucide-react";
+import { UserPlus, UserMinus, Settings, Loader2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { ROLE_LABELS, SALES_ROLES, type UserRoleRecord, type UserRole } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -97,6 +97,38 @@ export default function SettingsPage() {
       toast.error(String(err).replace("Error: ", ""));
     } finally {
       setResetting(null);
+    }
+  }
+
+  // Revoke a member's access: blocks sign-in, signs out open tabs, drops the
+  // role row. Their account record stays so their notes keep their author;
+  // inviting the same email again restores access.
+  const [removing, setRemoving] = useState<string | null>(null);
+  async function handleRemove(u: UserRoleRecord) {
+    const ok = window.confirm(
+      `Remove ${u.email} from the dashboard?\n\nThey will be signed out and won't be able to log in again. You can re-invite them later if needed.`
+    );
+    if (!ok) return;
+    setRemoving(u.user_id);
+    try {
+      const res = await fetch("/api/users/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: u.user_id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      toast.success(
+        json.sessionsRevoked
+          ? `${u.email} removed — signed out and blocked from logging in.`
+          : `${u.email} removed — blocked from logging in (any open tab signs out within the hour).`,
+        { duration: 7000 }
+      );
+      fetchUsers();
+    } catch (err) {
+      toast.error(String(err).replace("Error: ", ""));
+    } finally {
+      setRemoving(null);
     }
   }
 
@@ -236,6 +268,17 @@ export default function SettingsPage() {
                       {resetting === u.email ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
                       Reset password
                     </button>
+                    {u.user_id !== user?.id && (
+                      <button
+                        onClick={() => handleRemove(u)}
+                        disabled={removing === u.user_id}
+                        title="Remove this member: signs them out, blocks future logins, and takes them off the team list"
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border border-[#f3c9c9] text-[#b42318] hover:bg-[#fef3f2] hover:border-[#e0908a] disabled:opacity-50"
+                      >
+                        {removing === u.user_id ? <Loader2 size={12} className="animate-spin" /> : <UserMinus size={12} />}
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
