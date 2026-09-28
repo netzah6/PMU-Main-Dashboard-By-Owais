@@ -58,6 +58,17 @@ export async function POST(req: NextRequest) {
     }
     userId = existing.id;
     alreadyExisted = true;
+    // A member removed via Settings → Remove is banned, not deleted. Inviting
+    // them back must lift the ban or the restored role would never log in.
+    const bannedUntil = (existing as { banned_until?: string | null }).banned_until;
+    if (bannedUntil && new Date(bannedUntil) > new Date()) {
+      const { error: unbanError } = await adminClient.auth.admin.updateUserById(existing.id, {
+        ban_duration: "none",
+      });
+      if (unbanError) {
+        return NextResponse.json({ error: `Could not re-enable sign-in: ${unbanError.message}` }, { status: 500 });
+      }
+    }
   } else {
     userId = inviteData.user.id;
   }
