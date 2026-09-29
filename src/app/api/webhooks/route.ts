@@ -40,6 +40,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
+  /* Routing signal from the Make catch-all (one module, fires on every
+     Commas payment): route the payment to the client's GHL if they're on
+     dashboard routing, but do NOT record a deposit row — for route-covered
+     clients the sheet path stays the single source, so no duplicate rows.
+     The payment id doubles as the once-only claim key. */
+  if (String(body.route_only ?? "") === "1") {
+    const extId = String(body.payment_id ?? body.transaction_id ?? body.fanbasis_payment_id ?? "").trim();
+    waitUntil(
+      routeIncomingPayment(body, { externalId: extId || undefined })
+        .then((r) => {
+          if (r.outcome !== "skipped" || !/^no product id/.test(r.note)) {
+            console.log("[payment-router]", JSON.stringify(r));
+          }
+        })
+        .catch((e) => console.error("[payment-router]", e))
+    );
+    return NextResponse.json({ ok: true, action: "route-only" });
+  }
+
   const rawTable = body.table ?? body.sheet ?? body.sheetName ?? body.type;
   const table = rawTable == null || String(rawTable).trim() === "" ? "deposits" : resolveTable(rawTable);
   if (!table) {

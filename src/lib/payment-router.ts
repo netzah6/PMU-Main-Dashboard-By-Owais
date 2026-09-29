@@ -151,26 +151,25 @@ export async function replayToClientHook(hookUrl: string, payload: ReplayPayload
   }
 }
 
-/* Atomic once-only claim on the ingested deposit row. Returns true when THIS
-   call won the claim (routed_at was null and is now set); a re-delivered or
-   loop-generated duplicate finds routed_at already set and loses. */
+/* Atomic once-only claim per payment, in its own table so it works for
+   route-only payloads too (those never create a deposits row). INSERT with
+   ON CONFLICT DO NOTHING semantics: the call that inserts the row wins; a
+   re-delivered or loop-generated duplicate hits the primary key and loses. */
 async function claimRouting(externalId: string): Promise<boolean> {
   const svc = createServiceClient();
-  const { data, error } = await svc
-    .from("deposits")
-    .update({ routed_at: new Date().toISOString() })
-    .eq("external_id", externalId)
-    .is("routed_at", null)
-    .select("id");
-  if (error) throw new Error(`claim failed: ${error.message}`);
-  return (data ?? []).length > 0;
+  const { error } = await svc
+    .from("payment_router_claims")
+    .insert({ external_id: externalId });
+  if (!error) return true;
+  if (error.code === "23505") return false; // duplicate key = someone already routed it
+  throw new Error(`claim failed: ${error.message}`);
 }
 
 /* A failed send releases the claim, so the next re-delivery (Make retries
    timed-out executions) gets another attempt instead of losing the payment. */
 async function releaseRouting(externalId: string): Promise<void> {
   const svc = createServiceClient();
-  await svc.from("deposits").update({ routed_at: null }).eq("external_id", externalId);
+  await svc.from("payment_router_claims").delete().eq("external_id", externalId);
 }
 
 /* Fire-and-forget entry for the /api/webhooks intake: never throws, never
