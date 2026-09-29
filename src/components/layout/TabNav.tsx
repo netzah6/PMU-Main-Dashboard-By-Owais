@@ -50,7 +50,8 @@ const TABS: Tab[] = [
   // Removed 2026-09-26 (user request "we don't need it anymore on the dashboard"):
   // Pixel Checking — the tab, the /pixel-checking page and the /api/pixel-check
   // route are all gone. The pixel_checks table still holds the audit rows.
-  { label: "🧹 Cleanup", href: "/cleanup", adminOnly: true, collapsed: true }, // offboarded sub-account wipe + pool recycling — admins only
+  // Cleanup is no longer a tab (owner, 2026-09-29): the wipe + pool tools sit
+  // inside Onboarding as an admin-only section; /cleanup redirects there.
   { label: "👑 CEO", href: "/ceo", adminOnly: true },
   { label: "🕵️ Logs", href: "/activity", adminOnly: true, collapsed: true }, // team-member change log
   { label: "📣 Blast", href: "/blast" }, // text blasts — human-confirmed; admins + coaches (user request 2026-08-27)
