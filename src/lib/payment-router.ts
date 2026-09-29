@@ -45,6 +45,34 @@ export function isValidHookUrlForLocation(url: string, locationId: string): bool
   return isValidHookUrl(u) && !!locationId && u.includes(`/hooks/${locationId}/`);
 }
 
+/* The client's hook URL can live in two places: extras.fanbasisHookUrl
+   (set by admin, survives everything) or the "CC - Fanbasis Webhook URL"
+   custom value pasted at Start Setup (config mirror; required for V2.3/V3
+   onboarding). Extras wins when both exist. */
+export function clientHookUrl(config: Record<string, unknown> | null, extras: Record<string, unknown> | null): string {
+  return (
+    String((extras ?? {}).fanbasisHookUrl ?? "").trim() ||
+    String((config ?? {}).fanbasisHookUrl ?? "").trim()
+  );
+}
+
+/* Is this client on dashboard routing? Explicit extras.paymentRouter wins
+   ("yes"/"no"); with no explicit flag, a valid own-location hook URL turns
+   routing ON — that is how a NEW V2.3/V3 client is live the moment the
+   team pastes the webhook URL at Start Setup, with no extra switch.
+   (Existing clients with Make routes have no URL stored anywhere, so
+   nothing changes for them until the fleet cutover writes one.) */
+export function isDashboardRouted(
+  config: Record<string, unknown> | null,
+  extras: Record<string, unknown> | null,
+  locationId: string
+): boolean {
+  const flag = String((extras ?? {}).paymentRouter ?? "");
+  if (flag === "no") return false;
+  if (flag === "yes") return true;
+  return isValidHookUrlForLocation(clientHookUrl(config, extras), locationId);
+}
+
 /* The payment payload Make sends today (captured from a real request in the
    trigger's Mapping Reference — lowercase snake_case keys). The replay keeps
    exactly this shape so the workflow's field mappings keep resolving. */
@@ -195,12 +223,13 @@ export async function routeIncomingPayment(
 
     const { row } = resolved;
     const extras = (row.extras ?? {}) as Record<string, unknown>;
-    if (String(extras.paymentRouter ?? "") !== "yes") {
+    if (!isDashboardRouted(row.config, extras, row.location_id)) {
       return { routed: false, outcome: "skipped", note: "router not enabled for this client", slug: row.slug };
     }
-    const hookUrl = String(extras.fanbasisHookUrl ?? "").trim();
+    const hookUrl = clientHookUrl(row.config, extras);
     if (!isValidHookUrlForLocation(hookUrl, row.location_id)) {
-      return { routed: false, outcome: "error", note: "router enabled but fanbasisHookUrl is missing, invalid, or not this client's location", slug: row.slug };
+      // only reachable with an explicit paymentRouter="yes" but a bad/missing URL
+      return { routed: false, outcome: "error", note: "router enabled but the webhook URL is missing, invalid, or not this client's location", slug: row.slug };
     }
 
     if (opts.externalId) {

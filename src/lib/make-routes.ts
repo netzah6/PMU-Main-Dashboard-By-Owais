@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { isDashboardRouted, isValidHookUrlForLocation, clientHookUrl } from "@/lib/payment-router";
 
 // Read-only viewer for the "Fanbasis_Make.com_GHL" scenario. Pulls the
 // blueprint via the Make API (a metadata read — consumes NO Make operations,
@@ -281,17 +282,18 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
   const noWebhook = routes.filter((r) => !r.webhook).map((r) => r.idx);
 
   /* Dashboard payment routing (the Make-route replacement, payment-router.ts):
-     clients whose one-box row has extras.paymentRouter === "yes". Shown on
+     clients routed by the dashboard — the explicit extras flag, or the
+     "CC - Fanbasis Webhook URL" pasted at Start Setup (auto-on). Shown on
      the page so "who is on the new path vs still on Make" is one glance. */
-  const HOOK_RE = /^https:\/\/(services|backend)\.leadconnectorhq\.com\/hooks\/[A-Za-z0-9/_-]+$/;
   const { data: ob } = await svc
     .from("onebox_clients")
     .select("slug, client_name, location_id, status, config, extras");
   type ObRow = { slug: string; client_name: string; location_id: string; status: string; config: Record<string, unknown> | null; extras: Record<string, unknown> | null };
-  const dashRows = ((ob ?? []) as ObRow[]).filter((r) => String((r.extras ?? {}).paymentRouter ?? "") === "yes");
+  const dashRows = ((ob ?? []) as ObRow[]).filter(
+    (r) => isDashboardRouted(r.config, r.extras, r.location_id) || String((r.extras ?? {}).paymentRouter ?? "") === "yes"
+  );
   const dashboardRouting: DashboardRoutedClient[] = dashRows.map((r) => {
     const pid = String((r.config ?? {})["fanbasisProductId"] ?? "").trim();
-    const hook = String((r.extras ?? {}).fanbasisHookUrl ?? "").trim();
     const nb = norm(r.client_name);
     const makeRouteIdxs = routes
       .filter((rt) => (rt.matchedBusiness && norm(rt.matchedBusiness) === nb) || (pid && rt.filterText.split(" · ").includes(pid)))
@@ -301,7 +303,7 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
       slug: r.slug,
       productId: pid,
       live: r.status === "live",
-      hookConfigured: HOOK_RE.test(hook) && hook.includes(`/hooks/${r.location_id}/`),
+      hookConfigured: isValidHookUrlForLocation(clientHookUrl(r.config, r.extras), r.location_id),
       makeRouteIdxs,
     };
   }).sort((a, b) => a.business.localeCompare(b.business));

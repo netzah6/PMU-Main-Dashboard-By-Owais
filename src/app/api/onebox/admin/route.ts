@@ -6,7 +6,7 @@ import { refreshOneboxConfig, normalizeElfsight, harvestFirstPixel, ensureOnebox
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
-import { isValidHookUrlForLocation, buildReplayPayload, replayToClientHook } from "@/lib/payment-router";
+import { isValidHookUrlForLocation, clientHookUrl, buildReplayPayload, replayToClientHook } from "@/lib/payment-router";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -598,10 +598,9 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        enabled. NOTE: this creates a real test contact on the account and the
        workflow's downstream webhook writes a deposit-sheet row — delete the
        contact and VOID the sheet row after verifying. */
-    const extras = (row.extras ?? {}) as Extras;
-    const hookUrl = String(extras.fanbasisHookUrl ?? "").trim();
+    const hookUrl = clientHookUrl(row.config as Record<string, unknown>, row.extras as Record<string, unknown>);
     if (!isValidHookUrlForLocation(hookUrl, String(row.location_id ?? ""))) {
-      return NextResponse.json({ error: "Set a valid fanbasisHookUrl (extras, this client's own location) first" }, { status: 400 });
+      return NextResponse.json({ error: "Paste the Fanbasis Webhook URL (Start Setup) or set extras.fanbasisHookUrl first — must be this client's own location" }, { status: 400 });
     }
     const pid = String(((row.config ?? {}) as Record<string, string>).fanbasisProductId ?? "").trim();
     const payload = buildReplayPayload({
