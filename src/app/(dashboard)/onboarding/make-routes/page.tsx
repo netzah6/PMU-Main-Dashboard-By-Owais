@@ -68,7 +68,11 @@ export default function MakeRoutesPage() {
 
       {report && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+            <div className={`rounded-xl p-3 ${report.dashboardRouting.length ? "bg-[#f5f1fb] border border-[#d4c4ee]" : "border border-[#e4ebf2] bg-white"}`}>
+              <div className={`text-xs ${report.dashboardRouting.length ? "text-[#6d3fb5]" : "text-[#8595a8]"}`}>Dashboard routing</div>
+              <div className={`text-2xl font-bold ${report.dashboardRouting.length ? "text-[#6d3fb5]" : "text-[#1f3559]"}`}>{report.dashboardRouting.length}</div>
+            </div>
             <div className="rounded-xl border border-[#e4ebf2] bg-white p-3">
               <div className="text-xs text-[#8595a8]">Total routes</div>
               <div className="text-2xl font-bold text-[#1f3559]">{report.routes.length}</div>
@@ -87,6 +91,25 @@ export default function MakeRoutesPage() {
             </div>
           </div>
 
+          {report.dashboardRouting.length > 0 && (
+            <div className="rounded-xl border border-[#d4c4ee] bg-[#f5f1fb] p-3 mb-3 text-sm text-[#4c2d80]">
+              <div className="font-semibold mb-1.5">🟣 On dashboard routing (the new path — no Make route needed):</div>
+              <div className="flex flex-wrap gap-1.5">
+                {report.dashboardRouting.map((d) => (
+                  <span key={d.slug} className="px-2 py-0.5 rounded-md text-[12px] bg-white border border-[#d4c4ee]" title={`product ${d.productId || "—"}`}>
+                    {d.business}
+                    {!d.live && <span className="text-[#8595a8]"> · paused</span>}
+                    {!d.hookConfigured && <span className="text-[#a32d2d]"> · ⚠ hook not set</span>}
+                    {d.makeRouteIdxs.length > 0 && <span className="text-[#6d3fb5]"> · Make route {d.makeRouteIdxs.join("+")} still on</span>}
+                  </span>
+                ))}
+              </div>
+              <p className="text-[11px] mt-2 text-[#8a6fc0]">
+                These clients&apos; payments are routed by the dashboard. A client shown with &quot;Make route still on&quot; runs both paths in
+                parallel — delete their Make route once the switch is verified.
+              </p>
+            </div>
+          )}
           {report.duplicates.length > 0 && (
             <div className="rounded-xl border border-[#f0b9b9] bg-[#fdf3f3] p-3 mb-3 text-sm text-[#8a3a3a]">
               <span className="font-semibold">Duplicates — each extra route writes the deposit twice:</span>{" "}
@@ -96,7 +119,7 @@ export default function MakeRoutesPage() {
           {report.missingClients.length > 0 && (
             <details className="rounded-xl border border-[#ecd3a8] bg-[#fbf7f1] p-3 mb-3 text-sm text-[#6b4d16]">
               <summary className="font-semibold cursor-pointer select-none">
-                {report.missingClients.length} Live clients without a route — click to see the list
+                {report.missingClients.length} Live clients with no route anywhere (Make or dashboard) — click to see the list
               </summary>
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {report.missingClients.map((c) => (
@@ -165,6 +188,11 @@ export default function MakeRoutesPage() {
                         <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#fbf3e2] text-[#854f0b]">no webhook</span>
                       ) : (
                         <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#e7f6ec] text-[#15803d]">OK</span>
+                      )}
+                      {r.dashboardRouted && (
+                        <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#f0e9fb] text-[#6d3fb5]" title="This client is on dashboard routing — this Make route is legacy">
+                          → dashboard
+                        </span>
                       )}
                     </td>
                   </tr>
