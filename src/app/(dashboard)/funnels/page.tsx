@@ -186,6 +186,7 @@ const V3_REQUIRED: [key: string, label: string][] = [
   ["deposit", "Deposit amount"],
   ["calendarId", "Calendar ID"],
   ["fanbasisProductId", "Commas product ID"],
+  ["fanbasisHookUrl", "Fanbasis webhook URL"],
   ["offer", "Offer"], // REQ_RULES marks offer "v23" = required from V2.3 up, V3 included
   ["depositFunnelUrl", "Deposit funnel URL"],
   ["ownerName", "Owner's name"],
@@ -203,6 +204,7 @@ const V23_REQUIRED: [key: string, label: string][] = [
   ["deposit", "Deposit amount"],
   ["calendarId", "Calendar ID"],
   ["fanbasisProductId", "Commas product ID"],
+  ["fanbasisHookUrl", "Fanbasis webhook URL"],
   ["offer", "Offer"],
 ];
 function v23Missing(cv: Record<string, string>): [string, string][] {
@@ -228,7 +230,7 @@ function ProgTag({ v3only, clientIsV1 }: { v3only: boolean; clientIsV1: boolean 
    time (see the Step-3 handler). */
 const REQ_RULES: Record<string, "always" | "v23" | "v3"> = {
   biz: "always", address: "always", phone: "always", fbLink: "always",
-  deposit: "v23", fanbasisProductId: "v23", calendarId: "v23", offer: "v23",
+  deposit: "v23", fanbasisProductId: "v23", fanbasisHookUrl: "v23", calendarId: "v23", offer: "v23",
   ownerName: "v3", originalPrice: "v3", discountedPrice: "v3", igLink: "v3",
   services: "v3", yearsInBusiness: "v3", businessHours: "v3",
 };
@@ -1962,10 +1964,11 @@ export default function FunnelsPage() {
                       ["deposit", "Deposit amount (e.g. $50)"],
                       ["calendarId", "Calendar ID"],
                       ["fanbasisProductId", "Commas product ID"],
+                      ["fanbasisHookUrl", "Fanbasis webhook URL (FanBasis to GHL workflow → Inbound Webhook)"],
                       ["igWidget", "Instagram widget link (elf.site)"],
                       ["googleWidget", "Google reviews widget link (elf.site)"],
                     ] as [string, string][])
-                      .filter(([k]) => setupVer !== "V1" || !["offer", "deposit", "calendarId", "fanbasisProductId"].includes(k))
+                      .filter(([k]) => setupVer !== "V1" || !["offer", "deposit", "calendarId", "fanbasisProductId", "fanbasisHookUrl"].includes(k))
                       .map(([k, label]) => {
                       const must = reqFor(setupVer, k);
                       const dim = false;

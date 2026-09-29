@@ -55,6 +55,12 @@ const pickers: [key: string, ...names: string[]][] = [
   ["studioImgs", "CC - Studio Images", "OB - Studio Images"],
   // Fanbasis checkout — the simple way: just the product ID.
   ["fanbasisProductId", "CC - Fanbasis Product ID", "OB - Fanbasis Product ID"],
+  /* Dashboard payment routing: the account's own "FanBasis to GHL workflow"
+     inbound-webhook URL (unique secret per account — GHL invents it when the
+     snapshot lands, unreadable by API, so the team pastes it at Start Setup;
+     required for V2.3/V3). A valid value here turns routing on for the
+     client (payment-router.ts) unless extras.paymentRouter says "no". */
+  ["fanbasisHookUrl", "CC - Fanbasis Webhook URL"],
   ["thankYouPath", "CC - Thank You Page Path", "OB - Thank You Path"],
   // Or paste the whole deposit-page block (fallback for edge cases).
   ["fanbasisCode", "CC - Fanbasis Checkout Code", "CC - Fanbasis Code", "OB - Fanbasis Code"],
@@ -370,6 +376,7 @@ export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
   deposit: "CC - Deposit Amount 🔵",
   calendarId: "CC - Permanent Makeup Transformation Calendar ID🔵",
   fanbasisProductId: "CC - Fanbasis Product ID",
+  fanbasisHookUrl: "CC - Fanbasis Webhook URL",
   thankYouPath: "CC - Thank You Page Path",
   igWidget: "CC - IG Widget LINK",
   googleWidget: "CC - Google Widget LINK",
