@@ -504,7 +504,7 @@ type AgentProposal = {
   status: string; decided_by: string | null; result: string | null;
   action_plan?: PlanStep[] | null; location_id?: string | null; notified_at?: string | null;
 };
-type ScanLog = { at: string; unread: number; scanned: number; filed: number; skipped: Array<{ who: string; why: string }>; errors: string[]; notify?: { sent: boolean; note: string } };
+type ScanLog = { at: string; unread: number; scanned: number; filed: number; closed?: number; skipped: Array<{ who: string; why: string }>; errors: string[]; notify?: { sent: boolean; note: string } };
 
 // Plain-English line per planned step (mirrors describeStep on the server).
 function stepText(s: PlanStep): string {
@@ -518,7 +518,7 @@ function stepText(s: PlanStep): string {
     default: return JSON.stringify(s);
   }
 }
-const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "needs a teammate", pending: "pending" };
+const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "needs a teammate", handled: "handled in chat", pending: "pending" };
 
 function AgentPanel({ onCount, focusId }: { onCount: (n: number) => void; focusId: string | null }) {
   const [proposals, setProposals] = useState<AgentProposal[]>([]);
@@ -565,7 +565,7 @@ function AgentPanel({ onCount, focusId }: { onCount: (n: number) => void; focusI
       <NotifySettingsBox />
       {lastScan && (
         <div className="text-[11px] text-[#8595a8] flex items-center gap-2 flex-wrap">
-          <span>Last scan {timeAgo(lastScan.at)} ago · {lastScan.unread} unread chats · {lastScan.scanned} new checked · <b className="text-[#1f3559]">{lastScan.filed} filed</b>{lastScan.notify?.sent ? " · you were texted" : ""}</span>
+          <span>Last scan {timeAgo(lastScan.at)} ago · {lastScan.unread} unread chats · {lastScan.scanned} new checked · <b className="text-[#1f3559]">{lastScan.filed} filed</b>{lastScan.closed ? ` · ${lastScan.closed} closed (answered in chat)` : ""}{lastScan.notify?.sent ? " · you were texted" : ""}</span>
           {lastScan.skipped?.length > 0 && (
             <button onClick={() => setShowSkipped((s) => !s)} className="text-[#0e8f88] hover:underline">
               {showSkipped ? "hide" : "why skipped"} ({lastScan.skipped.length})
@@ -594,7 +594,7 @@ function AgentPanel({ onCount, focusId }: { onCount: (n: number) => void; focusI
           <div className="space-y-1">
             {history.map((p) => (
               <div key={p.id} id={`proposal-${p.id}`} className={cn("rounded-lg border bg-white px-3 py-2 text-[11px] text-[#697a91]", p.id === focusId ? "border-[#15B7AE]" : "border-[#eef3f8]")}>
-                <span className={cn("font-bold mr-1.5", p.status === "denied" ? "text-[#e11d48]" : p.status === "failed" ? "text-[#c2620a]" : p.status === "queued_browser" ? "text-[#9a5b00]" : "text-[#15803d]")}>
+                <span className={cn("font-bold mr-1.5", p.status === "denied" ? "text-[#e11d48]" : p.status === "failed" ? "text-[#c2620a]" : p.status === "queued_browser" ? "text-[#9a5b00]" : p.status === "handled" ? "text-[#34568a]" : "text-[#15803d]")}>
                   {STATUS_LABEL[p.status] ?? p.status}
                 </span>
                 <span className="font-semibold text-[#1f3559]">{p.contact_name}</span> — {p.summary}

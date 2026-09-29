@@ -5,6 +5,7 @@ import {
   getReplyAccount,
   getRecentConversations,
   getThread,
+  getRoster,
   sendConversationMessage,
   type PmuAccount,
 } from "@/lib/ghl-conversations";
@@ -36,7 +37,9 @@ export type Proposal = {
   action_type: "reply" | "account_change";
   proposed_reply: string | null;
   action_detail: string | null;
-  status: "pending" | "denied" | "done" | "failed" | "queued_browser";
+  // `handled` = the team answered in the chat before anyone clicked; the
+  // scan closes the card on its own (owner request 2026-09-28).
+  status: "pending" | "denied" | "done" | "failed" | "queued_browser" | "handled";
   decided_by: string | null;
   decided_at: string | null;
   executed_at: string | null;
@@ -115,6 +118,60 @@ Rules:
 // Sweep recent unread conversations and file proposals for new actionable
 // client messages. Dedupe = unique (conversation_id, message_id): a message
 // is only ever proposed once, however many times the cron sees it.
+// ── Cards the team already handled in the chat close themselves ─────────────
+// Owner (2026-09-28): "if I already take care of the request and reply in the
+// chat, just remove the pop-up". A pending card whose conversation has an
+// OUTBOUND message after the client's message is finished — mark it
+// `handled`, note who replied and when, and leave it in History.
+async function closeHandledProposals(acct: PmuAccount, svc: ReturnType<typeof createServiceClient>): Promise<number> {
+  const { data } = await svc
+    .from("agent_proposals")
+    .select("id, conversation_id, message_id")
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+    .limit(60);
+  const pending = (data ?? []) as Array<{ id: string; conversation_id: string; message_id: string }>;
+  if (!pending.length) return 0;
+  const byConv = new Map<string, typeof pending>();
+  for (const p of pending) (byConv.get(p.conversation_id) ?? byConv.set(p.conversation_id, []).get(p.conversation_id)!).push(p);
+  let roster: Map<string, string> | null = null;
+  let closed = 0;
+  let looked = 0;
+  for (const [convId, cards] of byConv) {
+    // GHL thread reads can stall for minutes; 15 chats per run keeps the
+    // cron inside its budget and the rest close on the next pass.
+    if (looked++ >= 15) break;
+    try {
+      const thread = await getThread(acct, convId);
+      if (!thread.length) continue;
+      for (const card of cards) {
+        const idx = thread.findIndex((m) => m.id === card.message_id);
+        // The card's message may have scrolled out of the last 100; then only
+        // the newest message counts.
+        const after = idx >= 0 ? thread.slice(idx + 1) : thread.slice(-1);
+        const reply = after.find((m) => m.direction === "outbound");
+        if (!reply) continue;
+        if (!roster) {
+          roster = new Map();
+          try { for (const u of await getRoster(acct)) roster.set(u.id, u.name); } catch { /* names optional */ }
+        }
+        const who = (reply.userId && roster.get(reply.userId)) || "the team";
+        const when = reply.dateAdded
+          ? new Date(reply.dateAdded).toLocaleString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+          : "";
+        const { error } = await svc.from("agent_proposals").update({
+          status: "handled",
+          decided_by: "auto",
+          decided_at: new Date().toISOString(),
+          result: `handled in the chat by ${who}${when ? ` (${when})` : ""} — closed automatically`,
+        }).eq("id", card.id).eq("status", "pending");
+        if (!error) closed++;
+      }
+    } catch { /* next conversation */ }
+  }
+  return closed;
+}
+
 export async function scanForProposals(): Promise<{ scanned: number; filed: number; errors: string[] }> {
   const errors: string[] = [];
   if (!process.env.ANTHROPIC_API_KEY) return { scanned: 0, filed: 0, errors: ["ANTHROPIC_API_KEY not set"] };
@@ -123,6 +180,9 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
 
   const svc = createServiceClient();
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  // First, retire cards the team already answered in the chat.
+  let closed = 0;
+  try { closed = await closeHandledProposals(acct, svc); } catch (e) { errors.push(`auto-close: ${e instanceof Error ? e.message.slice(0, 120) : "error"}`); }
   const convs = await getRecentConversations(acct, 30, { unreadOnly: true });
   let filed = 0;
   let scanned = 0;
@@ -280,7 +340,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
   try {
     await svc.from("app_settings").upsert({
       key: "agent_scan_last",
-      value: { at: new Date().toISOString(), unread: convs.length, scanned, filed, skipped: skipped.slice(0, 30), errors: errors.slice(0, 10), notify },
+      value: { at: new Date().toISOString(), unread: convs.length, scanned, filed, closed, skipped: skipped.slice(0, 30), errors: errors.slice(0, 10), notify },
       updated_by: "cron", updated_at: new Date().toISOString(),
     });
   } catch { /* the scan itself succeeded */ }
