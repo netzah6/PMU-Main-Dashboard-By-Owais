@@ -186,7 +186,7 @@ const V3_REQUIRED: [key: string, label: string][] = [
   ["deposit", "Deposit amount"],
   ["calendarId", "Calendar ID"],
   ["fanbasisProductId", "Commas product ID"],
-  ["fanbasisHookUrl", "Fanbasis webhook URL"],
+  ["fanbasisHookUrl", "\"FanBasis to GHL workflow\" URL"],
   ["offer", "Offer"], // REQ_RULES marks offer "v23" = required from V2.3 up, V3 included
   ["depositFunnelUrl", "Deposit funnel URL"],
   ["ownerName", "Owner's name"],
@@ -204,7 +204,7 @@ const V23_REQUIRED: [key: string, label: string][] = [
   ["deposit", "Deposit amount"],
   ["calendarId", "Calendar ID"],
   ["fanbasisProductId", "Commas product ID"],
-  ["fanbasisHookUrl", "Fanbasis webhook URL"],
+  ["fanbasisHookUrl", "\"FanBasis to GHL workflow\" URL"],
   ["offer", "Offer"],
 ];
 function v23Missing(cv: Record<string, string>): [string, string][] {
@@ -1964,7 +1964,7 @@ export default function FunnelsPage() {
                       ["deposit", "Deposit amount (e.g. $50)"],
                       ["calendarId", "Calendar ID"],
                       ["fanbasisProductId", "Commas product ID"],
-                      ["fanbasisHookUrl", "Fanbasis webhook URL (FanBasis to GHL workflow → Inbound Webhook)"],
+                      ["fanbasisHookUrl", "\"FanBasis to GHL workflow\" URL — open that workflow in the sub-account, click the Inbound Webhook box, copy the URL"],
                       ["igWidget", "Instagram widget link (elf.site)"],
                       ["googleWidget", "Google reviews widget link (elf.site)"],
                     ] as [string, string][])
