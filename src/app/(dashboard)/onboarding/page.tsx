@@ -4,6 +4,8 @@ import { Loader2, Plus, ChevronLeft, ChevronRight, Trash2, ExternalLink, Check }
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, SERVICE_OPTIONS, formSections, type OnboardingStep } from "@/lib/onboarding-steps";
+import { useUser } from "@/lib/hooks/useUser";
+import { CleanupPanel } from "@/components/cleanup/CleanupPanel";
 
 // Same version colors as the Clients tab: V3 solid blue, V2.3 light purple.
 const VERSION_PILLS: { value: string; label: string; on: string; off: string }[] = [
@@ -92,6 +94,12 @@ function ImageField({ value, onChange }: { value: string; onChange: (url: string
 }
 
 export default function OnboardingPage() {
+  const { role } = useUser();
+  // Old /cleanup bookmarks arrive as /onboarding#cleanup — open the section.
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash === "#cleanup") setCleanupOpen(true);
+  }, []);
   const [list, setList] = useState<Onboarding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -267,6 +275,8 @@ export default function OnboardingPage() {
     setPoolBusy(false);
   }, []);
   useEffect(() => { loadPool(); }, [loadPool, claiming]);
+  // A cleaned account just joined the pool — re-count from GoHighLevel.
+  const refreshPoolAfterClean = useCallback(() => { void loadPool({ sync: true }); }, [loadPool]);
   const claim = useCallback(async (o: Onboarding) => {
     if (!window.confirm(`Claim a "Clean New Account" from the pool and rename it to "${o.form.business_name}"?\n\nThis renames the sub-account in GHL and fills its custom values from the form.`)) return;
     setClaiming(true);
@@ -605,6 +615,24 @@ export default function OnboardingPage() {
           </details>
         )}
       </div>
+
+      {/* Admin only: wipe offboarded sub-accounts into the pool. The team
+          sees the counts above; only the admin gets the tools (and the API
+          refuses everyone else). */}
+      {role === "admin" && (
+        <details id="cleanup" open={cleanupOpen} onToggle={(e) => setCleanupOpen((e.target as HTMLDetailsElement).open)}
+          className="max-w-5xl mx-auto mb-4 rounded-xl border border-[#e2e8f0] bg-white">
+          <summary className="cursor-pointer select-none px-4 py-3 flex items-center gap-2 text-sm font-semibold text-[#1e2b3d]">
+            🧹 Clean accounts into the pool
+            <span className="text-[10px] font-bold px-1.5 py-px rounded bg-[#eef2ff] text-[#3a5a8c] border border-[#c7d2fe]">ADMIN ONLY</span>
+          </summary>
+          {cleanupOpen && (
+            <div className="px-4 pb-4 border-t border-[#eef3f8] pt-4">
+              <CleanupPanel onPoolChanged={refreshPoolAfterClean} />
+            </div>
+          )}
+        </details>
+      )}
 
       <div className={SHOW_ONBOARDING_LIST ? "grid grid-cols-1 lg:grid-cols-[minmax(360px,540px)_minmax(0,1fr)] gap-5 items-start" : "max-w-5xl mx-auto"}>
       {/* LEFT — onboarding */}
