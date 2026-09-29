@@ -11,3 +11,9 @@ alter table public.agent_proposals
   add column if not exists action_plan jsonb,
   add column if not exists location_id text,
   add column if not exists notified_at timestamptz;
+
+-- 'handled' = the team answered in the chat; the scan closes the card itself
+-- (APPLIED 2026-09-28).
+alter table public.agent_proposals drop constraint if exists agent_proposals_status_check;
+alter table public.agent_proposals add constraint agent_proposals_status_check
+  check (status = any (array['pending','denied','done','failed','queued_browser','handled']));
