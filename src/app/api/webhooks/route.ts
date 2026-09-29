@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { ingestRow, resolveTable } from "@/lib/direct-ingest";
+import { routeIncomingPayment } from "@/lib/payment-router";
 
 // Single intake endpoint for every direct row: Make.com posts each new deposit,
 // lead, booking, call and signed agreement straight here, and we write straight
@@ -54,6 +56,27 @@ export async function POST(req: NextRequest) {
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status ?? 500 });
   }
+
+  /* Deposit payments also drive the client's GHL automations. For clients
+     opted into dashboard routing (extras.paymentRouter) this replays the
+     payment to their "FanBasis to GHL workflow" — replacing their Make
+     route. Off the response's clock; a routing failure never fails the
+     ingest. The externalId claim makes this once-per-payment no matter how
+     often the row is re-delivered. Log line stays quiet only for payloads
+     with no product id (lead/booking-shaped rows) — every real payment's
+     outcome, including skips, is visible in the function logs. */
+  if (table === "deposits") {
+    waitUntil(
+      routeIncomingPayment(body, { externalId: result.externalId })
+        .then((r) => {
+          if (r.outcome !== "skipped" || !/^no product id/.test(r.note)) {
+            console.log("[payment-router]", JSON.stringify(r));
+          }
+        })
+        .catch((e) => console.error("[payment-router]", e))
+    );
+  }
+
   return NextResponse.json(result);
 }
 

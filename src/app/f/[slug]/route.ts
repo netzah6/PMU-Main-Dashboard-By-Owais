@@ -38,6 +38,11 @@ type Row = {
        discovery call is the conversion. */
     template?: string;
     b2b?: Record<string, string>;
+    /* Dashboard payment routing (see src/lib/payment-router.ts): the funnel
+       never reads these, but the type mirrors the admin route's Extras so
+       the two declarations stay in sync. */
+    paymentRouter?: "yes" | "no";
+    fanbasisHookUrl?: string;
   };
 };
 
