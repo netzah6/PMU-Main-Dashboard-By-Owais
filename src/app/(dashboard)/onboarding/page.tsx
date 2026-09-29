@@ -242,14 +242,28 @@ export default function OnboardingPage() {
     ready: Array<{ location_id: string; pool_name: string; clean_checked_at: string | null }>;
     notReady: Array<{ pool_name: string; blocker: string | null }>;
     counts: { ready: number; notReady: number; total: number };
+    checkedAt?: string | null;
+    syncError?: string | null;
   } | null>(null);
   const [poolBusy, setPoolBusy] = useState(true);
-  const loadPool = useCallback(async () => {
+  // Refresh re-checks GoHighLevel (sync=1); a plain load reads the table and
+  // the API re-checks on its own when that is over an hour old. Before
+  // 2026-09-29 Refresh only re-read the table, so it never changed anything.
+  const loadPool = useCallback(async (opts?: { sync?: boolean }) => {
     setPoolBusy(true);
     try {
-      const r = await fetch("/api/pool");
-      if (r.ok) setPoolInfo(await r.json());
-    } catch { /* the panel just stays quiet */ }
+      const r = await fetch(opts?.sync ? "/api/pool?sync=1" : "/api/pool");
+      const j = await r.json();
+      if (r.ok) {
+        setPoolInfo(j);
+        if (opts?.sync) {
+          if (j.syncError) toast.error(`Could not re-check GoHighLevel: ${j.syncError}`);
+          else toast.success(`Re-checked GoHighLevel — ${j.counts.total} clean accounts left, ${j.counts.ready} ready`);
+        }
+      } else if (opts?.sync) toast.error(j.error || "Refresh failed");
+    } catch {
+      if (opts?.sync) toast.error("Refresh failed — check your connection");
+    }
     setPoolBusy(false);
   }, []);
   useEffect(() => { loadPool(); }, [loadPool, claiming]);
@@ -526,14 +540,22 @@ export default function OnboardingPage() {
               {poolBusy && !poolInfo ? "…" : poolInfo?.counts.ready ?? 0}
             </span>
             <span className="text-sm font-semibold text-[#1e2b3d]">clean accounts ready for a setup</span>
+            {poolInfo && (
+              <span className="text-xs text-[#697a91]">
+                · {poolInfo.counts.total} left in total
+                {poolInfo.checkedAt ? ` · checked ${new Date(poolInfo.checkedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <a href="/onboarding/make-routes"
               className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
               🔀 Make routes
             </a>
-            <button onClick={loadPool} disabled={poolBusy}
-              className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] disabled:opacity-50">
+            <button onClick={() => void loadPool({ sync: true })} disabled={poolBusy}
+              title="Re-check GoHighLevel for which clean accounts are still unclaimed"
+              className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] disabled:opacity-50 flex items-center gap-1.5">
+              {poolBusy && <Loader2 size={12} className="animate-spin" />}
               {poolBusy ? "Checking…" : "Refresh"}
             </button>
           </div>
