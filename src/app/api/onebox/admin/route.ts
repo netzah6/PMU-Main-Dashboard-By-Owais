@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCustomValues, setOneboxCustomValues, setDepositFunnelUrl, healFunnelPhotos, photosAreOwn, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestFirstPixel, ensureOneboxCustomValues, setOneboxCustomValues, setDepositFunnelUrl, healFunnelPhotos, photosAreOwn, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
@@ -19,11 +19,12 @@ export const maxDuration = 300;
 // Funnels tab (admin only): manage the one-box funnels.
 //   GET                       → all funnels + lead/booking counts
 //   POST {action:"add", slug, locationId, clientName, oldFunnelUrl?}
-//   POST {action:"resync", slug}
+//   POST {action:"resync", slug}                 (B2C only — B2B has no GHL custom values)
 //   POST {action:"extras", slug, fanbasisHtml?, elfsightId?, resultImgs?, metaPixelId?, paymentRouter?, fanbasisHookUrl?}   (the two router fields: admin only)
+//   POST {action:"extras", slug, b2bMetaPixelId?, b2bCalendarId?, b2bTag?}   (B2B funnels → extras.b2b)
 //   POST {action:"routerTest", slug, email?, name?}  → synthetic payment through the stored hook (admin; clean up the test contact + sheet row after)
 //   POST {action:"status", slug, status}         (live | paused)
-//   POST {action:"health", slug}                 → live checks for one funnel
+//   POST {action:"health", slug}                 → live checks for one funnel (B2B: its own list)
 //   POST {action:"verifyRedirect", slug, adUrl}  → is the ad link redirecting onto this funnel? (Start Setup step 5)
 
 type Extras = {
@@ -49,7 +50,36 @@ type Extras = {
      payloads — and the URL must belong to this client's own location. */
   paymentRouter?: "yes" | "no";
   fanbasisHookUrl?: string;
+  /* The agency's own B2B funnels: every page setting lives here — the
+     funnel route serves extras.b2b as the page config (f/[slug]) and never
+     reads GHL custom values for them. */
+  b2b?: { variant?: string; tag?: string; calendarId?: string; metaPixelId?: string; fieldMap?: Record<string, string> };
 };
+
+/* What the B2B page sends on a completed application — mirrors
+   sendComplete() in public/onebox-b2b.js, per variant. Each key needs a
+   GHL field id in extras.b2b.fieldMap or the answer never reaches a
+   contact field (ghl-push skips unmapped keys; most still reach the note). */
+const B2B_ANSWER_KEYS: Record<"std" | "pps", string[]> = {
+  std: ["area", "spots", "weekly", "start", "exp", "rev", "want", "edge", "utm_ad", "utm_adset"],
+  pps: ["area", "exp", "services", "browprice", "browflex", "lipprice", "lipflex", "start", "spots", "weekly", "instagram", "reviews", "edge", "program", "utm_ad", "utm_adset"],
+};
+// The B2B page's pixel list, parsed exactly as onebox-b2b.js does (comma-separated).
+function b2bPixelIds(v: unknown): string[] {
+  return String(v ?? "").split(",").map((x) => x.replace(/\D/g, "")).filter((x) => /^\d{8,20}$/.test(x));
+}
+function b2bSummary(b2b: NonNullable<Extras["b2b"]>) {
+  const variant = b2b.variant === "pps" ? "pps" : "std";
+  const mapped = Object.keys(b2b.fieldMap ?? {}).filter((k) => (b2b.fieldMap ?? {})[k]);
+  return {
+    variant,
+    tag: String(b2b.tag ?? "").trim(),
+    calendarId: String(b2b.calendarId ?? "").trim(),
+    pixelIds: b2bPixelIds(b2b.metaPixelId),
+    answerKeys: B2B_ANSWER_KEYS[variant],
+    unmappedKeys: B2B_ANSWER_KEYS[variant].filter((k) => !mapped.includes(k)),
+  };
+}
 
 // Public funnel URL on the branded domain (book.pmu-care.com is a
 // CNAME onto this same Vercel deployment; middleware rewrites the
@@ -218,6 +248,9 @@ export async function GET(req: NextRequest) {
   const out = (rows ?? []).map((r) => {
     const extras = (r.extras ?? {}) as Extras;
     const config = (r.config ?? {}) as Record<string, string>;
+    /* B2B: calendar and pixel are read where the B2B page reads them
+       (extras.b2b) — config/extras.metaPixelId never reach that page. */
+    const b2b = extras.template === "b2b" ? b2bSummary(extras.b2b ?? {}) : null;
     return {
       slug: r.slug,
       locationId: r.location_id,
@@ -225,11 +258,12 @@ export async function GET(req: NextRequest) {
       status: r.status,
       cvSyncedAt: r.cv_synced_at,
       url: funnelUrl(req, r.slug),
-      hasCalendar: !!config.calendarId,
+      hasCalendar: b2b ? !!b2b.calendarId : !!config.calendarId,
       hasFanbasis: !!(config.fanbasisProductId || config.fanbasisCode || extras.fanbasisHtml),
       hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
-      hasPixel: !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
-      pixelId: (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, ""),
+      hasPixel: b2b ? b2b.pixelIds.length > 0 : !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
+      pixelId: b2b ? b2b.pixelIds.join(",") : (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, ""),
+      b2b,
       oldFunnelUrl: extras.oldFunnelUrl ?? "",
       adRedirect: extras.adRedirect ?? "",
       redirectVerifiedAt: extras.redirectVerifiedAt ?? null,
@@ -370,22 +404,19 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       }, { status: 409 });
     }
 
-    /* Meta pixel: GHL injects it on the BOOKING page, not always on the
-       survey page — so harvest tries the given URL, then the derived
-       booking page, then a slug-guessed booking page when no URL given. */
+    /* Meta pixel: harvested from the client's original GHL pages — the
+       same candidate list as Sync and the Step-5 verify (lib/onebox
+       pixelCandidates: the -old page, the given URL, its booking twin,
+       then slug guesses when no URL is given). */
     const extras: Extras = {};
     let pixelNote = "";
     const oldUrl = String(body.oldFunnelUrl ?? "").trim();
     if (oldUrl) extras.oldFunnelUrl = oldUrl;
-    const pixelCandidates = [
-      ...(oldUrl ? [oldUrl, oldUrl.replace(/-survey[a-z0-9-]*\/?$/i, "-booking")] : []),
-      `https://pmu-care.com/${slug}-booking`,
-    ];
-    for (const u of [...new Set(pixelCandidates)]) {
-      const pixel = await harvestPixelId(u);
-      if (pixel) { extras.metaPixelId = pixel; pixelNote = `pixel ${pixel} harvested from ${u}`; break; }
-    }
-    if (!extras.metaPixelId) pixelNote = "no pixel found on the funnel pages — set OB - Meta Pixel ID or Extras";
+    const harvested = await harvestFirstPixel(slug, oldUrl);
+    if (harvested.id) { extras.metaPixelId = harvested.id; pixelNote = `pixel ${harvested.id} harvested from ${harvested.from}`; }
+    else pixelNote = oldUrl
+      ? "no pixel found on the funnel pages — set OB - Meta Pixel ID or Extras"
+      : "no pixel found — add the original funnel URL (Start Setup step 5 retries the harvest once the redirect is verified)";
 
     await svc.from("onebox_clients").insert({
       slug,
@@ -432,6 +463,14 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
   if (auth.role !== "admin" && ((row.extras ?? {}) as Extras).template === "b2b") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const isB2BRow = ((row.extras ?? {}) as Extras).template === "b2b";
+  /* B2B funnels are set up in Start Setup (extras.b2b), not in GHL custom
+     values: a CV sync would only pull the AGENCY sub-account's own values
+     (and its photo/survey self-heals would write into that account), and a
+     CV save would overwrite the agency's business name, offer, … */
+  if (isB2BRow && (action === "resync" || action === "cvs")) {
+    return NextResponse.json({ error: "B2B funnels are configured in Start Setup (saved on the funnel), not in GHL custom values" }, { status: 400 });
+  }
 
   if (action === "resync") {
     const config = await refreshOneboxConfig(svc, slug, row.location_id as string);
@@ -443,30 +482,14 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     const havePixel = ((config?.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "")).length > 0;
     let pixelNote: string | undefined;
     if (!havePixel) {
-      const candidates = new Set<string>();
-      const oldUrl = (ex.oldFunnelUrl ?? "").trim();
-      if (oldUrl) {
-        /* After the cutover the ad link 301s to us and carries no pixel —
-           the renamed -old page is where the original (and its pixel)
-           still lives; check it first. */
-        candidates.add(oldUrl.replace(/\/?$/, "") + "-old");
-        candidates.add(oldUrl);
-        candidates.add(oldUrl.replace(/-survey(?:-ab-ghl)?\/?$/, "-booking"));
-      }
-      candidates.add(`https://pmu-care.com/${slug}-booking`);
-      candidates.add(`https://pmu-care.com/${slug}-survey`);
-      for (const url of candidates) {
-        const id = await harvestPixelId(url);
-        if (id) {
-          await svc
-            .from("onebox_clients")
-            .update({ extras: { ...(row.extras ?? {}), metaPixelId: id } })
-            .eq("slug", slug);
-          pixelNote = `pixel found (${id})`;
-          break;
-        }
-      }
-      if (!pixelNote) pixelNote = "pixel still not found on the original pages";
+      const { id } = await harvestFirstPixel(slug, ex.oldFunnelUrl);
+      if (id) {
+        await svc
+          .from("onebox_clients")
+          .update({ extras: { ...(row.extras ?? {}), metaPixelId: id } })
+          .eq("slug", slug);
+        pixelNote = `pixel found (${id})`;
+      } else pixelNote = "pixel still not found on the original pages";
     }
     /* Photo self-heal, same idea: stock snapshot pictures in the photo
        CVs are replaced with the client's own from the original funnel. */
@@ -519,6 +542,29 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     if (body.adRedirect !== undefined) {
       const v = String(body.adRedirect);
       if (v === "yes" || v === "no") extras.adRedirect = v; else delete extras.adRedirect;
+    }
+    /* B2B Start Setup: the page reads pixel, calendar and tag from
+       extras.b2b (admin only — B2B rows 403 everyone else above). Blank
+       values are refused: no calendar takes the booking step down, and
+       the agency's GHL workflows trigger on the tag. */
+    if (isB2BRow && (body.b2bMetaPixelId !== undefined || body.b2bCalendarId !== undefined || body.b2bTag !== undefined)) {
+      const b2b = { ...(extras.b2b ?? {}) };
+      if (body.b2bMetaPixelId !== undefined) {
+        const ids = b2bPixelIds(body.b2bMetaPixelId);
+        if (!ids.length) return NextResponse.json({ error: "enter at least one Meta pixel ID (digits; several separated by commas)" }, { status: 400 });
+        b2b.metaPixelId = ids.join(",");
+      }
+      if (body.b2bCalendarId !== undefined) {
+        const c = String(body.b2bCalendarId).trim();
+        if (!/^[A-Za-z0-9]{10,40}$/.test(c)) return NextResponse.json({ error: "that doesn't look like a GHL calendar ID" }, { status: 400 });
+        b2b.calendarId = c;
+      }
+      if (body.b2bTag !== undefined) {
+        const t = String(body.b2bTag).trim().toLowerCase().slice(0, 60);
+        if (!t) return NextResponse.json({ error: "the survey tag can't be empty — the GHL workflows trigger on it" }, { status: 400 });
+        b2b.tag = t;
+      }
+      extras.b2b = b2b;
     }
     if (body.paymentRouter !== undefined || body.fanbasisHookUrl !== undefined) {
       // Admin only: pointing the hook elsewhere would ship every payment
@@ -652,17 +698,93 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       else originalNote = `no page at ${ou.pathname} — the original page was not renamed to -old (optional: keeps a rollback copy)`;
     } catch { originalNote = "could not check the -old page"; }
 
+    let pixelNote: string | undefined;
     if (redirectLive) {
       const extras = { ...(row.extras as Extras) };
       extras.oldFunnelUrl = au.toString();
       extras.adRedirect = "yes";
       extras.redirectVerifiedAt = new Date().toISOString();
+      /* This is often the first moment the funnel learns the client's REAL
+         GHL URL — Add client runs without it and its slug guesses miss any
+         path that differs from the slug (GlamourEyes, Skinsation, custom
+         domains…: all left pixel-less, 2026-09-29). Harvest now, -old page
+         first, whenever the pixel is still missing. */
+      const cfgPixel = String(((row.config ?? {}) as Record<string, string>).metaPixelId ?? "");
+      if (!isB2BRow && !(cfgPixel || extras.metaPixelId || "").replace(/\D/g, "")) {
+        const h = await harvestFirstPixel(slug, extras.oldFunnelUrl);
+        if (h.id) { extras.metaPixelId = h.id; pixelNote = `Meta pixel ${h.id} picked up from the original page`; }
+        else pixelNote = "no Meta pixel found on the original pages — pick one in Step 1";
+      }
       await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
     }
     return NextResponse.json({
-      ok: redirectLive, adUrl: au.toString(), target, landsOn,
+      ok: redirectLive, adUrl: au.toString(), target, landsOn, pixelNote,
       checks: { redirectLive, redirectNote, originalKept, originalNote },
     });
+  }
+
+  /* B2B verification: no program, deposit, Commas, client photos or GHL
+     custom values — the checks follow what the B2B page and its routes
+     actually use: the page, the discovery calendar, the pixel(s) the
+     page fires PageView on, the survey tag, the answer→field map. Lead
+     and Schedule are NOT fired by the page or by our server for B2B
+     (submit/book skip CAPI; the agency's GHL workflows send them), so
+     they are listed as manual checks rather than shown green. */
+  if (action === "health" && isB2BRow) {
+    const b = b2bSummary(((row.extras ?? {}) as Extras).b2b ?? {});
+    const checks: { name: string; ok: boolean; note: string; manual?: boolean }[] = [];
+    let html = "";
+    try {
+      const r = await fetch(funnelUrl(req, slug), { cache: "no-store", signal: AbortSignal.timeout(15000) });
+      if (r.ok) html = await r.text();
+    } catch { /* stays empty */ }
+    const pageOk = html.includes("onebox-root");
+    checks.push({ name: "Funnel page loads", ok: pageOk, note: pageOk ? "200 OK" : "page failed to load" });
+
+    let slotsOk = false, slotNote = "";
+    if (b.calendarId) {
+      try {
+        const start = Date.now(), end = start + 21 * 86400000;
+        const r = await fetch(`${req.nextUrl.origin}/api/onebox/slots?slug=${slug}&start=${start}&end=${end}`, { signal: AbortSignal.timeout(20000) });
+        const j = (await r.json()) as { ok?: boolean; dates?: Record<string, string[]> };
+        const days = Object.keys(j.dates ?? {}).length;
+        slotsOk = !!j.ok && days > 0;
+        slotNote = slotsOk ? `${days} days with open times (calendar ${b.calendarId})` : `no available slots returned (calendar ${b.calendarId})`;
+      } catch { slotNote = "availability check failed"; }
+    } else slotNote = "no discovery-call calendar set";
+    checks.push({ name: "Calendar availability", ok: slotsOk, note: slotNote });
+
+    // Checked against the live page too: a stale CDN copy would fire the old list.
+    const missingOnPage = b.pixelIds.filter((id) => !html.includes(id));
+    checks.push({
+      name: "Meta pixel — PageView (fired by the page)",
+      ok: b.pixelIds.length > 0 && pageOk && missingOnPage.length === 0,
+      note: !b.pixelIds.length ? "no pixel set"
+        : missingOnPage.length && pageOk ? `${b.pixelIds.join(", ")} set, but the live page doesn't carry ${missingOnPage.join(", ")} yet (cache — re-check in ~2 min)`
+        : `PageView on ${b.pixelIds.join(" + ")}`,
+    });
+    checks.push({
+      name: "GHL survey tag",
+      ok: !!b.tag,
+      note: b.tag ? `leads are tagged "${b.tag}" — the agency's GHL workflows trigger on it` : `no tag set — leads get the fallback "b2b-onebox-survey"`,
+    });
+    checks.push({
+      name: "Answers → GHL fields",
+      ok: b.unmappedKeys.length === 0,
+      note: b.unmappedKeys.length
+        ? `${b.answerKeys.length - b.unmappedKeys.length} of ${b.answerKeys.length} mapped — no field for: ${b.unmappedKeys.join(", ")}`
+        : `all ${b.answerKeys.length} answers mapped`,
+    });
+    const tag = b.tag || "b2b-onebox-survey";
+    checks.push({
+      name: "Lead event", ok: false, manual: true,
+      note: `not fired by the page or our server — the agency's GHL workflow on tag "${tag}" sends it; confirm in Meta Events Manager`,
+    });
+    checks.push({
+      name: "Schedule event", ok: false, manual: true,
+      note: `not fired by the page or our server — the agency's GHL appointment workflow on calendar ${b.calendarId || "(none)"} sends it; confirm in Meta Events Manager`,
+    });
+    return NextResponse.json({ ok: checks.every((c) => c.manual || c.ok), checks });
   }
 
   if (action === "health") {
