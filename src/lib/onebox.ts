@@ -107,22 +107,83 @@ export function normalizeElfsight(raw: string): string {
   return "";
 }
 
+/* Meta pixel id out of a GHL funnel page's HTML. GHL ships the funnel's
+   tracking code inside its __NUXT_DATA__ JSON payload, so the same
+   fbq('init','<id>') arrives escaped differently page to page — \' or \"
+   quotes, ' / ", and the noscript beacon as
+   facebook.com/tr?id=… (the old regexes only knew the raw form).
+   Escapes are undone first; the fbq init wins because that is the pixel
+   the page actually fires, then the lead-pixel.js config, then the
+   beacon, then GHL's own funnel-settings pixel field (a __NUXT_DATA__
+   index, usually empty). "" when nothing is found. */
+export function extractPixelId(html: string): string {
+  const s = html
+    .replace(/\\u0027|&#0?39;|&apos;/gi, "'")
+    .replace(/\\u0022|&quot;/gi, '"')
+    .replace(/\\u002f/gi, "/")
+    .replace(/\\+(['"/])/g, "$1");
+  const m =
+    s.match(/fbq\(\s*['"]init['"]\s*,\s*['"](\d{8,20})['"]/) ??
+    s.match(/pixel[_-]?id['"]?\s*[:=]\s*['"](\d{8,20})['"]/i) ??
+    s.match(/facebook\.com\/tr\/?\?id=(\d{8,20})/);
+  if (m) return m[1];
+  const nuxt = html.match(/<script[^>]*id="__NUXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (nuxt) {
+    try {
+      const arr = JSON.parse(nuxt[1]) as unknown[];
+      for (const x of arr) {
+        if (!x || typeof x !== "object" || Array.isArray(x)) continue;
+        const ref = (x as Record<string, unknown>).fbPixelId ?? (x as Record<string, unknown>).facebookPixelId;
+        const v = typeof ref === "number" ? arr[ref] : ref;
+        if (typeof v === "string" && /^\d{8,20}$/.test(v.trim())) return v.trim();
+      }
+    } catch { /* payload not JSON — no settings pixel */ }
+  }
+  return "";
+}
+
 // Meta pixel id, harvested from the client's existing live GHL funnel page
-// (the pixel sits in the funnel's tracking code, so it's in the public
-// HTML). Matches fbq('init','<id>') and the lead-pixel.js pixel config.
+// (the pixel sits in the funnel's tracking code, so it's in the public HTML).
 export async function harvestPixelId(funnelUrl: string): Promise<string> {
   try {
     const r = await fetch(funnelUrl, { headers: { "User-Agent": "Mozilla/5.0 (pixel-harvest)" }, signal: AbortSignal.timeout(15000) });
     if (!r.ok) return "";
-    const html = await r.text();
-    const m =
-      html.match(/fbq\(\s*['"]init['"]\s*,\s*['"](\d{8,20})['"]/) ??
-      html.match(/pixel[_-]?id['"]?\s*[:=]\s*['"](\d{8,20})['"]/i) ??
-      html.match(/facebook\.com\/tr\?id=(\d{8,20})/);
-    return m ? m[1] : "";
+    return extractPixelId(await r.text());
   } catch {
     return "";
   }
+}
+
+/* Where a client's original pixel can still be found, most likely first —
+   ONE list for Add client, Sync and the Step-5 redirect verify (Add used
+   to skip the -old page, and nothing re-harvested once Step 5 learned the
+   real URL, so every client whose GHL path differs from the one-box slug
+   stayed pixel-less: glamoureyes-and-more vs glamoureyes-more, custom
+   domains, …; 2026-09-29). After the cutover the ad link 301s to us and
+   carries no pixel, so the renamed -old page comes first; GHL injects the
+   pixel on the BOOKING page, not always the survey page; slug-guessed
+   pmu-care.com pages are the last resort when no URL is known. */
+export function pixelCandidates(slug: string, oldFunnelUrl?: string): string[] {
+  const out = new Set<string>();
+  const old = (oldFunnelUrl ?? "").trim().replace(/\/+$/, "");
+  if (old) {
+    out.add(old + "-old");
+    out.add(old);
+    out.add(old.replace(/-survey[a-z0-9-]*$/i, "-booking"));
+  }
+  out.add(`https://pmu-care.com/${slug}-booking`);
+  out.add(`https://pmu-care.com/${slug}-survey`);
+  return [...out];
+}
+
+/* First pixel across pixelCandidates, one page at a time — the common
+   case costs a single request. id "" = none of the pages carries one. */
+export async function harvestFirstPixel(slug: string, oldFunnelUrl?: string): Promise<{ id: string; from: string }> {
+  for (const u of pixelCandidates(slug, oldFunnelUrl)) {
+    const id = await harvestPixelId(u);
+    if (id) return { id, from: u };
+  }
+  return { id: "", from: "" };
 }
 
 /* Photos, harvested from the client's original booking page: its layout

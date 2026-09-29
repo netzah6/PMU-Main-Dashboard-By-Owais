@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
-import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search, Trash2, Info } from "lucide-react";
 import { SERVICE_OPTIONS } from "@/lib/onboarding-steps";
 import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
@@ -53,6 +53,12 @@ type Funnel = {
   paid: number; booked: number; lastLeadAt: string | null;
   abStatus: string | null;
   template: string;
+  /* B2B funnels only (null on client funnels): the settings the B2B page
+     actually runs on, from extras.b2b — see the admin API's b2bSummary. */
+  b2b: {
+    variant: "std" | "pps"; tag: string; calendarId: string; pixelIds: string[];
+    answerKeys: string[]; unmappedKeys: string[];
+  } | null;
   /* The client's program from the Clients Master sheet — the same row the
      Clients tab edits, so both tabs always show (and change) one truth. */
   program: { version: string; sheetRow: number; ownerName: string; matches: number; via: "exact" | "prefix" } | null;
@@ -110,7 +116,9 @@ function serializeSurvey(rows: SurveyRow[]): string {
     .join("\n");
 }
 
-type HealthCheck = { name: string; ok: boolean; note: string };
+/* manual = can't be machine-checked here (e.g. a Meta event a GHL workflow
+   sends) — shown neutral, never green. */
+type HealthCheck = { name: string; ok: boolean; note: string; manual?: boolean };
 
 /* Card-list grouping: V3 first (where the focus is), then V2.3, V1, the
    demo, and anything the sheet can't match; B2B always dead last. */
@@ -498,6 +506,129 @@ function DeprowTestCard() {
   );
 }
 
+/* Start Setup for the agency's own B2B funnels (owner, 2026-09-29). None
+   of the client-program fields apply — no V1/V2.3/V3, deposit, Commas
+   product, prices, services, hours, owner or photos — and nothing lives
+   in GHL custom values: the B2B page runs on extras.b2b alone (pixels,
+   discovery calendar, survey tag, answer→field map). The conversions
+   list says where each Meta event really fires, read from the code:
+   onebox-b2b.js fires PageView only, and /api/onebox/submit + /book skip
+   CAPI for B2B because the agency's GHL workflows send Lead/Schedule. */
+const B2B_NOTE_KEYS = new Set(["area", "spots", "weekly", "start", "exp", "rev", "want", "edge", "program", "services", "browprice", "browflex", "lipprice", "lipflex", "instagram", "reviews"]);
+function B2BSetup({ f, busy, checks, act, onToast }: {
+  f: Funnel;
+  busy: string | null;
+  checks: HealthCheck[] | undefined;
+  act: (action: string, slug: string, extra?: Record<string, string>) => Promise<boolean>;
+  onToast: (m: string) => void;
+}) {
+  const b = f.b2b!;
+  const [pixels, setPixels] = useState(b.pixelIds.join(", "));
+  const [calendarId, setCalendarId] = useState(b.calendarId);
+  const [tag, setTag] = useState(b.tag);
+  const norm = (v: string) => v.split(",").map((x) => x.replace(/\D/g, "")).filter(Boolean).join(",");
+  const saving = busy === `extras:${f.slug}`;
+  const save = () => {
+    const extra: Record<string, string> = {};
+    if (norm(pixels) !== b.pixelIds.join(",")) extra.b2bMetaPixelId = pixels;
+    if (calendarId.trim() !== b.calendarId) extra.b2bCalendarId = calendarId.trim();
+    if (tag.trim().toLowerCase() !== b.tag) extra.b2bTag = tag.trim();
+    if (!Object.keys(extra).length) { onToast("Nothing changed"); return; }
+    void act("extras", f.slug, extra);
+  };
+  const tagShown = b.tag || "b2b-onebox-survey";
+  const inNote = b.unmappedKeys.filter((k) => B2B_NOTE_KEYS.has(k));
+  const lost = b.unmappedKeys.filter((k) => !B2B_NOTE_KEYS.has(k));
+  const events: { ev: string; where: string; how: string; fires: boolean | null }[] = [
+    { ev: "PageView", where: "the funnel page", fires: b.pixelIds.length > 0,
+      how: b.pixelIds.length ? `fbq on page load, on ${b.pixelIds.join(" + ")}` : "no pixel set — nothing fires" },
+    { ev: "Lead", where: "agency GHL workflow", fires: null,
+      how: `not fired by the page or our server — the workflow triggered by the tag "${tagShown}" sends it` },
+    { ev: "Schedule", where: "agency GHL workflow", fires: null,
+      how: `not fired by the page or our server — the appointment workflow on calendar ${b.calendarId || "(none)"} sends it` },
+  ];
+  const inputCls = "border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs";
+  return (<>
+    <p className="text-[11px] font-bold text-[#0b7f7f]">Step 1 &middot; B2B funnel settings</p>
+    <p className="text-[10px] text-[#697a91]">
+      Agency funnel &middot; <b>{b.variant === "pps" ? "Pay-per-appointment application" : "Standard application"}</b> &mdash; no V1/V2.3/V3 program, deposit, Commas product or client photos. These settings are saved on the funnel itself (not in GHL custom values).
+    </p>
+    <div className="grid md:grid-cols-2 gap-2">
+      <label className="grid gap-0.5">
+        <span className="text-[10px] font-medium text-[#697a91]">Meta pixel ID(s) — PageView fires on each; separate several with commas</span>
+        <input value={pixels} onChange={(e) => setPixels(e.target.value)} placeholder="972935447018283" className={inputCls} />
+      </label>
+      <label className="grid gap-0.5">
+        <span className="text-[10px] font-medium text-[#697a91]">Discovery-call calendar ID (GHL)</span>
+        <input value={calendarId} onChange={(e) => setCalendarId(e.target.value)} className={inputCls} />
+      </label>
+      <label className="grid gap-0.5">
+        <span className="text-[10px] font-medium text-[#697a91]">GHL survey tag (the agency&rsquo;s workflows trigger on it)</span>
+        <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="b2b-onebox-survey" className={inputCls} />
+      </label>
+      <div className="grid gap-0.5 content-start">
+        <span className="text-[10px] font-medium text-[#697a91]">Answers &rarr; GHL contact fields</span>
+        <span className={cn("text-xs", b.unmappedKeys.length ? "text-[#c2410c]" : "text-[#15803d]")}>
+          {b.answerKeys.length - b.unmappedKeys.length} of {b.answerKeys.length} mapped
+          {inNote.length > 0 && <> &middot; no field for <b>{inNote.join(", ")}</b> (contact note only)</>}
+          {lost.length > 0 && <> &middot; no field for <b>{lost.join(", ")}</b> (not stored in GHL)</>}
+        </span>
+      </div>
+    </div>
+    <button onClick={save} disabled={saving}
+      className="justify-self-start text-xs rounded-lg px-3 py-2 text-white font-medium bg-[#0e9c9c] disabled:opacity-80 inline-flex items-center gap-1.5">
+      {saving ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : "Save B2B settings"}
+    </button>
+
+    <div className="border-t border-[#eef2f6] pt-3 grid gap-1">
+      <p className="text-[11px] font-bold text-[#0b7f7f]">Step 2 &middot; Conversions &mdash; where each Meta event fires</p>
+      {events.map((e) => (
+        <div key={e.ev} className="text-xs flex items-start gap-2">
+          {e.fires === null ? <Info className="w-3.5 h-3.5 mt-px text-[#697a91] shrink-0" />
+            : e.fires ? <Check className="w-3.5 h-3.5 mt-px text-[#15803d] shrink-0" /> : <X className="w-3.5 h-3.5 mt-px text-[#b91c1c] shrink-0" />}
+          <span><b className="text-[#1c2b3a]">{e.ev}</b> <span className="text-[#697a91]">— {e.where}: {e.how}</span></span>
+        </div>
+      ))}
+      <span className="text-[10px] text-[#697a91]">Lead and Schedule can&rsquo;t be checked from here — confirm them in Meta Events Manager for the pixel above.</span>
+    </div>
+
+    <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
+      <p className="text-[11px] font-bold text-[#0b7f7f]">Step 3 &middot; Verify the setup</p>
+      <button onClick={() => void act("health", f.slug)} disabled={busy === `health:${f.slug}`}
+        className="text-xs border border-[#e4ebf2] rounded-lg px-3 py-2 hover:bg-white inline-flex items-center gap-1.5 bg-white font-medium">
+        {busy === `health:${f.slug}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Stethoscope className="w-3.5 h-3.5" />}
+        Run verification
+      </button>
+      {checks ? (
+        <div className="w-full grid md:grid-cols-2 gap-1 mt-1">
+          {checks.map((c) => (
+            <div key={c.name} className="text-xs flex items-center gap-2">
+              {c.manual ? <Info className="w-3.5 h-3.5 text-[#697a91] shrink-0" />
+                : c.ok ? <Check className="w-3.5 h-3.5 text-[#15803d] shrink-0" /> : <X className="w-3.5 h-3.5 text-[#b91c1c] shrink-0" />}
+              <span className="text-[#1c2b3a]">{c.name}</span>
+              <span className="text-[#697a91]">— {c.note}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <span className="text-[10px] text-[#697a91]">Every check should come back green before going live (the &#9432; ones are confirmed in Meta).</span>
+      )}
+    </div>
+
+    <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
+      <p className="text-[11px] font-bold text-[#0b7f7f]">Step 4 &middot; Go live</p>
+      {f.status === "live" ? (
+        <span className="text-xs font-medium text-[#15803d]">&#10004; This funnel is live</span>
+      ) : (
+        <button onClick={() => void act("status", f.slug, { status: "live" })} disabled={busy === `status:${f.slug}`}
+          className="ob-golive text-xs rounded-lg px-3 py-2 border font-medium border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df] disabled:opacity-40 inline-flex items-center gap-1.5">
+          {busy === `status:${f.slug}` && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Go live
+        </button>
+      )}
+    </div>
+  </>);
+}
+
 export default function FunnelsPage() {
   const { role, loading: userLoading } = useUser();
   const [funnels, setFunnels] = useState<Funnel[]>([]);
@@ -565,12 +696,11 @@ export default function FunnelsPage() {
      client. */
   const pixelOptions = useMemo(() => {
     const use = new Map<string, { n: number; who: string }>();
-    /* Non-admins never see the agency's B2B funnel, so it must not name
-       itself in their pixel list either — a shared pixel's "· N funnels"
-       count would otherwise carry it too (owner, 2026-09-26). The API
-       already strips B2B rows for them; this keeps the page honest on its
-       own. */
-    for (const x of funnels.filter((y) => role === "admin" || y.template !== "b2b")) {
+    /* The agency's B2B pixels never belong on a client funnel, so B2B rows
+       stay out of this list for everyone — they would also be counted as a
+       "PMU For all" template pixel, since both B2B funnels share them
+       (2026-09-29; earlier only non-admins were filtered, 2026-09-26). */
+    for (const x of funnels.filter((y) => y.template !== "b2b")) {
       const id = (x.pixelId ?? "").replace(/\D/g, "");
       if (!id) continue;
       const u = use.get(id) ?? { n: 0, who: x.clientName };
@@ -582,7 +712,7 @@ export default function FunnelsPage() {
     shared.forEach(([id, u], i) => out.push({ id, label: `PMU For all (${String.fromCharCode(65 + i)}) — ${id} · ${u.n} funnels` }));
     single.forEach(([id, u]) => out.push({ id, label: `${u.who} — ${id}` }));
     return out;
-  }, [funnels, role]);
+  }, [funnels]);
   const pixelLabel = (id: string) => pixelOptions.find((o) => o.id === id)?.label ?? id;
   /* What the list shows: sorted B2C-first as before, narrowed by the search
      line; a coach never sees the agency's B2B funnel. */
@@ -886,7 +1016,7 @@ export default function FunnelsPage() {
       if (action === "health") setHealth((h) => ({ ...h, [slug]: j.checks ?? [] }));
       else if (j.error) setToast(`Error: ${j.error}`);
       else if (Array.isArray(j.failed) && j.failed.length) setToast(`Saved, but GHL rejected: ${j.failed.join(", ")}`);
-      else setToast(action === "resync" ? `Synced from GHL ✓${j.photoNote ? ` · ${j.photoNote}` : ""}${j.surveyNote ? ` · ${j.surveyNote}` : ""}` : j.depositUrlNote ? `Saved ✓ · ${j.depositUrlNote}` : "Saved ✓");
+      else setToast(action === "resync" ? `Synced from GHL ✓${j.pixelNote ? ` · ${j.pixelNote}` : ""}${j.photoNote ? ` · ${j.photoNote}` : ""}${j.surveyNote ? ` · ${j.surveyNote}` : ""}` : j.depositUrlNote ? `Saved ✓ · ${j.depositUrlNote}` : "Saved ✓");
       if (!j.error && (action === "cvs" || action === "extras")) {
         setSavedFlash(slug);
         window.setTimeout(() => setSavedFlash((cur) => (cur === slug ? null : cur)), 2500);
@@ -985,6 +1115,8 @@ export default function FunnelsPage() {
       });
       const j = await r.json();
       setRedirectVerify(j.error ? { error: j.error } : j);
+      // A verified redirect also harvests a missing pixel from the original page.
+      if (j.pixelNote) setToast(j.pixelNote);
       if (j.ok) await load();
     } catch {
       setRedirectVerify({ error: "network error — try again" });
@@ -1608,9 +1740,10 @@ export default function FunnelsPage() {
 
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 <Dot ok={f.hasCalendar} label="calendar" />
-                {/* V1 = no deposit, so no Commas product is expected; don't show a red ✗ for it. */}
-                {!/v1/i.test(f.program?.version ?? "") && <Dot ok={f.hasFanbasis} label="commas" />}
-                <Dot ok={f.hasWidget} label="results widget" />
+                {/* V1 = no deposit, so no Commas product is expected; don't show a red ✗ for it.
+                    B2B books a free call — no Commas, no results widget. */}
+                {f.template !== "b2b" && !/v1/i.test(f.program?.version ?? "") && <Dot ok={f.hasFanbasis} label="commas" />}
+                {f.template !== "b2b" && <Dot ok={f.hasWidget} label="results widget" />}
                 <Dot ok={f.hasPixel} label="pixel" />
                 <div className="flex-1" />
                 {isMediaBuyer && (
@@ -1630,7 +1763,8 @@ export default function FunnelsPage() {
                     </button>
                   </span>
                 )}
-                {isAdmin && (<>
+                {/* B2B has no GHL custom values to sync (settings live in Start Setup). */}
+                {isAdmin && f.template !== "b2b" && (<>
                 <button onClick={() => void act("resync", f.slug)} disabled={busy === `resync:${f.slug}`}
                   className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
                   {busy === `resync:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Sync Custom Values From GHL
@@ -1765,7 +1899,19 @@ export default function FunnelsPage() {
                 </div>
               )}
 
-              {cvFor === f.slug && (
+              {cvFor === f.slug && f.template === "b2b" && f.b2b && (
+                <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
+                  <B2BSetup key={f.slug} f={f} busy={busy} checks={health[f.slug]} act={act} onToast={setToast} />
+                  <div className="border-t border-[#eef2f6] pt-2">
+                    <button onClick={() => { const open = abFor === f.slug; setAbFor(open ? null : f.slug); if (!open) void loadAb(f.slug); }}
+                      className="text-[11px] text-[#697a91] hover:text-[#1c2b3a] hover:underline">
+                      Advanced &middot; Split test {abFor === f.slug ? "▲" : "▸"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {cvFor === f.slug && f.template !== "b2b" && (
                 <div className="mt-3 border-t border-[#eef2f6] pt-3 grid gap-2">
                   <p className="text-[11px] font-bold text-[#0b7f7f]">Step 1 &middot; Business details</p>
                   {(() => {
