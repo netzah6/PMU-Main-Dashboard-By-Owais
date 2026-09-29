@@ -18,6 +18,21 @@ export interface RouteInfo {
   matchSource: "route label" | "product id" | "name in route" | null;
   /** set when the route label and the deposits history DISAGREE — check it */
   conflict: string | null;
+  /** this route's client is switched to DASHBOARD routing — the Make route
+      is now legacy and can be retired once the switch is verified */
+  dashboardRouted?: boolean;
+}
+
+/** A client switched to dashboard payment routing (extras.paymentRouter). */
+export interface DashboardRoutedClient {
+  business: string;
+  slug: string;
+  productId: string;
+  live: boolean;
+  /** the stored GHL hook URL passes the location check — routing can fire */
+  hookConfigured: boolean;
+  /** they also still have Make route(s) — running in parallel */
+  makeRouteIdxs: number[];
 }
 
 export interface MakeRoutesReport {
@@ -30,8 +45,10 @@ export interface MakeRoutesReport {
   duplicates: Array<{ business: string; routeIdxs: number[] }>;
   /** routes with no webhook URL inside — they match but post nowhere */
   noWebhook: number[];
-  /** Live clients with no route at all — their deposits never reach the sheet */
+  /** Live V2.3/V3 clients with NO route in Make and NOT on dashboard routing */
   missingClients: string[];
+  /** clients switched to dashboard payment routing (the new path) */
+  dashboardRouting: DashboardRoutedClient[];
   error?: string;
 }
 
@@ -76,7 +93,7 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
   const token = process.env.MAKE_API_TOKEN;
   const empty: MakeRoutesReport = {
     scenarioName: "", scenarioId: "", zone: "", fetchedAt: new Date().toISOString(),
-    routes: [], duplicates: [], noWebhook: [], missingClients: [],
+    routes: [], duplicates: [], noWebhook: [], missingClients: [], dashboardRouting: [],
   };
   if (!token) return { ...empty, error: "MAKE_API_TOKEN is not configured in the environment." };
 
@@ -263,13 +280,44 @@ export async function buildMakeRoutesReport(): Promise<MakeRoutesReport> {
 
   const noWebhook = routes.filter((r) => !r.webhook).map((r) => r.idx);
 
-  // Live clients with no route: deposits from their funnel never reach the sheet.
+  /* Dashboard payment routing (the Make-route replacement, payment-router.ts):
+     clients whose one-box row has extras.paymentRouter === "yes". Shown on
+     the page so "who is on the new path vs still on Make" is one glance. */
+  const HOOK_RE = /^https:\/\/(services|backend)\.leadconnectorhq\.com\/hooks\/[A-Za-z0-9/_-]+$/;
+  const { data: ob } = await svc
+    .from("onebox_clients")
+    .select("slug, client_name, location_id, status, config, extras");
+  type ObRow = { slug: string; client_name: string; location_id: string; status: string; config: Record<string, unknown> | null; extras: Record<string, unknown> | null };
+  const dashRows = ((ob ?? []) as ObRow[]).filter((r) => String((r.extras ?? {}).paymentRouter ?? "") === "yes");
+  const dashboardRouting: DashboardRoutedClient[] = dashRows.map((r) => {
+    const pid = String((r.config ?? {})["fanbasisProductId"] ?? "").trim();
+    const hook = String((r.extras ?? {}).fanbasisHookUrl ?? "").trim();
+    const nb = norm(r.client_name);
+    const makeRouteIdxs = routes
+      .filter((rt) => (rt.matchedBusiness && norm(rt.matchedBusiness) === nb) || (pid && rt.filterText.split(" · ").includes(pid)))
+      .map((rt) => rt.idx);
+    return {
+      business: r.client_name,
+      slug: r.slug,
+      productId: pid,
+      live: r.status === "live",
+      hookConfigured: HOOK_RE.test(hook) && hook.includes(`/hooks/${r.location_id}/`),
+      makeRouteIdxs,
+    };
+  }).sort((a, b) => a.business.localeCompare(b.business));
+  const dashBiz = new Set(dashboardRouting.map((d) => norm(d.business)));
+  for (const r of routes) {
+    if (r.matchedBusiness && dashBiz.has(norm(r.matchedBusiness))) r.dashboardRouted = true;
+  }
+
+  // Live clients with no route ANYWHERE (Make or dashboard): their funnel
+  // deposits never reach the sheet and their buyers never get tagged.
   const routedBiz = new Set(routes.filter((r) => r.matchedBusiness).map((r) => norm(r.matchedBusiness!)));
   const missingClients = clients
-    .filter((c) => c.status === "Live" && /^v(3|2\.3)/i.test(c.version) && c.nb && !routedBiz.has(c.nb))
+    .filter((c) => c.status === "Live" && /^v(3|2\.3)/i.test(c.version) && c.nb && !routedBiz.has(c.nb) && !dashBiz.has(c.nb))
     .map((c) => c.business)
     .filter((v, i, a) => a.indexOf(v) === i)
     .sort();
 
-  return { scenarioName, scenarioId, zone, fetchedAt: new Date().toISOString(), routes, duplicates, noWebhook, missingClients };
+  return { scenarioName, scenarioId, zone, fetchedAt: new Date().toISOString(), routes, duplicates, noWebhook, missingClients, dashboardRouting };
 }
