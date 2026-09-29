@@ -6,6 +6,7 @@ import { refreshOneboxConfig, normalizeElfsight, harvestPixelId, ensureOneboxCus
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
+import { isValidHookUrlForLocation, buildReplayPayload, replayToClientHook } from "@/lib/payment-router";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -19,7 +20,8 @@ export const maxDuration = 300;
 //   GET                       → all funnels + lead/booking counts
 //   POST {action:"add", slug, locationId, clientName, oldFunnelUrl?}
 //   POST {action:"resync", slug}
-//   POST {action:"extras", slug, fanbasisHtml?, elfsightId?, resultImgs?, metaPixelId?}
+//   POST {action:"extras", slug, fanbasisHtml?, elfsightId?, resultImgs?, metaPixelId?, paymentRouter?, fanbasisHookUrl?}   (the two router fields: admin only)
+//   POST {action:"routerTest", slug, email?, name?}  → synthetic payment through the stored hook (admin; clean up the test contact + sheet row after)
 //   POST {action:"status", slug, status}         (live | paused)
 //   POST {action:"health", slug}                 → live checks for one funnel
 //   POST {action:"verifyRedirect", slug, adUrl}  → is the ad link redirecting onto this funnel? (Start Setup step 5)
@@ -39,6 +41,14 @@ type Extras = {
      one-box link directly. redirectVerifiedAt is set by verifyRedirect. */
   adRedirect?: "yes" | "no";
   redirectVerifiedAt?: string;
+  /* Dashboard payment routing (replacing the client's Make route):
+     fanbasisHookUrl = the client's own "FanBasis to GHL workflow" inbound
+     webhook; paymentRouter "yes" = payments hitting /api/webhooks are
+     replayed there. Lives in extras because the CV resync replaces config.
+     Both fields are admin-only — a redirected hook would leak payment
+     payloads — and the URL must belong to this client's own location. */
+  paymentRouter?: "yes" | "no";
+  fanbasisHookUrl?: string;
 };
 
 // Public funnel URL on the branded domain (book.pmu-care.com is a
@@ -510,9 +520,53 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       const v = String(body.adRedirect);
       if (v === "yes" || v === "no") extras.adRedirect = v; else delete extras.adRedirect;
     }
+    if (body.paymentRouter !== undefined || body.fanbasisHookUrl !== undefined) {
+      // Admin only: pointing the hook elsewhere would ship every payment
+      // payload (name, email, amount) to whatever URL was stored.
+      if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden (admin only)" }, { status: 403 });
+      if (body.paymentRouter !== undefined) {
+        const v = String(body.paymentRouter);
+        if (v === "yes" || v === "no") extras.paymentRouter = v; else delete extras.paymentRouter;
+      }
+      if (body.fanbasisHookUrl !== undefined) {
+        const u = String(body.fanbasisHookUrl).trim();
+        if (u === "") {
+          delete extras.fanbasisHookUrl;
+        } else if (isValidHookUrlForLocation(u, String(row.location_id ?? ""))) {
+          extras.fanbasisHookUrl = u;
+        } else {
+          // A bad or wrong-account URL silently stored would misroute a real payment.
+          return NextResponse.json({ error: "fanbasisHookUrl must be a leadconnectorhq.com/hooks/ URL for THIS client's location id" }, { status: 400 });
+        }
+      }
+    }
     await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
     warmFunnel(slug);
     return NextResponse.json({ ok: true, elfsightId: extras.elfsightId ?? "" });
+  }
+
+  if (action === "routerTest") {
+    /* Admin-only smoke test for dashboard payment routing: sends a synthetic
+       test payment through the client's stored hook URL, proving the URL and
+       the account's "FanBasis to GHL workflow" work before the router is
+       enabled. NOTE: this creates a real test contact on the account and the
+       workflow's downstream webhook writes a deposit-sheet row — delete the
+       contact and VOID the sheet row after verifying. */
+    const extras = (row.extras ?? {}) as Extras;
+    const hookUrl = String(extras.fanbasisHookUrl ?? "").trim();
+    if (!isValidHookUrlForLocation(hookUrl, String(row.location_id ?? ""))) {
+      return NextResponse.json({ error: "Set a valid fanbasisHookUrl (extras, this client's own location) first" }, { status: 400 });
+    }
+    const pid = String(((row.config ?? {}) as Record<string, string>).fanbasisProductId ?? "").trim();
+    const payload = buildReplayPayload({
+      email: String(body.email ?? "router.test.pmu@example.com"),
+      name: String(body.name ?? "Router Test"),
+      fanbasis_payment_id: `ROUTER-TEST-${Date.now()}`,
+      fanbasis_product: pid || "router-test",
+      fanbasis_total_price: "1",
+    });
+    const sent = await replayToClientHook(hookUrl, payload);
+    return NextResponse.json({ ok: sent.ok, note: sent.note, payloadSent: payload });
   }
 
   if (action === "cvs") {
