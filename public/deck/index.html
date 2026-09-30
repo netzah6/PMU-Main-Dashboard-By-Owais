@@ -228,15 +228,22 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
 .row-dtp ul.bullets li{font-size:24px;align-items:flex-start;line-height:1.35}
 .row-dtp ul.bullets .chev{margin-top:2px}
 
-.dtp{width:980px;height:712px;flex:none;background:#14181c;border-radius:16px;
-  display:flex;flex-direction:column;padding-bottom:10px;
-  box-shadow:0 34px 76px -24px rgba(13,15,18,.6),0 0 0 1px rgba(0,0,0,.06)}
-.dtp-bar{flex:none;height:44px;display:flex;align-items:center;gap:8px;padding:0 15px}
-.dtp-dot{width:11px;height:11px;border-radius:50%;flex:none}
-.dtp-url{flex:1;margin:0 14px;background:#22272d;color:#cbd3da;border-radius:999px;height:27px;
-  display:flex;align-items:center;justify-content:center;gap:8px;font-size:13.5px;font-family:Inter,sans-serif}
-.dtp-url svg{width:12px;height:12px;flex:none;opacity:.75}
-.dtp-vp{flex:1;min-height:0;margin:0 10px;background:#fff;border-radius:10px;overflow:hidden;position:relative}
+/* macOS Safari window: light toolbar, traffic lights, centred address field */
+.dtp{width:980px;height:712px;flex:none;background:#fff;border-radius:12px;overflow:hidden;
+  display:flex;flex-direction:column;
+  box-shadow:0 44px 88px -30px rgba(13,15,18,.5),0 4px 14px rgba(13,15,18,.12),0 0 0 1px rgba(0,0,0,.1)}
+.dtp-bar{position:relative;flex:none;height:52px;display:flex;align-items:center;gap:8px;padding:0 17px;
+  background:linear-gradient(#f8f8f9,#eaeaec);border-bottom:1px solid #d5d5d8}
+.dtp-dot{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
+.dtp-ico{display:flex;align-items:center;gap:19px;color:#9b9ba1}
+.dtp-ico.l{margin-left:20px}
+.dtp-ico.r{margin-left:auto}
+.dtp-ico svg{width:17px;height:17px;display:block}
+.dtp-url{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:400px;height:30px;background:#e2e2e5;color:#3b3b40;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;gap:7px;font-size:13.5px;font-family:Inter,sans-serif}
+.dtp-url svg{width:11px;height:11px;flex:none;opacity:.65}
+.dtp-vp{flex:1;min-height:0;background:#fff;overflow:hidden;position:relative}
 /* the page itself — translated up instead of scrolled, so long questions stay in view */
 .dtp-doc{position:absolute;left:0;right:0;top:0;transition:transform .45s cubic-bezier(.2,.7,.3,1)}
 
@@ -248,7 +255,7 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
 .dtp .fnl-trust{font-size:16px;margin-top:7px}
 .dtp .fnl-stars{font-size:18px;letter-spacing:2px}
 .dtp .fnl-cong{font-size:18.5px;padding:8px 40px 0;line-height:1.32}
-.dtp .fnl-h{font-size:27px;padding:7px 40px 0;line-height:1.2}
+.dtp .fnl-h{font-size:27px;padding:7px 30px 0;line-height:1.2;white-space:nowrap}
 .dtp .fnl-sec{font-size:18px;padding:2px 0 10px}
 .dtp .fprog{max-width:700px;margin:0 auto;padding:0 0 11px;font-size:14px}
 .dtp .fnl-card{max-width:700px;margin:0 auto 18px;padding:22px 26px;border-radius:12px;
@@ -544,6 +551,16 @@ var PINSVG='<svg viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 
 var PINS=[[35.7,64.9],[75.4,49.4],[80.8,45.5],[71.7,71.8],[47.6,24.4],[63.7,56.6],[44.7,58.6],[24.3,60.3],[42.7,75.6],[43.8,68.8],[79.7,70.9],[80.9,60.1],[60.2,62.0],[41.3,15.8],[21.1,37.3],[13.8,22.8],[46.7,37.6],[72.2,34.1],[63.1,75.8],[96.1,15.9],[15.8,8.3],[67.6,40.2],[18.6,79.0],[58.7,39.8],[71.7,43.3],[17.9,47.5],[17.7,26.0],[27.6,24.2],[28.1,47.1],[71.7,62.7],[53.7,29.7],[50.7,41.6],[50.4,65.6],[21.3,18.3],[84.9,49.8],[66.2,62.9],[41.8,32.5],[83.5,35.9],[66.0,29.7],[69.7,52.5],[34.2,53.3],[88.4,36.8],[49.5,15.0],[57.7,16.0],[19.9,59.7],[43.3,50.6],[12.0,41.6],[34.5,20.9],[20.8,7.1],[32.4,34.6],[52.7,76.8],[58.6,47.6],[53.6,59.6],[89.0,24.0],[29.7,12.7],[74.1,25.7],[36.0,13.0],[12.2,50.5],[78.7,38.2],[82.3,78.2],[12.4,31.0],[54.5,45.8],[32.1,44.8],[57.3,71.4],[93.0,29.4],[18.3,53.9],[87.1,34.9],[72.5,51.6],[25.1,47.3],[53.6,64.4],[73.7,69.0],[28.1,55.5],[15.0,42.1],[90.9,30.7],[71.7,27.5],[19.7,56.4],[75.4,76.2],[76.5,66.6],[51.5,56.1],[95.5,24.0],[18.4,17.2],[16.5,38.7],[20.3,11.1],[43.2,35.1]];
 var ARROW='<span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></span>';
 var CHEV='<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>';
+/* Safari toolbar glyphs, drawn to match SF Symbols' weight */
+var SF=function(p,f){return '<svg viewBox="0 0 24 24" fill="'+(f||'none')+'" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';};
+var SFI={
+  side : SF('<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M9.5 4.5v15"/>'),
+  back : SF('<path d="M14.5 5.5 8 12l6.5 6.5"/>'),
+  fwd  : SF('<path d="M9.5 5.5 16 12l-6.5 6.5"/>'),
+  share: SF('<path d="M12 3.5v11"/><path d="M8.5 7 12 3.5 15.5 7"/><path d="M6 11.5H4.5v9h15v-9H18"/>'),
+  plus : SF('<path d="M12 5.5v13M5.5 12h13"/>'),
+  tabs : SF('<rect x="3" y="6.5" width="13" height="11" rx="2"/><path d="M8 6.5V5a1.5 1.5 0 0 1 1.5-1.5H19A1.5 1.5 0 0 1 20.5 5v9.5A1.5 1.5 0 0 1 19 16h-1.5"/>')
+};
 var LOCKICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">'+
   '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
 function bullets(a){return '<ul class="bullets">'+a.map(function(t,k){return '<li class="rx" style="animation-delay:'+(0.12+k*0.085)+'s">'+CHEV+t+'</li>';}).join("")+'</ul>';}
@@ -636,7 +653,9 @@ head(9,true)+
     '<span class="dtp-dot" style="background:#ff5f57"></span>'+
     '<span class="dtp-dot" style="background:#febc2e"></span>'+
     '<span class="dtp-dot" style="background:#28c840"></span>'+
+    '<span class="dtp-ico l">'+SFI.side+SFI.back+SFI.fwd+'</span>'+
     '<span class="dtp-url">'+LOCKICON+'book.pmu-care.com/blossom-beauty</span>'+
+    '<span class="dtp-ico r">'+SFI.share+SFI.plus+SFI.tabs+'</span>'+
   '</div><div class="dtp-vp" id="fnl-vp"><div class="dtp-doc" id="fnl-doc">'+
     '<div class="fnl" id="fnl"></div>'+
   '</div></div></div>'+
@@ -918,7 +937,7 @@ function fHeader(){
     '<div class="fnl-brand"><img src="/deck/assets/blossom-logo.png" alt="">'+
       '<div class="fnl-trust">Trusted by 5,600+ Happy Clients</div><div class="fnl-stars">★★★★★</div></div>'+
     '<div class="fnl-cong">Congrats on claiming $150 OFF for NEW clients<br>All Permanent Makeup Packages!</div>'+
-    '<div class="fnl-h">Fill Out Our Quiz To<br>See If You Qualify</div>'+
+    '<div class="fnl-h">Fill Out Our Quiz To See If You Qualify</div>'+
     '<div class="fnl-sec">(30 Seconds)</div>';
 }
 function fRender(){
