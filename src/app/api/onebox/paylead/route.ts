@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getSurveyFieldMap, liveAppointmentsOnCalendar } from "@/lib/onebox";
+import { getSurveyFieldMap, liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
 import { getAppLocationToken } from "@/lib/ghl-app";
 
 // Payment-link lookup: the AI's follow-up message sends the lead
@@ -62,6 +62,7 @@ export async function GET(req: NextRequest) {
   // Her booked appointment on the funnel's calendar, if the AI (or the
   // team) already made one — the time she actually agreed to in chat.
   let booked = "";
+  let tz = "";
   const paidIds = new Set(((paidRows ?? []) as { ghl_appointment_id: string | null }[]).map((r) => String(r.ghl_appointment_id)));
   try {
     const tok = await getAppLocationToken(client.location_id as string);
@@ -76,7 +77,12 @@ export async function GET(req: NextRequest) {
           ? liveAppointmentsOnCalendar(t, calendarId, client.location_id as string, tok.token)
           : Promise.resolve({ tz: "", appts: [] }),
       ]);
-      booked = appts.appts.find((a) => !paidIds.has(a.id))?.startIso ?? "";
+      /* Only a recent booking (the chat that sent this link), never one a
+         deposit already paid for — an older appointment is more likely a
+         touch-up or an unrelated visit than the time she's paying for. */
+      tz = appts.tz;
+      const recent = Date.now() - 21 * 86400_000;
+      booked = appts.appts.find((a) => !paidIds.has(a.id) && (a.addedMs || 0) >= recent)?.startIso ?? "";
       if (r.ok) {
         const j = (await r.json()) as { contact?: { firstName?: string; lastName?: string; name?: string; phone?: string; email?: string; locationId?: string; customFields?: { id?: string; value?: unknown }[] } };
         const c = j.contact;
@@ -100,9 +106,11 @@ export async function GET(req: NextRequest) {
      it's still ahead. The funnel pick used to win outright, so a lead who
      agreed Nov 5 with the AI was shown (and booked into) her old Oct 3 pick
      on top of the AI's appointment (Alma Tejeda, 2026-09-30). */
+  const ahead = (iso: string) => (iso && Date.parse(iso) > Date.now() ? iso : "");
   const funnelPick = String(lead?.slot_iso ?? "");
-  const pickAhead = funnelPick && Date.parse(funnelPick) > Date.now() ? funnelPick : "";
-  const slotIso = booked || ghl?.reserved || pickAhead;
+  // The reserved-time field is the studio's wall clock; judge it in her tz.
+  const reserved = ghl?.reserved ? (tz ? ahead(wallToIso(ghl.reserved, tz)) : ghl.reserved) : "";
+  const slotIso = booked || reserved || ahead(funnelPick);
   const email = String((lead?.answers as { email?: string } | null)?.email ?? "") || ghl?.email || "";
   return NextResponse.json(
     { ok: true, name: String(lead?.full_name ?? "") || ghl?.name || "", phone: String(lead?.phone ?? "") || ghl?.phone || "", email, slotIso },
