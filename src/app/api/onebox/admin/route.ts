@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { refreshOneboxConfig, normalizeElfsight, harvestFirstPixel, ensureOneboxCustomValues, setOneboxCustomValues, setDepositFunnelUrl, healFunnelPhotos, photosAreOwn, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { refreshOneboxConfig, normalizeElfsight, harvestFirstPixel, ensureOneboxCustomValues, setOneboxCustomValues, setDepositFunnelUrl, healFunnelPhotos, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
@@ -828,8 +828,12 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     });
     const pixel = (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "");
     checks.push({ name: "Meta pixel", ok: !!pixel, note: pixel ? `pixel ${pixel}` : "no pixel — harvest or set OB - Meta Pixel ID" });
-    /* Stock snapshot photos look "filled" but are not the client's — the
-       page would show strangers' brows and someone else's studio. */
+    /* Proof on the page (owner rule, 2026-09-30): the check passes when the
+       funnel has an Instagram widget OR at least 3 before/after pictures
+       that load — ANY pictures, the template's stock ones included. It
+       fails only when there is neither. Studio photos and stock-vs-own no
+       longer fail it; the note still says what is there so the team can
+       swap in the client's own later. */
     const [baKinds, stKinds] = await Promise.all([
       classifyPhotos(config.resultCvImgs || config.resultImgs || extras.resultImgs),
       classifyPhotos(config.studioCvImgs || config.studioImgs),
@@ -838,13 +842,17 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       if (!kinds.length) return `${label}: none`;
       const stock = kinds.filter((k) => k.kind === "stock").length, broken = kinds.filter((k) => k.kind === "broken").length;
       if (!stock && !broken) return `${label}: ${kinds.length} own`;
-      return `${label}: ${stock ? `${stock} of ${kinds.length} are the template's stock pictures` : ""}${stock && broken ? ", " : ""}${broken ? `${broken} broken` : ""}`;
+      return `${label}: ${kinds.length}${stock ? ` (${stock} stock)` : ""}${broken ? ` (${broken} broken)` : ""}`;
     };
-    const ownBa = photosAreOwn(baKinds), ownStudio = photosAreOwn(stKinds);
+    const baLoaded = baKinds.filter((k) => k.kind !== "broken").length;
+    const hasIgWidget = !!((config.igWidget || "").trim() || (config.elfsightId || "").trim() || (extras.elfsightId || "").trim());
+    const proofOk = hasIgWidget || baLoaded >= 3;
     if (!isV1Client) checks.push({
-      name: "Client photos",
-      ok: ownBa && ownStudio,
-      note: `${describe("before/after", baKinds)} · ${describe("studio", stKinds)}${ownBa && ownStudio ? "" : " — upload the client's own into the photo custom values in GHL (Sync pulls them from the original page when it has them)"}`,
+      name: "Photos or Instagram",
+      ok: proofOk,
+      note: proofOk
+        ? `${hasIgWidget ? "Instagram widget set" : "no Instagram widget"} · ${describe("before/after", baKinds)} · ${describe("studio", stKinds)}`
+        : `no Instagram widget and only ${baLoaded} before/after picture${baLoaded === 1 ? "" : "s"} — add the IG widget link or 3 before/after pictures`,
     });
     // Which required values are still empty on the account.
     const requiredCfg: [string, string][] = [
