@@ -497,6 +497,12 @@
       });
     } catch (e) { return Promise.reject(e); }
   }
+  /* The visitor's IANA timezone — rides on every submit/book so the GHL
+     contact records where the artist actually is (they book a remote call
+     from anywhere; reminder timing depends on it). */
+  function visitorTz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; }
+  }
   function leadBase() {
     return {
       slug: C.slug || "",
@@ -505,6 +511,7 @@
       experimentId: C.experimentId || "",
       variantKey: C.variantKey || "",
       visitorId: VID,
+      tz: visitorTz(),
     };
   }
   function sendPartial() {
@@ -754,10 +761,20 @@
       .then(function (j) {
         cal.loading = false;
         if (!j.ok) { cal.error = true; if (cb) cb(); return; }
-        var days = [];
-        Object.keys(j.dates || {}).sort().forEach(function (k) {
-          var slots = (j.dates[k] || []).filter(function (iso) { return new Date(iso).getTime() > Date.now(); });
-          if (slots.length) days.push({ date: k, slots: slots });
+        /* Regroup by the VISITOR's local date, not GHL's calendar-timezone
+           date key: time labels are visitor-local (slotLabel), so a slot
+           near midnight must sit under the day the visitor will see. */
+        var byLocal = {};
+        Object.keys(j.dates || {}).forEach(function (k) {
+          (j.dates[k] || []).forEach(function (iso) {
+            if (new Date(iso).getTime() <= Date.now()) return;
+            var d = new Date(iso);
+            var lk = d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2);
+            (byLocal[lk] = byLocal[lk] || []).push(iso);
+          });
+        });
+        var days = Object.keys(byLocal).sort().map(function (k) {
+          return { date: k, slots: byLocal[k].sort() };
         });
         cal.days = days.slice(0, 10);
         cal.loaded = true;
@@ -899,6 +916,7 @@
       email: S.email,
       startTime: S.slot,
       pageUrl: location.href,
+      tz: visitorTz(),
     };
     post("book", body)
       .then(function (r) { return r.json(); })

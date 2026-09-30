@@ -24,6 +24,18 @@ export interface GhlPushInput {
   /** partial leads carry no answers yet — skip fields + note. */
   partial: boolean;
   disqualified: boolean;
+  /** the visitor's IANA timezone from their browser — set on the GHL
+      contact (like GHL's native widget does) so reminder timing and
+      contact-timezone merge fields are right for leads who aren't in the
+      sub-account's own timezone. */
+  timezone?: string;
+}
+
+/* Only a plausible IANA zone (or UTC) may reach GHL — anything else is
+   dropped rather than rejected, a bad value must never cost the lead. */
+export function cleanTz(v: unknown): string {
+  const s = String(v ?? "").trim();
+  return /^(?:[A-Za-z]+(?:\/[A-Za-z0-9_+\-]+){1,2}|UTC)$/.test(s) ? s : "";
 }
 
 export interface GhlPushResult {
@@ -57,6 +69,7 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
           phone: inp.phone,
           ...(withEmail && inp.email ? { email: inp.email } : {}),
           source: "One-Box Funnel",
+          ...(cleanTz(inp.timezone) ? { timezone: cleanTz(inp.timezone) } : {}),
           ...(customFields.length ? { customFields } : {}),
         }),
       });
