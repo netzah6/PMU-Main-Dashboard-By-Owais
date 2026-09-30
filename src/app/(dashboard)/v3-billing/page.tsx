@@ -1,6 +1,6 @@
 "use client";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/useUser";
 import { CardCell, StatusCell, ActionsCell, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
@@ -35,6 +35,8 @@ interface Appt {
 interface PaymentGroup {
   paymentId: string | null; chargedAt: string | null; chargedBy: string | null;
   shows: number; total: number; manual: boolean; receiptUrl: string | null; contacts?: string[];
+  gross?: number; credit?: number; creditOnly?: boolean;
+  items?: Array<{ name: string; date: string | null; dateLabel: string | null }>;
 }
 interface Drill {
   payments?: PaymentGroup[];
@@ -84,6 +86,77 @@ function fmtDate(d: string | null): string {
   if (!d) return "—";
   const dt = new Date(d);
   return isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+// ── "Who did we charge her for?" — copyable list ───────────────────────────
+// Clients ask which of their customers they were charged for. This is the
+// "Charged & went through" box as plain text, grouped by the charge that
+// covered each show, with what actually hit her card (after any account
+// credit) — ready to paste to her so both sides see the same list.
+function chargedListText(d: Drill): string {
+  const pays = d.payments ?? [];
+  const who = d.client.business || d.client.ownerName;
+  const shows = pays.reduce((n, p) => n + p.shows, 0);
+  if (shows === 0) return `${who}: no shows charged yet.`;
+  const plural = (n: number) => `${n} show${n === 1 ? "" : "s"}`;
+  const paid = pays.reduce((n, p) => n + p.total, 0);
+  const credit = pays.reduce((n, p) => n + (p.credit ?? 0), 0);
+  const lines = [`${who} — clients we charged you for`,
+    `Total: ${plural(shows)} · ${money(paid)} charged${credit > 0 ? ` + ${money(credit)} covered by account credit` : ""}`];
+  for (const p of pays) {
+    const credited = p.credit ?? 0;
+    lines.push("", p.creditOnly && p.total === 0
+      ? `Covered by account credit ${fmtDate(p.chargedAt)} — ${plural(p.shows)} (${money(p.gross ?? credited)})`
+      : `Charged ${fmtDate(p.chargedAt)} — ${money(p.total)} (${plural(p.shows)}${credited > 0 ? `; ${money(p.gross ?? p.total + credited)} less ${money(credited)} account credit` : ""})`);
+    // Dated shows in session order; undated ones (chat, touch-up pending) last.
+    const items = [...(p.items ?? (p.contacts ?? []).map((name) => ({ name, date: null, dateLabel: null })))]
+      .sort((x, y) => (x.date ? 0 : 1) - (y.date ? 0 : 1) || String(x.date ?? "").localeCompare(String(y.date ?? "")));
+    for (const it of items) {
+      const when = it.dateLabel ? ` — ${it.dateLabel}${it.date ? ` ${fmtDate(it.date)}` : ""}` : "";
+      lines.push(`  • ${it.name}${when}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// One click copies the list, always fetched fresh (a charge made a moment ago
+// must be in it). Passing the fetch as a promise to ClipboardItem keeps the
+// click's permission alive while the data loads (a plain writeText after an
+// await can be refused); writeText is the fallback.
+function CopyChargedButton({ ownerKey, label, className }: { ownerKey: string; label: string; className?: string }) {
+  const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const copy = async () => {
+    if (state === "busy") return;
+    if (timer.current) clearTimeout(timer.current);
+    setState("busy");
+    const text: Promise<string> = fetch(`/api/ppa/client?owner_key=${encodeURIComponent(ownerKey)}`).then(async (r) => {
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "load failed");
+      return chargedListText(j as Drill);
+    });
+    try {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": text.then((t) => new Blob([t], { type: "text/plain" })) })]);
+      } catch {
+        await navigator.clipboard.writeText(await text);
+      }
+      setState("done");
+    } catch {
+      setState("error");
+    }
+    timer.current = setTimeout(() => setState("idle"), 2500);
+  };
+  return (
+    <button onClick={copy} disabled={state === "busy"}
+      title="Copy the clients we charged her for (grouped by charge, with dates and any account credit) — paste it to her so you're on the same page"
+      className={cn("inline-flex items-center gap-1 font-semibold transition-colors disabled:opacity-60",
+        state === "done" ? "text-[#15803d]" : state === "error" ? "text-[#e11d48]" : "text-[#0e8f88] hover:text-[#0a6f69]", className)}>
+      {state === "busy" ? <Loader2 size={10} className="animate-spin" /> : state === "done" ? <Check size={10} /> : <Copy size={10} />}
+      {state === "busy" ? "Copying…" : state === "done" ? "Copied" : state === "error" ? "Copy failed" : label}
+    </button>
+  );
 }
 
 // ── Appointment tracker (drill-down) ─────────────────────────────────────────
@@ -200,11 +273,15 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
           user asked for: date, amount, shows covered, who ran it, receipt. */}
       {(drill.payments?.length ?? 0) > 0 && (
         <div className="rounded-lg border border-[#c7edd4] bg-[#f4fbf7] px-2.5 py-2">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#15803d] mb-1">✅ Charged &amp; went through</div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[#15803d]">✅ Charged &amp; went through</div>
+            <CopyChargedButton ownerKey={client.ownerKey} label="Copy list" className="text-[10px] px-1.5 py-0.5 rounded border border-[#c7edd4] bg-white hover:bg-[#e6f7ee]" />
+          </div>
           <div className="space-y-0.5">
             {drill.payments!.map((p, i) => (
               <div key={i} className="flex items-center gap-2 text-[11px] text-[#1f3559] flex-wrap">
                 <span className="font-semibold text-[#15803d]">{money(p.total)}</span>
+                {(p.credit ?? 0) > 0 && <span className="text-[10px] text-[#697a91]">({money(p.gross ?? 0)} less {money(p.credit ?? 0)} credit)</span>}
                 <span className="text-[#697a91]">{p.shows} show{p.shows === 1 ? "" : "s"}</span>
                 <span className="text-[#8595a8]">{p.chargedAt ? new Date(p.chargedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
                 {p.chargedBy && <span className="text-[#8595a8]">by {p.chargedBy}</span>}
@@ -441,6 +518,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           <div className={cn("text-[9px] leading-tight whitespace-nowrap", c.chargedCount > 0 ? "text-[#0e8f88] font-semibold" : "text-[#8595a8]")}>
             {c.chargedCount} charged · {money(c.chargedAmount)}
           </div>
+          {c.chargedCount > 0 && <CopyChargedButton ownerKey={c.ownerKey} label="copy list" className="text-[9px] leading-tight" />}
         </td>
         <NumCell value={c.showRate == null ? "—" : `${c.showRate}%`}
           sub={c.showRate == null ? "no reviews" : `${c.showed}/${c.showed + c.noShowMarked}`}
