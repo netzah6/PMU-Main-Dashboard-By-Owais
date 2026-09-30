@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
-import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
+import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
 import { cleanTz } from "@/lib/ghl-push";
 
@@ -116,23 +116,61 @@ export async function POST(req: NextRequest) {
     if (calJ.calendar?.slotDuration) durationMin = calJ.calendar.slotDuration;
     if (calJ.calendar?.name) title = calJ.calendar.name;
   }
-  const endTime = new Date(new Date(startTime).getTime() + durationMin * 60000).toISOString();
+  /* She may already be on this calendar — the AI books leads here in chat,
+     and a second, deposit-made appointment meant two or three confirmations
+     and reminders for one session (Alma Tejeda / Mood Studios: Oct 3 + Oct 5
+     + Nov 5, 2026-09-30; 19 more contacts across 13 accounts). Reuse only
+     what is clearly this booking: an appointment made during her own funnel
+     journey that no earlier deposit paid for. Same time → keep it; exactly
+     one other → move it to the time she paid for; anything unclear → book a
+     new one as before. Leftovers get a tag so the team can clean up. */
+  const [{ tz, appts }, { data: mine }] = await Promise.all([
+    liveAppointmentsOnCalendar(contactId, calendarId, locationId, tok.token),
+    svc.from("onebox_leads").select("ghl_appointment_id, created_at").eq("slug", slug).eq("phone", phone),
+  ]);
+  // A slot with no offset (the reserved-time path) is the studio's wall clock.
+  const startIso = tz && !/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(startTime) ? wallToIso(startTime, tz) : startTime;
+  const endTime = new Date(Date.parse(startIso) + durationMin * 60000).toISOString();
+  const mineRows = (mine ?? []) as { ghl_appointment_id: string | null; created_at: string }[];
+  const paidIds = new Set(mineRows.map((r) => r.ghl_appointment_id).filter(Boolean));
+  const journeyStart = mineRows.length
+    ? Math.min(...mineRows.map((r) => Date.parse(r.created_at)))
+    : Date.now() - 30 * 86400_000; // pay-link lead with no funnel row
+  const candidates = appts.filter((a) => !paidIds.has(a.id) && (a.addedMs || 0) >= journeyStart - 86400_000);
+  const same = candidates.find((a) => Math.abs(a.startMs - Date.parse(startIso)) < 60_000);
+  const putAppointment = (id: string, patch: Record<string, string>) =>
+    fetch(`https://services.leadconnectorhq.com/calendars/events/appointments/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { ...H, Version: "2021-04-15" },
+      body: JSON.stringify(patch),
+    }).then((r) => r.ok).catch(() => false);
+  let reused: { id: string } | null = null;
+  let needsReview = false;
+  if (same) {
+    // Already at the paid time — never book over it, even if confirming fails.
+    reused = { id: same.id };
+    if (same.status !== "confirmed" && !(await putAppointment(same.id, { appointmentStatus: "confirmed" }))) needsReview = true;
+  } else if (candidates.length === 1
+    && await putAppointment(candidates[0].id, { startTime: startIso, endTime, appointmentStatus: "confirmed" })) {
+    reused = { id: candidates[0].id };
+  }
 
-  const ar = await fetch("https://services.leadconnectorhq.com/calendars/events/appointments", {
+  let aj: { id?: string; message?: string } = reused ?? {};
+  const ar = reused ? null : await fetch("https://services.leadconnectorhq.com/calendars/events/appointments", {
     method: "POST",
     headers: { ...H, Version: "2021-04-15" },
     body: JSON.stringify({
       calendarId,
       locationId,
       contactId,
-      startTime,
+      startTime: startIso,
       endTime,
       title,
       appointmentStatus: "confirmed",
     }),
   });
-  const aj = (await ar.json()) as { id?: string; message?: string };
-  if (!ar.ok) {
+  if (ar) aj = (await ar.json()) as { id?: string; message?: string };
+  if (ar && !ar.ok) {
     console.error("[onebox/book] appointment failed:", ar.status, aj);
     /* This call happens after the deposit is paid, so a failure here
        means a paying client has no appointment — tag the contact so the
@@ -161,11 +199,24 @@ export async function POST(req: NextRequest) {
   const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
   const token = capiToken(ex);
   const eventId = String(body.eventId ?? "");
+  const bookedId = aj.id ?? null;
+  const leftover = needsReview || candidates.some((a) => a.id !== bookedId);
+  if (leftover) console.warn("[onebox/book] other live appointments remain for", contactId, candidates.map((a) => a.id));
   await Promise.all([
+    /* More than one live appointment for this session (an AI booking left
+       over, or a confirm that failed): tag it so the team cancels the extra
+       before it sends its own reminders. */
+    (leftover
+      ? fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+          method: "POST",
+          headers: { ...H, Version: "2021-07-28" },
+          body: JSON.stringify({ tags: ["onebox-check-appointments"] }),
+        }).then(() => {}).catch(() => {})
+      : Promise.resolve()),
     // Reflect the booking on the stored lead row.
     svc
       .from("onebox_leads")
-      .update({ ghl_status: "booked", ghl_contact_id: contactId, ghl_appointment_id: aj.id ?? null })
+      .update({ ghl_status: "booked", ghl_contact_id: contactId, ghl_appointment_id: bookedId })
       .eq("slug", slug)
       .eq("phone", phone)
       .then(() => {}),
@@ -186,7 +237,7 @@ export async function POST(req: NextRequest) {
           await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
             method: "PUT",
             headers: { ...H, Version: "2021-07-28" },
-            body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(startTime) }] }),
+            body: JSON.stringify({ customFields: [{ id: fieldMap.reserved_time, value: fmtReservedTime(startIso) }] }),
           });
         }
         /* The notification goes to the CONTACT OWNER — make sure there is

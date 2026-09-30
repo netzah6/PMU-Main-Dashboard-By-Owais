@@ -704,3 +704,81 @@ export function fmtReservedTime(iso: string): string {
     year: "numeric", hour: "numeric", minute: "2-digit",
   }).replace(" at ", " ");
 }
+
+/* GHL's per-contact appointment endpoint gives startTime and dateAdded as
+   the LOCATION's wall clock ("2026-10-26 16:30:00", no offset — verified
+   against the offset-bearing times we send), so real comparisons need the
+   location's timezone. Cached per location; "" when unreadable. */
+const tzCache = new Map<string, { tz: string; at: number }>();
+export async function locationTimezone(locationId: string, token: string): Promise<string> {
+  const hit = tzCache.get(locationId);
+  if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.tz;
+  try {
+    const r = await fetch(`https://services.leadconnectorhq.com/locations/${encodeURIComponent(locationId)}`, {
+      headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" },
+    });
+    const tz = r.ok ? String(((await r.json()) as { location?: { timezone?: string } }).location?.timezone ?? "") : "";
+    if (tz) tzCache.set(locationId, { tz, at: Date.now() });
+    return tz;
+  } catch {
+    return "";
+  }
+}
+
+/** "2026-10-26T16:30:00" in `tz` → "2026-10-26T16:30:00-05:00". */
+export function wallToIso(local: string, tz: string): string {
+  const m = local.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2}))?/);
+  if (!m) return local;
+  const date = m[1], time = `${m[2]}:${m[3] ?? "00"}`;
+  const guess = new Date(`${date}T${time}Z`);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(guess);
+  const g = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? "0");
+  const asUtc = Date.UTC(g("year"), g("month") - 1, g("day"), g("hour") % 24, g("minute"), g("second"));
+  const off = Math.round((asUtc - guess.getTime()) / 60000);
+  const abs = Math.abs(off);
+  return `${date}T${time}${off >= 0 ? "+" : "-"}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+}
+
+/* A contact's live, future appointments on one calendar, newest-booked
+   first. The AI books leads on the same calendar the one-box uses, so this
+   is how the deposit flow finds "she already has an appointment" instead of
+   booking another one (Alma Tejeda / Mood Studios, 2026-09-30: funnel slot
+   + two AI bookings = three confirmations). Fails closed: no timezone or no
+   response → no appointments, and callers keep their old behaviour. */
+export type ContactAppointment = { id: string; startIso: string; startMs: number; addedMs: number; status: string };
+export async function liveAppointmentsOnCalendar(
+  contactId: string, calendarId: string, locationId: string, token: string,
+): Promise<{ tz: string; appts: ContactAppointment[] }> {
+  try {
+    const [tz, r] = await Promise.all([
+      locationTimezone(locationId, token),
+      fetch(`https://services.leadconnectorhq.com/contacts/${encodeURIComponent(contactId)}/appointments`, {
+        headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" },
+      }),
+    ]);
+    if (!tz || !r.ok) return { tz, appts: [] };
+    const j = (await r.json()) as { events?: Array<Record<string, unknown>> };
+    const now = Date.now();
+    const appts = (j.events ?? [])
+      .filter((e) => e.id && e.deleted !== true && String(e.calendarId ?? "") === calendarId
+        // GHL ships both spellings. "showed" = it already happened.
+        && !["cancelled", "invalid", "noshow", "showed"].includes(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase()))
+      .map((e) => {
+        const startIso = wallToIso(String(e.startTime ?? ""), tz);
+        return {
+          id: String(e.id),
+          startIso,
+          startMs: Date.parse(startIso),
+          addedMs: Date.parse(wallToIso(String(e.dateAdded ?? ""), tz)),
+          status: String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase(),
+        };
+      })
+      .filter((e) => Number.isFinite(e.startMs) && e.startMs > now)
+      .sort((a, b) => (b.addedMs || 0) - (a.addedMs || 0));
+    return { tz, appts };
+  } catch {
+    return { tz: "", appts: [] };
+  }
+}

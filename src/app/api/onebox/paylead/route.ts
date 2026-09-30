@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getSurveyFieldMap } from "@/lib/onebox";
+import { getSurveyFieldMap, liveAppointmentsOnCalendar } from "@/lib/onebox";
 import { getAppLocationToken } from "@/lib/ghl-app";
 
 // Payment-link lookup: the AI's follow-up message sends the lead
@@ -36,12 +36,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
   const svc = createServiceClient();
-  const [{ data: client }, { data: lead }] = await Promise.all([
-    svc.from("onebox_clients").select("location_id").eq("slug", slug).maybeSingle(),
+  const [{ data: client }, { data: lead }, { data: paidRows }] = await Promise.all([
+    svc.from("onebox_clients").select("location_id, config").eq("slug", slug).maybeSingle(),
     svc.from("onebox_leads")
       .select("full_name, phone, answers, slot_iso, ghl_status")
       .eq("slug", slug).eq("ghl_contact_id", t)
       .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    // Appointments the one-box already booked for her after a deposit —
+    // never offered again as the one to pay for.
+    svc.from("onebox_leads").select("ghl_appointment_id")
+      .eq("slug", slug).eq("ghl_contact_id", t).not("ghl_appointment_id", "is", null),
   ]);
   if (!client) {
     return NextResponse.json({ ok: false }, { status: 404, headers: { "Cache-Control": "no-store" } });
@@ -55,15 +59,24 @@ export async function GET(req: NextRequest) {
      2026-09-20). The contact endpoint is location-scoped, so an id from
      another account simply 404s. */
   let ghl: { name: string; phone: string; email: string; reserved: string } | null = null;
+  // Her booked appointment on the funnel's calendar, if the AI (or the
+  // team) already made one — the time she actually agreed to in chat.
+  let booked = "";
+  const paidIds = new Set(((paidRows ?? []) as { ghl_appointment_id: string | null }[]).map((r) => String(r.ghl_appointment_id)));
   try {
     const tok = await getAppLocationToken(client.location_id as string);
     if (tok.token) {
-      const [fieldMap, r] = await Promise.all([
+      const calendarId = String((client.config as Record<string, string> | null)?.calendarId ?? "");
+      const [fieldMap, r, appts] = await Promise.all([
         getSurveyFieldMap(client.location_id as string, tok.token),
         fetch(`https://services.leadconnectorhq.com/contacts/${t}`, {
           headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" },
         }),
+        calendarId
+          ? liveAppointmentsOnCalendar(t, calendarId, client.location_id as string, tok.token)
+          : Promise.resolve({ tz: "", appts: [] }),
       ]);
+      booked = appts.appts.find((a) => !paidIds.has(a.id))?.startIso ?? "";
       if (r.ok) {
         const j = (await r.json()) as { contact?: { firstName?: string; lastName?: string; name?: string; phone?: string; email?: string; locationId?: string; customFields?: { id?: string; value?: unknown }[] } };
         const c = j.contact;
@@ -81,7 +94,15 @@ export async function GET(req: NextRequest) {
   if (!lead && !ghl) {
     return NextResponse.json({ ok: false }, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
-  const slotIso = String(lead?.slot_iso ?? "") || ghl?.reserved || "";
+  /* Which time the page offers, most-recent intent first: an appointment
+     already on her calendar (booked in chat), then the reserved-time field,
+     then the slot she picked in the funnel — and that last one only while
+     it's still ahead. The funnel pick used to win outright, so a lead who
+     agreed Nov 5 with the AI was shown (and booked into) her old Oct 3 pick
+     on top of the AI's appointment (Alma Tejeda, 2026-09-30). */
+  const funnelPick = String(lead?.slot_iso ?? "");
+  const pickAhead = funnelPick && Date.parse(funnelPick) > Date.now() ? funnelPick : "";
+  const slotIso = booked || ghl?.reserved || pickAhead;
   const email = String((lead?.answers as { email?: string } | null)?.email ?? "") || ghl?.email || "";
   return NextResponse.json(
     { ok: true, name: String(lead?.full_name ?? "") || ghl?.name || "", phone: String(lead?.phone ?? "") || ghl?.phone || "", email, slotIso },
