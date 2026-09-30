@@ -349,12 +349,20 @@ export default function ReportsPage() {
     const m = new Map<string, { at: number; refundedAt: number | null }[]>();
     depositRows.forEach((d) => {
       const biz = String(d["Business Name"] ?? "").trim().toLowerCase();
-      const ds = String(d["Date"] ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (!biz || !ds) return;
-      // Deposits sheet dates are DD/MM/YYYY (swap if the month slot is >12)
-      let day = +ds[1], mon = +ds[2];
-      if (mon > 12) { const t = day; day = mon; mon = t; }
-      const at = new Date(+ds[3], mon - 1, day).getTime();
+      const raw = String(d["Date"] ?? "").trim();
+      if (!biz || !raw) return;
+      // Two formats live in Date: DD/MM/YYYY (swap if the month slot is >12)
+      // and, for everything up to late May 2026, an ISO timestamp — 345 rows
+      // the chart used to skip, so older deposits never counted.
+      let at = NaN;
+      if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) at = new Date(raw).getTime();
+      else {
+        const ds = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (!ds) return;
+        let day = +ds[1], mon = +ds[2];
+        if (mon > 12) { const t = day; day = mon; mon = t; }
+        at = new Date(+ds[3], mon - 1, day).getTime();
+      }
       if (isNaN(at)) return;
       const back = refundedAt.get(rkey(d["Business Name"], d["Product ID"], d["Email"], d["Amount"], d["Date"]));
       // A refund with no readable date still counts — from the deposit's own day.
@@ -367,21 +375,25 @@ export default function ReportsPage() {
 
   // Owner-name → Business Name with the same token-overlap tolerance as
   // versionMap: report names don't always equal the master sheet's owner
-  // exactly ("Irma Contella" vs "Irma Contella (Robert)").
+  // exactly ("Irma Contella" vs "Irma Contella (Robert)"). Accents are
+  // dropped and words split on punctuation, so "Monique García" finds
+  // "Monique Garcia" and "Stephany Wiltse" finds "Dean Wiltse (Stephany
+  // Wiltse)" — the bracket used to stay glued to the word and never match.
   const bizResolve = useMemo(() => {
+    const plain = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
+    const words = (s: string) => plain(s).split(/[^\p{L}\p{N}']+/u).filter((t) => t.length > 1);
     const m = new Map<string, string>();
     const entries: { tokens: string[]; biz: string }[] = [];
     rawClients.forEach((c) => {
       const biz = String(c["Business Name"] ?? "").trim();
       if (!biz) return;
-      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
-      if (owner) { m.set(owner, biz); entries.push({ tokens: owner.split(/\s+/).filter((t) => t.length > 1), biz }); }
+      const owner = String(c["Owner Full Name"] ?? "");
+      if (plain(owner)) { m.set(plain(owner), biz); entries.push({ tokens: words(owner), biz }); }
     });
     return (name: string): string => {
-      const k = name.trim().toLowerCase();
-      const exact = m.get(k);
+      const exact = m.get(plain(name));
       if (exact) return exact;
-      const tokens = k.split(/\s+/).filter((t) => t.length > 1);
+      const tokens = words(name);
       if (!tokens.length) return "";
       const hit = entries.find((e) =>
         tokens.every((t) => e.tokens.includes(t)) || e.tokens.every((t) => tokens.includes(t)));
