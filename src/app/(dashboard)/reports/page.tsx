@@ -331,10 +331,11 @@ export default function ReportsPage() {
   // useTableData, which pages past Supabase's 1,000-row cap: the old one-shot
   // select silently dropped every row after the first 1,000, so recent
   // deposits went missing (INKredible Body Art showed 1 of 5, 2026-09-30).
-  const { data: depositRows } = useTableData<Record<string, unknown>>({ table: "deposits" });
+  const { data: depositRows, loading: depositsLoading } = useTableData<Record<string, unknown>>({ table: "deposits" });
   // Executed refunds by deposit identity → when the money went back. A
   // refunded deposit leaves the running total from that day on.
   const [refundedAt, setRefundedAt] = useState<Map<string, number>>(new Map());
+  const [refundsLoaded, setRefundsLoaded] = useState(false);
   useEffect(() => {
     fetch("/api/refunds").then((r) => (r.ok ? r.json() : null)).then((j) => {
       const m = new Map<string, number>();
@@ -343,7 +344,8 @@ export default function ReportsPage() {
         m.set(rkey(rf.business, rf.product_id, rf.email, rf.amount, rf.deposit_date), Date.parse(rf.decided_at ?? rf.requested_at ?? ""));
       }
       setRefundedAt(m);
-    }).catch(() => { /* no refund data → the chart shows deposits as taken */ });
+      setRefundsLoaded(true);
+    }).catch(() => { setRefundsLoaded(true); /* no refund data → the chart shows deposits as taken */ });
   }, []);
   const depositsByBiz = useMemo(() => {
     const m = new Map<string, { at: number; refundedAt: number | null }[]>();
@@ -404,14 +406,16 @@ export default function ReportsPage() {
   // Deposits kept at each report date for the selected client: taken by then,
   // minus any refunded by then.
   const depositCum = useMemo(() => {
-    if (!current) return [] as number[];
+    // Nothing until deposits AND refunds are in: a half-loaded count reads as
+    // real (all zeros, or the gross total before refunds come off).
+    if (!current || depositsLoading || !refundsLoaded) return [] as number[];
     const biz = bizResolve(current.name).trim().toLowerCase();
     const deps = depositsByBiz.get(biz) ?? [];
     return current.reports.map((r) => {
       const end = r.ms + 86399999;
       return deps.filter((d) => d.at <= end && !(d.refundedAt != null && d.refundedAt <= end)).length;
     });
-  }, [current, bizResolve, depositsByBiz]);
+  }, [current, bizResolve, depositsByBiz, depositsLoading, refundsLoaded]);
   const payRow = useMemo(() => (current ? lookupPayment(payments, current.name) : null), [current, payments]);
   const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
   const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
@@ -659,7 +663,7 @@ export default function ReportsPage() {
               <ChartCard title="Total Leads Over Time" color="#34568a" values={reps.map((r) => r.leads ?? 0)} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
               <ChartCard title="Booking Rate %" color="#15B7AE" values={reps.map((r) => (r.booking ?? 0) * 100)} dates={reps.map((r) => r.short)} yFmt={(v) => `${Math.round(v)}%`} />
               <ChartCard title="Sessions Booked" color="#7e8fc4" values={reps.map((r) => r.sessions ?? 0)} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
-              <ChartCard title="Deposits (Total, after refunds)" color="#d97706" values={depositCum} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Deposits (Net)" hint="Deposits taken by each report date, minus any refunded by then" color="#d97706" values={depositCum} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
             </div>
 
             {/* Date-by-date comparison */}
@@ -684,7 +688,7 @@ export default function ReportsPage() {
                     <NumRow label="Total Leads" reps={reps} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
                     <NumRow label="Booking %" reps={reps} get={(r) => (r.booking == null ? null : r.booking * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter />
                     <NumRow label="Sessions Booked" reps={reps} get={(r) => r.sessions} fmt={(v) => String(v)} higherBetter />
-                    <NumRow label="Deposits (total, after refunds)" reps={reps} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Deposits (net)" reps={reps} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
                     <NumRow label="Declining %" reps={reps} get={(r) => (r.declining == null ? null : r.declining * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter={false} />
 
                     <SectionRow label="Behaviours & Process" span={reps.length} />
@@ -702,10 +706,10 @@ export default function ReportsPage() {
   );
 }
 
-function ChartCard({ title, color, values, dates, yFmt }: { title: string; color: string; values: number[]; dates: string[]; yFmt: (v: number) => string }) {
+function ChartCard({ title, hint, color, values, dates, yFmt }: { title: string; hint?: string; color: string; values: number[]; dates: string[]; yFmt: (v: number) => string }) {
   return (
     <div className="rounded-2xl border border-[#e4ebf2] bg-white p-2.5">
-      <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-1 truncate">{title}</h3>
+      <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#34568a] mb-1 truncate" title={hint}>{title}</h3>
       <AreaChart values={values} dates={dates} color={color} yFmt={yFmt} />
     </div>
   );
