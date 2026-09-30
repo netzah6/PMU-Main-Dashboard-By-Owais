@@ -4,6 +4,7 @@ import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
+import { cleanTz } from "@/lib/ghl-push";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest) {
         phone,
         ...(email ? { email } : {}),
         source: "One-Box Funnel",
+        ...(cleanTz(body.tz) ? { timezone: cleanTz(body.tz) } : {}),
       }),
     }),
     svc

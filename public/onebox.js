@@ -109,6 +109,12 @@
     var m = document.cookie.match("(^|; )" + name + "=([^;]*)");
     return m ? decodeURIComponent(m[2]) : "";
   }
+  /* The visitor's IANA timezone — sent with every submit so the GHL
+     contact records where the lead actually is (GHL's own widget does
+     this; reminder timing and time merge-fields depend on it). */
+  function visitorTz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; }
+  }
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
@@ -423,7 +429,8 @@
       seriousness: a.serious || "",
       aftercare_kit: a.aftercare || "",
       deprow: DEPROW_V,
-      source: "onebox"
+      source: "onebox",
+      tz: visitorTz()
     };
     /* Genuinely new custom-survey questions ride along too — anything in
        the answers state the fixed fields above don't already carry. */
@@ -718,7 +725,7 @@
       '<div class="obslotwrap"><div class="obslots" id="ob-slots">' + slots + '</div><div class="obfade"></div></div>' +
       scarce +
       '<p class="obmore" id="ob-more">&darr; Scroll for more times</p>' +
-      '<p class="obcal-note" id="ob-note"></p>';
+      '<p class="obcal-note" id="ob-note">All times are in the studio’s local time.</p>';
   }
 
   var DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -899,6 +906,7 @@
           full_name: state.answers.full_name || "",
           phone: state.answers.phone || "",
           slotIso: iso,
+          tz: visitorTz(),
         }),
       }).catch(function () {});
     } catch (e) {}
@@ -954,6 +962,7 @@
             fbp: cookie("_fbp"),
             fbc: cookie("_fbc"),
             pageUrl: location.href,
+            tz: visitorTz(),
           }),
         });
       } catch (e) {}

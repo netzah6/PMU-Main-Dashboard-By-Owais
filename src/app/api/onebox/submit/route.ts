@@ -3,7 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
-import { pushLeadToGhl } from "@/lib/ghl-push";
+import { pushLeadToGhl, cleanTz } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
           const [fn, ...ln] = nm.split(/\s+/);
           const up = await fetch("https://services.leadconnectorhq.com/contacts/upsert", {
             method: "POST", headers: H,
-            body: JSON.stringify({ locationId: loc, firstName: fn, lastName: ln.join(" "), name: nm, phone, source: "One-Box Funnel" }),
+            body: JSON.stringify({ locationId: loc, firstName: fn, lastName: ln.join(" "), name: nm, phone, source: "One-Box Funnel", ...(cleanTz(body.tz) ? { timezone: cleanTz(body.tz) } : {}) }),
           });
           const uj = (await up.json()) as { contact?: { id?: string } };
           contactId = String(uj.contact?.id ?? "");
@@ -207,6 +207,7 @@ export async function POST(req: NextRequest) {
     locationId, fullName, phone, email, answers,
     isB2B, b2bFieldMap: extras.b2b?.fieldMap, surveyTag,
     withTag: true, partial, disqualified,
+    timezone: cleanTz(body.tz),
   });
   const contactId = push.contactId;
   const ghlStatus = contactId ? "created" : "failed";
