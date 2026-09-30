@@ -102,7 +102,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
   const [cleanNote, setCleanNote] = useState<string | null>(null);
   const [steps, setSteps] = useState<Record<string, StepResult> | null>(null);
   const [finalizing, setFinalizing] = useState(false);
-  const [finalized, setFinalized] = useState<{ oldName: string; poolName: string; sheetChange: string } | null>(null);
+  const [finalized, setFinalized] = useState<{ oldName: string; poolName: string; sheetChange: string; readyNote?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<LogRow[]>([]);
   const [pool, setPool] = useState<{ available: PoolRow[]; used: PoolRow[] } | null>(null);
@@ -338,7 +338,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
           body: JSON.stringify({ action: "finalize", locationId: row.id }),
         }).then((r) => r.json());
         if (res.error) throw new Error(res.error);
-        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "done", poolName: res.poolName, note: res.sheetChange } : r)));
+        setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "done", poolName: res.poolName, note: res.readyNote ? `${res.sheetChange} · ${res.readyNote}` : res.sheetChange } : r)));
       } catch (e) {
         setBulkRows((prev) => prev!.map((r, idx) => (idx === i ? { ...r, state: "error", note: e instanceof Error ? e.message : "finalize failed" } : r)));
       }
@@ -790,6 +790,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
             <div className="p-3 rounded-lg bg-[#e7f6ec] border border-[#bfe3cd] text-sm text-[#15803d] space-y-1">
               <div><b>{finalized.oldName}</b> → <b>{finalized.poolName}</b> ✓ added to the clean pool</div>
               <div className="text-xs">Clients Master: {finalized.sheetChange}</div>
+              {finalized.readyNote && <div className="text-xs">Ready to use: {finalized.readyNote}</div>}
             </div>
           )}
         </div>

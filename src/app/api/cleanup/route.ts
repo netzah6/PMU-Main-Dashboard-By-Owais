@@ -164,7 +164,36 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Account still has ${listed} — clean it first.${hint}` }, { status: 400 });
       }
       const client = await matchClient(inspect.name);
+      // What the clean step recorded for this location, read before this
+      // finalize overwrites it: after a rename, a retry only sees the pool name.
+      const { data: priorLog } = await svc.from("cleanup_log")
+        .select("client_business").eq("location_id", locationId).maybeSingle();
+      const priorClient = (priorLog as { client_business?: string | null } | null)?.client_business ?? null;
       const { oldName, poolName } = await renameToPool(locationId);
+      await syncPool().catch(() => {}); // record the new pool account right away
+
+      // A cleaned client account joins the pool READY. Every client we clean
+      // was already A2P-verified in GHL (they registered it and the number
+      // stays with the sub-account — a 25-account sweep on 2026-09-30 found
+      // all "A2P Verified"), and the inspect above just proved it empty. So
+      // mark A2P approved and record the clean check; otherwise it sat as
+      // "A2P not confirmed / not checked yet" until someone ticked it by hand.
+      // Only with evidence it WAS a client (Clients Master match now, or the
+      // one the clean step logged): an original pool account (#4–50) or a
+      // claimed-then-abandoned setup never went through A2P and keeps its own
+      // flag. Runs before the sheet step so a Sheets error can't strand it.
+      let ready = false;
+      let readyNote = "not a client account — A2P left as is";
+      if (client || priorClient) {
+        try {
+          await setPoolA2p(locationId, "approved", auth.email);
+          const rows = await refreshPoolCleanliness([locationId]);
+          ready = rows.some((r) => r.location_id === locationId && r.a2p === "approved" && (r.dirty ?? 1) === 0 && (r.workflows ?? 1) === 0);
+          readyNote = ready ? "A2P approved, verified empty" : "auto-ready did not stick — tick A2P by hand";
+        } catch (e) {
+          readyNote = `auto-ready failed (${e instanceof Error ? e.message : "error"}) — tick A2P by hand`;
+        }
+      }
 
       // Sheet status: Paused → Offboarded, written ONLY to the status cell and
       // only when the live sheet still says "Paused" (verified right now, not
@@ -190,13 +219,12 @@ export async function POST(req: NextRequest) {
         old_name: oldName,
         pool_name: poolName,
         owner_key: client?.owner?.trim().toLowerCase() ?? null,
-        client_business: client?.business ?? null,
+        client_business: client?.business ?? priorClient, // a retry must not erase who it belonged to
         sheet_status_change: sheetChange,
         cleaned_by: auth.email,
       }, { onConflict: "location_id" }); // steps column not in payload → prior clean results are kept
 
-      await syncPool().catch(() => {}); // record the new pool account right away
-      return NextResponse.json({ oldName, poolName, sheetChange });
+      return NextResponse.json({ oldName, poolName, sheetChange, ready, readyNote });
     }
 
     return NextResponse.json({ error: "unknown action" }, { status: 400 });
