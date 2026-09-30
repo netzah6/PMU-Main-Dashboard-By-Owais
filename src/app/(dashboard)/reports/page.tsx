@@ -9,6 +9,18 @@ import { Search, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+type RefundLite = {
+  status: string; business: string | null; product_id: string | null; email: string | null; amount: string | null;
+  deposit_date: string | null; decided_at: string | null; requested_at: string | null;
+};
+// The deposit identity the Deposits tab and the refund request use
+// (product|email|amount|date) plus the business: one payment can sit on two
+// businesses' rows (a routing duplicate — Candi Patschke, 27/06/2026, on both
+// Inkredible Glow and The Boujee Ink Studio), and the refund only belongs to
+// the one it was issued for.
+const bizNorm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const rkey = (business: unknown, product: unknown, email: unknown, amount: unknown, date: unknown) =>
+  [bizNorm(business), ...[product, email, amount, date].map((v) => String(v ?? "").trim().toLowerCase())].join("|");
 const num = (v: unknown): number | null => {
   if (v == null || v === "") return null;
   const n = parseFloat(String(v).replace(/[$,%]/g, ""));
@@ -313,29 +325,45 @@ export default function ReportsPage() {
   const current = useMemo(() => clients.find((c) => c.name === selected) ?? listed[0], [clients, listed, selected]);
   const reps = current?.reports ?? [];
 
-  // business name (lowercased) → sorted deposit timestamps, from the real
-  // Deposits sheet — the tracking sheet has no deposit counts, so the chart
-  // uses actual collected deposits matched by the client's Business Name.
-  const [depositsByBiz, setDepositsByBiz] = useState<Map<string, number[]>>(new Map());
+  // business name (lowercased) → its deposits, from the real Deposits sheet —
+  // the tracking sheet has no deposit counts, so the chart uses actual
+  // collected deposits matched by the client's Business Name. Loaded through
+  // useTableData, which pages past Supabase's 1,000-row cap: the old one-shot
+  // select silently dropped every row after the first 1,000, so recent
+  // deposits went missing (INKredible Body Art showed 1 of 5, 2026-09-30).
+  const { data: depositRows } = useTableData<Record<string, unknown>>({ table: "deposits" });
+  // Executed refunds by deposit identity → when the money went back. A
+  // refunded deposit leaves the running total from that day on.
+  const [refundedAt, setRefundedAt] = useState<Map<string, number>>(new Map());
   useEffect(() => {
-    const supabase = createClient();
-    supabase.from("deposits").select("data").then(({ data }) => {
-      const m = new Map<string, number[]>();
-      (data ?? []).forEach((row) => {
-        const d = (row as { data?: Record<string, unknown> }).data ?? {};
-        const biz = String(d["Business Name"] ?? "").trim().toLowerCase();
-        const ds = String(d["Date"] ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        if (!biz || !ds) return;
-        // Deposits sheet dates are DD/MM/YYYY (swap if the month slot is >12)
-        let day = +ds[1], mon = +ds[2];
-        if (mon > 12) { const t = day; day = mon; mon = t; }
-        const t = new Date(+ds[3], mon - 1, day).getTime();
-        if (!isNaN(t)) { if (!m.has(biz)) m.set(biz, []); m.get(biz)!.push(t); }
-      });
-      m.forEach((arr) => arr.sort((a, b) => a - b));
-      setDepositsByBiz(m);
-    });
+    fetch("/api/refunds").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      const m = new Map<string, number>();
+      for (const rf of ((j?.refunds ?? []) as RefundLite[])) {
+        if (rf.status !== "refunded") continue;
+        m.set(rkey(rf.business, rf.product_id, rf.email, rf.amount, rf.deposit_date), Date.parse(rf.decided_at ?? rf.requested_at ?? ""));
+      }
+      setRefundedAt(m);
+    }).catch(() => { /* no refund data → the chart shows deposits as taken */ });
   }, []);
+  const depositsByBiz = useMemo(() => {
+    const m = new Map<string, { at: number; refundedAt: number | null }[]>();
+    depositRows.forEach((d) => {
+      const biz = String(d["Business Name"] ?? "").trim().toLowerCase();
+      const ds = String(d["Date"] ?? "").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (!biz || !ds) return;
+      // Deposits sheet dates are DD/MM/YYYY (swap if the month slot is >12)
+      let day = +ds[1], mon = +ds[2];
+      if (mon > 12) { const t = day; day = mon; mon = t; }
+      const at = new Date(+ds[3], mon - 1, day).getTime();
+      if (isNaN(at)) return;
+      const back = refundedAt.get(rkey(d["Business Name"], d["Product ID"], d["Email"], d["Amount"], d["Date"]));
+      // A refund with no readable date still counts — from the deposit's own day.
+      const entry = { at, refundedAt: back === undefined ? null : isNaN(back) ? at : back };
+      (m.get(biz) ?? m.set(biz, []).get(biz)!).push(entry);
+    });
+    m.forEach((arr) => arr.sort((a, b) => a.at - b.at));
+    return m;
+  }, [depositRows, refundedAt]);
 
   // Owner-name → Business Name with the same token-overlap tolerance as
   // versionMap: report names don't always equal the master sheet's owner
@@ -361,12 +389,16 @@ export default function ReportsPage() {
     };
   }, [rawClients]);
 
-  // Cumulative deposits at each report date for the selected client.
+  // Deposits kept at each report date for the selected client: taken by then,
+  // minus any refunded by then.
   const depositCum = useMemo(() => {
     if (!current) return [] as number[];
     const biz = bizResolve(current.name).trim().toLowerCase();
-    const times = depositsByBiz.get(biz) ?? [];
-    return current.reports.map((r) => times.filter((t) => t <= r.ms + 86399999).length);
+    const deps = depositsByBiz.get(biz) ?? [];
+    return current.reports.map((r) => {
+      const end = r.ms + 86399999;
+      return deps.filter((d) => d.at <= end && !(d.refundedAt != null && d.refundedAt <= end)).length;
+    });
   }, [current, bizResolve, depositsByBiz]);
   const payRow = useMemo(() => (current ? lookupPayment(payments, current.name) : null), [current, payments]);
   const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
@@ -615,7 +647,7 @@ export default function ReportsPage() {
               <ChartCard title="Total Leads Over Time" color="#34568a" values={reps.map((r) => r.leads ?? 0)} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
               <ChartCard title="Booking Rate %" color="#15B7AE" values={reps.map((r) => (r.booking ?? 0) * 100)} dates={reps.map((r) => r.short)} yFmt={(v) => `${Math.round(v)}%`} />
               <ChartCard title="Sessions Booked" color="#7e8fc4" values={reps.map((r) => r.sessions ?? 0)} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
-              <ChartCard title="Deposits (Total)" color="#d97706" values={depositCum} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Deposits (Total, after refunds)" color="#d97706" values={depositCum} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
             </div>
 
             {/* Date-by-date comparison */}
@@ -640,7 +672,7 @@ export default function ReportsPage() {
                     <NumRow label="Total Leads" reps={reps} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
                     <NumRow label="Booking %" reps={reps} get={(r) => (r.booking == null ? null : r.booking * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter />
                     <NumRow label="Sessions Booked" reps={reps} get={(r) => r.sessions} fmt={(v) => String(v)} higherBetter />
-                    <NumRow label="Deposits (total)" reps={reps} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Deposits (total, after refunds)" reps={reps} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
                     <NumRow label="Declining %" reps={reps} get={(r) => (r.declining == null ? null : r.declining * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter={false} />
 
                     <SectionRow label="Behaviours & Process" span={reps.length} />
