@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth, getV3Roster } from "@/lib/ppa";
+import { coveredByCredit, groupCharges, type CreditApplication, type PartCredit } from "@/lib/ppa-charged-list";
 
 export const maxDuration = 120;
 
@@ -158,7 +159,7 @@ export async function GET(req: NextRequest) {
   for (const c of (chgRes.data ?? []) as ChargeRow[]) {
     if (!c.appt_id.startsWith("chat:")) continue;
     if (!c.charged && !c.excluded) continue;
-    const collected = !!c.square_payment_id;
+    const collected = !!c.square_payment_id || coveredByCredit(c.note);
     const name = (c.note ?? "").split("— ").pop()?.trim() || null;
     summary.selfBooked++;
     if (c.excluded) summary.excluded++;
@@ -250,84 +251,14 @@ export async function GET(req: NextRequest) {
   // ── Payment history: every charge that went through, grouped per payment ──
   // One Square payment covers several shows (same square_payment_id); manual
   // marks batch by minute + marker. Receipt URLs derive from the payment id.
-  const apptById = new Map<string, (typeof appointments)[number]>();
-  for (const a of appointments) apptById.set(a.apptId, a);
-  // "Square abc123 — Jane Doe" → "Jane Doe": the name saved with the charge,
-  // for a show whose source row has since left the views (a calendar lead
-  // moved to Session Done, a deposit row edited in the sheet).
-  const nameFromNote = (note: string | null) => {
-    const parts = String(note ?? "").split(" — ");
-    return parts.length > 1 ? parts[parts.length - 1].trim() : "";
-  };
-  const coveredByCredit = (note: string | null) => String(note ?? "").startsWith("Covered by account credit");
-  // Which date to show next to a charged show, and what it means. Only a
-  // date that really is the session: a deposit lead's date is her LATEST
-  // appointment, so one after the charge is her next booking (touch-up) and
-  // is left out; a chat bill's date is when we billed; self-booked is when
-  // she marked it done.
-  const showDate = (r: ChargeRow, a: (typeof appointments)[number] | undefined): { date: string | null; dateLabel: string | null } => {
-    if (r.appt_id.startsWith("chat:")) return { date: null, dateLabel: "booked in chat" };
-    if (!a?.appointmentDate) return { date: null, dateLabel: null };
-    if (a.chargeStatus === "self_booked") return { date: a.appointmentDate, dateLabel: "marked done" };
-    if (r.charged_at && a.appointmentDate > r.charged_at) return { date: null, dateLabel: null };
-    return { date: a.appointmentDate, dateLabel: "appointment" };
-  };
-  const payGroups = new Map<string, {
-    paymentId: string | null; chargedAt: string | null; chargedBy: string | null;
-    shows: number; gross: number; credit: number; total: number; manual: boolean; creditOnly: boolean;
-    contacts: string[];
-    // Each show, so the "Copy list" button can send the artist exactly who
-    // she was charged for.
-    items: Array<{ name: string; date: string | null; dateLabel: string | null }>;
-  }>();
-  for (const r of (chgRes.data ?? []) as ChargeRow[]) {
-    if (!r.charged) continue;
-    // A chat bill with no Square payment yet is decided, not collected — it
-    // shows as ready above, so it doesn't belong in "went through". Unless
-    // account credit settled it (no payment id by design).
-    if (r.appt_id.startsWith("chat:") && !r.square_payment_id && !coveredByCredit(r.note)) continue;
-    const key = r.square_payment_id ?? `manual:${(r.charged_at ?? "").slice(0, 16)}:${r.charged_by ?? ""}`;
-    const g = payGroups.get(key) ?? {
-      paymentId: r.square_payment_id ?? null, chargedAt: r.charged_at, chargedBy: r.charged_by,
-      shows: 0, gross: 0, credit: 0, total: 0, manual: !r.square_payment_id, creditOnly: false,
-      contacts: [], items: [],
-    };
-    const a = apptById.get(r.appt_id);
-    const name = a?.contactName || nameFromNote(r.note) || "(name not recorded)";
-    g.shows++;
-    g.gross += Number(r.amount) || 0;
-    if (!r.square_payment_id && coveredByCredit(r.note)) g.creditOnly = true;
-    g.contacts.push(name);
-    g.items.push({ name, ...showDate(r, a) });
-    if ((r.charged_at ?? "") > (g.chargedAt ?? "")) g.chargedAt = r.charged_at;
-    payGroups.set(key, g);
-  }
-  // Account credit that came off these charges. ppa_charges rows carry the
-  // GROSS per-show fee, so without this a $135 run paid $100 by card + $35
-  // credit would read $135. Same matching as /api/ppa/payments: by payment
-  // id, and a credit-only settlement (no payment id) by day.
-  const { data: creditRows } = await svc.from("credit_applications")
-    .select("amount, square_payment_id, applied_at").eq("owner_key", ownerKey);
-  for (const c of (creditRows ?? []) as Array<{ amount: number | null; square_payment_id: string | null; applied_at: string | null }>) {
-    let left = Number(c.amount) || 0;
-    if (c.square_payment_id) {
-      const g = payGroups.get(c.square_payment_id);
-      if (g) g.credit += left;
-      continue;
-    }
-    // Credit-only: spread over that day's credit-settled groups (a run that
-    // crosses a minute boundary lands in two manual groups).
-    const day = String(c.applied_at ?? "").slice(0, 10);
-    for (const g of payGroups.values()) {
-      if (left <= 0 || !g.creditOnly || String(g.chargedAt ?? "").slice(0, 10) !== day) continue;
-      const take = Math.min(left, Math.max(0, g.gross - g.credit));
-      g.credit += take;
-      left -= take;
-    }
-  }
-  for (const g of payGroups.values()) g.total = Math.max(0, g.gross - g.credit);
-  const payments = [...payGroups.values()]
-    .sort((a, b) => String(b.chargedAt ?? "").localeCompare(String(a.chargedAt ?? "")))
+  // Account credit and part-payment leftovers net each card charge down to
+  // what actually went through (see groupCharges).
+  const [{ data: creditRows }, { data: partRows }] = await Promise.all([
+    svc.from("credit_applications").select("credit_id, amount, square_payment_id, applied_at").eq("owner_key", ownerKey),
+    svc.from("client_credits").select("id, amount, reason, decided_at, requested_at").eq("owner_key", ownerKey).like("reason", "Part payment %"),
+  ]);
+  const payments = groupCharges((chgRes.data ?? []) as ChargeRow[], appointments,
+    (creditRows ?? []) as CreditApplication[], (partRows ?? []) as PartCredit[])
     .map((g) => ({
       ...g,
       receiptUrl: g.paymentId ? `https://squareup.com/receipt/preview/${g.paymentId}` : null,

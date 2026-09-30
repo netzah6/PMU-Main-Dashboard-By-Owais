@@ -7,6 +7,7 @@ import { CardCell, StatusCell, ActionsCell, PaymentDetails, PayMsg, showSplit, t
 import { CreditsPanel } from "@/components/billing/CreditsPanel";
 import { RecentBilling } from "@/components/billing/RecentBilling";
 import { CoachBilling } from "@/components/billing/CoachBilling";
+import { chargedListText as chargedList } from "@/lib/ppa-charged-list";
 
 // ── Types (mirror /api/ppa/*) ────────────────────────────────────────────────
 interface ClientRow {
@@ -36,6 +37,7 @@ interface PaymentGroup {
   paymentId: string | null; chargedAt: string | null; chargedBy: string | null;
   shows: number; total: number; manual: boolean; receiptUrl: string | null; contacts?: string[];
   gross?: number; credit?: number; creditOnly?: boolean;
+  prepaidUsed?: number; prepaidExtra?: number; prepaidOnly?: boolean;
   items?: Array<{ name: string; date: string | null; dateLabel: string | null }>;
 }
 interface Drill {
@@ -94,29 +96,7 @@ function fmtDate(d: string | null): string {
 // covered each show, with what actually hit her card (after any account
 // credit) — ready to paste to her so both sides see the same list.
 function chargedListText(d: Drill): string {
-  const pays = d.payments ?? [];
-  const who = d.client.business || d.client.ownerName;
-  const shows = pays.reduce((n, p) => n + p.shows, 0);
-  if (shows === 0) return `${who}: no shows charged yet.`;
-  const plural = (n: number) => `${n} show${n === 1 ? "" : "s"}`;
-  const paid = pays.reduce((n, p) => n + p.total, 0);
-  const credit = pays.reduce((n, p) => n + (p.credit ?? 0), 0);
-  const lines = [`${who} — clients we charged you for`,
-    `Total: ${plural(shows)} · ${money(paid)} charged${credit > 0 ? ` + ${money(credit)} covered by account credit` : ""}`];
-  for (const p of pays) {
-    const credited = p.credit ?? 0;
-    lines.push("", p.creditOnly && p.total === 0
-      ? `Covered by account credit ${fmtDate(p.chargedAt)} — ${plural(p.shows)} (${money(p.gross ?? credited)})`
-      : `Charged ${fmtDate(p.chargedAt)} — ${money(p.total)} (${plural(p.shows)}${credited > 0 ? `; ${money(p.gross ?? p.total + credited)} less ${money(credited)} account credit` : ""})`);
-    // Dated shows in session order; undated ones (chat, touch-up pending) last.
-    const items = [...(p.items ?? (p.contacts ?? []).map((name) => ({ name, date: null, dateLabel: null })))]
-      .sort((x, y) => (x.date ? 0 : 1) - (y.date ? 0 : 1) || String(x.date ?? "").localeCompare(String(y.date ?? "")));
-    for (const it of items) {
-      const when = it.dateLabel ? ` — ${it.dateLabel}${it.date ? ` ${fmtDate(it.date)}` : ""}` : "";
-      lines.push(`  • ${it.name}${when}`);
-    }
-  }
-  return lines.join("\n");
+  return chargedList(d.client.business || d.client.ownerName, d.payments ?? []);
 }
 
 // One click copies the list, always fetched fresh (a charge made a moment ago
@@ -186,7 +166,10 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
     try {
       const res = await fetch("/api/ppa/charge", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appt_id: a.apptId, owner_key: client.ownerKey, charged, amount: charged ? client.fee : null }),
+        // The name rides along in the note so the charge still reads right if
+        // this show's source row later leaves the views.
+        body: JSON.stringify({ appt_id: a.apptId, owner_key: client.ownerKey, charged, amount: charged ? client.fee : null,
+          ...(charged && a.contactName ? { note: `Marked charged manually — ${a.contactName}` } : {}) }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "save failed");
       onCharged();
@@ -281,7 +264,11 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
             {drill.payments!.map((p, i) => (
               <div key={i} className="flex items-center gap-2 text-[11px] text-[#1f3559] flex-wrap">
                 <span className="font-semibold text-[#15803d]">{money(p.total)}</span>
-                {(p.credit ?? 0) > 0 && <span className="text-[10px] text-[#697a91]">({money(p.gross ?? 0)} less {money(p.credit ?? 0)} credit)</span>}
+                {((p.credit ?? 0) > 0 || (p.prepaidUsed ?? 0) > 0 || (p.prepaidExtra ?? 0) > 0) && (
+                  <span className="text-[10px] text-[#697a91]">
+                    ({money(p.gross ?? 0)}{(p.credit ?? 0) > 0 && ` − ${money(p.credit ?? 0)} credit`}{(p.prepaidUsed ?? 0) > 0 && ` − ${money(p.prepaidUsed ?? 0)} paid earlier`}{(p.prepaidExtra ?? 0) > 0 && ` + ${money(p.prepaidExtra ?? 0)} paid ahead`})
+                  </span>
+                )}
                 <span className="text-[#697a91]">{p.shows} show{p.shows === 1 ? "" : "s"}</span>
                 <span className="text-[#8595a8]">{p.chargedAt ? new Date(p.chargedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
                 {p.chargedBy && <span className="text-[#8595a8]">by {p.chargedBy}</span>}
