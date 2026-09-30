@@ -117,42 +117,45 @@ export async function POST(req: NextRequest) {
     if (calJ.calendar?.name) title = calJ.calendar.name;
   }
   /* She may already be on this calendar — the AI books leads here in chat,
-     and a second, deposit-made appointment meant two or three confirmations
-     and reminders for one session (Alma Tejeda / Mood Studios: Oct 3 + Oct 5
-     + Nov 5, 2026-09-30; 19 more contacts across 13 accounts). Reuse only
-     what is clearly this booking: an appointment made during her own funnel
-     journey that no earlier deposit paid for. Same time → keep it; exactly
-     one other → move it to the time she paid for; anything unclear → book a
-     new one as before. Leftovers get a tag so the team can clean up. */
-  const [{ tz, appts }, { data: mine }] = await Promise.all([
+     and booking again after the deposit meant two or three confirmations and
+     reminders for one session (Alma Tejeda / Mood Studios: Oct 3 + Oct 5 +
+     Nov 5, 2026-09-30; 19 more contacts across 13 accounts). Reuse an
+     appointment only when it sits at exactly the time she paid for — that
+     is unmistakably this session. Nothing is ever moved: moving can't tell
+     "the AI's booking" from a touch-up or an earlier paid session. Other
+     recent, unpaid appointments left on the calendar get the
+     "onebox-check-appointments" tag so the team cancels the extra. */
+  // Paid one-box bookings for her, by phone or contact id (two plain
+  // filters — a phone like "(505) 870-4376" can't go inside an .or()).
+  const [{ tz, appts }, { data: byPhone }, { data: byContact }] = await Promise.all([
     liveAppointmentsOnCalendar(contactId, calendarId, locationId, tok.token),
-    svc.from("onebox_leads").select("ghl_appointment_id, created_at").eq("slug", slug).eq("phone", phone),
+    svc.from("onebox_leads").select("ghl_appointment_id").eq("slug", slug).eq("phone", phone),
+    svc.from("onebox_leads").select("ghl_appointment_id").eq("slug", slug).eq("ghl_contact_id", contactId),
   ]);
-  // A slot with no offset (the reserved-time path) is the studio's wall clock.
-  const startIso = tz && !/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(startTime) ? wallToIso(startTime, tz) : startTime;
-  const endTime = new Date(Date.parse(startIso) + durationMin * 60000).toISOString();
-  const mineRows = (mine ?? []) as { ghl_appointment_id: string | null; created_at: string }[];
-  const paidIds = new Set(mineRows.map((r) => r.ghl_appointment_id).filter(Boolean));
-  const journeyStart = mineRows.length
-    ? Math.min(...mineRows.map((r) => Date.parse(r.created_at)))
-    : Date.now() - 30 * 86400_000; // pay-link lead with no funnel row
-  const candidates = appts.filter((a) => !paidIds.has(a.id) && (a.addedMs || 0) >= journeyStart - 86400_000);
-  const same = candidates.find((a) => Math.abs(a.startMs - Date.parse(startIso)) < 60_000);
-  const putAppointment = (id: string, patch: Record<string, string>) =>
-    fetch(`https://services.leadconnectorhq.com/calendars/events/appointments/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      headers: { ...H, Version: "2021-04-15" },
-      body: JSON.stringify(patch),
-    }).then((r) => r.ok).catch(() => false);
+  const mine = [...(byPhone ?? []), ...(byContact ?? [])];
+  // A slot with no offset (the reserved-time path) is the studio's wall
+  // clock: give it the studio's offset, or — timezone unknown — keep the end
+  // on the same wall clock so GHL reads both the same way.
+  const offsetLess = !/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(startTime);
+  const startIso = offsetLess && tz ? wallToIso(startTime, tz) : startTime;
+  const endTime = offsetLess && !tz
+    ? new Date(Date.parse(startTime.slice(0, 19) + "Z") + durationMin * 60000).toISOString().slice(0, 19)
+    : new Date(Date.parse(startIso) + durationMin * 60000).toISOString();
+  const paidIds = new Set((mine as { ghl_appointment_id: string | null }[]).map((r) => r.ghl_appointment_id).filter(Boolean));
+  const same = appts.find((a) => Math.abs(a.startMs - Date.parse(startIso)) < 60_000);
   let reused: { id: string } | null = null;
   let needsReview = false;
   if (same) {
     // Already at the paid time — never book over it, even if confirming fails.
     reused = { id: same.id };
-    if (same.status !== "confirmed" && !(await putAppointment(same.id, { appointmentStatus: "confirmed" }))) needsReview = true;
-  } else if (candidates.length === 1
-    && await putAppointment(candidates[0].id, { startTime: startIso, endTime, appointmentStatus: "confirmed" })) {
-    reused = { id: candidates[0].id };
+    if (same.status !== "confirmed") {
+      const ok = await fetch(`https://services.leadconnectorhq.com/calendars/events/appointments/${encodeURIComponent(same.id)}`, {
+        method: "PUT",
+        headers: { ...H, Version: "2021-04-15" },
+        body: JSON.stringify({ appointmentStatus: "confirmed" }),
+      }).then((r) => r.ok).catch(() => false);
+      if (!ok) needsReview = true;
+    }
   }
 
   let aj: { id?: string; message?: string } = reused ?? {};
@@ -200,8 +203,10 @@ export async function POST(req: NextRequest) {
   const token = capiToken(ex);
   const eventId = String(body.eventId ?? "");
   const bookedId = aj.id ?? null;
-  const leftover = needsReview || candidates.some((a) => a.id !== bookedId);
-  if (leftover) console.warn("[onebox/book] other live appointments remain for", contactId, candidates.map((a) => a.id));
+  const recent = Date.now() - 30 * 86400_000;
+  const extras = appts.filter((a) => a.id !== bookedId && !paidIds.has(a.id) && (a.addedMs || 0) >= recent);
+  const leftover = needsReview || extras.length > 0;
+  if (leftover) console.warn("[onebox/book] other live appointments remain for", contactId, extras.map((a) => a.id));
   await Promise.all([
     /* More than one live appointment for this session (an AI booking left
        over, or a confirm that failed): tag it so the team cancels the extra
