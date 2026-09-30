@@ -219,6 +219,56 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
   border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;margin-top:20px}
 .sandbox-pill svg{width:15px;height:15px;flex:none}
 
+/* ---------- slide 9: desktop browser view of the same funnel ---------- */
+/* The artist's leads mostly arrive on mobile, but for a demo the desktop
+   layout reads far better on a shared screen: one wide card, big type. */
+.row-dtp{gap:42px;align-items:center}
+.row-dtp .col-copy{flex:0 0 430px}
+.row-dtp .col-visual{flex:1 1 auto;justify-content:flex-end}
+.row-dtp ul.bullets li{font-size:24px;align-items:flex-start;line-height:1.35}
+.row-dtp ul.bullets .chev{margin-top:2px}
+
+.dtp{width:980px;height:712px;flex:none;background:#14181c;border-radius:16px;
+  display:flex;flex-direction:column;padding-bottom:10px;
+  box-shadow:0 34px 76px -24px rgba(13,15,18,.6),0 0 0 1px rgba(0,0,0,.06)}
+.dtp-bar{flex:none;height:44px;display:flex;align-items:center;gap:8px;padding:0 15px}
+.dtp-dot{width:11px;height:11px;border-radius:50%;flex:none}
+.dtp-url{flex:1;margin:0 14px;background:#22272d;color:#cbd3da;border-radius:999px;height:27px;
+  display:flex;align-items:center;justify-content:center;gap:8px;font-size:13.5px;font-family:Inter,sans-serif}
+.dtp-url svg{width:12px;height:12px;flex:none;opacity:.75}
+.dtp-vp{flex:1;min-height:0;margin:0 10px;background:#fff;border-radius:10px;overflow:hidden;position:relative}
+/* the page itself — translated up instead of scrolled, so long questions stay in view */
+.dtp-doc{position:absolute;left:0;right:0;top:0;transition:transform .45s cubic-bezier(.2,.7,.3,1)}
+
+.dtp .fnl{display:block;background:#fff;font-family:Inter,sans-serif}
+.dtp .fnl-bar{font-size:14.5px;padding:8px}
+.dtp .fnl-tel{font-size:18px;padding:9px}
+.dtp .fnl-brand{padding:10px 0 0}
+.dtp .fnl-brand img{width:58px;height:58px}
+.dtp .fnl-trust{font-size:16px;margin-top:7px}
+.dtp .fnl-stars{font-size:18px;letter-spacing:2px}
+.dtp .fnl-cong{font-size:18.5px;padding:8px 40px 0;line-height:1.32}
+.dtp .fnl-h{font-size:27px;padding:7px 40px 0;line-height:1.2}
+.dtp .fnl-sec{font-size:18px;padding:2px 0 10px}
+.dtp .fprog{max-width:700px;margin:0 auto;padding:0 0 11px;font-size:14px}
+.dtp .fnl-card{max-width:700px;margin:0 auto 18px;padding:22px 26px;border-radius:12px;
+  border:1px solid #e4e7e9;box-shadow:0 24px 48px -20px rgba(17,19,21,.28);gap:14px}
+.dtp .fq .fl{font-size:20px;margin-bottom:16px}
+.dtp .fopts{gap:9px}
+.dtp .fopt{font-size:17px;padding:15px 18px;border-radius:10px;border:1.5px solid #cdeeed;background:#f4fbfb;gap:12px}
+.dtp .fopt i{width:18px;height:18px}
+/* the .dtp overrides above outrank .fopt.on, so restate the selected state */
+.dtp .fopt.on{border-color:var(--teal);background:var(--teal-soft);color:#12706f;font-weight:600}
+.dtp .fopt.on i{border-color:var(--teal);background:var(--teal);box-shadow:inset 0 0 0 4px #fff}
+.dtp .finput{font-size:18px;padding:16px 18px}
+.dtp .fnext{font-size:19px;padding:16px}
+.dtp .fback{font-size:14px}
+.dtp .fdone{display:flex;padding:46px 40px;gap:14px}
+.dtp .fdone .big{font-size:64px}
+.dtp .fdone h4{font-size:25px}
+.dtp .fdone p{font-size:16px;max-width:36em}
+.dtp .frecap{font-size:15px;max-width:560px;padding:16px 18px}
+
 /* ---------- slide 10: iMessage ---------- */
 .ph-sms{width:352px;height:700px}
 .ios-head{flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;
@@ -494,6 +544,8 @@ var PINSVG='<svg viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 
 var PINS=[[35.7,64.9],[75.4,49.4],[80.8,45.5],[71.7,71.8],[47.6,24.4],[63.7,56.6],[44.7,58.6],[24.3,60.3],[42.7,75.6],[43.8,68.8],[79.7,70.9],[80.9,60.1],[60.2,62.0],[41.3,15.8],[21.1,37.3],[13.8,22.8],[46.7,37.6],[72.2,34.1],[63.1,75.8],[96.1,15.9],[15.8,8.3],[67.6,40.2],[18.6,79.0],[58.7,39.8],[71.7,43.3],[17.9,47.5],[17.7,26.0],[27.6,24.2],[28.1,47.1],[71.7,62.7],[53.7,29.7],[50.7,41.6],[50.4,65.6],[21.3,18.3],[84.9,49.8],[66.2,62.9],[41.8,32.5],[83.5,35.9],[66.0,29.7],[69.7,52.5],[34.2,53.3],[88.4,36.8],[49.5,15.0],[57.7,16.0],[19.9,59.7],[43.3,50.6],[12.0,41.6],[34.5,20.9],[20.8,7.1],[32.4,34.6],[52.7,76.8],[58.6,47.6],[53.6,59.6],[89.0,24.0],[29.7,12.7],[74.1,25.7],[36.0,13.0],[12.2,50.5],[78.7,38.2],[82.3,78.2],[12.4,31.0],[54.5,45.8],[32.1,44.8],[57.3,71.4],[93.0,29.4],[18.3,53.9],[87.1,34.9],[72.5,51.6],[25.1,47.3],[53.6,64.4],[73.7,69.0],[28.1,55.5],[15.0,42.1],[90.9,30.7],[71.7,27.5],[19.7,56.4],[75.4,76.2],[76.5,66.6],[51.5,56.1],[95.5,24.0],[18.4,17.2],[16.5,38.7],[20.3,11.1],[43.2,35.1]];
 var ARROW='<span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></span>';
 var CHEV='<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>';
+var LOCKICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">'+
+  '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
 function bullets(a){return '<ul class="bullets">'+a.map(function(t,k){return '<li class="rx" style="animation-delay:'+(0.12+k*0.085)+'s">'+CHEV+t+'</li>';}).join("")+'</ul>';}
 function head(no,live){return BRUSH+LOGO+'<div class="slide-no">Slide '+no+(live?' · <span class="lv">● LIVE</span>':'')+'</div>';}
 function pad(n){return (n<10?"0":"")+n;}
@@ -576,10 +628,19 @@ head(8,true)+
 /* ---- 9: real funnel survey ---- */
 live(9,"Lead Qualification Process",
 head(9,true)+
-'<div class="row"><div class="col-copy">'+
-  '<h1 class="title" style="white-space:nowrap">Lead Qualification Process</h1>'+
+'<h1 class="title" style="white-space:nowrap;margin-bottom:20px">Lead Qualification Process</h1>'+
+'<div class="row row-dtp"><div class="col-copy">'+
   bullets(["Every answer lands in your CRM","Not commutable? Auto-disqualified","Serious 0–2? Never reaches you","Only real buyers hit your phone"])+
-'</div><div class="col-visual"><div class="phone ph-survey"><div class="screen"><div class="fnl" id="fnl"></div></div></div></div></div>');
+'</div><div class="col-visual">'+
+  '<div class="dtp"><div class="dtp-bar">'+
+    '<span class="dtp-dot" style="background:#ff5f57"></span>'+
+    '<span class="dtp-dot" style="background:#febc2e"></span>'+
+    '<span class="dtp-dot" style="background:#28c840"></span>'+
+    '<span class="dtp-url">'+LOCKICON+'book.pmu-care.com/blossom-beauty</span>'+
+  '</div><div class="dtp-vp" id="fnl-vp"><div class="dtp-doc" id="fnl-doc">'+
+    '<div class="fnl" id="fnl"></div>'+
+  '</div></div></div>'+
+'</div></div>');
 
 /* ---- 10: iMessage ---- */
 live(10,"Notification Process",
@@ -761,6 +822,7 @@ function show(n){
   restagger(nodes[i]);
   nodes[i].querySelectorAll("video[autoplay]").forEach(function(v){v.play().catch(function(){});});
   var num=SLIDES[i].n;
+  if(num===9 && window.fFit) fFit();   // viewport has no height until the slide is shown
   if(num===10) runSms();
   if(num!==16) stopFaqs();
   if(num===11) runCrm();
@@ -841,6 +903,14 @@ var QS=[
 var FIELDS=[{k:"full_name",q:"Full Name",ph:"Full Name"},{k:"phone",q:"Phone Number",ph:"Phone Number",im:"tel"},{k:"email",q:"Email Address",ph:"Email Address",im:"email"}];
 var TOTALQ=QS.length+FIELDS.length;
 var A={},qi=0,fnl=document.getElementById("fnl");
+/* The desktop window is a fixed viewport; long questions (the 7 age bands)
+   are taller than it, so slide the page up instead of showing a scrollbar. */
+var fnlVp=document.getElementById("fnl-vp"),fnlDoc=document.getElementById("fnl-doc");
+window.fFit=function fFit(){
+  if(!fnlVp||!fnlDoc) return;
+  var over=fnlDoc.offsetHeight-fnlVp.clientHeight;
+  fnlDoc.style.transform=over>6?"translateY(-"+over+"px)":"none";
+};
 
 function fHeader(){
   return '<div class="fnl-bar">📍 '+ADDR+'</div>'+
@@ -868,6 +938,7 @@ function fRender(){
   fnl.innerHTML=fHeader()+
     '<div class="fprog"><span>'+(qi+1)+' of '+TOTALQ+'</span><span class="track"><i style="width:'+((qi)/TOTALQ*100)+'%"></i></span></div>'+
     '<div class="fnl-card">'+body+(qi>0?'<button class="fback" id="f-back">← Back</button>':'')+'</div>';
+  fFit();
 
   fnl.querySelectorAll(".fopt").forEach(function(b){
     b.onclick=function(){
@@ -897,6 +968,7 @@ function fDone(){
       'Aftercare kit: <b>'+(A.aftercare||"—")+'</b><br>Phone: <b>'+(A.phone||"—")+'</b></div>'+
     '<button class="fnext" style="width:100%;margin-top:4px" id="f-again">Start over</button></div>';
   document.getElementById("f-again").onclick=function(){A={};qi=0;fRender();};
+  fFit();
 }
 fRender();
 
