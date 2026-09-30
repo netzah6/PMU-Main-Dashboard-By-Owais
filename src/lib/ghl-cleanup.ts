@@ -96,6 +96,29 @@ async function getJson(url: string, headers: Record<string, string>): Promise<Re
   return JSON.parse(text) as Record<string, unknown>;
 }
 
+// GHL's contact listing reads a search index that can keep a contact after it
+// is deleted: the list and its total still show it, but GET /contacts/{id}
+// says "not found" and DELETE is a no-op, so finalize would refuse forever
+// (Neo Beauty Bar, 2026-09-30). When only a few are listed, each one is
+// checked by id and 400/404 ghosts are not counted. Any other failure keeps
+// the listed total — unknown never becomes a reassuring zero.
+async function countLiveContacts(locationId: string, tok: string, listed: number): Promise<number> {
+  if (listed <= 0 || listed > 25) return listed;
+  try {
+    const page = await getJson(`${GHL}/contacts/?locationId=${locationId}&limit=25`, locHeaders(tok));
+    const ids = ((page.contacts as Array<{ id?: string }>) ?? []).map((c) => c.id).filter(Boolean) as string[];
+    if (ids.length !== listed) return listed;
+    let live = 0;
+    for (const id of ids) {
+      const r = await fetch(`${GHL}/contacts/${id}`, { headers: locHeaders(tok) });
+      if (r.ok || (r.status !== 400 && r.status !== 404)) live++;
+    }
+    return live;
+  } catch {
+    return listed;
+  }
+}
+
 export async function inspectLocation(locationId: string): Promise<InspectResult> {
   const lt = await getAppLocationToken(locationId);
   if (!lt.token) throw new Error(lt.error ?? "could not mint location token");
@@ -119,11 +142,12 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
   ]);
 
   const name = String((locDetail.location as { name?: string } | undefined)?.name ?? "").trim();
+  const listedContacts = Number((contacts.meta as { total?: number } | undefined)?.total ?? 0);
   return {
     id: locationId,
     name,
     counts: {
-      contacts: Number((contacts.meta as { total?: number } | undefined)?.total ?? 0),
+      contacts: await countLiveContacts(locationId, tok, listedContacts),
       customValues: ((cvs.customValues as unknown[]) ?? []).length,
       customFields: ((cfs.customFields as unknown[]) ?? []).length,
       calendars: ((cals.calendars as unknown[]) ?? []).length,
