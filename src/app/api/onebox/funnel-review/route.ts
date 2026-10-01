@@ -166,6 +166,23 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  /* IG widget feed review — one-time vision snapshot of each widget's visible
+     posts (extras.igReview, 2026-10-01). Fleet data says follower count and
+     before/after share do NOT reliably move deposits, so the only card here is
+     the one failure mode that clusters at the bottom: a feed that mostly shows
+     selfies / promos / another business instead of the artist's work. */
+  const ig = (client.extras as Record<string, unknown> | null)?.igReview as
+    | { quality?: number; workShare?: number | null; note?: string; followers?: number | null }
+    | undefined;
+  if (ig && typeof ig.quality === "number" && (ig.quality <= 2 || (ig.workShare != null && ig.workShare < 0.5))) {
+    checks.push({
+      emoji: "📸",
+      severity: "watch",
+      title: "IG widget isn't showing the artist's work",
+      body: `${ig.workShare != null ? Math.round(ig.workShare * 100) + "% of the visible feed is actual PMU results" : "Little PMU work visible"} — the rest is selfies/promos/off-topic. Feeds like this cluster at the bottom of the fleet. Point the widget at (or fill) an account that leads with her results.${ig.note ? ` Review note: ${ig.note}` : ""}`,
+    });
+  }
+
   if (!checks.some((c) => c.severity === "fix")) {
     checks.push({
       emoji: "✅",
