@@ -173,7 +173,7 @@ async function closeHandledProposals(acct: PmuAccount, svc: ReturnType<typeof cr
           decided_by: "auto",
           decided_at: new Date().toISOString(),
           result: `handled in the chat by ${who}${when ? ` (${when})` : ""} — closed automatically`,
-        }).eq("id", card.id).eq("status", "pending");
+        }).eq("id", card.id).eq("status", "pending").or(unclaimed()); // not mid-Approve
         if (!error) closed++;
       }
     } catch { /* next conversation */ }
@@ -247,12 +247,12 @@ export async function proposeForConversation(opts: {
   // A pending card still covering the newest message is the answer; one
   // written before newer texts arrived is retired so the plan isn't stale.
   const open = await openCard();
-  if (open && open.message_id.split("#")[0] === last.id) return { proposal: open };
+  if (open && (open.message_id.split("#")[0] === last.id || isLiveClaim(open))) return { proposal: open }; // current, or mid-Approve
   if (open) {
     await svc.from("agent_proposals").update({
       status: "handled", decided_by: opts.requestedBy || "auto", decided_at: new Date().toISOString(),
       result: "replaced by a newer read of the chat (new messages arrived)",
-    }).eq("id", open.id).eq("status", "pending");
+    }).eq("id", open.id).eq("status", "pending").or(unclaimed()); // not mid-Approve
   }
   const nameByUserId = await rosterNames(acct);
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -472,6 +472,15 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
   return { scanned, filed, errors };
 }
 
+// An Approve claims its card (decided_at set, status still "pending") for
+// the length of the run. A claim older than this is a run that died — the
+// decide route may re-claim it and the cron/re-check may treat it as open.
+export const CLAIM_TTL_MS = 2 * 60_000;
+export const claimCutoff = () => new Date(Date.now() - CLAIM_TTL_MS).toISOString();
+const unclaimed = () => `decided_at.is.null,decided_at.lt."${claimCutoff()}"`;
+const isLiveClaim = (p: { decided_at: string | null }) =>
+  !!p.decided_at && Date.now() - Date.parse(p.decided_at) < CLAIM_TTL_MS;
+
 // Execute an APPROVED proposal. Phase 1: send the (possibly edited) reply;
 // account changes additionally queue for the browser worker. Refund/payment
 // actions ("SENSITIVE:") are never auto-executed beyond the reply.
@@ -507,29 +516,36 @@ export async function executeProposal(
   let status: Proposal["status"] = ok ? "done" : "failed";
   let result = sendNote;
   let plan: PlanStep[] | null = null;
-  if (p.action_type === "account_change") {
-    const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
-    if (sensitive) {
-      status = ok ? "queued_browser" : "failed";
-      result = `${sendNote}\n👤 Sensitive (money) — a teammate must handle this by hand`;
-    } else {
-      plan = p.action_plan && p.action_plan.length
-        ? p.action_plan
-        : await planFromDetail({ summary: p.summary, actionDetail: p.action_detail, clientMessage: p.client_message });
-      const loc = p.location_id
-        ? { locationId: p.location_id }
-        : await resolveClientLocation(svc, p.contact_id, p.contact_name);
-      if (!loc) {
-        status = "failed";
-        result = `${sendNote}\n✗ Could not find ${p.contact_name}'s sub-account (no Clients Master match) — do it by hand`;
+  // The reply may already be out: an error past this point must finish the
+  // card as "failed", never throw (a throw would leave it approvable again).
+  try {
+    if (p.action_type === "account_change") {
+      const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
+      if (sensitive) {
+        status = ok ? "queued_browser" : "failed";
+        result = `${sendNote}\n👤 Sensitive (money) — a teammate must handle this by hand`;
       } else {
-        const run = await executePlan(plan, loc.locationId);
-        const lines = formatResults(run.steps);
-        status = !ok || !run.allOk ? "failed" : run.anyManual ? "queued_browser" : "done";
-        result = `${sendNote}\n${lines}`;
-        if (!p.location_id) await svc.from("agent_proposals").update({ location_id: loc.locationId }).eq("id", p.id);
+        plan = p.action_plan && p.action_plan.length
+          ? p.action_plan
+          : await planFromDetail({ summary: p.summary, actionDetail: p.action_detail, clientMessage: p.client_message });
+        const loc = p.location_id
+          ? { locationId: p.location_id }
+          : await resolveClientLocation(svc, p.contact_id, p.contact_name);
+        if (!loc) {
+          status = "failed";
+          result = `${sendNote}\n✗ Could not find ${p.contact_name}'s sub-account (no Clients Master match) — do it by hand`;
+        } else {
+          const run = await executePlan(plan, loc.locationId);
+          const lines = formatResults(run.steps);
+          status = !ok || !run.allOk ? "failed" : run.anyManual ? "queued_browser" : "done";
+          result = `${sendNote}\n${lines}`;
+          if (!p.location_id) await svc.from("agent_proposals").update({ location_id: loc.locationId }).eq("id", p.id);
+        }
       }
     }
+  } catch (e) {
+    status = "failed";
+    result = `${sendNote}\n✗ ${e instanceof Error ? e.message : "error"} — check the account and finish by hand`;
   }
 
   await svc.from("agent_proposals").update({
