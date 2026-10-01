@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scanForProposals } from "@/lib/agent";
+import { learnFromSentReplies } from "@/lib/reply-learning";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -13,5 +14,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const out = await scanForProposals();
-  return NextResponse.json(out);
+  // Then learn: pair past AI drafts with what the team really sent (also
+  // texts sent straight from GHL). Best-effort — never fails the scan.
+  const learned = await learnFromSentReplies().catch((e) => ({ error: e instanceof Error ? e.message : "failed" }));
+  return NextResponse.json({ ...out, learned });
 }

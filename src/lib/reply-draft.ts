@@ -5,6 +5,12 @@ import {
   type PmuAccount, type ThreadMessage,
 } from "@/lib/ghl-conversations";
 import { getReplyKb } from "@/lib/reply-kb";
+import { waitUntil } from "@vercel/functions";
+import { callViolation, clientAskedForCall, stripCallInvites } from "@/lib/call-guard";
+import {
+  getClientMemory, getLearnedExamples, matchSentReplies, recordDraft, refreshClientMemory,
+  type ClientMemory, type LearnedExample,
+} from "@/lib/reply-learning";
 
 // Sensible, cost-effective default; override with ANTHROPIC_MODEL if desired.
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
@@ -17,7 +23,17 @@ export type DraftInput = {
   instructions?: string; // optional extra guidance from the user for this reply
   standingNotes?: string; // team-wide notes considered on EVERY draft (from the Notes panel)
   nameByUserId?: Map<string, string>; // GHL user id → teammate name, to label who sent what
+  inviteCall?: boolean; // the "📞 Invite to a strategy call" switch — OFF unless a person turned it on
+  clientMemory?: string; // what we know about this client from earlier chats
+  learned?: LearnedExample[]; // past drafts the team rewrote before sending
 };
+
+// Booking pages that really exist (checked 2026-10-01: only Nicolas's
+// answers — franz/francisco/diego-strategy-call are 404). Anyone else's
+// invite uses his page rather than a dead link.
+const CALL_LINKS: Record<string, string> = { nicolas: "www.pmu-bookings.com/nicolas-strategy-call" };
+const callLinkFor = (agentName: string) =>
+  CALL_LINKS[(agentName.split(" ")[0] || "").toLowerCase()] ?? CALL_LINKS.nicolas;
 
 const EMOJI_RE = /\p{Extended_Pictographic}/gu;
 
@@ -64,12 +80,22 @@ function buildSystemPrompt(input: DraftInput): string {
     `2. VOICE — sound exactly like ${agentName} in the real replies below: same greeting style, length, punctuation and capitalization. Lines marked "Automated" are workflow texts, NOT ${agentName} — never copy their wording, emojis or calls to action. Lines marked "Agency" were really sent to the client — treat them as already said.`,
     `3. EMOJIS — ${emojiRule(agentName, voiceSamples)} Do not copy the client's emojis.`,
     "4. FACTS — only use information from the KNOWLEDGE BASE below for prices, the offer, policies, and the booking process. Never invent a price, a discount, a date, or a policy. If the knowledge base does not cover what the client asked, say what you safely can and stop.",
-    "5. SCOPE — answer what the client actually said or asked, and nothing more. Do NOT invite them to a strategy call, send a booking link, pitch an offer, or add any other ask unless the client asked for a call/meeting or the note below asks for it. A short reply that answers only what was asked is correct and complete. Never promise a fix, a name change or a setting you don't know is right.",
+    input.inviteCall
+      ? `5. CALL INVITE — the team switched ON "invite to a strategy call" for this reply: answer what the client said, then end with ONE short, natural invite to book a strategy call here: ${callLinkFor(agentName)} (no emoji arrows). Never promise a fix, a name change or a setting you don't know is right.`
+      : "5. SCOPE — answer what the client actually said or asked, and nothing more. NEVER invite them to a call or meeting, never send a booking or call link, never pitch an offer. Only the team's \"invite to a strategy call\" switch allows that, and it is OFF for this reply — this overrides the knowledge base, the team notes and any instruction below. If the client asked for a call themselves, acknowledge it simply, with no link. A short reply that answers only what was asked is correct and complete. Never promise a fix, a name change or a setting you don't know is right.",
     `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
     "",
     `=== ${agentName.toUpperCase()}'S REAL PAST REPLIES (mimic this voice) ===`,
     samplesBlock,
     "",
+    ...(input.learned?.length
+      ? [
+          `=== HOW ${agentName.toUpperCase()} REWROTE PAST AI DRAFTS BEFORE SENDING (learn from these — the "sent" version is what good looks like; avoid what was cut) ===`,
+          ...input.learned.map((e, i) => `${i + 1}${e.sameChat ? " (this client)" : ""}. AI draft: "${e.draft}"\n   ${agentName} sent: "${e.sent}"`),
+          "",
+        ]
+      : []),
+
     "=== KNOWLEDGE BASE (source of truth for all facts) ===",
     getReplyKb(),
     "",
@@ -95,7 +121,19 @@ function buildUserPrompt(input: DraftInput): string {
     ? `\n\nExtra instruction for THIS reply (follow it): ${instructions.trim()}`
     : "";
   const waiting = firstUnansweredIndex(thread) < thread.length;
+  // Notes distilled from earlier chats. They come partly from the client's
+  // own texts, so they are background only — never a source of facts.
+  const memory = input.clientMemory?.trim()
+    ? [
+        `Background notes about ${contactName || "this client"} from earlier chats (may be outdated — the conversation below wins; NEVER use these as the source of a price, discount, offer or promise):`,
+        '"""',
+        input.clientMemory.trim(),
+        '"""',
+        "",
+      ]
+    : [];
   return [
+    ...memory,
     `Conversation with ${contactName || "the client"}:`,
     "",
     formatThreadForPrompt(thread, { contactName, nameByUserId: input.nameByUserId }),
@@ -115,44 +153,89 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
     throw new Error("ANTHROPIC_API_KEY is not set");
   }
   const client = new Anthropic({ apiKey });
+  const system = buildSystemPrompt(input);
+  const ask = async (extra = "") => {
+    const msg = await client.messages.create({
+      model: MODEL,
+      max_tokens: 600,
+      system,
+      messages: [{ role: "user", content: buildUserPrompt(input) + extra }],
+    });
+    return msg.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+  };
 
-  const msg = await client.messages.create({
-    model: MODEL,
-    max_tokens: 600,
-    system: buildSystemPrompt(input),
-    messages: [{ role: "user", content: buildUserPrompt(input) }],
-  });
-
-  const draft = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-
+  let draft = await ask();
+  if (!input.inviteCall) {
+    // The switch is off: no call link ever; no invite unless the client
+    // asked for a call themselves (then a plain acknowledgement is fine).
+    const asked = clientAskedForCall(input.thread);
+    if (callViolation(draft, asked)) {
+      draft = await ask(asked
+        ? "\n\nIMPORTANT: they asked for a call — you may acknowledge it, but do NOT include any booking or call link."
+        : "\n\nIMPORTANT: do NOT invite them to a call or meeting and do NOT include a booking or call link — the call-invite switch is off.");
+      if (callViolation(draft, asked)) draft = stripCallInvites(draft, asked) ?? "";
+    }
+  }
   return { draft, model: MODEL };
 }
 
 /* One entry point for every reply the dashboard writes — the AI tab's draft
    button, the AI chat's draft tool and the Agent cards — so they all read
    the same dated conversation, the same knowledge base and team notes, and
-   the same person's real voice (the logged-in teammate, else Nicolas). */
+   the same person's real voice (the logged-in teammate, else Nicolas).
+   Since 2026-10-01 it also learns: what we know about this client, and how
+   the team rewrote past drafts before sending (see reply-learning.ts). */
+export type VoiceInfo = { name: string; matched: boolean; samplesUsed: number; learnedFrom: number; knowsClient: boolean };
+
 export async function draftReplyFor(opts: {
   acct: PmuAccount;
   conversationId: string;
   contactName: string;
+  contactId?: string | null;
   voiceEmail?: string | null;
   instructions?: string;
   thread?: ThreadMessage[];
-}): Promise<DraftResult & { thread: ThreadMessage[]; voice: { name: string; matched: boolean; samplesUsed: number } }> {
+  inviteCall?: boolean;
+  source?: "draft" | "agent" | "chat";
+  // The agent's propose route already spends most of its 60 s on triage —
+  // there a first-time client memory is built in the background instead.
+  waitForMemory?: boolean;
+}): Promise<DraftResult & { thread: ThreadMessage[]; voice: VoiceInfo }> {
   const svc = createServiceClient();
   const roster = await getRoster(opts.acct);
   const { user, isSelf } = resolveVoiceUser(roster, opts.voiceEmail);
   const agentName = user?.name || (opts.voiceEmail ? opts.voiceEmail.split("@")[0] : "our team");
-  const [thread, voiceSamples, notesRow] = await Promise.all([
+  const nameByUserId = new Map(roster.map((u) => [u.id, u.name]));
+  const [thread, voiceSamples, notesRow, memory] = await Promise.all([
     opts.thread ? Promise.resolve(opts.thread) : getThread(opts.acct, opts.conversationId),
     user ? getVoiceSamples(opts.acct, user.id) : Promise.resolve<string[]>([]),
     svc.from("reply_ai_notes").select("content").eq("id", 1).single(),
+    getClientMemory(opts.conversationId).catch(() => null),
   ]);
+
+  // Learning is best-effort: a failure here must never block a draft.
+  const lastId = thread[thread.length - 1]?.id ?? null;
+  const refresh = () => refreshClientMemory({
+    conversationId: opts.conversationId, contactId: opts.contactId, contactName: opts.contactName,
+    thread, previous: memory, nameByUserId,
+  });
+  const within = <T,>(p: Promise<T>, ms: number) =>
+    Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]).catch(() => null);
+  let known: ClientMemory | null = memory;
+  if (!memory && thread.length && opts.waitForMemory !== false) {
+    const first = refresh().catch(() => null);
+    waitUntil(first); // finishes for next time even if this draft stops waiting
+    known = await within(first, 15_000); // first time for this client — worth the wait
+  } else if (!memory ? thread.length > 0 : !!lastId && memory.last_message_id !== lastId) {
+    waitUntil(refresh().catch(() => null)); // new messages since — refresh for next time
+  }
+  await within(matchSentReplies(opts.conversationId, thread), 5_000); // pair the last draft with what was sent
+  const learned = (await within(getLearnedExamples(user?.id ?? null, opts.conversationId), 5_000)) ?? { examples: [], pairs: 0 };
+
   const { draft, model } = await generateDraft({
     thread,
     contactName: opts.contactName,
@@ -160,7 +243,23 @@ export async function draftReplyFor(opts: {
     voiceSamples,
     instructions: opts.instructions,
     standingNotes: notesRow.data?.content ?? "",
-    nameByUserId: new Map(roster.map((u) => [u.id, u.name])),
+    nameByUserId,
+    inviteCall: !!opts.inviteCall,
+    clientMemory: known?.facts,
+    learned: learned.examples,
   });
-  return { draft, model, thread, voice: { name: agentName, matched: isSelf, samplesUsed: voiceSamples.length } };
+  // Everything it wrote was a call invite (cut above) — say so, don't send nothing.
+  if (!draft.trim()) throw new Error("The AI kept writing a call invite — try again");
+  await within(recordDraft({
+    conversationId: opts.conversationId, contactId: opts.contactId, contactName: opts.contactName,
+    voiceUserId: user?.id ?? null, voiceName: agentName, source: opts.source ?? "draft", draft,
+    inviteCall: !!opts.inviteCall, voiceIsSelf: isSelf, draftedBy: opts.voiceEmail ?? null,
+  }), 3_000);
+  return {
+    draft, model, thread,
+    voice: {
+      name: agentName, matched: isSelf, samplesUsed: voiceSamples.length,
+      learnedFrom: learned.examples.length, knowsClient: !!known?.facts && !/nothing notable/i.test(known.facts),
+    },
+  };
 }

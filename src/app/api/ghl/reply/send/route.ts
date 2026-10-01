@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getReplyAccount, sendConversationMessage } from "@/lib/ghl-conversations";
 import { getAppLocationToken } from "@/lib/ghl-app";
+import { waitUntil } from "@vercel/functions";
+import { settleDashboardSend } from "@/lib/reply-learning";
 
 export const maxDuration = 30;
 
@@ -26,6 +28,12 @@ export async function POST(req: NextRequest) {
   const acct = await getReplyAccount();
   if (!acct) return NextResponse.json({ error: "PMU Bookings On Demand token not found" }, { status: 404 });
 
+  // The AI learns from what was really sent — paired with this sender's own
+  // draft here, since the GHL message won't say who sent it.
+  const learn = () => waitUntil(settleDashboardSend({
+    contactId, sent: message, senderEmail: user.email ?? "", pairOwnDraft: true,
+  }).catch(() => undefined));
+
   let r = await sendConversationMessage(acct, { contactId, message, channel });
   // The keys-sheet private token can lack the conversations-write scope
   // ("The token is not authorized for this scope"). Fall back to the
@@ -35,10 +43,11 @@ export async function POST(req: NextRequest) {
     const tok = await getAppLocationToken(acct.locationId);
     if (tok.token) {
       const retry = await sendConversationMessage({ locationId: acct.locationId, token: tok.token }, { contactId, message, channel });
-      if (retry.ok) return NextResponse.json({ success: true, via: "app-token" });
+      if (retry.ok) { learn(); return NextResponse.json({ success: true, via: "app-token" }); }
       r = { ok: false, error: `private token: ${r.error} · app token: ${retry.error}` };
     }
   }
   if (!r.ok) return NextResponse.json({ error: r.error ?? "Send failed" }, { status: 502 });
+  learn();
   return NextResponse.json({ success: true });
 }
