@@ -508,6 +508,72 @@ function DeprowTestCard() {
   );
 }
 
+/* Fleet-wide "Call Us Today" bar test (engine v91): a = phone bar shown
+   (trust), b = hidden (quiz higher on the first screen). The bar lives on
+   the FIRST screen, so the completion comparison is the a-vs-b LEAD
+   COUNTS themselves — the coin is a fair 50/50 at page load, so a skew
+   in completed surveys IS the effect. Pay-through shown too. */
+function TopbarTestCard() {
+  type Side = { leads: number; picked: number; paid: number };
+  const [d, setD] = useState<{ since: string; a: Side; b: Side } | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    fetch("/api/onebox/topbar").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
+  }, []);
+  if (!d) return null;
+  const total = d.a.leads + d.b.leads;
+  const enough = total >= 200;
+  const share = total > 0 ? Math.round((d.b.leads / total) * 1000) / 10 : null;
+  const leader = enough && d.a.leads !== d.b.leads ? (d.a.leads > d.b.leads ? "a" : "b") : null;
+  const payPct = (s: Side) => (s.picked > 0 ? Math.round((s.paid / s.picked) * 1000) / 10 : null);
+  const SIDES: { k: "a" | "b"; name: string; text: string }[] = [
+    { k: "a", name: "A — phone bar shown", text: "“Call Us Today: …” stays at the top (trust)" },
+    { k: "b", name: "B — phone bar hidden", text: "No call bar — the quiz sits higher on the first mobile screen (less friction)" },
+  ];
+  return (
+    <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
+        <span className="text-sm font-medium text-[#1c2b3a]">🧪 Phone-bar test — all funnels, 50/50</span>
+        <span className="text-xs text-[#697a91]">since {new Date(d.since).toLocaleDateString()}</span>
+        <span className={cn("ml-auto text-xs font-semibold", leader ? "text-[#15803d]" : "text-[#697a91]")}>
+          {leader
+            ? `${leader.toUpperCase()} is ahead — ${leader === "b" ? share : share === null ? "" : Math.round((100 - share) * 10) / 10}% of completed surveys`
+            : `A ${d.a.leads} · B ${d.b.leads} completed surveys · too early to call`}
+        </span>
+        <span className="text-[#697a91] text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3">
+          <table className="w-full text-xs">
+            <thead><tr className="text-left text-[#697a91]">
+              <th className="py-1 font-medium">Side</th><th className="py-1 font-medium">Completed surveys</th>
+              <th className="py-1 font-medium">Picked a time</th><th className="py-1 font-medium">Paid deposit</th>
+              <th className="py-1 font-medium">Pay-through</th>
+            </tr></thead>
+            <tbody>
+              {SIDES.map((v) => {
+                const sd = d[v.k]; const p = payPct(sd);
+                return (
+                  <tr key={v.k} className={cn("border-t border-[#f0f4f8]", leader === v.k && "bg-[#f0faf3]")}>
+                    <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{v.name}</b><div className="text-[#8595a8] max-w-[420px]">{v.text}</div></td>
+                    <td className="py-1.5 font-semibold">{sd.leads}{leader === v.k && " 🏆"}</td>
+                    <td className="py-1.5">{sd.picked}</td><td className="py-1.5">{sd.paid}</td>
+                    <td className="py-1.5">{p === null ? "—" : `${p}%`}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-1.5 text-[11px] text-[#8595a8]">
+            Visitors split 50/50 at page load, so more completed surveys on one side IS the result — a fair coin should land near 50%.
+            Wait for at least ~200 total surveys before trusting a winner.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* Start Setup for the agency's own B2B funnels (owner, 2026-09-29). None
    of the client-program fields apply — no V1/V2.3/V3, deposit, Commas
    product, prices, services, hours, owner or photos — and nothing lives
@@ -1203,6 +1269,7 @@ export default function FunnelsPage() {
       {toast && <div className="mb-3 text-sm bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] rounded-lg px-3 py-2">{toast}</div>}
 
       <DeprowTestCard />
+      <TopbarTestCard />
 
       {showAdd && (() => {
         /* One sub-account, one funnel: flag a location ID that already has
