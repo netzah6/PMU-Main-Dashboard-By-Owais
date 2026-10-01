@@ -13,7 +13,7 @@ import { firstUnansweredIndex, type ThreadMessage } from "@/lib/ghl-conversation
      talk ("Sure, happy to hop on a call tomorrow"), never otherwise.
    Booking-calendar talk is the agency's product ("clients can pick a time on
    your calendar", "book her into the 2pm slot") and must NOT trip it (the
-   case table is in PR #749). */
+   case table is in PR #750). */
 
 const LINK_RE = /(pmu-bookings\.com|calendly\.com|cal\.com\/|\b[\w.-]+\.[a-z]{2,}\/[\w-]*-call\b)/i;
 const INVITE_RE = new RegExp([
