@@ -642,7 +642,12 @@ export function buildFanbasisBlock(productId: string, redirectUrl: string): stri
     "fetch('https://www.fanbasis.com/public-api/checkout-sessions/embedded',{method:'POST',headers:{'x-api-key':API_KEY}})",
     '.then(function(res){return res.json();}).then(function(data){',
     'var secret=data&&data.data&&data.data.checkout_session_secret;if(!secret){console.error("FanBasis: no session secret",data);return;}',
-    "var checkout=PaymentCheckout.create({creatorId:CREATOR_ID,productId:PRODUCT_ID,checkoutSessionSecret:secret,environment:'production',theme:{theme:'light',accent_color:'#239dde',show_product_info:false,show_powered_by:false},containerOptions:{width:'100%',height:'100%'}});",
+    // fields.address.hide: skip the Billing Address field entirely — wallets
+    // (Apple Pay / G Pay / Cash App) never needed it and Fanbasis accepts
+    // card payments without it (verified against their live embed,
+    // 2026-10-01; owner call: less friction on the deposit page). Watch
+    // card declines after rollout — AVS data is no longer collected.
+    "var checkout=PaymentCheckout.create({creatorId:CREATOR_ID,productId:PRODUCT_ID,checkoutSessionSecret:secret,environment:'production',theme:{theme:'light',accent_color:'#239dde',show_product_info:false,show_powered_by:false,fields:{address:{hide:true}}},containerOptions:{width:'100%',height:'100%'}});",
     "checkout.attachToElement(document.getElementById('fanbasis-checkout-wrapper'));checkout.init();",
     // Fanbasis' embed sandboxes its iframe WITHOUT allow-payment-request,
     // so the Apple Pay / Google Pay buttons their 2026-08-24 checkout
