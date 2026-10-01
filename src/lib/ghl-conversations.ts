@@ -171,6 +171,12 @@ type VoiceCacheEntry = { ts: number; samples: string[] };
 const voiceCache = new Map<string, VoiceCacheEntry>();
 const VOICE_TTL_MS = 6 * 60 * 60 * 1000;
 
+/* Texts that carry a password, code or card/bank number must never reach a
+   prompt (voice samples, learned examples, client notes) — the model could
+   repeat them to another client. */
+const SECRET_RE = /pass\s*(word|code)|\bpwd\b|contraseña|\bpin\b|\bcvv\b|\bcvc\b|security\s+code|login\s+code|verification\s+code|\b2fa\b|\botp\b|card\s+(number|no\.?|#)|\bssn\b|social\s+security|routing\s+number|account\s+number|api\s+key|\btoken\b/i;
+export const hasSecret = (text: string) => SECRET_RE.test(text);
+
 function looksAutomated(body: string): boolean {
   const b = body.toLowerCase();
   return (
@@ -180,7 +186,8 @@ function looksAutomated(body: string): boolean {
     b.includes("www.") ||
     b.includes(".com/") ||
     b.includes("unsubscribe") ||
-    b.startsWith("reply stop")
+    b.startsWith("reply stop") ||
+    hasSecret(body)
   );
 }
 
