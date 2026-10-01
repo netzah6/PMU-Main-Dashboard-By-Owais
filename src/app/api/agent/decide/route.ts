@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { executeProposal, type Proposal } from "@/lib/agent";
+import { claimCutoff, executeProposal, type Proposal } from "@/lib/agent";
 
 export const maxDuration = 60; // approve now also runs the account change against GHL
 
@@ -30,6 +30,17 @@ export async function POST(req: NextRequest) {
   if (p.status !== "pending") return NextResponse.json({ error: `Already ${p.status}` }, { status: 409 });
 
   const decidedBy = user.email ?? user.id;
+  // Claim the card before doing anything. The status only changes after the
+  // reply is sent (10–60 s), so without this a second Approve (another tab,
+  // another admin, a card re-opened mid-run) texted the client twice. A
+  // claim older than CLAIM_TTL_MS is a run that died (timeout) and may retry.
+  const { data: claimed } = await svc.from("agent_proposals")
+    .update({ decided_by: decidedBy, decided_at: new Date().toISOString() })
+    .eq("id", id).eq("status", "pending")
+    .or(`decided_at.is.null,decided_at.lt."${claimCutoff()}"`)
+    .select("id").maybeSingle();
+  if (!claimed) return NextResponse.json({ error: "Already being approved — refresh in a moment" }, { status: 409 });
+
   if (decision === "deny") {
     await svc.from("agent_proposals").update({
       status: "denied", decided_by: decidedBy, decided_at: new Date().toISOString(), result: "denied — nothing sent or changed",
@@ -38,6 +49,16 @@ export async function POST(req: NextRequest) {
   }
 
   const reply = body.reply !== undefined ? String(body.reply) : p.proposed_reply;
-  const out = await executeProposal(p, reply, decidedBy);
-  return NextResponse.json({ success: out.status !== "failed", ...out });
+  try {
+    const out = await executeProposal(p, reply, decidedBy);
+    return NextResponse.json({ success: out.status !== "failed", ...out });
+  } catch (e) {
+    // We can't know whether the reply went out — never re-arm Approve (that
+    // could text the client twice). Close it as failed; 🪄 can plan again.
+    const msg = e instanceof Error ? e.message : "failed";
+    await svc.from("agent_proposals").update({
+      status: "failed", result: `✗ ${msg} — check the chat before trying again`, executed_at: new Date().toISOString(),
+    }).eq("id", id).eq("status", "pending");
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }

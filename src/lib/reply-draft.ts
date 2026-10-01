@@ -36,6 +36,20 @@ function emojiRule(agentName: string, samples: string[]): string {
   return `${agentName} used an emoji in ${withEmoji.length} of ${samples.length} real replies. Use at most ONE, and only one of these: ${used.slice(0, 8).join(" ")}. Never 😊 unless it is in that list.`;
 }
 
+const wordCount = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
+
+/* Same idea for length (live test 2026-10-01: a client with five questions
+   got a five-point numbered essay; Nicolas texts a line or two). The limit
+   is measured from his real replies, not guessed. */
+function lengthRule(agentName: string, samples: string[]): string {
+  if (samples.length < 5) return "Keep it to 1–2 short sentences, like a text message. No lists.";
+  const w = samples.map(wordCount).sort((a, b) => a - b);
+  const median = w[Math.floor(w.length / 2)];
+  const cap = Math.max(w[Math.floor(w.length * 0.9)], 25);
+  const lists = samples.some((t) => /(^|\n)\s*(\d+[.)]|[-•])\s/.test(t));
+  return `${agentName}'s real replies are usually about ${median} words. Stay close to that and never go over ${cap} words — even when the client asked several things: then answer each in a few plain words, and say you'll follow up on anything that needs more.${lists ? "" : " No numbered or bulleted lists — he never uses them."}`;
+}
+
 function buildSystemPrompt(input: DraftInput): string {
   const { agentName, voiceSamples } = input;
   const samplesBlock = voiceSamples.length
@@ -50,7 +64,8 @@ function buildSystemPrompt(input: DraftInput): string {
     `2. VOICE — sound exactly like ${agentName} in the real replies below: same greeting style, length, punctuation and capitalization. Lines marked "Automated" are workflow texts, NOT ${agentName} — never copy their wording, emojis or calls to action. Lines marked "Agency" were really sent to the client — treat them as already said.`,
     `3. EMOJIS — ${emojiRule(agentName, voiceSamples)} Do not copy the client's emojis.`,
     "4. FACTS — only use information from the KNOWLEDGE BASE below for prices, the offer, policies, and the booking process. Never invent a price, a discount, a date, or a policy. If the knowledge base does not cover what the client asked, say what you safely can and stop.",
-    "5. SCOPE — answer what the client actually said or asked, and nothing more. Do NOT invite them to a strategy call, send a booking link, pitch an offer, or add any other ask unless the client asked for a call/meeting or the note below asks for it. A short reply that answers only what was asked is correct and complete.",
+    "5. SCOPE — answer what the client actually said or asked, and nothing more. Do NOT invite them to a strategy call, send a booking link, pitch an offer, or add any other ask unless the client asked for a call/meeting or the note below asks for it. A short reply that answers only what was asked is correct and complete. Never promise a fix, a name change or a setting you don't know is right.",
+    `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
     "",
     `=== ${agentName.toUpperCase()}'S REAL PAST REPLIES (mimic this voice) ===`,
     samplesBlock,
@@ -60,14 +75,13 @@ function buildSystemPrompt(input: DraftInput): string {
     "",
     ...(input.standingNotes?.trim()
       ? [
-          "=== TEAM'S CURRENT IMPORTANT NOTES (follow these — they override the knowledge base when they conflict) ===",
+          "=== TEAM'S CURRENT IMPORTANT NOTES (follow these — they override the knowledge base when they conflict. They apply to EVERY client: a note that is plainly about one specific client or chat, e.g. \"invite her…\" or \"already did her changes\", does not apply to anyone else — ignore it unless it is about this client) ===",
           input.standingNotes.trim(),
           "",
         ]
       : []),
     "OUTPUT RULES:",
     "- Return ONLY the message text to send. No preamble, no quotes, no notes, no signature unless the past replies show one.",
-    "- Text-message length: usually 1–2 sentences, like the real replies.",
     "- Reply in the same language the client is using.",
     "- Match the client's level of formality and warmth.",
     "- When the client is describing money pressure or hardship, acknowledge it plainly before anything else, and never follow it immediately with a new ask.",
