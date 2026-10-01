@@ -6,8 +6,8 @@ import { cn, userColor } from "@/lib/utils";
 
 // voiceInfo only comes from /api/ghl/reply/draft — AI-chat drafts carry just
 // the name, so the "written in …'s voice" line is skipped for those.
-type VoiceInfo = { name: string; matched: boolean; samplesUsed: number };
-type Draft = { contactName: string; channel: string; draft: string; voice: string; voiceInfo?: VoiceInfo; conversationUrl: string; conversationId?: string; contactId?: string | null };
+type VoiceInfo = { name: string; matched: boolean; samplesUsed: number; learnedFrom?: number; knowsClient?: boolean };
+type Draft = { contactName: string; channel: string; draft: string; voice: string; voiceInfo?: VoiceInfo; conversationUrl: string; conversationId?: string; contactId?: string | null; inviteCall?: boolean };
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[]; reports?: string[] };
 type Conv = {
   id: string;
@@ -49,6 +49,9 @@ export default function AskPage() {
   const [locationId, setLocationId] = useState<string>("");
   const [pending, setPending] = useState<Conv | null>(null); // chat awaiting a draft
   const [note, setNote] = useState("");                       // optional steer for the AI
+  // "📞 Invite to a strategy call" — OFF by default, per chat. The AI never
+  // adds a call invite or link on its own (owner, 2026-10-01).
+  const [inviteCall, setInviteCall] = useState(false);
   const [thread, setThread] = useState<ThreadMsg[]>([]);      // full conversation shown in the composer
   const [threadLoading, setThreadLoading] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -255,6 +258,7 @@ export default function AskPage() {
     setOpenCardId(null);
     setAgentOpenFor((cur) => (cur === c.id ? cur : null)); // another chat starts closed
     setNote("");
+    setInviteCall(false);
     setSendText("");
     setPending(c);
   }, []);
@@ -386,23 +390,23 @@ export default function AskPage() {
 
   // Draft deterministically off the exact conversation id (no LLM name-guessing),
   // passing the optional note as instructions. Fixes wrong-chat + adds the note.
-  const generateDraft = useCallback(async (c: Conv, steer: string) => {
+  const generateDraft = useCallback(async (c: Conv, steer: string, call = false) => {
     if (busy) return;
     setPending(null);
     const trimmed = steer.trim();
-    const label = `Draft a reply to ${c.contactName}${trimmed ? ` — note: ${trimmed}` : ""}`;
+    const label = `Draft a reply to ${c.contactName}${trimmed ? ` — note: ${trimmed}` : ""}${call ? " · 📞 invite to a strategy call" : ""}`;
     setMsgs((m) => [...m, { role: "user", content: label }]);
     setBusy(true); setError(null);
     try {
       const res = await fetch("/api/ghl/reply/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: c.id, contactName: c.contactName, instructions: trimmed || undefined }),
+        body: JSON.stringify({ conversationId: c.id, contactName: c.contactName, contactId: c.contactId, instructions: trimmed || undefined, inviteCall: call }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to draft a reply");
       const voice = json.voice?.name ?? "";
-      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, voiceInfo: json.voice ?? undefined, conversationUrl: chatUrl(c), conversationId: c.id, contactId: c.contactId };
+      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, voiceInfo: json.voice ?? undefined, conversationUrl: chatUrl(c), conversationId: c.id, contactId: c.contactId, inviteCall: call };
       setMsgs((m) => [...m, { role: "assistant", content: `Here's a draft for ${c.contactName}${voice ? ` in ${voice}'s style` : ""} — use the buttons below to copy it and open the chat.`, drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
@@ -425,7 +429,7 @@ export default function AskPage() {
       const res = await fetch("/api/ghl/reply/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: d.conversationId, contactName: d.contactName, instructions }),
+        body: JSON.stringify({ conversationId: d.conversationId, contactName: d.contactName, contactId: d.contactId ?? null, instructions, inviteCall: !!d.inviteCall }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to update the draft");
@@ -723,7 +727,7 @@ export default function AskPage() {
               id="ai-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generateDraft(pending, note); } }}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generateDraft(pending, note, inviteCall); } }}
               rows={2}
               autoFocus
               placeholder="e.g. 'let her know Tue 2pm is open' or 'gently ask for the $50 deposit'. Leave blank for a standard draft."
@@ -732,11 +736,17 @@ export default function AskPage() {
           </div>
 
           <div className="flex items-center gap-2 mt-2">
-            <button onClick={() => generateDraft(pending, note)} disabled={busy}
+            <button onClick={() => generateDraft(pending, note, inviteCall)} disabled={busy}
               className="px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
               {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Generate draft
             </button>
-            <span className="text-[10px] text-[#8595a8]">⌘/Ctrl+Enter to generate</span>
+            {/* Off by default: the AI never invites to a call by itself. */}
+            <label className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer select-none",
+              inviteCall ? "border-[#15B7AE] bg-[#e6f7f5] text-[#0e8f88]" : "border-[#e4ebf2] bg-white text-[#697a91]")}>
+              <input type="checkbox" checked={inviteCall} onChange={(e) => setInviteCall(e.target.checked)} className="accent-[#15B7AE]" />
+              📞 Invite to a strategy call
+            </label>
+            <span className="text-[10px] text-[#8595a8] hidden sm:inline">⌘/Ctrl+Enter to generate</span>
           </div>
 
           {/* Manual send — goes straight into the GHL chat, only when YOU click Send */}
@@ -985,6 +995,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
   const [outcome, setOutcome] = useState<{ status: string; result: string } | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [calling, setCalling] = useState(false); // re-drafting the reply with a call invite
   const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
   const plan = p.action_plan ?? [];
   const manualOnly = plan.length > 0 && plan.every((s) => s.type === "manual");
@@ -1013,6 +1024,30 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
       onPhase("error");
     }
   }, [busy, working, checking, p.id, reply, onPhase]);
+
+  // The agent never invites to a call by itself — this re-drafts the reply
+  // WITH an invite, only when someone clicks it.
+  const addCallInvite = async () => {
+    if (calling || busy || working || checking) return;
+    setCalling(true);
+    try {
+      const res = await fetch("/api/ghl/reply/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: p.conversation_id, contactName: p.contact_name, contactId: p.contact_id,
+          instructions: `What the client needs (from triage): ${p.summary}.`, inviteCall: true, source: "agent",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.draft) throw new Error(json.error || "Couldn't redraft the reply");
+      setReply(json.draft);
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally {
+      setCalling(false);
+    }
+  };
 
   // A card that was decided elsewhere (SMS link, another admin, a remount)
   // shows its stored result — never live Approve/Deny buttons again.
@@ -1075,13 +1110,18 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
       <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2} placeholder="Reply to the client (empty = send nothing)"
         className="w-full mt-2 px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none" />
       <div className="flex items-center gap-2 mt-2">
-        <button onClick={() => decide("approve")} disabled={!!busy || working || checking}
+        <button onClick={() => decide("approve")} disabled={!!busy || working || checking || calling}
           className="px-3 py-1.5 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
           {busy === "approve" || working ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} {busy === "approve" || working ? "Working…" : "Approve"}
         </button>
-        <button onClick={() => decide("deny")} disabled={!!busy || working || checking}
+        <button onClick={() => decide("deny")} disabled={!!busy || working || checking || calling}
           className="px-3 py-1.5 rounded-lg border border-[#f5c2cf] text-[#e11d48] hover:bg-[#fde8ee] text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
           {busy === "deny" ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} Deny
+        </button>
+        <button onClick={addCallInvite} disabled={calling || !!busy || working || checking}
+          title="Re-draft the reply with an invite to book a strategy call"
+          className="ml-auto px-2.5 py-1.5 rounded-lg border border-[#c9dbfb] bg-white text-[#34568a] hover:border-[#15B7AE] text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-50">
+          {calling ? <Loader2 size={12} className="animate-spin" /> : "📞"} Add a call invite
         </button>
       </div>
     </div>
@@ -1140,8 +1180,12 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
   // style, which explains a draft that doesn't sound like anyone.
   const vi = d.voiceInfo;
   const voiceLine = !vi ? ""
-    : vi.samplesUsed > 0 ? `Written in ${vi.name}'s voice · ${vi.samplesUsed} real ${vi.samplesUsed === 1 ? "reply" : "replies"}`
-    : "No real replies found — plain style";
+    : [
+        vi.samplesUsed > 0 ? `Written in ${vi.name}'s voice · ${vi.samplesUsed} real ${vi.samplesUsed === 1 ? "reply" : "replies"}` : "No real replies found — plain style",
+        vi.learnedFrom ? `learned from ${vi.learnedFrom} past edit${vi.learnedFrom === 1 ? "" : "s"}` : "",
+        vi.knowsClient ? `remembers ${d.contactName.split(" ")[0]}'s history` : "",
+        d.inviteCall ? "📞 call invite on" : "",
+      ].filter(Boolean).join(" · ");
   return (
     <>
     <div className="mt-2.5 rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-3">

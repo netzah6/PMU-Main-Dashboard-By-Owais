@@ -73,6 +73,8 @@ export default function ReplyPage() {
   const [threadLoading, setThreadLoading] = useState(false);
 
   const [instructions, setInstructions] = useState("");
+  // OFF by default — the AI never invites to a call on its own (2026-10-01).
+  const [inviteCall, setInviteCall] = useState(false);
   const [draft, setDraft] = useState("");
   const [drafting, setDrafting] = useState(false);
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
@@ -135,6 +137,7 @@ export default function ReplyPage() {
     setDraft("");
     setVoiceNote(null);
     setInstructions("");
+    setInviteCall(false);
     setThreadLoading(true);
     try {
       const res = await fetch(`/api/ghl/reply/thread/${c.id}`);
@@ -159,7 +162,9 @@ export default function ReplyPage() {
         body: JSON.stringify({
           conversationId: selected.id,
           contactName: selected.contactName,
+          contactId: selected.contactId ?? null,
           instructions: instructions.trim() || undefined,
+          inviteCall,
         }),
       });
       const json = await res.json();
@@ -176,7 +181,7 @@ export default function ReplyPage() {
     } finally {
       setDrafting(false);
     }
-  }, [selected, instructions]);
+  }, [selected, instructions, inviteCall]);
 
   const copy = useCallback(async () => {
     if (!draft) return;
@@ -340,7 +345,7 @@ export default function ReplyPage() {
                 {/* Draft composer */}
                 <div className="border-t border-[#eef3f8] p-3 space-y-2 bg-white">
                   <input value={instructions} onChange={(e) => setInstructions(e.target.value)}
-                    placeholder="Optional: steer this reply (e.g. offer the $497 deal, book a call)…"
+                    placeholder="Optional: steer this reply (e.g. offer the $497 deal)…"
                     className="w-full px-3 py-1.5 bg-[#eef2f7] border border-[#e4ebf2] rounded-lg text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
                   <div className="flex items-center gap-2 flex-wrap">
                     <button onClick={generate} disabled={drafting || threadLoading}
@@ -348,6 +353,11 @@ export default function ReplyPage() {
                       {drafting ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
                       {draft ? "Regenerate" : "Generate reply"}
                     </button>
+                    <label className={cn("flex items-center gap-1.5 px-2.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer select-none",
+                      inviteCall ? "border-[#15B7AE] bg-[#e6f7f5] text-[#0e8f88]" : "border-[#e4ebf2] bg-[#f1f5f9] text-[#34568a]")}>
+                      <input type="checkbox" checked={inviteCall} onChange={(e) => setInviteCall(e.target.checked)} className="accent-[#15B7AE]" />
+                      📞 Invite to a strategy call
+                    </label>
                     <button onClick={() => setNotesOpen((o) => !o)}
                       title="Standing notes the AI considers on every reply — promos, pricing rules, things to avoid"
                       className={cn("flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border",

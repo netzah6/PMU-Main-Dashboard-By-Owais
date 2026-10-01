@@ -1,3 +1,4 @@
+import { userAskedForCallInvite } from "@/lib/call-guard";
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { buildClientReport, renderClientReport } from "@/lib/ghl-report";
@@ -235,7 +236,8 @@ const draftReplyTool: Anthropic.Tool = {
     properties: {
       lead_name: { type: "string" as const, description: "The contact/lead name (or email/phone) to reply to." },
       conversation_id: { type: "string" as const, description: "Exact GHL conversation id, when the user's message includes one (e.g. from clicking a chat in the sidebar). Takes precedence over name search." },
-      instructions: { type: "string" as const, description: "Optional guidance from the user for this reply." },
+      instructions: { type: "string" as const, description: "Optional guidance from the user for this reply — only what the user actually said. Never add a call/meeting invite or link." },
+      invite_call: { type: "boolean" as const, description: "true ONLY when the user's own message explicitly asks to invite the client to a strategy call. Otherwise omit." },
     },
     required: ["lead_name"],
   },
@@ -308,7 +310,7 @@ const queryTool: Anthropic.Tool = {
 export type AskMessage = { role: "user" | "assistant"; content: string };
 // contactId is what the dashboard's Send button needs — without it the card
 // can only offer Copy, so it must ride along with every draft.
-export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId: string; contactId: string | null };
+export type AskDraft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId: string; contactId: string | null; inviteCall?: boolean };
 export type AskResult = { answer: string; queries: string[]; drafts?: AskDraft[]; reports?: string[] };
 
 // Find the conversation in the agency account that best matches a lead name
@@ -352,7 +354,7 @@ async function findConversation(leadName: string, conversationId?: string) {
   };
 }
 
-async function runDraftReply(leadName: string, instructions: string | undefined, userEmail: string, conversationId?: string): Promise<Record<string, unknown>> {
+async function runDraftReply(leadName: string, instructions: string | undefined, userEmail: string, conversationId?: string, inviteCall = false): Promise<Record<string, unknown>> {
   const found = await findConversation(leadName, conversationId);
   if ("error" in found) return { error: found.error };
   const thread = await getThread(found.acct, found.conversationId);
@@ -361,9 +363,12 @@ async function runDraftReply(leadName: string, instructions: string | undefined,
     acct: found.acct,
     conversationId: found.conversationId,
     contactName: found.contactName,
+    contactId: found.contactId,
     voiceEmail: userEmail,
     instructions,
     thread,
+    inviteCall,
+    source: "chat",
   });
   const agentName = voice.name;
   const last = thread[thread.length - 1];
@@ -375,6 +380,7 @@ async function runDraftReply(leadName: string, instructions: string | undefined,
     lastMessage: { direction: last.direction, body: last.body.slice(0, 300), at: last.dateAdded },
     draft,
     draftVoice: agentName,
+    inviteCall,
     // Open the contact's detail page — the reliable deep-link to their chat
     // (the /conversations/conversations/{id} route often lands on the inbox,
     // not this thread). Falls back to the conversation URL if no linked contact.
@@ -434,17 +440,22 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
         continue;
       }
       if (block.name === "draft_reply") {
-        const input = block.input as { lead_name?: string; conversation_id?: string; instructions?: string };
+        const input = block.input as { lead_name?: string; conversation_id?: string; instructions?: string; invite_call?: boolean };
+        // The invite needs BOTH: the model's flag and the person's own words
+        // asking for it (never "don't invite her to a call").
+        const lastUser = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+        const inviteCall = input.invite_call === true && userAskedForCallInvite(lastUser);
         queries.push(`[draft reply: ${input.lead_name}]`);
         let content: string; let isError = false;
         try {
-          const r = await runDraftReply(String(input.lead_name ?? ""), input.instructions, userEmail, input.conversation_id || undefined);
+          const r = await runDraftReply(String(input.lead_name ?? ""), input.instructions, userEmail, input.conversation_id || undefined, inviteCall);
           if (typeof r.draft === "string" && typeof r.conversationUrl === "string") {
             drafts.push({
               contactName: String(r.contactName ?? ""), channel: String(r.channel ?? ""),
               draft: r.draft, voice: String(r.draftVoice ?? ""), conversationUrl: r.conversationUrl,
               conversationId: String(r.conversationId ?? ""),
               contactId: (r.contactId as string | null) ?? null,
+              inviteCall,
             });
           }
           content = JSON.stringify(r).slice(0, 30000);

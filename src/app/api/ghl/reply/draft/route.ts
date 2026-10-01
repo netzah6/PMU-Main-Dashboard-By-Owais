@@ -20,7 +20,10 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     conversationId?: string;
     contactName?: string;
+    contactId?: string | null;
     instructions?: string;
+    inviteCall?: boolean; // the "📞 Invite to a strategy call" switch
+    source?: string;
   };
   if (!body.conversationId) {
     return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
@@ -36,8 +39,11 @@ export async function POST(req: Request) {
       acct,
       conversationId: body.conversationId,
       contactName: body.contactName ?? "",
+      contactId: body.contactId ?? null,
       voiceEmail: user.email ?? null,
       instructions: body.instructions,
+      inviteCall: body.inviteCall === true,
+      source: body.source === "agent" ? "agent" : "draft",
     });
     return NextResponse.json({ draft, voice, model });
   } catch (e) {

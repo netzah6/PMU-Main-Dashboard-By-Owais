@@ -1,3 +1,4 @@
+import { guardReply } from "@/lib/call-guard";
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { fileOrAppendAlert, ghlContactUrl, loadTeamLookup } from "@/lib/alerts";
@@ -102,7 +103,7 @@ Reply with ONLY a JSON object, no other text:
 
 Rules:
 - "summary": at most 12 words, plain and direct, the ask itself — no "Client wants", no explanation (e.g. "Block Oct 8, 9, 15, 16, 22 on the calendar").
-- "proposed_reply": at most 2 short sentences, no filler.
+- "proposed_reply": at most 2 short sentences, no filler. Never invite them to a call or meeting and never include a link.
 - "action_detail": one short sentence per change, nothing else.
 - "reply" = a message back fully handles it (a question, confirmation, scheduling info).
 - "account_change" = something in their account/funnel/ads must actually be changed. Still include proposed_reply (an acknowledgment).
@@ -205,13 +206,15 @@ async function rosterNames(acct: PmuAccount): Promise<Map<string, string>> {
    fallback if drafting fails. */
 async function replyFor(
   acct: PmuAccount, conversationId: string, contactName: string, thread: ThreadMessage[],
-  cls: Classification, voiceEmail: string | null,
+  cls: Classification, voiceEmail: string | null, contactId: string | null,
 ): Promise<string | null> {
-  const fallback = cls.proposed_reply?.slice(0, 1500) ?? null;
+  // The triage one-liner is only a fallback — and it goes through the same
+  // call-invite guard as every other draft.
+  const fallback = guardReply(cls.proposed_reply?.slice(0, 1500) ?? null, thread);
   try {
     const change = cls.action_type === "account_change";
     const { draft } = await draftReplyFor({
-      acct, conversationId, contactName, thread, voiceEmail,
+      acct, conversationId, contactName, contactId, thread, voiceEmail, source: "agent", waitForMemory: false,
       instructions: `What the client needs (from triage): ${cls.summary ?? "see their NEW messages"}.${change ? " We will make this change — confirm it simply, and don't promise a time." : ""}`,
     });
     return draft ? draft.slice(0, 1500) : fallback;
@@ -269,7 +272,7 @@ export async function proposeForConversation(opts: {
   const unanswered = unansweredClientTexts(thread);
   const lastInbound = [...thread].reverse().find((m) => m.direction === "inbound")?.body;
   const clientMessage = (unanswered.length ? unanswered : lastInbound ? [lastInbound] : []).join("\n").slice(0, 2000);
-  const proposedReply = await replyFor(acct, opts.conversationId, opts.contactName, thread, cls, opts.requestedBy);
+  const proposedReply = await replyFor(acct, opts.conversationId, opts.contactName, thread, cls, opts.requestedBy, opts.contactId);
 
   // The cron may have filed a card for this chat while we were drafting —
   // hand that one back rather than a second card for the same message.
@@ -429,7 +432,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       // column" / "Before declining" / "Please and thank you" arrive as three
       // messages and the card must show all three.
       const recentInbound = unansweredClientTexts(thread);
-      const proposedReply = await replyFor(acct, c.id, c.contactName, thread, cls, null);
+      const proposedReply = await replyFor(acct, c.id, c.contactName, thread, cls, null, c.contactId);
       const { data: inserted, error } = await svc.from("agent_proposals").insert({
         conversation_id: c.id,
         message_id: last.id,

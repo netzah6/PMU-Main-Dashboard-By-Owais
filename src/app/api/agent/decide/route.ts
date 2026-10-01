@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { waitUntil } from "@vercel/functions";
 import { claimCutoff, executeProposal, isLiveClaim, type Proposal } from "@/lib/agent";
+import { recordApprovedReply, settleDashboardSend } from "@/lib/reply-learning";
 
 export const maxDuration = 60; // approve now also runs the account change against GHL
 
@@ -63,6 +65,20 @@ export async function POST(req: NextRequest) {
   const reply = body.reply !== undefined ? String(body.reply) : p.proposed_reply;
   try {
     const out = await executeProposal(p, reply, decidedBy);
+    // Learn from it: the AI's draft vs what the approver actually sent.
+    // The card's drafts are closed (the thread would credit this text to
+    // whoever drafted it) and one lesson is saved in the approver's voice.
+    if (reply?.trim() && out.result.startsWith("reply sent")) {
+      waitUntil((async () => {
+        await settleDashboardSend({ conversationId: p.conversation_id, sent: reply, senderEmail: user.email ?? "", pairOwnDraft: false });
+        if (p.proposed_reply) {
+          await recordApprovedReply({
+            conversationId: p.conversation_id, contactId: p.contact_id, contactName: p.contact_name,
+            aiDraft: p.proposed_reply, sent: reply, approverEmail: user.email ?? "",
+          });
+        }
+      })().catch(() => undefined));
+    }
     return NextResponse.json({ success: out.status !== "failed", ...out });
   } catch (e) {
     // We can't know whether the reply went out — never re-arm Approve (that
