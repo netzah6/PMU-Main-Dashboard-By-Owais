@@ -28,12 +28,18 @@ export type DraftInput = {
   learned?: LearnedExample[]; // past drafts the team rewrote before sending
 };
 
-// Booking pages that really exist (checked 2026-10-01: only Nicolas's
-// answers — franz/francisco/diego-strategy-call are 404). Anyone else's
-// invite uses his page rather than a dead link.
-const CALL_LINKS: Record<string, string> = { nicolas: "www.pmu-bookings.com/nicolas-strategy-call" };
-const callLinkFor = (agentName: string) =>
-  CALL_LINKS[(agentName.split(" ")[0] || "").toLowerCase()] ?? CALL_LINKS.nicolas;
+// The invite carries the SENDER's own booking page (owner, 2026-10-01) —
+// the steps of the GHL funnel "Strategy - Booking Page" in PMU Bookings On
+// Demand (both answer 200). Someone without a page gets Nicolas's rather
+// than a dead link; add a rep here when their page is added to that funnel.
+const CALL_LINKS: Record<string, string> = {
+  nicolas: "www.pmu-bookings.com/nicolas-strategy-call",
+  stephanie: "www.pmu-bookings.com/stephanie-strategy-call-799294",
+};
+const ownCallLink = (agentName: string): string | undefined => CALL_LINKS[(agentName.split(" ")[0] || "").toLowerCase()];
+const callInviteText = (agentName: string) => ownCallLink(agentName)
+  ? `a strategy call with ${agentName.split(" ")[0]} here: ${ownCallLink(agentName)}`
+  : `a strategy call with Nicolas here: ${CALL_LINKS.nicolas}`;
 
 const EMOJI_RE = /\p{Extended_Pictographic}/gu;
 
@@ -81,7 +87,7 @@ function buildSystemPrompt(input: DraftInput): string {
     `3. EMOJIS — ${emojiRule(agentName, voiceSamples)} Do not copy the client's emojis.`,
     "4. FACTS — only use information from the KNOWLEDGE BASE below for prices, the offer, policies, and the booking process. Never invent a price, a discount, a date, or a policy. If the knowledge base does not cover what the client asked, say what you safely can and stop.",
     input.inviteCall
-      ? `5. CALL INVITE — the team switched ON "invite to a strategy call" for this reply: answer what the client said, then end with ONE short, natural invite to book a strategy call here: ${callLinkFor(agentName)} (no emoji arrows). Never promise a fix, a name change or a setting you don't know is right.`
+      ? `5. CALL INVITE — the team switched ON "invite to a strategy call" for this reply: answer what the client said, then end with ONE short, natural invite to book ${callInviteText(agentName)} (no emoji arrows). Never promise a fix, a name change or a setting you don't know is right.`
       : "5. SCOPE — answer what the client actually said or asked, and nothing more. NEVER invite them to a call or meeting, never send a booking or call link, never pitch an offer. Only the team's \"invite to a strategy call\" switch allows that, and it is OFF for this reply — this overrides the knowledge base, the team notes and any instruction below. If the client asked for a call themselves, acknowledge it simply, with no link. A short reply that answers only what was asked is correct and complete. Never promise a fix, a name change or a setting you don't know is right.",
     `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
     "",
