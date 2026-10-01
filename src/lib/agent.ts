@@ -478,7 +478,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
 export const CLAIM_TTL_MS = 2 * 60_000;
 export const claimCutoff = () => new Date(Date.now() - CLAIM_TTL_MS).toISOString();
 const unclaimed = () => `decided_at.is.null,decided_at.lt."${claimCutoff()}"`;
-const isLiveClaim = (p: { decided_at: string | null }) =>
+export const isLiveClaim = (p: { decided_at: string | null }) =>
   !!p.decided_at && Date.now() - Date.parse(p.decided_at) < CLAIM_TTL_MS;
 
 // Execute an APPROVED proposal. Phase 1: send the (possibly edited) reply;
@@ -506,6 +506,9 @@ export async function executeProposal(
         });
         ok = r.ok;
         sendNote = r.ok ? `reply sent (${p.channel ?? "SMS"})` : `send failed: ${r.error}`;
+        // Mark that the text is out before the slow part: if this run is
+        // killed (timeout) the card must never be approved — and texted — again.
+        if (r.ok) await svc.from("agent_proposals").update({ executed_at: new Date().toISOString() }).eq("id", p.id);
       }
     }
   }

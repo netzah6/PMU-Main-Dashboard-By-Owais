@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { claimCutoff, executeProposal, type Proposal } from "@/lib/agent";
+import { claimCutoff, executeProposal, isLiveClaim, type Proposal } from "@/lib/agent";
 
 export const maxDuration = 60; // approve now also runs the account change against GHL
 
@@ -29,6 +29,18 @@ export async function POST(req: NextRequest) {
   const p = row as Proposal;
   if (p.status !== "pending") return NextResponse.json({ error: `Already ${p.status}` }, { status: 409 });
 
+  // An earlier Approve already sent the reply and then died (timeout) before
+  // finishing. Never send it again — close it so a person finishes by hand.
+  if (p.executed_at) {
+    if (!isLiveClaim(p)) {
+      await svc.from("agent_proposals").update({
+        status: "failed", result: "✗ reply was already sent, but the run stopped before finishing — check the account and finish by hand",
+      }).eq("id", id).eq("status", "pending");
+      return NextResponse.json({ error: "Reply was already sent — finish this one by hand" }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Already being approved — refresh in a moment" }, { status: 409 });
+  }
+
   const decidedBy = user.email ?? user.id;
   // Claim the card before doing anything. The status only changes after the
   // reply is sent (10–60 s), so without this a second Approve (another tab,
@@ -36,7 +48,7 @@ export async function POST(req: NextRequest) {
   // claim older than CLAIM_TTL_MS is a run that died (timeout) and may retry.
   const { data: claimed } = await svc.from("agent_proposals")
     .update({ decided_by: decidedBy, decided_at: new Date().toISOString() })
-    .eq("id", id).eq("status", "pending")
+    .eq("id", id).eq("status", "pending").is("executed_at", null)
     .or(`decided_at.is.null,decided_at.lt."${claimCutoff()}"`)
     .select("id").maybeSingle();
   if (!claimed) return NextResponse.json({ error: "Already being approved — refresh in a moment" }, { status: 409 });
