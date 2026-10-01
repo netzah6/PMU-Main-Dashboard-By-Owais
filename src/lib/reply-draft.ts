@@ -8,7 +8,7 @@ import { getReplyKb } from "@/lib/reply-kb";
 import { waitUntil } from "@vercel/functions";
 import { callViolation, clientAskedForCall, stripCallInvites } from "@/lib/call-guard";
 import {
-  getClientMemory, getLearnedExamples, matchSentReplies, recordDraft, refreshClientMemory,
+  getClientMemory, getLearnedExamples, matchSentReplies, recordDraft, refreshClientMemory, withoutSecrets,
   type ClientMemory, type LearnedExample,
 } from "@/lib/reply-learning";
 
@@ -251,7 +251,7 @@ export async function draftReplyFor(opts: {
     standingNotes: notesRow.data?.content ?? "",
     nameByUserId,
     inviteCall: !!opts.inviteCall,
-    clientMemory: known?.facts,
+    clientMemory: known?.facts ? withoutSecrets(known.facts) : undefined, // rows saved before the filter too
     learned: learned.examples,
   });
   // Everything it wrote was a call invite (cut above) — say so, don't send nothing.
