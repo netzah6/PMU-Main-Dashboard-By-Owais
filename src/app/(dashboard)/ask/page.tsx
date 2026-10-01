@@ -110,8 +110,13 @@ export default function AskPage() {
     try {
       const q = new URLSearchParams(window.location.search);
       if (q.get("p")) setFocusProposal(q.get("p"));
-      else if (q.get("view") === "agent") setShowActivity(true); // old inbox link → the activity view
-    } catch { /* no query string */ }
+      else {
+        // No SMS link to open — so the first in-app focus (a 🪄 plan
+        // landing) isn't mistaken for one and re-opened / re-checked.
+        deepLinkDone.current = true;
+        if (q.get("view") === "agent") setShowActivity(true); // old inbox link → the activity view
+      }
+    } catch { deepLinkDone.current = true; /* no query string */ }
   }, []);
 
   const loadConvs = useCallback(async (opts?: { silent?: boolean }) => {
@@ -319,13 +324,13 @@ export default function AskPage() {
     void proposeFor(c);
   }, [proposals, proposeFor, pinned]);
 
-  // Show a card: in its conversation's composer when that chat is in the
-  // list, otherwise on its own in the main area. Already-decided cards (an
-  // SMS link opened late) always go on their own — the composer only lists
-  // live ones.
+  // Show a card. A pending one opens in its chat (re-checked), even when the
+  // chat is no longer unread — reading the SMS in GHL marks it read, and a
+  // card shown on its own would skip the re-check. Already-decided cards
+  // (an SMS link opened late) go on their own, read-only.
   const openProposal = useCallback((p: AgentProposal) => {
     focusCard(p.id);
-    const c = p.status === "pending" ? convs.find((x) => x.id === p.conversation_id) : undefined;
+    const c = p.status === "pending" ? convs.find((x) => x.id === p.conversation_id) ?? convFromProposal(p) : undefined;
     if (c) {
       if (composerRef.current.id !== c.id) clickConv(c);
       else { setShowActivity(false); setShowChats(false); }
