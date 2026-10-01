@@ -110,6 +110,17 @@
     return m ? decodeURIComponent(m[2]) : "";
   }
 
+  /* A/B: "Call Us Today" bar at the top — a = shown (control), b = hidden
+     (less chrome above the quiz on mobile). 50/50, sticky per visitor,
+     reported on every lead as answers.topbar (owner test, 2026-10-01). */
+  var TOPBAR_V = (function () {
+    try {
+      var v = localStorage.getItem("ob_topbar");
+      if (v !== "a" && v !== "b") { v = Math.random() < 0.5 ? "a" : "b"; localStorage.setItem("ob_topbar", v); }
+      return v;
+    } catch (e) { return "a"; }
+  })();
+
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
   fl.rel = "stylesheet";
@@ -423,6 +434,7 @@
       seriousness: a.serious || "",
       aftercare_kit: a.aftercare || "",
       deprow: DEPROW_V,
+      topbar: TOPBAR_V,
       source: "onebox"
     };
     /* Genuinely new custom-survey questions ride along too — anything in
@@ -460,7 +472,7 @@
   if (V2) root.classList.add("v2");
   root.innerHTML =
     '<div class="topbar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg><span>' + esc(ADDR) + "</span></div>" +
-    '<div class="callbar">Call Us Today:' + (PHONE ? " " + esc(PHONE) : "") + "</div>" +
+    (TOPBAR_V === "b" ? "" : '<div class="callbar">Call Us Today:' + (PHONE ? " " + esc(PHONE) : "") + "</div>") +
     '<div class="wrap">' +
     (LOGO ? '<img class="biglogo" src="' + esc(fastImg(LOGO, 320)) + '" fetchpriority="high" alt="' + esc(BIZ) + ' logo">' : "") +
     '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
