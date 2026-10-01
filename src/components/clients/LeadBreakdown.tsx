@@ -41,6 +41,16 @@ const STATUS: Record<string, { emoji: string; legend: string; short: (aiOff: boo
 };
 const LEGEND_ORDER = ["confirmed", "ai_booked_pending", "funnel_drop", "offer_not_booked", "ai_active_no_offer", "ai_off_stalled", "v3_only"];
 
+// Funnel-setup review from /api/onebox/funnel-review — config graded against
+// the 2026-10-01 fleet research, ordered so the first card = change this first.
+type FunnelCheck = { emoji: string; severity: "fix" | "watch" | "good"; title: string; body: string };
+type FunnelReview = {
+  found: boolean;
+  ageDays?: number | null;
+  stats?: { leads30: number; picked30: number; paid30: number; leadToPicked: number | null; pickedToPaid: number | null; fleet: { pickedToPaidMedian: number } };
+  checks?: FunnelCheck[];
+};
+
 type DaySlots = { slots: number; hours: number };
 type AvailInfo = {
   openSlots: number; openHours: number; pctFree: number | null;
@@ -141,6 +151,21 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [ownerKey]);
+
+  // Funnel-setup review (price / offer / services / widgets vs the fleet
+  // research) — joined by the account's location_id from the lead rows.
+  const [funnelReview, setFunnelReview] = useState<FunnelReview | null>(null);
+  const locationId = useMemo(() => leads.find((l) => l.location_id)?.location_id ?? null, [leads]);
+  useEffect(() => {
+    if (!locationId) return;
+    let cancelled = false;
+    setFunnelReview(null);
+    fetch(`/api/onebox/funnel-review?locationId=${encodeURIComponent(locationId)}`)
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled && j?.found) setFunnelReview(j); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [locationId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -490,6 +515,31 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
               )}
             </div>
           )}
+          {funnelReview?.checks?.length ? (
+            <div className="pb-2 border-b border-[#d6ece9] space-y-1.5">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-[#0e8f88]">
+                🛠️ Funnel setup <span className="font-medium normal-case text-[#697a91] tracking-normal">· vs the fleet research — fix top-down</span>
+              </div>
+              {funnelReview.stats?.pickedToPaid != null && (
+                <div className="text-[11px] text-[#34568a]">
+                  📊 <span className="font-semibold">Pay-through:</span> {funnelReview.stats.pickedToPaid}% of booked leads paid (30d)
+                  <span className="text-[#697a91]"> · fleet median {funnelReview.stats.fleet.pickedToPaidMedian}%</span>
+                </div>
+              )}
+              {funnelReview.checks.map((c, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="text-sm leading-none mt-0.5">{c.emoji}</span>
+                  <div>
+                    <p className={cn(
+                      "text-xs font-semibold",
+                      c.severity === "fix" ? "text-[#b91c1c]" : c.severity === "good" ? "text-[#15803d]" : "text-[#1f3559]",
+                    )}>{c.title}</p>
+                    <p className="text-[11px] text-[#56678a] leading-snug">{c.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {recommendations.map((r, i) => (
             <div key={i} className="flex items-start gap-2">
               <span className="text-sm leading-none mt-0.5">{r.emoji}</span>
