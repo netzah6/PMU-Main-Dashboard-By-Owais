@@ -98,6 +98,9 @@ export async function getThread(acct: PmuAccount, conversationId: string, opts: 
   const j = (await r.json()) as { messages?: { messages?: Array<Record<string, unknown>> } };
   const raw = j.messages?.messages ?? [];
   const msgs: ThreadMessage[] = raw
+    // GHL interleaves activity notes ("Opportunity updated") and internal
+    // team comments with messages — neither was sent to the client.
+    .filter((m) => !/ACTIVITY|INTERNAL_COMMENT/i.test(String(m.messageType ?? m.type ?? "")))
     .map((m) => ({
       id: String(m.id),
       direction: (String(m.direction ?? "").toLowerCase() === "inbound"
@@ -174,6 +177,8 @@ function looksAutomated(body: string): boolean {
     body.trim().length < 2 ||
     b.includes("http://") ||
     b.includes("https://") ||
+    b.includes("www.") ||
+    b.includes(".com/") ||
     b.includes("unsubscribe") ||
     b.startsWith("reply stop")
   );
@@ -209,7 +214,8 @@ export async function getVoiceSamples(
     let fromThis = 0;
     for (let i = thread.length - 1; i >= 0 && fromThis < 3; i--) {
       const m = thread[i];
-      if (m.direction !== "outbound" || m.userId !== ghlUserId || looksAutomated(m.body)) continue;
+      if (m.direction !== "outbound" || m.userId !== ghlUserId || isAutomatedMessage(m)
+        || m.channel === "Email" || m.channel === "Msg" || looksAutomated(m.body)) continue;
       const key = m.body.trim().toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -235,11 +241,13 @@ export function resolveVoiceUser(roster: RosterUser[], email?: string | null): {
   return { user: fallback, isSelf: false };
 }
 
-// A workflow/campaign text (no person behind it). GHL marks these in
-// `source`; with no source and no user we can't tell, so it's treated as an
-// agency message someone sent (e.g. from the dashboard), not as automation.
+// A workflow / campaign / bulk text — no person typed it. GHL marks these
+// in `source` AND stamps them with the assigned user's id, so a workflow
+// reminder looks like Nicolas wrote it unless `source` is checked (live
+// check 2026-10-01: 141 typed replies were source "app"; the call-booking
+// reminders with ✅ 👍 and the call link were source "workflow" with his id).
 export function isAutomatedMessage(m: ThreadMessage): boolean {
-  return m.direction === "outbound" && !m.userId && /workflow|campaign|bulk|drip|automation|trigger/i.test(m.source ?? "");
+  return m.direction === "outbound" && /workflow|campaign|bulk|drip|automation|trigger/i.test(m.source ?? "");
 }
 
 /* Index of the first client message nobody has answered yet: walk back from
@@ -289,8 +297,8 @@ export function formatThreadForPrompt(
   };
   const sender = (m: ThreadMessage) => {
     if (m.direction === "inbound") return who;
-    if (m.userId) return opts.nameByUserId?.get(m.userId) || "Teammate";
     if (isAutomatedMessage(m)) return "Automated (workflow text — not a person)";
+    if (m.userId) return opts.nameByUserId?.get(m.userId) || "Teammate";
     return "Agency (sent without a teammate name, e.g. from the dashboard)";
   };
   const firstNew = firstUnansweredIndex(thread);
