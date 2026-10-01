@@ -1198,6 +1198,13 @@
       if (q.k === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val)) {
         fail("Please enter a valid email address"); return;
       }
+      /* First AND last name: the checkout requires a last name, and Apple
+         Pay / Google Pay fail SILENTLY when it's blank (no error shown by
+         the payment sheet — owner-reported, 2026-10-01). Requiring both
+         words here means the checkout prefill is always complete. */
+      if (q.k === "full_name" && !/\S+\s+\S\S*/.test(val)) {
+        fail("Please enter your first and last name"); return;
+      }
       if (q.k === "phone") {
         var digits = val.replace(/\D/g, "");
         if (digits.length === 11 && digits.charAt(0) === "1") digits = digits.slice(1);
