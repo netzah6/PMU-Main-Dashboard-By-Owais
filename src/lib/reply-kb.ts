@@ -22,7 +22,7 @@ export const REPLY_KB = `
 - Month-to-month service fee appears as $697/mo (most common), with retention offers of $597/mo and $497/mo ("a special deal").
 - Auto-bookings pitched two ways: a free beta ("you only cover ad spend, we just charge a $50 deposit") and a per-client model ($25 per client).
 - Guarantees seen: "at least 10 bookings every month"; the "30-Day Results Challenge" = "10 qualified bookings or you don't pay a dime." A "free time guarantee" exists but is conditional: "works only when all the steps have been followed."
-- IMPORTANT: do NOT invent or quote a price you aren't sure of. If asked "how much," confirm against the client's account or offer to set up a quick call rather than guessing.
+- IMPORTANT: do NOT invent or quote a price you aren't sure of. If asked "how much," say you'll confirm their exact rate rather than guessing.
 
 ## 2. Common questions & the best answers
 - "How does the new auto-booking system work?" → "It's a new system that helps artists automatically get extra appointments, with a deposit already placed on your calendar — so you don't have to go back and forth with clients. The system finds clients and books them."
@@ -40,23 +40,23 @@ export const REPLY_KB = `
 3. When a call is the right next step AND the drafting note asks for one, push to a strategy call with a personal booking link: "👉 www.pmu-bookings.com/nicolas-strategy-call" (each rep has their own /firstname-strategy-call link). This is the standard CTA for re-engagement sequences — it is NOT a default ending for every reply, and must never be appended to a message that was only meant to answer a question.
 4. Confirm + remind the call. If they miss it: "Not a problem, you can reschedule here: 👉 [link]."
 5. Close = restart campaign / approve ad spend / sign the agreement, then onboarding (Lead Connector app login on desktop + mobile).
-- CTAs that worked: "When you're ready, book a quick strategy call with me here 👉 [link]"; "Reply 'YES' if you want to claim it"; "Do we have a green light? :)".
+- CTAs that worked in re-engagement campaigns (ONLY when the note asks for a pitch): "When you're ready, book a quick strategy call with me here 👉 [link]"; "Reply 'YES' if you want to claim it".
 
 ## 4. Objection handling (what actually worked)
 - "Too expensive / can't afford it right now" → offer a reduced personal rate ("I can give you a special deal for just $497/mo") and re-anchor on value: "as long as you follow the process you'll get 10–20 appointments a month."
 - "It didn't work / not enough bookings" → point to the process not being followed (the 7 steps for success) and the auto-bookings upgrade: "if you reached 42 by yourself without the 7-step process, auto-bookings will convert the same or more."
 - "Don't want to discount my prices" → "You shouldn't discount anything — you'll just acknowledge the voucher and use your normal price."
 - "It's too much work / no time to follow up daily" → "If it's too much work we can always meet and make it simpler" + happily circle back later: "better to do it when you're ready."
-- Goes silent after the offer → persistent, friendly, value-first nudges over time: success stories ("60 bookings in under 90 days"), the 30-Day Results Challenge risk-reversal, soft check-ins ("hope everything's been flowing well 😊"), and a final gentle urgency line ("that offer expires in 3 days — reply 'YES'"). Many artists re-signed weeks later from these.
+- Goes silent after the offer → persistent, friendly, value-first nudges over time: success stories ("60 bookings in under 90 days"), the 30-Day Results Challenge risk-reversal, soft check-ins ("hope everything's been flowing well"), and a final gentle urgency line ("that offer expires in 3 days — reply 'YES'"). Many artists re-signed weeks later from these.
 - Wants a guarantee → "I'll give you a guarantee of at least 10 bookings every month, so you always get full value for every penny."
 - Cancelling for life reasons (finances, illness, travel, too busy) → DO NOT fight it. Validate, pause, keep it warm: "I totally understand — either way, I'm here for you." This consistently preserved goodwill and led to later re-activations.
 
 ## 5. Tone & style norms (common across staff)
-- Greeting: "Hi/Hey [FirstName]," — almost always first name; reps usually self-identify ("It's Nicolas with PMU Bookings On Demand").
-- Warm, encouraging, peer-to-peer. Lots of reassurance ("No worries," "I totally understand," "I'm here for you"), light praise ("you're doing amazing").
-- Emoji use is normal but light: 😊 💛 💪 ✨ 🔥 🙏 — usually one per message.
+- Greeting: "Hi/Hey [FirstName]," — first name. In an ongoing chat, don't re-introduce yourself.
+- Warm, direct, peer-to-peer. Reassure when it fits ("No worries," "I totally understand"), but don't pad.
+- Emojis: follow the sender's own habit from their real replies (Nicolas rarely uses them). Never add 😊 by default.
 - Length: mostly 1–3 sentences for check-ins; longer only to explain the offer or a process. Texty, not formal.
-- Always end with a question or a clear next step (a link, a "green light?", a yes/no).
+- End naturally. Ask a question only when something is actually needed from the client — no call invites or links unless they asked.
 
 ## 6. Do NOT say / cautions
 - Don't promise data portability that isn't real: chat history cannot be moved between GHL accounts and the system is company-owned. Offer the connected-phone-number workaround instead of implying they keep everything.

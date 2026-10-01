@@ -169,7 +169,7 @@ export default function ReplyPage() {
       setVoiceNote(
         v?.matched
           ? `Written in ${v.name}'s voice (${v.samplesUsed} past replies used).`
-          : `Couldn't match your login to a GHL user — used a neutral voice.`
+          : `Couldn't match your login to a GHL user — written in ${v?.name ?? "Nicolas"}'s voice instead (${v?.samplesUsed ?? 0} past replies).`
       );
     } catch (e) {
       toast.error(`${e}`.replace("Error: ", ""));
@@ -245,7 +245,7 @@ export default function ReplyPage() {
 
       {me && !me.matched && (
         <div className="px-4 py-2.5 rounded-lg border border-[#fde68a] bg-[#fffbeb] text-[#92400e] text-xs">
-          Your dashboard login email doesn&apos;t match a GHL user on this account, so drafts use a neutral voice.
+          Your dashboard login email doesn&apos;t match a GHL user on this account, so drafts are written in Nicolas&apos;s voice.
           To get replies in your own voice, make sure your GHL user email matches your dashboard login.
         </div>
       )}
