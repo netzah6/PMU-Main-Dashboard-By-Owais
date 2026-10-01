@@ -4,7 +4,10 @@ import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, Check, Messag
 import { toast } from "sonner";
 import { cn, userColor } from "@/lib/utils";
 
-type Draft = { contactName: string; channel: string; draft: string; voice: string; conversationUrl: string; conversationId?: string; contactId?: string | null };
+// voiceInfo only comes from /api/ghl/reply/draft — AI-chat drafts carry just
+// the name, so the "written in …'s voice" line is skipped for those.
+type VoiceInfo = { name: string; matched: boolean; samplesUsed: number };
+type Draft = { contactName: string; channel: string; draft: string; voice: string; voiceInfo?: VoiceInfo; conversationUrl: string; conversationId?: string; contactId?: string | null };
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[]; reports?: string[] };
 type Conv = {
   id: string;
@@ -58,18 +61,48 @@ export default function AskPage() {
   // Manual send — YOU type it, YOU click Send; nothing automated.
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
-  // Admin-only agent inbox view toggle.
-  const [view, setView] = useState<"chat" | "agent">("chat");
-  const [agentPending, setAgentPending] = useState(0);
-  // The owner's text says "Approve or deny: …/ask?view=agent&p=<id>" — land
-  // on the Agent inbox with that card first (window.location, not
-  // useSearchParams, so the page needs no Suspense boundary).
+  // ── CEO Agent, merged into the chat (owner request 2026-10-01) ──
+  // Admin only. Cards live next to their conversation instead of a separate
+  // tab; nothing runs until someone opens the card and clicks Approve.
+  const [proposals, setProposals] = useState<AgentProposal[]>([]);
+  const [lastScan, setLastScan] = useState<ScanLog | null>(null);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
+  const [proposalsLoaded, setProposalsLoaded] = useState(false);
+  const [proposalsErr, setProposalsErr] = useState<string | null>(null);
+  // Latest-wins guard: a slow 45 s refresh must not wipe a card that 🪄 just
+  // filed (or a decision just made) with an older copy of the list.
+  const proposalsReq = useRef(0);
+  const [proposing, setProposing] = useState<Set<string>>(new Set()); // conversation ids with a 🪄 in flight
+  const proposingRef = useRef<Set<string>>(new Set());
+  // Approved cards stay on screen with their before → after proof until
+  // dismissed, even after the refreshed list says they're no longer pending.
+  const [pinned, setPinned] = useState<Set<string>>(new Set());
+  const [openCardId, setOpenCardId] = useState<string | null>(null); // card shown on its own (chat not in the unread list)
+  // A card's edited reply, by card id — kept here so it survives the card
+  // moving between the composer and the main area, or a list refresh.
+  const [cardReplies, setCardReplies] = useState<Record<string, string>>({});
+  const setCardReply = useCallback((id: string, v: string) => setCardReplies((m) => ({ ...m, [id]: v })), []);
+  const [showActivity, setShowActivity] = useState(false);            // "Agent activity & settings" in the main area
+  const [orphansOpen, setOrphansOpen] = useState(true);
+  // The owner's text says "Approve or deny: …/ask?view=agent&p=<id>" — open
+  // that card once the lists load (window.location, not useSearchParams, so
+  // the page needs no Suspense boundary).
   const [focusProposal, setFocusProposal] = useState<string | null>(null);
+  const deepLinkDone = useRef(false);
+  // Highlight + scroll to a card. The tick re-runs the scroll even when the
+  // same card is asked for twice (🪄 on a chat that already has one).
+  const scrolledTo = useRef<string | null>(null);
+  const [focusTick, setFocusTick] = useState(0);
+  const focusCard = useCallback((id: string) => {
+    scrolledTo.current = null;
+    setFocusProposal(id);
+    setFocusTick((t) => t + 1);
+  }, []);
   useEffect(() => {
     try {
       const q = new URLSearchParams(window.location.search);
-      if (q.get("view") === "agent") setView("agent");
       if (q.get("p")) setFocusProposal(q.get("p"));
+      else if (q.get("view") === "agent") setShowActivity(true); // old inbox link → the activity view
     } catch { /* no query string */ }
   }, []);
 
@@ -90,6 +123,25 @@ export default function AskPage() {
     }
   }, []);
 
+  const loadProposals = useCallback(async (opts?: { silent?: boolean }) => {
+    const req = ++proposalsReq.current;
+    if (!opts?.silent) { setProposalsLoading(true); setProposalsErr(null); }
+    try {
+      const res = await fetch("/api/agent/proposals");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to load agent requests");
+      if (req !== proposalsReq.current) return; // a newer load or local change won
+      setProposals(json.proposals ?? []);
+      setLastScan(json.lastScan ?? null);
+      setProposalsErr(null);
+    } catch (e) {
+      if (req === proposalsReq.current) setProposalsErr(`${e}`.replace("Error: ", ""));
+    } finally {
+      setProposalsLoading(false);
+      setProposalsLoaded(true);
+    }
+  }, []);
+
   // Build the GHL deep-link that reliably opens this contact's chat.
   const chatUrl = useCallback((c: Conv) =>
     c.contactId && locationId
@@ -100,12 +152,15 @@ export default function AskPage() {
 
   // Keep the inbox fresh for the team: silently re-fetch every 45s while the
   // page is visible, so new client messages appear without a manual refresh.
+  // Agent cards ride the same timer so the 🕵️ row badges stay current.
   useEffect(() => {
     const t = setInterval(() => {
-      if (document.visibilityState === "visible") loadConvs({ silent: true });
+      if (document.visibilityState !== "visible") return;
+      loadConvs({ silent: true });
+      if (role === "admin") loadProposals({ silent: true });
     }, 45_000);
     return () => clearInterval(t);
-  }, [loadConvs]);
+  }, [loadConvs, loadProposals, role]);
 
   const sendManual = useCallback(async () => {
     if (!pending?.contactId || !sendText.trim() || sending) return;
@@ -129,14 +184,10 @@ export default function AskPage() {
     }
   }, [pending, sendText, sending, loadConvs]);
 
-  // Badge count for the Agent toggle, fetched once the role is known.
+  // Agent cards are admin-only — members never fetch (or see) them.
   useEffect(() => {
-    if (role !== "admin") return;
-    fetch("/api/agent/proposals")
-      .then((r) => r.json())
-      .then((j) => setAgentPending(j.pending ?? 0))
-      .catch(() => {});
-  }, [role]);
+    if (role === "admin") loadProposals();
+  }, [role, loadProposals]);
 
   // Load the full conversation whenever the composer opens for a chat.
   useEffect(() => {
@@ -183,10 +234,103 @@ export default function AskPage() {
   // firing off a draft immediately — so you can steer the reply first.
   const clickConv = useCallback((c: Conv) => {
     setShowChats(false);
+    setShowActivity(false);
+    setOpenCardId(null);
     setNote("");
     setSendText("");
     setPending(c);
   }, []);
+
+  // What the composer holds right now, readable from async 🪄 callbacks: a
+  // card that lands 20 s later must not wipe a reply someone is typing.
+  const composerRef = useRef<{ id: string | null; dirty: boolean }>({ id: null, dirty: false });
+  useEffect(() => {
+    composerRef.current = { id: pending?.id ?? null, dirty: !!(note.trim() || sendText.trim()) };
+  }, [pending, note, sendText]);
+
+  // Show a card: in its conversation's composer when that chat is in the
+  // list, otherwise on its own in the main area. Already-decided cards (an
+  // SMS link opened late) always go on their own — the composer only lists
+  // live ones.
+  const openProposal = useCallback((p: AgentProposal) => {
+    focusCard(p.id);
+    const c = p.status === "pending" ? convs.find((x) => x.id === p.conversation_id) : undefined;
+    if (c) {
+      if (composerRef.current.id !== c.id) clickConv(c);
+      else { setShowActivity(false); setShowChats(false); }
+      return;
+    }
+    setPending(null);
+    setShowActivity(false);
+    setShowChats(false);
+    setOpenCardId(p.id);
+  }, [convs, clickConv, focusCard]);
+
+  // 🪄 "Let AI handle it": files (or returns the open) card for this chat.
+  // It only PROPOSES — the card still needs a human Approve to do anything.
+  const proposeFor = useCallback(async (c: Conv) => {
+    // Always ask the server: it hands back the open card when nothing new has
+    // arrived, and re-reads the chat when the client wrote since.
+    if (proposingRef.current.has(c.id)) return;
+    proposingRef.current.add(c.id);
+    setProposing(new Set(proposingRef.current));
+    try {
+      const res = await fetch("/api/agent/propose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: c.id, contactId: c.contactId, contactName: c.contactName, channel: c.channel }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.proposal) throw new Error(json.error || "The AI couldn't take this one");
+      const p = json.proposal as AgentProposal;
+      proposalsReq.current++; // any in-flight refresh predates this card
+      setProposals((list) => [p, ...list.filter((x) => x.id !== p.id)]);
+      const cur = composerRef.current;
+      if (cur.id && cur.id !== c.id && cur.dirty) {
+        // Someone is mid-reply in another chat — don't yank them away.
+        toast.success(`AI plan ready for ${c.contactName}`, { action: { label: "Open", onClick: () => { focusCard(p.id); clickConv(c); } } });
+      } else {
+        focusCard(p.id);
+        if (cur.id !== c.id) clickConv(c);
+        else { setShowActivity(false); setOpenCardId(null); }
+      }
+    } catch (e) {
+      toast.error(`${c.contactName}: ${`${e}`.replace("Error: ", "")}`);
+    } finally {
+      proposingRef.current.delete(c.id);
+      setProposing(new Set(proposingRef.current));
+    }
+  }, [clickConv, focusCard]);
+
+  // Card lifecycle → list upkeep. Approving pins the card so its proof stays
+  // up through the refresh; deny / dismiss / a failed request let it go.
+  const onCardPhase = useCallback((id: string, phase: CardPhase) => {
+    if (phase === "approving") { setPinned((s) => new Set(s).add(id)); return; }
+    if (phase !== "approved") {
+      setPinned((s) => { const n = new Set(s); n.delete(id); return n; });
+      if (phase !== "error") setOpenCardId((cur) => (cur === id ? null : cur));
+    }
+    loadProposals({ silent: true });
+  }, [loadProposals]);
+
+  // Deep link from the SMS alert: open that card once both lists are in.
+  useEffect(() => {
+    if (deepLinkDone.current || !focusProposal || role !== "admin" || !proposalsLoaded || convsLoading) return;
+    deepLinkDone.current = true;
+    const p = proposals.find((x) => x.id === focusProposal);
+    if (p) openProposal(p);
+    else toast.error(proposalsErr ? `Couldn't load agent requests: ${proposalsErr}` : "That agent request isn't in the recent list anymore");
+  }, [focusProposal, role, proposalsLoaded, convsLoading, proposals, proposalsErr, openProposal]);
+
+  // Bring the focused card into view once it is actually on screen (the
+  // composer mounts a render after the card is chosen).
+  useEffect(() => {
+    if (!focusProposal || scrolledTo.current === focusProposal) return;
+    const el = document.getElementById(`proposal-${focusProposal}`);
+    if (!el) return;
+    scrolledTo.current = focusProposal;
+    el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [focusProposal, focusTick, pending, openCardId, proposals]);
 
   // Draft deterministically off the exact conversation id (no LLM name-guessing),
   // passing the optional note as instructions. Fixes wrong-chat + adds the note.
@@ -206,7 +350,7 @@ export default function AskPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to draft a reply");
       const voice = json.voice?.name ?? "";
-      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, conversationUrl: chatUrl(c), conversationId: c.id, contactId: c.contactId };
+      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, voiceInfo: json.voice ?? undefined, conversationUrl: chatUrl(c), conversationId: c.id, contactId: c.contactId };
       setMsgs((m) => [...m, { role: "assistant", content: `Here's a draft for ${c.contactName}${voice ? ` in ${voice}'s style` : ""} — use the buttons below to copy it and open the chat.`, drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
@@ -234,7 +378,7 @@ export default function AskPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to update the draft");
       const voice = json.voice?.name ?? d.voice;
-      const draft: Draft = { ...d, draft: json.draft, voice };
+      const draft: Draft = { ...d, draft: json.draft, voice, voiceInfo: json.voice ?? d.voiceInfo };
       setMsgs((m) => [...m, { role: "assistant", content: `Updated draft for ${d.contactName} — your changes are in. Edit again if it still needs work.`, drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
@@ -249,11 +393,38 @@ export default function AskPage() {
     ? convs.filter((c) => (filterUser === "__none" ? !c.assignedTo : c.assignedTo === filterUser))
     : convs;
 
+  // Agent view-model — empty for members, so none of the agent UI renders.
+  const isAdmin = role === "admin";
+  const agentPending = isAdmin ? proposals.filter((p) => p.status === "pending") : [];
+  const cardConvIds = new Set(agentPending.map((p) => p.conversation_id));
+  const shownIds = new Set(shownConvs.map((c) => c.id));
+  // Cards with no row to sit next to (chat already read, or filtered out).
+  const orphanCards = agentPending.filter((p) => !shownIds.has(p.conversation_id));
+  // The open chat's cards; approved ones stay (pinned) to show their proof.
+  const convCards = isAdmin && pending
+    ? proposals.filter((p) => p.conversation_id === pending.id && (p.status === "pending" || pinned.has(p.id)))
+    : [];
+  const openCard = isAdmin && openCardId ? proposals.find((p) => p.id === openCardId) ?? null : null;
+
   const chatList = (
     <>
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#eef3f8]">
         <span className="text-xs font-bold text-[#1f3559] flex items-center gap-1.5"><MessageCircle size={13} className="text-[#15B7AE]" /> {role === "member" ? "Your unread chats" : "Unread chats"} {shownConvs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{shownConvs.length}</span>}</span>
-        <button onClick={() => loadConvs()} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading ? "animate-spin" : ""} /></button>
+        <div className="flex items-center gap-0.5">
+          {isAdmin && (
+            // Where the old Agent tab's scan log, history and SMS settings live now.
+            <button onClick={() => {
+              // Give the activity view the whole main area — an open chat squeezed it to nothing.
+              setShowActivity((s) => { if (!s) { setPending(null); setOpenCardId(null); } return !s; });
+              setShowChats(false);
+            }}
+              title="Agent activity & settings" aria-label="Agent activity & settings" aria-pressed={showActivity}
+              className={cn("px-1.5 py-0.5 rounded text-[12px] flex items-center gap-1", showActivity ? "bg-[#e6f7f5] text-[#0e8f88]" : "text-[#8595a8] hover:bg-[#f7fdfc]")}>
+              🕵️{agentPending.length > 0 && <span className="px-1 rounded-full bg-[#e11d48] text-white text-[9px] font-bold">{agentPending.length}</span>}
+            </button>
+          )}
+          <button onClick={() => { loadConvs(); if (isAdmin) loadProposals({ silent: true }); }} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading || proposalsLoading ? "animate-spin" : ""} /></button>
+        </div>
       </div>
       {role === "admin" && (
         <div className="px-3 py-1.5 border-b border-[#eef3f8]">
@@ -265,6 +436,28 @@ export default function AskPage() {
           </select>
         </div>
       )}
+      {orphanCards.length > 0 && (
+        <div className="border-b border-[#eef3f8] bg-[#f7faff]">
+          <button onClick={() => setOrphansOpen((o) => !o)} aria-expanded={orphansOpen}
+            className="w-full flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-[#34568a] hover:text-[#185fa5]">
+            {orphansOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />} 🕵️ Agent requests ({orphanCards.length})
+          </button>
+          {orphansOpen && (
+            <div className="max-h-48 overflow-y-auto pb-1">
+              {orphanCards.map((p) => (
+                <button key={p.id} onClick={() => openProposal(p)}
+                  className={cn("w-full text-left px-3 py-1.5 hover:bg-white", openCardId === p.id && "bg-white")}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-semibold text-[#1f3559] truncate">{p.contact_name}</span>
+                    <span className="shrink-0 text-[10px] text-[#8595a8]">{timeAgo(p.created_at)}</span>
+                  </div>
+                  <p className="text-[11px] text-[#697a91] truncate">{p.summary}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto">
         {convsError ? (
           <p className="p-3 text-xs text-[#e11d48]">{convsError}</p>
@@ -274,8 +467,11 @@ export default function AskPage() {
           <p className="p-3 text-xs text-[#8595a8]">{role === "member" ? "No unread chats assigned to you 🎉" : "Inbox zero — no unread chats 🎉"}</p>
         ) : (
           shownConvs.map((c) => (
-            <button key={c.id} onClick={() => clickConv(c)} disabled={busy}
-              className="w-full text-left px-3 py-2.5 border-b border-[#f1f5f9] hover:bg-[#f7fdfc] disabled:opacity-50 transition-colors">
+            // A div, not a button: the 🪄 is its own button and buttons
+            // can't nest.
+            <div key={c.id} className={cn("flex items-stretch border-b border-[#f1f5f9] hover:bg-[#f7fdfc] transition-colors", pending?.id === c.id && "bg-[#f0fbfa]")}>
+            <button onClick={() => clickConv(c)} disabled={busy}
+              className="flex-1 min-w-0 text-left pl-3 pr-1 py-2.5 disabled:opacity-50">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[13px] font-bold text-[#1f3559] truncate">
                   {c.contactName}
@@ -295,12 +491,28 @@ export default function AskPage() {
               <div className="flex items-center gap-1.5 mt-1">
                 <span className="text-[9px] font-semibold uppercase text-[#0e8f88]">{c.channel}</span>
                 {c.unreadCount > 0 && <span className="px-1 rounded-full bg-[#e11d48] text-white text-[9px] font-bold">{c.unreadCount}</span>}
+                {cardConvIds.has(c.id) && (
+                  <span title="An AI plan is waiting for your Approve" className="px-1 rounded bg-[#e3eefb] text-[#185fa5] text-[9px] font-bold">🕵️ plan</span>
+                )}
               </div>
             </button>
+            {isAdmin && (
+              // Only files a card — the card itself still needs Approve.
+              <button onClick={() => proposeFor(c)} disabled={proposing.has(c.id)}
+                title="Let AI handle it" aria-label="Let AI handle it"
+                className="shrink-0 w-9 flex items-center justify-center text-[15px] hover:bg-[#eef9f8] disabled:cursor-wait">
+                {proposing.has(c.id) ? <Loader2 size={14} className="animate-spin text-[#15B7AE]" /> : "🪄"}
+              </button>
+            )}
+            </div>
           ))
         )}
       </div>
-      <p className="px-3 py-2 border-t border-[#eef3f8] text-[9px] text-[#a6b3c4]">Click a chat → add an optional note → the AI drafts a reply in your voice</p>
+      <p className="px-3 py-2 border-t border-[#eef3f8] text-[9px] text-[#a6b3c4]">
+        {isAdmin
+          ? "Click a chat → optional note → the AI drafts a reply · 🪄 → the AI plans it, you approve"
+          : "Click a chat → add an optional note → the AI drafts a reply in your voice"}
+      </p>
     </>
   );
 
@@ -319,33 +531,19 @@ export default function AskPage() {
       )}
 
     <div className="flex flex-col h-full flex-1 min-w-0 max-w-3xl mx-auto w-full p-2 sm:p-3">
-      {/* Slim top row: agent toggle (admins) + mobile chats button — the old
-          "AI" headline was removed to give the conversation more height. */}
-      <div className="mb-2 flex items-center justify-between gap-2">
-      {role === "admin" ? (
-        <div className="flex gap-1 rounded-lg border border-[#e4ebf2] bg-white p-1 w-fit">
-          {(["chat", "agent"] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)}
-              className={cn("px-3 py-1.5 rounded-md text-xs font-semibold transition-colors flex items-center gap-1.5",
-                view === v ? "bg-[#15B7AE] text-white" : "text-[#34568a] hover:bg-[#f7fdfc]")}>
-              {v === "chat" ? "💬 Chat" : "🕵️ Agent"}
-              {v === "agent" && agentPending > 0 && (
-                <span className={cn("px-1.5 rounded-full text-[10px] font-bold", view === v ? "bg-white text-[#0e8f88]" : "bg-[#e11d48] text-white")}>{agentPending}</span>
-              )}
-            </button>
-          ))}
-        </div>
-      ) : <span />}
+      {/* Mobile-only top row: the chats drawer button. The Chat/Agent toggle
+          is gone (2026-10-01) — agent cards now sit inside the chat. */}
+      <div className="md:hidden mb-2 flex items-center justify-end gap-2">
         <button onClick={() => setShowChats(true)}
-          className="md:hidden shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#d7e0ea] text-xs font-semibold text-[#34568a]">
-          <MessageCircle size={13} /> Chats{convs.length > 0 ? ` (${convs.length})` : ""}
+          className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#d7e0ea] text-xs font-semibold text-[#34568a]">
+          <MessageCircle size={13} /> Chats{convs.length > 0 ? ` (${convs.length})` : ""}{agentPending.length > 0 ? ` · 🕵️ ${agentPending.length}` : ""}
         </button>
       </div>
 
-      {view === "agent" && role === "admin" ? (
-        <AgentPanel onCount={setAgentPending} focusId={focusProposal} />
+      {showActivity && isAdmin ? (
+        <AgentActivity proposals={proposals} lastScan={lastScan} loading={proposalsLoading} err={proposalsErr}
+          onRefresh={() => loadProposals()} onOpen={openProposal} onClose={() => setShowActivity(false)} />
       ) : (
-      <>
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
         {msgs.length === 0 && (
           <div className="pt-16 text-center text-sm text-[#8595a8]">
@@ -384,13 +582,32 @@ export default function AskPage() {
         )}
         <div ref={endRef} />
       </div>
+      )}
 
       {error && <div className="mb-2 px-3 py-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-xs">{error}</div>}
 
+      {/* A card with no chat row to open (already read, or an SMS link to a
+          decided one) — shown on its own; "open chat" loads its thread. */}
+      {openCard && !pending && (
+        <div className="mb-2 max-h-[70vh] overflow-y-auto rounded-xl border border-[#c9dbfb] bg-white p-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="text-xs font-bold text-[#34568a]">🕵️ Agent request</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => clickConv(convFromProposal(openCard))} className="text-[11px] text-[#0e8f88] hover:underline">open chat</button>
+              <button onClick={() => setOpenCardId(null)} title="Close" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
+            </div>
+          </div>
+          {/* Keyed by id: a card's typed reply must never carry over to the next card shown here. */}
+          <ProposalCard key={openCard.id} p={openCard} focused={openCard.id === focusProposal} onPhase={(ph) => onCardPhase(openCard.id, ph)}
+            reply={cardReplies[openCard.id]} onReplyChange={(v) => setCardReply(openCard.id, v)} />
+        </div>
+      )}
+
       {/* Reply composer — appears when a chat is clicked. Shows the full
-          conversation, then a clearly-labelled note the AI reads before drafting. */}
+          conversation, then a clearly-labelled note the AI reads before drafting.
+          Scrolls itself when an agent card makes it taller than the screen. */}
       {pending && (
-        <div className="mb-2 rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-3">
+        <div className="mb-2 min-h-0 overflow-y-auto rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-bold text-[#0e8f88] flex items-center gap-1.5">
               <MessageCircle size={13} /> {pending.contactName}{pending.channel ? ` · ${pending.channel}` : ""}
@@ -398,8 +615,24 @@ export default function AskPage() {
             <button onClick={() => setPending(null)} title="Cancel" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
           </div>
 
-          {/* Full conversation thread */}
-          <div ref={threadRef} className="mb-2.5 max-h-[55vh] overflow-y-auto rounded-lg border border-[#e4ebf2] bg-white p-2 space-y-1.5">
+          {/* Agent card(s) for this chat, on top so the plan is read before the
+              thread. Admin only (convCards is empty for members). */}
+          {isAdmin && proposing.has(pending.id) && convCards.length === 0 && (
+            <p className="mb-2.5 rounded-lg border border-[#c9dbfb] bg-[#f7faff] px-3 py-2 text-[11px] text-[#34568a] flex items-center gap-1.5">
+              <Loader2 size={12} className="animate-spin" /> 🪄 The AI is reading this chat and drafting a plan (10–30 s) — nothing is sent until you Approve.
+            </p>
+          )}
+          {convCards.length > 0 && (
+            <div className="mb-2.5 space-y-2">
+              {convCards.map((p) => (
+                <ProposalCard key={p.id} p={p} focused={p.id === focusProposal} onPhase={(ph) => onCardPhase(p.id, ph)}
+                  reply={cardReplies[p.id]} onReplyChange={(v) => setCardReply(p.id, v)} />
+              ))}
+            </div>
+          )}
+
+          {/* Full conversation thread (shorter when a card sits above it) */}
+          <div ref={threadRef} className={cn("mb-2.5 overflow-y-auto rounded-lg border border-[#e4ebf2] bg-white p-2 space-y-1.5", convCards.length > 0 ? "max-h-[30vh]" : "max-h-[55vh]")}>
             {threadLoading ? (
               <p className="text-[11px] text-[#8595a8] flex items-center gap-1.5 py-1"><Loader2 size={11} className="animate-spin" /> Loading conversation…</p>
             ) : thread.length === 0 ? (
@@ -469,7 +702,7 @@ export default function AskPage() {
         </div>
       )}
 
-      <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex gap-2">
+      <form onSubmit={(e) => { e.preventDefault(); setShowActivity(false); send(input); }} className="flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -482,29 +715,42 @@ export default function AskPage() {
           {busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
         </button>
       </form>
-      </>
-      )}
     </div>
     </div>
   );
 }
 
-// ── CEO Agent inbox (admin only) ─────────────────────────────────────────────
-// Client requests the scanner detected, waiting for an explicit Approve/Deny.
+// ── CEO Agent (admin only) ───────────────────────────────────────────────────
+// Client requests the scanner detected — or that someone handed over with 🪄
+// — waiting for an explicit Approve/Deny. Since 2026-10-01 the cards live in
+// the chat itself (next to their conversation) instead of a separate tab.
 // Approve sends the (editable) reply and — phase 2, 2026-09-28 — runs the
 // account change in the client's own sub-account through the GHL API,
 // keeping a before → after line per step as proof. Steps the API cannot
 // reach (pipeline stages, workflows) park the card as "needs a teammate".
-// Nothing ever executes without a click here.
+// Nothing ever executes without a click on Approve.
 type PlanStep = { type: string; [k: string]: unknown };
 type AgentProposal = {
-  id: string; created_at: string; contact_name: string; channel: string | null;
+  id: string; created_at: string; conversation_id: string; contact_id: string | null;
+  contact_name: string; channel: string | null;
   client_message: string; summary: string; action_type: "reply" | "account_change";
   proposed_reply: string | null; action_detail: string | null;
   status: string; decided_by: string | null; result: string | null;
   action_plan?: PlanStep[] | null; location_id?: string | null; notified_at?: string | null;
 };
 type ScanLog = { at: string; unread: number; scanned: number; filed: number; closed?: number; skipped: Array<{ who: string; why: string }>; errors: string[]; notify?: { sent: boolean; note: string } };
+// What a card tells the page so it can keep the shared list in step.
+type CardPhase = "approving" | "approved" | "denied" | "error" | "dismissed";
+
+// Enough of a Conv to open a card's chat in the composer when that chat is
+// not in the unread list (the thread endpoint only needs the id).
+function convFromProposal(p: AgentProposal): Conv {
+  return {
+    id: p.conversation_id, contactId: p.contact_id, contactName: p.contact_name,
+    lastMessageBody: "", lastMessageDate: null, unreadCount: 0,
+    channel: p.channel ?? "", assignedTo: null, assignedToName: "",
+  };
+}
 
 // Plain-English line per planned step (mirrors describeStep on the server).
 function stepText(s: PlanStep): string {
@@ -520,48 +766,30 @@ function stepText(s: PlanStep): string {
 }
 const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "needs a teammate", handled: "handled in chat", pending: "pending" };
 
-function AgentPanel({ onCount, focusId }: { onCount: (n: number) => void; focusId: string | null }) {
-  const [proposals, setProposals] = useState<AgentProposal[]>([]);
-  const [lastScan, setLastScan] = useState<ScanLog | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+// The old Agent tab minus the cards (those sit next to their chats now): the
+// SMS settings, what the last scan did and why it skipped chats, a short
+// list of what's waiting, and the decided history. Opened from 🕵️ in the
+// chats header; the data comes from the page so there is one list to refresh.
+function AgentActivity({ proposals, lastScan, loading, err, onRefresh, onOpen, onClose }: {
+  proposals: AgentProposal[]; lastScan: ScanLog | null; loading: boolean; err: string | null;
+  onRefresh: () => void; onOpen: (p: AgentProposal) => void; onClose: () => void;
+}) {
   const [showSkipped, setShowSkipped] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null);
-    try {
-      const res = await fetch("/api/agent/proposals");
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed to load proposals");
-      setProposals(json.proposals ?? []);
-      setLastScan(json.lastScan ?? null);
-      onCount(json.pending ?? 0);
-    } catch (e) {
-      setErr(`${e}`.replace("Error: ", ""));
-    } finally {
-      setLoading(false);
-    }
-  }, [onCount]);
-  useEffect(() => { load(); }, [load]);
-
-  // Arriving from the owner's text: bring that card into view once loaded.
-  useEffect(() => {
-    if (!focusId || loading) return;
-    const el = document.getElementById(`proposal-${focusId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [focusId, loading]);
-
-  const pending = proposals.filter((p) => p.status === "pending");
+  const waiting = proposals.filter((p) => p.status === "pending");
   const history = proposals.filter((p) => p.status !== "pending");
 
   return (
     <div className="flex-1 overflow-y-auto space-y-3 pb-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-[#697a91]">Client requests, checked every 10 minutes. <b>Nothing runs without your Approve.</b></p>
-        <button onClick={load} title="Refresh" className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88]">
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-        </button>
+        <span className="text-xs font-bold text-[#1f3559]">🕵️ Agent activity &amp; settings</span>
+        <div className="flex items-center gap-1">
+          <button onClick={onRefresh} disabled={loading} title="Refresh" className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88] disabled:opacity-60">
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          </button>
+          <button onClick={onClose} title="Back to chat" className="p-1.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
+        </div>
       </div>
+      <p className="text-xs text-[#697a91]">Client requests are checked every 10 minutes — or press 🪄 on any chat. Cards sit next to their chat (🕵️). <b>Nothing runs without your Approve.</b></p>
       <NotifySettingsBox />
       {lastScan && (
         <div className="text-[11px] text-[#8595a8] flex items-center gap-2 flex-wrap">
@@ -582,18 +810,31 @@ function AgentPanel({ onCount, focusId }: { onCount: (n: number) => void; focusI
       )}
       {err && <div className="px-3 py-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-xs">{err}</div>}
       {loading && proposals.length === 0 ? (
-        <p className="text-xs text-[#8595a8] flex items-center gap-1.5 py-8 justify-center"><Loader2 size={13} className="animate-spin" /> Loading the agent inbox…</p>
-      ) : pending.length === 0 ? (
-        <div className="text-center py-8 text-sm text-[#8595a8]">No pending requests — the agent found nothing that needs you right now 🎉</div>
+        <p className="text-xs text-[#8595a8] flex items-center gap-1.5 py-8 justify-center"><Loader2 size={13} className="animate-spin" /> Loading agent activity…</p>
       ) : (
-        pending.map((p) => <ProposalCard key={p.id} p={p} onDecided={load} focused={p.id === focusId} />)
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] mb-1">Waiting for you ({waiting.length})</div>
+          {waiting.length === 0 ? (
+            <p className="text-xs text-[#8595a8]">No pending requests — nothing needs you right now 🎉</p>
+          ) : (
+            <div className="space-y-1">
+              {waiting.map((p) => (
+                <button key={p.id} onClick={() => onOpen(p)}
+                  className="w-full text-left rounded-lg border border-[#c9dbfb] bg-[#f7faff] px-3 py-2 text-[11px] text-[#697a91] hover:border-[#15B7AE]">
+                  <span className="font-semibold text-[#1f3559]">{p.contact_name}</span> — {p.summary}
+                  <span className="ml-1.5 text-[10px] text-[#a6b3c4]">{timeAgo(p.created_at)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
       {history.length > 0 && (
         <div>
           <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] mb-1 mt-4">History</div>
           <div className="space-y-1">
             {history.map((p) => (
-              <div key={p.id} id={`proposal-${p.id}`} className={cn("rounded-lg border bg-white px-3 py-2 text-[11px] text-[#697a91]", p.id === focusId ? "border-[#15B7AE]" : "border-[#eef3f8]")}>
+              <div key={p.id} className="rounded-lg border border-[#eef3f8] bg-white px-3 py-2 text-[11px] text-[#697a91]">
                 <span className={cn("font-bold mr-1.5", p.status === "denied" ? "text-[#e11d48]" : p.status === "failed" ? "text-[#c2620a]" : p.status === "queued_browser" ? "text-[#9a5b00]" : p.status === "handled" ? "text-[#34568a]" : "text-[#15803d]")}>
                   {STATUS_LABEL[p.status] ?? p.status}
                 </span>
@@ -670,8 +911,13 @@ function NotifySettingsBox() {
   );
 }
 
-function ProposalCard({ p, onDecided, focused }: { p: AgentProposal; onDecided: () => void; focused?: boolean }) {
-  const [reply, setReply] = useState(p.proposed_reply ?? "");
+function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange }: {
+  p: AgentProposal; onPhase: (phase: CardPhase) => void; focused?: boolean;
+  reply?: string; onReplyChange?: (v: string) => void;
+}) {
+  const [localReply, setLocalReply] = useState(p.proposed_reply ?? "");
+  const reply = keptReply ?? localReply;
+  const setReply = (v: string) => { setLocalReply(v); onReplyChange?.(v); };
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
   const [outcome, setOutcome] = useState<{ status: string; result: string } | null>(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -682,6 +928,7 @@ function ProposalCard({ p, onDecided, focused }: { p: AgentProposal; onDecided: 
   const decide = useCallback(async (decision: "approve" | "deny") => {
     if (busy) return;
     setBusy(decision);
+    if (decision === "approve") onPhase("approving"); // pin before a refresh can drop it
     try {
       const res = await fetch("/api/agent/decide", {
         method: "POST",
@@ -690,27 +937,33 @@ function ProposalCard({ p, onDecided, focused }: { p: AgentProposal; onDecided: 
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed");
-      if (decision === "deny") { toast.success("Denied — nothing sent or changed"); onDecided(); return; }
+      if (decision === "deny") { toast.success("Denied — nothing sent or changed"); onPhase("denied"); return; }
       // Keep the card up with the proof until the owner has read it.
       setOutcome({ status: json.status, result: json.result ?? "" });
       toast.success(json.status === "done" ? "Done — change made and reply sent" : json.status === "queued_browser" ? "Reply sent · a teammate must finish this one" : "Something failed — see the card");
       setBusy(null);
+      onPhase("approved");
     } catch (e) {
       toast.error(`${e}`.replace("Error: ", ""));
       setBusy(null);
+      onPhase("error");
     }
-  }, [busy, p.id, reply, onDecided]);
+  }, [busy, p.id, reply, onPhase]);
 
-  if (outcome) {
-    const ok = outcome.status === "done";
+  // A card that was decided elsewhere (SMS link, another admin, a remount)
+  // shows its stored result — never live Approve/Deny buttons again.
+  const shown = outcome ?? (p.status !== "pending" ? { status: p.status, result: p.result ?? "" } : null);
+  if (shown) {
+    const ok = shown.status === "done";
+    const label = ok ? "✅ done" : shown.status === "failed" ? "❌ failed" : shown.status === "queued_browser" ? "👤 needs a teammate" : STATUS_LABEL[shown.status] ?? shown.status;
     return (
-      <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", ok ? "border-[#bfe3cd] bg-[#f3fbf6]" : outcome.status === "failed" ? "border-[#f5c2cf] bg-[#fffafb]" : "border-[#fcd9a8] bg-[#fff7ec]")}>
+      <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", ok ? "border-[#bfe3cd] bg-[#f3fbf6]" : shown.status === "failed" ? "border-[#f5c2cf] bg-[#fffafb]" : shown.status === "queued_browser" ? "border-[#fcd9a8] bg-[#fff7ec]" : "border-[#e4ebf2] bg-white")}>
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[13px] font-bold text-[#1f3559]">{p.contact_name} — {ok ? "✅ done" : outcome.status === "failed" ? "❌ failed" : "👤 needs a teammate"}</span>
-          <button onClick={onDecided} className="text-[11px] text-[#0e8f88] hover:underline">dismiss</button>
+          <span className="text-[13px] font-bold text-[#1f3559]">{p.contact_name} — {label}</span>
+          <button onClick={() => onPhase("dismissed")} className="text-[11px] text-[#0e8f88] hover:underline">dismiss</button>
         </div>
         <p className="mt-1 text-xs text-[#697a91]">{p.summary}</p>
-        <pre className="mt-2 whitespace-pre-wrap font-sans text-[12px] text-[#1f3559] bg-white/70 rounded-lg px-2.5 py-2 border border-black/5">{outcome.result}</pre>
+        {shown.result && <pre className="mt-2 whitespace-pre-wrap font-sans text-[12px] text-[#1f3559] bg-white/70 rounded-lg px-2.5 py-2 border border-black/5">{shown.result}</pre>}
       </div>
     );
   }
@@ -814,7 +1067,14 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
     setEditOpen(false);
     setEditNote("");
   };
+  // Whose real replies the draft copied — "0" means it fell back to a plain
+  // style, which explains a draft that doesn't sound like anyone.
+  const vi = d.voiceInfo;
+  const voiceLine = !vi ? ""
+    : vi.samplesUsed > 0 ? `Written in ${vi.name}'s voice · ${vi.samplesUsed} real ${vi.samplesUsed === 1 ? "reply" : "replies"}`
+    : "No real replies found — plain style";
   return (
+    <>
     <div className="mt-2.5 rounded-xl border border-[#a7e3df] bg-[#f7fdfc] p-3">
       <p className="text-[10px] font-bold uppercase tracking-wide text-[#0e8f88] mb-1.5">
         Draft for {d.contactName}{d.channel ? ` · ${d.channel}` : ""}{d.voice ? ` · in ${d.voice}'s style` : ""}
@@ -879,6 +1139,8 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
         </div>
       )}
     </div>
+    {voiceLine && <p className="mt-1 px-1 text-[10px] text-[#8595a8]">{voiceLine}</p>}
+    </>
   );
 }
 

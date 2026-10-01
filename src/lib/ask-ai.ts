@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { buildClientReport, renderClientReport } from "@/lib/ghl-report";
-import { getReplyAccount, getRecentConversations, getThread, getRoster, getVoiceSamples, channelFromType } from "@/lib/ghl-conversations";
-import { generateDraft } from "@/lib/reply-draft";
+import { getReplyAccount, getRecentConversations, getThread, getRoster, channelFromType } from "@/lib/ghl-conversations";
+import { draftReplyFor } from "@/lib/reply-draft";
 import { resolveAccount, readThread, scanMessages, pipelineContacts } from "@/lib/ask-conversations";
 // The blast copy the team actually sends, so the AI's default and the Blast
 // tab's default can never drift apart. Reading the template only — this file
@@ -355,24 +355,17 @@ async function findConversation(leadName: string, conversationId?: string) {
 async function runDraftReply(leadName: string, instructions: string | undefined, userEmail: string, conversationId?: string): Promise<Record<string, unknown>> {
   const found = await findConversation(leadName, conversationId);
   if ("error" in found) return { error: found.error };
-  const svc = createServiceClient();
-  const roster = await getRoster(found.acct);
-  const meUser = roster.find((u) => u.email && u.email.toLowerCase() === userEmail.toLowerCase()) ?? null;
-  const agentName = meUser?.name || (userEmail ? userEmail.split("@")[0] : "our team");
-  const [thread, voiceSamples, notesRow] = await Promise.all([
-    getThread(found.acct, found.conversationId),
-    meUser ? getVoiceSamples(found.acct, meUser.id) : Promise.resolve<string[]>([]),
-    svc.from("reply_ai_notes").select("content").eq("id", 1).single(),
-  ]);
+  const thread = await getThread(found.acct, found.conversationId);
   if (!thread.length) return { error: "conversation has no readable messages" };
-  const { draft } = await generateDraft({
-    thread,
+  const { draft, voice } = await draftReplyFor({
+    acct: found.acct,
+    conversationId: found.conversationId,
     contactName: found.contactName,
-    agentName,
-    voiceSamples,
+    voiceEmail: userEmail,
     instructions,
-    standingNotes: notesRow.data?.content ?? "",
+    thread,
   });
+  const agentName = voice.name;
   const last = thread[thread.length - 1];
   return {
     contactName: found.contactName,

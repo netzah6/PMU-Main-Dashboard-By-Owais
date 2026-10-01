@@ -7,8 +7,12 @@ import {
   getThread,
   getRoster,
   sendConversationMessage,
+  formatThreadForPrompt,
+  firstUnansweredIndex,
   type PmuAccount,
+  type ThreadMessage,
 } from "@/lib/ghl-conversations";
+import { draftReplyFor } from "@/lib/reply-draft";
 import {
   PLAN_SCHEMA_TEXT, sanitizePlan, planFromDetail, resolveClientLocation, executePlan, formatResults,
   type PlanStep,
@@ -65,20 +69,24 @@ type Classification = {
 
 // One conversation's tail → does the client want something done? The model
 // only CLASSIFIES and DRAFTS here — it has no tools and can't touch anything.
+// The conversation is the dated last-2-days view (formatThreadForPrompt):
+// the old 10-message, undated tail cut off what a client said yesterday.
+// `force` = a person clicked "Let AI handle it" on this chat, so always
+// return the best read of what's needed instead of "not actionable".
 async function classify(
   client: Anthropic,
   contactName: string,
-  tail: Array<{ direction: string; body: string }>,
+  convo: string,
+  opts: { force?: boolean } = {},
 ): Promise<Classification | null> {
-  const convo = tail.map((m) => `${m.direction === "inbound" ? contactName : "Agency"}: ${m.body}`).join("\n");
   const prompt = `You triage messages for a PMU (permanent-makeup) marketing agency. The people writing in are the agency's CLIENTS (artists whose ads/funnels/booking systems the agency runs).
 
-Conversation (oldest to newest):
+Conversation (each line has its day and time; lines marked NEW are not answered yet; "Automated" lines are workflow texts):
 """
 ${convo}
 """
 
-Look at the LATEST client message(s). Decide if the client is asking the agency to DO something (change hours/availability, pause or restart ads, change pricing or offer on their funnel, fix something broken, update their services, refund something, etc.) — or just chatting / already answered.
+Read the client's NEW messages together with what was said earlier today and yesterday — clients often split one request across several texts. Decide if the client is asking the agency to DO something (change hours/availability, pause or restart ads, change pricing or offer on their funnel, fix something broken, update their services, refund something, etc.) — or just chatting / already answered.
 
 Reply with ONLY a JSON object, no other text:
 {
@@ -92,8 +100,6 @@ Reply with ONLY a JSON object, no other text:
   "upset_reason": "<only when upset: one sentence on why this client is a churn risk>"
 }
 
-Today is ${new Date().toISOString().slice(0, 10)}.
-
 Rules:
 - "summary": at most 12 words, plain and direct, the ask itself — no "Client wants", no explanation (e.g. "Block Oct 8, 9, 15, 16, 22 on the calendar").
 - "proposed_reply": at most 2 short sentences, no filler.
@@ -101,7 +107,9 @@ Rules:
 - "reply" = a message back fully handles it (a question, confirmation, scheduling info).
 - "account_change" = something in their account/funnel/ads must actually be changed. Still include proposed_reply (an acknowledgment).
 - Refunds, payments, cancellations of the agency service: action_type "account_change", and START action_detail with "SENSITIVE:".
-- If the last message is from the Agency (already handled) or nothing is being asked: {"actionable": false}.
+- ${opts.force
+    ? `A teammate asked you to handle this conversation: ALWAYS return "actionable": true with a "summary" of what (if anything) is needed now. If nothing must change, use action_type "reply" and summarize what the reply should cover.`
+    : `If the last message is from the Agency (already handled) or nothing is being asked: {"actionable": false}.`}
 - "upset" is SEPARATE from actionable: set it true when the client sounds like a churn risk — wants to leave or cancel the service, asks for a refund or compensation, says they're frustrated/disappointed/not seeing results, or keeps repeating the same complaint. Normal questions, small fix requests, or neutral chatting are NOT upset. Always include "upset" (false when calm).`;
 
   const res = await client.messages.create({
@@ -145,7 +153,8 @@ async function closeHandledProposals(acct: PmuAccount, svc: ReturnType<typeof cr
       const thread = await getThread(acct, convId);
       if (!thread.length) continue;
       for (const card of cards) {
-        const idx = thread.findIndex((m) => m.id === card.message_id);
+        const baseId = card.message_id.split("#")[0]; // on-demand cards: "<message id>#<ms>"
+        const idx = thread.findIndex((m) => m.id === baseId);
         // The card's message may have scrolled out of the last 100; then only
         // the newest message counts.
         const after = idx >= 0 ? thread.slice(idx + 1) : thread.slice(-1);
@@ -170,6 +179,122 @@ async function closeHandledProposals(acct: PmuAccount, svc: ReturnType<typeof cr
     } catch { /* next conversation */ }
   }
   return closed;
+}
+
+// The client's unanswered texts (up to 5) — automated reminders in between
+// don't count as an answer, and our own messages are never shown as theirs.
+function unansweredClientTexts(thread: ThreadMessage[]): string[] {
+  return thread.slice(firstUnansweredIndex(thread)).filter((m) => m.direction === "inbound").map((m) => m.body).slice(-5);
+}
+
+// GHL user id → teammate name, for labelling who sent each message.
+const rosterCache = new Map<string, { at: number; names: Map<string, string> }>();
+async function rosterNames(acct: PmuAccount): Promise<Map<string, string>> {
+  const hit = rosterCache.get(acct.locationId);
+  if (hit && Date.now() - hit.at < 30 * 60_000) return hit.names;
+  const names = new Map<string, string>();
+  try { for (const u of await getRoster(acct)) names.set(u.id, u.name); } catch { /* labels fall back to "Teammate" */ }
+  rosterCache.set(acct.locationId, { at: Date.now(), names });
+  return names;
+}
+
+/* The card's reply comes from the same engine as the AI tab's drafts — the
+   real voice (the clicking teammate's, else Nicolas's), the knowledge base,
+   the team notes and the dated last-2-days conversation. The triage model's
+   own one-liner was generic (and never learned his style); it is only the
+   fallback if drafting fails. */
+async function replyFor(
+  acct: PmuAccount, conversationId: string, contactName: string, thread: ThreadMessage[],
+  cls: Classification, voiceEmail: string | null,
+): Promise<string | null> {
+  const fallback = cls.proposed_reply?.slice(0, 1500) ?? null;
+  try {
+    const change = cls.action_type === "account_change";
+    const { draft } = await draftReplyFor({
+      acct, conversationId, contactName, thread, voiceEmail,
+      instructions: `What the client needs (from triage): ${cls.summary ?? "see their NEW messages"}.${change ? " We will make this change — confirm it simply, and don't promise a time." : ""}`,
+    });
+    return draft ? draft.slice(0, 1500) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/* "Let AI handle it" on one conversation (owner request 2026-10-01): read
+   it now, file a pending card with the plan and the drafted reply, and hand
+   the card back so the person sees the details before approving. Nothing
+   runs here — Approve (/api/agent/decide) is still the only way anything is
+   sent or changed. Re-clicking while a card is pending returns that card. */
+export async function proposeForConversation(opts: {
+  conversationId: string;
+  contactId: string | null;
+  contactName: string;
+  channel: string | null;
+  requestedBy: string;
+}): Promise<{ proposal?: Proposal; error?: string }> {
+  if (!process.env.ANTHROPIC_API_KEY) return { error: "ANTHROPIC_API_KEY not set" };
+  const acct = await getReplyAccount();
+  if (!acct) return { error: "PMU Bookings On Demand token not found" };
+  const svc = createServiceClient();
+
+  const thread = await getThread(acct, opts.conversationId);
+  if (!thread.length) return { error: "No readable messages in this chat (calls/voicemails only?)" };
+  const last = thread[thread.length - 1];
+  const openCard = async () => (await svc.from("agent_proposals").select("*")
+    .eq("conversation_id", opts.conversationId).eq("status", "pending")
+    .order("created_at", { ascending: false }).limit(1).maybeSingle()).data as Proposal | null;
+
+  // A pending card still covering the newest message is the answer; one
+  // written before newer texts arrived is retired so the plan isn't stale.
+  const open = await openCard();
+  if (open && open.message_id.split("#")[0] === last.id) return { proposal: open };
+  if (open) {
+    await svc.from("agent_proposals").update({
+      status: "handled", decided_by: opts.requestedBy || "auto", decided_at: new Date().toISOString(),
+      result: "replaced by a newer read of the chat (new messages arrived)",
+    }).eq("id", open.id).eq("status", "pending");
+  }
+  const nameByUserId = await rosterNames(acct);
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const cls = await classify(anthropic, opts.contactName,
+    formatThreadForPrompt(thread, { contactName: opts.contactName, nameByUserId }), { force: true });
+  if (!cls || !cls.summary) return { error: "The AI couldn't read this chat — try again" };
+
+  const actionType = cls.action_type === "account_change" ? "account_change" : "reply";
+  const plan = actionType === "account_change" ? sanitizePlan(cls.action_plan) : [];
+  let locationId: string | null = null;
+  if (actionType === "account_change") {
+    try { locationId = (await resolveClientLocation(svc, opts.contactId, opts.contactName))?.locationId ?? null; } catch { /* resolved again at approve */ }
+  }
+  const unanswered = unansweredClientTexts(thread);
+  const lastInbound = [...thread].reverse().find((m) => m.direction === "inbound")?.body;
+  const clientMessage = (unanswered.length ? unanswered : lastInbound ? [lastInbound] : []).join("\n").slice(0, 2000);
+  const proposedReply = await replyFor(acct, opts.conversationId, opts.contactName, thread, cls, opts.requestedBy);
+
+  // The cron may have filed a card for this chat while we were drafting —
+  // hand that one back rather than a second card for the same message.
+  const raced = await openCard();
+  if (raced) return { proposal: raced };
+  // One card per message: if this message already had a (decided) card,
+  // key the new one "<id>#<ms>" so the unique (conversation, message) holds.
+  const { data: prior } = await svc.from("agent_proposals").select("id")
+    .eq("conversation_id", opts.conversationId).eq("message_id", last.id).maybeSingle();
+  const { data: inserted, error } = await svc.from("agent_proposals").insert({
+    conversation_id: opts.conversationId,
+    message_id: prior ? `${last.id}#${Date.now()}` : last.id,
+    contact_id: opts.contactId,
+    contact_name: opts.contactName,
+    channel: opts.channel,
+    client_message: clientMessage,
+    summary: cls.summary.slice(0, 500),
+    action_type: actionType,
+    proposed_reply: proposedReply,
+    action_detail: cls.action_detail?.slice(0, 1500) ?? null,
+    action_plan: plan.length ? plan : null,
+    location_id: locationId,
+  }).select("*").maybeSingle();
+  if (error || !inserted) return { error: error?.message ?? "could not save the card" };
+  return { proposal: inserted as Proposal };
 }
 
 export async function scanForProposals(): Promise<{ scanned: number; filed: number; errors: string[] }> {
@@ -254,8 +379,8 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       if (existing) continue; // already a card — not worth listing every 10 min
 
       scanned++;
-      const tail = thread.slice(-10).map((m) => ({ direction: m.direction, body: m.body }));
-      const cls = await classify(anthropic, c.contactName, tail);
+      const nameByUserId = await rosterNames(acct);
+      const cls = await classify(anthropic, c.contactName, formatThreadForPrompt(thread, { contactName: c.contactName, nameByUserId }));
       if (!cls) skipped.push({ who: c.contactName, why: "classifier returned nothing" });
       else if (!cls.actionable || !cls.summary) skipped.push({ who: c.contactName, why: `not a request (AI read: ${cls.summary ?? "chatting / already handled"})` });
       // Churn-risk clients hit the Alerts board whether or not there's a
@@ -303,8 +428,8 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       // The client's latest texts, not just the last one — "Can we add a
       // column" / "Before declining" / "Please and thank you" arrive as three
       // messages and the card must show all three.
-      const recentInbound: string[] = [];
-      for (let i = thread.length - 1; i >= 0 && thread[i].direction === "inbound" && recentInbound.length < 5; i--) recentInbound.unshift(thread[i].body);
+      const recentInbound = unansweredClientTexts(thread);
+      const proposedReply = await replyFor(acct, c.id, c.contactName, thread, cls, null);
       const { data: inserted, error } = await svc.from("agent_proposals").insert({
         conversation_id: c.id,
         message_id: last.id,
@@ -314,7 +439,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
         client_message: recentInbound.join("\n").slice(0, 2000),
         summary: cls.summary.slice(0, 500),
         action_type: actionType,
-        proposed_reply: cls.proposed_reply?.slice(0, 1500) ?? null,
+        proposed_reply: proposedReply,
         action_detail: cls.action_detail?.slice(0, 1500) ?? null,
         action_plan: plan.length ? plan : null,
         location_id: locationId,
