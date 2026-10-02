@@ -192,10 +192,18 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const ex = (client.extras ?? {}) as { igWidgetOff?: boolean; igFrozen?: boolean; igSnapshot?: { imgs?: string[] } };
   return NextResponse.json({
     found: true,
     slug: client.slug,
     name: client.client_name,
+    // IG-widget controls state for the card's Off/Freeze buttons.
+    igState: {
+      hasWidget: hasIg,
+      widgetOff: !!ex.igWidgetOff,
+      frozen: !!ex.igFrozen,
+      hasSnapshot: !!ex.igSnapshot?.imgs?.length,
+    },
     ageDays,
     stats: {
       leads30: leads,

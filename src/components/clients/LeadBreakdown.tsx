@@ -46,9 +46,11 @@ const LEGEND_ORDER = ["confirmed", "ai_booked_pending", "funnel_drop", "offer_no
 type FunnelCheck = { emoji: string; severity: "fix" | "watch" | "good"; title: string; body: string };
 type FunnelReview = {
   found: boolean;
+  slug?: string;
   ageDays?: number | null;
   stats?: { leads30: number; picked30: number; paid30: number; leadToPicked: number | null; pickedToPaid: number | null; fleet: { pickedToPaidMedian: number } };
   checks?: FunnelCheck[];
+  igState?: { hasWidget: boolean; widgetOff: boolean; frozen: boolean; hasSnapshot: boolean };
 };
 
 type DaySlots = { slots: number; hours: number };
@@ -166,6 +168,33 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [locationId]);
+
+  // IG-widget controls (hide the live feed / freeze it to the snapshot).
+  // Admin+editor only server-side; the buttons report the server's answer.
+  const [igBusy, setIgBusy] = useState<string | null>(null);
+  const igAction = async (action: "off" | "on" | "freeze" | "unfreeze") => {
+    if (!funnelReview?.slug || igBusy) return;
+    const warn = action === "off"
+      ? "Hide the live Instagram widget on this client's funnel?"
+      : action === "freeze"
+        ? "Freeze the funnel's Instagram feed to the snapshotted posts? New IG posts will no longer show."
+        : null;
+    if (warn && !window.confirm(warn)) return;
+    setIgBusy(action);
+    try {
+      const r = await fetch("/api/onebox/ig-widget", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: funnelReview.slug, action }),
+      });
+      const j = await r.json();
+      if (!r.ok) { window.alert(j?.error || "Failed"); return; }
+      setFunnelReview((f) => f && f.igState
+        ? { ...f, igState: { ...f.igState, widgetOff: j.igWidgetOff, frozen: j.igFrozen } }
+        : f);
+    } catch { window.alert("Network error — nothing changed."); }
+    finally { setIgBusy(null); }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -538,6 +567,38 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                   </div>
                 </div>
               ))}
+              {funnelReview.igState?.hasWidget && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">IG widget:</span>
+                  <button
+                    onClick={() => igAction(funnelReview.igState!.widgetOff ? "on" : "off")}
+                    disabled={!!igBusy}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold disabled:opacity-50",
+                      funnelReview.igState.widgetOff
+                        ? "border-[#fca5a5] bg-[#fef2f2] text-[#b91c1c]"
+                        : "border-[#cbd5e1] bg-white text-[#34568a]",
+                    )}
+                  >
+                    {(igBusy === "off" || igBusy === "on") && <Loader2 size={9} className="animate-spin" />}
+                    {funnelReview.igState.widgetOff ? "Hidden — turn back on" : "Turn widget off"}
+                  </button>
+                  <button
+                    onClick={() => igAction(funnelReview.igState!.frozen ? "unfreeze" : "freeze")}
+                    disabled={!!igBusy || funnelReview.igState.widgetOff || (!funnelReview.igState.frozen && !funnelReview.igState.hasSnapshot)}
+                    title={!funnelReview.igState.hasSnapshot && !funnelReview.igState.frozen ? "No feed snapshot stored for this client yet" : undefined}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold disabled:opacity-50",
+                      funnelReview.igState.frozen
+                        ? "border-[#93c5fd] bg-[#eff6ff] text-[#1d4ed8]"
+                        : "border-[#cbd5e1] bg-white text-[#34568a]",
+                    )}
+                  >
+                    {(igBusy === "freeze" || igBusy === "unfreeze") && <Loader2 size={9} className="animate-spin" />}
+                    {funnelReview.igState.frozen ? "Frozen — unfreeze" : "Freeze feed (keep today's posts)"}
+                  </button>
+                </div>
+              )}
             </div>
           ) : null}
           {recommendations.map((r, i) => (
