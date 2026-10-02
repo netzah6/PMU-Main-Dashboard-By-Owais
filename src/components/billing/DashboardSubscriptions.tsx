@@ -19,8 +19,11 @@ type Sub = {
   status: "draft" | "active" | "paused" | "ended"; note: string | null;
   created_by: string | null; activated_by: string | null;
   square_customer_id: string | null; square_card_id: string | null; square_card_label: string | null;
-  retry_attempt?: number | null; pause_reason?: string | null;
+  retry_attempt?: number | null; retry_period?: string | null; pause_reason?: string | null;
 };
+/* A one-month price (owner, 2026-10-02): that period bills this amount, the
+   next month goes back to amount_cents. */
+type PeriodAmount = { subscription_id: string; period_key: string; amount_cents: number; reason: string | null; created_by: string | null };
 /* A card belongs to a Square customer, and one business can have two of them:
    Bombshell Beauty is Erin Heidecke and Ayesha Ali, partners who each pay from
    their own card (owner, 2026-09-26). So a card carries its customer and the
@@ -55,6 +58,7 @@ const TONE: Record<Sub["status"], string> = {
 export function DashboardSubscriptions() {
   const [subs, setSubs] = useState<Sub[]>([]);
   const [charges, setCharges] = useState<Charge[]>([]);
+  const [periodAmounts, setPeriodAmounts] = useState<PeriodAmount[]>([]);
   const [autocharge, setAutocharge] = useState(false);
   const [clients, setClients] = useState<Array<{ key: string; label: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -164,7 +168,7 @@ export function DashboardSubscriptions() {
       const r = await fetch("/api/subscriptions/manage");
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to load");
-      setSubs(j.subscriptions ?? []); setCharges(j.charges ?? []); setAutocharge(!!j.autocharge);
+      setSubs(j.subscriptions ?? []); setCharges(j.charges ?? []); setAutocharge(!!j.autocharge); setPeriodAmounts(j.periodAmounts ?? []);
     } catch (e) { setErr(e instanceof Error ? e.message : "Failed to load"); }
     finally { setLoading(false); }
   }, []);
@@ -200,9 +204,27 @@ export function DashboardSubscriptions() {
     finally { setBusy(null); }
   };
 
+  // The period the next charge collects (a pending retry keeps its month) and
+  // what it will bill — the one-month price when one is set.
+  const nextPeriod = (s: Sub) => ((s.retry_attempt ?? 0) > 0 && s.retry_period ? s.retry_period : s.cadence === "monthly" ? s.next_charge_on.slice(0, 7) : s.next_charge_on);
+  const periodPrice = (s: Sub) => periodAmounts.find((p) => p.subscription_id === s.id && p.period_key === nextPeriod(s)) ?? null;
+  const monthName = (period: string) => new Date(`${period.slice(0, 7)}-15T12:00:00`).toLocaleString(undefined, { month: "long" });
+  const setMonthPrice = async (s: Sub) => {
+    const period = nextPeriod(s);
+    const raw = window.prompt(`${monthName(period)} price for ${s.client_label || s.owner_key}?\n\nOnly ${monthName(period)} changes — the month after bills ${money(s.amount_cents)} again. Type an amount (e.g. ${(s.amount_cents / 200).toFixed(2)} for 50% off) or 50% for a percentage.`);
+    if (!raw?.trim()) return;
+    const pct = raw.trim().match(/^(\d+(?:\.\d+)?)\s*%$/);
+    const amount = pct ? Math.round(s.amount_cents * (1 - Number(pct[1]) / 100)) / 100 : Number(raw.replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) { setErr("Enter an amount above zero, or a percentage like 50%"); return; }
+    const reason = pct ? `${pct[1]}% off ${monthName(period)}` : `${monthName(period)} price`;
+    const ok = await act({ action: "period_amount", id: s.id, period: period.slice(0, 7), amount, reason }, `period:${s.id}`);
+    if (ok) setMsg(`${s.client_label || s.owner_key}: ${monthName(period)} bills $${amount.toFixed(2)}; then back to ${money(s.amount_cents)}.`);
+  };
+
   const chargeNow = async (s: Sub) => {
     const who = s.client_label || s.owner_key;
-    if (!window.confirm(`Charge ${who} ${money(s.amount_cents)} on their card now?\n\nThis moves real money immediately.`)) return;
+    const pp = periodPrice(s);
+    if (!window.confirm(`Charge ${who} ${money(pp?.amount_cents ?? s.amount_cents)}${pp ? ` (${pp.reason || "one-month price"})` : ""} on their card now?\n\nThis moves real money immediately.`)) return;
     setBusy(`charge:${s.id}`); setErr(null); setMsg(null);
     try {
       const r = await fetch("/api/subscriptions/charge", {
@@ -364,7 +386,32 @@ export function DashboardSubscriptions() {
                 <div className="flex items-center gap-2 flex-wrap px-2.5 py-1.5">
                   <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border", TONE[s.status])}>{s.status}</span>
                   <span className="text-[13px] font-semibold text-[#1f3559]">{s.client_label || s.owner_key}</span>
-                  <span className="text-[13px] font-bold text-[#0e8f88] tabular-nums">{money(s.amount_cents)}</span>
+                  {(() => {
+                    const pp = s.cadence === "monthly" && s.status !== "ended" ? periodPrice(s) : null;
+                    return pp ? (
+                      <>
+                        <span className="text-[13px] font-bold text-[#0e8f88] tabular-nums">{money(pp.amount_cents)}</span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#eef6ff] text-[#185fa5] border border-[#c9dbfb]"
+                          title={`Set by ${pp.created_by ?? "an admin"}${pp.reason ? ` — ${pp.reason}` : ""}`}>
+                          {monthName(pp.period_key)} only{pp.reason ? ` · ${pp.reason}` : ""} · then {money(s.amount_cents)}
+                        </span>
+                        <button onClick={() => { if (window.confirm(`Remove the ${monthName(pp.period_key)} price? ${monthName(pp.period_key)} will bill ${money(s.amount_cents)}.`)) void act({ action: "period_amount", id: s.id, period: pp.period_key, amount: null }, `period:${s.id}`); }}
+                          disabled={busy === `period:${s.id}`} title="Remove the one-month price"
+                          className="text-[10px] text-[#8595a8] hover:text-[#e11d48]">✕</button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[13px] font-bold text-[#0e8f88] tabular-nums">{money(s.amount_cents)}</span>
+                        {s.cadence === "monthly" && s.status !== "ended" && (
+                          <button onClick={() => void setMonthPrice(s)} disabled={busy === `period:${s.id}`}
+                            title="Change the price for the next charge's month only — the month after bills the normal amount"
+                            className="text-[10px] text-[#34568a] underline decoration-dotted underline-offset-2 hover:text-[#0e8f88]">
+                            {monthName(nextPeriod(s))} price
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
                   <span className="text-[11px] text-[#697a91]">{s.cadence === "monthly" ? "every month" : "one time"}</span>
                   {s.status !== "ended" && (dateEdit?.id === s.id ? (
                     <span className="flex items-center gap-1">

@@ -21,12 +21,16 @@ export async function GET() {
   const auth = await admin();
   if (!auth) return NextResponse.json({ error: "Admins only" }, { status: 403 });
   const svc = createServiceClient();
-  const [{ data: subs }, { data: charges }, enabled] = await Promise.all([
+  // One-month prices from this month on (older ones are history).
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const [{ data: subs }, { data: charges }, enabled, { data: periodAmounts }] = await Promise.all([
     svc.from("client_subscriptions").select("*").order("created_at", { ascending: false }),
     svc.from("subscription_charges").select("*").order("charged_at", { ascending: false }).limit(400),
     autochargeEnabled(svc),
+    svc.from("subscription_period_amounts").select("subscription_id, period_key, amount_cents, reason, created_by")
+      .gte("period_key", thisMonth).order("period_key", { ascending: true }),
   ]);
-  return NextResponse.json({ subscriptions: subs ?? [], charges: charges ?? [], autocharge: enabled });
+  return NextResponse.json({ subscriptions: subs ?? [], charges: charges ?? [], autocharge: enabled, periodAmounts: periodAmounts ?? [] });
 }
 
 export async function POST(req: NextRequest) {
@@ -125,6 +129,31 @@ export async function POST(req: NextRequest) {
     }
     if (typeof body.note === "string") patch.note = body.note || null;
     const { error } = await svc.from("client_subscriptions").update(patch).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  }
+
+  /* One-month price: { id, period: "YYYY-MM", amount } sets it, amount null
+     removes it. Only that period's charge changes; the next month bills the
+     normal amount again. Already-collected periods are refused. */
+  if (action === "period_amount") {
+    const period = String(body.period ?? "");
+    if (!/^\d{4}-\d{2}$/.test(period)) return NextResponse.json({ error: "period must be YYYY-MM" }, { status: 400 });
+    const { data: paid } = await svc.from("subscription_charges").select("id")
+      .eq("subscription_id", id).eq("period_key", period).eq("status", "succeeded").maybeSingle();
+    if (paid) return NextResponse.json({ error: `${period} is already charged` }, { status: 409 });
+    if (body.amount == null) {
+      const { error } = await svc.from("subscription_period_amounts").delete().eq("subscription_id", id).eq("period_key", period);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ success: true });
+    }
+    const amount = Math.round(Number(body.amount) * 100);
+    if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: "Bad amount" }, { status: 400 });
+    const { error } = await svc.from("subscription_period_amounts").upsert({
+      subscription_id: id, period_key: period, amount_cents: amount,
+      reason: typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 200) : null,
+      created_by: auth.email, created_at: now,
+    }, { onConflict: "subscription_id,period_key" });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true });
   }
