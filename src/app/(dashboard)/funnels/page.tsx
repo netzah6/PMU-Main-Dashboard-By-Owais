@@ -755,7 +755,10 @@ export default function FunnelsPage() {
   // Media buyer's per-card offer edits (their only editable field).
   const [offerDraft, setOfferDraft] = useState<Record<string, string>>({});
   // Media buyer's inline pixel editor (owner, 2026-10-02) — digits only.
+  // Same dropdown of in-use pixels as Start Setup (owner, 2026-10-02);
+  // "other" is per row because many cards are on screen at once.
   const [pixelDraft, setPixelDraft] = useState<Record<string, string>>({});
+  const [pixelOtherRow, setPixelOtherRow] = useState<Record<string, boolean>>({});
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
   /* Start Setup step 5 — redirect the ad link onto this funnel? The choice
      is saved on the funnel (extras.adRedirect); the verification result is
@@ -1842,23 +1845,45 @@ export default function FunnelsPage() {
                       className="text-xs bg-[#0e9c9c] text-white rounded-lg px-2.5 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
                       {busy === `cvs:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save
                     </button>
-                    {f.template !== "b2b" && (<>
-                      <span className="text-[11px] text-[#697a91] ml-1.5">Pixel:</span>
-                      <input
-                        value={pixelDraft[f.slug] ?? f.pixelId ?? ""}
-                        onChange={(e) => setPixelDraft((x) => ({ ...x, [f.slug]: e.target.value.replace(/\D/g, "") }))}
-                        placeholder="Meta pixel ID"
-                        inputMode="numeric"
-                        className="text-xs border border-[#e4ebf2] rounded-lg px-2 py-1 w-40 focus:outline-none focus:border-[#0e9c9c] font-mono"
-                      />
-                      <button
-                        onClick={() => void act("extras", f.slug, { metaPixelId: (pixelDraft[f.slug] ?? f.pixelId ?? "").trim() })}
-                        disabled={busy === `extras:${f.slug}` || (pixelDraft[f.slug] ?? f.pixelId ?? "") === (f.pixelId ?? "") || (pixelDraft[f.slug] ?? "").length < 10}
-                        title={(pixelDraft[f.slug] ?? "").length > 0 && (pixelDraft[f.slug] ?? "").length < 10 ? "A Meta pixel ID is 15-16 digits" : undefined}
-                        className="text-xs bg-[#0e9c9c] text-white rounded-lg px-2.5 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
-                        {busy === `extras:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save
-                      </button>
-                    </>)}
+                    {f.template !== "b2b" && (() => {
+                      const draft = pixelDraft[f.slug] ?? "";
+                      const other = !!pixelOtherRow[f.slug];
+                      const selVal = other ? "__other" : !draft ? "__keep" : pixelOptions.some((o) => o.id === draft && draft !== f.pixelId) ? draft : "__other";
+                      const canSave = draft.length >= 10 && draft !== (f.pixelId ?? "");
+                      return (<>
+                        <span className="text-[11px] text-[#697a91] ml-1.5">Pixel:</span>
+                        <select value={selVal}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === "__other") { setPixelOtherRow((x) => ({ ...x, [f.slug]: true })); setPixelDraft((x) => ({ ...x, [f.slug]: "" })); }
+                            else { setPixelOtherRow((x) => ({ ...x, [f.slug]: false })); setPixelDraft((x) => ({ ...x, [f.slug]: v === "__keep" ? "" : v })); }
+                          }}
+                          className="text-xs border border-[#e4ebf2] rounded-lg px-2 py-1 max-w-[260px] bg-white focus:outline-none focus:border-[#0e9c9c]">
+                          <option value="__keep">{f.pixelId ? `Keep current — ${pixelLabel(f.pixelId)}` : "— pick a pixel —"}</option>
+                          {pixelOptions.filter((o) => o.id !== f.pixelId).map((o) => (
+                            <option key={o.id} value={o.id}>{o.label}</option>
+                          ))}
+                          <option value="__other">Other…</option>
+                        </select>
+                        {other && (
+                          <input
+                            value={draft}
+                            onChange={(e) => setPixelDraft((x) => ({ ...x, [f.slug]: e.target.value.replace(/\D/g, "") }))}
+                            placeholder="paste the pixel ID"
+                            inputMode="numeric"
+                            autoFocus
+                            className="text-xs border border-[#e4ebf2] rounded-lg px-2 py-1 w-40 focus:outline-none focus:border-[#0e9c9c] font-mono"
+                          />
+                        )}
+                        <button
+                          onClick={() => void act("extras", f.slug, { metaPixelId: draft })}
+                          disabled={busy === `extras:${f.slug}` || !canSave}
+                          title={draft.length > 0 && draft.length < 10 ? "A Meta pixel ID is 15-16 digits" : undefined}
+                          className="text-xs bg-[#0e9c9c] text-white rounded-lg px-2.5 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
+                          {busy === `extras:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save
+                        </button>
+                      </>);
+                    })()}
                   </span>
                 )}
                 {/* B2B has no GHL custom values to sync (settings live in Start Setup). */}
