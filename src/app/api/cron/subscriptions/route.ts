@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       autocharge: false,
       wouldCharge: await Promise.all(due.map(async (s) => ({
         owner: s.client_label ?? s.owner_key,
-        amount: (await priceForPeriod(svc, s, chargePeriod(s, today))).amountCents / 100,
+        amount: (await priceForPeriod(svc, s, chargePeriod(s, today)).catch(() => ({ amountCents: s.amount_cents }))).amountCents / 100,
         due: s.next_charge_on,
       }))),
       note: "Autocharge is off — nothing was charged.",
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
     const r = await chargeSubscription(svc, sub, today, "cron");
     results.push({
       owner: sub.client_label ?? sub.owner_key,
-      amount: r.ok ? r.amountCents / 100 : (await priceForPeriod(svc, sub, chargePeriod(sub, today))).amountCents / 100,
+      amount: r.ok ? r.amountCents / 100 : (await priceForPeriod(svc, sub, chargePeriod(sub, today)).catch(() => ({ amountCents: sub.amount_cents }))).amountCents / 100,
       ...(r.ok ? { charged: true, paymentId: r.paymentId } : { charged: false, error: r.error }),
     });
   }

@@ -89,8 +89,11 @@ export function periodKey(sub: Subscription, on: string): string {
    that period wins; every other period bills amount_cents. */
 export type PeriodPrice = { amountCents: number; reason: string | null; overridden: boolean };
 export async function priceForPeriod(svc: Svc, sub: Subscription, period: string): Promise<PeriodPrice> {
-  const { data } = await svc.from("subscription_period_amounts").select("amount_cents, reason")
+  const { data, error } = await svc.from("subscription_period_amounts").select("amount_cents, reason")
     .eq("subscription_id", sub.id).eq("period_key", period).maybeSingle();
+  // A failed lookup is NOT "no special price" — charging the full amount
+  // over a discount someone set would be wrong. Callers stop instead.
+  if (error) throw new Error(`Couldn't read the ${period} price: ${error.message}`);
   const row = data as { amount_cents: number; reason: string | null } | null;
   return row ? { amountCents: row.amount_cents, reason: row.reason, overridden: true } : { amountCents: sub.amount_cents, reason: null, overridden: false };
 }
@@ -352,7 +355,14 @@ export async function chargeSubscription(
     .eq("subscription_id", sub.id).eq("period_key", period).eq("status", "succeeded").maybeSingle();
   if (already) return { ok: false, error: `Already charged for ${period}` };
 
-  const price = await priceForPeriod(svc, sub, period);
+  let price: PeriodPrice;
+  try {
+    price = await priceForPeriod(svc, sub, period);
+  } catch (e) {
+    // Database hiccup, not a card problem: no retry is scheduled and the due
+    // date stays, so the next run tries again with the right price.
+    return { ok: false, error: `${e instanceof Error ? e.message : "price lookup failed"} — not charged, will try again next run` };
+  }
   const amountCents = price.amountCents;
 
   const target = sub.square_customer_id && sub.square_card_id
@@ -371,9 +381,11 @@ export async function chargeSubscription(
   // payment instead of creating a second one.
   // …but a RETRY of a declined charge must be a new request — Square would
   // replay the decline for a reused key — so the attempt number is part of it.
-  // The amount is in the key too: a one-month price set after a declined
-  // attempt must be a new request, never a replay of the old amount.
-  const idempotencyKey = createHash("sha256").update(`sub:${sub.id}:${period}:${sub.retry_attempt ?? 0}:${amountCents}`).digest("hex").slice(0, 45);
+  // NOT keyed on the amount: if a one-month price changes while a charge is
+  // in flight, the second request must collide with the first (Square
+  // refuses a reused key with new details) instead of becoming a second
+  // payment. A retry after a decline is already a new key via the attempt.
+  const idempotencyKey = createHash("sha256").update(`sub:${sub.id}:${period}:${sub.retry_attempt ?? 0}`).digest("hex").slice(0, 45);
   try {
     const p = await createCardPayment({
       customerId: target.customerId,
@@ -388,7 +400,13 @@ export async function chargeSubscription(
       status: "succeeded", square_payment_id: p.id, receipt_url: p.receiptUrl,
       charged_by: chargedBy, period_key: period,
     });
-    const next = advance(sub, on);
+    // Next due date counts from the period just collected, not the day the
+    // retry finally went through — a September retry that succeeds on Oct 3
+    // must still leave October to bill (it used to jump to November).
+    const base = sub.cadence === "monthly" && /^\d{4}-\d{2}$/.test(period)
+      ? `${period}-${String(Math.min(sub.charge_day ?? Number(on.slice(8, 10)), 28)).padStart(2, "0")}`
+      : on;
+    const next = advance(sub, base);
     await svc.from("client_subscriptions").update({
       next_charge_on: next ?? sub.next_charge_on,
       status: next ? sub.status : "ended",

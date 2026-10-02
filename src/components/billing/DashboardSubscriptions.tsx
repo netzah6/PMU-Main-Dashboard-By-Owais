@@ -223,7 +223,11 @@ export function DashboardSubscriptions() {
 
   const chargeNow = async (s: Sub) => {
     const who = s.client_label || s.owner_key;
-    const pp = periodPrice(s);
+    // Charge now collects TODAY's period (server: chargePeriod(sub, today)),
+    // which can differ from the next scheduled one shown on the row.
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const nowPeriod = (s.retry_attempt ?? 0) > 0 && s.retry_period ? s.retry_period : s.cadence === "monthly" ? todayIso.slice(0, 7) : todayIso;
+    const pp = periodAmounts.find((p) => p.subscription_id === s.id && p.period_key === nowPeriod) ?? null;
     if (!window.confirm(`Charge ${who} ${money(pp?.amount_cents ?? s.amount_cents)}${pp ? ` (${pp.reason || "one-month price"})` : ""} on their card now?\n\nThis moves real money immediately.`)) return;
     setBusy(`charge:${s.id}`); setErr(null); setMsg(null);
     try {

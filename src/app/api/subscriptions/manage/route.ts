@@ -21,8 +21,10 @@ export async function GET() {
   const auth = await admin();
   if (!auth) return NextResponse.json({ error: "Admins only" }, { status: 403 });
   const svc = createServiceClient();
-  // One-month prices from this month on (older ones are history).
-  const thisMonth = new Date().toISOString().slice(0, 7);
+  // One-month prices from last month on — a retry can still be collecting
+  // last month's (older ones are history).
+  const d = new Date();
+  const thisMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
   const [{ data: subs }, { data: charges }, enabled, { data: periodAmounts }] = await Promise.all([
     svc.from("client_subscriptions").select("*").order("created_at", { ascending: false }),
     svc.from("subscription_charges").select("*").order("charged_at", { ascending: false }).limit(400),
