@@ -128,13 +128,15 @@ const SEND_TYPE: Record<string, string> = {
 // proposal); nothing loops over this.
 export async function sendConversationMessage(
   acct: PmuAccount,
-  opts: { contactId: string; message: string; channel?: string },
+  // fromNumber: send from this number of the account (e.g. a teammate's own
+  // line) instead of the account's default one.
+  opts: { contactId: string; message: string; channel?: string; fromNumber?: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
   const type = SEND_TYPE[opts.channel ?? "SMS"] ?? "SMS";
   const r = await fetch(`${GHL_BASE}/conversations/messages`, {
     method: "POST",
     headers: { ...authHeaders(acct.token, CONV_VERSION), "Content-Type": "application/json" },
-    body: JSON.stringify({ type, contactId: opts.contactId, message: opts.message }),
+    body: JSON.stringify({ type, contactId: opts.contactId, message: opts.message, ...(opts.fromNumber ? { fromNumber: opts.fromNumber } : {}) }),
   });
   if (r.ok) return { ok: true };
   const text = await r.text().catch(() => "");

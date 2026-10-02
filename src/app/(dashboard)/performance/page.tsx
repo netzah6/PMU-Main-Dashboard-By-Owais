@@ -3,7 +3,9 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { DataFreshness } from "@/components/freshness/DataFreshness";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, formatDate, userColor, cn } from "@/lib/utils";
-import { Search, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { useUser } from "@/lib/hooks/useUser";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 import { ClientTasks } from "@/components/activity/ClientTasks";
 
@@ -190,6 +192,49 @@ function CampaignsCell({ campaigns, acctKey, onChanged }: { campaigns: PerfRow["
 
 const HEADERS = ["Owner Name", "Business Name", "Daily Budget", "Assigned", "Media Buyer", "1-Box", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Sessions Done", "Last Strategy", "Campaigns"];
 
+/* UNSETTLED ad account → one click texts the client, from PMU Bookings On
+   Demand (the teammate's own number there when they have one), to ask their
+   bank to approve the Facebook charge (owner, 2026-10-02). The server builds
+   the exact text and checks the contact; the confirm shows both first. */
+function AdSpendNudge({ sheetRow, lastAskedAt, onSent }: { sheetRow: number; lastAskedAt?: string; onSent: (at: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const ago = (iso: string) => {
+    const h = (Date.now() - Date.parse(iso)) / 3_600_000;
+    return h < 1 ? "just now" : h < 24 ? `${Math.round(h)}h ago` : `${Math.round(h / 24)}d ago`;
+  };
+  const go = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const pr = await fetch(`/api/performance/ad-spend-nudge?sheetRow=${sheetRow}`);
+      const pj = await pr.json();
+      if (!pr.ok) throw new Error(pj.error || "Couldn't prepare the text");
+      const ok = window.confirm(`Text ${pj.to}\nfrom ${pj.from}:\n\n"${pj.message}"${pj.lastAskedAt ? `\n\n(Last asked ${ago(pj.lastAskedAt)})` : ""}`);
+      if (!ok) return;
+      const r = await fetch("/api/performance/ad-spend-nudge", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheetRow, contactId: pj.contactId, ownerKey: pj.ownerKey }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Send failed");
+      toast.success(`Sent to ${pj.to}`);
+      onSent(j.sentAt);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Send failed");
+    } finally { setBusy(false); }
+  };
+  return (
+    <span className="ml-1 inline-flex items-center gap-1 align-middle">
+      <button onClick={() => void go()} disabled={busy}
+        title="Text the client to ask their bank to approve the Facebook ad spend"
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[#f5c2cf] bg-white text-[10px] font-semibold text-[#e11d48] hover:bg-[#fde8ee] disabled:opacity-60">
+        {busy ? <Loader2 size={10} className="animate-spin" /> : "💳"} Ask to approve
+      </button>
+      {lastAskedAt && <span className="text-[10px] text-[#8595a8]" title={new Date(lastAskedAt).toLocaleString()}>asked {ago(lastAskedAt)}</span>}
+    </span>
+  );
+}
+
 export default function PerformancePage() {
   const [rows, setRows] = useState<PerfRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,6 +247,14 @@ export default function PerformancePage() {
   /* owner (lowercased) → one-box funnel status — same source and same ✓/⏸
      cell as Cost/Deposit (user request 2026-09-15). */
   const [oneboxMap, setOneboxMap] = useState<Map<string, { status: string; business: string }> | null>(null);
+  // "Ask to approve" texts: who may send them, and when each client was last asked.
+  const { role } = useUser();
+  const canNudge = role === "admin" || role === "editor" || role === "media_buyer";
+  const [nudged, setNudged] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!canNudge) return;
+    fetch("/api/performance/ad-spend-nudge?recent=1").then((r) => r.json()).then((j) => setNudged(j.last ?? {})).catch(() => {});
+  }, [canNudge]);
   const load = useCallback(async () => {
     const supabase = createClient();
     const [{ data, error }, obRes] = await Promise.all([
@@ -361,6 +414,10 @@ export default function PerformancePage() {
                       <span className={cn("inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border", statusTone(r.campaign_status))}>
                         {shortStatus(r.campaign_status)}
                       </span>
+                      {canNudge && shortStatus(r.campaign_status) === "UNSETTLED" && (
+                        <AdSpendNudge sheetRow={r.sheet_row} lastAskedAt={nudged[(r.owner_name ?? "").trim().toLowerCase()]}
+                          onSent={(at) => setNudged((m) => ({ ...m, [(r.owner_name ?? "").trim().toLowerCase()]: at }))} />
+                      )}
                       {r.campaign_paused && (
                         <span className="ml-1 inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
                           title="All tracked campaigns for this account are paused">
