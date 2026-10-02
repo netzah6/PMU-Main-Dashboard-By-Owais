@@ -738,6 +738,15 @@ export default function FunnelsPage() {
   const [surveyDirty, setSurveyDirty] = useState(false);
   const surveyDragIdx = useRef<number | null>(null);
   const [cvFor, setCvFor] = useState<string | null>(null);
+  /* Read by saveProgram after an await: the panel may have been closed
+     since the click, and a refused switch must reopen it to show the gaps. */
+  const cvForRef = useRef<string | null>(null);
+  useEffect(() => { cvForRef.current = cvFor; }, [cvFor]);
+  /* Why Save didn't switch the program, shown right under the Save button
+     (the page toast is far above Step 3 and fades in 4 s). */
+  const [saveNote, setSaveNote] = useState<Record<string, string>>({});
+  // Custom values GHL refused on the last save, per funnel (see act()).
+  const lastRejected = useRef<Record<string, string[]>>({});
   const [leadsFor, setLeadsFor] = useState<string | null>(null);
   const [leadRows, setLeadRows] = useState<Record<string, LeadRow[]>>({});
   const [leadFilter, setLeadFilter] = useState<string>("all");
@@ -903,7 +912,7 @@ export default function FunnelsPage() {
         setSetupVerPicked(true);
         setToast(`Can't switch to ${newVersion.replace(/[()]/g, "")} yet — fill in: ${missing.map(([, l]) => l).join(", ")} (Start Setup → Step 1 → full form), save, then try again`);
         setProgFor(null);
-        if (cvFor !== f.slug) {
+        if (cvForRef.current !== f.slug) {
           setCvFor(f.slug);
           setCvForm({ ...f.cv });
           setExtrasForm({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" }); setPixelOther(false);
@@ -940,7 +949,7 @@ export default function FunnelsPage() {
       setToast(`Version save failed: ${String(e).slice(0, 80)}`);
       return false;
     } finally { setProgBusy(null); }
-  }, [load, cvFor]);
+  }, [load]);
   const loadInsights = useCallback(async () => {
     try {
       const r = await fetch("/api/onebox/insights");
@@ -1081,6 +1090,7 @@ export default function FunnelsPage() {
         body: JSON.stringify({ action, slug, ...extra }),
       });
       const j = await r.json();
+      if (action === "cvs" || action === "extras") lastRejected.current[slug] = Array.isArray(j.failed) ? j.failed : [];
       if (action === "health") setHealth((h) => ({ ...h, [slug]: j.checks ?? [] }));
       else if (j.error) setToast(`Error: ${j.error}`);
       else if (Array.isArray(j.failed) && j.failed.length) setToast(`Saved, but GHL rejected: ${j.failed.join(", ")}`);
@@ -1856,11 +1866,14 @@ export default function FunnelsPage() {
                       setRedirectVerify(null);
                       setSop5({ renamed: false, redirect: false, workflow: false });
                       {
-                        const v = f.program?.version ?? "";
+                        const pendingGap = (v3Gap[f.slug]?.length ?? 0) > 0 ? gapVer[f.slug] : undefined;
+                        const v = pendingGap ?? f.program?.version ?? "";
                         setSetupVer(/v1/i.test(v) ? "V1" : /v2\.3/i.test(v) ? "V2.3" : "V3");
                         /* Seed only — until the operator clicks a chip, Go
-                           live must not treat this default as a choice. */
-                        setSetupVerPicked(false);
+                           live must not treat this default as a choice. A
+                           switch that was refused for missing fields reopens
+                           on the version they asked for, so those fields show. */
+                        setSetupVerPicked(!!pendingGap);
                       }
 
                     }
@@ -2000,9 +2013,12 @@ export default function FunnelsPage() {
                         {/* Same program palette as everywhere else (owner,
                             2026-09-26): the picked version fills with its own
                             colour, the rest stay white with its border. */}
+                        {/* On a V2 / V2.2 / blank sheet the seed is only a form
+                            shape — no chip looks chosen until one is clicked,
+                            because only a click lets Save switch the program. */}
                         {(["V1", "V2.3", "V3"] as const).map((v) => (
-                          <button key={v} type="button" onClick={() => { setSetupVer(v); setSetupVerPicked(true); }}
-                            style={vsChipStyle(v, setupVer === v)}
+                          <button key={v} type="button" onClick={() => { setSetupVer(v); setSetupVerPicked(true); setSaveNote((n) => ({ ...n, [f.slug]: "" })); }}
+                            style={vsChipStyle(v, setupVer === v && (setupVerPicked || /^\((v1|v2\.3|v3)\)$/i.test(ver.trim())))}
                             className="text-[11px] font-bold rounded-lg px-3 py-1 border bg-white text-[#1c2b3a] hover:opacity-90">
                             {v}
                           </button>
@@ -2014,7 +2030,8 @@ export default function FunnelsPage() {
                               promise one that won't (review, 2026-09-26). */}
                           {ver ? <>Clients sheet says{" "}
                             <span className="text-[10px] font-semibold rounded-full border px-1.5 py-px align-middle" style={vsStyle(ver)}>{ver.replace(/[()]/g, "")}</span>
-                            {f.status !== "live" && `(${setupVer})` !== ver && (/^\((v1|v2\.3|v3)\)$/i.test(ver.trim()) || setupVerPicked) && <> — Go live will set the client&rsquo;s program to <b>{setupVer}</b> everywhere</>}.</> : <>Program unknown on the Clients tab — pick the one you&rsquo;re setting up.{f.program && setupVerPicked && f.status !== "live" && <> Go live will set it to <b>{setupVer}</b> everywhere.</>}</>}
+                            {!/^\((v1|v2\.3|v3)\)$/i.test(ver.trim()) && !setupVerPicked && <> — click V1, V2.3 or V3 to switch the program</>}
+                            {`(${setupVer})` !== ver && (/^\((v1|v2\.3|v3)\)$/i.test(ver.trim()) || setupVerPicked) && <> — {f.status === "live" ? "Save (Step 3)" : "Save (Step 3) or Go live"} will set the client&rsquo;s program to <b>{setupVer}</b> everywhere</>}.</> : <>Program unknown on the Clients tab — pick the one you&rsquo;re setting up.{f.program && setupVerPicked && <> {f.status === "live" ? "Save (Step 3)" : "Save (Step 3) or Go live"} will set it to <b>{setupVer}</b> everywhere.</>}</>}
                         </span>
                       </div>
                       <p className="text-[10px] text-[#697a91]">
@@ -2230,7 +2247,7 @@ export default function FunnelsPage() {
                   <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
                     <p className="text-[11px] font-bold text-[#0b7f7f]">Step 3 &middot; Save to GoHighLevel</p>
                     <button
-                      onClick={() => {
+                      onClick={() => void (async () => {
                         const changed: Record<string, string> = {};
                         for (const [k, v] of Object.entries(cvForm)) {
                           if (k === "surveyRaw") continue; // managed by the row editor below
@@ -2250,19 +2267,54 @@ export default function FunnelsPage() {
                         for (const [k, v] of Object.entries(extrasForm)) {
                           if (v.trim()) extras[k] = v;
                         }
-                        if (!Object.keys(changed).length && !Object.keys(extras).length) { setToast("Nothing changed"); return; }
-                        if (Object.keys(changed).length) void act("cvs", f.slug, { values: JSON.stringify(changed) });
-                        if (Object.keys(extras).length) void act("extras", f.slug, extras);
-                      }}
-                      disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`}
+                        /* Save also switches the program to the picked chip
+                           (owner, 2026-10-02: picked V3, saved, closed — and it
+                           stayed V2.3, because only Go live wrote the version,
+                           and a live funnel has no Go live). Same lossy-default
+                           guard as Go live: an untouched picker never writes
+                           over a non-V1/V2.3/V3 sheet version. */
+                        const target = `(${setupVer})`;
+                        const switchVer = !!f.program && target !== f.program.version
+                          && (/^\((v1|v2\.3|v3)\)$/i.test(f.program.version.trim()) || setupVerPicked);
+                        if (!Object.keys(changed).length && !Object.keys(extras).length && !switchVer) { setToast("Nothing changed"); return; }
+                        setSaveNote((n) => ({ ...n, [f.slug]: "" }));
+                        lastRejected.current[f.slug] = [];
+                        const saved = await Promise.all([
+                          Object.keys(changed).length ? act("cvs", f.slug, { values: JSON.stringify(changed) }) : Promise.resolve(true),
+                          Object.keys(extras).length ? act("extras", f.slug, extras) : Promise.resolve(true),
+                        ]);
+                        if (!switchVer || saved.includes(false)) return;
+                        const short = setupVer;
+                        const rejected = lastRejected.current[f.slug] ?? [];
+                        if (rejected.length) {
+                          setSavedFlash(null);
+                          setSaveNote((n) => ({ ...n, [f.slug]: `Program NOT switched to ${short} — GHL rejected: ${rejected.join(", ")}. Fix and save again.` }));
+                          return;
+                        }
+                        // Check the V2.3/V3 gate against what was just saved, not the old snapshot.
+                        const fresh = (await load()).find((x) => x.slug === f.slug) ?? f;
+                        const missing = /v3/i.test(target) ? v3Missing(fresh.cv) : /v2\.3/i.test(target) ? v23Missing(fresh.cv) : [];
+                        if (!(await saveProgram(fresh, target))) {
+                          setSavedFlash(null);
+                          setSaveNote((n) => ({ ...n, [f.slug]: missing.length
+                            ? `Fields saved, but the program is still ${fresh.program?.version.replace(/[()]/g, "") || "unchanged"} — ${short} needs: ${missing.map(([, l]) => l).join(", ")}. Fill the red fields, then Save again.`
+                            : `Fields saved, but the program didn't switch to ${short} — see the message at the top.` }));
+                        } else {
+                          setSaveNote((n) => ({ ...n, [f.slug]: `✓ Program switched to ${short}` }));
+                        }
+                      })()}
+                      disabled={busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` || progBusy === f.slug}
                       className={cn("text-xs rounded-lg px-3 py-2 text-white font-medium disabled:opacity-80 inline-flex items-center gap-1.5 transition-colors",
                         savedFlash === f.slug ? "bg-[#15803d]" : "bg-[#0e9c9c]")}>
-                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}`
+                      {busy === `cvs:${f.slug}` || busy === `extras:${f.slug}` || progBusy === f.slug
                         ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
                         : savedFlash === f.slug
                           ? <><Check className="w-3.5 h-3.5" /> Saved ✓</>
                           : "Save to GHL"}
                     </button>
+                    {saveNote[f.slug] && (
+                      <p className={cn("text-[11px] font-medium", saveNote[f.slug].startsWith("✓") ? "text-[#15803d]" : "text-[#c2410c]")}>{saveNote[f.slug]}</p>
+                    )}
                   </div>
                   <div className="border-t border-[#eef2f6] pt-3 grid gap-1 justify-items-start">
                     <p className="text-[11px] font-bold text-[#0b7f7f]">Step 4 &middot; Verify the setup</p>
