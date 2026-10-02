@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Navbar } from "./Navbar";
 import { TabNav, pathAllowedFor, homeFor } from "./TabNav";
 import { FetchActivity } from "./FetchActivity";
+import { TaskPopup } from "./TaskPopup";
 import { useUser } from "@/lib/hooks/useUser";
 
 // Role enforcement lives HERE, not in middleware. A per-request role lookup
@@ -52,6 +53,8 @@ export function DashboardShell({ children, userEmail, syncing }: DashboardShellP
       <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
         <RoleGate>{children}</RoleGate>
       </main>
+      {/* Coaches' open tasks, in front of their eyes (owner, 2026-10-02). */}
+      <TaskPopup />
     </div>
   );
 }
