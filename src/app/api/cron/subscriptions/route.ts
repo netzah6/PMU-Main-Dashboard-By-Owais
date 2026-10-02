@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { autochargeEnabled, chargeSubscription, type Subscription } from "@/lib/subscriptions";
+import { autochargeEnabled, chargePeriod, chargeSubscription, priceForPeriod, type Subscription } from "@/lib/subscriptions";
 
 export const maxDuration = 300;
 
@@ -28,7 +28,11 @@ export async function GET(req: NextRequest) {
   if (!enabled) {
     return NextResponse.json({
       autocharge: false,
-      wouldCharge: due.map((s) => ({ owner: s.client_label ?? s.owner_key, amount: s.amount_cents / 100, due: s.next_charge_on })),
+      wouldCharge: await Promise.all(due.map(async (s) => ({
+        owner: s.client_label ?? s.owner_key,
+        amount: (await priceForPeriod(svc, s, chargePeriod(s, today)).catch(() => ({ amountCents: s.amount_cents }))).amountCents / 100,
+        due: s.next_charge_on,
+      }))),
       note: "Autocharge is off — nothing was charged.",
     });
   }
@@ -38,7 +42,7 @@ export async function GET(req: NextRequest) {
     const r = await chargeSubscription(svc, sub, today, "cron");
     results.push({
       owner: sub.client_label ?? sub.owner_key,
-      amount: sub.amount_cents / 100,
+      amount: r.ok ? r.amountCents / 100 : (await priceForPeriod(svc, sub, chargePeriod(sub, today)).catch(() => ({ amountCents: sub.amount_cents }))).amountCents / 100,
       ...(r.ok ? { charged: true, paymentId: r.paymentId } : { charged: false, error: r.error }),
     });
   }

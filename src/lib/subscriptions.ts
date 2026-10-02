@@ -84,6 +84,25 @@ export function periodKey(sub: Subscription, on: string): string {
   return sub.cadence === "monthly" ? on.slice(0, 7) : on;
 }
 
+/* A one-month price (owner, 2026-10-02: "50% off for October only, then
+   November goes back to $697"). The row in subscription_period_amounts for
+   that period wins; every other period bills amount_cents. */
+export type PeriodPrice = { amountCents: number; reason: string | null; overridden: boolean };
+export async function priceForPeriod(svc: Svc, sub: Subscription, period: string): Promise<PeriodPrice> {
+  const { data, error } = await svc.from("subscription_period_amounts").select("amount_cents, reason")
+    .eq("subscription_id", sub.id).eq("period_key", period).maybeSingle();
+  // A failed lookup is NOT "no special price" — charging the full amount
+  // over a discount someone set would be wrong. Callers stop instead.
+  if (error) throw new Error(`Couldn't read the ${period} price: ${error.message}`);
+  const row = data as { amount_cents: number; reason: string | null } | null;
+  return row ? { amountCents: row.amount_cents, reason: row.reason, overridden: true } : { amountCents: sub.amount_cents, reason: null, overridden: false };
+}
+
+/** The period a charge on `on` would collect (a pending retry keeps its period). */
+export function chargePeriod(sub: Subscription, on: string): string {
+  return (sub.retry_attempt ?? 0) > 0 && sub.retry_period ? sub.retry_period : periodKey(sub, on);
+}
+
 /** Next due date after charging for `on`. "once" subscriptions do not recur. */
 export function advance(sub: Subscription, on: string): string | null {
   if (sub.cadence === "once") return null;
@@ -330,11 +349,21 @@ export async function chargeSubscription(
 
   // Retries keep collecting the period the first attempt was for, even
   // when the retry date has crossed into the next month.
-  const period = (sub.retry_attempt ?? 0) > 0 && sub.retry_period ? sub.retry_period : periodKey(sub, on);
+  const period = chargePeriod(sub, on);
   const { data: already } = await svc
     .from("subscription_charges").select("id")
     .eq("subscription_id", sub.id).eq("period_key", period).eq("status", "succeeded").maybeSingle();
   if (already) return { ok: false, error: `Already charged for ${period}` };
+
+  let price: PeriodPrice;
+  try {
+    price = await priceForPeriod(svc, sub, period);
+  } catch (e) {
+    // Database hiccup, not a card problem: no retry is scheduled and the due
+    // date stays, so the next run tries again with the right price.
+    return { ok: false, error: `${e instanceof Error ? e.message : "price lookup failed"} — not charged, will try again next run` };
+  }
+  const amountCents = price.amountCents;
 
   const target = sub.square_customer_id && sub.square_card_id
     ? { customerId: sub.square_customer_id, cardId: sub.square_card_id, label: "pinned card" }
@@ -342,7 +371,7 @@ export async function chargeSubscription(
   if ("error" in target) {
     const plan = await scheduleRetry(svc, sub, on, target.error);
     await svc.from("subscription_charges").insert({
-      subscription_id: sub.id, owner_key: sub.owner_key, amount_cents: sub.amount_cents,
+      subscription_id: sub.id, owner_key: sub.owner_key, amount_cents: amountCents,
       status: "failed", error: `${target.error} · ${plan}`, charged_by: chargedBy, period_key: period,
     });
     return { ok: false, error: `${target.error} · ${plan}` };
@@ -352,14 +381,18 @@ export async function chargeSubscription(
   // payment instead of creating a second one.
   // …but a RETRY of a declined charge must be a new request — Square would
   // replay the decline for a reused key — so the attempt number is part of it.
+  // NOT keyed on the amount: if a one-month price changes while a charge is
+  // in flight, the second request must collide with the first (Square
+  // refuses a reused key with new details) instead of becoming a second
+  // payment. A retry after a decline is already a new key via the attempt.
   const idempotencyKey = createHash("sha256").update(`sub:${sub.id}:${period}:${sub.retry_attempt ?? 0}`).digest("hex").slice(0, 45);
   try {
     const p = await createCardPayment({
       customerId: target.customerId,
       cardId: target.cardId,
-      amountCents: sub.amount_cents,
+      amountCents,
       idempotencyKey,
-      note: `${sub.client_label || sub.owner_key} — ${period}${sub.note ? ` · ${sub.note}` : ""}`,
+      note: `${sub.client_label || sub.owner_key} — ${period}${price.overridden ? ` · ${price.reason || "one-month price"}` : ""}${sub.note ? ` · ${sub.note}` : ""}`,
       referenceId: sub.owner_key,
     });
     await svc.from("subscription_charges").insert({
@@ -367,7 +400,13 @@ export async function chargeSubscription(
       status: "succeeded", square_payment_id: p.id, receipt_url: p.receiptUrl,
       charged_by: chargedBy, period_key: period,
     });
-    const next = advance(sub, on);
+    // Next due date counts from the period just collected, not the day the
+    // retry finally went through — a September retry that succeeds on Oct 3
+    // must still leave October to bill (it used to jump to November).
+    const base = sub.cadence === "monthly" && /^\d{4}-\d{2}$/.test(period)
+      ? `${period}-${String(Math.min(sub.charge_day ?? Number(on.slice(8, 10)), 28)).padStart(2, "0")}`
+      : on;
+    const next = advance(sub, base);
     await svc.from("client_subscriptions").update({
       next_charge_on: next ?? sub.next_charge_on,
       status: next ? sub.status : "ended",
@@ -379,7 +418,7 @@ export async function chargeSubscription(
     const error = e instanceof Error ? e.message : "Charge failed";
     const plan = await scheduleRetry(svc, sub, on, error);
     await svc.from("subscription_charges").insert({
-      subscription_id: sub.id, owner_key: sub.owner_key, amount_cents: sub.amount_cents,
+      subscription_id: sub.id, owner_key: sub.owner_key, amount_cents: amountCents,
       status: "failed", error: `${error} · ${plan}`, charged_by: chargedBy, period_key: period,
     });
     return { ok: false, error: `${error} · ${plan}` };
