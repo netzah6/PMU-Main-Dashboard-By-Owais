@@ -1,3 +1,4 @@
+import { getAppLocationToken } from "@/lib/ghl-app";
 import { getPmuTasksAccount, GHL_BASE } from "@/lib/ghl-tasks";
 import { AGENCY_TZ } from "@/lib/ceo-capacity";
 
@@ -131,16 +132,35 @@ export async function sendConversationMessage(
   // fromNumber: send from this number of the account (e.g. a teammate's own
   // line) instead of the account's default one.
   opts: { contactId: string; message: string; channel?: string; fromNumber?: string | null },
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; via?: "app-token" }> {
   const type = SEND_TYPE[opts.channel ?? "SMS"] ?? "SMS";
-  const r = await fetch(`${GHL_BASE}/conversations/messages`, {
-    method: "POST",
-    headers: { ...authHeaders(acct.token, CONV_VERSION), "Content-Type": "application/json" },
-    body: JSON.stringify({ type, contactId: opts.contactId, message: opts.message, ...(opts.fromNumber ? { fromNumber: opts.fromNumber } : {}) }),
-  });
-  if (r.ok) return { ok: true };
-  const text = await r.text().catch(() => "");
-  return { ok: false, error: `HTTP ${r.status}: ${text.slice(0, 200)}` };
+  const post = async (token: string) => {
+    const r = await fetch(`${GHL_BASE}/conversations/messages`, {
+      method: "POST",
+      headers: { ...authHeaders(token, CONV_VERSION), "Content-Type": "application/json" },
+      body: JSON.stringify({ type, contactId: opts.contactId, message: opts.message, ...(opts.fromNumber ? { fromNumber: opts.fromNumber } : {}) }),
+    });
+    if (r.ok) return { ok: true as const };
+    const text = await r.text().catch(() => "");
+    return { ok: false as const, status: r.status, error: `HTTP ${r.status}: ${text.slice(0, 200)}` };
+  };
+  const first = await post(acct.token);
+  if (first.ok) return { ok: true };
+  /* The keys-sheet private token can lack the conversations-write scope
+     ("The token is not authorized for this scope") — GHL rejects the text,
+     nothing is sent. Every sender gets the marketplace app's location token
+     as the fallback (it carries conversations/message.write); this used to
+     live only in the manual Send route, so the Performance "Ask to approve"
+     button and Agent approvals failed (Cindy Simmons, 2026-10-02). */
+  if (first.status === 401 || /not authorized for this scope/i.test(first.error)) {
+    const tok = await getAppLocationToken(acct.locationId);
+    if (tok.token && tok.token !== acct.token) {
+      const retry = await post(tok.token);
+      if (retry.ok) return { ok: true, via: "app-token" };
+      return { ok: false, error: `private token: ${first.error} · app token: ${retry.error}` };
+    }
+  }
+  return { ok: false, error: first.error };
 }
 
 export type RosterUser = { id: string; name: string; email: string };
