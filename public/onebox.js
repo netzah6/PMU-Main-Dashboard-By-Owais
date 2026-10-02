@@ -1066,7 +1066,7 @@
           (ADDR ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
           "<p>We&rsquo;ll text you shortly to lock in your appointment time. Keep an eye on your phone! &#128241;</p>" +
         "</div>" +
-        ((C.igWidget || C.elfsightId) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
+        ((C.igWidget || C.elfsightId || C.igFrozenImgs) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
           "&#128248; Follow us on Instagram for daily results</a>" : "");
     }
     return confettiHtml() +
@@ -1080,7 +1080,7 @@
         (ADDR && !VIDEO ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
         "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service" + (VIDEO ? "" : " at your visit") + ".</p>" +
       "</div>" +
-      ((C.igWidget || C.elfsightId) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
+      ((C.igWidget || C.elfsightId || C.igFrozenImgs) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
         "&#128248; Follow us on Instagram for daily results</a>" : "") +
       '<p class="donenote">We&rsquo;ll be in touch shortly to prepare everything for your visit. Keep an eye on your phone! &#128241;</p>';
   }
@@ -1268,6 +1268,10 @@
        the checkout — one decision on the screen, nothing to wander to. */
     if (V2 && phase === "deposit") { el.innerHTML = ""; return; }
     var IG = C.igWidget || C.elfsightId || "";
+    /* Frozen feed: the dashboard snapshotted the posts that were live when
+       the funnel converted well, and serves them instead of the live
+       widget — new IG posts can't change the page any more. */
+    var FROZEN = (C.igFrozenImgs || "").split(",").filter(function (u) { return u.trim(); });
     var GOOG = C.googleWidget || "";
     function loadElfsight() {
       if (!document.querySelector('script[src*="elfsightcdn"]')) {
@@ -1279,14 +1283,21 @@
     var htmlStr = "";
     /* Template order: the client's own before/after photos (the 9 CV
        slots) first, the live Instagram widget right under them. */
-    if (RESULTS.length || IG) {
+    if (RESULTS.length || IG || FROZEN.length) {
       htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>';
       if (RESULTS.length) {
         htmlStr += '<div class="results solo">' + RESULTS.map(function (u) {
           return '<img src="' + esc(fastImg(u, 640)) + '" alt="Client result" loading="lazy">';
         }).join("") + "</div>";
       }
-      if (IG) {
+      if (FROZEN.length) {
+        htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") +
+          '<div class="results solo igfrozen">' + FROZEN.map(function (u) {
+            return '<img src="' + esc(u) + '" alt="Instagram post" loading="lazy">';
+          }).join("") + "</div>" +
+          (IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">&#128248; See more on Instagram</a>' : "") +
+          (RESULTS.length ? "</div>" : "");
+      } else if (IG) {
         htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") +
           '<div class="elfsight-app-' + esc(IG) + '" data-elfsight-app-lazy></div>' +
           (RESULTS.length ? "</div>" : "");
