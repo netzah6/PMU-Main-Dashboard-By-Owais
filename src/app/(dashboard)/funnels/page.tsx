@@ -754,6 +754,8 @@ export default function FunnelsPage() {
   const [cvForm, setCvForm] = useState<Record<string, string>>({});
   // Media buyer's per-card offer edits (their only editable field).
   const [offerDraft, setOfferDraft] = useState<Record<string, string>>({});
+  // Media buyer's inline pixel editor (owner, 2026-10-02) — digits only.
+  const [pixelDraft, setPixelDraft] = useState<Record<string, string>>({});
   const [extrasForm, setExtrasForm] = useState({ fanbasisHtml: "", elfsightId: "", resultImgs: "", metaPixelId: "", oldFunnelUrl: "", ownerName: "" });
   /* Start Setup step 5 — redirect the ad link onto this funnel? The choice
      is saved on the funnel (extras.adRedirect); the verification result is
@@ -1826,7 +1828,7 @@ export default function FunnelsPage() {
                 <Dot ok={f.hasPixel} label="pixel" />
                 <div className="flex-1" />
                 {isMediaBuyer && (
-                  <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
                     <span className="text-[11px] text-[#697a91]">Offer:</span>
                     <input
                       value={offerDraft[f.slug] ?? f.cv.offer ?? ""}
@@ -1840,6 +1842,23 @@ export default function FunnelsPage() {
                       className="text-xs bg-[#0e9c9c] text-white rounded-lg px-2.5 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
                       {busy === `cvs:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save
                     </button>
+                    {f.template !== "b2b" && (<>
+                      <span className="text-[11px] text-[#697a91] ml-1.5">Pixel:</span>
+                      <input
+                        value={pixelDraft[f.slug] ?? f.pixelId ?? ""}
+                        onChange={(e) => setPixelDraft((x) => ({ ...x, [f.slug]: e.target.value.replace(/\D/g, "") }))}
+                        placeholder="Meta pixel ID"
+                        inputMode="numeric"
+                        className="text-xs border border-[#e4ebf2] rounded-lg px-2 py-1 w-40 focus:outline-none focus:border-[#0e9c9c] font-mono"
+                      />
+                      <button
+                        onClick={() => void act("extras", f.slug, { metaPixelId: (pixelDraft[f.slug] ?? f.pixelId ?? "").trim() })}
+                        disabled={busy === `extras:${f.slug}` || (pixelDraft[f.slug] ?? f.pixelId ?? "") === (f.pixelId ?? "") || (pixelDraft[f.slug] ?? "").length < 10}
+                        title={(pixelDraft[f.slug] ?? "").length > 0 && (pixelDraft[f.slug] ?? "").length < 10 ? "A Meta pixel ID is 15-16 digits" : undefined}
+                        className="text-xs bg-[#0e9c9c] text-white rounded-lg px-2.5 py-1 hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center gap-1">
+                        {busy === `extras:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save
+                      </button>
+                    </>)}
                   </span>
                 )}
                 {/* B2B has no GHL custom values to sync (settings live in Start Setup). */}

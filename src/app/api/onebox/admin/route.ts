@@ -358,10 +358,11 @@ function warmFunnel(slug: string) {
 }
 
 const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "verifyRedirect"]);
-  /* The media buyer updates funnel OFFERS (owner, 2026-09-25): only the
-     "cvs" action, and the cvs handler below restricts them to the offer
-     field. Everything else stays admin/coach territory. */
-  const MEDIA_BUYER_ACTIONS = new Set(["cvs"]);
+  /* The media buyer updates funnel OFFERS (owner, 2026-09-25) and META
+     PIXELS (owner, 2026-10-02): "cvs" restricted to the offer field, and
+     "extras" restricted to metaPixelId — both enforced in the handlers
+     below. Everything else stays admin/coach territory. */
+  const MEDIA_BUYER_ACTIONS = new Set(["cvs", "extras"]);
   if (
     auth.role !== "admin" &&
     !(auth.role === "editor" && COACH_ACTIONS.has(String(body.action ?? ""))) &&
@@ -532,6 +533,19 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
   }
 
   if (action === "extras") {
+    /* Media buyer: pixel only. A real Meta pixel ID is 15-16 digits; the
+       buyer can update it but never blank it, and no other extras key
+       (payment hook, Fanbasis block, …) may ride along on her request. */
+    if (auth.role === "media_buyer") {
+      const allowed = new Set(["action", "slug", "metaPixelId"]);
+      if (Object.keys(body).some((k) => !allowed.has(k))) {
+        return NextResponse.json({ error: "media buyers can only update the pixel" }, { status: 403 });
+      }
+      const id = String(body.metaPixelId ?? "").replace(/\D/g, "");
+      if (id.length < 10 || id.length > 20) {
+        return NextResponse.json({ error: "that doesn't look like a Meta pixel ID (expect 15-16 digits)" }, { status: 400 });
+      }
+    }
     const extras = { ...(row.extras as Extras) };
     if (body.fanbasisHtml !== undefined) extras.fanbasisHtml = String(body.fanbasisHtml);
     if (body.elfsightId !== undefined) extras.elfsightId = normalizeElfsight(body.elfsightId);
