@@ -31,15 +31,19 @@ const SHOW_MAX = 6;
 const today = () => new Date().toLocaleDateString("en-CA"); // local YYYY-MM-DD
 const dayOf = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-CA") : null);
 
+// In-memory copy for when storage is blocked: "Got it" / "Later" must still
+// hold for this tab instead of the pop-up returning on every refresh.
+const memSeen = new Map<string, Seen>();
 function readSeen(key: string): Seen {
   try {
     const v = JSON.parse(window.localStorage.getItem(key) ?? "null") as Seen | null;
     if (v && typeof v.day === "string" && Array.isArray(v.ids)) return { day: v.day, ids: v.ids, snoozeUntil: Number(v.snoozeUntil) || 0 };
-  } catch { /* private window / blocked storage — show it */ }
-  return { day: "", ids: [], snoozeUntil: 0 };
+  } catch { /* private window / blocked storage — fall back to memory */ }
+  return memSeen.get(key) ?? { day: "", ids: [], snoozeUntil: 0 };
 }
 function writeSeen(key: string, v: Seen) {
-  try { window.localStorage.setItem(key, JSON.stringify(v)); } catch { /* not fatal */ }
+  memSeen.set(key, v);
+  try { window.localStorage.setItem(key, JSON.stringify(v)); } catch { /* memory copy still holds */ }
 }
 
 function dueText(iso: string | null): { text: string; tone: "overdue" | "today" | "soon" | "none" } {
@@ -124,7 +128,7 @@ export function TaskPopup() {
 
   return (
     <div role="dialog" aria-label="Your tasks"
-      className="fixed z-50 bottom-4 right-4 left-4 sm:left-auto sm:w-[380px] rounded-2xl border border-[#cdeeed] bg-white shadow-xl">
+      className="fixed z-40 bottom-4 right-4 left-4 sm:left-auto sm:w-[380px] rounded-2xl border border-[#cdeeed] bg-white shadow-xl">
       <div className="flex items-start justify-between gap-2 px-4 pt-3 pb-2 border-b border-[#eef3f8]">
         <div>
           <p className="text-sm font-bold text-[#1f3559]">📋 Your tasks · {sorted.length} open</p>
@@ -151,7 +155,7 @@ export function TaskPopup() {
                 </p>
               </div>
               {t.contactId && (
-                <button onClick={() => void complete(t)} disabled={doneBusy === t.id} title="Mark done (in GHL)"
+                <button onClick={() => void complete(t)} disabled={!!doneBusy} title="Mark done (in GHL)"
                   className="shrink-0 mt-0.5 w-7 h-7 rounded-full border border-[#bfe3cd] text-[#15803d] hover:bg-[#e7f6ec] flex items-center justify-center disabled:opacity-50">
                   {doneBusy === t.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
                 </button>
