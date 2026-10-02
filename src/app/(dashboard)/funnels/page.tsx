@@ -1859,7 +1859,7 @@ export default function FunnelsPage() {
                             else { setPixelOtherRow((x) => ({ ...x, [f.slug]: false })); setPixelDraft((x) => ({ ...x, [f.slug]: v === "__keep" ? "" : v })); }
                           }}
                           className="text-xs border border-[#e4ebf2] rounded-lg px-2 py-1 max-w-[260px] bg-white focus:outline-none focus:border-[#0e9c9c]">
-                          <option value="__keep">{f.pixelId ? `Keep current — ${pixelLabel(f.pixelId)}` : "— pick a pixel —"}</option>
+                          <option value="__keep">{f.pixelId ? pixelLabel(f.pixelId) : "— pick a pixel —"}</option>
                           {pixelOptions.filter((o) => o.id !== f.pixelId).map((o) => (
                             <option key={o.id} value={o.id}>{o.label}</option>
                           ))}
@@ -2122,7 +2122,7 @@ export default function FunnelsPage() {
                           else { setPixelOther(false); setExtrasForm((x) => ({ ...x, metaPixelId: v === "__keep" ? "" : v })); }
                         }}
                         className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs bg-white">
-                        <option value="__keep">{f.pixelId ? `Keep current — ${pixelLabel(f.pixelId)}` : "— pick a pixel —"}</option>
+                        <option value="__keep">{f.pixelId ? pixelLabel(f.pixelId) : "— pick a pixel —"}</option>
                         {pixelOptions.filter((o) => o.id !== f.pixelId).map((o) => (
                           <option key={o.id} value={o.id}>{o.label}</option>
                         ))}
