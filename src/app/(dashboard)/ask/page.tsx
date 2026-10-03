@@ -64,6 +64,8 @@ export default function AskPage() {
   // Manual send — YOU type it, YOU click Send; nothing automated.
   const [sendText, setSendText] = useState("");
   const [sending, setSending] = useState(false);
+  const [schedTick, setSchedTick] = useState(0); // reloads the open chat's "Scheduled" list
+  const [composerSchedBusy, setComposerSchedBusy] = useState(false);
   // ── CEO Agent, merged into the chat (owner request 2026-10-01) ──
   // Admin only. Cards live next to their conversation instead of a separate
   // tab; nothing runs until someone opens the card and clicks Approve.
@@ -179,7 +181,7 @@ export default function AskPage() {
   }, [loadConvs, loadProposals, role]);
 
   const sendManual = useCallback(async () => {
-    if (!pending?.contactId || !sendText.trim() || sending) return;
+    if (!pending?.contactId || !sendText.trim() || sending || composerSchedBusy) return;
     setSending(true);
     try {
       const res = await fetch("/api/ghl/reply/send", {
@@ -198,7 +200,7 @@ export default function AskPage() {
     } finally {
       setSending(false);
     }
-  }, [pending, sendText, sending, loadConvs]);
+  }, [pending, sendText, sending, composerSchedBusy, loadConvs]);
 
   // Agent cards are admin-only — members never fetch (or see) them.
   useEffect(() => {
@@ -763,13 +765,19 @@ export default function AskPage() {
               placeholder={`Type the exact message to send to ${pending.contactName}…`}
               className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none"
             />
-            <div className="flex items-center gap-2 mt-1.5">
-              <button onClick={sendManual} disabled={sending || !sendText.trim() || !pending.contactId}
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <button onClick={sendManual} disabled={sending || composerSchedBusy || !sendText.trim() || !pending.contactId}
                 className="px-3 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
                 {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Send to {pending.contactName}
               </button>
+              {pending.contactId && pending.channel !== "Email" && pending.channel !== "Call" && (
+                <ScheduleControl contactId={pending.contactId} contactName={pending.contactName} channel={pending.channel}
+                  text={sendText} disabled={!sendText.trim() || sending}
+                  onScheduled={() => { setSendText(""); setSchedTick((t) => t + 1); }} onBusyChange={setComposerSchedBusy} />
+              )}
               <span className="text-[10px] text-[#8595a8]">{pending.contactId ? "⌘/Ctrl+Enter to send" : "no contact id — open the chat in GHL"}</span>
             </div>
+            {pending.contactId && <ScheduledList contactId={pending.contactId} refreshKey={schedTick} />}
           </div>
         </div>
       )}
@@ -1128,11 +1136,124 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
   );
 }
 
+/* Schedule a text instead of sending it now (owner, 2026-10-03). GHL holds it
+   and sends it at that time; it shows in the chat's "Scheduled" list (and in
+   GHL) and can be cancelled until then. Times are the viewer's local time. */
+const localInput = (d: Date) => {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const whenText = (iso: string) => new Date(iso).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+
+function ScheduleControl({ contactId, contactName, channel, text, disabled, onScheduled, onBusyChange }: {
+  contactId: string; contactName: string; channel: string; text: string; disabled?: boolean;
+  onScheduled: (s: { id: string | null; scheduledFor: string; cancellable: boolean }) => void;
+  // The parent locks its Send while a schedule is in flight (and passes
+  // disabled while a Send is) — doing both would text the client twice.
+  onBusyChange?: (busy: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [at, setAt] = useState(() => { const d = new Date(Date.now() + 86_400_000); d.setHours(9, 0, 0, 0); return localInput(d); });
+  const [busy, setBusyState] = useState(false);
+  const setBusy = (b: boolean) => { setBusyState(b); onBusyChange?.(b); };
+  const schedule = async () => {
+    if (busy || disabled || !text.trim()) return;
+    const t = new Date(at);
+    if (isNaN(t.getTime()) || t.getTime() < Date.now() + 60_000) { toast.error("Pick a time at least a minute from now"); return; }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/ghl/reply/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId, contactName, message: text.trim(), channel, scheduleAt: t.toISOString() }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Couldn't schedule it");
+      toast.success(`Scheduled for ${whenText(j.scheduledFor)}`);
+      setOpen(false);
+      onScheduled({ id: j.id ?? null, scheduledFor: j.scheduledFor, cancellable: !!j.cancellable });
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally { setBusy(false); }
+  };
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} disabled={disabled}
+        title="Send it later — GHL holds the text and sends it at the time you pick"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#c9dbfb] text-[#34568a] hover:bg-[#f7faff] text-xs font-semibold disabled:opacity-50">
+        🕒 Schedule
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 flex-wrap">
+      <input type="datetime-local" value={at} min={localInput(new Date(Date.now() + 2 * 60_000))} onChange={(e) => setAt(e.target.value)}
+        className="px-2 py-1 rounded-lg border border-[#c9dbfb] text-xs text-[#1f3559] bg-white" />
+      <button onClick={() => void schedule()} disabled={busy || disabled || !at}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#34568a] hover:bg-[#1f3559] text-white text-xs font-semibold disabled:opacity-60">
+        {busy ? <Loader2 size={12} className="animate-spin" /> : "🕒"} Schedule
+      </button>
+      <button onClick={() => setOpen(false)} className="text-[11px] text-[#8595a8] hover:underline">cancel</button>
+    </span>
+  );
+}
+
+// Texts already scheduled for this contact — shown in the open chat, with Cancel.
+type ScheduledMsg = { id: string; message: string; scheduled_for: string; created_by: string; ghl_message_id: string | null };
+function ScheduledList({ contactId, refreshKey }: { contactId: string; refreshKey: number }) {
+  const [items, setItems] = useState<ScheduledMsg[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/ghl/reply/scheduled?contactId=${encodeURIComponent(contactId)}`);
+      const j = await r.json();
+      if (r.ok) setItems(j.scheduled ?? []);
+    } catch { /* list stays as is */ }
+  }, [contactId]);
+  useEffect(() => { void load(); }, [load, refreshKey]);
+  const cancel = async (m: ScheduledMsg) => {
+    if (!window.confirm(`Cancel the text scheduled for ${whenText(m.scheduled_for)}?`)) return;
+    setBusy(m.id);
+    try {
+      const r = await fetch("/api/ghl/reply/scheduled", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Couldn't cancel it");
+      toast.success("Scheduled text cancelled");
+      await load();
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally { setBusy(null); }
+  };
+  if (!items.length) return null;
+  return (
+    <div className="mt-2.5 rounded-lg border border-[#c9dbfb] bg-white p-2">
+      <p className="text-[11px] font-bold text-[#34568a] mb-1">🕒 Scheduled ({items.length})</p>
+      <ul className="space-y-1">
+        {items.map((m) => (
+          <li key={m.id} className="flex items-start gap-2 text-[12px]">
+            <div className="flex-1 min-w-0">
+              <span className="font-semibold text-[#1f3559]">{whenText(m.scheduled_for)}</span>
+              <span className="text-[#8595a8]"> · by {m.created_by.split("@")[0]}</span>
+              <p className="text-[#697a91] whitespace-pre-wrap break-words">{m.message}</p>
+            </div>
+            <button onClick={() => void cancel(m)} disabled={busy === m.id}
+              className="shrink-0 text-[11px] text-[#e11d48] hover:underline disabled:opacity-50">
+              {busy === m.id ? "…" : "Cancel"}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d: Draft, note: string) => void }) {
   const [copied, setCopied] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editNote, setEditNote] = useState("");
   const [sendState, setSendState] = useState<"idle" | "sending" | "sent">("idle");
+  const [scheduled, setScheduled] = useState<{ id: string | null; scheduledFor: string; cancellable: boolean } | null>(null);
+  const [unscheduling, setUnscheduling] = useState(false);
+  const [schedBusy, setSchedBusy] = useState(false);
   // Manual text editing: `text` is the live draft — Send/Copy/AI-edit all use
   // it, so hand-typed changes carry through everywhere.
   const [text, setText] = useState(d.draft);
@@ -1153,7 +1274,7 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
       ? `${d.channel} can't be sent from here — open the chat in GHL`
       : "no contact id on this chat — open it in GHL to reply";
   const sendDraft = useCallback(async () => {
-    if (!d.contactId || sendState !== "idle" || !text.trim()) return;
+    if (!d.contactId || sendState !== "idle" || schedBusy || !text.trim()) return;
     setSendState("sending");
     try {
       const res = await fetch("/api/ghl/reply/send", {
@@ -1169,7 +1290,7 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
       setSendState("idle");
       toast.error(`${e}`.replace("Error: ", ""));
     }
-  }, [d, sendState, text]);
+  }, [d, sendState, schedBusy, text]);
   const submitEdit = () => {
     if (!editNote.trim() || !onEdit) return;
     onEdit({ ...d, draft: text }, editNote); // AI revises the CURRENT text, manual edits included
@@ -1205,12 +1326,37 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
         <p className="text-sm text-[#1f3559] whitespace-pre-wrap">{text}</p>
       )}
       <div className="flex items-center gap-2 mt-2.5 flex-wrap">
-        {canSend && (
-          <button onClick={sendDraft} disabled={sendState !== "idle"}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-xs font-semibold disabled:opacity-60">
-            {sendState === "sending" ? <Loader2 size={12} className="animate-spin" /> : sendState === "sent" ? <Check size={12} /> : <Send size={12} />}
-            {sendState === "sent" ? "Sent ✓" : `Send to ${d.contactName}`}
-          </button>
+        {canSend && scheduled ? (
+          <span className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#eef6ff] border border-[#c9dbfb] text-xs font-semibold text-[#185fa5]">
+            🕒 Scheduled · {whenText(scheduled.scheduledFor)}
+            {scheduled.id && scheduled.cancellable && (
+              <button disabled={unscheduling} onClick={async () => {
+                  if (!window.confirm("Cancel this scheduled text?")) return;
+                  setUnscheduling(true);
+                  try {
+                    const r = await fetch("/api/ghl/reply/scheduled", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: scheduled.id }) });
+                    const j = await r.json();
+                    if (!r.ok) throw new Error(j.error || "Couldn't cancel it");
+                    toast.success("Scheduled text cancelled");
+                    setScheduled(null);
+                  } catch (e) { toast.error(`${e}`.replace("Error: ", "")); }
+                  finally { setUnscheduling(false); }
+                }}
+                className="text-[11px] font-medium text-[#e11d48] hover:underline disabled:opacity-50">{unscheduling ? "…" : "cancel"}</button>
+            )}
+          </span>
+        ) : canSend && (
+          <>
+            <button onClick={sendDraft} disabled={sendState !== "idle" || schedBusy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-xs font-semibold disabled:opacity-60">
+              {sendState === "sending" ? <Loader2 size={12} className="animate-spin" /> : sendState === "sent" ? <Check size={12} /> : <Send size={12} />}
+              {sendState === "sent" ? "Sent ✓" : `Send to ${d.contactName}`}
+            </button>
+            {sendState === "idle" && d.contactId && (
+              <ScheduleControl contactId={d.contactId} contactName={d.contactName} channel={d.channel} text={text}
+                disabled={sendState !== "idle"} onScheduled={setScheduled} onBusyChange={setSchedBusy} />
+            )}
+          </>
         )}
         <button onClick={() => { copy(); toast.success("Draft copied"); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-white text-xs font-semibold">
@@ -1226,7 +1372,7 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
             <Sparkles size={12} /> AI edit
           </button>
         )}
-        <span className="text-[10px] text-[#8595a8]">{canSend ? "nothing sends until you click Send" : noSendReason}</span>
+        <span className="text-[10px] text-[#8595a8]">{canSend ? "nothing sends until you click Send or Schedule" : noSendReason}</span>
       </div>
       {editOpen && canEdit && (
         <div className="mt-2.5 rounded-lg border border-[#ffd8a8] bg-[#fffaf2] p-2">
