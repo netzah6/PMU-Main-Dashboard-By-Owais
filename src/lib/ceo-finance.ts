@@ -25,6 +25,11 @@ const MONTHS: { label: string; ym: string; tab: string; schema: Schema }[] = [
   { label: "June",      ym: "2026-06", tab: "June V2",   schema: "new" },
   { label: "July",      ym: "2026-07", tab: "July V2",   schema: "new" },
   { label: "August",    ym: "2026-08", tab: "August V2", schema: "new" },
+  // Later months are read once their tab exists (checked on every load).
+  { label: "September", ym: "2026-09", tab: "September V2", schema: "new" },
+  { label: "October",   ym: "2026-10", tab: "October V2",   schema: "new" },
+  { label: "November",  ym: "2026-11", tab: "November V2",  schema: "new" },
+  { label: "December",  ym: "2026-12", tab: "December V2",  schema: "new" },
 ];
 
 export interface MonthFinance {
@@ -43,6 +48,14 @@ export interface MonthFinance {
   totalExpense: number | null;
   totalProfit: number | null;
   newNames: string[];
+  /** Clients who paid anything this month (one per name). */
+  payingClients: number;
+  /** Paid last month, nothing this month — churn (or a skipped payment). */
+  lostClients: number | null;
+  /** Clients whose total payment this month was under $500. */
+  under500: number;
+  /** The agency's own Facebook ads (the tab's expense list, "FB ads"). */
+  adSpend: number | null;
 }
 
 export interface FinanceResult {
@@ -73,7 +86,12 @@ const NOT_A_CLIENT = /deposits from clients|^total|^client name$|^customer$|^\s*
 export async function getAgencyFinance(): Promise<FinanceResult> {
   try {
     const sheets = await getSheetsClient();
-    const ranges = MONTHS.map((m) => `'${m.tab}'!A1:H400`);
+    // Only tabs that exist — a month tab is created when the month starts,
+    // and batchGet fails outright on a missing one.
+    const meta = await sheets.spreadsheets.get({ spreadsheetId: FINANCE_SHEET_ID, fields: "sheets.properties.title" });
+    const have = new Set((meta.data.sheets ?? []).map((x) => String(x.properties?.title ?? "")));
+    const MONTHS_HERE = MONTHS.filter((m) => have.has(m.tab));
+    const ranges = MONTHS_HERE.map((m) => `'${m.tab}'!A1:N400`);
     const res = await sheets.spreadsheets.values.batchGet({
       spreadsheetId: FINANCE_SHEET_ID,
       ranges,
@@ -85,8 +103,9 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
     // recurring every month after — so the set carries across the whole year.
     const seen = new Set<string>();
     const months: MonthFinance[] = [];
+    let prevPayers: Set<string> | null = null;
 
-    MONTHS.forEach((m, i) => {
+    MONTHS_HERE.forEach((m, i) => {
       const rows = (valueRanges[i]?.values ?? []) as string[][];
       const nameIdx = m.schema === "old" ? 6 : 1;
       const amtIdx = m.schema === "old" ? 3 : 4;
@@ -94,8 +113,13 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       let newClients = 0, newCash = 0, recurringClients = 0, recurringCash = 0;
       let depositIncome = 0;
       const newNames: string[] = [];
+      const paidBy = new Map<string, number>(); // name → this month's total
+      let adSpend: number | null = null;
 
       for (const row of rows) {
+        // The new layout lists the month's expenses in L/M; "FB ads" is the
+        // agency's own ad spend (client campaigns live elsewhere).
+        if (m.schema === "new" && /^\s*fb ads\s*$/i.test(String(row?.[11] ?? ""))) adSpend = (adSpend ?? 0) + money(row?.[12]);
         const raw = String(row?.[nameIdx] ?? "").trim();
         // Deposit lines are real income and are what makes the month tie to the
         // sheet's own Total Income — they just aren't a client subscription.
@@ -107,6 +131,7 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
         const key = nameKey(raw);
         if (key.length < 3) continue;
         const amt = money(row?.[amtIdx]);
+        if (amt > 0) paidBy.set(key, (paidBy.get(key) ?? 0) + amt);
         if (seen.has(key)) {
           recurringClients++;
           recurringCash += amt;
@@ -125,13 +150,20 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       const totalExpense = m.schema === "new" ? money(summary[2]) || null : null;
       const totalProfit = m.schema === "new" ? money(summary[3]) || null : null;
 
+      const payers = new Set(paidBy.keys());
+      const prev: Set<string> | null = prevPayers;
       months.push({
         label: m.label, ym: m.ym,
         newClients, newCash, recurringClients, recurringCash, depositIncome,
         totalCash: newCash + recurringCash + depositIncome,
         totalIncome, totalExpense, totalProfit,
         newNames,
+        payingClients: payers.size,
+        lostClients: prev ? [...prev].filter((k) => !payers.has(k)).length : null,
+        under500: [...paidBy.values()].filter((v) => v < 500).length,
+        adSpend,
       });
+      prevPayers = payers;
     });
 
     return { months, generatedAt: new Date().toISOString() };

@@ -5,6 +5,7 @@ import { useUser } from "@/lib/hooks/useUser";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { RoadTo100k } from "@/components/ceo/RoadTo100k";
 
 // CEO view, rebuilt natively.
 //
@@ -131,6 +132,9 @@ export default function CeoPage() {
           Finance sheet unavailable: {finErr}
         </div>
       )}
+
+      {/* ── Road to $100k/mo profit (owner, 2026-10-03) ─────────────── */}
+      <RoadTo100k />
 
       {/* ── One compact stat strip ────────────────────────────────── */}
       <div className="rounded-xl border border-[#e4ebf2] bg-white px-3 py-2.5 flex flex-wrap
