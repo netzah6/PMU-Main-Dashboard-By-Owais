@@ -3,7 +3,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { DataFreshness } from "@/components/freshness/DataFreshness";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, userColor, cn } from "@/lib/utils";
-import { Search, ChevronRight, Copy, X } from "lucide-react";
+import { Search, ChevronRight, Copy, X, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 import { LeadBreakdown } from "@/components/clients/LeadBreakdown";
 import { OpenConversations } from "@/components/clients/OpenConversations";
@@ -233,6 +234,36 @@ export default function CostPerDepositPage() {
      artist CALLED, how many lost the AI afterwards — the outgoing-call
      workflow removes them from the AI flow (2026-09-22 finding). */
   const [killMap, setKillMap] = useState<Map<string, { qualified: number; called: number; dead: number; ignored: number }> | null>(null);
+  /* Clients whose call workflow was already fixed (owner clicks the Kill %
+     to mark it, 2026-10-03) — so he knows who's taken care of. */
+  const [killFixes, setKillFixes] = useState<Record<string, { fixed_by: string | null; fixed_at: string }>>({});
+  const [killSaving, setKillSaving] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/call-kill/fixed").then((r) => r.json()).then((j) => { if (j.fixes) setKillFixes(j.fixes); }).catch(() => {});
+  }, []);
+  const toggleKillFix = async (ownerKey: string, name: string) => {
+    if (killSaving) return;
+    const isFixed = !!killFixes[ownerKey];
+    if (isFixed && !window.confirm(`Mark ${name} as NOT fixed again?`)) return;
+    setKillSaving(ownerKey);
+    try {
+      const r = await fetch("/api/call-kill/fixed", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ownerKey, fixed: !isFixed }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Couldn't save");
+      setKillFixes((m) => {
+        const n = { ...m };
+        if (j.fixed) n[ownerKey] = { fixed_by: j.fixed_by ?? null, fixed_at: j.fixed_at };
+        else delete n[ownerKey];
+        return n;
+      });
+      toast.success(j.fixed ? `${name}: marked fixed ✓` : `${name}: marked not fixed`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save");
+    } finally { setKillSaving(null); }
+  };
 
   useEffect(() => {
     const supabase = createClient();
@@ -533,11 +564,24 @@ export default function CostPerDepositPage() {
                         const pct = Math.round((k.dead / k.qualified) * 100);
                         const tone = pct >= 15 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 7 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
                         const label = k.qualified < 3 ? `${k.dead}/${k.qualified}` : `${pct}%`;
+                        const ownerKey = (r.owner_name ?? "").toLowerCase().trim();
+                        const fix = killFixes[ownerKey];
+                        const saving = killSaving === ownerKey;
+                        const why = `${k.dead} of ${k.qualified} qualified leads (21d) lost the AI after an artist call — the artist called ${k.called} of them${k.ignored ? `, ${k.ignored} replied and got silence` : ""}. Cause: the outgoing-call workflow stops the CC- Funnel Survey flow while it's still active.`;
+                        /* Click = "I fixed this client's call workflow" (calling a
+                           lead no longer stops the AI). Saved per client; the %
+                           keeps updating daily, so a fix that didn't take shows. */
                         return (
-                          <span className="rounded px-1.5 py-0.5 cursor-default" style={{ background: tone.bg, color: tone.fg }}
-                            title={`${k.dead} of ${k.qualified} qualified leads (21d) lost the AI after an artist call — the artist called ${k.called} of them${k.ignored ? `, ${k.ignored} replied and got silence` : ""}. Cause: the outgoing-call workflow stops the CC- Funnel Survey flow while it's still active.`}>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); void toggleKillFix(ownerKey, r.owner_name ?? "this client"); }} disabled={saving}
+                            className={cn("inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:ring-2 hover:ring-[#15B7AE]/40 disabled:opacity-60", fix && "ring-1 ring-[#15803d]")}
+                            style={fix ? { background: "#e7f6ec", color: "#15803d" } : { background: tone.bg, color: tone.fg }}
+                            title={fix
+                              ? `✓ Fixed — marked by ${fix.fixed_by ?? "an admin"} on ${new Date(fix.fixed_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}. Click to undo.\n\n${why}`
+                              : `Click once the call workflow is fixed for this client (calling a lead won't stop the AI).\n\n${why}`}>
+                            {saving ? <Loader2 size={11} className="animate-spin" /> : fix ? "✓" : null}
                             {label}
-                          </span>
+                            {fix && <span className="text-[9px] font-bold uppercase">fixed</span>}
+                          </button>
                         );
                       })()}
                     </td>
