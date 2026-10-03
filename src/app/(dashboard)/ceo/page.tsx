@@ -26,8 +26,6 @@ interface MonthFinance {
   newNames: string[];
 }
 
-interface DaySlots { date: string; slots: number; times: string[] }
-interface PersonCapacity { role: string; name: string; calendars: string[]; days: DaySlots[]; totalSlots: number }
 
 interface Close { name: string; closedOn: string; upfront: number; assignedTo: string; }
 interface Win { key: string; label: string; closes: Close[]; closeCount: number; upfrontTotal: number; expectedLtv: number; fromPayments?: boolean }
@@ -54,8 +52,6 @@ export default function CeoPage() {
   const [undated, setUndated] = useState(0);
   const [rescued, setRescued] = useState(0);
   const [openWin, setOpenWin] = useState<string | null>(null);
-  const [cap, setCap] = useState<PersonCapacity[] | null>(null);
-  const [capErr, setCapErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (role !== "admin") return;
@@ -77,14 +73,6 @@ export default function CeoPage() {
       .then((j) => { setWins(j.windows ?? []); setAvgLtv(j.avgLtv ?? 0); setUndated(j.undatedClosed ?? 0); setRescued(j.datedFromPayment ?? 0); })
       .catch(() => setWins([]));
   }, [role, ym]);
-
-  useEffect(() => {
-    if (role !== "admin") return;
-    fetch("/api/ceo/capacity")
-      .then((r) => r.json())
-      .then((j) => { if (j.error) setCapErr(String(j.error)); setCap(j.people ?? []); })
-      .catch((e) => { setCapErr(String(e)); setCap([]); });
-  }, [role]);
 
   // Column A of Clients Master holds the status but has no header cell, so the
   // sheet sync names it col_1.
@@ -346,109 +334,6 @@ export default function CeoPage() {
           projected worth, not cash in hand. <strong className="text-[#b45309]">ROI is not shown:</strong> the old card
           divided by spend on a campaign called &ldquo;PMU Conversions - New&rdquo;, which does not exist in the Facebook
           Campaign Stats workbook &mdash; that workbook holds client campaigns only, which is why it read $0 spend and +0%.
-        </p>
-      </div>
-
-      {/* ── Setter & closer capacity, next 7 days ─────────────────── */}
-      <div className="rounded-xl border border-[#e4ebf2] bg-white p-3" style={{ boxShadow: "var(--shadow-sm)" }}>
-        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2.5">
-          <h2 className="text-sm font-semibold text-[#1f3559]">Setter &amp; Closer &middot; Capacity</h2>
-          <span className="text-[13px] text-[#8595a8]">Open slots by hour · next 7 days · calendar\u2019s own timezone</span>
-        </div>
-        {capErr && (
-          <div className="rounded-md border border-[#fcd9a8] bg-[#fff7ec] px-2 py-1.5 text-[13px] text-[#b45309] mb-2">
-            {capErr}
-          </div>
-        )}
-        {!cap ? (
-          <div className="py-8 text-center text-sm text-[#8595a8]">Reading calendars…</div>
-        ) : cap.length === 0 ? (
-          <p className="text-sm text-[#8595a8]">No calendar data.</p>
-        ) : (
-          <div className="space-y-5">
-            {cap.map((p) => {
-              // One shared hour range per person so every day lines up, derived
-              // from their actual slots rather than a fixed 9-5 assumption.
-              // Clamp to the hours that actually carry availability, but never
-              // let one stray early/late slot stretch the grid over a whole day.
-              const hours = p.days.flatMap((d) => d.times.map((t) => parseInt(t.slice(0, 2), 10)));
-              const lo = Math.max(6, hours.length ? Math.min(...hours) : 8);
-              const hi = Math.min(21, hours.length ? Math.max(...hours) : 18);
-              const rows: number[] = [];
-              for (let h = lo; h <= hi; h++) rows.push(h);
-              const hLabel = (h: number) =>
-                `${((h + 11) % 12) + 1}${h < 12 ? "a" : "p"}`;
-              return (
-                <div key={p.role}>
-                  <div className="flex flex-wrap items-baseline gap-x-2 mb-2">
-                    <span className="text-[12px] font-bold uppercase tracking-wide px-2 py-0.5 rounded
-                                     bg-[#eefaf9] text-[#0f8f88] border border-[#bfe6e3]">{p.role}</span>
-                    <span className="text-base font-semibold text-[#1f3559]">{p.name}</span>
-                    <span className="text-sm text-[#697a91]">{p.totalSlots} open 15-min slots this week</span>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <div className="min-w-[640px] border border-[#e4ebf2] rounded-lg overflow-hidden">
-                      {/* day header */}
-                      <div className="grid" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
-                        <div className="bg-[#f7fafc] border-b border-[#e4ebf2]" />
-                        {p.days.map((d, i) => {
-                          const dt = new Date(d.date + "T00:00:00Z");
-                          return (
-                            <div key={d.date}
-                                 className="bg-[#f7fafc] border-b border-l border-[#e4ebf2] px-1 py-1.5 text-center">
-                              <div className="text-[13px] font-semibold text-[#34568a]">
-                                {dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })}
-                                {i === 0 && <span className="text-[#0f8f88]"> ·today</span>}
-                              </div>
-                              <div className="text-[12px] text-[#8595a8] tabular-nums">
-                                {dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {/* hour rows */}
-                      {rows.map((h) => (
-                        <div key={h} className="grid" style={{ gridTemplateColumns: "48px repeat(7, 1fr)" }}>
-                          <div className="bg-[#fbfcfd] border-b border-[#eef3f8] px-1.5 py-1.5
-                                          text-[13px] font-medium text-[#697a91] text-right tabular-nums">{hLabel(h)}</div>
-                          {p.days.map((d) => {
-                            const inHour = d.times.filter((t) => parseInt(t.slice(0, 2), 10) === h);
-                            const open = inHour.length > 0;
-                            return (
-                              <div key={d.date + h}
-                                   title={open ? `${inHour.length} open: ${inHour.join(", ")}` : "no availability"}
-                                   className={cn("border-b border-l border-[#eef3f8] px-1 py-1.5 text-center",
-                                                 open ? "bg-[#e6f7f5]" : "bg-white")}>
-                                {open && (
-                                  <span className="text-[15px] font-bold text-[#0f8f88] tabular-nums">
-                                    {inHour.length}
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {p.calendars.length > 0 && (
-                    <p className="text-[11px] text-[#8595a8] mt-1.5">{p.calendars.join(" · ")}</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <p className="text-[12px] text-[#8595a8] mt-2 leading-snug">
-          <strong>Each number is how many 15-minute slots are still bookable in that hour</strong> &mdash;
-          4 means the whole hour is free, 2 or 3 means part of it is taken, blank means nothing is bookable.
-          All times are Pacific, the agency timezone, converted from whatever offset each calendar reports.
-          Bookable availability from each person&rsquo;s GHL calendars in the PMU Bookings On Demand sub-account.
-          Measured as open slots rather than booked events, because the marketplace app is not granted
-          <code className="mx-1">calendars/events.readonly</code> and that endpoint returns 401.
         </p>
       </div>
 
