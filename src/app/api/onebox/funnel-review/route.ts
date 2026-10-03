@@ -86,9 +86,16 @@ export async function GET(req: NextRequest) {
   const isDollarOff = /\$?\s*\d+\s*off/i.test(offer);
   const isFreeConsult = /free\s*consult/i.test(offer);
   const servicesCount = String(cfg.services ?? "").split(",").filter((s) => s.trim()).length;
-  const photoCount = Object.keys(cfg).filter(
-    (k) => /before|after|studio|img|image|picture/i.test(k) && String(cfg[k] ?? "").trim(),
-  ).length;
+  /* Count PICTURES, not config fields: the before/after and studio photos
+     live as comma-separated URL lists in aggregated fields (resultCvImgs
+     carries the 9 CV slots). Counting keys undercounted everyone to 1
+     (caught by the owner on Alluring, 2026-10-03). */
+  const photoCount = new Set(
+    ["resultImgs", "resultCvImgs", "studioImgs", "studioCvImgs"]
+      .flatMap((k) => String(cfg[k] ?? "").split(","))
+      .map((u) => u.trim())
+      .filter(Boolean),
+  ).size;
   const hasIg = !!String(cfg.igWidget ?? "").trim();
   const hasHours = !!String(cfg.businessHours ?? "").trim();
   const canCharge = !!String(cfg.fanbasisProductId ?? "").trim() || !!String(cfg.fanbasisCode ?? "").trim();
