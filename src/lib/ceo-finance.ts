@@ -52,8 +52,18 @@ export interface MonthFinance {
   payingClients: number;
   /** Paid last month, nothing this month — churn (or a skipped payment). */
   lostClients: number | null;
-  /** Clients whose total payment this month was under $500. */
+  /** RETAINER clients whose total payment this month was under $500
+   *  (pay-per-appointment clients pay per show, so they're left out). */
   under500: number;
+  /** Everyone who paid this month: name as written, total, and whether the
+   *  row is a pay-per-appointment charge ("$50 deposit + $45 per show"). */
+  payers: Array<{ name: string; amount: number; pps: boolean }>;
+  /** First month this name ever paid (> $0). */
+  firstTimePayers: string[];
+  /** Paid last month, not this month (names as written last month). */
+  lostNames: string[];
+  /** Per-show fees billed to pay-per-appointment clients (their sheet rows). */
+  ppsFeeCash: number;
   /** The agency's own Facebook ads (the tab's expense list, "FB ads"). */
   adSpend: number | null;
 }
@@ -102,8 +112,9 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
     // A client counts as NEW the first month their name ever appears, and as
     // recurring every month after — so the set carries across the whole year.
     const seen = new Set<string>();
+    const everPaid = new Set<string>();
     const months: MonthFinance[] = [];
-    let prevPayers: Set<string> | null = null;
+    let prevPayers: Map<string, string> | null = null; // key → name as written
 
     MONTHS_HERE.forEach((m, i) => {
       const rows = (valueRanges[i]?.values ?? []) as string[][];
@@ -113,7 +124,7 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       let newClients = 0, newCash = 0, recurringClients = 0, recurringCash = 0;
       let depositIncome = 0;
       const newNames: string[] = [];
-      const paidBy = new Map<string, number>(); // name → this month's total
+      const paidBy = new Map<string, { name: string; amount: number; pps: boolean }>(); // key → this month
       let adSpend: number | null = null;
 
       for (const row of rows) {
@@ -131,7 +142,13 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
         const key = nameKey(raw);
         if (key.length < 3) continue;
         const amt = money(row?.[amtIdx]);
-        if (amt > 0) paidBy.set(key, (paidBy.get(key) ?? 0) + amt);
+        if (amt > 0) {
+          // The plan note says how they're billed: "$50 deposit + $45 per show" = pay per appointment.
+          const note = m.schema === "new" ? String(row?.[2] ?? "") : "";
+          const pps = /per\s*show|\bpps\b|per\s*appointment|pay\s*per/i.test(note);
+          const cur = paidBy.get(key);
+          paidBy.set(key, { name: cur?.name ?? raw, amount: (cur?.amount ?? 0) + amt, pps: (cur?.pps ?? false) || pps });
+        }
         if (seen.has(key)) {
           recurringClients++;
           recurringCash += amt;
@@ -150,20 +167,27 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       const totalExpense = m.schema === "new" ? money(summary[2]) || null : null;
       const totalProfit = m.schema === "new" ? money(summary[3]) || null : null;
 
-      const payers = new Set(paidBy.keys());
-      const prev: Set<string> | null = prevPayers;
+      const prev: Map<string, string> | null = prevPayers;
+      const payers = [...paidBy.values()];
+      const firstTimePayers = [...paidBy.entries()].filter(([k]) => !everPaid.has(k)).map(([, v]) => v.name);
+      for (const k of paidBy.keys()) everPaid.add(k);
+      const lostNames = prev ? [...prev.entries()].filter(([k]) => !paidBy.has(k)).map(([, n]) => n) : [];
       months.push({
         label: m.label, ym: m.ym,
         newClients, newCash, recurringClients, recurringCash, depositIncome,
         totalCash: newCash + recurringCash + depositIncome,
         totalIncome, totalExpense, totalProfit,
         newNames,
-        payingClients: payers.size,
-        lostClients: prev ? [...prev].filter((k) => !payers.has(k)).length : null,
-        under500: [...paidBy.values()].filter((v) => v < 500).length,
+        payingClients: payers.length,
+        lostClients: prev ? lostNames.length : null,
+        under500: payers.filter((p) => !p.pps && p.amount < 500).length,
         adSpend,
+        payers: payers.sort((a, b) => a.amount - b.amount),
+        firstTimePayers,
+        lostNames,
+        ppsFeeCash: payers.filter((p) => p.pps).reduce((t, p) => t + p.amount, 0),
       });
-      prevPayers = payers;
+      prevPayers = new Map([...paidBy.entries()].map(([k, v]) => [k, v.name]));
     });
 
     return { months, generatedAt: new Date().toISOString() };
