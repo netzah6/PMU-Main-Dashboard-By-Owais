@@ -35,12 +35,19 @@ export async function GET() {
   };
 
   try {
-    const [aLeads, aPicked, aPaid, bLeads, bPicked, bPaid] = await Promise.all([
+    const [aLeads, aPicked, aPaid, bLeads, bPicked, bPaid, hitsRes] = await Promise.all([
       count("a", "leads"), count("a", "picked"), count("a", "paid"),
       count("b", "leads"), count("b", "picked"), count("b", "paid"),
+      /* The coin flips client-side, so page hits carry no variant — but the
+         flip is a fair 50/50, so half the total visitors per arm is the
+         right denominator for a visitor→lead rate. */
+      sb.from("onebox_hits").select("id", { count: "exact", head: true }).gte("created_at", TEST_START),
     ]);
+    const visitors = hitsRes.count ?? 0;
     return NextResponse.json({
       since: TEST_START,
+      visitors,
+      visitorsPerArm: Math.round(visitors / 2),
       a: { leads: aLeads, picked: aPicked, paid: aPaid },
       b: { leads: bLeads, picked: bPicked, paid: bPaid },
     });

@@ -515,7 +515,7 @@ function DeprowTestCard() {
    in completed surveys IS the effect. Pay-through shown too. */
 function TopbarTestCard() {
   type Side = { leads: number; picked: number; paid: number };
-  const [d, setD] = useState<{ since: string; a: Side; b: Side } | null>(null);
+  const [d, setD] = useState<{ since: string; visitorsPerArm?: number; a: Side; b: Side } | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     fetch("/api/onebox/topbar").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
@@ -546,17 +546,24 @@ function TopbarTestCard() {
         <div className="px-4 pb-3">
           <table className="w-full text-xs">
             <thead><tr className="text-left text-[#697a91]">
-              <th className="py-1 font-medium">Side</th><th className="py-1 font-medium">Completed surveys</th>
+              <th className="py-1 font-medium">Side</th>
+              <th className="py-1 font-medium">Visitors (est.)</th>
+              <th className="py-1 font-medium">Completed surveys</th>
+              <th className="py-1 font-medium">Visitor → lead</th>
               <th className="py-1 font-medium">Picked a time</th><th className="py-1 font-medium">Paid deposit</th>
               <th className="py-1 font-medium">Pay-through</th>
             </tr></thead>
             <tbody>
               {SIDES.map((v) => {
                 const sd = d[v.k]; const p = payPct(sd);
+                const va = d.visitorsPerArm ?? null;
+                const leadPct = va ? Math.round((sd.leads / va) * 1000) / 10 : null;
                 return (
                   <tr key={v.k} className={cn("border-t border-[#f0f4f8]", leader === v.k && "bg-[#f0faf3]")}>
                     <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{v.name}</b><div className="text-[#8595a8] max-w-[420px]">{v.text}</div></td>
+                    <td className="py-1.5">{va ?? "—"}</td>
                     <td className="py-1.5 font-semibold">{sd.leads}{leader === v.k && " 🏆"}</td>
+                    <td className="py-1.5 font-semibold">{leadPct === null ? "—" : `${leadPct}%`}</td>
                     <td className="py-1.5">{sd.picked}</td><td className="py-1.5">{sd.paid}</td>
                     <td className="py-1.5">{p === null ? "—" : `${p}%`}</td>
                   </tr>
