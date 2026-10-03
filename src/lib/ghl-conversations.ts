@@ -131,21 +131,29 @@ export async function sendConversationMessage(
   acct: PmuAccount,
   // fromNumber: send from this number of the account (e.g. a teammate's own
   // line) instead of the account's default one.
-  opts: { contactId: string; message: string; channel?: string; fromNumber?: string | null },
-): Promise<{ ok: boolean; error?: string; via?: "app-token" }> {
+  // scheduledAt (unix seconds): GHL holds the text and sends it then.
+  opts: { contactId: string; message: string; channel?: string; fromNumber?: string | null; scheduledAt?: number },
+): Promise<{ ok: boolean; error?: string; via?: "app-token"; messageId?: string }> {
   const type = SEND_TYPE[opts.channel ?? "SMS"] ?? "SMS";
   const post = async (token: string) => {
     const r = await fetch(`${GHL_BASE}/conversations/messages`, {
       method: "POST",
       headers: { ...authHeaders(token, CONV_VERSION), "Content-Type": "application/json" },
-      body: JSON.stringify({ type, contactId: opts.contactId, message: opts.message, ...(opts.fromNumber ? { fromNumber: opts.fromNumber } : {}) }),
+      body: JSON.stringify({
+        type, contactId: opts.contactId, message: opts.message,
+        ...(opts.fromNumber ? { fromNumber: opts.fromNumber } : {}),
+        ...(opts.scheduledAt ? { scheduledTimestamp: Math.floor(opts.scheduledAt) } : {}),
+      }),
     });
-    if (r.ok) return { ok: true as const };
+    if (r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { messageId?: string };
+      return { ok: true as const, messageId: j.messageId ? String(j.messageId) : undefined };
+    }
     const text = await r.text().catch(() => "");
     return { ok: false as const, status: r.status, error: `HTTP ${r.status}: ${text.slice(0, 200)}` };
   };
   const first = await post(acct.token);
-  if (first.ok) return { ok: true };
+  if (first.ok) return { ok: true, messageId: first.messageId };
   /* The keys-sheet private token can lack the conversations-write scope
      ("The token is not authorized for this scope") — GHL rejects the text,
      nothing is sent. Every sender gets the marketplace app's location token
@@ -156,8 +164,39 @@ export async function sendConversationMessage(
     const tok = await getAppLocationToken(acct.locationId);
     if (tok.token && tok.token !== acct.token) {
       const retry = await post(tok.token);
-      if (retry.ok) return { ok: true, via: "app-token" };
+      if (retry.ok) return { ok: true, via: "app-token", messageId: retry.messageId };
       return { ok: false, error: `private token: ${first.error} · app token: ${retry.error}` };
+    }
+  }
+  return { ok: false, error: first.error };
+}
+
+/* Cancel a text GHL is holding for later (scheduled from the AI tab). Same
+   private-token → app-token fallback as sending. */
+export async function cancelScheduledMessage(acct: PmuAccount, messageId: string): Promise<{ ok: boolean; error?: string }> {
+  const del = async (token: string) => {
+    const r = await fetch(`${GHL_BASE}/conversations/messages/${encodeURIComponent(messageId)}/schedule`, {
+      method: "DELETE", headers: authHeaders(token, CONV_VERSION),
+    });
+    if (r.ok) {
+      // GHL can answer HTTP 200 with a failure in the body ({ status: 404,
+      // message: "Failed cancel the scheduled message" }) — e.g. it already went.
+      const j = (await r.json().catch(() => ({}))) as { status?: number; success?: boolean; message?: string };
+      if ((typeof j.status === "number" && j.status >= 400) || j.success === false) {
+        return { ok: false as const, status: j.status ?? 200, error: `GHL: ${j.message ?? "couldn't cancel"} (${j.status ?? "?"})` };
+      }
+      return { ok: true as const };
+    }
+    const text = await r.text().catch(() => "");
+    return { ok: false as const, status: r.status, error: `HTTP ${r.status}: ${text.slice(0, 200)}` };
+  };
+  const first = await del(acct.token);
+  if (first.ok) return { ok: true };
+  if (first.status === 401 || /not authorized for this scope/i.test(first.error)) {
+    const tok = await getAppLocationToken(acct.locationId);
+    if (tok.token && tok.token !== acct.token) {
+      const retry = await del(tok.token);
+      return retry.ok ? { ok: true } : { ok: false, error: `private token: ${first.error} · app token: ${retry.error}` };
     }
   }
   return { ok: false, error: first.error };
