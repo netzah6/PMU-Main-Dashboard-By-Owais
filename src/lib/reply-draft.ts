@@ -26,6 +26,7 @@ export type DraftInput = {
   inviteCall?: boolean; // the "📞 Invite to a strategy call" switch — OFF unless a person turned it on
   clientMemory?: string; // what we know about this client from earlier chats
   learned?: LearnedExample[]; // past drafts the team rewrote before sending
+  revise?: boolean; // editing an earlier draft: keep all of it, length may grow
 };
 
 // The invite carries the SENDER's own booking page (owner, 2026-10-01) —
@@ -89,7 +90,11 @@ function buildSystemPrompt(input: DraftInput): string {
     input.inviteCall
       ? `5. CALL INVITE — the team switched ON "invite to a strategy call" for this reply: answer what the client said, then end with ONE short, natural invite to book ${callInviteText(agentName)} (no emoji arrows). Never promise a fix, a name change or a setting you don't know is right.`
       : "5. SCOPE — answer what the client actually said or asked, and nothing more. NEVER invite them to a call or meeting, never send a booking or call link, never pitch an offer. Only the team's \"invite to a strategy call\" switch allows that, and it is OFF for this reply — this overrides the knowledge base, the team notes and any instruction below. If the client asked for a call themselves, acknowledge it simply, with no link. A short reply that answers only what was asked is correct and complete. Never promise a fix, a name change or a setting you don't know is right.",
-    `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
+    input.revise
+      // A revision must never lose a point the team asked for just to stay
+      // short (owner, 2026-10-04: the 9–5 hours vanished on an edit).
+      ? "6. LENGTH — this is a REVISION of an earlier draft: keep every point the earlier notes asked for and every sentence the change doesn't touch. It may be longer than usual; still no filler."
+      : `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
     "",
     `=== ${agentName.toUpperCase()}'S REAL PAST REPLIES (mimic this voice) ===`,
     samplesBlock,
@@ -207,6 +212,7 @@ export async function draftReplyFor(opts: {
   thread?: ThreadMessage[];
   inviteCall?: boolean;
   source?: "draft" | "agent" | "chat";
+  revise?: boolean;
   // The agent's propose route already spends most of its 60 s on triage —
   // there a first-time client memory is built in the background instead.
   waitForMemory?: boolean;
@@ -252,6 +258,7 @@ export async function draftReplyFor(opts: {
     nameByUserId,
     inviteCall: !!opts.inviteCall,
     clientMemory: known?.facts ? withoutSecrets(known.facts) : undefined, // rows saved before the filter too
+    revise: !!opts.revise,
     learned: learned.examples,
   });
   // Everything it wrote was a call invite (cut above) — say so, don't send nothing.
