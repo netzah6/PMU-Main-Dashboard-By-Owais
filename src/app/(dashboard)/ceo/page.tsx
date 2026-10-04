@@ -6,6 +6,7 @@ import { useTableData } from "@/lib/hooks/useTableData";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RoadTo100k } from "@/components/ceo/RoadTo100k";
+import { MonthPlan } from "@/components/ceo/MonthPlan";
 
 // CEO view, rebuilt natively.
 //
@@ -121,6 +122,8 @@ export default function CeoPage() {
         </div>
       )}
 
+      {/* ── This month's plan, then the tracker behind it (owner, 2026-10-04) ── */}
+      <MonthPlan />
       {/* ── Road to $100k/mo profit (owner, 2026-10-03) ─────────────── */}
       <RoadTo100k />
 
