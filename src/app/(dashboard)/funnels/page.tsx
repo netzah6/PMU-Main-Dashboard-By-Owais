@@ -1966,6 +1966,22 @@ export default function FunnelsPage() {
                   {f.status === "live" ? "Pause" : "Go live"}
                 </button>
                 )}
+                {/* Hard delete — admin only, never on a live funnel (ads may
+                    still point at it; the server refuses live too). Typed
+                    confirmation: deleting the wrong client's funnel loses
+                    its whole setup. */}
+                {isAdmin && f.status !== "live" && (
+                <button onClick={() => {
+                    const typed = window.prompt(`Permanently delete this funnel and its setup?\nLeads and history stay in reports.\n\nType the client name to confirm:\n${f.clientName}`);
+                    if (typed == null) return;
+                    if (typed.trim().toLowerCase() !== (f.clientName || "").trim().toLowerCase()) { setToast("Name didn't match — nothing deleted"); return; }
+                    void act("remove", f.slug);
+                  }}
+                  disabled={busy === `remove:${f.slug}`}
+                  className="text-xs rounded-lg px-2.5 py-1 border border-[#fca5a5] text-[#b91c1c] hover:bg-[#fef2f2] font-medium inline-flex items-center gap-1">
+                  {busy === `remove:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Delete…
+                </button>
+                )}
               </div>
 
               {leadsFor === f.slug && (

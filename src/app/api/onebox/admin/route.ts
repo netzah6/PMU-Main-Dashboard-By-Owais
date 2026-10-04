@@ -507,6 +507,20 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     return NextResponse.json({ ok: !!seeded.config, config: seeded.config, pixelNote, photoNote: healed.note || undefined, surveyNote: seeded.seeded ? seeded.note : undefined });
   }
 
+  /* Permanently delete a funnel row (admin only — the general gate above
+     already limits non-listed actions to admins). A LIVE funnel is refused:
+     ads may still point at it, and pausing first is one click. Leads and
+     hits stay for reporting; the config travels back in the response so a
+     mistaken delete can be re-created from the toast... or the DB backup. */
+  if (action === "remove") {
+    if (row.status === "live") {
+      return NextResponse.json({ error: "Funnel is LIVE — pause it first, then delete." }, { status: 400 });
+    }
+    const { error } = await svc.from("onebox_clients").delete().eq("slug", slug);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, removed: slug });
+  }
+
   if (action === "status") {
     const status = body.status === "live" ? "live" : "paused";
     await svc.from("onebox_clients").update({ status, updated_at: new Date().toISOString() }).eq("slug", slug);
