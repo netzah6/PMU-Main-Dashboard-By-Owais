@@ -24,6 +24,7 @@ export async function POST(req: Request) {
     instructions?: string;
     inviteCall?: boolean; // the "📞 Invite to a strategy call" switch
     source?: string;
+    revise?: boolean; // an edit of an earlier draft — keep everything, length may grow
   };
   if (!body.conversationId) {
     return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
       voiceEmail: user.email ?? null,
       instructions: body.instructions,
       inviteCall: body.inviteCall === true,
+      revise: body.revise === true,
       source: body.source === "agent" ? "agent" : "draft",
     });
     return NextResponse.json({ draft, voice, model });

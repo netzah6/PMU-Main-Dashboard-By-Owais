@@ -7,7 +7,7 @@ import { cn, userColor } from "@/lib/utils";
 // voiceInfo only comes from /api/ghl/reply/draft — AI-chat drafts carry just
 // the name, so the "written in …'s voice" line is skipped for those.
 type VoiceInfo = { name: string; matched: boolean; samplesUsed: number; learnedFrom?: number; knowsClient?: boolean };
-type Draft = { contactName: string; channel: string; draft: string; voice: string; voiceInfo?: VoiceInfo; conversationUrl: string; conversationId?: string; contactId?: string | null; inviteCall?: boolean };
+type Draft = { contactName: string; channel: string; draft: string; voice: string; voiceInfo?: VoiceInfo; conversationUrl: string; conversationId?: string; contactId?: string | null; inviteCall?: boolean; notes?: string[] };
 type Msg = { role: "user" | "assistant"; content: string; queries?: string[]; drafts?: Draft[]; reports?: string[] };
 type Conv = {
   id: string;
@@ -408,7 +408,7 @@ export default function AskPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to draft a reply");
       const voice = json.voice?.name ?? "";
-      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, voiceInfo: json.voice ?? undefined, conversationUrl: chatUrl(c), conversationId: c.id, contactId: c.contactId, inviteCall: call };
+      const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, voiceInfo: json.voice ?? undefined, conversationUrl: chatUrl(c), conversationId: c.id, contactId: c.contactId, inviteCall: call, notes: trimmed ? [trimmed] : [] };
       setMsgs((m) => [...m, { role: "assistant", content: `Here's a draft for ${c.contactName}${voice ? ` in ${voice}'s style` : ""} — use the buttons below to copy it and open the chat.`, drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
@@ -427,16 +427,25 @@ export default function AskPage() {
     setMsgs((m) => [...m, { role: "user", content: `Edit the draft for ${d.contactName} — ${change}` }]);
     setBusy(true); setError(null);
     try {
-      const instructions = `You already wrote this draft:\n"""\n${d.draft}\n"""\nRewrite it, applying these changes: ${change}\nKeep everything that wasn't asked to change.`;
+      /* Owner, 2026-10-04: an edit dropped the "Mon–Fri 9am–5pm" he asked for
+         in the first note. Every earlier note travels with each edit as a
+         must-keep list, and only the newest change is applied. */
+      const earlier = (d.notes ?? []).filter(Boolean);
+      const instructions = [
+        `You already wrote this draft:\n"""\n${d.draft}\n"""`,
+        earlier.length ? `Earlier notes for this reply — every point in them MUST still be in the new version:\n${earlier.map((n) => `- ${n}`).join("\n")}` : "",
+        `Now apply ONLY this change: ${change}`,
+        "Keep every other sentence and fact of the draft as it is. Do not drop anything to make room — the reply may get longer.",
+      ].filter(Boolean).join("\n\n");
       const res = await fetch("/api/ghl/reply/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: d.conversationId, contactName: d.contactName, contactId: d.contactId ?? null, instructions, inviteCall: !!d.inviteCall }),
+        body: JSON.stringify({ conversationId: d.conversationId, contactName: d.contactName, contactId: d.contactId ?? null, instructions, inviteCall: !!d.inviteCall, revise: true }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to update the draft");
       const voice = json.voice?.name ?? d.voice;
-      const draft: Draft = { ...d, draft: json.draft, voice, voiceInfo: json.voice ?? d.voiceInfo };
+      const draft: Draft = { ...d, draft: json.draft, voice, voiceInfo: json.voice ?? d.voiceInfo, notes: [...(d.notes ?? []), change] };
       setMsgs((m) => [...m, { role: "assistant", content: `Updated draft for ${d.contactName} — your changes are in. Edit again if it still needs work.`, drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
