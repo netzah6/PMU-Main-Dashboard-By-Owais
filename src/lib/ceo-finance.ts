@@ -31,6 +31,15 @@ const MONTHS: { label: string; ym: string; tab: string; schema: Schema }[] = [
   { label: "November",  ym: "2026-11", tab: "November V2",  schema: "new" },
   { label: "December",  ym: "2026-12", tab: "December V2",  schema: "new" },
 ];
+/* 2027 tabs (the $100k goal runs to March 2027). Their names aren't known
+   yet, so each month accepts the first of these that exists — and never a
+   2026 tab name ("April V2" is already April 2026). */
+const MONTH_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const USED_2026 = new Set(MONTHS.map((m) => m.tab));
+const MONTHS_2027 = MONTH_FULL.map((label, i) => ({
+  label, ym: `2027-${String(i + 1).padStart(2, "0")}`, schema: "new" as Schema,
+  tabs: [`${label} V2 2027`, `${label} 2027 V2`, `${label} 2027`, `${label} V2`].filter((t) => !USED_2026.has(t)),
+}));
 
 export interface MonthFinance {
   label: string;
@@ -57,7 +66,7 @@ export interface MonthFinance {
   under500: number;
   /** Everyone who paid this month: name as written, total, and whether the
    *  row is a pay-per-appointment charge ("$50 deposit + $45 per show"). */
-  payers: Array<{ name: string; amount: number; pps: boolean }>;
+  payers: Array<{ name: string; amount: number; pps: boolean; note: string }>;
   /** First month this name ever paid (> $0). */
   firstTimePayers: string[];
   /** Paid last month, not this month (names as written last month). */
@@ -100,7 +109,10 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
     // and batchGet fails outright on a missing one.
     const meta = await sheets.spreadsheets.get({ spreadsheetId: FINANCE_SHEET_ID, fields: "sheets.properties.title" });
     const have = new Set((meta.data.sheets ?? []).map((x) => String(x.properties?.title ?? "")));
-    const MONTHS_HERE = MONTHS.filter((m) => have.has(m.tab));
+    const MONTHS_HERE = [
+      ...MONTHS.filter((m) => have.has(m.tab)),
+      ...MONTHS_2027.map((m) => ({ ...m, tab: m.tabs.find((t) => have.has(t)) ?? "" })).filter((m) => m.tab),
+    ];
     const ranges = MONTHS_HERE.map((m) => `'${m.tab}'!A1:N400`);
     const res = await sheets.spreadsheets.values.batchGet({
       spreadsheetId: FINANCE_SHEET_ID,
@@ -124,7 +136,7 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       let newClients = 0, newCash = 0, recurringClients = 0, recurringCash = 0;
       let depositIncome = 0;
       const newNames: string[] = [];
-      const paidBy = new Map<string, { name: string; amount: number; pps: boolean }>(); // key → this month
+      const paidBy = new Map<string, { name: string; amount: number; pps: boolean; note: string }>(); // key → this month
       let adSpend: number | null = null;
 
       for (const row of rows) {
@@ -147,7 +159,7 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
           const note = m.schema === "new" ? String(row?.[2] ?? "") : "";
           const pps = /per\s*show|\bpps\b|per\s*appointment|pay\s*per/i.test(note);
           const cur = paidBy.get(key);
-          paidBy.set(key, { name: cur?.name ?? raw, amount: (cur?.amount ?? 0) + amt, pps: (cur?.pps ?? false) || pps });
+          paidBy.set(key, { name: cur?.name ?? raw, amount: (cur?.amount ?? 0) + amt, pps: (cur?.pps ?? false) || pps, note: cur?.note || note });
         }
         if (seen.has(key)) {
           recurringClients++;
