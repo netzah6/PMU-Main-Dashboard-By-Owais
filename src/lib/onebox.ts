@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 export const SYNC_TTL_MS = 5 * 60 * 1000;
 
 const pickers: [key: string, ...names: string[]][] = [
-  ["biz", "Business Name"],
+  ["biz", "Business Name", "CC - Business Name"],
   ["phone", "CC - Business Phone Number"],
   ["address", "CC - Full Business Address"],
   ["offer", "CC - Offer"],
@@ -493,15 +493,23 @@ export async function setOneboxCustomValues(
        with that name: the funnel gets its value whichever key it reads, and
        the pair stops drifting apart. */
     const idsByName = new Map<string, string[]>();
+    /* Some snapshots rename a value with a team prefix ("CC - Business
+       Name" for "Business Name"). GHL derives the SAME fieldKey either
+       way, so creating the unprefixed twin is refused as a duplicate and
+       the save reports it rejected (Beauty Marked PMU, 2026-10-04) —
+       match names with prefixes stripped before falling back to create. */
+    const norm = (n: string) => n.replace(/^(?:CC|OB)\s*-\s*/i, "").trim().toLowerCase();
+    const idsByNorm = new Map<string, string[]>();
     for (const v of customValues ?? []) {
       const name = String(v.name ?? "");
       const id = String(v.id ?? "");
       if (!id) continue;
       idsByName.set(name, [...(idsByName.get(name) ?? []), id]);
+      idsByNorm.set(norm(name), [...(idsByNorm.get(norm(name)) ?? []), id]);
     }
     const written: string[] = [];
     for (const { name, value } of entries) {
-      const ids = idsByName.get(name) ?? [];
+      const ids = idsByName.get(name) ?? idsByNorm.get(norm(name)) ?? [];
       if (!ids.length) {
         const res = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, {
           method: "POST", headers: H, body: JSON.stringify({ name, value }),
