@@ -15,8 +15,11 @@ const LIGHT: Record<Light, { dot: string; bar: string; chip: string; label: stri
   red: { dot: "bg-[#dc2626]", bar: "border-l-[#dc2626]", chip: "bg-[#fdeaea] text-[#b91c1c] border-[#f5c2c2]", label: "Red" },
   orange: { dot: "bg-[#f59e0b]", bar: "border-l-[#f59e0b]", chip: "bg-[#fff3e6] text-[#c2410c] border-[#fcd9a8]", label: "Orange" },
   green: { dot: "bg-[#16a34a]", bar: "border-l-[#16a34a]", chip: "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]", label: "Green" },
+  unknown: { dot: "bg-[#94a3b8]", bar: "border-l-[#94a3b8]", chip: "bg-[#f1f5f9] text-[#475569] border-[#cbd5e1]", label: "Unknown" },
 };
 
+const ICON: Record<string, string> = { red: "🔴", orange: "🟠", unknown: "⚪", green: "🟢", info: "·" };
+const TONE: Record<string, string> = { red: "text-[#b91c1c]", orange: "text-[#c2410c]", unknown: "text-[#475569]", green: "text-[#15803d]", info: "text-[#8595a8]" };
 const usd = (n: number | null | undefined) => (n == null ? "—" : `$${Math.round(n).toLocaleString("en-US")}`);
 const perDollar = (roi: number | null) => (roi == null ? "—" : `$${roi.toFixed(2)}`);
 const roiTone = (roi: number | null) =>
@@ -76,9 +79,11 @@ export default function ClientHealthPage() {
     red: clients.filter((c) => c.light === "red").length,
     orange: clients.filter((c) => c.light === "orange").length,
     green: clients.filter((c) => c.light === "green").length,
+    unknown: clients.filter((c) => c.light === "unknown").length,
   }), [clients]);
   const book = useMemo(() => {
-    const known = clients.filter((c) => c.roi != null);
+    // "Unknown" clients' returns rest on a booking count we don't trust — left out.
+    const known = clients.filter((c) => c.roi != null && !c.reasons.some((r) => r.key === "bookings-unknown"));
     const earned = known.reduce((t, c) => t + (c.earned ?? 0), 0);
     const invested = known.reduce((t, c) => t + c.invested.total, 0);
     return { earned, invested, roi: invested > 0 ? earned / invested : null, n: known.length };
@@ -114,6 +119,7 @@ export default function ClientHealthPage() {
           <li><b>Invested</b> = what they paid us since they started (the payment ledger before 2026 + the Financing sheet&apos;s rows marked Paid/PPS from 2026) + their Facebook ad spend on our campaigns (Facebook campaign stats, all-time) + the $50 deposits we keep on pay-per-show.</li>
           <li><b>Earned</b> is an estimate: clients booked × their price. Clients booked = &quot;Sessions Done&quot; your team logs in Performance Tracking (or the paid deposits, if higher); with no sessions logged, the paid deposits or GHL bookings. Price = their offer (funnel / V3 pricing / Clients sheet), else a typical $397 (flagged). Only the first session counts — touch-ups and repeat clients aren&apos;t included, so the real number is usually higher.</li>
           <li>In the list, <b>Booked</b> is the last-30-day booking % for deposit funnels (V3 / pay-per-show); for everyone else it&apos;s the coach&apos;s Performance Tracking % (marked <b>*</b>, greyed when it hasn&apos;t been updated in 60+ days), or GHL bookings when there&apos;s no coach log.</li>
+          <li><b>Unknown</b> = live 2+ months, but we can&apos;t see how many they booked (no coach count, an old one, or only part of it) — they may be booking fine and just not moving leads to the booked stage. Not red: ask them, and log it in Performance Tracking.</li>
           <li><b>Per $1</b> = earned ÷ invested. Green needs $1.50+ from day 60 of being live and nothing wrong right now.</li>
         </ul>
       )}
@@ -137,7 +143,7 @@ export default function ClientHealthPage() {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-1.5 mb-2">
-            {(["red", "orange", "green"] as Light[]).map((l) => (
+            {(["red", "orange", "unknown", "green"] as Light[]).map((l) => (
               <button key={l} onClick={() => setFilter(filter === l ? "all" : l)} aria-pressed={filter === l}
                 className={cn("flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold", LIGHT[l].chip, filter === l && "ring-2 ring-offset-1 ring-[#1f3559]/30")}>
                 <span className={cn("w-2 h-2 rounded-full", LIGHT[l].dot)} /> {LIGHT[l].label} {counts[l]}
@@ -170,7 +176,7 @@ export default function ClientHealthPage() {
 }
 
 function ClientRow({ c, open, onToggle }: { c: ClientHealth; open: boolean; onToggle: () => void }) {
-  const issues = c.reasons.filter((r) => r.light === "red" || r.light === "orange");
+  const issues = c.reasons.filter((r) => r.light === "red" || r.light === "orange" || r.light === "unknown");
   const notes = c.reasons.filter((r) => r.light === "info");
   return (
     <div className={cn("rounded-lg border border-[#e4ebf2] border-l-4 bg-white", LIGHT[c.light].bar)}>
@@ -186,8 +192,8 @@ function ClientRow({ c, open, onToggle }: { c: ClientHealth; open: boolean; onTo
             {issues.length > 0 ? (
               <ul className="mt-0.5 space-y-0.5">
                 {issues.slice(0, 2).map((r) => (
-                  <li key={r.key} className={cn("text-[11px] break-words", r.light === "red" ? "text-[#b91c1c]" : "text-[#c2410c]")}>
-                    {r.light === "red" ? "🔴" : "🟠"} {r.text}
+                  <li key={r.key} className={cn("text-[11px] break-words", TONE[r.light])}>
+                    {ICON[r.light]} {r.text}
                   </li>
                 ))}
                 {issues.length > 2 && <li className="text-[10px] text-[#8595a8]">+{issues.length - 2} more</li>}
@@ -207,7 +213,11 @@ function ClientRow({ c, open, onToggle }: { c: ClientHealth; open: boolean; onTo
             </div>
             <div><p className="text-[#a6b3c4]">Invested</p><p className="font-semibold text-[#1f3559] tabular-nums">{usd(c.invested.total)}</p></div>
             <div><p className="text-[#a6b3c4]">Earned</p><p className="font-semibold text-[#1f3559] tabular-nums">{c.earned == null ? "?" : `≈${usd(c.earned)}`}</p></div>
-            <div><p className="text-[#a6b3c4]">Per $1</p><p className={cn("font-bold tabular-nums", roiTone(c.roi))} title={c.roi == null ? "Not judged — open the client to see why" : undefined}>{c.roi == null ? "?" : perDollar(c.roi)}</p></div>
+            <div><p className="text-[#a6b3c4]">Per $1</p>{(() => {
+              // Bookings unknown: the return is only a floor ("at least"), not a verdict.
+              const floor = c.reasons.some((r) => r.key === "bookings-unknown");
+              return <p className={cn("font-bold tabular-nums", floor ? "text-[#8595a8]" : roiTone(c.roi))} title={c.roi == null ? "Not judged — open the client to see why" : floor ? "At least this — their booking count is unknown" : undefined}>{c.roi == null ? "?" : `${floor ? "≥" : ""}${perDollar(c.roi)}`}</p>;
+            })()}</div>
           </div>
         </div>
       </button>
@@ -233,7 +243,7 @@ function ClientDetail({ c }: { c: ClientHealth }) {
           <ul className="space-y-1">
             {issues.map((r) => (
               <li key={r.key} className="text-[12px] break-words">
-                <span className={r.light === "red" ? "text-[#b91c1c]" : "text-[#c2410c]"}>{r.light === "red" ? "🔴" : "🟠"} {r.text}</span>
+                <span className={TONE[r.light]}>{ICON[r.light]} {r.text}</span>
                 {r.next && <span className="block pl-5 text-[#34568a]">→ {r.next}</span>}
               </li>
             ))}

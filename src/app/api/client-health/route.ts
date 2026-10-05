@@ -14,7 +14,8 @@ export const maxDuration = 30;
 export async function GET(req: NextRequest) {
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (auth.role !== "admin" && auth.role !== "editor") return NextResponse.json({ error: "Not allowed" }, { status: 403 });
+  // Admin only until the owner says it's ready for the coaches (2026-10-05).
+  if (auth.role !== "admin") return NextResponse.json({ error: "Not allowed" }, { status: 403 });
 
   const svc = createServiceClient();
   const requested = req.nextUrl.searchParams.get("coach") ?? undefined;

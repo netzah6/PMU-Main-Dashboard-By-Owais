@@ -73,6 +73,11 @@ export interface MonthFinance {
   /** Pay-per-show rows this month, $0 ones included ("$50 deposit + $45 per
    *  show" with nothing billed yet) — proof the client was active. */
   ppsNames: string[];
+  /** Rows marked "Grace" — a free month (posted in the Facebook group) or a
+   *  month the agency covered for a client short on money. Not churn. */
+  graceNames: string[];
+  /** $0 rows marked "Paid Upfront" — covered by an earlier prepayment. */
+  upfrontNames: string[];
   /** First month this name ever paid (> $0). */
   firstTimePayers: string[];
   /** Paid last month, not this month (names as written last month). */
@@ -144,6 +149,8 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       const newNames: string[] = [];
       const paidBy = new Map<string, { name: string; amount: number; pps: boolean; note: string; status: string; day: number | null; paid: number; unmarked: number }>(); // key → this month
       const ppsNames: string[] = [];
+      const graceNames: string[] = [];
+      const upfrontNames: string[] = [];
       let adSpend: number | null = null;
 
       for (const row of rows) {
@@ -164,7 +171,13 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
         // The plan note says how they're billed: "$50 deposit + $45 per show" = pay per appointment.
         const note = m.schema === "new" ? String(row?.[2] ?? "") : "";
         const pps = /per\s*show|\bpps\b|per\s*appointment|pay\s*per/i.test(note);
-        if (pps) ppsNames.push(raw);
+        const st = m.schema === "new" ? String(row?.[5] ?? "").trim() : "";
+        // Pay-per-show by the plan note, or by the PAYMENT STATUS column ("PPS").
+        if (pps || /^pps$/i.test(st)) ppsNames.push(raw);
+        if (m.schema === "new") {
+          if (/\bgrace\b/i.test(st)) graceNames.push(raw);
+          else if (/paid\s*upfront/i.test(st) && !(amt > 0)) upfrontNames.push(raw);
+        }
         if (amt > 0) {
           // New layout: D = day of payment, F = payment status (Paid / Pending / PPS…).
           const status = m.schema === "new" ? String(row?.[5] ?? "").trim() : "";
@@ -214,6 +227,8 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
         firstTimePayers,
         lostNames,
         ppsNames,
+        graceNames,
+        upfrontNames,
         ppsFeeCash: payers.filter((p) => p.pps).reduce((t, p) => t + p.amount, 0),
       });
       prevPayers = new Map([...paidBy.entries()].map(([k, v]) => [k, v.name]));

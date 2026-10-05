@@ -27,6 +27,10 @@ export type GrowthMonth = {
   under500List: Array<{ name: string; amount: number }>;
   /** Live on Clients Master today but no payment row this month (name-matched). */
   liveNotPaying: Array<{ name: string; business: string; version: string }> | null;
+  /** On a free month / helped this month ("Grace" on the sheet) — not churn. */
+  graceList: string[];
+  /** Pay-per-show rows that month ($0 ones too — no shows yet). */
+  ppsList: string[];
   /** Clients on a prepaid Square plan (quarterly / 6-month / yearly) — paying, no monthly row. */
   prepaidCount: number;
   demosBooked: number; demosShowed: number; demosClosed: number; noShowPct: number | null;
@@ -208,12 +212,19 @@ export async function getRoadTo100k(): Promise<{ months: GrowthMonth[]; liveCoun
       // The PPS line uses what Square actually charged when it has it (the
       // sheet books only part of it); before the Square runs, the sheet's rows.
       const ppsFees = ppsFeesSquare || ppsFeesSheet;
+      /* Not churn: prepaid, on a free month / helped this month ("Grace"),
+         or a $0 "Paid Upfront" row (owner, 2026-10-05: grace clients haven't left). */
+      const inSheetList = (list: string[], n: string) => list.some((g) => sameClient(g, n));
+      // A $0 "Paid Upfront" row is carried forward on the sheet even after the
+      // prepaid months run out — trust it only while their Square plan isn't paused.
+      const upfrontOk = m.upfrontNames.filter((n) => !plans.paused.some((p) => sameClient(p.name, n)));
+      const excused = (n: string) => isPrepaid(n, m.ym) || inSheetList(m.graceNames, n) || inSheetList(upfrontOk, n);
 
       return {
         ym: m.ym, label: m.label, partial: m.ym >= nowYm,
         profit: m.totalProfit, income: m.totalIncome, expense: m.totalExpense,
         payingClients: m.payingClients, newClients: m.firstTimePayers.length,
-        lostClients: m.lostClients == null ? null : m.lostNames.filter((n) => !isPrepaid(n, m.ym)).length,
+        lostClients: m.lostClients == null ? null : m.lostNames.filter((n) => !excused(n)).length,
         under500: lowPayers.length,
         // What one RETAINER client paid this month, on average (their rows that
         // month; pay-per-appointment clients are left out — they pay per show).
@@ -223,10 +234,14 @@ export async function getRoadTo100k(): Promise<{ months: GrowthMonth[]; liveCoun
         ppsClients: pps.length,
         // A prepaid quarterly / 6-month / yearly client skipping a month
         // hasn't left — not counted as "stopped paying" (owner, 2026-10-03).
-        newList: m.firstTimePayers, lostList: m.lostNames.filter((n) => !isPrepaid(n, m.ym)),
+        newList: m.firstTimePayers, lostList: m.lostNames.filter((n) => !excused(n)),
+        graceList: m.graceNames,
+        ppsList: m.ppsNames,
         under500List: lowPayers.map((p) => ({ name: p.name, amount: Math.round(p.amount) })),
         // Payer name + its plan note ("Sidney le beauty", the partner's name…) — the sheet's names drift.
-        liveNotPaying: recent.has(m.ym) ? liveWithoutPayment(live, m.payers.map((p) => `${p.name} ${p.note}`), hasActivePlan).filter((c) => !isPrepaid(c.name, m.ym)) : null,
+        liveNotPaying: recent.has(m.ym)
+          ? liveWithoutPayment(live, [...m.payers.map((p) => `${p.name} ${p.note}`), ...m.graceNames, ...upfrontOk], hasActivePlan).filter((c) => !isPrepaid(c.name, m.ym))
+          : null,
         prepaidCount: live.filter((d) => isPrepaid(String(d["Owner Full Name"] ?? ""))).length,
         demosBooked: d.booked, demosShowed: d.showed, demosClosed: d.closed,
         // No-shows + cancellations as a share of all demos booked that month.

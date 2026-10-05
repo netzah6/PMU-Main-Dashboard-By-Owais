@@ -15,16 +15,17 @@ import type { UserRole } from "@/lib/types";
 type Tab = { label: string; href: string; adminOnly?: boolean; collapsed?: boolean; alsoRoles?: NonNullable<UserRole>[] };
 
 const TABS: Tab[] = [
-  // Order set by the user (2026-09-14): AI, Clients, Tasks, Performance, then the rest.
+  // Order set by the user (2026-10-05): AI, Clients, CEO, then the rest as before.
   // Hidden from the menu (page still exists at /overview): Overview
   { label: "🤖 AI", href: "/ask" },
+  { label: "👥 Clients", href: "/clients" },
+  { label: "👑 CEO", href: "/ceo", adminOnly: true },
   // Sales + Subs sit right after AI, always visible (user request 2026-09-16).
   { label: "💼 Sales", href: "/sales", adminOnly: true }, // sales board (setter + closer KPIs & to-dos), demo checker, coach tracker
   { label: "🔄 Subs", href: "/subscriptions", adminOnly: true }, // Square + dashboard billing — admins only
-  { label: "👥 Clients", href: "/clients" },
   { label: "✅ Tasks", href: "/tasks" },
   { label: "📈 Performance", href: "/performance" },
-  { label: "❤️ Health", href: "/client-health", adminOnly: true, alsoRoles: ["editor"] }, // green/orange/red ROI per client — coaches see their own book (user request 2026-10-05)
+  { label: "❤️ Health", href: "/client-health", adminOnly: true }, // green/orange/red ROI per client — admin only until the owner opens it to coaches (2026-10-05)
   { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
   { label: "💰 CPD", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27; renamed from "Cost / Deposit" 2026-09-22
   { label: "💵 Deposits", href: "/deposits" },
@@ -53,7 +54,6 @@ const TABS: Tab[] = [
   // route are all gone. The pixel_checks table still holds the audit rows.
   // Cleanup is no longer a tab (owner, 2026-09-29): the wipe + pool tools sit
   // inside Onboarding as an admin-only section; /cleanup redirects there.
-  { label: "👑 CEO", href: "/ceo", adminOnly: true },
   { label: "🕵️ Logs", href: "/activity", adminOnly: true, collapsed: true }, // team-member change log
   { label: "📣 Blast", href: "/blast" }, // text blasts — human-confirmed; admins + coaches (user request 2026-08-27)
   { label: "🗺️ Map", href: "/map" },
