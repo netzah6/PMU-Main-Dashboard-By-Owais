@@ -33,13 +33,24 @@ export type ClientHealth = {
   light: Light;
   reasons: Reason[];
   start: { date: string | null; source: string; days: number | null; cameBack: boolean };
+  /** Went live = the day their first real lead came in (tests and imports left out). */
+  live: { firstLead: string | null; days: number | null; note: string | null };
+  /** Leads: one per person per month (the one-box writes some leads twice). */
+  leads: { last7: number; last30: number; budget: number | null; budgetNote: string | null; goal: number | null;
+    /** Goal for the last 30 days (pro-rated while live < 30 days) and leads ÷ that; ratio is null in the first 14 days. */
+    expected30: number | null; ratio: number | null; sinceLive: number | null; avgPerMonth: number | null };
+  /** Bookings: one per person, from GHL appointments (trustworthy from 2026-07-30). */
+  bookings: { last30: number; pct30: number | null; since: number | null; leadsSince: number | null; pctSince: number | null; sinceLabel: string | null; coachPct: number | null; coachAsOf: string | null;
+    /** The one booking % for the list: GHL where bookings land there (V3), else the coach log. */
+    rowPct: number | null; rowSource: string };
+  months: Array<{ ym: string; leads: number | null; goal: number | null; bookings: number | null; deposits: number; pct: number | null; partial: boolean }>;
   invested: { total: number; feesBefore2026: number; fees2026: number; ads: number; depositsKept: number };
-  booked: { count: number | null; sessions: number | null; sessionsAsOf: string | null; deposits: number; refunded: number };
+  booked: { count: number | null; basis: string | null; sessions: number | null; sessionsAsOf: string | null; deposits: number; ghlBookings: number; refunded: number };
   price: { amount: number; source: string; typical: boolean };
   earned: number | null;
   /** null when it can't be judged (no booking data, finance sheet down). */
   roi: number | null;
-  recent: { leads7: number; leads30: number; deposits14: number; deposits30: number; depositsPrev30: number; cpl7: number | null; cpl30: number | null };
+  recent: { deposits14: number; deposits30: number; depositsPrev30: number; cpl7: number | null; cpl30: number | null };
   ads: { status: string | null; paused: boolean; dailyBudget: number | null; tracked: boolean };
   care: { hotWaiting: number; killPct: number | null; killFixed: boolean; upset: number };
   pay: { status: string | null; thisMonth: number | null; pps: boolean };
@@ -59,6 +70,12 @@ const COMEBACK_GAP_DAYS = 400;
 /* Return per $1 at or above this = green. Earned is a floor (first session
    only — touch-ups and repeat clients aren't counted), so 1.5× is solid. */
 export const GOOD_RETURN = 1.5;
+/* Owner's lead goal (2026-10-05): $20/day → 100 leads a month, $10/day → ~50,
+   i.e. 5 leads a month for every $1/day of budget. */
+export const LEADS_PER_DOLLAR_DAY = 5;
+/* The bookings feed bulk-dumped history on 06-24 and 07-29 — counts are only
+   real from the 30th of July; booking % months start in August. */
+const BOOKINGS_FROM_MONTH = "2026-08";
 
 const num = (v: unknown): number | null => {
   if (v == null || v === "") return null;
@@ -70,6 +87,10 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 const daysSince = (iso: string) => Math.floor((Date.parse(`${todayIso()}T00:00:00Z`) - Date.parse(`${iso.slice(0, 10)}T00:00:00Z`)) / DAY);
 const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const pad = (n: number) => String(n).padStart(2, "0");
+const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso.slice(0, 10)}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
+const pct = (a: number, b: number) => (b > 0 ? a / b : null);
+/* "$15/day", "$20 a day", "20" → 15 / 20; anything else → null. */
+const parseBudget = (t: unknown) => { const m = String(t ?? "").match(/\d+(?:\.\d+)?/); const n = m ? Number(m[0]) : NaN; return n >= 3 && n <= 1000 ? n : null; };
 
 /* "$397", "start at $449", "$600-750" → the first real price; "---", "#REF!",
    "false", "Only want V.1" → none. */
@@ -195,10 +216,14 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     const ledger = ((r.ledger_pays as Array<[string, number | null]> | null) ?? []).filter((x) => x?.[0]);
     const fin = fees2026.get(ownerKey) ?? [];
     const depDatesAll = (r.dep_dates as string[] | null) ?? [];
+    // [month, leads, first lead day] from GHL (tests/imports out) and [month, leads, bookings] from the sheets
+    const oppMonths = ((r.opp_months as Array<[string, number, string[]]> | null) ?? []);
+    const oppDays = oppMonths.flatMap((x) => x[2] ?? []).sort();
+    const bizMonths = ((r.biz_months as Array<[string, number, number]> | null) ?? []);
     const timeline = [
       ...ledger.map((x) => x[0]), ...fin.map((x) => x.date), ...(ppsActive.get(ownerKey) ?? []),
-      ...depDatesAll, ...(r.first_opp ? [String(r.first_opp)] : []),
-    ].filter((d) => d <= todayIso()).sort();
+      ...depDatesAll, ...oppMonths.map((x) => x[2]?.[0]).filter(Boolean) as string[],
+    ].filter((d) => d && d <= todayIso()).sort();
     let comeback: string | null = null;
     for (let i = 1; i < timeline.length; i++) {
       if ((Date.parse(timeline[i]) - Date.parse(timeline[i - 1])) / DAY > COMEBACK_GAP_DAYS) comeback = timeline[i];
@@ -212,9 +237,27 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     ];
     let start: { d: string; s: string } | null = comeback ? { d: comeback, s: "came back" }
       : (cands.filter((c) => c.d && c.d <= todayIso()).sort((a, b) => a.d!.localeCompare(b.d!))[0] as { d: string; s: string } | undefined) ?? null;
-    if (!start && r.first_opp) start = { d: String(r.first_opp), s: "first lead" };
+    const firstOppEver = oppDays[0] ?? null;
+    if (!start && firstOppEver) start = { d: firstOppEver, s: "first lead" };
     const startDay = start?.d ?? "0000-00-00";
     const days = start ? Math.max(0, daysSince(start.d)) : null;
+
+    /* ── Went live = first real lead ──
+       The first GHL lead on/after the start (minus a week — ads often go on
+       just before the first payment clears), so a re-used sub-account's old
+       leads don't count. Falls back to the leads sheet. */
+    const liveFrom = start ? addDays(startDay, -7) : "0000-00-00";
+    const sheetFirst = (r.first_sheet_lead as string | null) ?? null;
+    let firstLead = oppDays.find((d) => d >= liveFrom) ?? null;
+    if (!firstLead && sheetFirst && sheetFirst >= liveFrom) firstLead = sheetFirst;
+    let liveNote: string | null = null;
+    if (firstLead && firstLead <= "2024-01-20") liveNote = "Live before January 2024 — our lead records start then";
+    else if (firstLead && start && !comeback && (Date.parse(firstLead) - Date.parse(startDay)) / DAY > 180) liveNote = "First lead in their current GHL account — earlier leads aren't in our records";
+    const daysLive = firstLead ? Math.max(0, daysSince(firstLead)) : null;
+    /* Judge time on the account from going live (ads running) — unless the
+       first lead we can see is just their move to a new GHL account (then
+       they're not new: count from the start). */
+    const age = daysLive != null && !liveNote ? daysLive : days;
 
     // ── Invested (since the start) ──
     const feesBefore2026 = ledger.filter((x) => x[0] < "2026-01-01" && x[0] >= startDay).reduce((t, x) => t + (Number(x[1]) || 0), 0);
@@ -235,10 +278,17 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     const refunded = refundsInStint.length;
     const deposits = Math.max(0, depDatesAll.filter((d) => d >= startDay).length - refunded);
     const depProgram = isDepositProgram(version, pps);
-    /* Booked = the coach's "Sessions Done" count (Performance Tracking) or the
-       deposits, whichever is higher. Without a sessions count, deposits only
-       tell the whole story on a deposit funnel; elsewhere we just don't know. */
-    const bookedCount = sessions != null ? Math.max(sessions, deposits) : depProgram ? deposits : null;
+    const startMonth = startDay.slice(0, 7);
+    const ghlBookings = bizMonths.filter((x) => x[0].slice(0, 7) >= startMonth).reduce((t, x) => t + (Number(x[2]) || 0), 0);
+    /* Clients booked (for earned): the coach's "Sessions Done" count
+       (Performance Tracking — sessions actually done) or the paid deposits,
+       whichever is higher. With no sessions count: deposits or GHL bookings. */
+    let bookedCount: number | null = null, basis: string | null = null;
+    if (sessions != null) { bookedCount = Math.max(sessions, deposits); basis = sessions >= deposits ? "sessions done (coach log)" : "paid deposits"; }
+    else if (depProgram || ghlBookings > 0) { bookedCount = Math.max(deposits, ghlBookings); basis = ghlBookings > deposits ? "GHL bookings (since Jul 30)" : "paid deposits"; }
+    // Outside deposit funnels, without the coach's sessions count we only see
+    // GHL bookings — phone/DM bookings are missing, so it's a floor.
+    const partialCount = sessions == null && !depProgram && bookedCount != null;
     // A sessions count not updated in 60+ days undercounts — too low to judge on.
     const sessionsStale = sessions != null && sessions >= deposits && (!sessionsAsOf || daysSince(sessionsAsOf) > 60);
     const priceCands: Array<[unknown, string]> = [
@@ -250,7 +300,7 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     const earned = bookedCount == null ? null : bookedCount * price.amount;
 
     // ── Now ──
-    const l7 = num(r.l7) ?? 0, l30 = num(r.l30) ?? 0;
+    const l7 = num(r.leads7) ?? 0, l30 = num(r.leads30) ?? 0;
     const d14 = num(r.dep14) ?? 0, d30 = num(r.dep30) ?? 0, dPrev = num(r.dep_prev30) ?? 0;
     const cpl7 = num(r.cpl7), cpl30 = num(r.cpl30);
     const status = (r.campaign_status as string | null) || null;
@@ -263,6 +313,78 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     const killFixed = r.kill_fixed === true;
     const upset = num(r.upset_open) ?? 0;
     const lastTouch = (r.last_touch as string | null) ?? null;
+
+    /* ── Leads vs goal ── budget = the live Meta daily budget (else the plan on
+       the Clients sheet); no goal while ads are off. */
+    const spent7 = num(r.spent7) ?? 0;
+    const metaBudget = num(r.daily_budget);
+    const unsettled = /unsettled/i.test(status ?? "");
+    /* Leads in the last 3 days (raw sheet count) — a paused campaign still
+       trickles leads for a day or two, and leads that keep coming while our
+       tracked campaign is paused mean a campaign we don't track yet is on. */
+    const leads3 = num(r.raw_l3) ?? l7;
+    const stopped = leads3 <= 1;
+    const adsOff = unsettled || ((paused || (metaBudget != null && spent7 === 0)) && stopped);
+    let budget: number | null = null, budgetNote: string | null = null;
+    if (adsOff) budgetNote = unsettled ? "Facebook bill unpaid — no lead goal until it's paid" : "ads off — no lead goal right now";
+    // A paused campaign's budget isn't the live one: use the plan on the Clients sheet.
+    else if (!paused && metaBudget != null && metaBudget > 0) budget = metaBudget;
+    else { budget = parseBudget(r.ad_plan); budgetNote = budget != null ? (paused ? "tracked campaign paused — budget from the Clients sheet plan" : "budget from the Clients sheet plan") : "no daily budget found"; }
+    const goal = budget != null ? Math.round(budget * LEADS_PER_DOLLAR_DAY) : null;
+    // Leads per month: GHL before May 2026 (the leads sheet starts Apr 27), the sheet after.
+    const sheetByMonth = new Map(bizMonths.map((x) => [x[0].slice(0, 7), x]));
+    const oppByMonth = new Map(oppMonths.map((x) => [x[0].slice(0, 7), x]));
+    const liveMonth = firstLead ? firstLead.slice(0, 7) : null;
+    const monthLeads = (ym: string): number | null => {
+      if (!liveMonth || ym < liveMonth) return null;
+      const sheet = sheetByMonth.get(ym), opp = oppByMonth.get(ym);
+      if (ym >= "2026-05" && sheet) return Number(sheet[1]) || 0;
+      return opp ? Number(opp[1]) || 0 : sheet ? Number(sheet[1]) || 0 : 0;
+    };
+    const monthsSince = (from: string) => {
+      const out: string[] = [];
+      for (let d = new Date(`${from}-01T00:00:00Z`); d.toISOString().slice(0, 7) <= todayIso().slice(0, 7); d.setUTCMonth(d.getUTCMonth() + 1)) out.push(d.toISOString().slice(0, 7));
+      return out;
+    };
+    const liveMonths = liveMonth ? monthsSince(liveMonth) : [];
+    const leadsSinceLive = liveMonth ? liveMonths.reduce((t, ym) => t + (monthLeads(ym) ?? 0), 0) : null;
+    const avgPerMonth = leadsSinceLive != null && daysLive != null && daysLive >= 14 ? leadsSinceLive / Math.max(1, daysLive / 30.44) : null;
+
+    /* ── Bookings & booking % ── */
+    // A paid deposit is a booking even when the bookings feed missed it.
+    const bookings30 = Math.max(num(r.bookings30) ?? 0, depProgram ? d30 : 0);
+    const pct30 = pct(bookings30, l30);
+    const fromMonth = liveMonth && liveMonth > BOOKINGS_FROM_MONTH ? liveMonth : BOOKINGS_FROM_MONTH;
+    const winMonths = liveMonth ? monthsSince(fromMonth) : [];
+    const depsInMonth = (ym: string) => depDatesAll.filter((d) => d.slice(0, 7) === ym && d >= startDay).length;
+    // On a deposit funnel a paid deposit is a booking even if the bookings feed missed it.
+    const monthBookings = (ym: string) => Math.max(Number(sheetByMonth.get(ym)?.[2]) || 0, depProgram ? depsInMonth(ym) : 0);
+    const bookingsSince = liveMonth ? winMonths.reduce((t, ym) => t + monthBookings(ym), 0) : null;
+    const leadsSince = liveMonth ? winMonths.reduce((t, ym) => t + (monthLeads(ym) ?? 0), 0) : null;
+    const coachTotal = parseSessions(r.total_leads);
+    const coachPct = sessions != null && coachTotal ? sessions / coachTotal : null;
+    const months = monthsSince(addDays(todayIso(), -160).slice(0, 7)).slice(-6).map((ym) => {
+      const leads = monthLeads(ym);
+      const bookings = ym >= BOOKINGS_FROM_MONTH && liveMonth && ym >= liveMonth ? monthBookings(ym) : null;
+      // Goal for the days the client was live that month (first and current month are partial).
+      const first = `${ym}-01`, dim = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate();
+      const from = firstLead && firstLead > first ? firstLead : first;
+      const to = ym === todayIso().slice(0, 7) ? todayIso() : `${ym}-${pad(dim)}`;
+      const liveDays = Math.max(0, (Date.parse(to) - Date.parse(from)) / DAY + 1);
+      return {
+        ym, leads, bookings,
+        goal: goal != null && leads != null ? Math.round(goal * Math.min(1, liveDays / dim)) : null,
+        deposits: depsInMonth(ym),
+        pct: bookings != null && leads ? bookings / leads : null,
+        partial: ym === todayIso().slice(0, 7),
+      };
+    });
+    /* Lead goal for the last 30 days, pro-rated while they've been live less
+       than 30 days; pace = this week's leads × 30/7 (a restart or a fix shows
+       here before the 30-day number catches up). */
+    const expected30 = goal != null && daysLive != null ? goal * Math.min(1, daysLive / 30) : null;
+    const goalRatio = expected30 ? l30 / expected30 : null;
+    const paceRatio = goal ? (l7 * 30 / 7) / goal : null;
 
     /* The return is only shown when the inputs are whole: booking data, the
        Financing sheet loaded, and the ad spend tracked. */
@@ -285,13 +407,14 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     if (/unsettled/i.test(status ?? "")) add("ads-unsettled", "red", "Facebook bill unpaid — ads are stopped", "Ask them to approve the ad charge with their bank (button on Performance)");
     else if (/grace/i.test(status ?? "")) add("ads-grace", "orange", "Facebook bill overdue — ads stop soon", "Ask them to update their card on Facebook");
     else if (status && !/active/i.test(status)) add("ads-status", "red", `Ad account is ${status.toLowerCase().replace(/_/g, " ")}`, "Check the ad account with the media buyer");
-    if (paused) add("ads-paused", "red", "Ads are paused", "Find out why and turn them back on with the media buyer");
-    else if (l7 === 0 && (days ?? 99) >= 10 && !/unsettled/i.test(status ?? "")) add("no-leads", "red", "No leads in the last 7 days", "Check the ads and the funnel with the media buyer");
+    if (paused && stopped) add("ads-paused", "red", "Ads are paused", "Find out why and turn them back on with the media buyer");
+    else if (paused) add("ads-untracked-campaign", "info", "Our tracked campaign is paused but leads still come in — a new campaign may not be tracked yet");
+    else if (l7 === 0 && (age ?? 99) >= 10 && !/unsettled/i.test(status ?? "")) add("no-leads", "red", "No leads in the last 7 days", "Check the ads and the funnel with the media buyer");
     if (cpl7 != null && cpl30 != null && cpl7 >= 8 && cpl7 > cpl30 * 1.5) add("cpl-up", "orange", `Leads cost more: ${usd(cpl7)} now vs ${usd(cpl30)} over 30 days`, "Ask the media buyer for fresh ads");
     else if (cpl30 != null && cpl30 >= 20) add("cpl-high", "orange", `Expensive leads: ${usd(cpl30)} each`, "Ask the media buyer to fix targeting or ads");
 
     // Bookings now (deposit funnels — a deposit IS a booking)
-    if (depProgram && (days ?? 0) >= 30) {
+    if (depProgram && (age ?? 0) >= 30) {
       if (d30 === 0 && l30 >= 15) add("no-deposits", "red", `No deposits in 30 days (${l30} leads came in)`, "Read the AI chats and check the deposit step");
       else if (dPrev >= 4 && d30 < dPrev / 2) add("deposits-down", "orange", `Deposits dropped: ${d30} this month vs ${dPrev} the month before`, "Check what changed — ads, price, AI chats");
     }
@@ -305,16 +428,32 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
       add("ads-untracked", "info", "Their ad spend isn't tracked (no matching campaigns) — return not judged");
     } else if (roi != null && sessionsStale && roi < GOOD_RETURN) {
       add("stale-sessions", "orange", `Booking count is old${sessionsAsOf ? ` (last updated ${sessionsAsOf})` : ""} — return looks ≈$${roi.toFixed(2)} per $1`, "Ask for their real booking count and update Performance Tracking");
-    } else if (roi != null && comeback && roi < GOOD_RETURN && (days ?? 0) >= 30) {
+    } else if (roi != null && partialCount && roi < GOOD_RETURN) {
+      add("partial-bookings", "orange", `We only see their GHL bookings — return looks ≈$${roi.toFixed(2)} per $1`, "Ask how many clients they booked (phone/DM too) and log it in Performance Tracking");
+    } else if (roi != null && comeback && roi < GOOD_RETURN && (age ?? 0) >= 30) {
       // Ad spend has no dates, so after a comeback it still includes the old stint.
       add("comeback-roi", "orange", `Came back ${comeback} — return looks ≈$${roi.toFixed(2)} per $1 (ad spend includes the earlier stint)`, "Check this stint's bookings with them");
-    } else if (roi != null && days != null && days >= 60) {
+    } else if (roi != null && age != null && age >= 60) {
       if (roi < 1) add("roi-low", "red", `Not paid back yet: ≈${usd(earned!)} earned on ${usd(invested)} invested`, "Make a plan together: price/offer, follow-up speed, booking rate");
       else if (roi < GOOD_RETURN) add("roi-thin", "orange", `Thin return: ≈$${roi.toFixed(2)} back per $1`, "Push bookings up — follow-ups, deposit step, offer");
-    } else if (roi != null && days != null && days >= 30 && roi < 0.5) {
-      add("slow-start", "orange", `Slow start: ≈${usd(earned!)} earned in ${days} days`, "Check follow-up and booking rate this week");
+    } else if (roi != null && age != null && age >= 30 && roi < 0.5) {
+      add("slow-start", "orange", `Slow start: ≈${usd(earned!)} earned in ${age} days`, "Check follow-up and booking rate this week");
     }
-    if (days != null && days < 30) add("ramping", "info", `New — day ${days}, still ramping up`);
+    if (age != null && age < 30) add("ramping", "info", daysLive != null ? `New — live ${daysLive} days, still ramping up` : `New — day ${age}, still ramping up`);
+    if (!firstLead) add("no-first-lead", "info", "No lead has come in yet");
+
+    // Lead goal (5 a month per $1/day), pro-rated in the first month
+    if (goal && expected30 && goalRatio != null && daysLive != null && daysLive >= 14) {
+      const txt = `${l30} leads in 30 days vs a goal of ${Math.round(expected30)} ($${budget}/day)`;
+      if (goalRatio < 0.8 && paceRatio != null && paceRatio >= 0.8) add("leads-goal", "info", `Back on pace this week (${l7} leads in 7 days) — 30-day total still below goal`);
+      else if (goalRatio < 0.5) add("leads-goal", "red", `Far below lead goal: ${txt}`, "Media buyer: fix the ads/audience or lower the cost per lead");
+      else if (goalRatio < 0.8) add("leads-goal", "orange", `Below lead goal: ${txt}`, "Media buyer: check the ads and the cost per lead");
+    }
+    /* Booking rate — V3 only: there a booking happens in GHL (calendar +
+       deposit). V1/V2 clients often book by phone/DM, so GHL undercounts. */
+    if (/v3/i.test(version) && l30 >= 40 && pct30 != null && pct30 < 0.03) {
+      add("booking-rate", "orange", `Low booking rate: ${(pct30 * 100).toFixed(1)}% (${bookings30} bookings from ${l30} leads in 30 days)`, "Check speed to lead, follow-ups and the booking step");
+    }
 
     // Lead care
     if (hotWaiting >= 3) add("hot-waiting", "orange", `${hotWaiting} hot leads waiting 2+ hours for a reply`, "Get them answered today");
@@ -339,12 +478,27 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
       light,
       reasons,
       start: { date: start?.d ?? null, source: start?.s ?? "unknown", days, cameBack: !!comeback },
+      live: { firstLead, days: daysLive, note: liveNote },
+      leads: { last7: l7, last30: l30, budget, budgetNote, goal, expected30: expected30 != null ? Math.round(expected30) : null, ratio: daysLive != null && daysLive >= 14 ? goalRatio : null, sinceLive: leadsSinceLive, avgPerMonth },
+      bookings: {
+        last30: bookings30, pct30, since: bookingsSince, leadsSince, pctSince: bookingsSince != null && leadsSince ? bookingsSince / leadsSince : null,
+        sinceLabel: liveMonth ? (fromMonth === liveMonth ? "since going live" : "since Aug 1") : null,
+        coachPct, coachAsOf: sessionsAsOf,
+        ...(depProgram
+          ? { rowPct: pct30, rowSource: "GHL bookings + paid deposits, last 30 days" }
+          : coachPct != null
+            ? { rowPct: coachPct, rowSource: `coach log (sessions ÷ leads)${sessionsAsOf ? `, as of ${sessionsAsOf}` : ""}` }
+            : bookings30 > 0
+              ? { rowPct: pct30, rowSource: "GHL bookings only, last 30 days (phone/DM bookings not counted)" }
+              : { rowPct: null, rowSource: "no booking data — phone/DM bookings aren't tracked" }),
+      },
+      months,
       invested: { total: invested, feesBefore2026, fees2026: f26, ads, depositsKept },
-      booked: { count: bookedCount, sessions, sessionsAsOf, deposits, refunded },
+      booked: { count: bookedCount, basis, sessions, sessionsAsOf, deposits, ghlBookings, refunded },
       price,
       earned,
       roi,
-      recent: { leads7: l7, leads30: l30, deposits14: d14, deposits30: d30, depositsPrev30: dPrev, cpl7, cpl30 },
+      recent: { deposits14: d14, deposits30: d30, depositsPrev30: dPrev, cpl7, cpl30 },
       ads: { status, paused, dailyBudget: num(r.daily_budget), tracked: adsTracked },
       care: { hotWaiting, killPct, killFixed, upset },
       pay: { status: payStatus, thisMonth: num(r.pay_this_month), pps },

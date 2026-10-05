@@ -21,6 +21,16 @@ const usd = (n: number | null | undefined) => (n == null ? "—" : `$${Math.roun
 const perDollar = (roi: number | null) => (roi == null ? "—" : `$${roi.toFixed(2)}`);
 const roiTone = (roi: number | null) =>
   roi == null ? "text-[#8595a8]" : roi >= 1.5 ? "text-[#15803d]" : roi >= 1 ? "text-[#c2410c]" : "text-[#b91c1c]";
+const pctTxt = (p: number | null | undefined) => (p == null ? "—" : `${(p * 100).toFixed(p < 0.1 ? 1 : 0)}%`);
+const monthName = (ym: string) => new Date(`${ym}-15T12:00:00Z`).toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+/* Leads in the last 30 days against the goal (5 a month per $1/day) — the lib
+   pro-rates it in the first month and leaves the first 14 days unjudged. */
+function leadGoal(c: ClientHealth) {
+  if (!c.leads.goal || c.leads.expected30 == null) return null;
+  const ratio = c.leads.ratio;
+  return { expected: c.leads.expected30, ratio, tone: ratio == null ? "text-[#1f3559]" : ratio >= 0.8 ? "text-[#15803d]" : ratio >= 0.5 ? "text-[#c2410c]" : "text-[#b91c1c]" };
+}
+const staleCoach = (c: ClientHealth) => !!c.bookings.coachAsOf && (Date.now() - Date.parse(c.bookings.coachAsOf)) / 86_400_000 > 60;
 const fmtDate = (iso: string | null) =>
   iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—";
 
@@ -37,6 +47,7 @@ export default function ClientHealthPage() {
   const [filter, setFilter] = useState<Light | "all">("all");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+  const [howOpen, setHowOpen] = useState(false);
 
   const loadedRef = useRef("");
   useEffect(() => { loadedRef.current = loadedCoach; }, [loadedCoach]);
@@ -89,9 +100,23 @@ export default function ClientHealthPage() {
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
-      <p className="text-xs text-[#697a91] mb-3">
-        Is every client making money from what they invest with us? <b>Return</b> = what they earned (clients booked × their price) ÷ what they invested since day one (what they paid us + their Facebook ad spend, + the $50 deposits we keep on pay-per-show). Red first — open a client for the math and the next step.
+      <p className="text-xs text-[#697a91] mb-1">
+        Is every client getting leads, bookings and money back on what they invest with us? Red first — open a client for the numbers and the next step.
       </p>
+      <button onClick={() => setHowOpen((v) => !v)} aria-expanded={howOpen} className="mb-3 text-[11px] font-medium text-[#0e8f88] underline decoration-dotted underline-offset-2">
+        {howOpen ? "Hide" : "How is each number calculated?"}
+      </button>
+      {howOpen && (
+        <ul className="mb-3 rounded-lg border border-[#e4ebf2] bg-white px-3 py-2 text-[11px] text-[#34568a] space-y-1 list-disc pl-6">
+          <li><b>Live since</b> = the day their first real lead came in (GHL; team test leads and imported contacts left out).</li>
+          <li><b>Leads</b> = funnel leads, one per person per month (some leads arrive twice — counted once). <b>Goal</b> = 5 leads a month for every $1/day of ad budget ($20/day → 100, $10/day → 50), using the live Facebook daily budget.</li>
+          <li><b>Bookings</b> = people who booked an appointment in GHL (counted once each); on deposit funnels (V3 / pay-per-show) a paid deposit counts too. <b>Booking %</b> = bookings ÷ leads over the same days. The bookings feed is complete from Jul 30, so longer windows start Aug 1. Wherever the coach logs it, the Performance Tracking % (sessions ÷ leads) is shown too.</li>
+          <li><b>Invested</b> = what they paid us since they started (the payment ledger before 2026 + the Financing sheet&apos;s rows marked Paid/PPS from 2026) + their Facebook ad spend on our campaigns (Facebook campaign stats, all-time) + the $50 deposits we keep on pay-per-show.</li>
+          <li><b>Earned</b> is an estimate: clients booked × their price. Clients booked = &quot;Sessions Done&quot; your team logs in Performance Tracking (or the paid deposits, if higher); with no sessions logged, the paid deposits or GHL bookings. Price = their offer (funnel / V3 pricing / Clients sheet), else a typical $397 (flagged). Only the first session counts — touch-ups and repeat clients aren&apos;t included, so the real number is usually higher.</li>
+          <li>In the list, <b>Booked</b> is the last-30-day booking % for deposit funnels (V3 / pay-per-show); for everyone else it&apos;s the coach&apos;s Performance Tracking % (marked <b>*</b>, greyed when it hasn&apos;t been updated in 60+ days), or GHL bookings when there&apos;s no coach log.</li>
+          <li><b>Per $1</b> = earned ÷ invested. Green needs $1.50+ from day 60 of being live and nothing wrong right now.</li>
+        </ul>
+      )}
 
       {isAdmin && (
         <label className="grid gap-0.5 mb-3 max-w-xs">
@@ -136,7 +161,7 @@ export default function ClientHealthPage() {
             {shown.length === 0 && !error && <div className="text-sm text-[#8595a8] py-10 text-center">{clients.length ? "No clients match." : "No Live clients in this book."}</div>}
           </div>
           <p className="text-[10px] text-[#8595a8] mt-3">
-            Earned is a floor: one session per booked client at their listed price (touch-ups and repeat clients aren&apos;t counted). Booked = &quot;Sessions Done&quot; from Performance Tracking or the deposits, whichever is higher. Payments count only once marked paid; ad spend is all-time on our campaigns. Green = nothing wrong right now — and from day 60, $1.50+ back per $1 (new clients aren&apos;t judged on return yet).
+            Earned is a floor (first session only, at their listed price). Payments count once marked paid; ad spend is all-time on our campaigns. Lead goal = 5 a month per $1/day of budget. Green = nothing wrong right now — and from day 60 of being live, $1.50+ back per $1.
           </p>
         </>
       )}
@@ -156,7 +181,7 @@ function ClientRow({ c, open, onToggle }: { c: ClientHealth; open: boolean; onTo
             <div className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-[13px] font-semibold text-[#1f3559] break-words">{c.owner}</span>
               <span className="text-[11px] text-[#697a91] break-words">{c.business}</span>
-              <span className="text-[10px] text-[#a6b3c4]">{[c.version || null, c.start.days != null ? `day ${c.start.days}` : null, c.coach || null].filter(Boolean).join(" · ")}</span>
+              <span className="text-[10px] text-[#a6b3c4]">{[c.version || null, c.live.firstLead ? `live since ${fmtDate(c.live.firstLead)}${c.live.days != null ? ` (day ${c.live.days})` : ""}` : "no lead yet", c.coach || null].filter(Boolean).join(" · ")}</span>
             </div>
             {issues.length > 0 ? (
               <ul className="mt-0.5 space-y-0.5">
@@ -171,7 +196,15 @@ function ClientRow({ c, open, onToggle }: { c: ClientHealth; open: boolean; onTo
               <p className="mt-0.5 text-[11px] text-[#15803d]">🟢 On track{notes.some((n) => n.key === "ramping") ? " — new, still ramping up" : ""}</p>
             )}
           </div>
-          <div className="w-full sm:w-auto pl-5 sm:pl-0 shrink-0 grid grid-cols-3 gap-3 sm:text-right text-[11px]">
+          <div className="w-full sm:w-auto sm:pl-0 shrink-0 grid grid-cols-5 gap-2 sm:gap-3 sm:text-right text-[11px]">
+            <div title={c.leads.goal ? `Last 30 days vs goal (${c.leads.goal}/month at $${c.leads.budget}/day)` : c.leads.budgetNote ?? "Leads, last 30 days"}>
+              <p className="text-[#a6b3c4]">Leads</p>
+              <p className={cn("font-semibold tabular-nums", leadGoal(c)?.tone ?? "text-[#1f3559]")}>{c.leads.last30}{leadGoal(c) ? <span className="font-normal text-[#a6b3c4]">/{leadGoal(c)!.expected}</span> : null}</p>
+            </div>
+            <div title={`Booking % — ${c.bookings.rowSource}`}>
+              <p className="text-[#a6b3c4]">Booked</p>
+              <p className={cn("font-semibold tabular-nums", c.bookings.rowSource.startsWith("coach") && staleCoach(c) ? "text-[#a6b3c4]" : "text-[#1f3559]")}>{c.bookings.rowPct == null ? "?" : pctTxt(c.bookings.rowPct)}{c.bookings.rowSource.startsWith("coach") && c.bookings.rowPct != null ? <span className="font-normal text-[#a6b3c4]">*</span> : null}</p>
+            </div>
             <div><p className="text-[#a6b3c4]">Invested</p><p className="font-semibold text-[#1f3559] tabular-nums">{usd(c.invested.total)}</p></div>
             <div><p className="text-[#a6b3c4]">Earned</p><p className="font-semibold text-[#1f3559] tabular-nums">{c.earned == null ? "?" : `≈${usd(c.earned)}`}</p></div>
             <div><p className="text-[#a6b3c4]">Per $1</p><p className={cn("font-bold tabular-nums", roiTone(c.roi))} title={c.roi == null ? "Not judged — open the client to see why" : undefined}>{c.roi == null ? "?" : perDollar(c.roi)}</p></div>
@@ -207,6 +240,7 @@ function ClientDetail({ c }: { c: ClientHealth }) {
           </ul>
         </div>
       )}
+      <LeadsAndBookings c={c} />
       <div className="grid gap-3 md:grid-cols-3 text-[12px]">
         <div className="rounded-lg border border-[#eef3f8] p-2">
           <p className="text-[11px] font-semibold text-[#1f3559] mb-1">Invested</p>
@@ -219,16 +253,16 @@ function ClientDetail({ c }: { c: ClientHealth }) {
         </div>
         <div className="rounded-lg border border-[#eef3f8] p-2">
           <p className="text-[11px] font-semibold text-[#1f3559] mb-1">Earned (estimate)</p>
-          {line("Sessions done", c.booked.sessions ?? "not tracked", c.booked.sessionsAsOf ? `as of ${fmtDate(c.booked.sessionsAsOf)}` : undefined)}
-          {line("Deposits", c.booked.deposits, c.booked.refunded ? `${c.booked.refunded} refunded taken off` : undefined)}
-          {line("Clients booked", c.booked.count ?? "unknown")}
+          {line("Sessions done", c.booked.sessions ?? "not tracked", c.booked.sessionsAsOf ? `coach log, as of ${fmtDate(c.booked.sessionsAsOf)}` : "coach log")}
+          {line("Paid deposits", c.booked.deposits, c.booked.refunded ? `${c.booked.refunded} refunded taken off` : undefined)}
+          {line("GHL bookings", c.booked.ghlBookings, "since Jul 30")}
+          {line("Clients booked", c.booked.count ?? "unknown", c.booked.basis ?? undefined)}
           {line("Price", usd(c.price.amount), c.price.source)}
           <div className="border-t border-[#eef3f8] mt-1 pt-1">{line("Earned", <b>{c.earned == null ? "unknown" : `≈${usd(c.earned)}`}</b>)}</div>
           <p className={cn("text-[11px] font-bold mt-1", roiTone(c.roi))}>{c.roi == null ? "Return not judged (see notes)" : `${perDollar(c.roi)} back for every $1`}</p>
         </div>
         <div className="rounded-lg border border-[#eef3f8] p-2">
           <p className="text-[11px] font-semibold text-[#1f3559] mb-1">Right now</p>
-          {line("Leads", `${c.recent.leads7} in 7d · ${c.recent.leads30} in 30d`)}
           {line("Cost per lead", `${usd(c.recent.cpl7)} 7d · ${usd(c.recent.cpl30)} 30d`)}
           {line("Deposits", `${c.recent.deposits14} in 14d · ${c.recent.deposits30} in 30d`, `${c.recent.depositsPrev30} the 30d before`)}
           {line("Ad account", `${c.ads.status ?? "—"}${c.ads.paused ? " · paused" : ""}`)}
@@ -240,6 +274,70 @@ function ClientDetail({ c }: { c: ClientHealth }) {
       </div>
       {notes.length > 0 && <p className="text-[11px] text-[#8595a8]">{notes.map((n) => n.text).join(" · ")}</p>}
       <ActivityLog clientKey={c.ownerKey} clientLabel={c.owner} hideRoutine />
+    </div>
+  );
+}
+
+function LeadsAndBookings({ c }: { c: ClientHealth }) {
+  const g = leadGoal(c);
+  const cell = "px-1 sm:px-2 py-1 text-right tabular-nums";
+  return (
+    <div className="rounded-lg border border-[#eef3f8] p-2 text-[12px]">
+      <p className="text-[11px] font-semibold text-[#1f3559] mb-1">Leads &amp; bookings</p>
+      <div className="grid gap-x-6 gap-y-0.5 sm:grid-cols-2">
+        <p><span className="text-[#697a91]">Live since</span> <b className="text-[#1f3559]">{c.live.firstLead ? fmtDate(c.live.firstLead) : "no lead yet"}</b>{c.live.days != null && <span className="text-[#a6b3c4]"> · day {c.live.days}</span>}</p>
+        <p>
+          <span className="text-[#697a91]">Lead goal</span>{" "}
+          {c.leads.goal ? <b className="text-[#1f3559]">{c.leads.goal}/month</b> : <span className="text-[#8595a8]">—</span>}
+          <span className="text-[#a6b3c4]"> · {c.leads.budget != null ? `$${c.leads.budget}/day` : ""}{c.leads.budgetNote ? `${c.leads.budget != null ? " · " : ""}${c.leads.budgetNote}` : ""}</span>
+        </p>
+        <p>
+          <span className="text-[#697a91]">Leads, last 30 days</span> <b className={g?.tone ?? "text-[#1f3559]"}>{c.leads.last30}</b>
+          {g && g.ratio != null && <span className="text-[#a6b3c4]"> · {Math.round(g.ratio * 100)}% of goal{g.expected !== c.leads.goal ? ` (${g.expected} so far)` : ""}</span>}
+          <span className="text-[#a6b3c4]"> · {c.leads.last7} in 7 days</span>
+        </p>
+        <p><span className="text-[#697a91]">Average per month since live</span> <b className="text-[#1f3559]">{c.leads.avgPerMonth != null ? Math.round(c.leads.avgPerMonth) : "—"}</b>{c.leads.sinceLive != null && <span className="text-[#a6b3c4]"> · {c.leads.sinceLive.toLocaleString("en-US")} leads total</span>}</p>
+        <p><span className="text-[#697a91]">Bookings, last 30 days</span> <b className="text-[#1f3559]">{c.bookings.last30}</b> <span className="text-[#a6b3c4]">· booking % {pctTxt(c.bookings.pct30)}</span></p>
+        <p>
+          <span className="text-[#697a91]">Booking % {c.bookings.sinceLabel ?? ""}</span> <b className="text-[#1f3559]">{pctTxt(c.bookings.pctSince)}</b>
+          {c.bookings.since != null && <span className="text-[#a6b3c4]"> · {c.bookings.since} of {c.bookings.leadsSince ?? 0} leads</span>}
+        </p>
+        {c.bookings.coachPct != null && (
+          <p><span className="text-[#697a91]">Booking % (coach log)</span> <b className="text-[#1f3559]">{pctTxt(c.bookings.coachPct)}</b><span className="text-[#a6b3c4]"> · sessions ÷ leads{c.bookings.coachAsOf ? `, as of ${fmtDate(c.bookings.coachAsOf)}` : ""}</span></p>
+        )}
+      </div>
+      {c.live.note && <p className="text-[10px] text-[#a6b3c4] mt-1">{c.live.note}</p>}
+      <div className="overflow-x-auto mt-2">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="text-[#8595a8]">
+              <th className="px-2 py-1 text-left font-medium">Month</th>
+              <th className={cn(cell, "font-medium")}>Leads</th>
+              <th className={cn(cell, "font-medium")} title="5 leads a month per $1/day of today's budget, for the days they were live">Goal</th>
+              <th className={cn(cell, "font-medium")}>Bookings</th>
+              <th className={cn(cell, "font-medium")}>Deposits</th>
+              <th className={cn(cell, "font-medium")}>Booking %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {c.months.map((m) => {
+              const goal = m.goal;
+              const tone = m.leads == null || !goal ? "text-[#1f3559]" : m.leads >= goal * 0.8 ? "text-[#15803d]" : m.leads >= goal * 0.5 ? "text-[#c2410c]" : "text-[#b91c1c]";
+              return (
+                <tr key={m.ym} className="border-t border-[#f1f5f9]">
+                  <td className="px-2 py-1 text-[#1f3559] whitespace-nowrap">{monthName(m.ym)}{m.partial ? "*" : ""}</td>
+                  <td className={cn(cell, "font-semibold", tone)}>{m.leads ?? "—"}</td>
+                  <td className={cn(cell, "text-[#8595a8]")}>{m.leads == null || !goal ? "—" : goal}</td>
+                  <td className={cell}>{m.bookings ?? "—"}</td>
+                  <td className={cell}>{m.deposits || "—"}</td>
+                  <td className={cell}>{pctTxt(m.pct)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-[#a6b3c4] mt-1">* this month so far. Bookings before August aren&apos;t shown — the bookings feed only became complete on Jul 30. Goal uses today&apos;s budget.</p>
     </div>
   );
 }
