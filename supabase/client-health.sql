@@ -14,12 +14,17 @@ language sql immutable parallel safe set search_path = '' as $$
   select pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.regexp_replace(coalesce(t, ''), '\s*-\s*ad\s*account.*$', '', 'i')), '[^a-z0-9]', '', 'g')
 $$;
 
+-- Date helpers: plpgsql (cached plans) with NO exception blocks — EXCEPTION
+-- blocks are subtransactions, which can't run in parallel workers, and a
+-- parallel scan (materialized-view refresh) silently lost dates.
 create or replace function public.health_date_parts(a int, b int, y int, day_first boolean) returns date
 language plpgsql immutable parallel safe set search_path = '' as $$
+declare mo int; dd int;
 begin
-  if y < 2015 or y > 2100 then return null; end if;
-  if day_first then return pg_catalog.make_date(y, b, a); else return pg_catalog.make_date(y, a, b); end if;
-exception when others then return null;
+  if day_first then mo := b; dd := a; else mo := a; dd := b; end if;
+  if y is null or mo is null or dd is null or y < 2015 or y > 2100 or mo < 1 or mo > 12 or dd < 1 then return null; end if;
+  if dd > pg_catalog.date_part('day', pg_catalog.make_date(y, mo, 1) + interval '1 month' - interval '1 day')::int then return null; end if;
+  return pg_catalog.make_date(y, mo, dd);
 end $$;
 
 -- DD/MM/YYYY (or ISO) → date; anything else → null.
@@ -28,9 +33,9 @@ language plpgsql immutable parallel safe set search_path = '' as $$
 declare m text[];
 begin
   t := pg_catalog.btrim(coalesce(t, ''));
-  m := pg_catalog.regexp_match(t, '^(\d{1,2})/(\d{1,2})/(\d{4})');
+  m := pg_catalog.regexp_match(t, '^([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})');
   if m is not null then return public.health_date_parts(m[1]::int, m[2]::int, m[3]::int, true); end if;
-  m := pg_catalog.regexp_match(t, '^(\d{4})-(\d{2})-(\d{2})');
+  m := pg_catalog.regexp_match(t, '^([0-9]{4})-([0-9]{2})-([0-9]{2})');
   if m is not null then return public.health_date_parts(m[3]::int, m[2]::int, m[1]::int, true); end if;
   return null;
 end $$;
@@ -41,21 +46,23 @@ language plpgsql immutable parallel safe set search_path = '' as $$
 declare m text[];
 begin
   t := pg_catalog.btrim(coalesce(t, ''));
-  m := pg_catalog.regexp_match(t, '^(\d{1,2})/(\d{1,2})/(\d{4})');
+  m := pg_catalog.regexp_match(t, '^([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})');
   if m is not null then return public.health_date_parts(m[1]::int, m[2]::int, m[3]::int, false); end if;
-  m := pg_catalog.regexp_match(t, '^(\d{4})-(\d{2})-(\d{2})');
+  m := pg_catalog.regexp_match(t, '^([0-9]{4})-([0-9]{2})-([0-9]{2})');
   if m is not null then return public.health_date_parts(m[3]::int, m[2]::int, m[1]::int, true); end if;
   return null;
 end $$;
 
--- Launch Call holds "Friday, April 17, 2026 11:00" or DD/MM/YYYY (or just true/false).
+-- Launch Call: "Friday, April 17, 2026 11:00" → 2026-04-17; DD/MM/YYYY falls through.
 create or replace function public.health_date_launch(t text) returns date
 language plpgsql immutable parallel safe set search_path = '' as $$
-declare s text;
+declare m text[];
 begin
-  s := pg_catalog.substring(coalesce(t, ''), '[A-Za-z]+ \d{1,2}, \d{4}');
-  if s is not null then
-    begin return pg_catalog.to_date(s, 'FMMonth FMDD, YYYY'); exception when others then return null; end;
+  m := pg_catalog.regexp_match(coalesce(t, ''), '([A-Za-z]+) ([0-9]{1,2}), ([0-9]{4})');
+  if m is not null then
+    return public.health_date_parts(m[2]::int,
+      pg_catalog.array_position(array['january','february','march','april','may','june','july','august','september','october','november','december'], pg_catalog.lower(m[1])),
+      m[3]::int, true);
   end if;
   return public.health_date_dmy(t);
 end $$;
@@ -65,6 +72,58 @@ revoke execute on function public.health_nk(text), public.health_biz(text), publ
 -- the view calls them as the querying role (the app's service role)
 grant execute on function public.health_nk(text), public.health_biz(text), public.health_date_parts(int, int, int, boolean),
   public.health_date_dmy(text), public.health_date_mdy(text), public.health_date_launch(text) to service_role;
+
+-- ── Pre-rolled lead / booking counts (the raw tables are too big to scan on
+-- every page load). Refreshed by pg_cron.
+
+-- GHL opportunities per client per month — the only lead history before the
+-- leads sheet started (2026-04-27). Team test leads and CSV/manual imports out.
+drop materialized view if exists public.health_opp_months cascade;
+create materialized view public.health_opp_months as
+select o.owner_key, date_trunc('month', o.date_added)::date m,
+  count(distinct o.contact_id) leads, array_agg(distinct o.date_added::date order by o.date_added::date) days
+from ghl_opportunities o
+where coalesce(o.owner_key, '') <> '' and o.date_added is not null
+  and coalesce(o.name, '') !~* '\mtest'
+  and not (coalesce(o.raw->'attributions', '[]'::jsonb) @> '[{"medium":"csv_import"}]'
+        or coalesce(o.raw->'attributions', '[]'::jsonb) @> '[{"medium":"manual"}]')
+group by 1, 2;
+create unique index if not exists health_opp_months_key on public.health_opp_months (owner_key, m);
+
+-- Leads sheet + bookings per business per day. Leads: one per person per
+-- business per MONTH (the one-box writes a lead twice, 10-digit and
+-- 1+10-digit phone); bookings: one per person per business, on the day they
+-- first booked (bookings fire again on every confirm / reschedule).
+drop materialized view if exists public.health_biz_days cascade;
+create materialized view public.health_biz_days as
+with lm as (
+  select public.health_biz(l.data->>'Business Name') b,
+    coalesce(public.health_date_dmy(l.data->>'col_6'), public.health_date_dmy(l.data->>'Date')) d,
+    coalesce(nullif(right(regexp_replace(coalesce(l.data->>'Phone Number', ''), '\D', '', 'g'), 10), ''),
+             nullif(lower(trim(l.data->>'Email')), ''), nullif(lower(trim(l.data->>'Full Name')), ''), l.id::text) who
+  from leads_master l
+  where coalesce(l.data->>'Full Name', '') !~* '\mtest'
+), lf as (select b, who, min(d) d from lm where d is not null and b <> '' group by b, who, date_trunc('month', d)),
+bk as (
+  select public.health_biz(x.data->>'Business Name') b,
+    coalesce(public.health_date_dmy(x.data->>'col_6'), public.health_date_dmy(x.data->>'Date')) d,
+    coalesce(nullif(right(regexp_replace(coalesce(x.data->>'Phone Number', ''), '\D', '', 'g'), 10), ''),
+             nullif(lower(trim(x.data->>'Email')), ''), nullif(lower(trim(x.data->>'Full Name')), ''), x.id::text) who
+  from bookings x
+), bf as (select b, who, min(d) d from bk where d is not null and b <> '' group by 1, 2)
+select b biz_norm, d, sum(leads)::int leads, sum(bookings)::int bookings from (
+  select b, d, count(*) leads, 0 bookings from lf group by 1, 2
+  union all
+  select b, d, 0, count(*) from bf group by 1, 2
+) z group by 1, 2;
+create unique index if not exists health_biz_days_key on public.health_biz_days (biz_norm, d);
+
+revoke all on public.health_opp_months, public.health_biz_days from public, anon, authenticated;
+grant select on public.health_opp_months, public.health_biz_days to service_role;
+
+-- (pg_cron, scheduled once)
+-- select cron.schedule('refresh-health-biz-days', '*/15 * * * *', 'refresh materialized view concurrently public.health_biz_days');
+-- select cron.schedule('refresh-health-opp-months', '7 * * * *', 'refresh materialized view concurrently public.health_opp_months');
 
 -- One row per LIVE client with the raw facts the app scores green / orange /
 -- red (src/lib/client-health.ts): start-date candidates, every dated ledger
@@ -107,9 +166,27 @@ signed as materialized (
   from live lv join signed_agreements s on public.health_nk(s.data->>'Full Name') = lv.owner_nk and lv.owner_nk <> ''
   group by 1
 ),
-opp as materialized (
-  select o.owner_key, min(o.date_added)::date first_opp
-  from ghl_opportunities o where o.owner_key in (select owner_key from live)
+om as materialized (
+  -- [month, leads, [lead days]] per month from GHL opportunities
+  select o.owner_key, jsonb_agg(jsonb_build_array(o.m, o.leads, to_jsonb(o.days)) order by o.m) opp_months
+  from health_opp_months o where o.owner_key in (select owner_key from live) group by 1
+),
+bd as materialized (
+  -- leads sheet + bookings: [month, leads, bookings] (bookings are only
+  -- trustworthy from 2026-07-30 — the sheet bulk-dumped history on 06-24 and
+  -- 07-29), plus the deduped 7/30-day counts
+  select lv.owner_key,
+    jsonb_agg(jsonb_build_array(x.m, x.leads, x.bookings) order by x.m) biz_months,
+    sum(x.l7) leads7, sum(x.l30) leads30, sum(x.b30) bookings30, min(x.first_lead) first_sheet_lead
+  from live lv join (
+    select biz_norm, date_trunc('month', d)::date m, sum(leads) leads,
+      coalesce(sum(bookings) filter (where d >= date '2026-07-30'), 0) bookings,
+      coalesce(sum(leads) filter (where d > current_date - 7), 0) l7,
+      coalesce(sum(leads) filter (where d > current_date - 30), 0) l30,
+      coalesce(sum(bookings) filter (where d > current_date - 30 and d >= date '2026-07-30'), 0) b30,
+      min(d) filter (where leads > 0) first_lead
+    from health_biz_days group by 1, 2
+  ) x on x.biz_norm = lv.biz_norm and lv.biz_norm <> ''
   group by 1
 ),
 dep as materialized (
@@ -125,9 +202,9 @@ dep as materialized (
 ),
 depc as materialized (
   select lv.owner_key,
-    count(*) filter (where dt >= current_date - 14) dep14,
-    count(*) filter (where dt >= current_date - 30) dep30,
-    count(*) filter (where dt >= current_date - 60 and dt < current_date - 30) dep_prev30,
+    count(*) filter (where dt > current_date - 14) dep14,
+    count(*) filter (where dt > current_date - 30) dep30,
+    count(*) filter (where dt > current_date - 60 and dt <= current_date - 30) dep_prev30,
     -- pay-per-show started 2026-08: from then on the agency keeps the deposit
     coalesce(sum(amt) filter (where dt >= date '2026-08-01'), 0) dep_amt_since_aug,
     array_agg(dt order by dt) dep_dates
@@ -171,7 +248,7 @@ obx as materialized (
 ),
 po as materialized (
   -- computed once (a plain join re-ran the whole view per client)
-  select sheet_row, campaign_status, campaign_paused, daily_budget, l7, l14, l30, cpl7, cpl30, spent7, spent14, spent_all
+  select sheet_row, campaign_status, campaign_paused, daily_budget, l3, l7, l14, l30, cpl7, cpl30, spent7, spent14, spent_all
   from performance_overview
 ),
 hot as materialized (select lower(trim(owner_name)) owner_key, count(*) n from dropped_hot_leads group by 1),
@@ -193,7 +270,10 @@ select lv.sheet_row, lv.owner_key, lv.owner_name, lv.business_name, lv.email,
   trim(lv.d->>'Version') version,
   public.health_date_launch(lv.d->>'Launch Call') launch_at,
   public.health_date_mdy(lv.d->>'Agreement') agreement_at,
-  sg.signed_at, lm.first_paid, op.first_opp, lm.ledger_pays,
+  sg.signed_at, lm.first_paid, lm.ledger_pays,
+  om.opp_months, bd.biz_months, coalesce(bd.leads7, 0) leads7, coalesce(bd.leads30, 0) leads30,
+  coalesce(bd.bookings30, 0) bookings30, bd.first_sheet_lead,
+  nullif(trim(lv.d->>'Ad Spent'), '') ad_plan,
   dc.dep_dates, coalesce(dc.dep14, 0) dep14, coalesce(dc.dep30, 0) dep30, coalesce(dc.dep_prev30, 0) dep_prev30,
   coalesce(dc.dep_amt_since_aug, 0) dep_amt_since_aug,
   rf.refunds,
@@ -203,16 +283,17 @@ select lv.sheet_row, lv.owner_key, lv.owner_name, lv.business_name, lv.email,
   nullif(trim(v3p.price), '') price_v3, nullif(trim(lv.d->>'Discounted Price'), '') price_sheet,
   nullif(trim(pp.price), '') price_tracking,
   ob.status onebox_status,
-  po.campaign_status, po.campaign_paused, po.daily_budget, po.l7, po.l14, po.l30, po.cpl7, po.cpl30,
+  po.campaign_status, po.campaign_paused, po.daily_budget, po.l3 raw_l3, po.l7, po.l14, po.l30, po.cpl7, po.cpl30,
   po.spent7, po.spent14, po.spent_all,
   coalesce(h.n, 0) hot_waiting, coalesce(u.n, 0) upset_open, u.latest upset_at, u.note upset_note,
   ck.qualified kill_qualified, ck.dead kill_dead, coalesce(kf.fixed, false) kill_fixed,
   t.last_touch,
-  cp.payment_status, cp.usd pay_this_month, cp.notes pay_notes
+  cp.payment_status, cp.usd pay_this_month
 from live lv
 left join lm on lm.owner_key = lv.owner_key
 left join signed sg on sg.owner_key = lv.owner_key
-left join opp op on op.owner_key = lv.owner_key
+left join om on om.owner_key = lv.owner_key
+left join bd on bd.owner_key = lv.owner_key
 left join depc dc on dc.owner_key = lv.owner_key
 left join refunds rf on rf.owner_key = lv.owner_key
 left join pt on pt.nk = lv.owner_nk
@@ -228,7 +309,7 @@ left join lateral (select count(*) n, max(x.created_at) latest,
 left join lateral (select sum(ck.qualified) qualified, sum(ck.dead) dead from call_kill_stats ck where lower(trim(ck.owner_key)) = lv.owner_key) ck on true
 left join lateral (select bool_or(kf.fixed) fixed from call_kill_fixes kf where lower(trim(kf.owner_key)) = lv.owner_key) kf on true
 left join touch t on t.owner_key = lv.owner_key
-left join lateral (select cp.payment_status, cp.usd, cp.notes from client_payments cp
+left join lateral (select cp.payment_status, cp.usd from client_payments cp
   where cp.owner_key in (public.health_nk(lv.owner_name), lv.owner_key) order by cp.updated_at desc limit 1) cp on true;
 
 revoke all on public.client_health_base from public, anon, authenticated;
