@@ -34,7 +34,13 @@ export interface CoachScope {
 }
 
 export async function getCoachScope(svc: Svc, auth: AuthInfo, requested?: string): Promise<CoachScope> {
-  const { data } = await svc.from("clients_master").select("data");
+  // Paged: PostgREST returns at most 1,000 rows per call.
+  const data: Array<{ data: Record<string, unknown> }> = [];
+  for (let off = 0; ; off += 1000) {
+    const { data: page } = await svc.from("clients_master").select("data").order("sheet_row").range(off, off + 999);
+    data.push(...((page ?? []) as Array<{ data: Record<string, unknown> }>));
+    if (!page || page.length < 1000) break;
+  }
 
   const coachByOwner = new Map<string, string>();
   const names = new Set<string>();
@@ -58,7 +64,11 @@ export async function getCoachScope(svc: Svc, auth: AuthInfo, requested?: string
   const coach = isAdmin ? (requested ?? "") : own;
 
   let ownerKeys: Set<string> | null = null;
-  if (!isAdmin || coach) {
+  if (!isAdmin && !own) {
+    // A coach whose name matches no "Assigned" value sees nothing — never the
+    // rows whose Assigned has no letters ("-", "?") that would compare equal.
+    ownerKeys = new Set<string>();
+  } else if (!isAdmin || coach) {
     ownerKeys = new Set<string>();
     for (const [ownerKey, assigned] of coachByOwner) {
       if (norm(assigned) === norm(coach)) ownerKeys.add(ownerKey);

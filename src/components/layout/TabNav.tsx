@@ -24,6 +24,7 @@ const TABS: Tab[] = [
   { label: "👥 Clients", href: "/clients" },
   { label: "✅ Tasks", href: "/tasks" },
   { label: "📈 Performance", href: "/performance" },
+  { label: "❤️ Health", href: "/client-health", adminOnly: true, alsoRoles: ["editor"] }, // green/orange/red ROI per client — coaches see their own book (user request 2026-10-05)
   { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
   { label: "💰 CPD", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27; renamed from "Cost / Deposit" 2026-09-22
   { label: "💵 Deposits", href: "/deposits" },

@@ -66,7 +66,13 @@ export interface MonthFinance {
   under500: number;
   /** Everyone who paid this month: name as written, total, and whether the
    *  row is a pay-per-appointment charge ("$50 deposit + $45 per show"). */
-  payers: Array<{ name: string; amount: number; pps: boolean; note: string }>;
+  payers: Array<{ name: string; amount: number; pps: boolean; note: string; status: string; day: number | null;
+    /** Of `amount`: rows marked Paid / Paid Upfront / PPS (old layout: all),
+     *  and rows with no status yet. Pending / Grace / Paused rows are in neither. */
+    paid: number; unmarked: number }>;
+  /** Pay-per-show rows this month, $0 ones included ("$50 deposit + $45 per
+   *  show" with nothing billed yet) — proof the client was active. */
+  ppsNames: string[];
   /** First month this name ever paid (> $0). */
   firstTimePayers: string[];
   /** Paid last month, not this month (names as written last month). */
@@ -113,7 +119,7 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       ...MONTHS.filter((m) => have.has(m.tab)),
       ...MONTHS_2027.map((m) => ({ ...m, tab: m.tabs.find((t) => have.has(t)) ?? "" })).filter((m) => m.tab),
     ];
-    const ranges = MONTHS_HERE.map((m) => `'${m.tab}'!A1:N400`);
+    const ranges = MONTHS_HERE.map((m) => `'${m.tab}'!A1:N1000`);
     const res = await sheets.spreadsheets.values.batchGet({
       spreadsheetId: FINANCE_SHEET_ID,
       ranges,
@@ -136,7 +142,8 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       let newClients = 0, newCash = 0, recurringClients = 0, recurringCash = 0;
       let depositIncome = 0;
       const newNames: string[] = [];
-      const paidBy = new Map<string, { name: string; amount: number; pps: boolean; note: string }>(); // key → this month
+      const paidBy = new Map<string, { name: string; amount: number; pps: boolean; note: string; status: string; day: number | null; paid: number; unmarked: number }>(); // key → this month
+      const ppsNames: string[] = [];
       let adSpend: number | null = null;
 
       for (const row of rows) {
@@ -154,12 +161,21 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
         const key = nameKey(raw);
         if (key.length < 3) continue;
         const amt = money(row?.[amtIdx]);
+        // The plan note says how they're billed: "$50 deposit + $45 per show" = pay per appointment.
+        const note = m.schema === "new" ? String(row?.[2] ?? "") : "";
+        const pps = /per\s*show|\bpps\b|per\s*appointment|pay\s*per/i.test(note);
+        if (pps) ppsNames.push(raw);
         if (amt > 0) {
-          // The plan note says how they're billed: "$50 deposit + $45 per show" = pay per appointment.
-          const note = m.schema === "new" ? String(row?.[2] ?? "") : "";
-          const pps = /per\s*show|\bpps\b|per\s*appointment|pay\s*per/i.test(note);
+          // New layout: D = day of payment, F = payment status (Paid / Pending / PPS…).
+          const status = m.schema === "new" ? String(row?.[5] ?? "").trim() : "";
+          const dayNum = m.schema === "new" ? parseInt(String(row?.[3] ?? ""), 10) : NaN;
+          const isPaid = m.schema === "old" || /^(paid|paid upfront|pps)$/i.test(status);
           const cur = paidBy.get(key);
-          paidBy.set(key, { name: cur?.name ?? raw, amount: (cur?.amount ?? 0) + amt, pps: (cur?.pps ?? false) || pps, note: cur?.note || note });
+          paidBy.set(key, {
+            name: cur?.name ?? raw, amount: (cur?.amount ?? 0) + amt, pps: (cur?.pps ?? false) || pps, note: cur?.note || note,
+            status: cur?.status || status, day: cur?.day ?? (dayNum >= 1 && dayNum <= 31 ? dayNum : null),
+            paid: (cur?.paid ?? 0) + (isPaid ? amt : 0), unmarked: (cur?.unmarked ?? 0) + (!isPaid && !status ? amt : 0),
+          });
         }
         if (seen.has(key)) {
           recurringClients++;
@@ -197,6 +213,7 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
         payers: payers.sort((a, b) => a.amount - b.amount),
         firstTimePayers,
         lostNames,
+        ppsNames,
         ppsFeeCash: payers.filter((p) => p.pps).reduce((t, p) => t + p.amount, 0),
       });
       prevPayers = new Map([...paidBy.entries()].map(([k, v]) => [k, v.name]));
