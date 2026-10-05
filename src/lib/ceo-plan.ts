@@ -83,10 +83,17 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
   const live = cmRows.filter((d) => /^live$/i.test(String(d["col_1"] ?? "").trim()));
   const liveName = (d: Record<string, unknown>) => String(d["Owner Full Name"] ?? "").trim();
   // The current month is still filling in — last month's lists drive the to-dos.
-  const isPps = (name: string) => ppaOwners.some((o) => sameClient(o, name));
+  // Pay-per-show: Square bills them per show, or the Financing sheet says so
+  // ("$50 deposit + $45 per show") — a PPS client with no shows paid $0, not left.
+  const ppsSheet = [...last.ppsList, ...(road.months.find((m) => m.ym === curYm)?.ppsList ?? [])];
+  const isPps = (name: string) => ppaOwners.some((o) => sameClient(o, name)) || ppsSheet.some((n) => sameClient(n, name));
   const statusOf = (name: string) => String(cmRows.find((d) => sameClient(liveName(d), name))?.["col_1"] ?? "").trim();
+  // On a free month / being helped THIS month ("Grace" on this month's tab)
+  // haven't left either (owner, 2026-10-05).
+  const graceNow = road.months.find((m) => m.ym === curYm)?.graceList ?? [];
+  const onGrace = (name: string) => graceNow.some((g) => sameClient(g, name));
   // Live clients who paid NOTHING last month (prepaid plans already left out).
-  const unpaid = last.liveNotPaying ?? [];
+  const unpaid = (last.liveNotPaying ?? []).filter((c) => !onGrace(c.name));
   // …of those (not pay-per-appointment), the ones whose Square plan is paused.
   const pausedLive = unpaid.filter((c) => !isPps(c.name)).filter((c) => {
     const d = live.find((x) => sameClient(liveName(x), c.name));
@@ -98,7 +105,7 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
   // Win back: stopped paying last month and still Live / Paused on the
   // Clients sheet (already-offboarded ones left on purpose).
   // Pay-per-appointment clients are handled in section 3 (deposits), not here.
-  const winBack = last.lostList.filter((n) => /^(live|paused)$/i.test(statusOf(n)) && !isPps(n));
+  const winBack = last.lostList.filter((n) => /^(live|paused)$/i.test(statusOf(n)) && !isPps(n) && !onGrace(n));
   const keepItems: PlanItem[] = [
     ...winBack.map((n) => item("keep", n, `Win back ${n}`, `Paid before ${last.label}, nothing in ${last.label} · ${statusOf(n)} on the Clients sheet`)),
     ...pausedLive
@@ -148,7 +155,7 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
     ym: curYm, label: curLabel, goalMonth: GOAL_MONTH,
     profitGoal, lastLabel: last.label, lastProfit: last.profit,
     sections: [
-      { key: "keep", title: "1 · Keep every client", why: "Clients who stop paying are the biggest leak.", target: `${TARGETS.lostMax} or fewer stop paying`, last: `${last.lostClients ?? "—"} stopped in ${last.label}`, ok: last.lostClients != null ? last.lostClients <= TARGETS.lostMax : null, items: keepItems },
+      { key: "keep", title: "1 · Keep every client", why: `Clients who stop paying are the biggest leak. Clients on a free month or being helped (Grace on the Financing sheet) aren't listed${last.graceList.length || graceNow.length ? ` — ${graceNow.length || last.graceList.length} right now` : ""}.`, target: `${TARGETS.lostMax} or fewer stop paying`, last: `${last.lostClients ?? "—"} stopped in ${last.label}`, ok: last.lostClients != null ? last.lostClients <= TARGETS.lostMax : null, items: keepItems },
       { key: "floor", title: "2 · No retainer under $500", why: "Every retainer client should pay at least $597.", target: "0 under $500", last: `${last.under500} under $500 in ${last.label}`, ok: last.under500 <= TARGETS.under500Max, items: floorItems },
       { key: "pps", title: "3 · Grow per-appointment money", why: "More deposits = more money we keep + happier clients.", target: `${usd(TARGETS.ppsMin)}+ a month`, last: `${usd(last.ppsIncome)} in ${last.label}`, ok: last.ppsIncome >= TARGETS.ppsMin, items: ppsItems },
       { key: "sales", title: "4 · Sign more clients", why: "Fewer missed calls and more demos = more new clients.", target: `${TARGETS.closesMin}+ closed, ≤${TARGETS.noShowMaxPct}% missed`, last: `${last.demosClosed} closed, ${last.noShowPct ?? "—"}% missed in ${last.label}`, ok: last.demosClosed >= TARGETS.closesMin && (last.noShowPct ?? 100) <= TARGETS.noShowMaxPct, items: salesItems },

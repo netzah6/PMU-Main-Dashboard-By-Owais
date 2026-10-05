@@ -18,6 +18,7 @@ type M = {
   newList: string[]; lostList: string[];
   under500List: Array<{ name: string; amount: number }>;
   liveNotPaying: Array<{ name: string; business: string; version: string }> | null;
+  graceList?: string[];
 };
 type Targets = { lostMax: number; ppsMin: number; under500Max: number; noShowMaxPct: number; closesMin: number };
 type Panel = { title: string; note?: string; items: Array<{ left: string; right?: string }> };
@@ -66,9 +67,13 @@ export function RoadTo100k() {
     },
     {
       label: "Clients who stopped paying", goal: `${t.lostMax} or fewer`,
-      help: "Paid the month before, but no payment this month. A client who skipped a month also shows here.",
+      help: "Paid the month before, but no payment this month. A client who skipped a month also shows here. Clients on a free month (Grace on the sheet) or covered by a prepayment are not counted.",
       render: (m) => cell(m, m.lostClients != null ? m.lostClients <= t.lostMax : null, m.lostClients == null ? "—" : String(m.lostClients),
-        m.lostList.length ? () => open({ title: `Stopped paying in ${m.label}`, note: "Paid the month before, no payment row this month.", items: m.lostList.map((n) => ({ left: n })) }) : undefined),
+        m.lostList.length || m.graceList?.length ? () => open({
+          title: `Stopped paying in ${m.label}`,
+          note: `Paid the month before, no payment row this month.${m.graceList?.length ? ` Not counted — on a free month (Grace): ${m.graceList.join(", ")}.` : ""}`,
+          items: m.lostList.map((n) => ({ left: n })),
+        }) : undefined),
     },
     {
       label: "New clients", sub: true, goal: "",

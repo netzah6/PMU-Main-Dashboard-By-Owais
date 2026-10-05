@@ -21,7 +21,10 @@ import { nk, sameClient } from "@/lib/ceo-growth";
    service role only — supabase/client-health.sql); 2026 payments from the
    Financing workbook. */
 
-export type Light = "green" | "orange" | "red";
+/* "unknown" (owner, 2026-10-05): live 2+ months but we can't see how many
+   they booked — maybe they book fine and just don't move leads to the booked
+   stage. Not red; its own section until the count is known. */
+export type Light = "green" | "orange" | "red" | "unknown";
 export type Reason = { key: string; light: Light | "info"; text: string; next?: string };
 
 export type ClientHealth = {
@@ -401,7 +404,8 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     }
     if (/need more bookings/i.test(payStatus ?? "")) add("pay-results", "red", "Won't pay until they get more bookings", "Fix results first (ads, AI chats, follow-up), then collect");
     else if (/^paused$/i.test(payStatus ?? "")) add("pay-paused", "orange", "Payments to us are paused", "Find out why and agree on a restart date");
-    else if (/^grace$/i.test(payStatus ?? "")) add("pay-grace", "orange", "In a payment grace period", "Confirm the payment date");
+    // Grace = a free month (posted in the Facebook group) or a month we covered to help — not a problem.
+    else if (/^grace$/i.test(payStatus ?? "")) add("pay-grace", "info", "On a free month / being helped this month (Grace)");
 
     // Ads
     if (/unsettled/i.test(status ?? "")) add("ads-unsettled", "red", "Facebook bill unpaid — ads are stopped", "Ask them to approve the ad charge with their bank (button on Performance)");
@@ -464,10 +468,32 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     if (touchDays == null || touchDays > 21) add("no-touch", "info", touchDays == null ? "No check-in note yet" : `No check-in note for ${touchDays} days`);
     if (price.typical) add("no-price", "info", `No price on file — using a typical ${usd(TYPICAL_PRICE)}`);
 
-    // Red reasons first, then orange, then notes.
-    const order = { red: 0, orange: 1, green: 2, info: 3 } as const;
+    /* Unknown bookings after 2+ months live: the booking-based verdicts
+       (return, thin return, low booking rate…) can't be trusted, so they
+       stop driving the colour and the client goes to "Unknown". Real
+       problems (ads off, no leads, upset, no deposits…) still make it red. */
+    // An old or partial count is a floor — if even the floor clears the bar, the return is proven.
+    const bookingsUnknown = bookedCount == null || (bookedCount === 0 && sessions == null)
+      || ((sessionsStale || partialCount) && (roi == null || roi < GOOD_RETURN));
+    const unknownBucket = bookingsUnknown && (age ?? 0) >= 60;
+    if (unknownBucket) {
+      const BOOKING_BASED = new Set(["roi-low", "roi-thin", "stale-sessions", "partial-bookings", "comeback-roi", "slow-start", "booking-rate"]);
+      for (let i = reasons.length - 1; i >= 0; i--) {
+        if (reasons[i].key === "no-bookings-data") reasons.splice(i, 1);
+        else if (BOOKING_BASED.has(reasons[i].key)) reasons[i] = { ...reasons[i], light: "info", next: undefined };
+      }
+      add("bookings-unknown", "unknown",
+        sessions != null && sessionsAsOf ? `We don't know their bookings — the count was last updated ${sessionsAsOf}` : "We don't know how many clients they've booked — leads may not be moved to the booked stage",
+        "Ask how many they booked, and make sure booked leads are moved to the right stage in GHL (or logged in Performance Tracking)");
+    }
+
+    // Red reasons first, then orange, unknown, then notes. A real (non-booking)
+    // orange problem keeps the client in Orange — the ⚪ line still shows.
+    const order = { red: 0, orange: 1, unknown: 2, green: 3, info: 4 } as const;
     reasons.sort((a, b) => order[a.light] - order[b.light]);
-    const light: Light = reasons.some((x) => x.light === "red") ? "red" : reasons.some((x) => x.light === "orange") ? "orange" : "green";
+    const light: Light = reasons.some((x) => x.light === "red") ? "red"
+      : reasons.some((x) => x.light === "orange") ? "orange"
+      : unknownBucket ? "unknown" : "green";
 
     return {
       ownerKey,
@@ -506,7 +532,7 @@ export async function getClientHealth(ownerKeys: Set<string> | null): Promise<{ 
     };
   });
 
-  const rank: Record<Light, number> = { red: 0, orange: 1, green: 2 };
+  const rank: Record<Light, number> = { red: 0, orange: 1, unknown: 2, green: 3 };
   clients.sort((a, b) => rank[a.light] - rank[b.light] || (a.roi ?? -1) - (b.roi ?? -1) || a.owner.localeCompare(b.owner));
   return { clients, financeError: finance.error, unmatchedPayers };
 }
