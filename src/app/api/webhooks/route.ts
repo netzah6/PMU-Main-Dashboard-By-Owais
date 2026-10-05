@@ -49,9 +49,25 @@ export async function POST(req: NextRequest) {
     const extId = String(body.payment_id ?? body.transaction_id ?? body.fanbasis_payment_id ?? "").trim();
     waitUntil(
       routeIncomingPayment(body, { externalId: extId || undefined })
-        .then((r) => {
+        .then(async (r) => {
           if (r.outcome !== "skipped" || !/^no product id/.test(r.note)) {
             console.log("[payment-router]", JSON.stringify(r));
+          }
+          /* A dashboard-routed client has no Make route of their own, so
+             nothing else ever records their deposit — Beauty By Size's two
+             payments reached GHL but never the dashboard (2026-10-05).
+             Record it here for exactly those clients ("sent", or "conflict"
+             = this payment was already router-claimed). Legacy Make-routed
+             clients stay sheet-recorded — their skips never reach this.
+             ingestRow is idempotent on the payment id, so a re-delivered
+             webhook can't double-record. */
+          if (r.outcome === "sent" || r.outcome === "conflict") {
+            try {
+              const rec = await ingestRow("deposits", body);
+              console.log("[payment-router] recorded:", JSON.stringify(rec).slice(0, 200));
+            } catch (e) {
+              console.error("[payment-router] record failed", e);
+            }
           }
         })
         .catch((e) => console.error("[payment-router]", e))
