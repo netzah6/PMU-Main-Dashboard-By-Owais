@@ -29,7 +29,14 @@ export type PlanStep =
   | { type: "calendar_block_dates"; dates: string[]; calendar?: string; reason?: string }
   | { type: "calendar_hours_set"; calendar?: string; hours: Array<{ days: number[]; open: string; close: string }> }
   | { type: "location_address_set"; address1?: string; city?: string; state?: string; postalCode?: string }
-  | { type: "manual"; what: string };
+  | { type: "manual"; what: string }
+  /* Square one-time payment links (owner, 2026-10-05: "generate links from
+     the Square account as a one-time payment"). Created on Approve and
+     texted in the reply — the client pays when they choose; nothing is
+     charged. bill_* is what the Financing sheet says they owe, for the card. */
+  | { type: "payment_links"; label: string; amounts_cents: number[];
+      bill_cents?: number | null; bill_label?: string | null; bill_owner?: string | null; bill_status?: string | null;
+      links?: Array<{ amount_cents: number; url: string; id: string }> };
 
 export type StepResult = { step: PlanStep; ok: boolean; manual?: boolean; before?: string; after?: string; note: string };
 
@@ -40,7 +47,29 @@ export const PLAN_SCHEMA_TEXT = `"action_plan": an array of typed steps that a p
   {"type":"calendar_hours_set","calendar":"<name or omit>","hours":[{"days":[1,2,3],"open":"09:00","close":"17:00"}]}   (days: 0=Sunday … 6=Saturday; list every day that should be OPEN — days left out become closed)
   {"type":"location_address_set","address1":"...","city":"...","state":"...","postalCode":"..."}   (only the fields that change)
   {"type":"manual","what":"<what a teammate must do by hand — pipeline stages, workflows, funnel pages, ads, anything not covered above>"}
-Rules for action_plan: be literal — never invent values the client did not give; if a value is unknown (e.g. which year for "Oct 8th"), pick the next occurrence from today; if the request needs something the shapes above cannot express, use one "manual" step. Empty array when action_type is "reply".`;
+  {"type":"payment_links","label":"<what it pays for, e.g. 'October service fee'>","amounts_cents":[10000,15000,15000]}   (Square one-time payment links texted to the client — use when they ask to pay, ask for a payment link, or ask to split a payment into parts)
+Rules for payment_links: use EXACTLY the amounts the client asked for, in their order (cents). If they ask to split without giving amounts, split their bill evenly into the number of parts they asked for (the last part takes any odd cents). If they just ask for a link, one link for their bill. Never invent a bill you weren't given — if no amount is known, use a "manual" step instead.
+Rules for action_plan: be literal — never invent values the client did not give; if a value is unknown (e.g. which year for "Oct 8th"), pick the next occurrence from today; if the request needs something the shapes above cannot express, use one "manual" step. When action_type is "reply" the only step allowed is payment_links (else an empty array).`;
+
+// ── Payment links: limits and the reply lines ────────────────────────────────
+export const PAY_LINK_MAX = 6;
+export const PAY_LINK_MIN_CENTS = 100;        // $1
+export const PAY_LINK_MAX_CENTS = 1_000_000;  // $10,000 per link
+const usd = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+export const payLinkPlaceholder = (i: number) => `{{pay_link_${i + 1}}}`;
+/* The lines under the reply — one per link, built from the final amounts
+   at send time ("{{pay_link_N}}" where a URL isn't known yet). */
+export function paymentLinkLines(step: Extract<PlanStep, { type: "payment_links" }>, urls?: string[]): string {
+  const n = step.amounts_cents.length;
+  return step.amounts_cents.map((c, i) => `${n > 1 ? `Payment ${i + 1} of ${n} — ` : ""}${usd(c)}: ${urls?.[i] ?? payLinkPlaceholder(i)}`).join("\n");
+}
+/* The message, minus any stray "{{pay_link_N}}" line, with the link lines
+   under it. */
+export function withPaymentLinks(reply: string, step: Extract<PlanStep, { type: "payment_links" }>, urls?: string[]): string {
+  const kept = reply.split("\n").filter((l) => !/\{\{pay_link_\d+\}\}/.test(l)).join("\n").trimEnd();
+  return `${kept}${kept ? "\n" : ""}${paymentLinkLines(step, urls)}`;
+}
+export const describeAmounts = (cents: number[]) => cents.map(usd).join(" · ");
 
 // ── Where does this client live? ─────────────────────────────────────────────
 // The proposal knows the contact who texted the MAIN account; the change has
@@ -147,6 +176,21 @@ export function sanitizePlan(raw: unknown): PlanStep[] {
       for (const k of ["address1", "city", "state", "postalCode"] as const) if (s[k]) step[k] = String(s[k]);
       if (Object.keys(step).length > 1) out.push(step);
     } else if (t === "manual") out.push({ type: t, what: String(s.what ?? s.reason ?? "see the request") });
+    else if (t === "payment_links" && Array.isArray(s.amounts_cents)) {
+      const amounts = (s.amounts_cents as unknown[]).map(Number);
+      // All or nothing: a bad amount drops the step rather than silently changing the split.
+      if (!amounts.length || amounts.length > PAY_LINK_MAX || amounts.some((c) => !Number.isInteger(c) || c < PAY_LINK_MIN_CENTS || c > PAY_LINK_MAX_CENTS)) continue;
+      if (out.some((x) => x.type === "payment_links")) continue; // one set of links per card
+      out.push({
+        type: t, amounts_cents: amounts,
+        label: String(s.label ?? "").replace(/\s+/g, " ").trim().slice(0, 80) || "Payment",
+        bill_cents: Number.isInteger(Number(s.bill_cents)) && Number(s.bill_cents) > 0 ? Number(s.bill_cents) : null,
+        bill_label: s.bill_label ? String(s.bill_label).slice(0, 60) : null,
+        bill_owner: s.bill_owner ? String(s.bill_owner).slice(0, 80) : null,
+        bill_status: s.bill_status ? String(s.bill_status).slice(0, 40) : null,
+        ...(Array.isArray(s.links) ? { links: (s.links as Array<Record<string, unknown>>).filter((l) => l && typeof l.url === "string").map((l) => ({ amount_cents: Number(l.amount_cents), url: String(l.url), id: String(l.id ?? "") })) } : {}),
+      });
+    }
   }
   return out;
 }
@@ -162,6 +206,10 @@ export function describeStep(s: PlanStep): string {
     }
     case "location_address_set": return `Address → ${[s.address1, s.city, s.state, s.postalCode].filter(Boolean).join(", ")}`;
     case "manual": return `Needs a teammate: ${s.what}`;
+    case "payment_links": {
+      const total = s.amounts_cents.reduce((a, b) => a + b, 0);
+      return `Create ${s.amounts_cents.length === 1 ? "a Square payment link" : `${s.amounts_cents.length} Square payment links`} (${describeAmounts(s.amounts_cents)}${s.amounts_cents.length > 1 ? ` = ${usd(total)}` : ""}) for "${s.label}" and add ${s.amounts_cents.length === 1 ? "it" : "them"} to the reply`;
+    }
   }
 }
 
@@ -256,6 +304,8 @@ export async function executePlan(
 
   for (const step of plan) {
     try {
+      // Payment links run in executeProposal (before the reply goes out), not here.
+      if (step.type === "payment_links") continue;
       if (step.type === "manual") {
         steps.push({ step, ok: true, manual: true, note: step.what });
         continue;

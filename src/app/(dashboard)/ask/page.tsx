@@ -87,6 +87,9 @@ export default function AskPage() {
   // moving between the composer and the main area, or a list refresh.
   const [cardReplies, setCardReplies] = useState<Record<string, string>>({});
   const setCardReply = useCallback((id: string, v: string) => setCardReplies((m) => ({ ...m, [id]: v })), []);
+  // Edited payment-link amounts, kept per card for the same reason.
+  const [cardAmounts, setCardAmounts] = useState<Record<string, string>>({});
+  const setCardAmount = useCallback((id: string, v: string) => setCardAmounts((m) => ({ ...m, [id]: v })), []);
   const [showActivity, setShowActivity] = useState(false);            // "Agent activity & settings" in the main area
   // The open chat's agent panel starts CLOSED (owner, 2026-10-01: "I don't
   // want it, by default, to just open up"). Opening a chat shows one small
@@ -274,7 +277,7 @@ export default function AskPage() {
 
   // 🪄 "Let AI handle it" (inside the open chat): files (or returns the open)
   // card for this chat. It only PROPOSES — the card still needs Approve.
-  const proposeFor = useCallback(async (c: Conv) => {
+  const proposeFor = useCallback(async (c: Conv, opts: { fresh?: boolean } = {}) => {
     // Always ask the server: it hands back the open card when nothing new has
     // arrived, and re-reads the chat when the client wrote since.
     if (proposingRef.current.has(c.id)) return;
@@ -284,7 +287,7 @@ export default function AskPage() {
       const res = await fetch("/api/agent/propose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: c.id, contactId: c.contactId, contactName: c.contactName, channel: c.channel }),
+        body: JSON.stringify({ conversationId: c.id, contactId: c.contactId, contactName: c.contactName, channel: c.channel, fresh: opts.fresh === true }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.proposal) throw new Error(json.error || "The AI couldn't take this one");
@@ -646,7 +649,8 @@ export default function AskPage() {
           </div>
           {/* Keyed by id: a card's typed reply must never carry over to the next card shown here. */}
           <ProposalCard key={openCard.id} p={openCard} focused={openCard.id === focusProposal} onPhase={(ph) => onCardPhase(openCard.id, ph)}
-            reply={cardReplies[openCard.id]} onReplyChange={(v) => setCardReply(openCard.id, v)} working={approvingIds.has(openCard.id)} />
+            reply={cardReplies[openCard.id]} onReplyChange={(v) => setCardReply(openCard.id, v)}
+            amounts={cardAmounts[openCard.id]} onAmountsChange={(v) => setCardAmount(openCard.id, v)} working={approvingIds.has(openCard.id)} />
         </div>
       )}
 
@@ -682,7 +686,7 @@ export default function AskPage() {
                 <span className="flex items-center gap-2.5">
                   {convCards.length > 0 && (checkingHere
                     ? <span className="text-[11px] text-[#8595a8] flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> checking for new messages…</span>
-                    : !approvingHere && <button onClick={() => proposeFor(pending)} className="text-[11px] text-[#0e8f88] hover:underline">re-read chat</button>)}
+                    : !approvingHere && <button onClick={() => proposeFor(pending, { fresh: true })} title="Read the chat again and write a new plan" className="text-[11px] text-[#0e8f88] hover:underline">re-read chat</button>)}
                   <button onClick={() => setAgentOpenFor(null)} disabled={approvingHere}
                     title={approvingHere ? "Wait for the Approve to finish" : undefined}
                     className="text-[11px] text-[#0e8f88] hover:underline disabled:opacity-40 disabled:no-underline">hide</button>
@@ -693,6 +697,7 @@ export default function AskPage() {
                   {convCards.map((p) => (
                     <ProposalCard key={p.id} p={p} focused={p.id === focusProposal} onPhase={(ph) => onCardPhase(p.id, ph)}
                       reply={cardReplies[p.id]} onReplyChange={(v) => setCardReply(p.id, v)}
+                      amounts={cardAmounts[p.id]} onAmountsChange={(v) => setCardAmount(p.id, v)}
                       working={approvingIds.has(p.id)} checking={checkingHere} />
                   ))}
                 </div>
@@ -850,8 +855,26 @@ function stepText(s: PlanStep): string {
     case "calendar_hours_set": return `Hours${s.calendar ? ` on "${s.calendar}"` : ""}: ${(s.hours as Array<{ days: number[]; open: string; close: string }>).map((h) => `${h.days.map((d) => D[d]).join("/")} ${h.open}–${h.close}`).join(", ")}`;
     case "location_address_set": return `Address → ${[s.address1, s.city, s.state, s.postalCode].filter(Boolean).join(", ")}`;
     case "manual": return `Needs a teammate: ${s.what}`;
+    case "payment_links": {
+      const a = (s.amounts_cents as number[]) ?? [];
+      return `Create ${a.length === 1 ? "a Square payment link" : `${a.length} Square payment links`} (${a.map(money).join(" · ")}) for "${s.label}" and add ${a.length === 1 ? "it" : "them"} to the reply`;
+    }
     default: return JSON.stringify(s);
   }
+}
+
+/* Square payment links on a card (mirrors withPaymentLinks on the server):
+   "{{pay_link_N}}" lines under the reply until Approve makes the real links. */
+const money = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: cents % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
+const linkLines = (cents: number[]) => cents.map((c, i) => `${cents.length > 1 ? `Payment ${i + 1} of ${cents.length} — ` : ""}${money(c)}: 🔗 link ${i + 1}`);
+const stripLinkLines = (t: string) => t.split("\n").filter((l) => !/\{\{pay_link_\d+\}\}/.test(l)).join("\n").trimEnd();
+/* "100, 150, 150" / "$100 / $150" → [10000, 15000, 15000]; "1,500" is one
+   amount ($1,500). null when anything is off. */
+function parseAmounts(text: string): number[] | null {
+  const parts = text.replace(/(\d),(\d{3})(?!\d)/g, "$1$2").split(/[,/+\s]+/).map((t) => t.replace(/^\$/, "")).filter(Boolean);
+  if (!parts.length || parts.length > 6) return null;
+  const cents = parts.map((t) => Math.round(Number(t) * 100));
+  return cents.every((c) => Number.isInteger(c) && c >= 100 && c <= 1_000_000) ? cents : null;
 }
 const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "needs a teammate", handled: "handled in chat", pending: "pending" };
 
@@ -1000,13 +1023,14 @@ function NotifySettingsBox() {
   );
 }
 
-function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, working, checking }: {
+function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, amounts: keptAmounts, onAmountsChange, working, checking }: {
   p: AgentProposal; onPhase: (phase: CardPhase) => void; focused?: boolean;
   reply?: string; onReplyChange?: (v: string) => void;
+  amounts?: string; onAmountsChange?: (v: string) => void;
   working?: boolean;  // an Approve for this card is still running (page-level)
   checking?: boolean; // the chat is being re-read — this plan may be replaced
 }) {
-  const [localReply, setLocalReply] = useState(p.proposed_reply ?? "");
+  const [localReply, setLocalReply] = useState(stripLinkLines(p.proposed_reply ?? ""));
   const reply = keptReply ?? localReply;
   const setReply = (v: string) => { setLocalReply(v); onReplyChange?.(v); };
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
@@ -1016,6 +1040,16 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
   const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
   const plan = p.action_plan ?? [];
   const manualOnly = plan.length > 0 && plan.every((s) => s.type === "manual");
+  // Payment links: amounts editable on the card; the reply's link lines follow.
+  const linkStep = plan.find((s) => s.type === "payment_links") ?? null;
+  const plannedCents = (linkStep?.amounts_cents as number[] | undefined) ?? [];
+  const [localAmounts, setLocalAmounts] = useState(() => plannedCents.map((c) => String(c / 100)).join(", "));
+  const amountsText = keptAmounts ?? localAmounts;
+  const onAmounts = (v: string) => { setLocalAmounts(v); onAmountsChange?.(v); };
+  const editedCents = linkStep ? parseAmounts(amountsText) : null;
+  const billCents = (linkStep?.bill_cents as number | null | undefined) ?? null;
+  const billPaid = /\bpaid\b/i.test(String(linkStep?.bill_status ?? ""));
+  const needsMessage = !!linkStep && !reply.trim();
 
   const decide = useCallback(async (decision: "approve" | "deny") => {
     if (busy || working || checking) return;
@@ -1025,7 +1059,11 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
       const res = await fetch("/api/agent/decide", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: p.id, decision, reply: decision === "approve" ? reply : undefined }),
+        body: JSON.stringify({
+          id: p.id, decision, reply: decision === "approve" ? reply : undefined,
+          // Always the amounts on screen — the server re-checks them.
+          ...(decision === "approve" && linkStep && editedCents ? { links: { label: linkStep.label, amounts_cents: editedCents } } : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed");
@@ -1040,7 +1078,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
       setBusy(null);
       onPhase("error");
     }
-  }, [busy, working, checking, p.id, reply, onPhase]);
+  }, [busy, working, checking, p.id, reply, onPhase, linkStep, editedCents]);
 
   // The agent never invites to a call by itself — this re-drafts the reply
   // WITH an invite, only when someone clicks it.
@@ -1088,15 +1126,20 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
   // itself before Approve (owner, 2026-10-01): what the client asked, then
   // exactly what Approve will do, in order. The client's own words and the
   // AI's notes sit behind "details".
-  const tag = sensitive ? "💰 money" : p.action_type === "account_change" ? (manualOnly ? "👤 teammate" : "🔧 change") : "💬 reply";
+  const tag = sensitive ? "💰 money" : linkStep ? "💳 payment links" : p.action_type === "account_change" ? (manualOnly ? "👤 teammate" : "🔧 change") : "💬 reply";
   const change = (p.action_detail ?? "").replace(/^SENSITIVE:\s*/, "");
   // In the order executeProposal runs them: the reply goes out first.
-  const willDo: string[] = [reply.trim() ? "Send the reply below" : "Send nothing (the reply box is empty)"];
+  const willDo: string[] = [];
+  if (linkStep) willDo.push(editedCents ? stepText({ ...linkStep, amounts_cents: editedCents }).replace(/ and add (it|them) to the reply$/, "") : "⚠️ Fix the payment amounts below");
+  willDo.push(linkStep
+    ? (needsMessage ? "⚠️ Type a short message — the links are sent under it" : `Send your message with the ${editedCents && editedCents.length > 1 ? `${editedCents.length} links` : "link"} under it`)
+    : reply.trim() ? "Send the reply below" : "Send nothing (the reply box is empty)");
   if (sensitive) willDo.push(`👤 Money is never automatic — a teammate makes this change by hand${change ? `: ${change}` : ""}`);
   else if (p.action_type === "account_change") {
-    if (plan.length) willDo.push(...plan.map((s) => `${s.type === "manual" ? "👤 Teammate: " : ""}${stepText(s)}`));
+    const steps = plan.filter((s) => s.type !== "payment_links");
+    if (steps.length) willDo.push(...steps.map((s) => `${s.type === "manual" ? "👤 Teammate: " : ""}${stepText(s)}`));
     else if (change) willDo.push(`Make this change in ${p.contact_name}'s account: ${change}`);
-    if (!manualOnly) willDo.push("Show you before → after for each change");
+    if (!manualOnly && steps.length) willDo.push("Show you before → after for each change");
   }
   return (
     <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", sensitive ? "border-[#f5c2cf] bg-[#fffafb]" : "border-[#c9dbfb] bg-[#f7faff]", focused && "ring-2 ring-[#15B7AE]")}>
@@ -1124,10 +1167,38 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, wo
           {p.notified_at && <p className="text-[11px] text-[#8595a8]">You were texted about this.</p>}
         </div>
       )}
-      <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2} placeholder="Reply to the client (empty = send nothing)"
+      {linkStep && (
+        <div className="mt-2 rounded-lg border border-[#c9dbfb] bg-white px-2.5 py-2 text-[12px]">
+          <label className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-[#1f3559]">💳 Square links ($)</span>
+            <input value={amountsText} onChange={(e) => onAmounts(e.target.value)} disabled={!!busy || working}
+              aria-label="Payment link amounts in dollars, separated by commas"
+              className={cn("w-40 px-2 py-1 border rounded-md text-[12px] tabular-nums", editedCents ? "border-[#c9dbfb]" : "border-[#e11d48]")} />
+            <span className="text-[#697a91]">for &ldquo;{String(linkStep.label)}&rdquo;</span>
+          </label>
+          <p className="mt-1 text-[11px] text-[#697a91]">
+            {editedCents ? <>Total <b className="text-[#1f3559]">{money(editedCents.reduce((a, b) => a + b, 0))}</b></> : <span className="text-[#e11d48]">Amounts $1–$10,000 each, up to 6, separated by commas</span>}
+            {billCents != null && editedCents && (billPaid
+              ? <span className="text-[#b91c1c] font-semibold"> · ⚠️ {String(linkStep.bill_owner ?? p.contact_name)}&apos;s {String(linkStep.bill_label ?? "bill")} ({money(billCents)}) is already marked &ldquo;{String(linkStep.bill_status)}&rdquo;</span>
+              : editedCents.reduce((a, b) => a + b, 0) === billCents
+                ? <span className="text-[#15803d]"> · matches {String(linkStep.bill_owner ?? p.contact_name)}&apos;s {String(linkStep.bill_label ?? "bill")} ({money(billCents)}) ✓</span>
+                : <span className="text-[#c2410c]"> · {String(linkStep.bill_owner ?? p.contact_name)}&apos;s {String(linkStep.bill_label ?? "bill")} is {money(billCents)}</span>)}
+            {billCents == null && <span className="text-[#8595a8]"> · no bill on file to check against</span>}
+            {" · "}one-time links — nothing is charged; they pay when they open them
+          </p>
+        </div>
+      )}
+      <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2} placeholder={linkStep ? "A short message to go with the links" : "Reply to the client (empty = send nothing)"}
         className="w-full mt-2 px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none" />
+      {linkStep && editedCents && (
+        <div className="mt-1 rounded-lg border border-dashed border-[#c9dbfb] bg-white/60 px-3 py-1.5 text-[12px] text-[#34568a]">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8]">Sent under your message</p>
+          {linkLines(editedCents).map((l, i) => <p key={i} className="tabular-nums">{l}</p>)}
+          <p className="text-[10px] text-[#8595a8]">The real Square links replace 🔗 when you Approve.</p>
+        </div>
+      )}
       <div className="flex items-center gap-2 mt-2">
-        <button onClick={() => decide("approve")} disabled={!!busy || working || checking || calling}
+        <button onClick={() => decide("approve")} disabled={!!busy || working || checking || calling || (!!linkStep && (!editedCents || needsMessage))}
           className="px-3 py-1.5 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
           {busy === "approve" || working ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} {busy === "approve" || working ? "Working…" : "Approve"}
         </button>

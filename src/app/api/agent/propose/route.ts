@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
 
   const body = (await req.json().catch(() => ({}))) as {
     conversationId?: string; contactId?: string | null; contactName?: string; channel?: string | null;
+    fresh?: boolean; // "re-read chat": plan again even with no new message
   };
   const conversationId = String(body.conversationId ?? "").trim();
   if (!conversationId) return NextResponse.json({ error: "conversationId required" }, { status: 400 });
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
       contactName: String(body.contactName ?? "").trim() || "Client",
       channel: body.channel ?? null,
       requestedBy: user.email ?? "",
+      fresh: body.fresh === true,
     });
     if (r.error || !r.proposal) return NextResponse.json({ error: r.error ?? "failed" }, { status: 502 });
     return NextResponse.json({ proposal: r.proposal });

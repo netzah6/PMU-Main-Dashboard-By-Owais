@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { waitUntil } from "@vercel/functions";
-import { claimCutoff, executeProposal, isLiveClaim, type Proposal } from "@/lib/agent";
+import { claimCutoff, executeProposal, isLiveClaim, NothingSentError, type Proposal } from "@/lib/agent";
+import { sanitizePlan } from "@/lib/agent-exec";
 import { recordApprovedReply, settleDashboardSend } from "@/lib/reply-learning";
 
 export const maxDuration = 60; // approve now also runs the account change against GHL
@@ -19,7 +20,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { id?: string; decision?: string; reply?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    id?: string; decision?: string; reply?: string;
+    // Payment-link amounts / label as edited on the card (re-checked here).
+    links?: { label?: string; amounts_cents?: number[] };
+  };
   const id = String(body.id ?? "").trim();
   const decision = String(body.decision ?? "");
   if (!id || !["approve", "deny"].includes(decision)) {
@@ -63,6 +68,16 @@ export async function POST(req: NextRequest) {
   }
 
   const reply = body.reply !== undefined ? String(body.reply) : p.proposed_reply;
+  // Edited payment links replace the planned ones — same limits as the AI's.
+  if (body.links && (p.action_plan ?? []).some((s) => s.type === "payment_links")) {
+    const old = (p.action_plan ?? []).find((s) => s.type === "payment_links");
+    const [edited] = sanitizePlan([{ ...old, type: "payment_links", label: body.links.label ?? (old as { label?: string })?.label, amounts_cents: body.links.amounts_cents, links: undefined }]);
+    if (!edited) {
+      await svc.from("agent_proposals").update({ decided_by: null, decided_at: null }).eq("id", id).eq("status", "pending");
+      return NextResponse.json({ error: "Payment amounts must be $1–$10,000 each, up to 6 links" }, { status: 400 });
+    }
+    p.action_plan = (p.action_plan ?? []).map((s) => (s.type === "payment_links" ? edited : s));
+  }
   try {
     const out = await executeProposal(p, reply, decidedBy);
     // Learn from it: the AI's draft vs what the approver actually sent.
@@ -81,6 +96,12 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ success: out.status !== "failed", ...out });
   } catch (e) {
+    // Square refused the payment links before anything was sent: release the
+    // claim so the card can be approved again (same links — idempotent).
+    if (e instanceof NothingSentError) {
+      await svc.from("agent_proposals").update({ decided_by: null, decided_at: null }).eq("id", id).eq("status", "pending").is("executed_at", null);
+      return NextResponse.json({ error: e.message }, { status: 502 });
+    }
     // We can't know whether the reply went out — never re-arm Approve (that
     // could text the client twice). Close it as failed; 🪄 can plan again.
     const msg = e instanceof Error ? e.message : "failed";
