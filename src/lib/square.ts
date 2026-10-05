@@ -511,13 +511,19 @@ export async function createPaymentLink(args: {
   amountCents: number;
   referenceId?: string;
   note?: string;
-}): Promise<{ url: string; id: string }> {
+  /** Same key → Square returns the same link instead of a second one (a
+   *  retried or double-clicked Approve must not make duplicates). */
+  idempotencyKey?: string;
+  /** Pre-fills the payer's email on the checkout page. */
+  buyerEmail?: string;
+}): Promise<{ url: string; id: string; orderId: string | null }> {
   const locationId = await getMainLocationId();
+  const email = args.buyerEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args.buyerEmail) ? args.buyerEmail : undefined;
   const r = await fetch(`${BASE}/v2/online-checkout/payment-links`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify({
-      idempotency_key: crypto.randomUUID(),
+      idempotency_key: args.idempotencyKey ?? crypto.randomUUID(),
       quick_pay: {
         name: args.name.slice(0, 255),
         price_money: { amount: args.amountCents, currency: "USD" },
@@ -525,17 +531,18 @@ export async function createPaymentLink(args: {
       },
       payment_note: args.note?.slice(0, 500),
       checkout_options: { ask_for_shipping_address: false },
+      ...(email ? { pre_populated_data: { buyer_email: email } } : {}),
     }),
   });
   const j = (await r.json().catch(() => ({}))) as {
-    payment_link?: { id?: string; url?: string; long_url?: string };
+    payment_link?: { id?: string; url?: string; long_url?: string; order_id?: string };
     errors?: Array<{ code?: string; detail?: string }>;
   };
   if (!r.ok || !j.payment_link?.url) {
     const detail = (j.errors ?? []).map((e) => e.detail || e.code).filter(Boolean).join("; ");
     throw new Error(`Square payment link failed (${r.status}): ${detail || "unknown error"}`);
   }
-  return { url: j.payment_link.url, id: String(j.payment_link.id) };
+  return { url: j.payment_link.url, id: String(j.payment_link.id), orderId: j.payment_link.order_id ?? null };
 }
 
 // ── Disputes (chargebacks) ───────────────────────────────────────────────────
@@ -721,12 +728,17 @@ export const SUBSCRIPTION_WRITE_SCOPES = [
   "ORDERS_WRITE",
 ] as const;
 
+/** Permissions Square requires for POST /v2/online-checkout/payment-links. */
+export const PAYMENT_LINK_SCOPES = ["ORDERS_WRITE", "ORDERS_READ", "PAYMENTS_WRITE"] as const;
+
 export type TokenStatus = {
   scopes: string[];
   expiresAt: string | null;
   merchantId: string | null;
   /** Required scopes the token does NOT have. Empty = pause/resume is possible. */
   missingForSubscriptionWrites: string[];
+  /** Same for creating payment links (the AI agent's one-time links). */
+  missingForPaymentLinks: string[];
 };
 
 export async function getTokenStatus(): Promise<TokenStatus> {
@@ -745,6 +757,7 @@ export async function getTokenStatus(): Promise<TokenStatus> {
     expiresAt: j.expires_at ?? null,
     merchantId: j.merchant_id ?? null,
     missingForSubscriptionWrites: SUBSCRIPTION_WRITE_SCOPES.filter((s) => !scopes.includes(s)),
+    missingForPaymentLinks: PAYMENT_LINK_SCOPES.filter((s) => !scopes.includes(s)),
   };
 }
 

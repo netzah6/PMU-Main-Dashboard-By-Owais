@@ -18,6 +18,7 @@ export async function GET() {
       ...status,
       requiredForSubscriptionWrites: SUBSCRIPTION_WRITE_SCOPES,
       canPauseResume: status.missingForSubscriptionWrites.length === 0,
+      canCreatePaymentLinks: status.missingForPaymentLinks.length === 0,
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 502 });

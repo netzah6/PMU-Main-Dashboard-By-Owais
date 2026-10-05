@@ -16,8 +16,9 @@ import {
 import { draftReplyFor } from "@/lib/reply-draft";
 import {
   PLAN_SCHEMA_TEXT, sanitizePlan, planFromDetail, resolveClientLocation, executePlan, formatResults,
-  type PlanStep,
+  withPaymentLinks, describeAmounts, type PlanStep,
 } from "@/lib/agent-exec";
+import { billingFor, billingLine, createLinksForProposal, NothingSentError, type Billing, type LinkStep } from "@/lib/agent-pay-links";
 import { notifyOwner, type NotifyItem } from "@/lib/agent-notify";
 
 // ── CEO Agent (phase 1) ──────────────────────────────────────────────────────
@@ -78,7 +79,7 @@ async function classify(
   client: Anthropic,
   contactName: string,
   convo: string,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; billing?: Billing | null } = {},
 ): Promise<Classification | null> {
   const prompt = `You triage messages for a PMU (permanent-makeup) marketing agency. The people writing in are the agency's CLIENTS (artists whose ads/funnels/booking systems the agency runs).
 
@@ -86,6 +87,8 @@ Conversation (each line has its day and time; lines marked NEW are not answered 
 """
 ${convo}
 """
+
+What this client owes the agency (Financing sheet): ${billingLine(opts.billing ?? null)}${opts.billing ? ` = ${opts.billing.cents} cents` : ""}
 
 Read the client's NEW messages together with what was said earlier today and yesterday — clients often split one request across several texts. Decide if the client is asking the agency to DO something (change hours/availability, pause or restart ads, change pricing or offer on their funnel, fix something broken, update their services, refund something, etc.) — or just chatting / already answered.
 
@@ -103,11 +106,12 @@ Reply with ONLY a JSON object, no other text:
 
 Rules:
 - "summary": at most 12 words, plain and direct, the ask itself — no "Client wants", no explanation (e.g. "Block Oct 8, 9, 15, 16, 22 on the calendar").
-- "proposed_reply": at most 2 short sentences, no filler. Never invite them to a call or meeting and never include a link.
+- "proposed_reply": at most 2 short sentences, no filler. Never invite them to a call or meeting and never write a link (payment links are added to the reply automatically).
 - "action_detail": one short sentence per change, nothing else.
 - "reply" = a message back fully handles it (a question, confirmation, scheduling info).
 - "account_change" = something in their account/funnel/ads must actually be changed. Still include proposed_reply (an acknowledgment).
-- Refunds, payments, cancellations of the agency service: action_type "account_change", and START action_detail with "SENSITIVE:".
+- Refunds, charging their card, cancellations of the agency service: action_type "account_change", and START action_detail with "SENSITIVE:".
+- A client asking to PAY — for a payment link, or to split / break up what they owe into parts — is NOT sensitive: use action_type "reply" with one "payment_links" step in action_plan (the agency texts them Square one-time links; they pay when they choose). Never answer that with "I'll check".
 - ${opts.force
     ? `A teammate asked you to handle this conversation: ALWAYS return "actionable": true with a "summary" of what (if anything) is needed now. If nothing must change, use action_type "reply" and summarize what the reply should cover.`
     : `If the last message is from the Agency (already handled) or nothing is being asked: {"actionable": false}.`}
@@ -207,21 +211,44 @@ async function rosterNames(acct: PmuAccount): Promise<Map<string, string>> {
 async function replyFor(
   acct: PmuAccount, conversationId: string, contactName: string, thread: ThreadMessage[],
   cls: Classification, voiceEmail: string | null, contactId: string | null,
+  links?: LinkStep | null,
 ): Promise<string | null> {
   // The triage one-liner is only a fallback — and it goes through the same
   // call-invite guard as every other draft.
   const fallback = guardReply(cls.proposed_reply?.slice(0, 1500) ?? null, thread);
+  const linkNote = links
+    ? ` We are texting them ${links.amounts_cents.length === 1 ? "a Square payment link" : `${links.amounts_cents.length} Square payment links`} (${describeAmounts(links.amounts_cents)}) for "${links.label}" right under your message — say so in one short, warm sentence (e.g. "Of course! Here are your links:"). Do NOT write any link, URL or placeholder yourself.`
+    : "";
+  // The links themselves are added under this message on Approve (the card previews them).
+  const withLinks = (text: string | null) => (links ? (text?.trim() ? text : "Of course! Here you go:") : text);
   try {
     const change = cls.action_type === "account_change";
     const { draft } = await draftReplyFor({
       acct, conversationId, contactName, contactId, thread, voiceEmail, source: "agent", waitForMemory: false,
-      instructions: `What the client needs (from triage): ${cls.summary ?? "see their NEW messages"}.${change ? " We will make this change — confirm it simply, and don't promise a time." : ""}`,
+      instructions: `What the client needs (from triage): ${cls.summary ?? "see their NEW messages"}.${change ? " We will make this change — confirm it simply, and don't promise a time." : ""}${linkNote}`,
     });
-    return draft ? draft.slice(0, 1500) : fallback;
+    return withLinks(draft ? draft.slice(0, 1500) : fallback);
   } catch {
-    return fallback;
+    return withLinks(fallback);
   }
 }
+
+/* The typed plan for a card: everything for an account change; for a reply,
+   only payment links — unless the AI also needs a teammate (e.g. a payment
+   ask with no bill on file): then it's an account change so that step isn't
+   lost. The links carry the bill they were checked against. */
+function planFor(cls: Classification, billing: Billing | null): { actionType: "reply" | "account_change"; plan: PlanStep[] } {
+  const all = sanitizePlan(cls.action_plan);
+  let actionType: "reply" | "account_change" = cls.action_type === "account_change" ? "account_change" : "reply";
+  if (actionType === "reply" && all.some((s) => s.type === "manual")) actionType = "account_change";
+  const plan = (actionType === "account_change" ? all : all.filter((s) => s.type === "payment_links")).map((s) =>
+    s.type === "payment_links" && billing
+      ? { ...s, bill_cents: billing.cents, bill_label: `${billing.month} bill`, bill_owner: billing.ownerName, bill_status: billing.status }
+      : s);
+  return { actionType, plan };
+}
+const linkStepOf = (plan: PlanStep[] | null | undefined): LinkStep | null =>
+  (plan ?? []).find((s): s is LinkStep => s.type === "payment_links") ?? null;
 
 /* "Let AI handle it" on one conversation (owner request 2026-10-01): read
    it now, file a pending card with the plan and the drafted reply, and hand
@@ -234,6 +261,8 @@ export async function proposeForConversation(opts: {
   contactName: string;
   channel: string | null;
   requestedBy: string;
+  /** "re-read chat" clicked: plan again even if no new message arrived. */
+  fresh?: boolean;
 }): Promise<{ proposal?: Proposal; error?: string }> {
   if (!process.env.ANTHROPIC_API_KEY) return { error: "ANTHROPIC_API_KEY not set" };
   const acct = await getReplyAccount();
@@ -250,21 +279,24 @@ export async function proposeForConversation(opts: {
   // A pending card still covering the newest message is the answer; one
   // written before newer texts arrived is retired so the plan isn't stale.
   const open = await openCard();
-  if (open && (open.message_id.split("#")[0] === last.id || isLiveClaim(open))) return { proposal: open }; // current, or mid-Approve
-  if (open) {
+  if (open && (isLiveClaim(open) || (!opts.fresh && open.message_id.split("#")[0] === last.id))) return { proposal: open }; // current, or mid-Approve
+  const retire = async (why: string) => {
+    if (!open) return;
     await svc.from("agent_proposals").update({
-      status: "handled", decided_by: opts.requestedBy || "auto", decided_at: new Date().toISOString(),
-      result: "replaced by a newer read of the chat (new messages arrived)",
+      status: "handled", decided_by: opts.requestedBy || "auto", decided_at: new Date().toISOString(), result: why,
     }).eq("id", open.id).eq("status", "pending").or(unclaimed()); // not mid-Approve
-  }
+  };
+  // New messages make the old plan wrong — retire it now. A re-read on
+  // request keeps it until the new card exists (a failed re-plan leaves it).
+  if (open && !opts.fresh) await retire("replaced by a newer read of the chat (new messages arrived)");
   const nameByUserId = await rosterNames(acct);
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const billing = await billingFor(svc, opts.contactName, opts.contactId).catch(() => null);
   const cls = await classify(anthropic, opts.contactName,
-    formatThreadForPrompt(thread, { contactName: opts.contactName, nameByUserId }), { force: true });
+    formatThreadForPrompt(thread, { contactName: opts.contactName, nameByUserId }), { force: true, billing });
   if (!cls || !cls.summary) return { error: "The AI couldn't read this chat — try again" };
 
-  const actionType = cls.action_type === "account_change" ? "account_change" : "reply";
-  const plan = actionType === "account_change" ? sanitizePlan(cls.action_plan) : [];
+  const { actionType, plan } = planFor(cls, billing);
   let locationId: string | null = null;
   if (actionType === "account_change") {
     try { locationId = (await resolveClientLocation(svc, opts.contactId, opts.contactName))?.locationId ?? null; } catch { /* resolved again at approve */ }
@@ -272,12 +304,12 @@ export async function proposeForConversation(opts: {
   const unanswered = unansweredClientTexts(thread);
   const lastInbound = [...thread].reverse().find((m) => m.direction === "inbound")?.body;
   const clientMessage = (unanswered.length ? unanswered : lastInbound ? [lastInbound] : []).join("\n").slice(0, 2000);
-  const proposedReply = await replyFor(acct, opts.conversationId, opts.contactName, thread, cls, opts.requestedBy, opts.contactId);
+  const proposedReply = await replyFor(acct, opts.conversationId, opts.contactName, thread, cls, opts.requestedBy, opts.contactId, linkStepOf(plan));
 
   // The cron may have filed a card for this chat while we were drafting —
   // hand that one back rather than a second card for the same message.
   const raced = await openCard();
-  if (raced) return { proposal: raced };
+  if (raced && raced.id !== open?.id) return { proposal: raced };
   // One card per message: if this message already had a (decided) card,
   // key the new one "<id>#<ms>" so the unique (conversation, message) holds.
   const { data: prior } = await svc.from("agent_proposals").select("id")
@@ -297,6 +329,7 @@ export async function proposeForConversation(opts: {
     location_id: locationId,
   }).select("*").maybeSingle();
   if (error || !inserted) return { error: error?.message ?? "could not save the card" };
+  if (opts.fresh) await retire("replaced — the chat was re-read on request");
   return { proposal: inserted as Proposal };
 }
 
@@ -383,7 +416,8 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
 
       scanned++;
       const nameByUserId = await rosterNames(acct);
-      const cls = await classify(anthropic, c.contactName, formatThreadForPrompt(thread, { contactName: c.contactName, nameByUserId }));
+      const billing = await billingFor(svc, c.contactName, c.contactId).catch(() => null);
+      const cls = await classify(anthropic, c.contactName, formatThreadForPrompt(thread, { contactName: c.contactName, nameByUserId }), { billing });
       if (!cls) skipped.push({ who: c.contactName, why: "classifier returned nothing" });
       else if (!cls.actionable || !cls.summary) skipped.push({ who: c.contactName, why: `not a request (AI read: ${cls.summary ?? "chatting / already handled"})` });
       // Churn-risk clients hit the Alerts board whether or not there's a
@@ -421,8 +455,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       }
       if (!cls?.actionable || !cls.summary) continue;
 
-      const actionType = cls.action_type === "account_change" ? "account_change" : "reply";
-      const plan = actionType === "account_change" ? sanitizePlan(cls.action_plan) : [];
+      const { actionType, plan } = planFor(cls, billing);
       // The client's OWN sub-account, where an approved change will land.
       let locationId: string | null = null;
       if (actionType === "account_change") {
@@ -432,7 +465,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       // column" / "Before declining" / "Please and thank you" arrive as three
       // messages and the card must show all three.
       const recentInbound = unansweredClientTexts(thread);
-      const proposedReply = await replyFor(acct, c.id, c.contactName, thread, cls, null, c.contactId);
+      const proposedReply = await replyFor(acct, c.id, c.contactName, thread, cls, null, c.contactId, linkStepOf(plan));
       const { data: inserted, error } = await svc.from("agent_proposals").insert({
         conversation_id: c.id,
         message_id: last.id,
@@ -478,6 +511,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
 // An Approve claims its card (decided_at set, status still "pending") for
 // the length of the run. A claim older than this is a run that died — the
 // decide route may re-claim it and the cron/re-check may treat it as open.
+export { NothingSentError };
 export const CLAIM_TTL_MS = 2 * 60_000;
 export const claimCutoff = () => new Date(Date.now() - CLAIM_TTL_MS).toISOString();
 const unclaimed = () => `decided_at.is.null,decided_at.lt."${claimCutoff()}"`;
@@ -495,6 +529,22 @@ export async function executeProposal(
   const svc = createServiceClient();
   let sendNote = "no reply sent";
   let ok = true;
+
+  /* Phase 0: payment links. Made BEFORE anything is sent — if Square says
+     no, nothing goes out and the card stays approvable (NothingSentError).
+     The link lines in the reply are rebuilt from the final amounts. */
+  const linkStep = linkStepOf(p.action_plan);
+  let linkNote = "";
+  if (linkStep) {
+    // The links go out under a message — an empty box would send bare links.
+    if (!replyText?.replace(/^.*\{\{pay_link_\d+\}\}.*$/gm, "").trim()) throw new NothingSentError("Type a short message to go with the payment links (or Deny) — nothing was sent");
+    const links = await createLinksForProposal(svc, p, linkStep, decidedBy);
+    linkStep.links = links;
+    replyText = withPaymentLinks(replyText ?? "", linkStep, links.map((l) => l.url));
+    linkNote = `\n💳 ${links.length === 1 ? "Square payment link" : `${links.length} Square payment links`} created (${describeAmounts(links.map((l) => l.amount_cents))}):\n${links.map((l) => `  ${l.url}`).join("\n")}`;
+    // Saved now: if the run dies after the text goes out, the links are on the card.
+    await svc.from("agent_proposals").update({ action_plan: p.action_plan }).eq("id", p.id);
+  }
 
   if (replyText && replyText.trim()) {
     if (!p.contact_id) { ok = false; sendNote = "no contact id on the conversation — send by hand"; }
@@ -520,8 +570,8 @@ export async function executeProposal(
   // the before → after per step as proof. "SENSITIVE:" (refunds, payments,
   // cancellations) is never executed — a person handles money.
   let status: Proposal["status"] = ok ? "done" : "failed";
-  let result = sendNote;
-  let plan: PlanStep[] | null = null;
+  let result = `${sendNote}${linkNote}`;
+  let plan: PlanStep[] | null = linkStep ? (p.action_plan ?? null) : null;
   // The reply may already be out: an error past this point must finish the
   // card as "failed", never throw (a throw would leave it approvable again).
   try {
@@ -529,29 +579,34 @@ export async function executeProposal(
       const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
       if (sensitive) {
         status = ok ? "queued_browser" : "failed";
-        result = `${sendNote}\n👤 Sensitive (money) — a teammate must handle this by hand`;
+        result = `${sendNote}${linkNote}\n👤 Sensitive (money) — a teammate must handle this by hand`;
       } else {
-        plan = p.action_plan && p.action_plan.length
-          ? p.action_plan
-          : await planFromDetail({ summary: p.summary, actionDetail: p.action_detail, clientMessage: p.client_message });
+        // The account change itself (links were made above). An older card
+        // without a plan gets one from its notes — never new payment links there.
+        const own = (p.action_plan ?? []).filter((s) => s.type !== "payment_links");
+        const steps = own.length
+          ? own
+          : (await planFromDetail({ summary: p.summary, actionDetail: p.action_detail, clientMessage: p.client_message }))
+              .map((s): PlanStep => (s.type === "payment_links" ? { type: "manual", what: `Send payment links: ${describeAmounts(s.amounts_cents)} (${s.label})` } : s));
+        plan = [...(linkStep ? [linkStep] : []), ...steps];
         const loc = p.location_id
           ? { locationId: p.location_id }
           : await resolveClientLocation(svc, p.contact_id, p.contact_name);
         if (!loc) {
           status = "failed";
-          result = `${sendNote}\n✗ Could not find ${p.contact_name}'s sub-account (no Clients Master match) — do it by hand`;
+          result = `${sendNote}${linkNote}\n✗ Could not find ${p.contact_name}'s sub-account (no Clients Master match) — do it by hand`;
         } else {
-          const run = await executePlan(plan, loc.locationId);
+          const run = await executePlan(steps, loc.locationId);
           const lines = formatResults(run.steps);
           status = !ok || !run.allOk ? "failed" : run.anyManual ? "queued_browser" : "done";
-          result = `${sendNote}\n${lines}`;
+          result = `${sendNote}${linkNote}\n${lines}`;
           if (!p.location_id) await svc.from("agent_proposals").update({ location_id: loc.locationId }).eq("id", p.id);
         }
       }
     }
   } catch (e) {
     status = "failed";
-    result = `${sendNote}\n✗ ${e instanceof Error ? e.message : "error"} — check the account and finish by hand`;
+    result = `${sendNote}${linkNote}\n✗ ${e instanceof Error ? e.message : "error"} — check the account and finish by hand`;
   }
 
   await svc.from("agent_proposals").update({
