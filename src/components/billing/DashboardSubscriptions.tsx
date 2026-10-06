@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Loader2, Plus, X, Play, Pause, Check, Trash2, ExternalLink, AlertTriangle, CreditCard, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { nextAfterPaid, owedPeriod } from "@/lib/subscription-dates";
 
 // Subscriptions billed from here instead of Square, so pausing one never sends
 // the client Square's "your subscription is paused" email. Square subscriptions
@@ -59,6 +60,9 @@ export function DashboardSubscriptions() {
   const [subs, setSubs] = useState<Sub[]>([]);
   const [charges, setCharges] = useState<Charge[]>([]);
   const [periodAmounts, setPeriodAmounts] = useState<PeriodAmount[]>([]);
+  // The bill "Mark paid" settles per subscription, computed by the server
+  // from the whole ledger (the charges list here is only the newest 400).
+  const [owed, setOwed] = useState<Record<string, string>>({});
   const [autocharge, setAutocharge] = useState(false);
   const [clients, setClients] = useState<Array<{ key: string; label: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -168,7 +172,7 @@ export function DashboardSubscriptions() {
       const r = await fetch("/api/subscriptions/manage");
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to load");
-      setSubs(j.subscriptions ?? []); setCharges(j.charges ?? []); setAutocharge(!!j.autocharge); setPeriodAmounts(j.periodAmounts ?? []);
+      setSubs(j.subscriptions ?? []); setCharges(j.charges ?? []); setAutocharge(!!j.autocharge); setPeriodAmounts(j.periodAmounts ?? []); setOwed(j.owed ?? {});
     } catch (e) { setErr(e instanceof Error ? e.message : "Failed to load"); }
     finally { setLoading(false); }
   }, []);
@@ -239,6 +243,44 @@ export function DashboardSubscriptions() {
       setMsg(`Charged ${who} ${money(j.amountCents)} on ${j.card}.`);
       await load();
     } catch (e) { setErr(e instanceof Error ? e.message : "Charge failed"); }
+    finally { setBusy(null); }
+  };
+
+  /* Mark paid (owner, 2026-10-06): he charged the bill himself in Square, so
+     the dashboard must not charge that month again. Moves no money — it books
+     the bill as collected (linking the Square payment when it can find it)
+     and moves the next charge to the month after. */
+  const billLabel = (s: Sub, period: string, short = false) =>
+    s.cadence === "monthly"
+      ? new Date(`${period.slice(0, 7)}-15T12:00:00`).toLocaleString(undefined, { month: short ? "short" : "long" })
+      : fmt(period);
+  const owedOf = (s: Sub) => owed[s.id] ?? owedPeriod(s, byId.get(s.id) ?? []);
+  const markPaid = async (s: Sub) => {
+    const who = s.client_label || s.owner_key;
+    const period = owedOf(s);
+    const pp = periodAmounts.find((p) => p.subscription_id === s.id && p.period_key === period) ?? null;
+    const label = billLabel(s, period);
+    const next = nextAfterPaid(s, period);
+    if (!window.confirm(`Mark ${who}'s ${label} bill (${money(pp?.amount_cents ?? s.amount_cents)}) as paid?\n\n`
+      + `Use this when you charged it yourself in Square. The dashboard won't charge ${label} again`
+      + `${next ? `, and the next charge moves to ${fmt(next)}` : ""}. No money moves.`
+      + `${s.status === "paused" ? "\n\nIt stays paused — press Resume when it should charge automatically again." : ""}`)) return;
+    setBusy(`paid:${s.id}`); setErr(null); setMsg(null);
+    try {
+      const r = await fetch("/api/subscriptions/manage", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "mark_paid", id: s.id, period }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Couldn't mark it paid");
+      const linked = j.payment
+        ? ` — linked to her Square payment of ${money(j.payment.amountCents)} on ${fmt(j.payment.createdAt)}`
+        : ` (no Square payment linked: ${j.note ?? "none found"})`;
+      const after = j.next
+        ? ` Next charge ${fmt(j.next)}${j.status === "paused" ? " once you press Resume" : ""}.`
+        : "";
+      setMsg(`${who}: ${label} marked paid${linked}.${after}`);
+      await load();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Couldn't mark it paid"); }
     finally { setBusy(null); }
   };
 
@@ -437,9 +479,10 @@ export function DashboardSubscriptions() {
                       title={s.cadence === "monthly"
                         ? "Change the next charge date — the same day of the month is used from then on. Charges run at 7 AM Pacific."
                         : "Change the charge date. Charges run at 7 AM Pacific."}
-                      className={cn("text-[11px] underline decoration-dotted underline-offset-2 hover:text-[#0e8f88]",
-                        s.status === "active" ? "text-[#34568a]" : "text-[#8595a8]")}>
-                      {s.status === "active" ? "next" : s.status === "paused" ? "resumes on" : "would start"} {fmt(s.next_charge_on)} 📅
+                      className={cn("flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] hover:border-[#15B7AE] hover:text-[#0e8f88]",
+                        s.status === "active" ? "border-[#d7e0ea] text-[#34568a]" : "border-[#e2e8f0] text-[#8595a8]")}>
+                      📅 {s.status === "active" ? "next" : s.status === "paused" ? "next if resumed" : "would start"} {fmt(s.next_charge_on)}
+                      <span className="text-[10px] font-semibold text-[#0e8f88]">change</span>
                     </button>
                   ))}
                   {/* A failed charge schedules itself again (+1d, +3d, +4d); say so. */}
@@ -485,6 +528,14 @@ export function DashboardSubscriptions() {
                       <button onClick={() => chargeNow(s)} disabled={busy === `charge:${s.id}`}
                         className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#0e8f88] border-[#a7e3df]">
                         {busy === `charge:${s.id}` ? <Loader2 size={10} className="animate-spin" /> : null} Charge now
+                      </button>
+                    )}
+                    {(s.status === "active" || s.status === "paused") && (
+                      <button onClick={() => void markPaid(s)} disabled={busy === `paid:${s.id}`}
+                        title="You charged this bill yourself in Square — record it as paid so the dashboard doesn't charge it again. No money moves."
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#d7e0ea] hover:border-[#15B7AE]">
+                        {busy === `paid:${s.id}` ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                        Mark {billLabel(s, owedOf(s), true)} paid
                       </button>
                     )}
                     {s.status === "draft" && (
@@ -656,7 +707,7 @@ export function DashboardSubscriptions() {
                   <div className="px-2.5 pb-1.5 text-[10px] text-[#8595a8]">
                     {s.note}{s.note && last ? " · " : ""}
                     {last && (last.status === "succeeded"
-                      ? `last charged ${fmt(last.charged_at)}`
+                      ? `${last.charged_by?.startsWith("manual:") ? "marked paid" : "last charged"} ${fmt(last.charged_at)}`
                       : `last attempt failed ${fmt(last.charged_at)} — ${last.error ?? ""}`)}
                   </div>
                 )}
@@ -679,7 +730,11 @@ export function DashboardSubscriptions() {
                         <span className="font-semibold text-[#1f3559] tabular-nums">{money(c.amount_cents)}</span>
                         <span className="text-[#697a91]">{fmt(c.charged_at)}</span>
                         {c.period_key && <span className="text-[#8595a8]">for {c.period_key}</span>}
-                        <span className="text-[#8595a8]">by {c.charged_by === "cron" ? "schedule" : c.charged_by?.split("@")[0] ?? "—"}</span>
+                        <span className="text-[#8595a8]">
+                          {c.charged_by?.startsWith("manual:")
+                            ? `marked paid by ${c.charged_by.slice(7).split("@")[0]} — charged in Square`
+                            : `by ${c.charged_by === "cron" ? "schedule" : c.charged_by?.split("@")[0] ?? "—"}`}
+                        </span>
                         {c.error && <span className="text-[#be123c] basis-full">{c.error}</span>}
                         {c.receipt_url && (
                           <a href={c.receipt_url} target="_blank" rel="noopener noreferrer"
