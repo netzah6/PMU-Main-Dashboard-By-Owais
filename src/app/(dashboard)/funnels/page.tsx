@@ -352,6 +352,65 @@ function Dot({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+/* The agency B2B test's own table — its funnel has no deposits, so the
+   columns follow ITS process: visitors → leads → booked calls → showed →
+   closed (rebuilt from scratch, owner 2026-10-06). */
+function B2BSplitTable({ rows, ab }: { rows: Funnel[]; ab: Record<string, AbResult> }) {
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="text-[#697a91]">
+          <tr className="text-left">
+            <th className="py-1 pr-3 font-medium">Variant</th>
+            <th className="py-1 pr-3 font-medium">Visitors</th>
+            <th className="py-1 pr-3 font-medium">Leads</th>
+            <th className="py-1 pr-3 font-medium">Lead rate</th>
+            <th className="py-1 pr-3 font-medium">Booked calls</th>
+            <th className="py-1 pr-3 font-medium">Call rate</th>
+            <th className="py-1 pr-3 font-medium">Showed</th>
+            <th className="py-1 pr-3 font-medium">Closed</th>
+            <th className="py-1 pr-3 font-medium">Close rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((f) => {
+            const d = ab[f.slug];
+            if (!d?.variants) {
+              return (
+                <tr key={f.slug} className="border-t border-[#eef2f6]">
+                  <td className="py-1.5 pr-3 text-[#97a5b8]" colSpan={9}>loading…</td>
+                </tr>
+              );
+            }
+            return d.variants.map((v) => (
+              <tr key={f.slug + v.vkey} className="border-t border-[#eef2f6]">
+                <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{v.label}</td>
+                <td className="py-1.5 pr-3">{v.visitors}</td>
+                <td className="py-1.5 pr-3">{v.leads != null ? v.leads : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}</td>
+                <td className="py-1.5 pr-3">{v.leadRate != null ? `${v.leadRate}%` : "—"}</td>
+                <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
+                <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
+                <td className="py-1.5 pr-3">{v.outcomes ? v.outcomes.showed : "—"}</td>
+                <td className="py-1.5 pr-3 font-semibold text-[#15803d]" title={v.outcomes?.closedNames?.join(", ") || undefined}>
+                  {v.outcomes ? v.outcomes.closed : "—"}
+                </td>
+                <td className="py-1.5 pr-3">
+                  {v.outcomes && v.outcomes.calls ? `${Math.round((v.outcomes.closed / v.outcomes.calls) * 1000) / 10}%` : "—"}
+                </td>
+              </tr>
+            ));
+          })}
+        </tbody>
+      </table>
+      <p className="mt-2 text-[10px] text-[#697a91]">
+        Original = your GoHighLevel funnel (visitors counted by our traffic splitter; leads and booked calls read
+        from GHL itself — contacts and calendar appointments). Pay-Per-Show = the one-box funnel. Closed = became a
+        paying client in the sales pipeline.
+      </p>
+    </div>
+  );
+}
+
 /* Shared results table for the split-test overview boxes — the all-clients
    B2C box and the agency's B2B box render the same columns, so the totals
    stay comparable with each card's own Split panel. */
@@ -1632,11 +1691,9 @@ export default function FunnelsPage() {
                       <span className="ml-auto text-[#697a91]">{b2bOverviewOpen ? "▲" : "▼"}</span>
                     </button>
                     {b2bOverviewOpen && (
-                      <SplitOverviewTable
+                      <B2BSplitTable
                         rows={funnels.filter((x) => x.abStatus === "running" && x.template === "b2b")}
                         ab={ab}
-                        showTotals={false}
-                        footnote="The agency's own B2B funnel (PMU Bookings On Demand) — the win here is a booked strategy call, so read Visitors → Leads → Picked time and ignore the deposit columns. Kept out of the client totals above because it's a different business."
                       />
                     )}
                   </div>
