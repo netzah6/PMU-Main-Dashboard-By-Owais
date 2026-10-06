@@ -37,7 +37,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -806,4 +806,82 @@ export async function scanLeadsWhileNotLive(svc: Svc): Promise<{ checked: number
     resolved = toClose.length;
   }
   return { checked: list.length, filed, resolved };
+}
+
+/* ── Silent new leads ──────────────────────────────────────────────────────
+   A one-box lead who signed up hours ago and never received a single text
+   is a dead lead: either the account's "CC- Funnel Survey" workflow is
+   missing the onebox-survey trigger (Marie London Spa / Revive MED INK,
+   2026-10-05 — every lead silent) or the individual send failed. Checks
+   leads aged 2-26h (small rolling window keeps the GHL calls cheap) and
+   files ONE alert per account listing the silent leads; it resolves itself
+   once the window is clean. */
+export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; filed: number; resolved: number; error?: string }> {
+  const now = Date.now();
+  const lo = new Date(now - 26 * 3600_000).toISOString();
+  const hi = new Date(now - 2 * 3600_000).toISOString();
+  const leads: { slug: string; full_name: string; ghl_contact_id: string }[] = [];
+  for (let i = 0; ; i += 1000) {
+    const { data: page, error } = await svc
+      .from("onebox_leads")
+      .select("slug, full_name, ghl_contact_id")
+      .gte("created_at", lo).lte("created_at", hi)
+      .not("ghl_contact_id", "is", null)
+      .order("id").range(i, i + 999);
+    if (error) return { checked: 0, filed: 0, resolved: 0, error: error.message };
+    if (!page?.length) break;
+    leads.push(...(page as typeof leads));
+    if (page.length < 1000) break;
+  }
+  const { data: clients } = await svc.from("onebox_clients").select("slug, client_name, location_id, extras").eq("status", "live");
+  const locBySlug = new Map((clients ?? []).filter((c) => (c.extras as { template?: string } | null)?.template !== "b2b").map((c) => [c.slug, c]));
+  const bySlug = new Map<string, typeof leads>();
+  for (const l of leads) {
+    if (!locBySlug.has(l.slug)) continue;
+    bySlug.set(l.slug, [...(bySlug.get(l.slug) ?? []), l]);
+  }
+  let checked = 0, filed = 0, resolved = 0;
+  const flagged = new Set<string>();
+  for (const [slug, ls] of bySlug) {
+    const c = locBySlug.get(slug)!;
+    const tok = await getAppLocationToken(c.location_id as string);
+    if (!tok.token) continue;
+    const H4 = { Authorization: `Bearer ${tok.token}`, Version: "2021-04-15", Accept: "application/json" };
+    const H7 = { ...H4, Version: "2021-07-28" };
+    const silent: string[] = [];
+    for (const l of ls) {
+      checked++;
+      try {
+        const conv = (await (await fetch(`https://services.leadconnectorhq.com/conversations/search?locationId=${c.location_id}&contactId=${l.ghl_contact_id}`, { headers: H4 })).json()) as { conversations?: { id: string }[] };
+        const c0 = conv.conversations?.[0];
+        let out = 0;
+        if (c0) {
+          const msgs = (await (await fetch(`https://services.leadconnectorhq.com/conversations/${c0.id}/messages?limit=20`, { headers: H7 })).json()) as { messages?: { messages?: { direction?: string }[] } | { direction?: string }[] };
+          const list = Array.isArray(msgs.messages) ? msgs.messages : msgs.messages?.messages ?? [];
+          out = list.filter((m) => m.direction === "outbound").length;
+        }
+        if (!out && !/test|ignore/i.test(l.full_name)) silent.push(l.full_name);
+      } catch { /* one flaky lookup must not kill the sweep */ }
+    }
+    if (!silent.length) continue;
+    const key = `silent-leads:${slug}`;
+    flagged.add(key);
+    const ok = await fileAlert(svc, {
+      type: "silent_leads",
+      severity: silent.length >= Math.max(2, ls.length) ? "high" : "medium",
+      title: `${c.client_name}: ${silent.length} new lead${silent.length === 1 ? "" : "s"} got NO text`,
+      detail: `${silent.join(", ")} signed up through the funnel ${silent.length === 1 ? "hours" : "in the last day"} and never received a single message. If EVERY new lead is silent, the account's "CC- Funnel Survey" workflow is probably missing the onebox-survey tag trigger (same as Marie London Spa / Revive MED INK, Oct 5) — add the trigger, then add these contacts to the workflow manually. A single silent lead is usually a failed first send — check the contact.`,
+      source_key: key,
+      meta: { slug, business: c.client_name, silent, window: "2-26h" },
+      resurfaceAfterDays: 2,
+    });
+    if (ok) filed++;
+  }
+  const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "silent_leads").eq("status", "open");
+  const toClose = (open ?? []).filter((o) => !flagged.has(String(o.source_key))).map((o) => o.id);
+  if (toClose.length) {
+    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (new leads are getting texts again)", resolved_at: new Date().toISOString() }).in("id", toClose);
+    resolved = toClose.length;
+  }
+  return { checked, filed, resolved };
 }
