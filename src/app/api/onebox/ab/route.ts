@@ -246,8 +246,16 @@ export async function GET(req: NextRequest) {
      calendar's appointments since test start minus ours. The generic
      external block above can't run for B2B (calendarId lives in
      extras.b2b, not config), so this branch also fills externalBooked. */
-  type B2BOutcome = { calls: number; showed: number; closed: number; closedNames: string[] };
+  type B2BPerson = { n: string; d?: string; old?: boolean };
+  type B2BOutcome = {
+    calls: number; showed: number; closed: number; closedNames: string[];
+    /* Drill-down lists for the clickable metrics (owner, 2026-10-07):
+       old=true on a call whose contact predates the test — that's how
+       booked calls can exceed leads (follow-up booked an older lead). */
+    people: { leads: B2BPerson[]; calls: B2BPerson[]; showed: B2BPerson[]; closed: B2BPerson[] };
+  };
   let b2bOutcomes: { external: B2BOutcome; onebox: B2BOutcome } | null = null;
+  let extLeadPeople: B2BPerson[] = [];
   const extrasAll = (client?.extras ?? {}) as { template?: string; b2b?: { calendarId?: string } };
   if (extrasAll.template === "b2b" && client?.location_id) {
     try {
@@ -285,7 +293,7 @@ export async function GET(req: NextRequest) {
             body: JSON.stringify({
               locationId: client.location_id,
               page: 1,
-              pageLimit: 1,
+              pageLimit: 100,
               filters: [
                 { field: "dateAdded", operator: "range", value: { gte: new Date(exp.created_at as string).toISOString() } },
                 { field: "source", operator: "eq", value: "Facebook Ads" },
@@ -294,8 +302,12 @@ export async function GET(req: NextRequest) {
             signal: AbortSignal.timeout(15000),
           });
           if (lr.ok) {
-            const lj = (await lr.json()) as { total?: number };
+            const lj = (await lr.json()) as { total?: number; contacts?: { contactName?: string; firstNameLowerCase?: string; lastNameLowerCase?: string; dateAdded?: string }[] };
             if (typeof lj.total === "number") externalLeads = lj.total;
+            extLeadPeople = (lj.contacts ?? []).map((c) => ({
+              n: String(c.contactName || `${c.firstNameLowerCase ?? ""} ${c.lastNameLowerCase ?? ""}`).trim(),
+              d: c.dateAdded ? String(c.dateAdded).slice(0, 10) : undefined,
+            }));
           }
         } catch { /* leave null — shown as "in GHL" */ }
 
@@ -311,37 +323,67 @@ export async function GET(req: NextRequest) {
         const CLOSED_RE = /closed paying client/i;
         const JOURNEY_RE = /client journey/i;
 
-        const classify = async (contactId: string): Promise<{ showed: boolean; closed: boolean; name: string }> => {
+        /* Booking date per contact (earliest non-cancelled appointment). */
+        const callDate = new Map<string, string>();
+        for (const e of evJ.events ?? []) {
+          if (e.appointmentStatus === "cancelled" || !e.contactId || !e.dateAdded) continue;
+          const cur = callDate.get(e.contactId);
+          if (!cur || e.dateAdded < cur) callDate.set(e.contactId, e.dateAdded);
+        }
+
+        const classify = async (contactId: string): Promise<{ showed: boolean; closed: boolean; name: string; added?: string }> => {
           try {
-            const r = await fetch(
-              `https://services.leadconnectorhq.com/opportunities/search?location_id=${encodeURIComponent(client.location_id as string)}&contact_id=${encodeURIComponent(contactId)}`,
-              { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(10000) }
-            );
-            if (!r.ok) return { showed: false, closed: false, name: "" };
+            const [r, cr] = await Promise.all([
+              fetch(
+                `https://services.leadconnectorhq.com/opportunities/search?location_id=${encodeURIComponent(client.location_id as string)}&contact_id=${encodeURIComponent(contactId)}`,
+                { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(10000) }
+              ),
+              fetch(`https://services.leadconnectorhq.com/contacts/${encodeURIComponent(contactId)}`,
+                { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(10000) }),
+            ]);
+            const cj = cr.ok ? (await cr.json()) as { contact?: { contactName?: string; firstName?: string; lastName?: string; dateAdded?: string } } : {};
+            const cName = String(cj.contact?.contactName || `${cj.contact?.firstName ?? ""} ${cj.contact?.lastName ?? ""}`).trim();
+            const added = cj.contact?.dateAdded ? String(cj.contact.dateAdded) : undefined;
+            if (!r.ok) return { showed: false, closed: false, name: cName, added };
             const j = (await r.json()) as { opportunities?: { pipelineStageId?: string; name?: string }[] };
-            let showed = false, closed = false, name = "";
+            let showed = false, closed = false, name = cName;
             for (const o of j.opportunities ?? []) {
               const s = stageName.get(String(o.pipelineStageId ?? ""));
               if (!s) continue;
-              if (JOURNEY_RE.test(s.pipeline) || CLOSED_RE.test(s.stage)) { closed = true; showed = true; name = String(o.name ?? ""); }
+              if (JOURNEY_RE.test(s.pipeline) || CLOSED_RE.test(s.stage)) { closed = true; showed = true; if (!name) name = String(o.name ?? ""); }
               else if (SHOWED_RE.test(s.stage)) showed = true;
             }
-            return { showed, closed, name };
+            return { showed, closed, name, added };
           } catch { return { showed: false, closed: false, name: "" }; }
         };
-        const run = async (ids: string[]): Promise<B2BOutcome> => {
-          const out: B2BOutcome = { calls: ids.length, showed: 0, closed: 0, closedNames: [] };
+        const run = async (ids: string[], oneboxNames?: Map<string, { n: string; d?: string }>): Promise<B2BOutcome> => {
+          const out: B2BOutcome = { calls: ids.length, showed: 0, closed: 0, closedNames: [],
+            people: { leads: [], calls: [], showed: [], closed: [] } };
           const capped = ids.slice(0, 80);
           for (let i = 0; i < capped.length; i += 8) {
-            const res = await Promise.all(capped.slice(i, i + 8).map(classify));
-            for (const x of res) {
-              if (x.showed) out.showed++;
-              if (x.closed) { out.closed++; if (x.name) out.closedNames.push(x.name); }
-            }
+            const batch = capped.slice(i, i + 8);
+            const res = await Promise.all(batch.map(classify));
+            res.forEach((x, k) => {
+              const id = batch[k];
+              const fallback = oneboxNames?.get(id);
+              const n = x.name || fallback?.n || "(unknown)";
+              const d = (callDate.get(id) ?? fallback?.d ?? "").slice(0, 10) || undefined;
+              const old = x.added ? new Date(x.added).getTime() < startMs : false;
+              out.people.calls.push({ n, d, ...(old ? { old: true } : {}) });
+              if (x.showed) { out.showed++; out.people.showed.push({ n }); }
+              if (x.closed) { out.closed++; out.closedNames.push(n); out.people.closed.push({ n }); }
+            });
           }
           return out;
         };
-        const [extOut, obOut] = await Promise.all([run(extIds), run(oneboxCallIds)]);
+        const oneboxNameById = new Map<string, { n: string; d?: string }>();
+        for (const l of leads ?? []) {
+          const id = String((l as { ghl_contact_id?: string }).ghl_contact_id ?? "");
+          if (id && !oneboxNameById.has(id)) oneboxNameById.set(id, { n: String(l.full_name ?? ""), d: String(l.created_at ?? "").slice(0, 10) });
+        }
+        const [extOut, obOut] = await Promise.all([run(extIds), run(oneboxCallIds, oneboxNameById)]);
+        extOut.people.leads = extLeadPeople;
+        obOut.people.leads = (leads ?? []).map((l) => ({ n: String(l.full_name ?? ""), d: String(l.created_at ?? "").slice(0, 10) }));
         b2bOutcomes = { external: extOut, onebox: obOut };
       }
     } catch { /* outcomes unavailable — panel shows dashes, never wrong numbers */ }
