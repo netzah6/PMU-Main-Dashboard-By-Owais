@@ -820,11 +820,11 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
   const now = Date.now();
   const lo = new Date(now - 26 * 3600_000).toISOString();
   const hi = new Date(now - 2 * 3600_000).toISOString();
-  const leads: { slug: string; full_name: string; ghl_contact_id: string }[] = [];
+  const leads: { slug: string; full_name: string; ghl_contact_id: string; answers: Record<string, string> | null }[] = [];
   for (let i = 0; ; i += 1000) {
     const { data: page, error } = await svc
       .from("onebox_leads")
-      .select("slug, full_name, ghl_contact_id")
+      .select("slug, full_name, ghl_contact_id, answers")
       .gte("created_at", lo).lte("created_at", hi)
       .not("ghl_contact_id", "is", null)
       .order("id").range(i, i + 999);
@@ -838,6 +838,11 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
   const bySlug = new Map<string, typeof leads>();
   for (const l of leads) {
     if (!locBySlug.has(l.slug)) continue;
+    /* Disqualified leads get no text BY DESIGN (seriousness 0-2 or can't
+       commute end the workflow silently — verified 2026-10-05: 48%/43% of
+       "silent" leads vs 3%/2% of texted ones). Not a miss, skip them. */
+    const a = l.answers ?? {};
+    if (String(a.seriousness ?? "").startsWith("0-2") || /no/i.test(String(a.commutable ?? ""))) continue;
     bySlug.set(l.slug, [...(bySlug.get(l.slug) ?? []), l]);
   }
   let checked = 0, filed = 0, resolved = 0;
