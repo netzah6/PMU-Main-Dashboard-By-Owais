@@ -60,6 +60,9 @@ export function DashboardSubscriptions() {
   const [subs, setSubs] = useState<Sub[]>([]);
   const [charges, setCharges] = useState<Charge[]>([]);
   const [periodAmounts, setPeriodAmounts] = useState<PeriodAmount[]>([]);
+  // The bill "Mark paid" settles per subscription, computed by the server
+  // from the whole ledger (the charges list here is only the newest 400).
+  const [owed, setOwed] = useState<Record<string, string>>({});
   const [autocharge, setAutocharge] = useState(false);
   const [clients, setClients] = useState<Array<{ key: string; label: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -169,7 +172,7 @@ export function DashboardSubscriptions() {
       const r = await fetch("/api/subscriptions/manage");
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to load");
-      setSubs(j.subscriptions ?? []); setCharges(j.charges ?? []); setAutocharge(!!j.autocharge); setPeriodAmounts(j.periodAmounts ?? []);
+      setSubs(j.subscriptions ?? []); setCharges(j.charges ?? []); setAutocharge(!!j.autocharge); setPeriodAmounts(j.periodAmounts ?? []); setOwed(j.owed ?? {});
     } catch (e) { setErr(e instanceof Error ? e.message : "Failed to load"); }
     finally { setLoading(false); }
   }, []);
@@ -251,9 +254,10 @@ export function DashboardSubscriptions() {
     s.cadence === "monthly"
       ? new Date(`${period.slice(0, 7)}-15T12:00:00`).toLocaleString(undefined, { month: short ? "short" : "long" })
       : fmt(period);
+  const owedOf = (s: Sub) => owed[s.id] ?? owedPeriod(s, byId.get(s.id) ?? []);
   const markPaid = async (s: Sub) => {
     const who = s.client_label || s.owner_key;
-    const period = owedPeriod(s, byId.get(s.id) ?? []);
+    const period = owedOf(s);
     const pp = periodAmounts.find((p) => p.subscription_id === s.id && p.period_key === period) ?? null;
     const label = billLabel(s, period);
     const next = nextAfterPaid(s, period);
@@ -531,7 +535,7 @@ export function DashboardSubscriptions() {
                         title="You charged this bill yourself in Square — record it as paid so the dashboard doesn't charge it again. No money moves."
                         className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#d7e0ea] hover:border-[#15B7AE]">
                         {busy === `paid:${s.id}` ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
-                        Mark {billLabel(s, owedPeriod(s, hist), true)} paid
+                        Mark {billLabel(s, owedOf(s), true)} paid
                       </button>
                     )}
                     {s.status === "draft" && (

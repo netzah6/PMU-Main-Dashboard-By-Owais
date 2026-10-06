@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { autochargeEnabled, advance, findManualPayment, priceForPeriod, type Subscription } from "@/lib/subscriptions";
-import { nextAfterPaid, owedPeriod } from "@/lib/subscription-dates";
+import { nextAfterPaid, owedPeriod, paymentSince } from "@/lib/subscription-dates";
 
 export const maxDuration = 60;
 
@@ -33,7 +33,22 @@ export async function GET() {
     svc.from("subscription_period_amounts").select("subscription_id, period_key, amount_cents, reason, created_by")
       .gte("period_key", thisMonth).order("period_key", { ascending: true }),
   ]);
-  return NextResponse.json({ subscriptions: subs ?? [], charges: charges ?? [], autocharge: enabled, periodAmounts: periodAmounts ?? [] });
+  /* Which bill "Mark paid" would settle, worked out from each subscription's
+     WHOLE ledger — the 400-row list above can cut an old subscription short,
+     and the page must show the same month the server will mark. */
+  const ledger: Array<{ subscription_id: string; status: string; period_key: string | null; charged_at: string }> = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await svc.from("subscription_charges")
+      .select("subscription_id, status, period_key, charged_at").order("charged_at").range(from, from + 999);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    ledger.push(...((data ?? []) as typeof ledger));
+    if (!data || data.length < 1000) break;
+  }
+  const owed: Record<string, string> = {};
+  for (const s of (subs ?? []) as Subscription[]) {
+    if (s.status === "active" || s.status === "paused") owed[s.id] = owedPeriod(s, ledger.filter((c) => c.subscription_id === s.id));
+  }
+  return NextResponse.json({ subscriptions: subs ?? [], charges: charges ?? [], autocharge: enabled, periodAmounts: periodAmounts ?? [], owed });
 }
 
 export async function POST(req: NextRequest) {
@@ -175,12 +190,13 @@ export async function POST(req: NextRequest) {
     if (histErr) return NextResponse.json({ error: histErr.message }, { status: 500 });
     const period = owedPeriod(sub, (hist ?? []) as Array<{ status: string; period_key: string | null; charged_at: string }>);
     if (body.period !== period)
-      return NextResponse.json({ error: "This bill changed since the page loaded — reload and try again" }, { status: 409 });
+      return NextResponse.json({ error: `This bill changed since the page loaded (it's now ${period}) — reload and try again`, period }, { status: 409 });
 
     let price;
     try { price = await priceForPeriod(svc, sub, period); }
     catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : "Couldn't read the price" }, { status: 500 }); }
-    const found = await findManualPayment(svc, sub, price.amountCents)
+    const ledger = (hist ?? []) as Array<{ status: string; period_key: string | null; charged_at: string }>;
+    const found = await findManualPayment(svc, sub, price.amountCents, paymentSince(sub, period, ledger))
       .catch((e) => ({ payment: null, note: `couldn't search Square (${e instanceof Error ? e.message.slice(0, 80) : "error"})` }));
 
     const { error: insErr } = await svc.from("subscription_charges").insert({

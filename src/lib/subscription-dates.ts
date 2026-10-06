@@ -41,7 +41,31 @@ export function owedPeriod(sub: SubDates, charges: LedgerRow[]): string {
     && !newest.some((c) => c.status === "succeeded" && c.period_key === last.period_key)) {
     return last.period_key;
   }
-  return periodKey(sub, sub.next_charge_on);
+  // The next scheduled bill — skipping any month already collected (a date
+  // moved within a paid month would otherwise offer that month again).
+  let on = sub.next_charge_on;
+  let p = periodKey(sub, on);
+  for (let i = 0; i < 24 && sub.cadence === "monthly"
+    && charges.some((c) => c.status === "succeeded" && c.period_key === p); i++) {
+    on = advance(sub, on) as string;
+    p = periodKey(sub, on);
+  }
+  return p;
+}
+
+/* The earliest moment a Square payment could have been made FOR `period`:
+   its first charge attempt if there was one, else up to 10 days before it fell
+   due — and never before the last bill that was collected. Keeps last
+   month's hand charge from being linked as this month's receipt. */
+export function paymentSince(sub: SubDates, period: string, charges: LedgerRow[]): string {
+  const attempts = charges.filter((c) => c.period_key === period).map((c) => c.charged_at).sort();
+  const day = Math.min(sub.charge_day ?? Number(sub.next_charge_on.slice(8, 10)), 28);
+  const due = sub.cadence === "monthly" ? `${period.slice(0, 7)}-${String(day).padStart(2, "0")}` : period.slice(0, 10);
+  const from = new Date(`${(attempts[0] ?? due).slice(0, 10)}T00:00:00Z`);
+  from.setUTCDate(from.getUTCDate() - (attempts[0] ? 1 : 10));
+  const since = from.getTime();
+  const lastPaid = Math.max(0, ...charges.filter((c) => c.status === "succeeded").map((c) => new Date(c.charged_at).getTime()));
+  return new Date(Math.max(since, lastPaid)).toISOString();
 }
 
 /* The next charge once `period` is paid: the same day of the following

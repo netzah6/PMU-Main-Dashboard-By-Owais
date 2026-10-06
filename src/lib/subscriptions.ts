@@ -416,39 +416,49 @@ export async function chargeSubscription(
 
 /* "Mark paid" (owner, 2026-10-06): the bill was charged by hand in Square, so
    find that payment and link it — the ledger then carries a real Square id
-   and receipt instead of only "an admin said so". A payment counts only when
-   it came from THIS client's Square customer or one of her cards (matched by
-   fingerprint, since a keyed-in payment has no card id), equals the bill, and
-   is not already booked to another subscription or a PPS charge. $697 is the
-   common price, so amount alone would grab another client's payment; two
-   possible matches link neither. Finding nothing is not an error — the bill
-   is still marked paid, just without a receipt. */
+   and receipt instead of only "an admin said so". A payment counts only when:
+     - it belongs to HER: its Square customer is one of her records, or — for a
+       keyed-in payment with no customer — it used one of her cards (matched
+       by fingerprint). A payment Square files under someone else never counts;
+     - it was made for THIS bill: on or after `since` (the bill's first
+       attempt, or its due date less a few days), so last month's hand charge
+       can't be passed off as this month's;
+     - it equals the bill and isn't already booked to another subscription
+       charge or a PPS charge.
+   $697 is the common price, so amount alone would grab another client's
+   payment; two possible matches link neither. Finding nothing is not an
+   error — the bill is still marked paid, just without a receipt. */
 export async function findManualPayment(
-  svc: Svc, sub: Subscription, amountCents: number, days = 45
+  svc: Svc, sub: Subscription, amountCents: number, since: string
 ): Promise<{ payment: RecentPayment | null; note: string | null }> {
   const ids = new Set<string>();
   if (sub.square_customer_id) ids.add(sub.square_customer_id);
-  else {
-    const c = await resolveCustomer(svc, sub.owner_key);
-    if ("error" in c) return { payment: null, note: `couldn't tell which Square customer is hers (${c.error})` };
-    ids.add(c.customerId);
-  }
+  const pin = await pinnedCard(svc, sub.owner_key);
+  if (pin) ids.add(pin.customerId);
+  const found = await gatherCandidates(svc, sub.owner_key);
+  if (!("error" in found)) for (const c of found.customers) ids.add(c.id);
+  if (!ids.size) return { payment: null, note: "couldn't tell which Square customer is hers" };
   const prints = new Set<string>();
   for (const id of ids) for (const c of await listCards(id, true)) if (c.fingerprint) prints.add(c.fingerprint);
 
   const money = `$${(amountCents / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  const days = Math.min(120, Math.max(1, Math.ceil((Date.now() - new Date(since).getTime()) / 86_400_000) + 1));
   const hits = (await listPaymentsSince(days)).filter((p) => p.amountCents === amountCents
-    && ((p.customerId && ids.has(p.customerId)) || (p.cardFingerprint && prints.has(p.cardFingerprint))));
-  if (!hits.length) return { payment: null, note: `no ${money} Square payment from her in the last ${days} days` };
+    && p.createdAt >= since
+    && (p.customerId ? ids.has(p.customerId) : !!(p.cardFingerprint && prints.has(p.cardFingerprint))));
+  const sinceDay = since.slice(0, 10);
+  if (!hits.length) return { payment: null, note: `no ${money} Square payment from her since ${sinceDay}` };
 
   const hitIds = hits.map((p) => p.id);
-  const [{ data: subUsed }, { data: ppsUsed }] = await Promise.all([
+  const [{ data: subUsed, error: e1 }, { data: ppsUsed, error: e2 }] = await Promise.all([
     svc.from("subscription_charges").select("square_payment_id").in("square_payment_id", hitIds),
     svc.from("ppa_charges").select("square_payment_id").in("square_payment_id", hitIds),
   ]);
+  // Not knowing whether a payment is already booked is a reason NOT to link it.
+  if (e1 || e2) return { payment: null, note: `couldn't check whether her ${money} payments are already booked` };
   const used = new Set([...(subUsed ?? []), ...(ppsUsed ?? [])].map((r) => (r as { square_payment_id: string }).square_payment_id));
   const free = hits.filter((p) => !used.has(p.id));
   if (free.length === 1) return { payment: free[0], note: null };
-  if (!free.length) return { payment: null, note: `her ${money} Square payments are already booked to other bills` };
-  return { payment: null, note: `${free.length} ${money} Square payments from her in the last ${days} days — not guessing which one` };
+  if (!free.length) return { payment: null, note: `her ${money} Square payments since ${sinceDay} are already booked to other bills` };
+  return { payment: null, note: `${free.length} ${money} Square payments from her since ${sinceDay} — not guessing which one` };
 }
