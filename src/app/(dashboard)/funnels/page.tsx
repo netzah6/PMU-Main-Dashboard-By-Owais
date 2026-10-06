@@ -32,6 +32,8 @@ type AbVariant = {
   deposits: number | null; aiDeposits: number | null;
   visitors: number; leads: number | null; picked: number | null;
   leadRate: number | null; pickRate: number | null; spend: number | null; costPerBooking: number | null;
+  /* B2B profit view: booked calls → showed → closed, from the sales pipeline. */
+  outcomes?: { calls: number; showed: number; closed: number; closedNames: string[] } | null;
 };
 type AbResult = {
   experiment: { id: number; name: string; status: string; startedAt: string } | null;
@@ -120,10 +122,11 @@ function serializeSurvey(rows: SurveyRow[]): string {
    sends) — shown neutral, never green. */
 type HealthCheck = { name: string; ok: boolean; note: string; manual?: boolean };
 
-/* Card-list grouping: V3 first (where the focus is), then V2.3, V1, the
-   demo, and anything the sheet can't match; B2B always dead last. */
+/* Card-list grouping: the agency's own B2B/PPS funnels first (Netzah
+   checks their split test daily, 2026-10-06), then V3, V2.3, V1, the
+   demo, and anything the sheet can't match. */
 function programRank(f: Funnel): number {
-  if (f.template === "b2b") return 9;
+  if (f.template === "b2b") return -1;
   if (f.slug === "demo-v3") return 6;
   if (!f.program) return 5;
   if (f.program.version === "(V3)") return 0;
@@ -2762,6 +2765,11 @@ export default function FunnelsPage() {
                               <th className="py-1 pr-3 font-medium">Deposits</th>
                               <th className="py-1 pr-3 font-medium">AI deposits</th>
                               <th className="py-1 pr-3 font-medium">Pick rate</th>
+                              {f.template === "b2b" && (<>
+                                <th className="py-1 pr-3 font-medium">Showed</th>
+                                <th className="py-1 pr-3 font-medium">Closed</th>
+                                <th className="py-1 pr-3 font-medium">Close rate</th>
+                              </>)}
                               <th className="py-1 pr-3 font-medium">Spend</th>
                               <th className="py-1 pr-3 font-medium">Cost / booking</th>
                             </tr>
@@ -2798,6 +2806,15 @@ export default function FunnelsPage() {
                                   </td>
                                   <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{v.aiDeposits != null ? v.aiDeposits : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
+                                  {f.template === "b2b" && (<>
+                                    <td className="py-1.5 pr-3">{v.outcomes ? v.outcomes.showed : "—"}</td>
+                                    <td className="py-1.5 pr-3 font-semibold text-[#15803d]" title={v.outcomes?.closedNames?.join(", ") || undefined}>
+                                      {v.outcomes ? v.outcomes.closed : "—"}
+                                    </td>
+                                    <td className="py-1.5 pr-3">
+                                      {v.outcomes && v.outcomes.calls ? `${Math.round((v.outcomes.closed / v.outcomes.calls) * 1000) / 10}%` : "—"}
+                                    </td>
+                                  </>)}
                                   <td className="py-1.5 pr-3">{v.spend != null ? `$${v.spend}` : "—"}</td>
                                   <td className="py-1.5 pr-3 font-semibold text-[#1c2b3a]">
                                     {v.costPerBooking != null ? `$${v.costPerBooking}` : "—"}

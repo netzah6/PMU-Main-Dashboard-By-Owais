@@ -237,6 +237,91 @@ export async function GET(req: NextRequest) {
     } catch { /* leave null — shown as unavailable, never wrong */ }
   }
 
+  /* ── B2B (agency) experiments: the profit view ────────────────────────
+     For original-vs-PPS the money question is calls → showed → closed,
+     read from the 💸 SALES PIPELINE opportunity stages (team convention:
+     any stage past the demo proves the call happened; "Closed Paying
+     Client" or a Client Journey opportunity = closed). Sides: one-box
+     calls = our leads with an appointment; original calls = the discovery
+     calendar's appointments since test start minus ours. The generic
+     external block above can't run for B2B (calendarId lives in
+     extras.b2b, not config), so this branch also fills externalBooked. */
+  type B2BOutcome = { calls: number; showed: number; closed: number; closedNames: string[] };
+  let b2bOutcomes: { external: B2BOutcome; onebox: B2BOutcome } | null = null;
+  const extrasAll = (client?.extras ?? {}) as { template?: string; b2b?: { calendarId?: string } };
+  if (extrasAll.template === "b2b" && client?.location_id) {
+    try {
+      const tok = await getAppLocationToken(client.location_id as string);
+      const calId = (extrasAll.b2b?.calendarId ?? "").trim();
+      if (tok.token && calId) {
+        const H = { Authorization: `Bearer ${tok.token}`, Accept: "application/json" };
+        const startMs = new Date(exp.created_at as string).getTime();
+        const ourContactIds = new Set((leads ?? []).map((l) => String((l as { ghl_contact_id?: string }).ghl_contact_id ?? "")).filter(Boolean));
+        const oneboxCallIds = [...new Set((leads ?? [])
+          .filter((l) => l.ghl_appointment_id)
+          .map((l) => String((l as { ghl_contact_id?: string }).ghl_contact_id ?? ""))
+          .filter(Boolean))];
+        const evR = await fetch(
+          `https://services.leadconnectorhq.com/calendars/events?locationId=${encodeURIComponent(client.location_id as string)}` +
+            `&calendarId=${encodeURIComponent(calId)}&startTime=${startMs}&endTime=${Date.now() + 120 * 86400000}`,
+          { headers: { ...H, Version: "2021-04-15" }, signal: AbortSignal.timeout(20000) }
+        );
+        const evJ = (await evR.json()) as { events?: { id?: string; contactId?: string; dateAdded?: string; appointmentStatus?: string }[] };
+        const extIds = [...new Set((evJ.events ?? [])
+          .filter((e) => e.appointmentStatus !== "cancelled")
+          .filter((e) => (e.dateAdded ? new Date(e.dateAdded).getTime() : startMs) >= startMs)
+          .filter((e) => (!e.id || !ourApptIds.has(e.id)) && e.contactId && !ourContactIds.has(e.contactId))
+          .map((e) => String(e.contactId)))];
+        externalBooked = extIds.length;
+
+        // Stage + pipeline names, classified by the team's own rules.
+        const pipeR = await fetch(`https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${encodeURIComponent(client.location_id as string)}`,
+          { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(15000) });
+        const pipeJ = (await pipeR.json()) as { pipelines?: { id?: string; name?: string; stages?: { id?: string; name?: string }[] }[] };
+        const stageName = new Map<string, { stage: string; pipeline: string }>();
+        for (const p of pipeJ.pipelines ?? [])
+          for (const s of p.stages ?? [])
+            if (s.id) stageName.set(s.id, { stage: String(s.name ?? ""), pipeline: String(p.name ?? "") });
+        const SHOWED_RE = /strategy booked|didn'?t close|don'?t have money|disqualified|paid deposit|showed|closed paying/i;
+        const CLOSED_RE = /closed paying client/i;
+        const JOURNEY_RE = /client journey/i;
+
+        const classify = async (contactId: string): Promise<{ showed: boolean; closed: boolean; name: string }> => {
+          try {
+            const r = await fetch(
+              `https://services.leadconnectorhq.com/opportunities/search?location_id=${encodeURIComponent(client.location_id as string)}&contact_id=${encodeURIComponent(contactId)}`,
+              { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(10000) }
+            );
+            if (!r.ok) return { showed: false, closed: false, name: "" };
+            const j = (await r.json()) as { opportunities?: { pipelineStageId?: string; name?: string }[] };
+            let showed = false, closed = false, name = "";
+            for (const o of j.opportunities ?? []) {
+              const s = stageName.get(String(o.pipelineStageId ?? ""));
+              if (!s) continue;
+              if (JOURNEY_RE.test(s.pipeline) || CLOSED_RE.test(s.stage)) { closed = true; showed = true; name = String(o.name ?? ""); }
+              else if (SHOWED_RE.test(s.stage)) showed = true;
+            }
+            return { showed, closed, name };
+          } catch { return { showed: false, closed: false, name: "" }; }
+        };
+        const run = async (ids: string[]): Promise<B2BOutcome> => {
+          const out: B2BOutcome = { calls: ids.length, showed: 0, closed: 0, closedNames: [] };
+          const capped = ids.slice(0, 80);
+          for (let i = 0; i < capped.length; i += 8) {
+            const res = await Promise.all(capped.slice(i, i + 8).map(classify));
+            for (const x of res) {
+              if (x.showed) out.showed++;
+              if (x.closed) { out.closed++; if (x.name) out.closedNames.push(x.name); }
+            }
+          }
+          return out;
+        };
+        const [extOut, obOut] = await Promise.all([run(extIds), run(oneboxCallIds)]);
+        b2bOutcomes = { external: extOut, onebox: obOut };
+      }
+    } catch { /* outcomes unavailable — panel shows dashes, never wrong numbers */ }
+  }
+
   // Ad spend for this client, split across variants by their share of
   // visitors: the same ads feed both sides, so spend follows the traffic.
   // The funnel's client name rarely matches the ad account's owner name
@@ -291,6 +376,8 @@ export async function GET(req: NextRequest) {
       pickRate: vis && picked != null ? +((picked / vis) * 100).toFixed(1) : null,
       spend: spend == null ? null : +spend.toFixed(2),
       costPerBooking: spend != null && picked ? +(spend / picked).toFixed(2) : null,
+      // B2B profit view: calls → showed → closed from the sales pipeline.
+      outcomes: b2bOutcomes ? (v.kind === "external" ? b2bOutcomes.external : b2bOutcomes.onebox) : null,
     };
   });
 
