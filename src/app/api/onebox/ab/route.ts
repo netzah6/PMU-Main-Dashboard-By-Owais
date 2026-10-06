@@ -274,6 +274,31 @@ export async function GET(req: NextRequest) {
           .map((e) => String(e.contactId)))];
         externalBooked = extIds.length;
 
+        /* Original-side LEADS: the B2B survey's contacts arrive with
+           source "Facebook Ads" (verified 2026-10-06: sampled contacts
+           all carry the survey's area field). One-box contacts carry
+           "One-Box Funnel", so they never collide. */
+        try {
+          const lr = await fetch("https://services.leadconnectorhq.com/contacts/search", {
+            method: "POST",
+            headers: { ...H, Version: "2021-07-28", "Content-Type": "application/json" },
+            body: JSON.stringify({
+              locationId: client.location_id,
+              page: 1,
+              pageLimit: 1,
+              filters: [
+                { field: "dateAdded", operator: "range", value: { gte: new Date(exp.created_at as string).toISOString() } },
+                { field: "source", operator: "eq", value: "Facebook Ads" },
+              ],
+            }),
+            signal: AbortSignal.timeout(15000),
+          });
+          if (lr.ok) {
+            const lj = (await lr.json()) as { total?: number };
+            if (typeof lj.total === "number") externalLeads = lj.total;
+          }
+        } catch { /* leave null — shown as "in GHL" */ }
+
         // Stage + pipeline names, classified by the team's own rules.
         const pipeR = await fetch(`https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${encodeURIComponent(client.location_id as string)}`,
           { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(15000) });

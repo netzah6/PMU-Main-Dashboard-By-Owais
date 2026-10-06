@@ -2761,17 +2761,20 @@ export default function FunnelsPage() {
                               <th className="py-1 pr-3 font-medium">Visitors</th>
                               <th className="py-1 pr-3 font-medium">Leads</th>
                               <th className="py-1 pr-3 font-medium">Lead rate</th>
-                              <th className="py-1 pr-3 font-medium">Picked time</th>
-                              <th className="py-1 pr-3 font-medium">Deposits</th>
-                              <th className="py-1 pr-3 font-medium">AI deposits</th>
-                              <th className="py-1 pr-3 font-medium">Pick rate</th>
+                              <th className="py-1 pr-3 font-medium">{f.template === "b2b" ? "Booked calls" : "Picked time"}</th>
+                              {/* Deposits are a client-funnel concept — the B2B test books free calls. */}
+                              {f.template !== "b2b" && (<>
+                                <th className="py-1 pr-3 font-medium">Deposits</th>
+                                <th className="py-1 pr-3 font-medium">AI deposits</th>
+                              </>)}
+                              <th className="py-1 pr-3 font-medium">{f.template === "b2b" ? "Call rate" : "Pick rate"}</th>
                               {f.template === "b2b" && (<>
                                 <th className="py-1 pr-3 font-medium">Showed</th>
                                 <th className="py-1 pr-3 font-medium">Closed</th>
                                 <th className="py-1 pr-3 font-medium">Close rate</th>
                               </>)}
                               <th className="py-1 pr-3 font-medium">Spend</th>
-                              <th className="py-1 pr-3 font-medium">Cost / booking</th>
+                              <th className="py-1 pr-3 font-medium">{f.template === "b2b" ? "Cost / call" : "Cost / booking"}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -2800,11 +2803,13 @@ export default function FunnelsPage() {
                                   </td>
                                   <td className="py-1.5 pr-3">{v.leadRate != null ? `${v.leadRate}%` : "—"}</td>
                                   <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
-                                  <td className="py-1.5 pr-3">
-                                    {v.deposits != null ? v.deposits
-                                      : v.kind === "external" ? <span className="text-[10px] text-[#97a5b8]" title="This side's deposits live in Commas — not visible from here (not zero)">in Commas</span> : "—"}
-                                  </td>
-                                  <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{v.aiDeposits != null ? v.aiDeposits : "—"}</td>
+                                  {f.template !== "b2b" && (<>
+                                    <td className="py-1.5 pr-3">
+                                      {v.deposits != null ? v.deposits
+                                        : v.kind === "external" ? <span className="text-[10px] text-[#97a5b8]" title="This side's deposits live in Commas — not visible from here (not zero)">in Commas</span> : "—"}
+                                    </td>
+                                    <td className="py-1.5 pr-3 text-[#7c3aed] font-medium">{v.aiDeposits != null ? v.aiDeposits : "—"}</td>
+                                  </>)}
                                   <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
                                   {f.template === "b2b" && (<>
                                     <td className="py-1.5 pr-3">{v.outcomes ? v.outcomes.showed : "—"}</td>
