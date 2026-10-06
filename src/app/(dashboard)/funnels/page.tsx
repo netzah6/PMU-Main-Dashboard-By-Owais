@@ -33,8 +33,12 @@ type AbVariant = {
   visitors: number; leads: number | null; picked: number | null;
   leadRate: number | null; pickRate: number | null; spend: number | null; costPerBooking: number | null;
   /* B2B profit view: booked calls → showed → closed, from the sales pipeline. */
-  outcomes?: { calls: number; showed: number; closed: number; closedNames: string[] } | null;
+  outcomes?: {
+    calls: number; showed: number; closed: number; closedNames: string[];
+    people?: { leads: B2BPerson[]; calls: B2BPerson[]; showed: B2BPerson[]; closed: B2BPerson[] };
+  } | null;
 };
+type B2BPerson = { n: string; d?: string; old?: boolean };
 type AbResult = {
   experiment: { id: number; name: string; status: string; startedAt: string } | null;
   spendWindow: string | null;
@@ -356,6 +360,20 @@ function Dot({ ok, label }: { ok: boolean; label: string }) {
    columns follow ITS process: visitors → leads → booked calls → showed →
    closed (rebuilt from scratch, owner 2026-10-06). */
 function B2BSplitTable({ rows, ab }: { rows: Funnel[]; ab: Record<string, AbResult> }) {
+  /* One open drill-down at a time: "<slug>:<vkey>:<metric>". */
+  const [openList, setOpenList] = useState<string | null>(null);
+  const metricBtn = (key: string, count: number | null | undefined, people: B2BPerson[] | undefined, extra?: string) => {
+    if (count == null) return <span className="text-[10px] text-[#97a5b8]">—</span>;
+    if (!people?.length) return <span className={extra}>{count}</span>;
+    const isOpen = openList === key;
+    return (
+      <button onClick={() => setOpenList(isOpen ? null : key)}
+        title="Click to see exactly who"
+        className={cn("underline decoration-dotted underline-offset-2 hover:text-[#0e9c9c]", extra, isOpen && "text-[#0e9c9c] font-semibold")}>
+        {count}
+      </button>
+    );
+  };
   return (
     <div className="mt-3 overflow-x-auto">
       <table className="w-full text-xs">
@@ -382,23 +400,48 @@ function B2BSplitTable({ rows, ab }: { rows: Funnel[]; ab: Record<string, AbResu
                 </tr>
               );
             }
-            return d.variants.map((v) => (
-              <tr key={f.slug + v.vkey} className="border-t border-[#eef2f6]">
+            return d.variants.map((v) => {
+              const P = v.outcomes?.people;
+              const k = (m: string) => `${f.slug}:${v.vkey}:${m}`;
+              const openKey = openList?.startsWith(`${f.slug}:${v.vkey}:`) ? openList.split(":")[2] : null;
+              const openPeople = openKey === "leads" ? P?.leads : openKey === "calls" ? P?.calls : openKey === "showed" ? P?.showed : openKey === "closed" ? P?.closed : undefined;
+              const label = openKey === "leads" ? "Leads" : openKey === "calls" ? "Booked calls" : openKey === "showed" ? "Showed" : "Closed";
+              return (
+              <Fragment key={f.slug + v.vkey}>
+              <tr className="border-t border-[#eef2f6]">
                 <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{v.label}</td>
                 <td className="py-1.5 pr-3">{v.visitors}</td>
-                <td className="py-1.5 pr-3">{v.leads != null ? v.leads : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}</td>
+                <td className="py-1.5 pr-3">{v.leads != null ? metricBtn(k("leads"), v.leads, P?.leads) : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}</td>
                 <td className="py-1.5 pr-3">{v.leadRate != null ? `${v.leadRate}%` : "—"}</td>
-                <td className="py-1.5 pr-3">{v.picked ?? "—"}</td>
+                <td className="py-1.5 pr-3">{metricBtn(k("calls"), v.picked, P?.calls)}</td>
                 <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
-                <td className="py-1.5 pr-3">{v.outcomes ? v.outcomes.showed : "—"}</td>
-                <td className="py-1.5 pr-3 font-semibold text-[#15803d]" title={v.outcomes?.closedNames?.join(", ") || undefined}>
-                  {v.outcomes ? v.outcomes.closed : "—"}
-                </td>
+                <td className="py-1.5 pr-3">{metricBtn(k("showed"), v.outcomes?.showed, P?.showed)}</td>
+                <td className="py-1.5 pr-3">{metricBtn(k("closed"), v.outcomes?.closed, P?.closed, "font-semibold text-[#15803d]")}</td>
                 <td className="py-1.5 pr-3">
                   {v.outcomes && v.outcomes.calls ? `${Math.round((v.outcomes.closed / v.outcomes.calls) * 1000) / 10}%` : "—"}
                 </td>
               </tr>
-            ));
+              {openPeople && (
+                <tr className="border-t border-[#f4f7fa] bg-[#f8fdfc]">
+                  <td colSpan={9} className="py-2 px-3">
+                    <div className="text-[11px] text-[#1c2b3a]">
+                      <b>{label} — {v.label}</b> ({openPeople.length})
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                        {openPeople.map((p, i) => (
+                          <span key={i} className="whitespace-nowrap">
+                            {p.n || "(no name)"}
+                            {p.d && <span className="text-[#97a5b8]"> · {p.d}</span>}
+                            {p.old && <span className="ml-1 text-[10px] rounded-full border border-[#fdba74] bg-[#fff3e6] text-[#c2410c] px-1.5">older lead</span>}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              );
+            });
           })}
         </tbody>
       </table>
