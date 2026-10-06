@@ -820,11 +820,12 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
   const now = Date.now();
   const lo = new Date(now - 26 * 3600_000).toISOString();
   const hi = new Date(now - 2 * 3600_000).toISOString();
-  const leads: { slug: string; full_name: string; ghl_contact_id: string }[] = [];
+  type Lead = { slug: string; full_name: string; ghl_contact_id: string; answers: Record<string, unknown> | null };
+  const leads: Lead[] = [];
   for (let i = 0; ; i += 1000) {
     const { data: page, error } = await svc
       .from("onebox_leads")
-      .select("slug, full_name, ghl_contact_id")
+      .select("slug, full_name, ghl_contact_id, answers")
       .gte("created_at", lo).lte("created_at", hi)
       .not("ghl_contact_id", "is", null)
       .order("id").range(i, i + 999);
@@ -835,9 +836,20 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
   }
   const { data: clients } = await svc.from("onebox_clients").select("slug, client_name, location_id, extras").eq("status", "live");
   const locBySlug = new Map((clients ?? []).filter((c) => (c.extras as { template?: string } | null)?.template !== "b2b").map((c) => [c.slug, c]));
-  const bySlug = new Map<string, typeof leads>();
+  /* Disqualified-by-design is NOT silent: seriousness 0-2 or "can't commute"
+     ends the survey workflow on purpose with no text (owner, Oct 5). The
+     funnel marks those answers.disqualified; the two raw answers are the
+     fallback for older rows. Oct 6: all 5 flagged leads were exactly this. */
+  const disqualified = (l: Lead) => {
+    const a = l.answers ?? {};
+    return a.disqualified === true
+      || /^0-2/.test(String(a.seriousness ?? ""))
+      || String(a.commutable ?? "").trim().toLowerCase() === "no";
+  };
+  const bySlug = new Map<string, Lead[]>();
   for (const l of leads) {
     if (!locBySlug.has(l.slug)) continue;
+    if (disqualified(l)) continue;
     bySlug.set(l.slug, [...(bySlug.get(l.slug) ?? []), l]);
   }
   let checked = 0, filed = 0, resolved = 0;
