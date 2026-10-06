@@ -29,7 +29,9 @@ export async function GET() {
       who: labelOf(c),
       amountCents: c.amount_cents,
       detail: c.status === "succeeded" ? `for ${c.period_key ?? ""}`.trim() : (c.error ?? "failed"),
-      actor: c.charged_by === "cron" ? "schedule" : (c.charged_by?.split("@")[0] ?? "—"),
+      actor: c.charged_by === "cron" ? "schedule"
+        : c.charged_by?.startsWith("manual:") ? `${c.charged_by.slice(7).split("@")[0]} (marked paid)`
+        : (c.charged_by?.split("@")[0] ?? "—"),
       link: c.receipt_url,
     })),
     ...((actions ?? []) as Array<{ id: string; customer_name: string | null; action: string; status: string; detail: string | null; error: string | null; actor: string | null; created_at: string }>).map((a) => ({

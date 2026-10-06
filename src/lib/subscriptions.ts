@@ -1,7 +1,8 @@
 import { createHash } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
-import { createCardPayment, getCustomers, listCards, listAllCustomers, listRecentPayments, searchCustomersByEmail, searchCustomersByPhone, type SquareCard, type SquareCustomer } from "@/lib/square";
+import { createCardPayment, getCustomers, listCards, listAllCustomers, listPaymentsSince, listRecentPayments, searchCustomersByEmail, searchCustomersByPhone, type RecentPayment, type SquareCard, type SquareCustomer } from "@/lib/square";
 import { normalizeOwnerKey } from "@/lib/normalizers";
+import { advance, periodKey } from "@/lib/subscription-dates";
 
 // Recurring billing run from the dashboard rather than Square Subscriptions.
 //
@@ -79,10 +80,7 @@ export async function autochargeEnabled(svc: Svc): Promise<boolean> {
   return (data?.value as { enabled?: boolean } | null)?.enabled === true;
 }
 
-/** The billing period a charge belongs to — the guard against double charges. */
-export function periodKey(sub: Subscription, on: string): string {
-  return sub.cadence === "monthly" ? on.slice(0, 7) : on;
-}
+export { periodKey, advance };
 
 /* A one-month price (owner, 2026-10-02: "50% off for October only, then
    November goes back to $697"). The row in subscription_period_amounts for
@@ -101,15 +99,6 @@ export async function priceForPeriod(svc: Svc, sub: Subscription, period: string
 /** The period a charge on `on` would collect (a pending retry keeps its period). */
 export function chargePeriod(sub: Subscription, on: string): string {
   return (sub.retry_attempt ?? 0) > 0 && sub.retry_period ? sub.retry_period : periodKey(sub, on);
-}
-
-/** Next due date after charging for `on`. "once" subscriptions do not recur. */
-export function advance(sub: Subscription, on: string): string | null {
-  if (sub.cadence === "once") return null;
-  const d = new Date(`${on}T12:00:00Z`);
-  const day = sub.charge_day ?? d.getUTCDate();
-  const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, Math.min(day, 28), 12));
-  return next.toISOString().slice(0, 10);
 }
 
 export type CardTarget = { customerId: string; cardId: string; label: string };
@@ -423,4 +412,43 @@ export async function chargeSubscription(
     });
     return { ok: false, error: `${error} · ${plan}` };
   }
+}
+
+/* "Mark paid" (owner, 2026-10-06): the bill was charged by hand in Square, so
+   find that payment and link it — the ledger then carries a real Square id
+   and receipt instead of only "an admin said so". A payment counts only when
+   it came from THIS client's Square customer or one of her cards (matched by
+   fingerprint, since a keyed-in payment has no card id), equals the bill, and
+   is not already booked to another subscription or a PPS charge. $697 is the
+   common price, so amount alone would grab another client's payment; two
+   possible matches link neither. Finding nothing is not an error — the bill
+   is still marked paid, just without a receipt. */
+export async function findManualPayment(
+  svc: Svc, sub: Subscription, amountCents: number, days = 45
+): Promise<{ payment: RecentPayment | null; note: string | null }> {
+  const ids = new Set<string>();
+  if (sub.square_customer_id) ids.add(sub.square_customer_id);
+  else {
+    const c = await resolveCustomer(svc, sub.owner_key);
+    if ("error" in c) return { payment: null, note: `couldn't tell which Square customer is hers (${c.error})` };
+    ids.add(c.customerId);
+  }
+  const prints = new Set<string>();
+  for (const id of ids) for (const c of await listCards(id, true)) if (c.fingerprint) prints.add(c.fingerprint);
+
+  const money = `$${(amountCents / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  const hits = (await listPaymentsSince(days)).filter((p) => p.amountCents === amountCents
+    && ((p.customerId && ids.has(p.customerId)) || (p.cardFingerprint && prints.has(p.cardFingerprint))));
+  if (!hits.length) return { payment: null, note: `no ${money} Square payment from her in the last ${days} days` };
+
+  const hitIds = hits.map((p) => p.id);
+  const [{ data: subUsed }, { data: ppsUsed }] = await Promise.all([
+    svc.from("subscription_charges").select("square_payment_id").in("square_payment_id", hitIds),
+    svc.from("ppa_charges").select("square_payment_id").in("square_payment_id", hitIds),
+  ]);
+  const used = new Set([...(subUsed ?? []), ...(ppsUsed ?? [])].map((r) => (r as { square_payment_id: string }).square_payment_id));
+  const free = hits.filter((p) => !used.has(p.id));
+  if (free.length === 1) return { payment: free[0], note: null };
+  if (!free.length) return { payment: null, note: `her ${money} Square payments are already booked to other bills` };
+  return { payment: null, note: `${free.length} ${money} Square payments from her in the last ${days} days — not guessing which one` };
 }

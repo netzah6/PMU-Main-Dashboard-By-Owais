@@ -382,6 +382,7 @@ export type RecentPayment = {
   createdAt: string;
   amountCents: number;
   note: string | null;
+  receiptUrl: string | null;
 };
 
 let recentPaymentsCache: { ts: number; list: RecentPayment[] } | null = null;
@@ -396,8 +397,19 @@ export async function listRecentPayments(): Promise<RecentPayment[]> {
   const now = Date.now();
   if (recentPaymentsCache && now - recentPaymentsCache.ts < RECENT_PAYMENTS_TTL_MS)
     return recentPaymentsCache.list;
+  const list = await fetchPayments(new Date(now - RECENT_PAYMENTS_MONTHS * 30 * 24 * 3600 * 1000).toISOString());
+  recentPaymentsCache = { ts: now, list };
+  return list;
+}
 
-  const begin = new Date(now - RECENT_PAYMENTS_MONTHS * 30 * 24 * 3600 * 1000).toISOString();
+/* The last `days` of COMPLETED payments, fetched fresh — "Mark paid" needs a
+   payment the owner made minutes ago, which the 30-minute cache above would
+   not have yet. */
+export async function listPaymentsSince(days: number): Promise<RecentPayment[]> {
+  return fetchPayments(new Date(Date.now() - days * 24 * 3600 * 1000).toISOString());
+}
+
+async function fetchPayments(begin: string): Promise<RecentPayment[]> {
   const list: RecentPayment[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < RECENT_PAYMENTS_MAX_PAGES; page++) {
@@ -424,12 +436,12 @@ export async function listRecentPayments(): Promise<RecentPayment[]> {
         createdAt: String(p.created_at ?? ""),
         amountCents: amt?.amount ?? 0,
         note: (p.note as string) ?? null,
+        receiptUrl: (p.receipt_url as string) ?? null,
       });
     }
     cursor = j.cursor;
     if (!cursor) break;
   }
-  recentPaymentsCache = { ts: now, list };
   return list;
 }
 
