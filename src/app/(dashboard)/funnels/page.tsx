@@ -2320,7 +2320,14 @@ export default function FunnelsPage() {
                         onChange={(e) => {
                           const v = e.target.value;
                           if (v === "__other") { setPixelOther(true); setExtrasForm((x) => ({ ...x, metaPixelId: "" })); }
-                          else { setPixelOther(false); setExtrasForm((x) => ({ ...x, metaPixelId: v === "__keep" ? "" : v })); }
+                          else {
+                            setPixelOther(false); setExtrasForm((x) => ({ ...x, metaPixelId: v === "__keep" ? "" : v }));
+                            /* Picking from the dropdown saves IMMEDIATELY — the owner
+                               changed A→C, closed the panel without the bottom Save,
+                               and lost the change (2026-10-07). "Other…" still saves
+                               on the Save button, after the ID is typed. */
+                            if (v !== "__keep" && v !== (f.pixelId ?? "")) void act("extras", f.slug, { metaPixelId: v });
+                          }
                         }}
                         className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs bg-white">
                         <option value="__keep">{f.pixelId ? `Keep current — ${pixelLabel(f.pixelId)}` : "— pick a pixel —"}</option>

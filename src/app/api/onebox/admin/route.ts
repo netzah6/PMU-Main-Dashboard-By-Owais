@@ -562,7 +562,10 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     }
     const isV3 = await clientIsV3(svc, String(row.client_name ?? ""));
     const missing = missingIntakeFields((row.config ?? {}) as Record<string, string>, isV3);
-    const url = `${req.nextUrl.origin}/intake/${intakeToken}`;
+    /* Branded link on the booking domain with the client's name in the
+       path (owner, 2026-10-07) — the slug is cosmetic, the token alone
+       authorizes, and old /intake/<token> links keep working. */
+    const url = `${FUNNEL_ORIGIN}/intake/${slug}/${intakeToken}`;
     return NextResponse.json({ ok: true, url, missing: missing.map((m) => m.label) });
   }
 
