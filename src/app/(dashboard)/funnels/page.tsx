@@ -2093,6 +2093,25 @@ export default function FunnelsPage() {
                   Start Setup {cvFor === f.slug ? "▲" : ""}
                 </button>
                 )}
+                {canEdit && (
+                <button onClick={() => void (async () => {
+                    setBusy(`intakeLink:${f.slug}`);
+                    try {
+                      const r = await fetch("/api/onebox/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "intakeLink", slug: f.slug }) });
+                      const j = await r.json();
+                      if (j.error) { setToast(`Error: ${j.error}`); return; }
+                      try { await navigator.clipboard.writeText(j.url); } catch { /* clipboard blocked */ }
+                      setToast(j.missing?.length
+                        ? `Info-request link copied — asks for: ${j.missing.join(", ")}`
+                        : "Info-request link copied — nothing missing, the form just says all set");
+                    } finally { setBusy(null); }
+                  })()}
+                  disabled={busy === `intakeLink:${f.slug}`}
+                  title="Copy this client's unique link: a form asking ONLY for their missing setup info; answers fill the funnel automatically"
+                  className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
+                  {busy === `intakeLink:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} 📩 Info-request link
+                </button>
+                )}
                 {/* Coaches publish their own onboardings — Go live is not admin-gated. */}
                 {canEdit && (
                 <button onClick={() => void (async () => {
