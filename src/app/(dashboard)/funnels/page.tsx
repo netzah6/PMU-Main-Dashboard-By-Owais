@@ -1474,11 +1474,16 @@ export default function FunnelsPage() {
             <div>
               <input placeholder="GHL sub-account (location) ID" value={addForm.locationId}
                 onChange={(e) => setAddForm((f) => ({ ...f, locationId: e.target.value }))}
-                aria-invalid={!!locationTaken}
-                className={`w-full border rounded-lg px-3 py-2 text-sm ${locationTaken ? "border-[#e0908a] bg-[#fef3f2] text-[#b42318]" : "border-[#e4ebf2]"}`} />
-              {locationTaken && (
+                aria-invalid={!!locationTaken && locationTaken.status === "live"}
+                className={`w-full border rounded-lg px-3 py-2 text-sm ${locationTaken && locationTaken.status === "live" ? "border-[#e0908a] bg-[#fef3f2] text-[#b42318]" : locationTaken ? "border-[#fcd9a8] bg-[#fffbeb]" : "border-[#e4ebf2]"}`} />
+              {locationTaken && locationTaken.status === "live" && (
                 <div className="mt-1 text-xs text-[#b42318]">
-                  ⚠ This location ID is already used by <b>{locationTaken.clientName}</b> (/{locationTaken.slug}, {locationTaken.status}). Each sub-account can have only one funnel — check the ID in GHL.
+                  ⚠ This location ID is already used by <b>{locationTaken.clientName}</b> (/{locationTaken.slug}, live). Each sub-account can have only one funnel — check the ID in GHL.
+                </div>
+              )}
+              {locationTaken && locationTaken.status !== "live" && (
+                <div className="mt-1 text-xs text-[#b45309]">
+                  ♻️ Recycled sub-account: previously <b>{locationTaken.clientName}</b> (/{locationTaken.slug}, {locationTaken.status}). Creating will retire that old funnel and reuse the account.
                 </div>
               )}
             </div>

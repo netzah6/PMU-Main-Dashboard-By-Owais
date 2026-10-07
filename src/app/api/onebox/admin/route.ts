@@ -377,13 +377,21 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
   if (action === "add") {
     const locationId = String(body.locationId ?? "").trim();
     if (!slug || !locationId) return NextResponse.json({ error: "slug and locationId required" }, { status: 400 });
-    const { data: existing } = await svc.from("onebox_clients").select("slug, client_name, location_id").eq("slug", slug).maybeSingle();
-    if (existing) {
-      const sameAccount = String(existing.location_id) === locationId;
+    const { data: existing } = await svc.from("onebox_clients").select("slug, client_name, location_id, status").eq("slug", slug).maybeSingle();
+    /* Recycled sub-accounts (owner, 2026-10-08): an offboarded client's
+       location gets reused for a NEW client, but the old funnel row still
+       holds the location ID and the add was refused. A NON-LIVE holder is
+       a retired funnel on a recycled account — retire its row (leads and
+       history keep their slug) and let the new funnel take the location.
+       A LIVE holder still refuses: that is a real duplicate. */
+    let recycledNote = "";
+    const slugBlocks = existing && !(String(existing.location_id) === locationId && existing.status !== "live");
+    if (slugBlocks) {
+      const sameAccount = String(existing!.location_id) === locationId;
       return NextResponse.json({
         error: sameAccount
-          ? `this sub-account already has a funnel: "${existing.client_name}" (slug ${slug}) — search for it above`
-          : `slug "${slug}" is already used by "${existing.client_name}" (a different sub-account) — pick another slug, or search for "${existing.client_name}" if that funnel is misnamed`,
+          ? `this sub-account already has a LIVE funnel: "${existing!.client_name}" (slug ${slug}) — search for it above`
+          : `slug "${slug}" is already used by "${existing!.client_name}" (a different sub-account) — pick another slug, or search for "${existing!.client_name}" if that funnel is misnamed`,
       }, { status: 409 });
     }
     /* One sub-account, one funnel. The config (deposit URL, calendar,
@@ -398,11 +406,18 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       .eq("location_id", locationId)
       .order("created_at", { ascending: true });
     if (sameLocation && sameLocation.length > 0) {
-      const holder = sameLocation[0];
-      return NextResponse.json({
-        error: `location ID ${locationId} is already used by "${holder.client_name}" (slug ${holder.slug}, ${holder.status}) — each sub-account can have only one funnel. Check the ID in GHL: if this is a different business, it has a different location ID`,
-        conflict: { slug: holder.slug, clientName: holder.client_name, status: holder.status },
-      }, { status: 409 });
+      const live = sameLocation.find((h) => h.status === "live");
+      if (live) {
+        return NextResponse.json({
+          error: `location ID ${locationId} is already used by "${live.client_name}" (slug ${live.slug}, live) — each sub-account can have only one funnel. Check the ID in GHL: if this is a different business, it has a different location ID`,
+          conflict: { slug: live.slug, clientName: live.client_name, status: live.status },
+        }, { status: 409 });
+      }
+      // Every holder is retired — recycle: remove the old row(s).
+      const names = sameLocation.map((h) => `${h.client_name} (/${h.slug})`).join(", ");
+      const { error: delErr } = await svc.from("onebox_clients").delete().eq("location_id", locationId);
+      if (delErr) return NextResponse.json({ error: `could not retire the old funnel: ${delErr.message}` }, { status: 500 });
+      recycledNote = `recycled sub-account — retired old funnel ${names}`;
     }
 
     /* Meta pixel: harvested from the client's original GHL pages — the
@@ -448,7 +463,9 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     config = seeded.config;
     const surveyNote = seeded.note;
     return NextResponse.json({
-      ok: true, slug, url: funnelUrl(req, slug), pixelNote, photoNote, surveyNote,
+      ok: true, slug, url: funnelUrl(req, slug),
+      pixelNote: recycledNote ? `${recycledNote} · ${pixelNote}` : pixelNote,
+      photoNote, surveyNote,
       cvNote: ensured.created.length
         ? `created ${ensured.created.length} missing custom values: ${ensured.created.join(", ")} — fill them in GHL`
         : "all one-box custom values already existed",
