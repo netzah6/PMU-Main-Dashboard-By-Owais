@@ -81,6 +81,64 @@ export async function getRecentConversations(
   return list;
 }
 
+/* GHL's conversation SEARCH (the list above) lags behind the real chat: a
+   reply sent from the GHL app can take hours to reach it, so answered chats
+   kept showing as unread on the AI tab while GHL's own Unread tab was right
+   (owner, 2026-10-07: Tanya Ospitale answered 13 min earlier, the search
+   still said "unread, last message 11 h ago"). The messages endpoint is live,
+   so each listed chat is checked there: answered (our last real message is
+   newer than the client's — automated texts don't count) → dropped, and the
+   preview shows the true newest message. A chat whose check fails stays
+   listed — better one extra row than a hidden client. Results are reused for
+   20 s so several teammates refreshing don't multiply GHL calls. */
+const liveCache = new Map<string, { at: number; answered: boolean; last: ThreadMessage | null }>();
+export async function keepWaitingChats(acct: PmuAccount, list: ConvSummary[]): Promise<ConvSummary[]> {
+  const now = Date.now();
+  // Whatever isn't checked by then is shown as GHL listed it — a slow GHL
+  // must never cost the team the whole list.
+  const deadline = now + 20_000;
+  for (const [k, v] of liveCache) if (now - v.at > 60_000) liveCache.delete(k);
+  const check = async (c: ConvSummary): Promise<ConvSummary | null> => {
+    let hit = liveCache.get(c.id);
+    if (!hit || now - hit.at > 20_000) {
+      if (Date.now() > deadline) return c;
+      const thread = await getThread(acct, c.id, { limit: 10, labelMedia: true, signal: AbortSignal.timeout(6000) }).catch(() => []);
+      if (!thread.length) return c; // couldn't check — keep it
+      // Answered ONLY when a real (non-automated) reply of ours is newer than
+      // the client's last message in view. A window with no client message
+      // and no human reply (pushed out by activity/automated texts) proves
+      // nothing — keep it.
+      let lastIn = -1, lastHuman = -1;
+      thread.forEach((m, i) => {
+        if (m.direction === "inbound") lastIn = i;
+        else if (!isAutomatedMessage(m)) lastHuman = i;
+      });
+      hit = { at: now, answered: lastHuman >= 0 && lastHuman > lastIn, last: thread[thread.length - 1] };
+      liveCache.set(c.id, hit);
+    }
+    const liveDate = hit.last?.dateAdded ?? null;
+    /* Calls and voicemails carry no text, so the thread can't see them. If
+       GHL's own record says the client's last move (a call, say) came after
+       the newest message we can read, she is still waiting. */
+    const searchNewer = c.lastMessageDirection === "inbound" && !!c.lastMessageDate && (!liveDate || c.lastMessageDate > liveDate);
+    if (hit.answered && !searchNewer) return null;
+    if (!hit.last || searchNewer) return c;
+    return {
+      ...c,
+      lastMessageBody: hit.last.body || c.lastMessageBody,
+      lastMessageDirection: hit.last.direction,
+      lastMessageDate: liveDate ?? c.lastMessageDate,
+    };
+  };
+  const out: Array<ConvSummary | null> = new Array(list.length).fill(null);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(6, list.length) }, async () => {
+    while (next < list.length) { const i = next++; out[i] = await check(list[i]); }
+  }));
+  return out.filter((c): c is ConvSummary => !!c)
+    .sort((a, b) => (b.lastMessageDate ?? "").localeCompare(a.lastMessageDate ?? ""));
+}
+
 export type ThreadMessage = {
   id: string;
   direction: "inbound" | "outbound";
@@ -99,8 +157,8 @@ export type ThreadMessage = {
 /* labelMedia: for readers that only look at text (the AI agent, drafts),
    a media-only message reads as "[voice note]" / "[photo]" instead of
    vanishing — a client answered with a voice note must not look unanswered. */
-export async function getThread(acct: PmuAccount, conversationId: string, opts: { signal?: AbortSignal; withAttachments?: boolean; labelMedia?: boolean } = {}): Promise<ThreadMessage[]> {
-  const url = `${GHL_BASE}/conversations/${conversationId}/messages?limit=100`;
+export async function getThread(acct: PmuAccount, conversationId: string, opts: { signal?: AbortSignal; withAttachments?: boolean; labelMedia?: boolean; limit?: number } = {}): Promise<ThreadMessage[]> {
+  const url = `${GHL_BASE}/conversations/${conversationId}/messages?limit=${opts.limit ?? 100}`;
   const r = await fetch(url, { headers: authHeaders(acct.token, CONV_VERSION), signal: opts.signal });
   if (!r.ok) return [];
   const j = (await r.json()) as { messages?: { messages?: Array<Record<string, unknown>> } };

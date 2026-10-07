@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { getReplyAccount, getRecentConversations, getRoster } from "@/lib/ghl-conversations";
+import { getReplyAccount, getRecentConversations, getRoster, keepWaitingChats } from "@/lib/ghl-conversations";
 
 export const maxDuration = 60;
 
@@ -44,7 +44,9 @@ export async function GET() {
   // email → GHL user). Admins see everything + get the roster for filtering.
   const { data: roleRow } = await supabase.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
   const isAdmin = (roleRow as { role?: string } | null)?.role === "admin";
-  const visible = isAdmin ? enriched : me.ghlUserId ? enriched.filter((c) => c.assignedTo === me.ghlUserId) : [];
+  const shown = isAdmin ? enriched : me.ghlUserId ? enriched.filter((c) => c.assignedTo === me.ghlUserId) : [];
+  // Drop chats the team already answered — GHL's search lags (see keepWaitingChats).
+  const visible = await keepWaitingChats(acct, shown);
 
   // The assignee filter should list only DASHBOARD team members (admin +
   // coaches), not every GHL user on the sub-account — match by email.

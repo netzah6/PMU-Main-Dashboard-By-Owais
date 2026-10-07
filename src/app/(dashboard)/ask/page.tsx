@@ -131,7 +131,12 @@ export default function AskPage() {
     } catch { deepLinkDone.current = true; /* no query string */ }
   }, []);
 
+  // One list load at a time: a timer tick or tab-return while a load is still
+  // running just waits for that one (a manual load still goes through).
+  const convsInFlight = useRef(false);
   const loadConvs = useCallback(async (opts?: { silent?: boolean }) => {
+    if (opts?.silent && convsInFlight.current) return;
+    convsInFlight.current = true;
     if (!opts?.silent) { setConvsLoading(true); setConvsError(null); }
     try {
       const res = await fetch("/api/ghl/reply/conversations");
@@ -144,6 +149,7 @@ export default function AskPage() {
     } catch (e) {
       setConvsError(`${e}`.replace("Error: ", ""));
     } finally {
+      convsInFlight.current = false;
       setConvsLoading(false);
     }
   }, []);
@@ -175,16 +181,27 @@ export default function AskPage() {
   [locationId]);
   useEffect(() => { loadConvs(); }, [loadConvs]);
 
-  // Keep the inbox fresh for the team: silently re-fetch every 45s while the
-  // page is visible, so new client messages appear without a manual refresh.
-  // Agent cards ride the same timer so the 🕵️ row badges stay current.
+  // Keep the inbox fresh for the team: silently re-fetch every 25s while the
+  // page is visible, and right away when someone comes back to the tab, so new
+  // client messages appear without a manual refresh. Agent cards ride the same
+  // timer so the 🕵️ row badges stay current.
   useEffect(() => {
-    const t = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
+    let lastRun = 0;
+    const refresh = () => {
+      // Coming back to the tab fires both "visible" and "focus" — run once.
+      if (document.visibilityState !== "visible" || Date.now() - lastRun < 5_000) return;
+      lastRun = Date.now();
       loadConvs({ silent: true });
       if (role === "admin") loadProposals({ silent: true });
-    }, 45_000);
-    return () => clearInterval(t);
+    };
+    const t = setInterval(refresh, 25_000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
   }, [loadConvs, loadProposals, role]);
 
   const sendManual = useCallback(async () => {
