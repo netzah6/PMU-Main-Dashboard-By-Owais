@@ -260,17 +260,13 @@
 ".opt.multi .dot{border-radius:6px}.opt.multi.sel .dot::after{content:\"✓\";position:absolute;inset:0;border-radius:0;background:transparent;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;width:100%;height:100%}" +
 ".pricewrap{position:relative}.pricewrap .cur{position:absolute;left:16px;top:50%;transform:translateY(-50%);font-weight:800;color:var(--muted);font-size:18px}.pricewrap .tin{padding-left:36px}" +
 ".q-ask{font-family:var(--font-head);font-weight:700;font-size:17px;margin:-4px 0 6px}" +
-(PPS ? ".ob-steplabel{display:none}.q-title{margin-bottom:14px}.q-note{margin-bottom:18px}.q-frame{margin-bottom:16px}" +
+/* Shared polish (ported from the PPS variant to both offers, 2026-10-06):
+   richer interview cards, direct one-tap slot booking, white footer. */
 ".vids-grid{gap:28px}.vt{background:#fff;border-radius:22px;padding:14px 14px 20px;box-shadow:0 22px 50px -24px rgba(10,60,55,.35),0 2px 10px rgba(10,60,55,.06);border:1px solid rgba(0,163,150,.08);transition:transform .2s,box-shadow .2s}.vt:hover{transform:translateY(-3px);box-shadow:0 30px 60px -24px rgba(10,60,55,.45),0 4px 14px rgba(10,60,55,.08)}" +
 ".vt .vidcard{border-radius:16px}.vt .vidcard img{transform:scale(1.02);transition:transform .35s}.vt .vidcard:hover img{transform:scale(1.07)}.vt .vidcard .ply{width:72px;height:72px;box-shadow:0 0 0 10px rgba(255,255,255,.22),0 14px 30px -6px rgba(0,0,0,.5)}.vt .vidcard .cap{padding:34px 16px 12px;font-size:12.5px;letter-spacing:.2px;text-transform:uppercase;background:linear-gradient(transparent,rgba(7,25,22,.9))}" +
 /* Interview cards (owner, 2026-09-23): bigger text; stars on their own
    line, name — business on the next. */
 ".vt blockquote{margin:16px 2px 8px;font-size:17.5px;line-height:1.6;font-style:italic}.vt .who{font-size:15.5px;margin-top:2px}.vt .who::before{content:\"★★★★★\";display:block;margin-bottom:4px;font-size:15px;color:#f5b301;letter-spacing:2px;font-style:normal}.vt .loc{font-size:13.5px}" +
-/* Scroll-depth trims (owner, 2026-09-22): no logo band (the hero carries
-   the brand; the footer keeps the logo), tighter hero top, and a sub
-   sized to hold its two <br> lines on one row each at phone width. */
-".hero{padding-top:40px}" +
-".hero .sub{font-size:clamp(11.5px,3.15vw,19px);line-height:1.45}" +
 /* Slot tap books directly — the Claim button only mirrors busy state. */
 "#ob-bookgo{display:none}" +
 /* White footer: bigger logo stacked over the wordmark, legal links inline. */
@@ -281,7 +277,13 @@
 ".obfooter .flinks{margin-top:10px;font-size:13px;display:flex;gap:10px;justify-content:center;align-items:center}" +
 ".obfooter .flinks a{color:var(--muted);text-decoration:underline;text-underline-offset:3px}" +
 ".obfooter .flinks a:hover{color:var(--ink)}" +
-".obfooter .flinks span{color:var(--line)}" : "");
+".obfooter .flinks span{color:var(--line)}" +
+(PPS ? ".ob-steplabel{display:none}.q-title{margin-bottom:14px}.q-note{margin-bottom:18px}.q-frame{margin-bottom:16px}" +
+/* Scroll-depth trims (owner, 2026-09-22): no logo band (the hero carries
+   the brand; the footer keeps the logo), tighter hero top, and a sub
+   sized to hold its two <br> lines on one row each at phone width. */
+".hero{padding-top:40px}" +
+".hero .sub{font-size:clamp(11.5px,3.15vw,19px);line-height:1.45}" : "");
 
   /* ---------- page skeleton ---------- */
   var root = document.getElementById("onebox-root");
@@ -298,7 +300,7 @@
 
   var PLAY_SVG = '<span class="play"><span class="ply"><svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg></span></span>';
   function vidCardHTML(id, thumb, cap) {
-    var label = PPS ? cap.replace(/^Interview — /, "").replace(", ", " · ") : "▶️ " + cap;
+    var label = cap.replace(/^Interview — /, "").replace(", ", " · ");
     return '<button type="button" class="vidcard" data-wid="' + esc(id) + '">' +
       '<img src="' + thumb + '" alt="' + esc(cap) + '" loading="lazy">' + PLAY_SVG +
       '<span class="cap">' + esc(label) + "</span></button>";
@@ -354,14 +356,10 @@
     "</div></div></section>" +
     '<section class="finalcta"><h2>' + T.finalTitle + '</h2><p>' + T.finalSub + '</p>' +
     '<a class="cta2" href="#boxanchor" id="ob-finalbtn">Check Availability<small>takes about 60 seconds</small></a></section>' +
-    /* PPS footer (owner, 2026-09-23): white, bigger logo stacked over the
-       wordmark, and the Terms/Privacy links right there with it. */
-    (PPS
-      ? '<footer class="obfooter"><div class="fl"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span>PMU Bookings On Demand</span></div>' +
-        "<div>© " + new Date().getFullYear() + " PMU Bookings On Demand. All Rights Reserved.</div>" +
-        '<div class="flinks"><a href="https://www.pmu-bookings.com/8-terms" target="_blank" rel="noopener">Terms &amp; Conditions</a><span>|</span><a href="https://www.pmu-bookings.com/7-privacy-policy" target="_blank" rel="noopener">Privacy Policy</a></div></footer>'
-      : '<footer class="obfooter"><div class="fl"><img src="' + IMG.logo + '" alt=""><span>PMU Bookings On Demand</span></div>' +
-        "<div>© " + new Date().getFullYear() + " PMU Bookings On Demand. All Rights Reserved.</div></footer>") +
+    /* White footer with the legal links (owner, 2026-09-23) — both offers. */
+    '<footer class="obfooter"><div class="fl"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span>PMU Bookings On Demand</span></div>' +
+    "<div>© " + new Date().getFullYear() + " PMU Bookings On Demand. All Rights Reserved.</div>" +
+    '<div class="flinks"><a href="https://www.pmu-bookings.com/8-terms" target="_blank" rel="noopener">Terms &amp; Conditions</a><span>|</span><a href="https://www.pmu-bookings.com/7-privacy-policy" target="_blank" rel="noopener">Privacy Policy</a></div></footer>' +
     '<div class="sticky-cta" id="ob-sticky"><button type="button" id="ob-stickybtn">' + T.sticky + '</button></div>' +
     '<div class="obtoast" id="ob-toast"></div>';
 
@@ -893,12 +891,11 @@
         body.stage = "slot";
         body.slotIso = iso;
         post("submit", body).catch(function () {});
-        /* PPS: tapping the time IS the booking — no extra Claim click
-           (owner, 2026-09-22). The tapped chip shows the busy state. */
-        if (PPS) {
-          b.textContent = "Booking…";
-          confirmBooking();
-        }
+        /* Tapping the time IS the booking — no extra Claim click (owner,
+           2026-09-22; both offers since 2026-10-06). The tapped chip shows
+           the busy state. */
+        b.textContent = "Booking…";
+        confirmBooking();
       };
       box.appendChild(b);
     });
@@ -934,14 +931,9 @@
       .catch(function () {
         S.booking = false;
         toast("Connection hiccup — please try again.");
-        /* PPS has no visible Claim button — repaint the slots so the
-           tapped chip loses its "Booking…" label and can be tapped again. */
-        if (PPS) { showBooking(false); return; }
-        var b2 = $("ob-bookgo");
-        if (b2) {
-          b2.removeAttribute("disabled");
-          b2.innerHTML = '<span class="stack"><span>Claim My ' + esc(S.area || "") + " Spot</span><small>book the free 15-min call</small></span>";
-        }
+        /* No visible Claim button — repaint the slots so the tapped chip
+           loses its "Booking…" label and can be tapped again. */
+        showBooking(false);
       });
   }
 
