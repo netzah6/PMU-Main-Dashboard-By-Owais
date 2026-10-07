@@ -131,7 +131,12 @@ export default function AskPage() {
     } catch { deepLinkDone.current = true; /* no query string */ }
   }, []);
 
+  // One list load at a time: a timer tick or tab-return while a load is still
+  // running just waits for that one (a manual load still goes through).
+  const convsInFlight = useRef(false);
   const loadConvs = useCallback(async (opts?: { silent?: boolean }) => {
+    if (opts?.silent && convsInFlight.current) return;
+    convsInFlight.current = true;
     if (!opts?.silent) { setConvsLoading(true); setConvsError(null); }
     try {
       const res = await fetch("/api/ghl/reply/conversations");
@@ -144,6 +149,7 @@ export default function AskPage() {
     } catch (e) {
       setConvsError(`${e}`.replace("Error: ", ""));
     } finally {
+      convsInFlight.current = false;
       setConvsLoading(false);
     }
   }, []);
