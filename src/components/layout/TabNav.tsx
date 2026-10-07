@@ -27,6 +27,8 @@ const TABS: Tab[] = [
   { label: "📈 Performance", href: "/performance" },
   { label: "❤️ Health", href: "/client-health", adminOnly: true }, // green/orange/red ROI per client — admin only until the owner opens it to coaches (2026-10-05)
   { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
+  // Coach-facing feed (client filled their info-request form, …) — admins see it too (owner request 2026-10-07).
+  { label: "🔔 Notifications", href: "/notifications", adminOnly: true, alsoRoles: ["editor"] },
   { label: "💰 CPD", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27; renamed from "Cost / Deposit" 2026-09-22
   { label: "💵 Deposits", href: "/deposits" },
   { label: "📅 Bookings", href: "/bookings", collapsed: true },

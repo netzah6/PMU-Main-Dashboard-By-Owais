@@ -11,7 +11,7 @@ const FUNNEL_HOST = "book.pmu-care.com";
    "pps"); /<slug> under it works like book.pmu-care.com. */
 const AGENCY_HOST = "book.pmubookingsondemand.com";
 const AGENCY_ROOT_SLUG = "pps";
-const RESERVED = new Set(["api", "f", "s", "login", "auth", "deck", "manifest.webmanifest"]);
+const RESERVED = new Set(["intake", "api", "f", "s", "login", "auth", "deck", "manifest.webmanifest"]);
 
 /* This repo is deployed by TWO Vercel projects (pmu-main-dashboard-by-owais
    and …-owais1). Production — tokens, custom domains — is the "1" one; the
@@ -135,8 +135,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   /* The proposal deck is a prospect-facing page we hand out as a link, so it
      and its media must load without a dashboard session. */
   const isPublicDeck = p === "/deck" || p.startsWith("/deck/");
+  // Client info-request forms: the artist opens these from a text, no login.
+  const isPublicIntake = p.startsWith("/intake/");
 
-  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel && !isPublicDeck) {
+  if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel && !isPublicDeck && !isPublicIntake) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

@@ -357,7 +357,7 @@ function warmFunnel(slug: string) {
   })());
 }
 
-const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "verifyRedirect"]);
+const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "verifyRedirect", "intakeLink"]);
   /* The media buyer updates funnel OFFERS (owner, 2026-09-25) and META
      PIXELS (owner, 2026-10-02): "cvs" restricted to the offer field, and
      "extras" restricted to metaPixelId — both enforced in the handlers
@@ -544,6 +544,26 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       }
     }
     return NextResponse.json({ ok: true, status, depositUrlNote });
+  }
+
+  /* Info-request link (owner request 2026-10-07): mint (or reuse) the
+     client's unguessable intake token and report how many fields their
+     form would currently ask. The public form itself re-checks emptiness
+     on every load AND save, so a link handed out weeks ago stays safe. */
+  if (action === "intakeLink") {
+    const { missingIntakeFields, clientIsV3 } = await import("@/lib/intake");
+    const ex = { ...((row.extras ?? {}) as Record<string, unknown>) };
+    let intakeToken = String(ex.intakeToken ?? "");
+    if (!/^[a-f0-9]{32}$/.test(intakeToken)) {
+      intakeToken = Array.from(crypto.getRandomValues(new Uint8Array(16))).map((b) => b.toString(16).padStart(2, "0")).join("");
+      ex.intakeToken = intakeToken;
+      const { error } = await svc.from("onebox_clients").update({ extras: ex }).eq("slug", slug);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    const isV3 = await clientIsV3(svc, String(row.client_name ?? ""));
+    const missing = missingIntakeFields((row.config ?? {}) as Record<string, string>, isV3);
+    const url = `${req.nextUrl.origin}/intake/${intakeToken}`;
+    return NextResponse.json({ ok: true, url, missing: missing.map((m) => m.label) });
   }
 
   if (action === "extras") {
