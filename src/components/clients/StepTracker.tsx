@@ -15,12 +15,14 @@ const TOGGLE_STEPS: { key: string; label: string }[] = [
   { key: "GMB",                  label: "GMB" },
 ];
 
-const IG_KEY = "Instagram Widget";
-
 interface StepTrackerProps {
   data: Record<string, unknown>;
   canEdit: boolean;
   onChange?: (stepIndex: number, key: string, value: boolean | string) => void;
+  /* Live truth from the one-box funnel (owner, 2026-10-08): true = widget
+     configured and showing, false = not, null/undefined = no one-box
+     funnel (or still loading) — the manual dropdown is gone. */
+  igOn?: boolean | null;
 }
 
 function isComplete(val: unknown): boolean {
@@ -29,15 +31,8 @@ function isComplete(val: unknown): boolean {
   return false;
 }
 
-function igState(val: unknown): "On" | "Not good enough" | "" {
-  const s = String(val ?? "").trim().toLowerCase();
-  if (s === "on" || s === "true" || s === "yes" || s === "1") return "On";
-  if (s.includes("not good")) return "Not good enough";
-  return "";
-}
-
-export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
-  const ig = igState(data[IG_KEY]);
+export function StepTracker({ data, canEdit, onChange, igOn }: StepTrackerProps) {
+  const ig: "On" | "Off" | "" = igOn === true ? "On" : igOn === false ? "Off" : "";
   const completed = TOGGLE_STEPS.filter(({ key }) => isComplete(data[key])).length + (ig === "On" ? 1 : 0);
   const total = TOGGLE_STEPS.length + 1; // toggle steps + Instagram Widget
 
@@ -89,26 +84,25 @@ export function StepTracker({ data, canEdit, onChange }: StepTrackerProps) {
           );
         })}
 
-        {/* Instagram Widget — compact, sits next to AI Access */}
+        {/* Instagram Widget — read-only, mirrors the one-box funnel: a widget
+            is either configured there or it isn't (turn it on/off from the
+            Funnels tab / the CPD card, never here). */}
         <div
-          className="flex flex-col gap-0.5 px-2 py-1 rounded-lg border"
+          title="Mirrors the one-box funnel — manage the widget from the Funnels tab"
+          className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-xs font-medium"
           style={
             ig === "On" ? { background: DONE.bg, borderColor: DONE.border, color: DONE.color }
-              : ig === "Not good enough" ? { background: "#fff7ec", borderColor: "#fcd9a8", color: "#d97706" }
+              : ig === "Off" ? { background: "#fff1f2", borderColor: "#fecdd3", color: "#be123c" }
               : { background: "#ffffff", borderColor: "#e4ebf2", color: "#697a91" }
           }
         >
-          <span className="text-[10px] font-medium leading-tight truncate">Instagram Widget</span>
-          <select
-            value={ig}
-            disabled={!canEdit}
-            onChange={(e) => onChange?.(TOGGLE_STEPS.length, IG_KEY, e.target.value)}
-            className="w-full text-[11px] rounded border border-[#d7e0ea] bg-white px-1 py-0.5 text-[#1f3559] focus:outline-none focus:border-[#15B7AE] disabled:opacity-70"
+          <span
+            className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+            style={ig === "On" ? { background: DONE.dot } : { background: "#e4ebf2" }}
           >
-            <option value="">—</option>
-            <option value="On">On</option>
-            <option value="Not good enough">Not good enough</option>
-          </select>
+            {ig === "On" && <Check size={10} className="text-white" />}
+          </span>
+          <span className="truncate">Instagram Widget{ig === "" ? " · no one-box" : ig === "Off" ? " · off" : ""}</span>
         </div>
       </div>
     </div>
