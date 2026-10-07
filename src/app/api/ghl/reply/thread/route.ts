@@ -20,6 +20,6 @@ export async function GET(req: NextRequest) {
   const acct = await getReplyAccount();
   if (!acct) return NextResponse.json({ error: "Account not found" }, { status: 404 });
 
-  const messages = await getThread(acct, conversationId);
+  const messages = await getThread(acct, conversationId, { withAttachments: true });
   return NextResponse.json({ messages });
 }
