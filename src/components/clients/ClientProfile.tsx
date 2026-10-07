@@ -95,6 +95,18 @@ export function ClientProfile({
 
   const canEdit = role === "admin" || role === "editor";
   const ghlContactId = String(localClient._id2 ?? "");
+  // Live IG-widget truth from the one-box funnel for the onboarding tracker.
+  const [igOn, setIgOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    const name = String(localClient.business_name ?? "").trim();
+    if (!name) return;
+    let cancelled = false;
+    fetch(`/api/onebox/ig-presence?name=${encodeURIComponent(name)}`)
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled) setIgOn(j?.found ? !!j.on : null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [localClient.business_name]);
   const ghlUrl = ghlContactId
     ? `https://app.gohighlevel.com/v2/location/${GHL_LOCATION}/contacts/detail/${ghlContactId}`
     : null;
@@ -632,6 +644,7 @@ export function ClientProfile({
             data={(localClient as Record<string, unknown>)}
             canEdit={canEdit}
             onChange={(i, key, val) => saveStep(i, key, val)}
+            igOn={igOn}
           />
         </Section>
 
