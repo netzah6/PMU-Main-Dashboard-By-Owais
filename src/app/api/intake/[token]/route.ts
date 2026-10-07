@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { ONEBOX_EDITABLE_CVS, setOneboxCustomValues, refreshOneboxConfig } from "@/lib/onebox";
-import { missingIntakeFields, clientIsV3, assignedCoach, INTAKE_FIELDS } from "@/lib/intake";
+import { missingIntakeFields, clientIsV3, assignedCoach, INTAKE_FIELDS, missingPhotoAsks, PHOTO_ASKS, photoCount } from "@/lib/intake";
 import { fileAlert } from "@/lib/alerts";
 
 export const fetchCache = "force-no-store";
@@ -28,9 +28,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   if (!client) return NextResponse.json({ error: "Link not found" }, { status: 404 });
   const isV3 = await clientIsV3(svc, String(client.client_name));
   const missing = missingIntakeFields((client.config ?? {}) as Record<string, string>, isV3);
+  const photos = missingPhotoAsks((client.config ?? {}) as Record<string, string>);
   return NextResponse.json({
     business: client.client_name,
-    fields: missing.map(({ k, label, hint, type }) => ({ k, label, hint, type })),
+    fields: [
+      ...missing.map(({ k, label, hint, type }) => ({ k, label, hint, type })),
+      ...photos.map((p) => ({ k: p.k, label: p.label, hint: p.hint, type: "photos" as const })),
+    ],
   });
 }
 
@@ -53,6 +57,20 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     if (!cvName) continue;
     entries.push({ name: cvName, value: v });
     answered.push(f.label);
+  }
+  /* Photo uploads: URLs from our own intake-uploads bucket only, appended
+     to the dashboard-managed photo lists, capped so a prankster with the
+     link can't flood the funnel. */
+  const bucketPrefix = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/intake-uploads/`;
+  for (const p of PHOTO_ASKS) {
+    if (photoCount(cfg, p.countKeys) >= p.min) continue;
+    const urls = Array.isArray(body[p.k]) ? (body[p.k] as unknown[]).filter((u): u is string => typeof u === "string" && u.startsWith(bucketPrefix)).slice(0, 6) : [];
+    if (!urls.length) continue;
+    const existing = String(cfg[p.cv] ?? "").split(",").map((u) => u.trim()).filter(Boolean);
+    const cvName = ONEBOX_EDITABLE_CVS[p.cv];
+    if (!cvName) continue;
+    entries.push({ name: cvName, value: [...existing, ...urls].slice(0, 9).join(",") });
+    answered.push(p.label);
   }
   if (!entries.length) return NextResponse.json({ ok: true, saved: 0 });
 

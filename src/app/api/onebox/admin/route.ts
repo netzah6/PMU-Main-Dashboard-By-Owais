@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
+import { getAppLocationToken } from "@/lib/ghl-app";
 import { refreshOneboxConfig, normalizeElfsight, harvestFirstPixel, ensureOneboxCustomValues, setOneboxCustomValues, setDepositFunnelUrl, healFunnelPhotos, classifyPhotos, getAreaFieldOptions, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
@@ -462,9 +463,51 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     const seeded = await seedSurveyFromAccount(svc, slug, locationId, config);
     config = seeded.config;
     const surveyNote = seeded.note;
+    /* Pre-fill from what the dashboard already knows (owner, 2026-10-08:
+       "why is it asking me to fill all that again?"): the Clients-sheet
+       row carries business name, address, offer, phone, owner, IG and FB
+       links, and the sub-account's own calendar list carries the
+       Transformation calendar ID. Fill only STILL-EMPTY values — never
+       overwrite anything typed or synced. */
+    let prefillNote = "";
+    const tokForCal = await getAppLocationToken(locationId);
+    try {
+      const cfgNow = (config ?? {}) as Record<string, string>;
+      const normName = (x: string) => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const { data: cm } = await svc.from("clients_master").select("data");
+      const wanted = normName(String(body.clientName ?? ""));
+      const sheet = ((cm ?? []).find((r) => normName(String((r.data as Record<string, unknown>)?.["Business Name"] ?? "")) === wanted)?.data ?? {}) as Record<string, unknown>;
+      const fromSheet: [cfgKey: string, sheetKey: string][] = [
+        ["biz", "Business Name"], ["address", "Location (Full adress)"], ["offer", "Offer"],
+        ["phone", "Phone"], ["ownerName", "Owner Full Name"], ["igLink", "IG Page link"], ["fbLink", "FB Page link"],
+      ];
+      const entries: { name: string; value: string }[] = [];
+      const filled: string[] = [];
+      for (const [k, sk] of fromSheet) {
+        const v = String(sheet[sk] ?? "").trim();
+        if (v && !String(cfgNow[k] ?? "").trim() && ONEBOX_EDITABLE_CVS[k]) {
+          entries.push({ name: ONEBOX_EDITABLE_CVS[k], value: v.slice(0, 500) });
+          filled.push(k);
+        }
+      }
+      if (!String(cfgNow.calendarId ?? "").trim() && tokForCal.token) {
+        const cr = await fetch(`https://services.leadconnectorhq.com/calendars/?locationId=${locationId}`, {
+          headers: { Authorization: `Bearer ${tokForCal.token}`, Version: "2021-04-15", Accept: "application/json" },
+        }).then((r) => r.json()).catch(() => null) as { calendars?: { id: string; name?: string }[] } | null;
+        const cals = cr?.calendars ?? [];
+        const cal = cals.find((c) => /transformation/i.test(String(c.name ?? ""))) ?? (cals.length === 1 ? cals[0] : undefined);
+        if (cal?.id) { entries.push({ name: ONEBOX_EDITABLE_CVS.calendarId, value: cal.id }); filled.push("calendarId"); }
+      }
+      if (entries.length) {
+        const w = await setOneboxCustomValues(locationId, entries);
+        const justWritten = Object.fromEntries(entries.filter((e) => w.written.includes(e.name)).map((e) => [e.name, e.value]));
+        config = (await refreshOneboxConfig(svc, slug, locationId, justWritten)) ?? config;
+        prefillNote = `pre-filled from the dashboard: ${filled.join(", ")}`;
+      }
+    } catch { /* pre-fill is a convenience — never fail the add */ }
     return NextResponse.json({
       ok: true, slug, url: funnelUrl(req, slug),
-      pixelNote: recycledNote ? `${recycledNote} · ${pixelNote}` : pixelNote,
+      pixelNote: [recycledNote, pixelNote, prefillNote].filter(Boolean).join(" · "),
       photoNote, surveyNote,
       cvNote: ensured.created.length
         ? `created ${ensured.created.length} missing custom values: ${ensured.created.join(", ")} — fill them in GHL`

@@ -42,6 +42,24 @@ export function missingIntakeFields(cfg: Record<string, string>, isV3: boolean):
   return INTAKE_FIELDS.filter((f) => (!f.v3Only || isV3) && !String(cfg[f.k] ?? "").trim());
 }
 
+/* Photo asks (owner, 2026-10-08): when the funnel has fewer than 3 studio
+   pictures or fewer than 3 before/after pictures, the form also asks for
+   uploads. Counts span both the aggregated CV-slot lists and the
+   dashboard-managed lists; new uploads append to the dashboard lists
+   ("CC - Studio Images" / "CC - Result Images"). */
+export const PHOTO_ASKS = [
+  { k: "studioPhotos", cv: "studioImgs", label: "Pictures of your studio", hint: "Up to 3 photos of your space", countKeys: ["studioImgs", "studioCvImgs"], min: 3 },
+  { k: "baPhotos", cv: "resultImgs", label: "Your best before & after pictures", hint: "Eyebrows, lips or eyeliner — your best transformations (up to 6)", countKeys: ["resultImgs", "resultCvImgs"], min: 3 },
+] as const;
+
+export function photoCount(cfg: Record<string, string>, keys: readonly string[]): number {
+  return new Set(keys.flatMap((k) => String(cfg[k] ?? "").split(",")).map((u) => u.trim()).filter(Boolean)).size;
+}
+
+export function missingPhotoAsks(cfg: Record<string, string>) {
+  return PHOTO_ASKS.filter((p) => photoCount(cfg, p.countKeys) < p.min);
+}
+
 /* The funnel's program version from the Clients-sheet mirror — same
    normalized-name match the fix-list sweeps use. */
 export async function clientIsV3(svc: SupabaseClient, clientName: string): Promise<boolean> {
