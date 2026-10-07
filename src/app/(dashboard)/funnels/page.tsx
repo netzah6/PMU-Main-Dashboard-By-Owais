@@ -2088,8 +2088,8 @@ export default function FunnelsPage() {
 
                     }
                   }}
-                  className={cn("text-[11px] border rounded-lg px-2 py-0.5",
-                    cvFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#e4ebf2] hover:bg-[#f6f9fc]")}>
+                  className={cn("text-[11px] border rounded-lg px-2 py-0.5 font-medium",
+                    cvFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c] hover:bg-[#0b8383]" : "border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]")}>
                   Start Setup {cvFor === f.slug ? "▲" : ""}
                 </button>
                 )}
@@ -2108,7 +2108,7 @@ export default function FunnelsPage() {
                   })()}
                   disabled={busy === `intakeLink:${f.slug}`}
                   title="Copy this client's unique link: a form asking ONLY for their missing setup info; answers fill the funnel automatically"
-                  className="text-[11px] border border-[#e4ebf2] rounded-lg px-2 py-0.5 hover:bg-[#f6f9fc] inline-flex items-center gap-1">
+                  className="text-[11px] border border-[#e9d5ff] text-[#7e22ce] bg-[#faf5ff] rounded-lg px-2 py-0.5 hover:bg-[#f3e8ff] font-medium inline-flex items-center gap-1">
                   {busy === `intakeLink:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} 📩 Info-request link
                 </button>
                 )}
