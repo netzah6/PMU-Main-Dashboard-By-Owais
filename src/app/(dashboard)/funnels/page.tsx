@@ -618,6 +618,61 @@ function DeprowTestCard() {
    the FIRST screen, so the completion comparison is the a-vs-b LEAD
    COUNTS themselves — the coin is a fair 50/50 at page load, so a skew
    in completed surveys IS the effect. Pay-through shown too. */
+
+/* A/B pair #2 (engine v93): slot scarcity + survey length, parallel coins
+   starting Oct 13 — one shared card, same read as the other test cards. */
+function Ab2TestCards() {
+  type Side = { leads: number; picked: number; paid: number };
+  type Pair = { a: Side; b: Side };
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair } | null>(null);
+  useEffect(() => {
+    fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
+  }, []);
+  if (!d) return null;
+  if (!d.started) return (
+    <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">
+      🧪 Next tests queued — <b>calendar scarcity</b> (5 vs 3 slots shown) and <b>shorter survey</b> (3 questions dropped) start automatically on {new Date(d.since).toLocaleDateString()} and will report here.
+    </div>
+  );
+  const payPct = (s: Side) => (s.picked > 0 ? Math.round((s.paid / s.picked) * 1000) / 10 : null);
+  const leadPct = (s: Side) => (d.visitorsPerArm ? Math.round((s.leads / d.visitorsPerArm) * 1000) / 10 : null);
+  const row = (name: string, note: string, s: Side) => (
+    <tr className="border-t border-[#f0f4f8]">
+      <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{name}</b><div className="text-[#8595a8] max-w-[380px]">{note}</div></td>
+      <td className="py-1.5">{leadPct(s) === null ? "—" : `${leadPct(s)}%`}</td>
+      <td className="py-1.5 font-semibold">{s.leads}</td>
+      <td className="py-1.5">{s.picked}</td><td className="py-1.5">{s.paid}</td>
+      <td className="py-1.5 font-semibold">{payPct(s) === null ? "—" : `${payPct(s)}%`}</td>
+    </tr>
+  );
+  const table = (title: string, p: Pair, aNote: string, bNote: string) => (
+    <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-sm font-medium text-[#1c2b3a]">{title}</span>
+        <span className="text-xs text-[#697a91]">since {new Date(d.since).toLocaleDateString()}</span>
+      </div>
+      <table className="w-full text-xs">
+        <thead><tr className="text-left text-[#697a91]">
+          <th className="py-1 font-medium">Side</th>
+          <th className="py-1 font-medium">Visitor → lead</th>
+          <th className="py-1 font-medium">Leads</th>
+          <th className="py-1 font-medium">Picked a time</th>
+          <th className="py-1 font-medium">Paid</th>
+          <th className="py-1 font-medium">Pay-through</th>
+        </tr></thead>
+        <tbody>
+          {row("A — control", aNote, p.a)}
+          {row("B — variant", bNote, p.b)}
+        </tbody>
+      </table>
+    </div>
+  );
+  return (<>
+    {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, "Up to 5 open slots shown per day (current)", "Up to 3 shown — \u201Conly 3 openings left\u201D")}
+    {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, "Full survey (current)", "Had-PMU / age / aftercare questions dropped — 3 fewer taps")}
+  </>);
+}
+
 function TopbarTestCard() {
   type Side = { leads: number; picked: number; paid: number };
   const [d, setD] = useState<{ since: string; visitorsPerArm?: number; a: Side; b: Side } | null>(null);
@@ -1397,6 +1452,7 @@ export default function FunnelsPage() {
 
       <DeprowTestCard />
       <TopbarTestCard />
+      <Ab2TestCards />
 
       {showAdd && (() => {
         /* One sub-account, one funnel: flag a location ID that already has

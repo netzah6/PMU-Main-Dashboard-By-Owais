@@ -121,6 +121,29 @@
     } catch (e) { return "a"; }
   })();
 
+  /* A/B pair #2, starting 2026-10-13T07:00Z (the moment the deposit-line
+     test's window closes) — both run in parallel, independent coins:
+       scar   — calendar scarcity: a = show up to 5 slots/day (current),
+                b = show up to 3 ("only 3 openings left").
+       shortq — survey length: a = full survey (current), b = drops the
+                had_pmu / age / aftercare questions (3 fewer taps). The
+                commute + seriousness questions STAY — disqualification
+                depends on them.
+     Sticky per visitor, recorded on every lead via the submit payload's
+     generic extras (answers.scar / answers.shortq); before the start date
+     both read "a" and nothing is recorded. */
+  var AB2_ON = Date.now() >= Date.parse("2026-10-13T07:00:00Z");
+  function ab2coin(key) {
+    if (!AB2_ON) return "a";
+    try {
+      var v = localStorage.getItem(key);
+      if (v !== "a" && v !== "b") { v = Math.random() < 0.5 ? "a" : "b"; localStorage.setItem(key, v); }
+      return v;
+    } catch (e) { return "a"; }
+  }
+  var SCAR_V = ab2coin("ob_scar");
+  var SHORTQ_V = ab2coin("ob_shortq");
+
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
   fl.rel = "stylesheet";
@@ -402,6 +425,9 @@
     { k: "phone", q: "Phone Number", type: "tel", ph: "Phone Number" },
     { k: "email", q: "Email Address", type: "email", ph: "Email Address" }
   ]);
+  if (SHORTQ_V === "b") {
+    QUESTIONS = QUESTIONS.filter(function (x) { return x.k !== "had_pmu" && x.k !== "age" && x.k !== "aftercare"; });
+  }
   var N = QUESTIONS.length;
   var state = { eventIds: {}, answers: {}, submitted: false };
   var qi = 0, phase = "survey";
@@ -435,6 +461,8 @@
       aftercare_kit: a.aftercare || "",
       deprow: DEPROW_V,
       topbar: TOPBAR_V,
+      scar: AB2_ON ? SCAR_V : "",
+      shortq: AB2_ON ? SHORTQ_V : "",
       source: "onebox"
     };
     /* Genuinely new custom-survey questions ride along too — anything in
@@ -708,8 +736,9 @@
       /* V2: show at most 5 openings per day — a near-full calendar books
          better than a wide-open one (the "Look Busy" rule from the
          calendar-insights data). Display only; nothing is blocked. */
-      if (V2 && dayList.length > 5) {
-        dayList = dayList.slice(0, 5);
+      var scarCap = SCAR_V === "b" ? 3 : 5;
+      if (V2 && dayList.length > scarCap) {
+        dayList = dayList.slice(0, scarCap);
         scarce = '<p class="v2scarce">&#128293; This day is almost full &mdash; ' + dayList.length + ' openings left</p>';
       } else if (V2) {
         scarce = '<p class="v2scarce">&#128293; Only ' + dayList.length + (dayList.length === 1 ? ' opening' : ' openings') + ' left this day</p>';
