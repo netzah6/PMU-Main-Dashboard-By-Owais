@@ -223,7 +223,7 @@ export async function draftReplyFor(opts: {
   const agentName = user?.name || (opts.voiceEmail ? opts.voiceEmail.split("@")[0] : "our team");
   const nameByUserId = new Map(roster.map((u) => [u.id, u.name]));
   const [thread, voiceSamples, notesRow, memory] = await Promise.all([
-    opts.thread ? Promise.resolve(opts.thread) : getThread(opts.acct, opts.conversationId),
+    opts.thread ? Promise.resolve(opts.thread) : getThread(opts.acct, opts.conversationId, { labelMedia: true }),
     user ? getVoiceSamples(opts.acct, user.id) : Promise.resolve<string[]>([]),
     svc.from("reply_ai_notes").select("content").eq("id", 1).single(),
     getClientMemory(opts.conversationId).catch(() => null),

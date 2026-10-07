@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, Check, MessageCircle, RefreshCw, X, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn, userColor } from "@/lib/utils";
+import { VoiceNoteButton } from "@/components/conversations/VoiceNoteButton";
 
 // voiceInfo only comes from /api/ghl/reply/draft — AI-chat drafts carry just
 // the name, so the "written in …'s voice" line is skipped for those.
@@ -20,7 +21,10 @@ type Conv = {
   assignedTo: string | null;
   assignedToName: string;
 };
-type ThreadMsg = { id: string; direction: "inbound" | "outbound"; body: string; dateAdded: string | null; channel: string };
+type ThreadMsg = { id: string; direction: "inbound" | "outbound"; body: string; dateAdded: string | null; channel: string; attachments?: string[] };
+// Media in a chat: voice notes get a player, photos a thumbnail, the rest a link.
+const AUDIO_URL = /\.(mp3|m4a|aac|amr|wav|ogg|oga|opus|3gp)(\?|$)/i;
+const IMAGE_URL = /\.(jpe?g|png|gif|webp|heic)(\?|$)/i;
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "";
@@ -214,18 +218,24 @@ export default function AskPage() {
   // panel, so coming back to the chat starts with the one button again.
   useEffect(() => { if (!pending) setAgentOpenFor(null); }, [pending]);
 
-  // Load the full conversation whenever the composer opens for a chat.
+  // Load the full conversation whenever the composer opens for a chat (and
+  // again after a voice note goes out, so it shows up in the thread).
+  const [threadTick, setThreadTick] = useState(0);
+  const reloadThread = useCallback(() => setThreadTick((t) => t + 1), []);
+  const threadFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!pending) { setThread([]); return; }
+    if (!pending) { setThread([]); threadFor.current = null; return; }
     let cancelled = false;
-    setThreadLoading(true); setThread([]);
+    // A reload of the same chat keeps showing it; another chat starts empty.
+    setThreadLoading(true);
+    if (threadFor.current !== pending.id) { setThread([]); threadFor.current = pending.id; }
     fetch(`/api/ghl/reply/thread?conversationId=${encodeURIComponent(pending.id)}`)
       .then((r) => r.json())
       .then((j) => { if (!cancelled) setThread(j.messages ?? []); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setThreadLoading(false); });
     return () => { cancelled = true; };
-  }, [pending]);
+  }, [pending, threadTick]);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
 
@@ -715,7 +725,7 @@ export default function AskPage() {
 
           {/* Full conversation thread (shorter when the agent panel is open) */}
           <div ref={threadRef} className={cn("mb-2.5 overflow-y-auto rounded-lg border border-[#e4ebf2] bg-white p-2 space-y-1.5", agentOpen && convCards.length > 0 ? "max-h-[30vh]" : "max-h-[55vh]")}>
-            {threadLoading ? (
+            {threadLoading && thread.length === 0 ? (
               <p className="text-[11px] text-[#8595a8] flex items-center gap-1.5 py-1"><Loader2 size={11} className="animate-spin" /> Loading conversation…</p>
             ) : thread.length === 0 ? (
               <p className="text-[11px] text-[#8595a8] py-1">No readable messages in this conversation.</p>
@@ -727,6 +737,15 @@ export default function AskPage() {
                     m.direction === "inbound" ? "bg-[#f1f5f9] text-[#1f3559]" : "bg-[#e6f7f5] text-[#0e5f5a]",
                   )}>
                     {m.body}
+                    {(m.attachments ?? []).map((u) => (
+                      AUDIO_URL.test(u) ? <audio key={u} controls preload="none" src={u} className={cn("h-8 max-w-[240px]", m.body && "mt-1")} />
+                        : IMAGE_URL.test(u) ? (
+                          <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="block mt-1">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={u} alt="attachment" className="max-h-40 rounded-md" />
+                          </a>
+                        ) : <a key={u} href={u} target="_blank" rel="noopener noreferrer" className="block mt-1 text-[11px] underline">📎 attachment</a>
+                    ))}
                     {m.dateAdded && <span className="block mt-0.5 text-[9px] text-[#a6b3c4]">{timeAgo(m.dateAdded)} ago</span>}
                   </div>
                 </div>
@@ -790,6 +809,9 @@ export default function AskPage() {
                   onScheduled={() => { setSendText(""); setSchedTick((t) => t + 1); }} onBusyChange={setComposerSchedBusy} />
               )}
               <span className="text-[10px] text-[#8595a8]">{pending.contactId ? "⌘/Ctrl+Enter to send" : "no contact id — open the chat in GHL"}</span>
+              {/* Keyed by chat: switching chats throws away a half-made recording. */}
+              <VoiceNoteButton key={pending.id} contactId={pending.contactId ?? null} contactName={pending.contactName} channel={pending.channel}
+                onSent={() => { reloadThread(); loadConvs(); }} />
             </div>
             {pending.contactId && <ScheduledList contactId={pending.contactId} refreshKey={schedTick} />}
           </div>

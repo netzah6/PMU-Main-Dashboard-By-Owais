@@ -89,10 +89,17 @@ export type ThreadMessage = {
   userId: string | null;
   channel: string;
   source?: string | null; // GHL's "source" (e.g. workflow, campaign, app, api) when given
+  attachments?: string[]; // media URLs (photos, voice notes) when the message carries any
 };
 
 // Full message history for one conversation, oldest → newest (SMS + email).
-export async function getThread(acct: PmuAccount, conversationId: string, opts: { signal?: AbortSignal } = {}): Promise<ThreadMessage[]> {
+/* withAttachments keeps messages that are only media (a photo, a voice note)
+   — the chat view shows them; everything that reads the thread as text for
+   the AI or alerts keeps the old text-only list. */
+/* labelMedia: for readers that only look at text (the AI agent, drafts),
+   a media-only message reads as "[voice note]" / "[photo]" instead of
+   vanishing — a client answered with a voice note must not look unanswered. */
+export async function getThread(acct: PmuAccount, conversationId: string, opts: { signal?: AbortSignal; withAttachments?: boolean; labelMedia?: boolean } = {}): Promise<ThreadMessage[]> {
   const url = `${GHL_BASE}/conversations/${conversationId}/messages?limit=100`;
   const r = await fetch(url, { headers: authHeaders(acct.token, CONV_VERSION), signal: opts.signal });
   if (!r.ok) return [];
@@ -112,10 +119,18 @@ export async function getThread(acct: PmuAccount, conversationId: string, opts: 
       userId: (m.userId as string) ?? null,
       channel: channelFromType((m.messageType ?? m.type) as string | undefined),
       source: m.source ? String(m.source) : null,
+      attachments: Array.isArray(m.attachments) ? (m.attachments as unknown[]).map(String).filter((u) => /^https?:\/\//.test(u)) : [],
     }))
-    .filter((m) => m.body.length > 0);
+    .map((m) => (opts.labelMedia && !m.body && m.attachments?.length ? { ...m, body: mediaLabel(m.attachments) } : m))
+    .filter((m) => m.body.length > 0 || (!!opts.withAttachments && (m.attachments?.length ?? 0) > 0));
   // GHL returns newest-first; we want chronological for reading + prompting.
   return msgs.reverse();
+}
+
+function mediaLabel(urls: string[]): string {
+  if (urls.some((u) => /\.(mp3|m4a|aac|amr|wav|ogg|oga|opus|3gp)(\?|$)/i.test(u))) return "[voice note]";
+  if (urls.some((u) => /\.(jpe?g|png|gif|webp|heic)(\?|$)/i.test(u))) return "[photo]";
+  return "[attachment]";
 }
 
 // Friendly channel label → the GHL send-API message type. Email is excluded
@@ -132,7 +147,8 @@ export async function sendConversationMessage(
   // fromNumber: send from this number of the account (e.g. a teammate's own
   // line) instead of the account's default one.
   // scheduledAt (unix seconds): GHL holds the text and sends it then.
-  opts: { contactId: string; message: string; channel?: string; fromNumber?: string | null; scheduledAt?: number },
+  // attachments: public media URLs sent with the text (a voice note's MP3).
+  opts: { contactId: string; message: string; channel?: string; fromNumber?: string | null; scheduledAt?: number; attachments?: string[] },
 ): Promise<{ ok: boolean; error?: string; via?: "app-token"; messageId?: string }> {
   const type = SEND_TYPE[opts.channel ?? "SMS"] ?? "SMS";
   const post = async (token: string) => {
@@ -140,7 +156,10 @@ export async function sendConversationMessage(
       method: "POST",
       headers: { ...authHeaders(token, CONV_VERSION), "Content-Type": "application/json" },
       body: JSON.stringify({
-        type, contactId: opts.contactId, message: opts.message,
+        type, contactId: opts.contactId,
+        // A media-only text (voice note) carries no message field at all.
+        ...(opts.message || !opts.attachments?.length ? { message: opts.message } : {}),
+        ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts.fromNumber ? { fromNumber: opts.fromNumber } : {}),
         ...(opts.scheduledAt ? { scheduledTimestamp: Math.floor(opts.scheduledAt) } : {}),
       }),
