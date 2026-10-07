@@ -1492,7 +1492,7 @@ export default function FunnelsPage() {
               className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-sm" />
           </div>
           <div className="mt-3 flex items-center gap-3">
-            <button onClick={() => void addFunnel()} disabled={busy === "add" || !!locationTaken}
+            <button onClick={() => void addFunnel()} disabled={busy === "add" || (!!locationTaken && locationTaken.status === "live")}
               title={locationTaken ? `Location ID already used by ${locationTaken.clientName}` : undefined}
               className="flex items-center gap-1.5 text-sm bg-[#0e9c9c] text-white rounded-lg px-4 py-2 hover:bg-[#0b8383] disabled:opacity-50">
               {busy === "add" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Create &amp; sync from GHL
