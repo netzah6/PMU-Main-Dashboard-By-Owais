@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 /* Public info-request form (no login): shows ONLY the fields the agency
    is still missing for this client; submitting writes them straight into
    the funnel setup. */
-type Field = { k: string; label: string; hint?: string; type: "text" | "textarea" };
+type Field = { k: string; label: string; hint?: string; type: "text" | "textarea" | "photos" };
 
 export default function IntakePage({ params }: { params: { token: string } }) {
   const [business, setBusiness] = useState<string>("");
@@ -24,13 +24,27 @@ export default function IntakePage({ params }: { params: { token: string } }) {
       .catch(() => setState("error"));
   }, [params.token]);
 
+  const [files, setFiles] = useState<Record<string, File[]>>({});
   const submit = async () => {
     setState("saving");
     try {
+      const payload: Record<string, unknown> = { ...vals };
+      // Upload photos first; their URLs become the answers.
+      for (const [k, list] of Object.entries(files)) {
+        const urls: string[] = [];
+        for (const f of list.slice(0, 6)) {
+          const fd = new FormData();
+          fd.append("file", f);
+          const r = await fetch(`/api/intake/${params.token}/upload`, { method: "POST", body: fd });
+          const j = await r.json().catch(() => null);
+          if (r.ok && j?.url) urls.push(j.url);
+        }
+        if (urls.length) payload[k] = urls;
+      }
       const r = await fetch(`/api/intake/${params.token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(vals),
+        body: JSON.stringify(payload),
       });
       if (r.ok) setState("done"); else setState("form");
     } catch { setState("form"); }
@@ -59,7 +73,11 @@ export default function IntakePage({ params }: { params: { token: string } }) {
           <label key={f.k} className="grid gap-1">
             <span className="text-xs font-semibold text-[#34568a]">{f.label}</span>
             {f.hint && <span className="text-[11px] text-[#8595a8]">{f.hint}</span>}
-            {f.type === "textarea" ? (
+            {f.type === "photos" ? (
+              <input type="file" accept="image/*" multiple
+                onChange={(e) => setFiles((x) => ({ ...x, [f.k]: Array.from(e.target.files ?? []).slice(0, 6) }))}
+                className="text-sm text-[#56678a] file:mr-3 file:rounded-lg file:border-0 file:bg-[#e7f6ec] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[#15803d]" />
+            ) : f.type === "textarea" ? (
               <textarea value={vals[f.k] ?? ""} onChange={(e) => setVals((x) => ({ ...x, [f.k]: e.target.value }))}
                 rows={3} className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#0e9c9c]" />
             ) : (
@@ -69,7 +87,7 @@ export default function IntakePage({ params }: { params: { token: string } }) {
           </label>
         ))}
       </div>
-      <button onClick={() => void submit()} disabled={state === "saving" || !Object.values(vals).some((v) => v.trim())}
+      <button onClick={() => void submit()} disabled={state === "saving" || (!Object.values(vals).some((v) => v.trim()) && !Object.values(files).some((l) => l.length))}
         className="mt-5 w-full bg-[#0e9c9c] text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:bg-[#0b8383] disabled:opacity-50 inline-flex items-center justify-center gap-2">
         {state === "saving" ? <Loader2 size={14} className="animate-spin" /> : null} Send
       </button>
