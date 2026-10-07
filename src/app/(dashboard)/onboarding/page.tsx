@@ -519,11 +519,21 @@ export default function OnboardingPage() {
                         {v && v.status === "fail" && <p className="text-[10px] text-[#e11d48] mt-0.5">{v.detail}</p>}
                         {state?.done && <p className="text-[10px] text-[#a6b3c4]">✓ {state.by.split("@")[0]} · {new Date(state.at).toLocaleDateString()}</p>}
                       </div>
-                      {s.loom && (
-                        <a href={s.loom} target="_blank" rel="noopener noreferrer" title="Watch the how-to video"
-                          className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-[#0e8f88] hover:underline">
-                          <ExternalLink size={11} /> Loom
-                        </a>
+                      {(s.loom || s.doc) && (
+                        <span className="shrink-0 flex items-center gap-2">
+                          {s.loom && (
+                            <a href={s.loom} target="_blank" rel="noopener noreferrer" title="Watch the how-to video"
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#e6f7f5] text-[#0e8f88] hover:bg-[#d3f1ed]">
+                              ▶ Video
+                            </a>
+                          )}
+                          {s.doc && (
+                            <a href={s.doc} target="_blank" rel="noopener noreferrer" title={s.docLabel ?? "Open the guide"}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#eef2ff] text-[#3a5a8c] hover:bg-[#e0e7ff]">
+                              <ExternalLink size={11} /> {s.docLabel ?? "Guide"}
+                            </a>
+                          )}
+                        </span>
                       )}
                     </li>
                   );
@@ -537,9 +547,10 @@ export default function OnboardingPage() {
   }
 
   // ── List + create form (left) · Check Setup (right) ──────────────────────
-  // The tab shows ONLY the Check Setup panel for now — flip this to true to
-  // bring the new-client checklist/creation form back.
-  const SHOW_ONBOARDING_LIST = false;
+  // The per-client checklist (the team's Onboarding sheet, step for step,
+  // with its videos) is back on since 2026-10-07 — owner: "my team checks
+  // every step one by one so nothing is missed". Check Setup stays on the right.
+  const SHOW_ONBOARDING_LIST = true;
   return (
     <div className="p-4 sm:p-6">
       {/* Available clean accounts — the first thing you need before a setup. */}
@@ -641,7 +652,7 @@ export default function OnboardingPage() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Client Onboarding</h1>
-          <p className="text-sm text-[#697a91]">New-client setup checklist · replaces the onboarding spreadsheet</p>
+          <p className="text-sm text-[#697a91]">Every setup step with its how-to video — tick them one by one per client</p>
         </div>
         <button onClick={() => setShowForm((s) => !s)}
           className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white">
