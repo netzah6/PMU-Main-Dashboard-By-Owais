@@ -20,48 +20,73 @@ export function VoiceNoteButton({ contactId, contactName, channel, onSent }: {
   const [secs, setSecs] = useState(0);
   const [note, setNote] = useState<{ blob: Blob; url: string; seconds: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /* One recording attempt at a time. Every start, cancel and unmount bumps
+     the session; anything that resolves for an older session (the mic
+     permission, the MP3 encode) cleans up after itself and changes nothing —
+     so a cancelled or abandoned attempt can never turn the mic on in the
+     background or bring a thrown-away note back. */
+  const session = useRef(0);
+  // The live attempt's own teardown (stops its mic + timer), if one is running.
+  const teardown = useRef<(() => void) | null>(null);
   const rec = useRef<MediaRecorder | null>(null);
-  const stream = useRef<MediaStream | null>(null);
-  const tick = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cancelled = useRef(false);
 
-  const stopMic = () => {
-    if (tick.current) { clearInterval(tick.current); tick.current = null; }
-    stream.current?.getTracks().forEach((t) => t.stop());
-    stream.current = null;
+  const endAttempt = () => {
+    session.current++;
+    const r = rec.current;
+    rec.current = null;
+    if (r && r.state !== "inactive") { r.onstop = null; r.stop(); }
+    teardown.current?.();
+    teardown.current = null;
   };
   const discard = () => {
-    if (note) URL.revokeObjectURL(note.url);
-    setNote(null); setSecs(0); setErr(null);
+    setNote((n) => { if (n) URL.revokeObjectURL(n.url); return null; });
+    setSecs(0); setErr(null);
   };
   // Leaving the chat mid-recording must release the microphone.
-  useEffect(() => () => {
-    cancelled.current = true;
-    if (rec.current?.state === "recording") rec.current.stop();
-    stopMic();
-  }, []);
+  useEffect(() => () => endAttempt(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The previous note's audio is freed when it's replaced, and on unmount.
   useEffect(() => () => { if (note) URL.revokeObjectURL(note.url); }, [note]);
 
   const start = async () => {
+    endAttempt();
     discard();
-    cancelled.current = false;
+    const id = session.current;
     setPhase("asking");
+    let s: MediaStream;
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      stream.current = s;
+      s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch (e) {
+      if (id !== session.current) return;
+      setPhase("idle");
+      const name = (e as { name?: string })?.name;
+      setErr(name === "NotAllowedError" || name === "SecurityError"
+        ? "Microphone blocked — allow it in the browser's address bar, then try again"
+        : name === "NotFoundError" ? "No microphone found on this device" : "Couldn't start recording");
+      return;
+    }
+    // Cancelled, closed or restarted while the browser was asking: hand the mic back.
+    if (id !== session.current) { s.getTracks().forEach((t) => t.stop()); return; }
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const release = () => { if (timer) clearInterval(timer); timer = null; s.getTracks().forEach((t) => t.stop()); };
+    teardown.current = release;
+    try {
       const r = new MediaRecorder(s);
       const chunks: Blob[] = [];
       r.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       r.onstop = async () => {
-        stopMic();
-        if (cancelled.current) { setPhase("idle"); return; }
+        release();
+        if (id !== session.current) return;
+        rec.current = null; teardown.current = null;
         setPhase("encoding");
         try {
           const { mp3, seconds } = await toMp3(new Blob(chunks, { type: r.mimeType || chunks[0]?.type }));
+          if (id !== session.current) return; // thrown away while it was being prepared
           if (seconds < 1) throw new Error("That was too short — hold on a second longer");
           setNote({ blob: mp3, url: URL.createObjectURL(mp3), seconds });
           setPhase("ready");
         } catch (e) {
+          if (id !== session.current) return;
           setErr(e instanceof Error ? e.message : "Couldn't prepare the recording");
           setPhase("idle");
         }
@@ -71,26 +96,19 @@ export function VoiceNoteButton({ contactId, contactName, channel, onSent }: {
       const t0 = Date.now();
       setSecs(0);
       setPhase("recording");
-      tick.current = setInterval(() => {
+      timer = setInterval(() => {
         const s2 = (Date.now() - t0) / 1000;
         setSecs(s2);
         if (s2 >= VOICE_NOTE_MAX_SECONDS && r.state === "recording") r.stop();
       }, 250);
-    } catch (e) {
-      stopMic();
+    } catch {
+      release(); teardown.current = null; rec.current = null;
       setPhase("idle");
-      const name = (e as { name?: string })?.name;
-      setErr(name === "NotAllowedError" || name === "SecurityError"
-        ? "Microphone blocked — allow it in the browser's address bar, then try again"
-        : name === "NotFoundError" ? "No microphone found on this device" : "Couldn't start recording");
+      setErr("Couldn't start recording");
     }
   };
   const stop = () => { if (rec.current?.state === "recording") rec.current.stop(); };
-  const cancel = () => {
-    cancelled.current = true;
-    if (rec.current?.state === "recording") rec.current.stop();
-    stopMic(); discard(); setPhase("idle");
-  };
+  const cancel = () => { endAttempt(); discard(); setPhase("idle"); };
 
   const send = async () => {
     if (!note || !contactId) return;

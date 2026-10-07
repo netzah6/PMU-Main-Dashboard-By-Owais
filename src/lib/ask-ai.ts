@@ -357,7 +357,7 @@ async function findConversation(leadName: string, conversationId?: string) {
 async function runDraftReply(leadName: string, instructions: string | undefined, userEmail: string, conversationId?: string, inviteCall = false): Promise<Record<string, unknown>> {
   const found = await findConversation(leadName, conversationId);
   if ("error" in found) return { error: found.error };
-  const thread = await getThread(found.acct, found.conversationId);
+  const thread = await getThread(found.acct, found.conversationId, { labelMedia: true });
   if (!thread.length) return { error: "conversation has no readable messages" };
   const { draft, voice } = await draftReplyFor({
     acct: found.acct,

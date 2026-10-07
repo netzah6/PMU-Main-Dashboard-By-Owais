@@ -96,7 +96,10 @@ export type ThreadMessage = {
 /* withAttachments keeps messages that are only media (a photo, a voice note)
    — the chat view shows them; everything that reads the thread as text for
    the AI or alerts keeps the old text-only list. */
-export async function getThread(acct: PmuAccount, conversationId: string, opts: { signal?: AbortSignal; withAttachments?: boolean } = {}): Promise<ThreadMessage[]> {
+/* labelMedia: for readers that only look at text (the AI agent, drafts),
+   a media-only message reads as "[voice note]" / "[photo]" instead of
+   vanishing — a client answered with a voice note must not look unanswered. */
+export async function getThread(acct: PmuAccount, conversationId: string, opts: { signal?: AbortSignal; withAttachments?: boolean; labelMedia?: boolean } = {}): Promise<ThreadMessage[]> {
   const url = `${GHL_BASE}/conversations/${conversationId}/messages?limit=100`;
   const r = await fetch(url, { headers: authHeaders(acct.token, CONV_VERSION), signal: opts.signal });
   if (!r.ok) return [];
@@ -118,9 +121,16 @@ export async function getThread(acct: PmuAccount, conversationId: string, opts: 
       source: m.source ? String(m.source) : null,
       attachments: Array.isArray(m.attachments) ? (m.attachments as unknown[]).map(String).filter((u) => /^https?:\/\//.test(u)) : [],
     }))
+    .map((m) => (opts.labelMedia && !m.body && m.attachments?.length ? { ...m, body: mediaLabel(m.attachments) } : m))
     .filter((m) => m.body.length > 0 || (!!opts.withAttachments && (m.attachments?.length ?? 0) > 0));
   // GHL returns newest-first; we want chronological for reading + prompting.
   return msgs.reverse();
+}
+
+function mediaLabel(urls: string[]): string {
+  if (urls.some((u) => /\.(mp3|m4a|aac|amr|wav|ogg|oga|opus|3gp)(\?|$)/i.test(u))) return "[voice note]";
+  if (urls.some((u) => /\.(jpe?g|png|gif|webp|heic)(\?|$)/i.test(u))) return "[photo]";
+  return "[attachment]";
 }
 
 // Friendly channel label → the GHL send-API message type. Email is excluded

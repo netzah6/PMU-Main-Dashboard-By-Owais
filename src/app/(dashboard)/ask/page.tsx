@@ -725,7 +725,7 @@ export default function AskPage() {
 
           {/* Full conversation thread (shorter when the agent panel is open) */}
           <div ref={threadRef} className={cn("mb-2.5 overflow-y-auto rounded-lg border border-[#e4ebf2] bg-white p-2 space-y-1.5", agentOpen && convCards.length > 0 ? "max-h-[30vh]" : "max-h-[55vh]")}>
-            {threadLoading ? (
+            {threadLoading && thread.length === 0 ? (
               <p className="text-[11px] text-[#8595a8] flex items-center gap-1.5 py-1"><Loader2 size={11} className="animate-spin" /> Loading conversation…</p>
             ) : thread.length === 0 ? (
               <p className="text-[11px] text-[#8595a8] py-1">No readable messages in this conversation.</p>

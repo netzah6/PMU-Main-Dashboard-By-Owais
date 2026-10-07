@@ -155,7 +155,7 @@ async function closeHandledProposals(acct: PmuAccount, svc: ReturnType<typeof cr
     // cron inside its budget and the rest close on the next pass.
     if (looked++ >= 15) break;
     try {
-      const thread = await getThread(acct, convId);
+      const thread = await getThread(acct, convId, { labelMedia: true });
       if (!thread.length) continue;
       for (const card of cards) {
         const baseId = card.message_id.split("#")[0]; // on-demand cards: "<message id>#<ms>"
@@ -269,7 +269,7 @@ export async function proposeForConversation(opts: {
   if (!acct) return { error: "PMU Bookings On Demand token not found" };
   const svc = createServiceClient();
 
-  const thread = await getThread(acct, opts.conversationId);
+  const thread = await getThread(acct, opts.conversationId, { labelMedia: true });
   if (!thread.length) return { error: "No readable messages in this chat (calls/voicemails only?)" };
   const last = thread[thread.length - 1];
   const openCard = async () => (await svc.from("agent_proposals").select("*")
@@ -401,7 +401,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
   for (const c of convs) {
     if (scanned >= 20) break; // stay well inside the cron's time budget
     try {
-      const thread = await getThread(acct, c.id);
+      const thread = await getThread(acct, c.id, { labelMedia: true });
       if (!thread.length) { skipped.push({ who: c.contactName, why: "no readable messages (call/voicemail only?)" }); continue; }
       const last = thread[thread.length - 1];
       if (last.direction !== "inbound") { skipped.push({ who: c.contactName, why: "last message is ours — already answered" }); continue; }
