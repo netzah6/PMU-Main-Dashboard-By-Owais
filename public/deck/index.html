@@ -98,17 +98,8 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
 .media{position:relative;flex:1 1 auto;min-height:46%;background:#000}
 .media video{width:100%;height:100%;object-fit:cover;display:block}
 .fly-wrap{position:absolute;right:10px;bottom:8px;width:64px;height:78%;pointer-events:none;z-index:6}
-.fly{position:absolute;bottom:0;width:26px;height:26px;color:#F3425F;opacity:0;will-change:transform,opacity}
+.fly{position:absolute;right:6px;bottom:4px;width:27px;height:27px;color:#F3425F;opacity:1}
 .fly svg{width:100%;height:100%;display:block;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
-@keyframes floatup{
-  0%{opacity:0;transform:translate(0,0) scale(.45)}
-  14%{opacity:1;transform:translate(var(--dx1),-18px) scale(1.12)}
-  34%{transform:translate(var(--dx2),-52px) scale(1)}
-  100%{opacity:0;transform:translate(var(--dx3),-165px) scale(.85)}
-}
-/* Reduced motion: keep the reaction, drop the travel. */
-@keyframes fadeheart{0%{opacity:0}25%{opacity:.95}100%{opacity:0}}
-@media (prefers-reduced-motion:reduce){.fly{animation-name:fadeheart!important}}
 .cta-bar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:7px;background:#f0f2f5;padding:9px 11px}
 /* must stay on one line inside the phone */
 .cta-bar .hl{display:block;font-size:14px;font-weight:800;color:#050505;line-height:1.25;white-space:nowrap}
@@ -881,27 +872,11 @@ function tick(el,step,fmt){
 var fbL=document.getElementById("fb-likes");fbL.dataset.n="5834";tick(fbL,3,function(n){return (n/1000).toFixed(1)+"K";});
 var fbC=document.getElementById("fb-comments");fbC.dataset.n="461";tick(fbC,1,function(n){return String(Math.round(n));});
 var igL=document.getElementById("ig-likes");igL.dataset.n="1431";tick(igL,2,function(n){return Math.round(n).toLocaleString();});
-/* A red heart drifts up over the Facebook ad every couple of seconds, so the
-   post looks like it is collecting reactions while the creative plays. */
+/* One still red heart sits on the Facebook ad. It used to drift up on a loop,
+   but the motion pulled the room's eye off the creative during a demo. */
 var HEARTSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg>';
 var flyWrap=document.getElementById("fb-fly");
-function flyHeart(){
-  if(!flyWrap || !flyWrap.closest(".slide").classList.contains("on")) return;
-  var h=document.createElement("span");
-  h.className="fly";
-  var dur=2.4+Math.random()*1.2, drift=(Math.random()*34-17);
-  h.style.setProperty("--dx1",(drift*0.25)+"px");
-  h.style.setProperty("--dx2",(drift*0.7)+"px");
-  h.style.setProperty("--dx3",drift+"px");
-  h.style.right=(Math.random()*22)+"px";
-  h.style.width=h.style.height=(20+Math.random()*10)+"px";
-  h.style.animation="floatup "+dur+"s ease-out forwards";
-  h.innerHTML=HEARTSVG;
-  flyWrap.appendChild(h);
-  setTimeout(function(){h.remove();},dur*1000+80);
-}
-setInterval(flyHeart,1500);
-setInterval(function(){ if(Math.random()<0.45) flyHeart(); },700);
+if(flyWrap) flyWrap.innerHTML='<span class="fly">'+HEARTSVG+'</span>';
 
 var heart=document.getElementById("ig-heart");
 setInterval(function(){heart.classList.remove("pop");void heart.offsetWidth;heart.classList.add("pop");},7400);
