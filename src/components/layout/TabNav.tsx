@@ -25,7 +25,7 @@ const TABS: Tab[] = [
   { label: "🔄 Subs", href: "/subscriptions", adminOnly: true }, // Square + dashboard billing — admins only
   { label: "✅ Tasks", href: "/tasks" },
   { label: "📈 Performance", href: "/performance" },
-  { label: "❤️ Health", href: "/client-health", adminOnly: true }, // green/orange/red ROI per client — admin only until the owner opens it to coaches (2026-10-05)
+  // Hidden from the menu (page still exists at /client-health) — owner request 2026-10-08.
   { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
   // Coach-facing feed (client filled their info-request form, …) — admins see it too (owner request 2026-10-07).
   { label: "🔔 Notifications", href: "/notifications", adminOnly: true, alsoRoles: ["editor"] },
