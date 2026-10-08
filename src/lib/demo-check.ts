@@ -34,6 +34,9 @@ export type DemoResult = {
   appointmentAt?: string;
   note?: string;              // why, when the verdict needs explaining
   alternates?: string[];      // other contacts matching the same name
+  /** Other REAL people this name fits who also have a sales deal — the
+   *  verdict picked the most recent one, so the row needs a human check. */
+  ambiguous?: string[];
 };
 
 type Appt = { calendarId?: string; title?: string; startTime?: string; dateAdded?: string; appointmentStatus?: string; deleted?: boolean };
@@ -58,6 +61,20 @@ type Stage = { id: string; name: string; position: number };
 function norm(s: string): string {
   // Stage names carry emoji and stray spaces — strip to letters for matching.
   return s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+const CLIENT_JOURNEY = /client journey/i;
+// How far along each verdict is — used to pick between several sales deals.
+const STATUS_RANK: Record<DemoStatus, number> = { showed: 4, not_yet: 3, no_show: 2, cancelled: 1, not_in_system: 0 };
+
+/** True when every word of the pasted name is a whole word of `full`
+ *  ("Xuan" ~ "Xuan Luong"); a single letter may stand for an initial
+ *  ("Annie L" ~ "Annie Luong"). "Chi" does NOT match "China", and an email
+ *  that merely contains the letters does not count. */
+function namesMatch(pasted: string, full: string): boolean {
+  const words = norm(full).split(" ").filter(Boolean);
+  const want = norm(pasted).split(" ").filter(Boolean);
+  return want.length > 0 && want.every((w) => words.some((x) => x === w || (w.length === 1 && x.startsWith(w))));
 }
 
 /**
@@ -120,51 +137,82 @@ export async function checkDemos(names: string[]): Promise<DemoResult[]> {
     const name = query.trim();
     if (!name) continue;
 
+    // Who could this name be? Two searches, merged by contact:
+    //  - contacts whose CURRENT name/email/phone matches, and
+    //  - contacts whose DEAL is named that way. Deals keep the name the person
+    //    booked under, so a client who later renamed themselves in the CRM
+    //    (pasted "Xuan", contact now "Annie Luong") is only findable this way.
+    //    Without it the contact search fell back to whoever had "xuan" in an
+    //    email address — an unrelated 2025 lead with a cancelled demo.
     const cs = (await fetch(
       `https://services.leadconnectorhq.com/contacts/?locationId=${MAIN_LOCATION}&query=${encodeURIComponent(name)}&limit=5`,
       { headers: H }
     )
       .then((r) => r.json())
       .catch(() => ({}))) as { contacts?: Array<{ id: string; firstName?: string; lastName?: string; email?: string }> };
+    const byDeal = (await fetch(
+      `https://services.leadconnectorhq.com/opportunities/search?location_id=${MAIN_LOCATION}&q=${encodeURIComponent(name)}&limit=20`,
+      { headers: H }
+    )
+      .then((r) => r.json())
+      .catch(() => ({}))) as { opportunities?: Array<{ contactId?: string; contact?: { id?: string; name?: string; email?: string } }> };
 
-    const contacts = cs.contacts ?? [];
-    if (!contacts.length) {
-      out.push({ query: name, status: "not_in_system", note: "No contact with this name in the sub-account" });
+    type Hit = { id: string; label: string; email: string };
+    const hits = new Map<string, Hit>();
+    for (const c of cs.contacts ?? []) {
+      hits.set(c.id, { id: c.id, label: `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "(no name)", email: c.email ?? "" });
+    }
+    for (const o of byDeal.opportunities ?? []) {
+      const id = o.contactId || o.contact?.id;
+      if (!id || hits.has(id)) continue;
+      hits.set(id, { id, label: o.contact?.name?.trim() || "(no name)", email: o.contact?.email ?? "" });
+    }
+    if (!hits.size) {
+      out.push({ query: name, status: "not_in_system", note: "No contact or deal with this name in the sub-account" });
       continue;
     }
 
-    // A name can match several contacts. Score each by whether it has a sales
-    // opportunity, and report the rest as alternates so nothing is hidden.
-    type Cand = { id: string; label: string; email: string; stage?: string; status?: DemoStatus; note?: string; updated: string };
+    // A name can match several contacts. Read each one's deals, and report the
+    // ones not chosen as alternates so nothing is hidden.
+    type Cand = Hit & { stage?: string; status?: DemoStatus; note?: string; updated: string; nameMatch: boolean; dealNames: string[] };
     const cands: Cand[] = [];
-    for (const c of contacts.slice(0, 4)) {
-      const label = `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "(no name)";
+    for (const c of [...hits.values()].slice(0, 6)) {
       const os = (await fetch(
-        `https://services.leadconnectorhq.com/opportunities/search?location_id=${MAIN_LOCATION}&contact_id=${c.id}&limit=10`,
+        `https://services.leadconnectorhq.com/opportunities/search?location_id=${MAIN_LOCATION}&contact_id=${c.id}&limit=20`,
         { headers: H }
       )
         .then((r) => r.json())
-        .catch(() => ({}))) as { opportunities?: Array<{ pipelineId: string; pipelineStageId: string; updatedAt?: string }> };
+        .catch(() => ({}))) as { opportunities?: Array<{ name?: string; pipelineId: string; pipelineStageId: string; updatedAt?: string }> };
 
-      const sales = (os.opportunities ?? []).filter((o) => SALES_PIPELINE.test(pipeName.get(o.pipelineId) ?? ""));
-      if (!sales.length) {
-        cands.push({ id: c.id, label, email: c.email ?? "", updated: "" });
+      const opps = os.opportunities ?? [];
+      const dealNames = opps.map((o) => String(o.name ?? "").trim()).filter(Boolean);
+      // Does the pasted name actually NAME this person (contact or any deal),
+      // rather than just appearing inside an email address?
+      const nameMatch = [c.label, ...dealNames].some((n) => namesMatch(name, n));
+      const sales = opps.filter((o) => SALES_PIPELINE.test(pipeName.get(o.pipelineId) ?? ""));
+      const journey = opps.filter((o) => CLIENT_JOURNEY.test(pipeName.get(o.pipelineId) ?? ""));
+      const lastTouch = [...opps].map((o) => String(o.updatedAt ?? "")).sort().pop() ?? "";
+      if (!sales.length && !journey.length) {
+        cands.push({ ...c, updated: lastTouch.slice(0, 10), nameMatch, dealNames });
         continue;
       }
-      sales.sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
-      const o = sales[0];
-      const st = stageById.get(o.pipelineStageId);
-      const stageName = st?.name ?? o.pipelineStageId;
-      const verdict = classify(stageName, st, demoIdx);
-      cands.push({
-        id: c.id,
-        label,
-        email: c.email ?? "",
-        stage: stageName,
-        status: verdict.status,
-        note: verdict.note,
-        updated: String(o.updatedAt ?? "").slice(0, 10),
+      // A person can carry SEVERAL sales deals (a re-booked demo opens a fresh
+      // card while the old one moves on). The furthest-along one wins: one card
+      // past the demo proves the demo happened, whatever the other says.
+      const verdicts = sales.map((o) => {
+        const st = stageById.get(o.pipelineStageId);
+        const stageName = st?.name ?? o.pipelineStageId;
+        return { stageName, ...classify(stageName, st, demoIdx) };
       });
+      verdicts.sort((a, b) => STATUS_RANK[b.status] - STATUS_RANK[a.status]);
+      let v: { stageName: string; status: DemoStatus; note?: string } | undefined = verdicts[0];
+      // A Client Journey card = they closed and are onboarding — the demo
+      // obviously happened, even if the sales card was never moved.
+      if (journey.length && (!v || v.status !== "showed")) {
+        const st = stageById.get(journey[0].pipelineStageId);
+        v = { stageName: st?.name ?? "Client Journey", status: "showed", note: "Closed — in the Client Journey pipeline" };
+      }
+      cands.push({ ...c, stage: v!.stageName, status: v!.status, note: v!.note, updated: lastTouch.slice(0, 10), nameMatch, dealNames });
     }
 
     const withOpp = cands.filter((c) => c.status);
@@ -180,8 +228,22 @@ export async function checkDemos(names: string[]): Promise<DemoResult[]> {
       continue;
     }
 
-    withOpp.sort((a, b) => b.updated.localeCompare(a.updated));
+    // Real name matches first (contact or deal named this), then the most
+    // recently touched.
+    // Pasted names are people who booked a demo, so someone whose deal never
+    // got that far (discovery, nurture) is a weaker match than one who did.
+    const reachedDemo = (c: Cand) => c.status !== "not_yet" || /demo/.test(norm(c.stage ?? ""));
+    withOpp.sort((a, b) =>
+      Number(b.nameMatch) - Number(a.nameMatch) ||
+      Number(reachedDemo(b)) - Number(reachedDemo(a)) ||
+      b.updated.localeCompare(a.updated));
     const best = withOpp[0];
+    // Say so when the person now goes by another name in the CRM.
+    const renamed = !namesMatch(name, best.label) && best.dealNames.some((n) => namesMatch(name, n));
+    // Another real person with this name and a sales deal? Then the pick above
+    // is a guess — flag it rather than present it as certain.
+    const rivals = best.nameMatch ? withOpp.filter((c) => c !== best && c.nameMatch && reachedDemo(c)) : [];
+    if (renamed) best.note = [`Now named "${best.label}" in the CRM (deal still says "${best.dealNames.find((n) => namesMatch(name, n))}")`, best.note].filter(Boolean).join(" · ");
 
     // The calendar can't say whether a demo happened, but it is the only
     // place that says WHEN it was booked and when it is — which is what the
@@ -207,6 +269,7 @@ export async function checkDemos(names: string[]): Promise<DemoResult[]> {
       demoDate: demo?.startTime?.slice(0, 10) ?? best.updated ?? undefined,
       bookedAt: demo?.dateAdded ?? undefined,
       appointmentAt: demo?.startTime ?? undefined,
+      ambiguous: rivals.length ? rivals.map((c) => `${c.label}${c.email ? ` <${c.email}>` : ""} — ${c.stage}`) : undefined,
       alternates: cands.filter((c) => c !== best).map((c) => `${c.label} <${c.email}>${c.stage ? ` — ${c.stage}` : " — no opportunity"}`),
     });
   }

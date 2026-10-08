@@ -313,7 +313,11 @@ export default function SalesPage() {
       if (!rows.length) continue;
       const count = sec.key === "showed" ? `(${rows.length}/${results.length})` : `${rows.length}`;
       const lines = rows.map((r) => {
-        const extra = [sec.key === "not_yet" ? whenLine(r) : "", r.note].filter(Boolean).join(" — ");
+        const extra = [
+          r.ambiguous?.length ? `⚠ ${r.ambiguous.length + 1} people match — check` : "",
+          sec.key === "not_yet" ? whenLine(r) : "",
+          r.note,
+        ].filter(Boolean).join(" — ");
         return extra ? `${r.query} — ${extra}` : r.query;
       });
       blocks.push(`${sec.emoji} ${sec.label} — ${count}\n${lines.join("\n")}`);
@@ -443,6 +447,11 @@ export default function SalesPage() {
                         {s.key === "not_yet" && r.appointmentAt && (
                           <div className="text-xs text-[#34568a] mt-0.5">
                             📅 Booked <b>{fmtLocal(r.bookedAt)}</b> · demo <b>{fmtLocal(r.appointmentAt)}</b> <span className="text-[#8595a8]">(Pacific)</span>
+                          </div>
+                        )}
+                        {r.ambiguous && r.ambiguous.length > 0 && (
+                          <div className="mt-1 rounded-md border border-[#f2d48a] bg-[#fff8e6] px-2 py-1 text-xs text-[#8a6100]">
+                            ⚠ <b>{r.ambiguous.length + 1} people match this name — check.</b> Showing {r.contactName}; also: {r.ambiguous.join("; ")}
                           </div>
                         )}
                         {r.note && <div className="text-xs text-[#a3616b] mt-0.5">{r.note}</div>}
