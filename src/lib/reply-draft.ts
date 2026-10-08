@@ -95,6 +95,10 @@ function buildSystemPrompt(input: DraftInput): string {
       // short (owner, 2026-10-04: the 9–5 hours vanished on an edit).
       ? "6. LENGTH — this is a REVISION of an earlier draft: keep every point the earlier notes asked for and every sentence the change doesn't touch. It may be longer than usual; still no filler."
       : `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
+    // Owner, 2026-10-08 (Sara's "Hi Nicholas! … Thank you so much, Sara"
+    // message got a flat text back): the reply must LOOK like the client's
+    // message, not just answer it.
+    "7. MIRROR THE CLIENT'S LAYOUT — shape the reply the way the client shaped their latest message. If they opened with a greeting on its own line (\"Hi Nicholas!\"), open with a greeting line to them. If they wrote in several short paragraphs, answer in several short paragraphs that follow their order of points. If they closed with a thank-you line and then their first name on its own line, close with a thank-you/warm line and then " + agentName + "'s first name on its own line. A one-line text gets a one-line text back. Mirror the shape, not the length of every paragraph.",
     "",
     `=== ${agentName.toUpperCase()}'S REAL PAST REPLIES (mimic this voice) ===`,
     samplesBlock,
@@ -118,7 +122,7 @@ function buildSystemPrompt(input: DraftInput): string {
         ]
       : []),
     "OUTPUT RULES:",
-    "- Return ONLY the message text to send. No preamble, no quotes, no notes, no signature unless the past replies show one.",
+    "- Return ONLY the message text to send. No preamble, no quotes, no notes. A signature (first name on the last line) only when the client signed theirs (rule 7) or the past replies show one.",
     "- Reply in the same language the client is using.",
     "- Match the client's level of formality and warmth.",
     "- When the client is describing money pressure or hardship, acknowledge it plainly before anything else, and never follow it immediately with a new ask.",
