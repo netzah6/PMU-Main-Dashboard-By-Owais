@@ -34,6 +34,9 @@ export type DemoResult = {
   appointmentAt?: string;
   note?: string;              // why, when the verdict needs explaining
   alternates?: string[];      // other contacts matching the same name
+  /** Other REAL people this name fits who also have a sales deal — the
+   *  verdict picked the most recent one, so the row needs a human check. */
+  ambiguous?: string[];
 };
 
 type Appt = { calendarId?: string; title?: string; startTime?: string; dateAdded?: string; appointmentStatus?: string; deleted?: boolean };
@@ -64,13 +67,14 @@ const CLIENT_JOURNEY = /client journey/i;
 // How far along each verdict is — used to pick between several sales deals.
 const STATUS_RANK: Record<DemoStatus, number> = { showed: 4, not_yet: 3, no_show: 2, cancelled: 1, not_in_system: 0 };
 
-/** True when every word of the pasted name starts a word of `full`
- *  ("Xuan" ~ "Xuan Luong", "annie l" ~ "Annie Luong"). An email that merely
- *  contains the letters does not count. */
+/** True when every word of the pasted name is a whole word of `full`
+ *  ("Xuan" ~ "Xuan Luong"); a single letter may stand for an initial
+ *  ("Annie L" ~ "Annie Luong"). "Chi" does NOT match "China", and an email
+ *  that merely contains the letters does not count. */
 function namesMatch(pasted: string, full: string): boolean {
   const words = norm(full).split(" ").filter(Boolean);
   const want = norm(pasted).split(" ").filter(Boolean);
-  return want.length > 0 && want.every((w) => words.some((x) => x.startsWith(w)));
+  return want.length > 0 && want.every((w) => words.some((x) => x === w || (w.length === 1 && x.startsWith(w))));
 }
 
 /**
@@ -226,10 +230,19 @@ export async function checkDemos(names: string[]): Promise<DemoResult[]> {
 
     // Real name matches first (contact or deal named this), then the most
     // recently touched.
-    withOpp.sort((a, b) => Number(b.nameMatch) - Number(a.nameMatch) || b.updated.localeCompare(a.updated));
+    // Pasted names are people who booked a demo, so someone whose deal never
+    // got that far (discovery, nurture) is a weaker match than one who did.
+    const reachedDemo = (c: Cand) => c.status !== "not_yet" || /demo/.test(norm(c.stage ?? ""));
+    withOpp.sort((a, b) =>
+      Number(b.nameMatch) - Number(a.nameMatch) ||
+      Number(reachedDemo(b)) - Number(reachedDemo(a)) ||
+      b.updated.localeCompare(a.updated));
     const best = withOpp[0];
     // Say so when the person now goes by another name in the CRM.
     const renamed = !namesMatch(name, best.label) && best.dealNames.some((n) => namesMatch(name, n));
+    // Another real person with this name and a sales deal? Then the pick above
+    // is a guess — flag it rather than present it as certain.
+    const rivals = best.nameMatch ? withOpp.filter((c) => c !== best && c.nameMatch && reachedDemo(c)) : [];
     if (renamed) best.note = [`Now named "${best.label}" in the CRM (deal still says "${best.dealNames.find((n) => namesMatch(name, n))}")`, best.note].filter(Boolean).join(" · ");
 
     // The calendar can't say whether a demo happened, but it is the only
@@ -256,6 +269,7 @@ export async function checkDemos(names: string[]): Promise<DemoResult[]> {
       demoDate: demo?.startTime?.slice(0, 10) ?? best.updated ?? undefined,
       bookedAt: demo?.dateAdded ?? undefined,
       appointmentAt: demo?.startTime ?? undefined,
+      ambiguous: rivals.length ? rivals.map((c) => `${c.label}${c.email ? ` <${c.email}>` : ""} — ${c.stage}`) : undefined,
       alternates: cands.filter((c) => c !== best).map((c) => `${c.label} <${c.email}>${c.stage ? ` — ${c.stage}` : " — no opportunity"}`),
     });
   }
