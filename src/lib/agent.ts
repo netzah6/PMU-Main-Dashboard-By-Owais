@@ -106,7 +106,7 @@ Reply with ONLY a JSON object, no other text:
 
 Rules:
 - "summary": at most 12 words, plain and direct, the ask itself — no "Client wants", no explanation (e.g. "Block Oct 8, 9, 15, 16, 22 on the calendar").
-- "proposed_reply": at most 2 short sentences, no filler. Never invite them to a call or meeting and never write a link (payment links are added to the reply automatically).
+- "proposed_reply": at most 2 short sentences, no filler. Never invite them to a call or meeting and never write a link (payment links are added to the reply automatically). Mirror the client's layout: if their message opened with a greeting line, open with one; if it closed with a thank-you line and their first name, close with a warm line and the first name the client addressed (e.g. "Nicolas") on its own line; a one-line text gets a one-line reply.
 - "action_detail": one short sentence per change, nothing else.
 - "reply" = a message back fully handles it (a question, confirmation, scheduling info).
 - "account_change" = something in their account/funnel/ads must actually be changed. Still include proposed_reply (an acknowledgment).
