@@ -230,6 +230,15 @@ export function fingerprint(table: IngestTable, row: Record<string, unknown>): s
  * ~3.6k rows in 30 days — found 2026-09-08). Matching per identifier means a
  * blank field can no longer split one record into two.
  */
+/* The one-box funnel stores a US number as 10 digits (2027181502); the
+   client's GHL workflow webhook sends the same number as 12027181502. Both
+   are the same person — compare on the last 10 digits. (2026-10-08: every
+   one-box lead was stored twice because of this + the twin lookup below.) */
+export function phoneKey(raw: unknown): string {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 export function identityKeys(table: IngestTable, row: Record<string, unknown>): string[] {
   const n = (x: unknown) => String(x ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
   const biz = n(row["Business Name"]);
@@ -238,7 +247,7 @@ export function identityKeys(table: IngestTable, row: Record<string, unknown>): 
   // day by the same person are two deposits, not a duplicate.
   const amt = table === "deposits" ? n(row["Amount"]) : "";
   const email = n(row["Email"]);
-  const phone = n(row["Phone Number"]);
+  const phone = phoneKey(row["Phone Number"]);
   const name = n(row["Full Name"]);
   const keys: string[] = [];
   if (email) keys.push(`${table}|e|${email}|${biz}|${date}|${amt}`);
@@ -253,7 +262,7 @@ export function identityKeysLoose(table: IngestTable, row: Record<string, unknow
   const biz = n(row["Business Name"]);
   const amt = table === "deposits" ? n(row["Amount"]) : "";
   const email = n(row["Email"]);
-  const phone = n(row["Phone Number"]);
+  const phone = phoneKey(row["Phone Number"]);
   const name = n(row["Full Name"]);
   const keys: string[] = [];
   if (email) keys.push(`${table}|le|${email}|${biz}|${amt}`);
@@ -349,9 +358,17 @@ export async function ingestRow(table: IngestTable, body: Record<string, unknown
   // 38k rows (measured: 8.4s), which timed the webhook out and filled Make's
   // incomplete-executions queue.
   const myKeys = new Set(identityKeys(table, row));
-  let q = supabase.from(table).select("id, data").is("external_id", null).limit(50);
+  /* Until 2026-10-08 only rows WITHOUT an external id were candidates — the
+     idea being "the sheet twin". But the one-box funnel writes its lead
+     directly (external_id "onebox:<id>"), and the client's GHL workflow then
+     posts the same lead here minutes later: the one-box row was never looked
+     at, so every one-box lead landed twice (Alluring: 582 rows for 285
+     leads; 28% of all lead rows fleet-wide). Any row can be the twin now,
+     and a phone is matched in both the 10-digit and 1+10-digit spelling. */
+  let q = supabase.from(table).select("id, data, external_id").limit(50);
+  const p10 = phoneKey(v.phone);
   if (v.email) q = q.eq("data->>Email", v.email);
-  else if (v.phone) q = q.eq("data->>Phone Number", String(toPhone(v.phone)));
+  else if (p10) q = q.or(`data->>Phone Number.eq.${p10},data->>Phone Number.eq.1${p10}`);
   else q = q.eq("data->>Full Name", v.fullName);
   const { data: candidates, error: twinErr } = await q;
   // A slow or failed duplicate check must not lose the row: fall through and
@@ -361,8 +378,10 @@ export async function ingestRow(table: IngestTable, body: Record<string, unknown
     identityKeys(table, (r.data ?? {}) as Record<string, unknown>).some((k) => myKeys.has(k))
   );
   if (twin) {
-    await supabase.from(table).update({ external_id: externalId, synced_at: now }).eq("id", twin.id);
-    return { ok: true, action: "matched-existing", table, externalId };
+    // Keep the twin's own id when it has one (a one-box row stays "onebox:<id>").
+    const twinExt = (twin as { external_id?: string | null }).external_id;
+    await supabase.from(table).update({ ...(twinExt ? {} : { external_id: externalId }), synced_at: now }).eq("id", twin.id);
+    return { ok: true, action: "matched-existing", table, externalId: twinExt || externalId };
   }
 
   const { error } = await supabase.from(table).upsert(
