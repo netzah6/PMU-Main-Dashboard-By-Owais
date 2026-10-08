@@ -115,7 +115,8 @@ Rules:
 - ${opts.force
     ? `A teammate asked you to handle this conversation: ALWAYS return "actionable": true with a "summary" of what (if anything) is needed now. If nothing must change, use action_type "reply" and summarize what the reply should cover.`
     : `If the last message is from the Agency (already handled) or nothing is being asked: {"actionable": false}.`}
-- "upset" is SEPARATE from actionable: set it true when the client sounds like a churn risk — wants to leave or cancel the service, asks for a refund or compensation, says they're frustrated/disappointed/not seeing results, or keeps repeating the same complaint. Normal questions, small fix requests, or neutral chatting are NOT upset. Always include "upset" (false when calm).`;
+- "upset" is SEPARATE from actionable: set it true when the client sounds like a churn risk — wants to leave or cancel the service, asks for a refund or compensation, says they're frustrated/disappointed/not seeing results, or keeps repeating the same complaint. Normal questions, small fix requests, or neutral chatting are NOT upset. Always include "upset" (false when calm).
+- Judge "upset" ONLY from the client's NEW messages. Earlier complaints were already seen and handled by the team — use them as background, never as the reason. If the NEW messages are calm (a request, a question, chatting), "upset" is false even if they complained before.`;
 
   const res = await client.messages.create({
     model: MODEL,
