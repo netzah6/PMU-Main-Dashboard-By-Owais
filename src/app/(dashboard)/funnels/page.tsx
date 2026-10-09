@@ -621,6 +621,65 @@ function DeprowTestCard() {
 
 /* A/B pair #2 (engine v93): slot scarcity + survey length, parallel coins
    starting Oct 13 — one shared card, same read as the other test cards. */
+
+/* 📨 Client info-form submissions awaiting approval (owner, 2026-10-09):
+   nothing a client submits touches the funnel until Approve. Photos render
+   as thumbnails; values show next to their CV names. */
+function IntakeReviewCards() {
+  type Sub = { id: number; created_at: string; slug: string; client_name: string | null; fields: { labels?: string[]; cvs?: Record<string, string> } };
+  const [rows, setRows] = useState<Sub[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const load = () => { fetch("/api/intake-review").then(async (r) => { const j = await r.json(); if (r.ok) setRows(j.rows); }).catch(() => {}); };
+  useEffect(load, []);
+  const decide = async (id: number, action: "approve" | "reject") => {
+    setBusyId(`${id}:${action}`);
+    try {
+      const r = await fetch("/api/intake-review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }) });
+      const j = await r.json();
+      if (!r.ok) window.alert(j?.error || "Failed");
+      load();
+    } finally { setBusyId(null); }
+  };
+  if (!rows?.length) return null;
+  const isImgList = (v: string) => v.split(",").every((u) => /^https?:\/\/.+\.(jpe?g|png|webp|heic)(\?|$)/i.test(u.trim()) || /storage\/v1\/object\/public/.test(u));
+  return (<>
+    {rows.map((s) => (
+      <div key={s.id} className="mb-4 border border-[#e9d5ff] rounded-xl bg-[#faf5ff] px-4 py-3">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm font-semibold text-[#6b21a8]">📨 {s.client_name ?? s.slug} filled their info form</span>
+          <span className="text-xs text-[#8595a8]">{new Date(s.created_at).toLocaleString()}</span>
+          <div className="flex-1" />
+          <button onClick={() => void decide(s.id, "approve")} disabled={!!busyId}
+            className="text-xs bg-[#15803d] text-white rounded-lg px-3 py-1 hover:bg-[#136a33] disabled:opacity-50 inline-flex items-center gap-1">
+            {busyId === `${s.id}:approve` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Approve → apply to funnel
+          </button>
+          <button onClick={() => void decide(s.id, "reject")} disabled={!!busyId}
+            className="text-xs border border-[#fca5a5] text-[#b91c1c] rounded-lg px-3 py-1 hover:bg-[#fef2f2] disabled:opacity-50 inline-flex items-center gap-1">
+            {busyId === `${s.id}:reject` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Reject
+          </button>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-1.5">
+          {Object.entries(s.fields?.cvs ?? {}).map(([cv, val]) => (
+            <div key={cv} className="bg-white border border-[#eee3fb] rounded-lg px-2.5 py-1.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">{cv.replace(/^CC - |^OB - /, "")}</div>
+              {isImgList(val) ? (
+                <div className="flex gap-1.5 mt-1 flex-wrap">
+                  {val.split(",").map((u) => u.trim()).filter(Boolean).map((u) => (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img key={u} src={u} alt="submitted" className="w-16 h-16 object-cover rounded-md border border-[#eee3fb]" />
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-[#1c2b3a] break-words">{val}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    ))}
+  </>);
+}
+
 function Ab2TestCards() {
   type Side = { leads: number; picked: number; paid: number };
   type Pair = { a: Side; b: Side };
@@ -1450,6 +1509,7 @@ export default function FunnelsPage() {
 
       {toast && <div className="mb-3 text-sm bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] rounded-lg px-3 py-2">{toast}</div>}
 
+      <IntakeReviewCards />
       <DeprowTestCard />
       <TopbarTestCard />
       <Ab2TestCards />
