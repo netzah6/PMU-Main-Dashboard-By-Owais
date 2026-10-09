@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { ONEBOX_EDITABLE_CVS, setOneboxCustomValues, refreshOneboxConfig } from "@/lib/onebox";
-import { missingIntakeFields, clientIsV3, assignedCoach, INTAKE_FIELDS, missingPhotoAsks, PHOTO_ASKS, photoCount } from "@/lib/intake";
-import { fileAlert } from "@/lib/alerts";
+import { ONEBOX_EDITABLE_CVS } from "@/lib/onebox";
+import { missingIntakeFields, clientIsV3, INTAKE_FIELDS, missingPhotoAsks, PHOTO_ASKS, photoCount } from "@/lib/intake";
 
 export const fetchCache = "force-no-store";
 
@@ -81,29 +80,18 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   }
   if (!entries.length) return NextResponse.json({ ok: true, saved: 0 });
 
-  const res = await setOneboxCustomValues(client.location_id as string, entries);
-  if (res.error) return NextResponse.json({ error: "could not save — try again" }, { status: 502 });
-  const justWritten = Object.fromEntries(entries.filter((e) => res.written.includes(e.name)).map((e) => [e.name, e.value]));
-  await refreshOneboxConfig(svc, client.slug as string, client.location_id as string, justWritten).catch(() => null);
-
-  // Tell the team: an Alerts-tab card for the owner + a Notifications row
-  // for the assigned Client Success Coach.
-  const coach = await assignedCoach(svc, String(client.client_name)).catch(() => null);
-  await fileAlert(svc, {
-    type: "onboarding",
-    severity: "medium",
-    title: `${client.client_name} filled in their missing info`,
-    detail: `Submitted through their info-request link: ${answered.join(", ")}. The funnel updated automatically — nothing to copy by hand.`,
-    source_key: `intake:${client.slug}:${new Date().toISOString().slice(0, 10)}`,
-    meta: { slug: client.slug, fields: answered, coach },
-  }).catch(() => false);
-  await svc.from("notifications").insert({
-    type: "intake",
-    title: `${client.client_name} completed their info form`,
-    body: `Filled in: ${answered.join(", ")}`,
-    coach,
-    meta: { slug: client.slug, fields: answered },
+  /* Nothing is applied automatically any more (owner, 2026-10-09): the
+     answers land as a PENDING submission that the team reviews on the
+     Funnels tab — pricing, pictures, everything — and only Approve
+     writes them into the funnel. */
+  const fieldsByKey: Record<string, string> = {};
+  for (const e of entries) fieldsByKey[e.name] = e.value;
+  const { error: insErr } = await svc.from("intake_submissions").insert({
+    slug: client.slug,
+    client_name: client.client_name,
+    fields: { labels: answered, cvs: fieldsByKey },
   });
+  if (insErr) return NextResponse.json({ error: "could not save — try again" }, { status: 502 });
 
-  return NextResponse.json({ ok: true, saved: entries.length, failed: entries.length - res.written.length });
+  return NextResponse.json({ ok: true, saved: entries.length, pending: true });
 }
