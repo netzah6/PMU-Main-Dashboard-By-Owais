@@ -25,13 +25,6 @@ function fmtLocal(s?: string, withTime = true): string {
   if (!withTime || !m[4]) return day;
   return `${day}, ${d.toLocaleTimeString("en-US", { timeZone: "UTC", hour: "numeric", minute: "2-digit" })}`;
 }
-// "booked Sep 18 · demo Thu Sep 25, 2:00 PM PT" — the two dates the owner
-// wants on every demo that hasn't happened yet.
-function whenLine(r: DemoResult): string {
-  if (!r.appointmentAt) return "";
-  return `booked ${fmtLocal(r.bookedAt, false)} · demo ${fmtLocal(r.appointmentAt)} PT`;
-}
-
 type CoachRow = {
   coach: string;
   live: number; paused: number; offboarded: number;
@@ -303,22 +296,30 @@ export default function SalesPage() {
   const shown = results?.filter((r) => r.status === "showed").length ?? 0;
   const resolved = results?.filter((r) => r.status !== "not_yet" && r.status !== "not_in_system").length ?? 0;
 
-  // The exact message the team posts in Slack after a check — same sections,
-  // same emojis, "Showed" counted against everything checked.
+  // The message the team posts in Slack after a check — kept clean (owner,
+  // 2026-10-09): names only under Showed / No-show, one short line per demo
+  // still ahead, and the long diagnostics (rename trail, "2 people match",
+  // "check the conversation") stay in the UI, not in Slack.
   function copyForSlack() {
     if (!results) return;
+    const slackName = (r: DemoResult) => {
+      const crm = r.contactName?.trim();
+      const renamed = crm && crm.toLowerCase() !== r.query.trim().toLowerCase() && /Now named/.test(r.note ?? "");
+      const flag = r.ambiguous?.length ? " ⚠ check" : "";
+      return renamed ? `${r.query} (${crm} in CRM)${flag}` : `${r.query}${flag}`;
+    };
     const blocks: string[] = [];
     for (const sec of SECTIONS) {
       const rows = results.filter((r) => r.status === sec.key);
       if (!rows.length) continue;
       const count = sec.key === "showed" ? `(${rows.length}/${results.length})` : `${rows.length}`;
       const lines = rows.map((r) => {
-        const extra = [
-          r.ambiguous?.length ? `⚠ ${r.ambiguous.length + 1} people match — check` : "",
-          sec.key === "not_yet" ? whenLine(r) : "",
-          r.note,
-        ].filter(Boolean).join(" — ");
-        return extra ? `${r.query} — ${extra}` : r.query;
+        if (sec.key !== "not_yet") return slackName(r);
+        if (!r.appointmentAt) return `${slackName(r)} — no demo booked yet`;
+        const passed = /time has passed/i.test(r.note ?? "");
+        return passed
+          ? `${slackName(r)} — ${fmtLocal(r.appointmentAt, false)} (demo passed, no outcome recorded)`
+          : `${slackName(r)} — ${fmtLocal(r.appointmentAt)} PT`;
       });
       blocks.push(`${sec.emoji} ${sec.label} — ${count}\n${lines.join("\n")}`);
     }
