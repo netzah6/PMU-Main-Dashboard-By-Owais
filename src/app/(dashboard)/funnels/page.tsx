@@ -2450,15 +2450,15 @@ export default function FunnelsPage() {
                         {T("gmbLink", "Google My Business link", "https://g.page/r/… or maps link")}
                         {ver === "V3" && (<>
                         {H("Prices", true)}
-                        {T("originalPrice", "Original price — new brows", "$597")}
-                        {T("discountedPrice", "Discounted price — new brows", "$397")}
-                        {T("originalPriceBrowsHadPmu", "Original price — brows, had PMU before", "empty = same as new brows")}
-                        {T("discountedPriceBrowsHadPmu", "Discounted price — brows, had PMU before", "empty = same as new brows")}
-                        {T("originalPriceLips", "Original price — lips", "leave empty if not offered")}
-                        {T("discountedPriceLips", "Discounted price — lips", "leave empty if not offered")}
-                        {T("originalPriceEyeliner", "Original price — eyeliner", "leave empty if not offered")}
-                        {T("discountedPriceEyeliner", "Discounted price — eyeliner", "leave empty if not offered")}
-                        {T("touchupPrice", "Touch-up price", "$150")}
+                        {T("originalPrice", "🆕 Original price — new brows (first time)", "$597")}
+                        {T("discountedPrice", "🆕💸 Discounted price — new brows (first time)", "$397")}
+                        {T("originalPriceBrowsHadPmu", "🔁 Original price — brows, had PMU before (cover-up / redo)", "empty = same as new brows")}
+                        {T("discountedPriceBrowsHadPmu", "🔁💸 Discounted price — brows, had PMU before (cover-up / redo)", "empty = same as new brows")}
+                        {T("originalPriceLips", "💋 Original price — lips", "leave empty if not offered")}
+                        {T("discountedPriceLips", "💋💸 Discounted price — lips", "leave empty if not offered")}
+                        {T("originalPriceEyeliner", "👁️ Original price — eyeliner", "leave empty if not offered")}
+                        {T("discountedPriceEyeliner", "👁️💸 Discounted price — eyeliner", "leave empty if not offered")}
+                        {T("touchupPrice", "✏️ Touch-up price", "$150")}
                         {H("Details for the AI script", true)}
                         <label className="grid gap-0.5 md:col-span-2">
                           {Lbl("services", "Permanent makeup services (tick all that apply)")}
