@@ -1510,9 +1510,13 @@ export default function FunnelsPage() {
       {toast && <div className="mb-3 text-sm bg-[#e7f6ec] border border-[#bfe3cd] text-[#15803d] rounded-lg px-3 py-2">{toast}</div>}
 
       <IntakeReviewCards />
-      <DeprowTestCard />
-      <TopbarTestCard />
-      <Ab2TestCards />
+      {/* Split-test results are the owner's dials — coaches don't see them
+          (owner, 2026-10-09). */}
+      {isAdmin && (<>
+        <DeprowTestCard />
+        <TopbarTestCard />
+        <Ab2TestCards />
+      </>)}
 
       {showAdd && (() => {
         /* One sub-account, one funnel: flag a location ID that already has
