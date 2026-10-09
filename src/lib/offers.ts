@@ -119,8 +119,13 @@ export async function refreshOffers(): Promise<OfferRefreshResult> {
         };
         const offer = cv("ccoffer");
         const depositAmount = cv("ccdepositamount");
-        const originalPrice = cv("ccoriginalprice");
-        const discountedPrice = cv("ccdiscountedprice");
+        /* Brows prices = the "New Brows" values (old names as fallback).
+           A bare "ccoriginalprice" substring now also matches the Lips /
+           Eyeliner / Had-PMU values added 2026-10-08, so it would read
+           whichever GHL lists first. */
+        const brows = (newName: string, oldName: string) => cv(newName) || cv(oldName);
+        const originalPrice = brows("ccoriginalpricenewbrows", "ccoriginalpriceforbrows");
+        const discountedPrice = brows("ccdiscountedpricenewbrows", "ccdiscountedpriceforbrows");
         await supabase.from("client_offers").upsert(
           {
             owner_key: ownerKey,

@@ -45,8 +45,9 @@ for (const row of rows.slice(1)) {
     const cv = (needle) => { const hit = cvs.find((v) => String(v.name ?? "").toLowerCase().replace(/[^a-z]/g, "").includes(needle)); return hit ? String(hit.value ?? "") : ""; };
     const offer = cv("ccoffer");
     const depositAmount = cv("ccdepositamount");
-    const originalPrice = cv("ccoriginalprice");
-    const discountedPrice = cv("ccdiscountedprice");
+    // Brows = the "New Brows" values (old names fallback) — a bare substring now also hits Lips/Eyeliner/Had-PMU.
+    const originalPrice = cv("ccoriginalpricenewbrows") || cv("ccoriginalpriceforbrows");
+    const discountedPrice = cv("ccdiscountedpricenewbrows") || cv("ccdiscountedpriceforbrows");
     await sb.from("client_offers").upsert({ owner_key: ownerKey, offer, deposit_amount: depositAmount, original_price: originalPrice || null, discounted_price: discountedPrice || null, updated_at: new Date().toISOString() }, { onConflict: "owner_key" });
     kept.push(ownerKey); ok++; console.log("  OK", ownerKey, "| orig", originalPrice || "—", "| disc", discountedPrice || "—", "| dep", depositAmount || "—");
   } catch (e) { failed++; console.log("  ERR", ownerKey, String(e)); }

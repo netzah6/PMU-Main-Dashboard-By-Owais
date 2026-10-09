@@ -58,6 +58,13 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     entries.push({ name: cvName, value: v });
     answered.push(f.label);
   }
+  /* Brows "had PMU before" prices default to the new-brows prices until the
+     artist gives separate ones (owner, 2026-10-08). */
+  for (const [hp, base] of [["originalPriceBrowsHadPmu", "originalPrice"], ["discountedPriceBrowsHadPmu", "discountedPrice"]] as const) {
+    const hpName = ONEBOX_EDITABLE_CVS[hp];
+    const baseVal = entries.find((e) => e.name === ONEBOX_EDITABLE_CVS[base])?.value ?? String(cfg[base] ?? "").trim();
+    if (hpName && baseVal && stillMissing.has(hp) && !entries.some((e) => e.name === hpName)) entries.push({ name: hpName, value: baseVal });
+  }
   /* Photo uploads: URLs from our own intake-uploads bucket only, appended
      to the dashboard-managed photo lists, capped so a prankster with the
      link can't flood the funnel. */
