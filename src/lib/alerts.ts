@@ -815,17 +815,34 @@ export async function scanLeadsWhileNotLive(svc: Svc): Promise<{ checked: number
    2026-10-05 — every lead silent) or the individual send failed. Checks
    leads aged 2-26h (small rolling window keeps the GHL calls cheap) and
    files ONE alert per account listing the silent leads; it resolves itself
-   once the window is clean. */
+   once the window is clean.
+
+   The 2h clock counts DAYTIME hours in the account's own timezone, not
+   wall-clock: workflows hold texts overnight, so a lead who signs up at
+   11pm legitimately has no text until morning — wall-clock age flagged
+   exactly those (every open alert on Oct 9 was an 11pm-2am lead, and past
+   alerts self-cleared within hours once morning sends went out). */
+const SEND_WINDOW = { start: 8, end: 21 }; // local hours texts actually go out
+function daytimeHoursSince(sinceMs: number, nowMs: number, tz: string): number {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" });
+  let mins = 0;
+  for (let t = sinceMs; t < nowMs; t += 15 * 60_000) {
+    const h = Number(fmt.format(new Date(t)));
+    if (h >= SEND_WINDOW.start && h < SEND_WINDOW.end) mins += 15;
+  }
+  return mins / 60;
+}
+
 export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; filed: number; resolved: number; error?: string }> {
   const now = Date.now();
   const lo = new Date(now - 26 * 3600_000).toISOString();
   const hi = new Date(now - 2 * 3600_000).toISOString();
-  type Lead = { slug: string; full_name: string; ghl_contact_id: string; answers: Record<string, unknown> | null };
+  type Lead = { slug: string; full_name: string; ghl_contact_id: string; created_at: string; answers: Record<string, unknown> | null };
   const leads: Lead[] = [];
   for (let i = 0; ; i += 1000) {
     const { data: page, error } = await svc
       .from("onebox_leads")
-      .select("slug, full_name, ghl_contact_id, answers")
+      .select("slug, full_name, ghl_contact_id, created_at, answers")
       .gte("created_at", lo).lte("created_at", hi)
       .not("ghl_contact_id", "is", null)
       .order("id").range(i, i + 999);
@@ -860,8 +877,19 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
     if (!tok.token) continue;
     const H4 = { Authorization: `Bearer ${tok.token}`, Version: "2021-04-15", Accept: "application/json" };
     const H7 = { ...H4, Version: "2021-07-28" };
+    /* America/Los_Angeles fallback is the western-most client timezone, so a
+       missing/bad GHL timezone can only delay a flag, never fire it early. */
+    let tz = "America/Los_Angeles";
+    try {
+      const loc = (await (await fetch(`https://services.leadconnectorhq.com/locations/${c.location_id}`, { headers: H7 })).json()) as { location?: { timezone?: string } };
+      if (loc.location?.timezone) {
+        new Intl.DateTimeFormat("en-US", { timeZone: loc.location.timezone }); // throws on junk
+        tz = loc.location.timezone;
+      }
+    } catch { /* keep fallback */ }
+    const eligible = ls.filter((l) => daytimeHoursSince(Date.parse(l.created_at), now, tz) >= 2);
     const silent: string[] = [];
-    for (const l of ls) {
+    for (const l of eligible) {
       checked++;
       try {
         const conv = (await (await fetch(`https://services.leadconnectorhq.com/conversations/search?locationId=${c.location_id}&contactId=${l.ghl_contact_id}`, { headers: H4 })).json()) as { conversations?: { id: string }[] };
@@ -880,11 +908,11 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
     flagged.add(key);
     const ok = await fileAlert(svc, {
       type: "silent_leads",
-      severity: silent.length >= Math.max(2, ls.length) ? "high" : "medium",
+      severity: silent.length >= Math.max(2, eligible.length) ? "high" : "medium",
       title: `${c.client_name}: ${silent.length} new lead${silent.length === 1 ? "" : "s"} got NO text`,
       detail: `${silent.join(", ")} signed up through the funnel ${silent.length === 1 ? "hours" : "in the last day"} and never received a single message. If EVERY new lead is silent, the account's "CC- Funnel Survey" workflow is probably missing the onebox-survey tag trigger (same as Marie London Spa / Revive MED INK, Oct 5) — add the trigger, then add these contacts to the workflow manually. A single silent lead is usually a failed first send — check the contact.`,
       source_key: key,
-      meta: { slug, business: c.client_name, silent, window: "2-26h" },
+      meta: { slug, business: c.client_name, silent, window: "2 daytime hours, 26h max", tz },
       resurfaceAfterDays: 2,
     });
     if (ok) filed++;
