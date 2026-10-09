@@ -197,8 +197,8 @@ const V3_REQUIRED: [key: string, label: string][] = [
   ["offer", "Offer"], // REQ_RULES marks offer "v23" = required from V2.3 up, V3 included
   ["depositFunnelUrl", "Deposit funnel URL"],
   ["ownerName", "Owner's name"],
-  ["originalPrice", "Original price for brows"],
-  ["discountedPrice", "Discounted price for brows"],
+  ["originalPrice", "Original price — new brows"],
+  ["discountedPrice", "Discounted price — new brows"],
   ["services", "Permanent makeup services"],
   ["businessHours", "Business hours"],
 ];
@@ -2386,8 +2386,14 @@ export default function FunnelsPage() {
                         {T("gmbLink", "Google My Business link", "https://g.page/r/… or maps link")}
                         {ver === "V3" && (<>
                         {H("Prices", true)}
-                        {T("originalPrice", "Original price for brows", "$597")}
-                        {T("discountedPrice", "Discounted price for brows", "$397")}
+                        {T("originalPrice", "Original price — new brows", "$597")}
+                        {T("discountedPrice", "Discounted price — new brows", "$397")}
+                        {T("originalPriceBrowsHadPmu", "Original price — brows, had PMU before", "empty = same as new brows")}
+                        {T("discountedPriceBrowsHadPmu", "Discounted price — brows, had PMU before", "empty = same as new brows")}
+                        {T("originalPriceLips", "Original price — lips", "leave empty if not offered")}
+                        {T("discountedPriceLips", "Discounted price — lips", "leave empty if not offered")}
+                        {T("originalPriceEyeliner", "Original price — eyeliner", "leave empty if not offered")}
+                        {T("discountedPriceEyeliner", "Discounted price — eyeliner", "leave empty if not offered")}
                         {T("touchupPrice", "Touch-up price", "$150")}
                         {H("Details for the AI script", true)}
                         <label className="grid gap-0.5 md:col-span-2">
@@ -2518,6 +2524,18 @@ export default function FunnelsPage() {
                         if (setupVer === "V3") {
                           if (!(cvForm.firstTouchup ?? "").trim() && !(f.cv.firstTouchup ?? "").trim()) changed.firstTouchup = "6-8 weeks after the first session";
                           if (!(cvForm.depositFunnelUrl ?? "").trim() && !(f.cv.depositFunnelUrl ?? "").trim()) changed.depositFunnelUrl = f.url;
+                          /* Brows "had PMU before" prices default to the new-brows
+                             prices until the client gives separate ones (owner,
+                             2026-10-08): an empty box saves the new-brows price,
+                             and a box still holding that default follows a
+                             new-brows price change. */
+                          for (const [hp, base] of [["originalPriceBrowsHadPmu", "originalPrice"], ["discountedPriceBrowsHadPmu", "discountedPrice"]] as const) {
+                            const baseVal = (cvForm[base] ?? f.cv[base] ?? "").trim();
+                            const oldBase = (f.cv[base] ?? "").trim();
+                            const hpNow = (cvForm[hp] ?? "").trim();
+                            const stillDefault = hpNow === (f.cv[hp] ?? "").trim() && hpNow === oldBase;
+                            if (baseVal && (!hpNow || (stillDefault && baseVal !== oldBase))) changed[hp] = baseVal;
+                          }
                         }
                         if (surveyDirty) changed.surveyRaw = serializeSurvey(surveyRows);
                         const extras: Record<string, string> = {};

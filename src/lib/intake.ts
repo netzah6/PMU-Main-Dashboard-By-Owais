@@ -33,8 +33,14 @@ export const INTAKE_FIELDS: IntakeField[] = [
   { k: "igLink", label: "Instagram page link", type: "text" },
   { k: "fbLink", label: "Facebook page link", type: "text" },
   { k: "gmbLink", label: "Google Business link", type: "text" },
-  { k: "originalPrice", label: "Regular price for brows ($)", type: "text", v3Only: true },
-  { k: "discountedPrice", label: "Discounted price for brows ($)", type: "text", v3Only: true },
+  { k: "originalPrice", label: "Regular price for new brows ($)", type: "text", v3Only: true },
+  { k: "discountedPrice", label: "Discounted price for new brows ($)", type: "text", v3Only: true },
+  { k: "originalPriceBrowsHadPmu", label: "Regular price for brows — client had PMU before ($)", type: "text", v3Only: true },
+  { k: "discountedPriceBrowsHadPmu", label: "Discounted price for brows — client had PMU before ($)", type: "text", v3Only: true },
+  { k: "originalPriceLips", label: "Regular price for lips ($)", hint: "Leave empty if you don't offer lips", type: "text", v3Only: true },
+  { k: "discountedPriceLips", label: "Discounted price for lips ($)", hint: "Leave empty if you don't offer lips", type: "text", v3Only: true },
+  { k: "originalPriceEyeliner", label: "Regular price for eyeliner ($)", hint: "Leave empty if you don't offer eyeliner", type: "text", v3Only: true },
+  { k: "discountedPriceEyeliner", label: "Discounted price for eyeliner ($)", hint: "Leave empty if you don't offer eyeliner", type: "text", v3Only: true },
   { k: "touchupPrice", label: "Touch-up price ($)", type: "text", v3Only: true },
 ];
 

@@ -31,8 +31,18 @@ const pickers: [key: string, ...names: string[]][] = [
   ["services", "CC - Permanent Makeup Services (V3 ONLY)🔵"],
   ["firstTouchup", "CC - When is the first touch-up? (V3)🔵"],
   ["otherLocations", "CC - Other Locations (V3)🔵"],
-  ["discountedPrice", "CC - Discounted Price for Brows - (V3)🔵"],
-  ["originalPrice", "CC - Original Price for Brows - (V3)🔵"],
+  /* Per-service prices (owner, 2026-10-08). The two brows values were
+     renamed "… New Brows …" in every sub-account (GHL kept their keys, so
+     funnels + CloseBot still read them); the old names stay as fallbacks
+     for any account the rename missed. */
+  ["discountedPrice", "CC - Discounted Price New Brows - (V3)🔵", "CC - Discounted Price for Brows - (V3)🔵"],
+  ["originalPrice", "CC - Original Price New Brows - (V3)🔵", "CC - Original Price for Brows - (V3)🔵"],
+  ["originalPriceBrowsHadPmu", "CC - Original Price Brows (Had PMU) - (V3)🔵"],
+  ["discountedPriceBrowsHadPmu", "CC - Discounted Price Brows (Had PMU) - (V3)🔵"],
+  ["originalPriceLips", "CC - Original Price Lips - (V3)🔵"],
+  ["discountedPriceLips", "CC - Discounted Price Lips - (V3)🔵"],
+  ["originalPriceEyeliner", "CC - Original Price Eyeliner - (V3)🔵"],
+  ["discountedPriceEyeliner", "CC - Discounted Price Eyeliner - (V3)🔵"],
   ["touchupPrice", "CC - Touch-up price? (V3)🔵"],
   ["extraNotes", "CC - Extra Notes (V3)🔵"],
   ["depositFunnelUrl", "CC - Deposit Funnel URL (V3)🔵", "CC - Deposit Funnel URL"],
@@ -335,6 +345,15 @@ export const ONEBOX_NEW_CVS = [
   "CC - Picture of Studio 1",
   "CC - Picture of Studio 2",
   "CC - Picture of Studio 3",
+  // Per-service prices (2026-10-08). The two New Brows values are NOT here:
+  // they're the renamed legacy brows values, and a freshly created one
+  // would carry a key CloseBot doesn't read.
+  "CC - Original Price Brows (Had PMU) - (V3)🔵",
+  "CC - Discounted Price Brows (Had PMU) - (V3)🔵",
+  "CC - Original Price Lips - (V3)🔵",
+  "CC - Discounted Price Lips - (V3)🔵",
+  "CC - Original Price Eyeliner - (V3)🔵",
+  "CC - Discounted Price Eyeliner - (V3)🔵",
 ];
 
 export async function ensureOneboxCustomValues(locationId: string): Promise<{ created: string[]; error?: string }> {
@@ -352,6 +371,12 @@ export async function ensureOneboxCustomValues(locationId: string): Promise<{ cr
     const { customValues } = (await r.json()) as { customValues?: { name?: string }[] };
     const have = new Set((customValues ?? []).map((v) => String(v.name ?? "")));
     const created: string[] = [];
+    // New Brows prices missing entirely (e.g. an account wiped into the pool):
+    // create them under their legacy keys, renamed — never as a fresh key.
+    for (const name of Object.keys(CV_CREATE_AS)) {
+      if (have.has(name) || (CV_RENAMED_FROM[name] ?? []).some((old) => have.has(old))) continue;
+      if (await createCustomValue(locationId, H, name, "")) created.push(name);
+    }
     for (const name of ONEBOX_NEW_CVS) {
       if (have.has(name)) continue;
       const c = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, {
@@ -365,6 +390,32 @@ export async function ensureOneboxCustomValues(locationId: string): Promise<{ cr
   } catch {
     return { created: [], error: "network" };
   }
+}
+
+// Current custom-value name → the names it carried before a fleet rename.
+const CV_RENAMED_FROM: Record<string, string[]> = {
+  "CC - Original Price New Brows - (V3)🔵": ["CC - Original Price for Brows - (V3)🔵"],
+  "CC - Discounted Price New Brows - (V3)🔵": ["CC - Discounted Price for Brows - (V3)🔵"],
+};
+/* GHL derives a custom value's key from the name it is CREATED with and
+   keeps it on rename. CloseBot and the funnels read the brows prices by
+   the legacy keys, so a missing New Brows value is created under the name
+   that yields that key, then renamed (the same recipe as the 2026-10-08
+   fleet migration). */
+const CV_CREATE_AS: Record<string, string> = {
+  "CC - Original Price New Brows - (V3)🔵": "CC - Original Price for Brows - (V3)🔵", // → cc__original_price_for_brows__v3
+  "CC - Discounted Price New Brows - (V3)🔵": "CC - Price for Brows - (V3)🔵",       // → cc__price_for_brows__v3
+};
+async function createCustomValue(locationId: string, H: Record<string, string>, name: string, value: string): Promise<boolean> {
+  const url = `https://services.leadconnectorhq.com/locations/${locationId}/customValues`;
+  const createAs = CV_CREATE_AS[name];
+  const res = await fetch(url, { method: "POST", headers: H, body: JSON.stringify({ name: createAs ?? name, value }) });
+  if (!res.ok) return false;
+  if (!createAs) return true;
+  const id = ((await res.json().catch(() => ({}))) as { customValue?: { id?: string } }).customValue?.id;
+  if (!id) return false;
+  const put = await fetch(`${url}/${id}`, { method: "PUT", headers: H, body: JSON.stringify({ name, value }) });
+  return put.ok;
 }
 
 // The values the dashboard's editor may write, keyed by config field.
@@ -395,8 +446,14 @@ export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
   services: "CC - Permanent Makeup Services (V3 ONLY)🔵",
   firstTouchup: "CC - When is the first touch-up? (V3)🔵",
   otherLocations: "CC - Other Locations (V3)🔵",
-  discountedPrice: "CC - Discounted Price for Brows - (V3)🔵",
-  originalPrice: "CC - Original Price for Brows - (V3)🔵",
+  discountedPrice: "CC - Discounted Price New Brows - (V3)🔵",
+  originalPrice: "CC - Original Price New Brows - (V3)🔵",
+  originalPriceBrowsHadPmu: "CC - Original Price Brows (Had PMU) - (V3)🔵",
+  discountedPriceBrowsHadPmu: "CC - Discounted Price Brows (Had PMU) - (V3)🔵",
+  originalPriceLips: "CC - Original Price Lips - (V3)🔵",
+  discountedPriceLips: "CC - Discounted Price Lips - (V3)🔵",
+  originalPriceEyeliner: "CC - Original Price Eyeliner - (V3)🔵",
+  discountedPriceEyeliner: "CC - Discounted Price Eyeliner - (V3)🔵",
   touchupPrice: "CC - Touch-up price? (V3)🔵",
   extraNotes: "CC - Extra Notes (V3)🔵",
   depositFunnelUrl: "CC - Deposit Funnel URL (V3)🔵",
@@ -509,12 +566,14 @@ export async function setOneboxCustomValues(
     }
     const written: string[] = [];
     for (const { name, value } of entries) {
-      const ids = idsByName.get(name) ?? idsByNorm.get(norm(name)) ?? [];
+      /* A renamed value (2026-10-08 "… New Brows …") must be written onto
+         the account's existing old-name value — the PUT renames it — never
+         created fresh: a fresh one gets a NEW key that CloseBot and the
+         funnels don't read. */
+      const aliasIds = (CV_RENAMED_FROM[name] ?? []).flatMap((old) => idsByName.get(old) ?? []);
+      const ids = idsByName.get(name) ?? (aliasIds.length ? aliasIds : undefined) ?? idsByNorm.get(norm(name)) ?? [];
       if (!ids.length) {
-        const res = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, {
-          method: "POST", headers: H, body: JSON.stringify({ name, value }),
-        });
-        if (res.ok) written.push(name);
+        if (await createCustomValue(locationId, H, name, value)) written.push(name);
         continue;
       }
       let anyOk = false;

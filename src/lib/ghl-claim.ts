@@ -129,8 +129,14 @@ const CV_MAP: Array<{ formKey: string; match: (n: string) => boolean; label: str
   { formKey: "phone", match: (n) => n.includes("businessphone"), label: "Business phone" },
   { formKey: "offer", match: (n) => !isUrlCv(n) && (n === "ccoffer" || n.endsWith("offer")), label: "Offer" },
   { formKey: "deposit_amount", match: (n) => !isUrlCv(n) && n.includes("depositamount"), label: "Deposit amount" },
-  { formKey: "original_price", match: (n) => !isUrlCv(n) && n.includes("originalprice"), label: "Original price" },
-  { formKey: "discounted_price", match: (n) => !isUrlCv(n) && n.includes("discountedprice"), label: "Discounted price" },
+  /* Brows only (2026-10-08): "originalprice" alone now also matches the
+     Lips / Eyeliner / Had-PMU values, and the first match wins. The form's
+     brows prices also seed the Had-PMU pair (same price until the client
+     gives a separate one). */
+  { formKey: "original_price", match: (n) => !isUrlCv(n) && n.includes("originalprice") && (n.includes("newbrows") || n.includes("forbrows")), label: "Original price (new brows)" },
+  { formKey: "discounted_price", match: (n) => !isUrlCv(n) && n.includes("discountedprice") && (n.includes("newbrows") || n.includes("forbrows")), label: "Discounted price (new brows)" },
+  { formKey: "original_price", match: (n) => n.includes("originalpricebrowshadpmu"), label: "Original price (brows, had PMU)" },
+  { formKey: "discounted_price", match: (n) => n.includes("discountedpricebrowshadpmu"), label: "Discounted price (brows, had PMU)" },
   { formKey: "product_id", match: (n) => !isUrlCv(n) && n.includes("product") && n.includes("id"), label: "Commas product ID" },
   { formKey: "address", match: (n) => !isUrlCv(n) && n.includes("address"), label: "Business address" },
   { formKey: "services", match: (n) => n.includes("permanentmakeupservices") || n.includes("pmuservices"), label: "PMU services" },

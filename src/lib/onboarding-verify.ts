@@ -387,7 +387,10 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     ];
     const V3_ONLY = [ // 🔵 — required additionally for V3
       "owners name", "business hours", "deposit amount", "deposit funnel url v3",
-      "discounted price", "original price", "permanent makeup services",
+      // Brows only: a bare "original price" also matches the Had-PMU / Lips /
+      // Eyeliner values added 2026-10-08 (Had-PMU is seeded with the brows
+      // price, so a cleared brows price would still pass).
+      "discounted price new brows", "original price new brows", "permanent makeup services",
       "permanent makeup transformation calendar", "when is the first touch", "years in business",
     ];
     // Version: prefer the onboarding form; else the Master sheet's "Version"
@@ -444,8 +447,9 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     // meant a V2 client with $550/$750 pricing silently reported "check
     // manually" instead of failing (The Healing Design, Aug 2026).
     const priceOf = (re: RegExp) => customValues.find((v) => re.test(v.name))?.value ?? "";
-    const origV = priceOf(/original price for brows/i);
-    const discV = priceOf(/discounted price for brows/i);
+    // "… New Brows …" since the 2026-10-08 fleet rename; "… for Brows …" before.
+    const origV = priceOf(/original price (new|for) brows/i);
+    const discV = priceOf(/discounted price (new|for) brows/i);
     if (isV3 || origV.trim() || discV.trim()) {
       const priceIssue = (label: string, raw: string): string | null => {
         if (!raw.trim()) return `${label} is empty`;
