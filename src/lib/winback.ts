@@ -226,12 +226,16 @@ async function conversationIds(acct: PmuAccount, contactId: string): Promise<str
   return (((await r.json()) as { conversations?: Array<{ id: string }> }).conversations ?? []).map((c) => String(c.id));
 }
 
+// Cutting text mid-emoji leaves half a surrogate pair, which the AI API
+// rejects as invalid JSON ("unexpected end of hex escape") — drop the halves.
+const wellFormed = (t: string) => t.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+
 function transcriptOf(msgs: ThreadMessage[]): string {
   // Oldest → newest; the END of the relationship matters most, so keep the tail.
   const lines = msgs.map((m) => `[${(m.dateAdded ?? "").slice(0, 10)}] ${m.direction === "inbound" ? "CLIENT" : "US"} (${m.channel}): ${m.body.replace(/\s+/g, " ").slice(0, 600)}`);
   let out = lines.join("\n");
   if (out.length > 14000) out = "…earlier messages cut…\n" + out.slice(-14000);
-  return out;
+  return wellFormed(out);
 }
 
 type Review = { verdict: Exclude<ReviewVerdict, "no_chat">; note: string; quote: string | null };
@@ -296,7 +300,9 @@ export async function reviewWinback(acct: PmuAccount, budgetMs = 230_000): Promi
           review_quote: null,
         });
       } else {
-        const v = await classifyEnding(anthropic, `${r.owner_name}${r.business ? ` (${r.business})` : ""}`, transcriptOf(msgs));
+        // One unreadable chat must not stop the whole review.
+        const v = await classifyEnding(anthropic, wellFormed(`${r.owner_name}${r.business ? ` (${r.business})` : ""}`), transcriptOf(msgs))
+          .catch((e): Review => ({ verdict: "tense", note: `The AI couldn't read this chat (${String(e instanceof Error ? e.message : e).slice(0, 60)}) — check it by hand`, quote: null }));
         Object.assign(patch, { review_verdict: v.verdict, review_note: v.note, review_quote: v.quote });
       }
       await svc.from("winback_contacts").update(patch).eq("sheet_row", r.sheet_row);
