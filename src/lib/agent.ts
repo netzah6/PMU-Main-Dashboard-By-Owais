@@ -12,7 +12,7 @@ import {
   type ThreadMessage,
 } from "@/lib/ghl-conversations";
 import {
-  PLAN_SCHEMA_TEXT, sanitizePlan, planFromDetail, resolveClientLocation, executePlan, formatResults,
+  PLAN_SCHEMA_TEXT, sanitizePlan, planFromDetail, resolveClientLocation,
   withPaymentLinks, describeAmounts, type PlanStep,
 } from "@/lib/agent-exec";
 import { billingFor, billingLine, createLinksForProposal, NothingSentError, type Billing, type LinkStep } from "@/lib/agent-pay-links";
@@ -42,7 +42,8 @@ export type Proposal = {
   action_detail: string | null;
   // `handled` = the team answered in the chat before anyone clicked; the
   // scan closes the card on its own (owner request 2026-09-28).
-  status: "pending" | "denied" | "done" | "failed" | "queued_browser" | "handled";
+  // queued_browser → running (Mac Mini) → done / failed / needs_teammate.
+  status: "pending" | "denied" | "done" | "failed" | "queued_browser" | "running" | "needs_teammate" | "handled";
   decided_by: string | null;
   decided_at: string | null;
   executed_at: string | null;
@@ -522,47 +523,35 @@ export async function executeProposal(
   // be approved (and re-run) blindly.
   await svc.from("agent_proposals").update({ executed_at: new Date().toISOString() }).eq("id", p.id);
 
-  // Phase 2: run the account change in the client's sub-account and keep
-  // the before → after per step as proof. "SENSITIVE:" (refunds, payments,
-  // cancellations) is never executed — a person handles money.
+  // The account change goes to the Mac Mini, which does it in a real
+  // Chrome on the GoHighLevel screens and sends back screenshots (owner,
+  // 2026-10-10 — the API path silently mangled Mindy To's calendar).
+  // "SENSITIVE:" (refunds, payments, cancellations) is never done by the
+  // agent — a person handles money.
   let status: Proposal["status"] = ok ? "done" : "failed";
   let result = `${sendNote}${linkNote}`;
   let plan: PlanStep[] | null = linkStep ? (p.action_plan ?? null) : null;
-  // The reply may already be out: an error past this point must finish the
-  // card as "failed", never throw (a throw would leave it approvable again).
   try {
     if (p.action_type === "account_change") {
       const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
       if (sensitive) {
-        status = ok ? "queued_browser" : "failed";
-        result = `${sendNote}${linkNote}\n👤 Sensitive (money) — a teammate must handle this by hand`;
+        status = "needs_teammate";
+        result = `${linkNote}\n👤 Sensitive (money) — a teammate must handle this by hand`;
       } else {
-        // The account change itself (links were made above). An older card
-        // without a plan gets one from its notes — never new payment links there.
+        // An older card without a plan gets one from its notes — never new payment links there.
         const own = (p.action_plan ?? []).filter((s) => s.type !== "payment_links");
         const steps = own.length
           ? own
           : (await planFromDetail({ summary: p.summary, actionDetail: p.action_detail, clientMessage: p.client_message }))
               .map((s): PlanStep => (s.type === "payment_links" ? { type: "manual", what: `Send payment links: ${describeAmounts(s.amounts_cents)} (${s.label})` } : s));
         plan = [...(linkStep ? [linkStep] : []), ...steps];
-        const loc = p.location_id
-          ? { locationId: p.location_id }
-          : await resolveClientLocation(svc, p.contact_id, p.contact_name);
-        if (!loc) {
-          status = "failed";
-          result = `${sendNote}${linkNote}\n✗ Could not find ${p.contact_name}'s sub-account (no Clients Master match) — do it by hand`;
-        } else {
-          const run = await executePlan(steps, loc.locationId);
-          const lines = formatResults(run.steps);
-          status = !ok || !run.allOk ? "failed" : run.anyManual ? "queued_browser" : "done";
-          result = `${sendNote}${linkNote}\n${lines}`;
-          if (!p.location_id) await svc.from("agent_proposals").update({ location_id: loc.locationId }).eq("id", p.id);
-        }
+        status = "queued_browser";
+        result = `${linkNote}\n⏳ Waiting for the Mac Mini to do it in GoHighLevel (screenshots will appear here)`;
       }
     }
   } catch (e) {
     status = "failed";
-    result = `${sendNote}${linkNote}\n✗ ${e instanceof Error ? e.message : "error"} — check the account and finish by hand`;
+    result = `${linkNote}\n✗ ${e instanceof Error ? e.message : "error"} — check the account and finish by hand`;
   }
 
   result = result.replace(/^nothing texted to the client \(the team replies\)\n?/, "").trim() || "nothing to change";
@@ -575,8 +564,11 @@ export async function executeProposal(
     ...(plan ? { action_plan: plan } : {}),
   }).eq("id", p.id);
 
-  // Tell the owner what was done — never throws.
-  try { await confirmToOwner(svc, { contact_name: p.contact_name, summary: p.summary, status, result }); } catch { /* the card has the proof */ }
+  // Tell the owner what was done — the Mac Mini texts when it finishes a
+  // queued change; here only for what finished on the spot. Never throws.
+  if (status !== "queued_browser") {
+    try { await confirmToOwner(svc, { contact_name: p.contact_name, summary: p.summary, status, result }); } catch { /* the card has the proof */ }
+  }
 
   return { status, result };
 }

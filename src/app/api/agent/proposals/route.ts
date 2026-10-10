@@ -23,7 +23,10 @@ export async function GET() {
   const proposals = data ?? [];
   // What the last scan did (and why it skipped what it skipped).
   const { data: lastScan } = await svc.from("app_settings").select("value").eq("key", "agent_scan_last").maybeSingle();
+  // When the Mac Mini last asked for work — shows online / offline.
+  const { data: worker } = await svc.from("app_settings").select("value").eq("key", "agent_worker").maybeSingle();
   return NextResponse.json({
+    worker: (worker as { value?: unknown } | null)?.value ?? null,
     proposals,
     pending: proposals.filter((p: { status: string }) => p.status === "pending").length,
     lastScan: (lastScan as { value?: unknown } | null)?.value ?? null,

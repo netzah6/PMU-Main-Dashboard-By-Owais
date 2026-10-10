@@ -75,15 +75,16 @@ export async function notifyOwner(svc: Svc, items: NotifyItem[]): Promise<{ sent
 export async function confirmToOwner(
   svc: Svc,
   p: { contact_name: string; summary: string; status: string; result: string },
+  screenshots: string[] = [], // public image URLs, sent as MMS
 ): Promise<{ sent: boolean; note: string }> {
   const s = await getNotifySettings(svc);
   if (!s || !s.enabled) return { sent: false, note: "owner notifications not set up" };
   const acct = await getReplyAccount();
   if (!acct) return { sent: false, note: "main account token unavailable" };
-  const head = p.status === "done" ? "✅ Done" : p.status === "queued_browser" ? "👤 Partly done — a teammate must finish" : "❌ Failed";
+  const head = p.status === "done" ? "✅ Done" : p.status === "needs_teammate" ? "👤 Needs a teammate" : "❌ Failed";
   // The proof lines, without the long before → after brackets.
   const lines = p.result.split("\n").map((l) => l.replace(/\s*\[[^\]]*\]\s*$/, "").trim()).filter(Boolean).slice(0, 6);
   const message = `${head} — ${p.contact_name}: ${p.summary.slice(0, 120)}\n${lines.join("\n")}`.slice(0, 900);
-  const r = await sendConversationMessage(acct, { contactId: s.contactId, message, channel: "SMS" });
+  const r = await sendConversationMessage(acct, { contactId: s.contactId, message, channel: "SMS", ...(screenshots.length ? { attachments: screenshots } : {}) });
   return r.ok ? { sent: true, note: `texted ${s.phone}` } : { sent: false, note: `text failed: ${r.error}` };
 }
