@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSheetsClient, readSheetValues, resolveTabName } from "@/lib/sheets";
 import { GHL_BASE } from "@/lib/ghl-tasks";
-import { getThread, type PmuAccount, type ThreadMessage } from "@/lib/ghl-conversations";
+import { fetchWithBackoff, getThread, type PmuAccount, type ThreadMessage } from "@/lib/ghl-conversations";
 
 /* Win-back (owner, 2026-10-10): former clients we are trying to bring back.
    The owner manages the list in the "Follow up To PPS" sheet — "Follow up /
@@ -118,8 +118,8 @@ async function findContact(acct: PmuAccount, p: SheetPerson): Promise<{ contact:
   ];
   if (!tries.length) return { contact: null, note: "No phone or email in the sheet" };
   for (const [key, val] of tries) {
-    const r = await fetch(`${GHL_BASE}/contacts/search/duplicate?locationId=${acct.locationId}&${key}=${encodeURIComponent(val)}`, { headers: H });
-    if (r.status === 429) throw new Error("GHL rate limit — click Sync again in a minute");
+    const r = await fetchWithBackoff(`${GHL_BASE}/contacts/search/duplicate?locationId=${acct.locationId}&${key}=${encodeURIComponent(val)}`, { headers: H });
+    if (r.status === 429) throw new Error("GHL is busy (rate limit) — click again in a minute");
     const c = r.ok ? ((await r.json()) as { contact?: Contact | null }).contact ?? null : null;
     if (!c) continue;
     const ok = key === "email" ? lower(c.email) === wantEmail : phones.some((d) => digits(c.phone).endsWith(d));
@@ -129,7 +129,7 @@ async function findContact(acct: PmuAccount, p: SheetPerson): Promise<{ contact:
 }
 
 async function setTag(acct: PmuAccount, contactId: string, add: boolean): Promise<boolean> {
-  const r = await fetch(`${GHL_BASE}/contacts/${contactId}/tags`, {
+  const r = await fetchWithBackoff(`${GHL_BASE}/contacts/${contactId}/tags`, {
     method: add ? "POST" : "DELETE",
     headers: { Authorization: `Bearer ${acct.token}`, Version: "2021-07-28", "Content-Type": "application/json" },
     body: JSON.stringify({ tags: [WINBACK_TAG] }),
@@ -197,7 +197,7 @@ export async function syncWinback(acct: PmuAccount, opts: { budgetMs?: number; t
       done++;
     }
   };
-  await Promise.all([worker(), worker(), worker()]);
+  await Promise.all([worker(), worker()]);
 
   const { data: after } = await svc.from("winback_contacts").select("active, contact_id, match_note");
   const rows = (after ?? []) as Array<{ active: boolean; contact_id: string | null; match_note: string | null }>;
@@ -218,11 +218,11 @@ export async function syncWinback(acct: PmuAccount, opts: { budgetMs?: number; t
 const REVIEW_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
 async function conversationIds(acct: PmuAccount, contactId: string): Promise<string[]> {
-  const r = await fetch(`${GHL_BASE}/conversations/search?locationId=${acct.locationId}&contactId=${encodeURIComponent(contactId)}&limit=5`, {
+  const r = await fetchWithBackoff(`${GHL_BASE}/conversations/search?locationId=${acct.locationId}&contactId=${encodeURIComponent(contactId)}&limit=5`, {
     headers: { Authorization: `Bearer ${acct.token}`, Version: "2021-04-15", Accept: "application/json" },
   });
-  if (r.status === 429) throw new Error("GHL rate limit — click Review again in a minute");
-  if (!r.ok) return [];
+  if (r.status === 429) throw new Error("GHL is busy (rate limit) — click again in a minute");
+  if (!r.ok) throw new Error(`GHL conversations search failed (${r.status})`);
   return (((await r.json()) as { conversations?: Array<{ id: string }> }).conversations ?? []).map((c) => String(c.id));
 }
 
@@ -283,11 +283,18 @@ export async function reviewWinback(acct: PmuAccount, budgetMs = 230_000): Promi
     while (queue.length && Date.now() - started < budgetMs) {
       const r = queue.shift()!;
       const ids = await conversationIds(acct, r.contact_id!);
-      const threads = await Promise.all(ids.slice(0, 3).map((id) => getThread(acct, id, { limit: 100, labelMedia: true }).catch(() => [])));
+      const threads = [];
+      for (const id of ids.slice(0, 3)) threads.push(await getThread(acct, id, { limit: 100, labelMedia: true }).catch(() => []));
       const msgs = threads.flat().sort((a, b) => (a.dateAdded ?? "").localeCompare(b.dateAdded ?? ""));
       const patch: Partial<WinbackRow> = { reviewed_at: new Date().toISOString() };
       if (!msgs.some((m) => m.direction === "inbound")) {
-        Object.assign(patch, { review_verdict: "no_chat", review_note: "Never wrote to us in PMU Bookings On Demand", review_quote: null });
+        Object.assign(patch, {
+          review_verdict: "no_chat",
+          review_note: ids.length && !msgs.length
+            ? "No text messages could be read (calls only, or GHL didn't load them) — check by hand if unsure"
+            : "Never wrote to us in PMU Bookings On Demand",
+          review_quote: null,
+        });
       } else {
         const v = await classifyEnding(anthropic, `${r.owner_name}${r.business ? ` (${r.business})` : ""}`, transcriptOf(msgs));
         Object.assign(patch, { review_verdict: v.verdict, review_note: v.note, review_quote: v.quote });
@@ -296,7 +303,7 @@ export async function reviewWinback(acct: PmuAccount, budgetMs = 230_000): Promi
       reviewed++;
     }
   };
-  await Promise.all([worker(), worker(), worker(), worker()]);
+  await Promise.all([worker(), worker()]);
   await writeRedFlags().catch((e) => { throw new Error(`Reviewed, but couldn't write the "Red flag" column (share the sheet as Editor): ${e instanceof Error ? e.message : e}`); });
 
   const { data: after } = await svc.from("winback_contacts").select("contact_id, match_note, reviewed_at, review_verdict").eq("active", true);

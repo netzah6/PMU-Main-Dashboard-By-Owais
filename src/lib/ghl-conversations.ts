@@ -139,6 +139,17 @@ export async function keepWaitingChats(acct: PmuAccount, list: ConvSummary[]): P
     .sort((a, b) => (b.lastMessageDate ?? "").localeCompare(a.lastMessageDate ?? ""));
 }
 
+/** GHL answers 429 when a location is busy (~100 calls / 10 s shared with every
+ *  cron). Wait and retry instead of reading the 429 as "no messages". */
+export async function fetchWithBackoff(url: string, init: RequestInit, tries = 5): Promise<Response> {
+  for (let i = 0; ; i++) {
+    const r = await fetch(url, init);
+    if (r.status !== 429 || i >= tries - 1) return r;
+    const wait = Number(r.headers.get("retry-after")) * 1000 || 2000 * 2 ** i;
+    await new Promise((res) => setTimeout(res, Math.min(wait, 20_000)));
+  }
+}
+
 export type ThreadMessage = {
   id: string;
   direction: "inbound" | "outbound";
@@ -159,7 +170,7 @@ export type ThreadMessage = {
    vanishing — a client answered with a voice note must not look unanswered. */
 export async function getThread(acct: PmuAccount, conversationId: string, opts: { signal?: AbortSignal; withAttachments?: boolean; labelMedia?: boolean; limit?: number } = {}): Promise<ThreadMessage[]> {
   const url = `${GHL_BASE}/conversations/${conversationId}/messages?limit=${opts.limit ?? 100}`;
-  const r = await fetch(url, { headers: authHeaders(acct.token, CONV_VERSION), signal: opts.signal });
+  const r = await fetchWithBackoff(url, { headers: authHeaders(acct.token, CONV_VERSION), signal: opts.signal });
   if (!r.ok) return [];
   const j = (await r.json()) as { messages?: { messages?: Array<Record<string, unknown>> } };
   const raw = j.messages?.messages ?? [];
