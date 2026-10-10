@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
     people: rows.map((r) => ({
       sheetRow: r.sheet_row, ownerName: r.owner_name, business: r.business, lastPaid: r.last_paid,
       offer: r.offer, outcome: r.outcome, contactId: r.contact_id, matchNote: r.match_note, tagged: !!r.tagged_at,
+      review: r.reviewed_at ? { verdict: r.review_verdict, note: r.review_note, quote: r.review_quote } : null,
       conv: r.contact_id ? byContact.get(r.contact_id) ?? null : null,
     })),
   });
