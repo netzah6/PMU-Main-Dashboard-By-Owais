@@ -22,3 +22,9 @@ create index if not exists winback_contacts_contact_idx on public.winback_contac
 
 alter table public.winback_contacts enable row level security;
 -- No policies: only the service role (admin-gated API routes) reads or writes.
+
+-- Chat review before tagging (owner, 2026-10-10): did we end on bad terms?
+alter table public.winback_contacts add column if not exists review_verdict text check (review_verdict in ('ok', 'tense', 'bad', 'opted_out', 'no_chat'));
+alter table public.winback_contacts add column if not exists review_note text;
+alter table public.winback_contacts add column if not exists review_quote text;
+alter table public.winback_contacts add column if not exists reviewed_at timestamptz;
