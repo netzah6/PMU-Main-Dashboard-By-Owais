@@ -1,4 +1,3 @@
-import { guardReply } from "@/lib/call-guard";
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { fileOrAppendAlert, ghlContactUrl, loadTeamLookup } from "@/lib/alerts";
@@ -7,19 +6,17 @@ import {
   getRecentConversations,
   getThread,
   getRoster,
-  sendConversationMessage,
   formatThreadForPrompt,
   firstUnansweredIndex,
   type PmuAccount,
   type ThreadMessage,
 } from "@/lib/ghl-conversations";
-import { draftReplyFor } from "@/lib/reply-draft";
 import {
   PLAN_SCHEMA_TEXT, sanitizePlan, planFromDetail, resolveClientLocation, executePlan, formatResults,
   withPaymentLinks, describeAmounts, type PlanStep,
 } from "@/lib/agent-exec";
 import { billingFor, billingLine, createLinksForProposal, NothingSentError, type Billing, type LinkStep } from "@/lib/agent-pay-links";
-import { notifyOwner, type NotifyItem } from "@/lib/agent-notify";
+import { notifyOwner, confirmToOwner, type NotifyItem } from "@/lib/agent-notify";
 
 // ── CEO Agent (phase 1) ──────────────────────────────────────────────────────
 // Watches client conversations in the main sub-account, detects messages that
@@ -142,6 +139,10 @@ async function closeHandledProposals(acct: PmuAccount, svc: ReturnType<typeof cr
     .from("agent_proposals")
     .select("id, conversation_id, message_id")
     .eq("status", "pending")
+    // A team reply ("we'll set that up") doesn't do the backend work — only
+    // cards with nothing to change close themselves.
+    .eq("action_type", "reply")
+    .is("action_plan", null)
     .order("created_at", { ascending: false })
     .limit(60);
   const pending = (data ?? []) as Array<{ id: string; conversation_id: string; message_id: string }>;
@@ -202,36 +203,6 @@ async function rosterNames(acct: PmuAccount): Promise<Map<string, string>> {
   try { for (const u of await getRoster(acct)) names.set(u.id, u.name); } catch { /* labels fall back to "Teammate" */ }
   rosterCache.set(acct.locationId, { at: Date.now(), names });
   return names;
-}
-
-/* The card's reply comes from the same engine as the AI tab's drafts — the
-   real voice (the clicking teammate's, else Nicolas's), the knowledge base,
-   the team notes and the dated last-2-days conversation. The triage model's
-   own one-liner was generic (and never learned his style); it is only the
-   fallback if drafting fails. */
-async function replyFor(
-  acct: PmuAccount, conversationId: string, contactName: string, thread: ThreadMessage[],
-  cls: Classification, voiceEmail: string | null, contactId: string | null,
-  links?: LinkStep | null,
-): Promise<string | null> {
-  // The triage one-liner is only a fallback — and it goes through the same
-  // call-invite guard as every other draft.
-  const fallback = guardReply(cls.proposed_reply?.slice(0, 1500) ?? null, thread);
-  const linkNote = links
-    ? ` We are texting them ${links.amounts_cents.length === 1 ? "a Square payment link" : `${links.amounts_cents.length} Square payment links`} (${describeAmounts(links.amounts_cents)}) for "${links.label}" right under your message — say so in one short, warm sentence (e.g. "Of course! Here are your links:"). Do NOT write any link, URL or placeholder yourself.`
-    : "";
-  // The links themselves are added under this message on Approve (the card previews them).
-  const withLinks = (text: string | null) => (links ? (text?.trim() ? text : "Of course! Here you go:") : text);
-  try {
-    const change = cls.action_type === "account_change";
-    const { draft } = await draftReplyFor({
-      acct, conversationId, contactName, contactId, thread, voiceEmail, source: "agent", waitForMemory: false,
-      instructions: `What the client needs (from triage): ${cls.summary ?? "see their NEW messages"}.${change ? " We will make this change — confirm it simply, and don't promise a time." : ""}${linkNote}`,
-    });
-    return withLinks(draft ? draft.slice(0, 1500) : fallback);
-  } catch {
-    return withLinks(fallback);
-  }
 }
 
 /* The typed plan for a card: everything for an account change; for a reply,
@@ -298,6 +269,7 @@ export async function proposeForConversation(opts: {
   if (!cls || !cls.summary) return { error: "The AI couldn't read this chat — try again" };
 
   const { actionType, plan } = planFor(cls, billing);
+  if (actionType === "reply" && !plan.length) return { error: `Nothing to change in the account — just reply in the chat (${cls.summary})` };
   let locationId: string | null = null;
   if (actionType === "account_change") {
     try { locationId = (await resolveClientLocation(svc, opts.contactId, opts.contactName))?.locationId ?? null; } catch { /* resolved again at approve */ }
@@ -305,7 +277,7 @@ export async function proposeForConversation(opts: {
   const unanswered = unansweredClientTexts(thread);
   const lastInbound = [...thread].reverse().find((m) => m.direction === "inbound")?.body;
   const clientMessage = (unanswered.length ? unanswered : lastInbound ? [lastInbound] : []).join("\n").slice(0, 2000);
-  const proposedReply = await replyFor(acct, opts.conversationId, opts.contactName, thread, cls, opts.requestedBy, opts.contactId, linkStepOf(plan));
+  const proposedReply = null; // the team writes the replies (owner, 2026-10-10)
 
   // The cron may have filed a card for this chat while we were drafting —
   // hand that one back rather than a second card for the same message.
@@ -457,6 +429,8 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       if (!cls?.actionable || !cls.summary) continue;
 
       const { actionType, plan } = planFor(cls, billing);
+      // A question with nothing to change is the team's to answer in chat.
+      if (actionType === "reply" && !plan.length) { skipped.push({ who: c.contactName, why: `question only — the team replies (${cls.summary.slice(0, 80)})` }); continue; }
       // The client's OWN sub-account, where an approved change will land.
       let locationId: string | null = null;
       if (actionType === "account_change") {
@@ -466,7 +440,7 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       // column" / "Before declining" / "Please and thank you" arrive as three
       // messages and the card must show all three.
       const recentInbound = unansweredClientTexts(thread);
-      const proposedReply = await replyFor(acct, c.id, c.contactName, thread, cls, null, c.contactId, linkStepOf(plan));
+      const proposedReply = null; // the team writes the replies (owner, 2026-10-10)
       const { data: inserted, error } = await svc.from("agent_proposals").insert({
         conversation_id: c.id,
         message_id: last.id,
@@ -519,53 +493,34 @@ const unclaimed = () => `decided_at.is.null,decided_at.lt."${claimCutoff()}"`;
 export const isLiveClaim = (p: { decided_at: string | null }) =>
   !!p.decided_at && Date.now() - Date.parse(p.decided_at) < CLAIM_TTL_MS;
 
-// Execute an APPROVED proposal. Phase 1: send the (possibly edited) reply;
-// account changes additionally queue for the browser worker. Refund/payment
-// actions ("SENSITIVE:") are never auto-executed beyond the reply.
+// Execute an APPROVED proposal. Owner, 2026-10-10: the agent NEVER texts a
+// client — the team does. Approve only makes the backend change in the
+// client's own sub-account (and creates payment links for the team to copy),
+// then texts the OWNER a confirmation. Refund/payment actions ("SENSITIVE:")
+// are never executed — a person handles money.
 export async function executeProposal(
   p: Proposal,
-  replyText: string | null,
+  _replyText: string | null,
   decidedBy: string,
 ): Promise<{ status: Proposal["status"]; result: string }> {
   const svc = createServiceClient();
-  let sendNote = "no reply sent";
-  let ok = true;
+  const sendNote = "nothing texted to the client (the team replies)";
+  const ok = true;
 
-  /* Phase 0: payment links. Made BEFORE anything is sent — if Square says
-     no, nothing goes out and the card stays approvable (NothingSentError).
-     The link lines in the reply are rebuilt from the final amounts. */
+  /* Phase 0: payment links — made for the team to paste into their own
+     reply. If Square says no, nothing happened and the card stays
+     approvable (NothingSentError). */
   const linkStep = linkStepOf(p.action_plan);
   let linkNote = "";
   if (linkStep) {
-    // The links go out under a message — an empty box would send bare links.
-    if (!replyText?.replace(/^.*\{\{pay_link_\d+\}\}.*$/gm, "").trim()) throw new NothingSentError("Type a short message to go with the payment links (or Deny) — nothing was sent");
     const links = await createLinksForProposal(svc, p, linkStep, decidedBy);
     linkStep.links = links;
-    replyText = withPaymentLinks(replyText ?? "", linkStep, links.map((l) => l.url));
-    linkNote = `\n💳 ${links.length === 1 ? "Square payment link" : `${links.length} Square payment links`} created (${describeAmounts(links.map((l) => l.amount_cents))}):\n${links.map((l) => `  ${l.url}`).join("\n")}`;
-    // Saved now: if the run dies after the text goes out, the links are on the card.
+    linkNote = `\n💳 ${links.length === 1 ? "Square payment link" : `${links.length} Square payment links`} ready to send (${describeAmounts(links.map((l) => l.amount_cents))}):\n${withPaymentLinks("", linkStep, links.map((l) => l.url))}`;
     await svc.from("agent_proposals").update({ action_plan: p.action_plan }).eq("id", p.id);
   }
-
-  if (replyText && replyText.trim()) {
-    if (!p.contact_id) { ok = false; sendNote = "no contact id on the conversation — send by hand"; }
-    else {
-      const acct: PmuAccount | null = await getReplyAccount();
-      if (!acct) { ok = false; sendNote = "PMU account token unavailable"; }
-      else {
-        const r = await sendConversationMessage(acct, {
-          contactId: p.contact_id,
-          message: replyText.trim(),
-          channel: p.channel ?? "SMS",
-        });
-        ok = r.ok;
-        sendNote = r.ok ? `reply sent (${p.channel ?? "SMS"})` : `send failed: ${r.error}`;
-        // Mark that the text is out before the slow part: if this run is
-        // killed (timeout) the card must never be approved — and texted — again.
-        if (r.ok) await svc.from("agent_proposals").update({ executed_at: new Date().toISOString() }).eq("id", p.id);
-      }
-    }
-  }
+  // Mark the run started before the slow part: a run killed mid-way must not
+  // be approved (and re-run) blindly.
+  await svc.from("agent_proposals").update({ executed_at: new Date().toISOString() }).eq("id", p.id);
 
   // Phase 2: run the account change in the client's sub-account and keep
   // the before → after per step as proof. "SENSITIVE:" (refunds, payments,
@@ -610,6 +565,7 @@ export async function executeProposal(
     result = `${sendNote}${linkNote}\n✗ ${e instanceof Error ? e.message : "error"} — check the account and finish by hand`;
   }
 
+  result = result.replace(/^nothing texted to the client \(the team replies\)\n?/, "").trim() || "nothing to change";
   await svc.from("agent_proposals").update({
     status,
     decided_by: decidedBy,
@@ -617,8 +573,10 @@ export async function executeProposal(
     executed_at: new Date().toISOString(),
     result,
     ...(plan ? { action_plan: plan } : {}),
-    ...(replyText && replyText.trim() ? { proposed_reply: replyText.trim() } : {}),
   }).eq("id", p.id);
+
+  // Tell the owner what was done — never throws.
+  try { await confirmToOwner(svc, { contact_name: p.contact_name, summary: p.summary, status, result }); } catch { /* the card has the proof */ }
 
   return { status, result };
 }

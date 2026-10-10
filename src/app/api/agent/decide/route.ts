@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { waitUntil } from "@vercel/functions";
 import { claimCutoff, executeProposal, isLiveClaim, NothingSentError, type Proposal } from "@/lib/agent";
 import { sanitizePlan } from "@/lib/agent-exec";
-import { recordApprovedReply, settleDashboardSend } from "@/lib/reply-learning";
 
 export const maxDuration = 60; // approve now also runs the account change against GHL
 
-// Approve / deny one agent proposal — admin only. Approve sends the (possibly
-// edited) reply and, for account changes, queues the browser-worker job.
+// Approve / deny one agent proposal — admin only. Approve makes the change in
+// the client's account and texts the owner a confirmation. It never texts
+// the client (owner, 2026-10-10 — the team replies).
 export async function POST(req: NextRequest) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -41,9 +40,9 @@ export async function POST(req: NextRequest) {
   if (p.executed_at) {
     if (!isLiveClaim(p)) {
       await svc.from("agent_proposals").update({
-        status: "failed", result: "✗ reply was already sent, but the run stopped before finishing — check the account and finish by hand",
+        status: "failed", result: "✗ the run stopped before finishing — check the account and finish by hand",
       }).eq("id", id).eq("status", "pending");
-      return NextResponse.json({ error: "Reply was already sent — finish this one by hand" }, { status: 409 });
+      return NextResponse.json({ error: "A previous run stopped part-way — finish this one by hand" }, { status: 409 });
     }
     return NextResponse.json({ error: "Already being approved — refresh in a moment" }, { status: 409 });
   }
@@ -67,7 +66,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, status: "denied" });
   }
 
-  const reply = body.reply !== undefined ? String(body.reply) : p.proposed_reply;
   // Edited payment links replace the planned ones — same limits as the AI's.
   if (body.links && (p.action_plan ?? []).some((s) => s.type === "payment_links")) {
     const old = (p.action_plan ?? []).find((s) => s.type === "payment_links");
@@ -79,21 +77,7 @@ export async function POST(req: NextRequest) {
     p.action_plan = (p.action_plan ?? []).map((s) => (s.type === "payment_links" ? edited : s));
   }
   try {
-    const out = await executeProposal(p, reply, decidedBy);
-    // Learn from it: the AI's draft vs what the approver actually sent.
-    // The card's drafts are closed (the thread would credit this text to
-    // whoever drafted it) and one lesson is saved in the approver's voice.
-    if (reply?.trim() && out.result.startsWith("reply sent")) {
-      waitUntil((async () => {
-        await settleDashboardSend({ conversationId: p.conversation_id, sent: reply, senderEmail: user.email ?? "", pairOwnDraft: false });
-        if (p.proposed_reply) {
-          await recordApprovedReply({
-            conversationId: p.conversation_id, contactId: p.contact_id, contactName: p.contact_name,
-            aiDraft: p.proposed_reply, sent: reply, approverEmail: user.email ?? "",
-          });
-        }
-      })().catch(() => undefined));
-    }
+    const out = await executeProposal(p, null, decidedBy);
     return NextResponse.json({ success: out.status !== "failed", ...out });
   } catch (e) {
     // Square refused the payment links before anything was sent: release the
@@ -102,11 +86,11 @@ export async function POST(req: NextRequest) {
       await svc.from("agent_proposals").update({ decided_by: null, decided_at: null }).eq("id", id).eq("status", "pending").is("executed_at", null);
       return NextResponse.json({ error: e.message }, { status: 502 });
     }
-    // We can't know whether the reply went out — never re-arm Approve (that
-    // could text the client twice). Close it as failed; 🪄 can plan again.
+    // We can't know how far the change got — never re-arm Approve blindly.
+    // Close it as failed; 🪄 can plan again.
     const msg = e instanceof Error ? e.message : "failed";
     await svc.from("agent_proposals").update({
-      status: "failed", result: `✗ ${msg} — check the chat before trying again`, executed_at: new Date().toISOString(),
+      status: "failed", result: `✗ ${msg} — check the account before trying again`, executed_at: new Date().toISOString(),
     }).eq("id", id).eq("status", "pending");
     return NextResponse.json({ error: msg }, { status: 500 });
   }

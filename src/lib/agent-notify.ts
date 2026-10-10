@@ -11,7 +11,9 @@ import { getReplyAccount, sendConversationMessage } from "@/lib/ghl-conversation
 const SETTINGS_KEY = "agent_notify";
 type Svc = SupabaseClient;
 
-export type NotifySettings = { enabled: boolean; phone: string; contactId: string; email?: string; updatedAt?: string };
+// newCards: also text when a NEW request is filed (off unless switched on —
+// the owner only wanted the after-the-fix confirmation, 2026-10-10).
+export type NotifySettings = { enabled: boolean; phone: string; contactId: string; email?: string; updatedAt?: string; newCards?: boolean };
 
 export async function getNotifySettings(svc: Svc): Promise<NotifySettings | null> {
   const { data } = await svc.from("app_settings").select("value").eq("key", SETTINGS_KEY).maybeSingle();
@@ -45,6 +47,7 @@ export async function notifyOwner(svc: Svc, items: NotifyItem[]): Promise<{ sent
   if (!items.length) return { sent: false, note: "nothing to announce" };
   const s = await getNotifySettings(svc);
   if (!s || !s.enabled) return { sent: false, note: "owner notifications not set up" };
+  if (!s.newCards) return { sent: false, note: "new-request texts are off (confirmations only)" };
   const acct = await getReplyAccount();
   if (!acct) return { sent: false, note: "main account token unavailable" };
 
@@ -64,4 +67,23 @@ export async function notifyOwner(svc: Svc, items: NotifyItem[]): Promise<{ sent
     return { sent: true, note: `texted ${s.phone}` };
   }
   return { sent: false, note: `text failed: ${r.error}` };
+}
+
+// ── After Approve: tell the owner what was done ──────────────────────────────
+// Owner, 2026-10-10: "go to her calendar, fix the settings and send me a
+// confirmation". One text per approved card with the outcome per step.
+export async function confirmToOwner(
+  svc: Svc,
+  p: { contact_name: string; summary: string; status: string; result: string },
+): Promise<{ sent: boolean; note: string }> {
+  const s = await getNotifySettings(svc);
+  if (!s || !s.enabled) return { sent: false, note: "owner notifications not set up" };
+  const acct = await getReplyAccount();
+  if (!acct) return { sent: false, note: "main account token unavailable" };
+  const head = p.status === "done" ? "✅ Done" : p.status === "queued_browser" ? "👤 Partly done — a teammate must finish" : "❌ Failed";
+  // The proof lines, without the long before → after brackets.
+  const lines = p.result.split("\n").map((l) => l.replace(/\s*\[[^\]]*\]\s*$/, "").trim()).filter(Boolean).slice(0, 6);
+  const message = `${head} — ${p.contact_name}: ${p.summary.slice(0, 120)}\n${lines.join("\n")}`.slice(0, 900);
+  const r = await sendConversationMessage(acct, { contactId: s.contactId, message, channel: "SMS" });
+  return r.ok ? { sent: true, note: `texted ${s.phone}` } : { sent: false, note: `text failed: ${r.error}` };
 }
