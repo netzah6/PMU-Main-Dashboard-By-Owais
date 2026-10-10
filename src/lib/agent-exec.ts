@@ -320,6 +320,16 @@ function isoInTz(date: string, time: string, tz: string): string {
   return `${date}T${time}${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
 }
 
+/* GHL takes ONE day per openHours entry — [0,6] in one entry is refused with
+   "openHours.0.must be a valid day of week" (Mindy, 2026-10-10). Same-day
+   windows are merged into that day's entry, days in order. */
+type DayHours = { openHour: number; openMinute: number; closeHour: number; closeMinute: number };
+function perDay(items: Array<{ day: number; hours: DayHours[] }>): Array<{ daysOfTheWeek: number[]; hours: DayHours[] }> {
+  const byDay = new Map<number, DayHours[]>();
+  for (const it of items) byDay.set(it.day, [...(byDay.get(it.day) ?? []), ...it.hours]);
+  return [...byDay.keys()].sort((a, b) => a - b).map((d) => ({ daysOfTheWeek: [d], hours: byDay.get(d)! }));
+}
+
 function fmtHours(openHours: unknown): string {
   if (!Array.isArray(openHours) || !openHours.length) return "(none set)";
   const D = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -385,11 +395,11 @@ export async function executePlan(
         if (!cal) { steps.push({ step, ok: false, note: "could not tell which calendar — several exist and none was named" }); continue; }
         const full = await getCalendar(cal.id, token);
         const before = fmtHours(full?.openHours);
-        const openHours = step.hours.map((h) => {
+        const openHours = perDay(step.hours.flatMap((h) => {
           const [oh, om] = h.open.split(":").map(Number);
           const [ch, cm] = h.close.split(":").map(Number);
-          return { daysOfTheWeek: h.days, hours: [{ openHour: oh, openMinute: om, closeHour: ch, closeMinute: cm }] };
-        });
+          return h.days.map((d) => ({ day: d, hours: [{ openHour: oh, openMinute: om, closeHour: ch, closeMinute: cm }] }));
+        }));
         const r = await fetch(`${GHL}/calendars/${cal.id}`, { method: "PUT", headers: locHeaders(token, V_CAL), body: JSON.stringify({ openHours }) });
         if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 120)}`);
         const after = fmtHours((await getCalendar(cal.id, token))?.openHours);
@@ -410,7 +420,7 @@ export async function executePlan(
           const dur = (full.slotDurationUnit === "hours" ? 60 : 1) * Number(full.slotDuration || 60);
           if (step.times.some((t) => toMin(t) + dur > 24 * 60)) { steps.push({ step, ok: false, note: "a start time runs past midnight" }); continue; }
           const hours = step.times.map((t) => { const end = toMin(t) + dur; const [oh, om] = t.split(":").map(Number); return { openHour: oh, openMinute: om, closeHour: Math.floor(end / 60), closeMinute: end % 60 }; });
-          body.openHours = [{ daysOfTheWeek: step.days, hours }];
+          body.openHours = perDay(step.days.map((d) => ({ day: d, hours })));
           if (step.max_per_day) body.appoinmentPerDay = step.max_per_day;
           want = fmtHours(body.openHours);
         } else {
