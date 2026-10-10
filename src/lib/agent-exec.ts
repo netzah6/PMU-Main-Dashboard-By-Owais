@@ -53,7 +53,7 @@ export const PLAN_SCHEMA_TEXT = `"action_plan": an array of typed steps that a p
   {"type":"calendar_slots_set","calendar":"<name or omit>","days":[0,6],"times":["10:00","13:30","17:00"],"max_per_day":3}   (use INSTEAD of calendar_hours_set when the client gives exact appointment start times; 24h times; days left out become closed; max_per_day only if they gave a daily limit)
   {"type":"calendar_max_per_day","calendar":"<name or omit>","max":3}   (a daily booking limit on its own, without fixed times)
   {"type":"location_address_set","address1":"...","city":"...","state":"...","postalCode":"..."}   (only the fields that change)
-  {"type":"manual","what":"<what a teammate must do by hand — pipeline stages, workflows, funnel pages, ads, anything not covered above>"}
+  {"type":"manual","what":"<exactly what to do by hand in their GoHighLevel account — pipeline stages, workflows, funnel pages, users/passwords, anything not covered above; one clear instruction>"}
   {"type":"payment_links","label":"<what it pays for, e.g. 'October service fee'>","amounts_cents":[10000,15000,15000]}   (Square one-time payment links texted to the client — use when they ask to pay, ask for a payment link, or ask to split a payment into parts)
 Rules for payment_links: use EXACTLY the amounts the client asked for, in their order (cents). If they ask to split without giving amounts, split their bill evenly into the number of parts they asked for (the last part takes any odd cents). If they just ask for a link, one link for their bill. Never invent a bill you weren't given — if no amount is known, use a "manual" step instead.
 Rules for action_plan: be literal — never invent values the client did not give; if a value is unknown (e.g. which year for "Oct 8th"), pick the next occurrence from today; if the request needs something the shapes above cannot express, use one "manual" step. When action_type is "reply" the only step allowed is payment_links (else an empty array).`;
@@ -228,7 +228,7 @@ export function describeStep(s: PlanStep): string {
     }
     case "calendar_max_per_day": return `Calendar${s.calendar ? ` "${s.calendar}"` : ""}: max ${s.max} appointment${s.max === 1 ? "" : "s"} a day`;
     case "location_address_set": return `Address → ${[s.address1, s.city, s.state, s.postalCode].filter(Boolean).join(", ")}`;
-    case "manual": return `Needs a teammate: ${s.what}`;
+    case "manual": return s.what;
     case "payment_links": {
       const total = s.amounts_cents.reduce((a, b) => a + b, 0);
       return `Create ${s.amounts_cents.length === 1 ? "a Square payment link" : `${s.amounts_cents.length} Square payment links`} (${describeAmounts(s.amounts_cents)}${s.amounts_cents.length > 1 ? ` = ${usd(total)}` : ""}) for "${s.label}" and add ${s.amounts_cents.length === 1 ? "it" : "them"} to the reply`;

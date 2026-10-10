@@ -78,6 +78,7 @@ export default function AskPage() {
   // tab; nothing runs until someone opens the card and clicks Approve.
   const [proposals, setProposals] = useState<AgentProposal[]>([]);
   const [lastScan, setLastScan] = useState<ScanLog | null>(null);
+  const [workerBeat, setWorkerBeat] = useState<WorkerBeat>(null);
   const [proposalsLoading, setProposalsLoading] = useState(false);
   const [proposalsLoaded, setProposalsLoaded] = useState(false);
   const [proposalsErr, setProposalsErr] = useState<string | null>(null);
@@ -167,6 +168,7 @@ export default function AskPage() {
       if (req !== proposalsReq.current) return; // a newer load or local change won
       setProposals(json.proposals ?? []);
       setLastScan(json.lastScan ?? null);
+      setWorkerBeat(json.worker ?? null);
       setProposalsErr(null);
     } catch (e) {
       if (req === proposalsReq.current) setProposalsErr(`${e}`.replace("Error: ", ""));
@@ -369,7 +371,7 @@ export default function AskPage() {
   // (an SMS link opened late) go on their own, read-only.
   const openProposal = useCallback((p: AgentProposal) => {
     focusCard(p.id);
-    const c = p.status === "pending" ? convs.find((x) => x.id === p.conversation_id) ?? convFromProposal(p) : undefined;
+    const c = p.status === "pending" && !isTask(p) ? convs.find((x) => x.id === p.conversation_id) ?? convFromProposal(p) : undefined;
     if (c) {
       if (composerRef.current.id !== c.id) clickConv(c);
       else { setShowActivity(false); setShowChats(false); }
@@ -633,7 +635,7 @@ export default function AskPage() {
       </div>
 
       {showActivity && isAdmin ? (
-        <AgentActivity proposals={proposals} lastScan={lastScan} loading={proposalsLoading} err={proposalsErr}
+        <AgentActivity proposals={proposals} lastScan={lastScan} worker={workerBeat} loading={proposalsLoading} err={proposalsErr}
           onRefresh={() => loadProposals()} onOpen={openProposal} onClose={() => setShowActivity(false)} />
       ) : (
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
@@ -685,12 +687,12 @@ export default function AskPage() {
           <div className="flex items-center justify-between gap-2 mb-2">
             <span className="text-xs font-bold text-[#34568a]">🕵️ Agent request</span>
             <div className="flex items-center gap-2">
-              <button onClick={() => {
+              {!isTask(openCard) && <button onClick={() => {
                 const c = convFromProposal(openCard);
                 clickConv(c);
                 if (openCard.status === "pending") showAgent(c);
                 else if (pinned.has(openCard.id)) setAgentOpenFor(c.id); // approved here — show its proof
-              }} className="text-[11px] text-[#0e8f88] hover:underline">open chat</button>
+              }} className="text-[11px] text-[#0e8f88] hover:underline">open chat</button>}
               <button onClick={() => setOpenCardId(null)} title="Close" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
             </div>
           </div>
@@ -890,7 +892,11 @@ type AgentProposal = {
   proposed_reply: string | null; action_detail: string | null;
   status: string; decided_by: string | null; result: string | null;
   action_plan?: PlanStep[] | null; location_id?: string | null; notified_at?: string | null;
+  screenshots?: Array<{ name: string; url: string }> | null;
 };
+// Typed by a teammate on the Agent panel — no chat behind it.
+const isTask = (p: { conversation_id: string }) => p.conversation_id.startsWith("task:");
+type WorkerBeat = { at: string; host?: string } | null;
 type ScanLog = { at: string; unread: number; scanned: number; filed: number; closed?: number; skipped: Array<{ who: string; why: string }>; errors: string[]; notify?: { sent: boolean; note: string } };
 // What a card tells the page so it can keep the shared list in step.
 type CardPhase = "approving" | "approved" | "denied" | "error" | "dismissed";
@@ -918,7 +924,7 @@ function stepText(s: PlanStep): string {
     }
     case "calendar_max_per_day": return `Calendar${s.calendar ? ` "${s.calendar}"` : ""}: max ${s.max} appointments a day`;
     case "location_address_set": return `Address → ${[s.address1, s.city, s.state, s.postalCode].filter(Boolean).join(", ")}`;
-    case "manual": return `Needs a teammate: ${s.what}`;
+    case "manual": return String(s.what);
     case "payment_links": {
       const a = (s.amounts_cents as number[]) ?? [];
       return `Create ${a.length === 1 ? "a Square payment link" : `${a.length} Square payment links`} (${a.map(money).join(" · ")}) for "${s.label}" and add ${a.length === 1 ? "it" : "them"} to the reply`;
@@ -940,14 +946,14 @@ function parseAmounts(text: string): number[] | null {
   const cents = parts.map((t) => Math.round(Number(t) * 100));
   return cents.every((c) => Number.isInteger(c) && c >= 100 && c <= 1_000_000) ? cents : null;
 }
-const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "needs a teammate", handled: "handled in chat", pending: "pending" };
+const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "waiting for the Mac Mini", running: "Mac Mini working…", needs_teammate: "needs a teammate", handled: "handled in chat", pending: "pending" };
 
 // The old Agent tab minus the cards (those sit next to their chats now): the
 // SMS settings, what the last scan did and why it skipped chats, a short
 // list of what's waiting, and the decided history. Opened from 🕵️ in the
 // chats header; the data comes from the page so there is one list to refresh.
-function AgentActivity({ proposals, lastScan, loading, err, onRefresh, onOpen, onClose }: {
-  proposals: AgentProposal[]; lastScan: ScanLog | null; loading: boolean; err: string | null;
+function AgentActivity({ proposals, lastScan, worker, loading, err, onRefresh, onOpen, onClose }: {
+  proposals: AgentProposal[]; lastScan: ScanLog | null; worker: WorkerBeat; loading: boolean; err: string | null;
   onRefresh: () => void; onOpen: (p: AgentProposal) => void; onClose: () => void;
 }) {
   const [showSkipped, setShowSkipped] = useState(false);
@@ -965,7 +971,18 @@ function AgentActivity({ proposals, lastScan, loading, err, onRefresh, onOpen, o
           <button onClick={onClose} title="Back to chat" className="p-1.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
         </div>
       </div>
-      <p className="text-xs text-[#697a91]">Client requests are checked every 10 minutes — or open a chat and press 🪄 Let AI handle it. Chats with a plan show 🕵️. <b>Nothing runs without your Approve, and the agent never texts clients.</b></p>
+      <p className="text-xs text-[#697a91]">Client requests are checked every 10 minutes — or open a chat and press 🪄 Let AI handle it. Chats with a plan show 🕵️. <b>Nothing runs without your Approve, and the agent never texts clients.</b> Approved changes are done by the Mac Mini in GoHighLevel, with screenshots.</p>
+      {(() => {
+        const online = !!worker && Date.now() - Date.parse(worker.at) < 3 * 60_000;
+        const queued = proposals.filter((p) => p.status === "queued_browser" || p.status === "running").length;
+        return (
+          <div className={cn("rounded-lg border px-3 py-2 text-xs", online ? "border-[#bfe3cd] bg-[#f3fbf6] text-[#15803d]" : "border-[#f5c2cf] bg-[#fffafb] text-[#b91c1c]")}>
+            🖥️ {online ? `Mac Mini online (checked in ${timeAgo(worker!.at)} ago)` : worker ? `Mac Mini OFFLINE — last seen ${timeAgo(worker.at)} ago` : "Mac Mini not connected yet"}
+            {queued > 0 && <span className="text-[#697a91]"> · {queued} task{queued === 1 ? "" : "s"} in its queue</span>}
+          </div>
+        );
+      })()}
+      <NewTaskBox onCreated={onRefresh} />
       <NotifySettingsBox />
       {lastScan && (
         <div className="text-[11px] text-[#8595a8] flex items-center gap-2 flex-wrap">
@@ -1011,7 +1028,7 @@ function AgentActivity({ proposals, lastScan, loading, err, onRefresh, onOpen, o
           <div className="space-y-1">
             {history.map((p) => (
               <div key={p.id} className="rounded-lg border border-[#eef3f8] bg-white px-3 py-2 text-[11px] text-[#697a91]">
-                <span className={cn("font-bold mr-1.5", p.status === "denied" ? "text-[#e11d48]" : p.status === "failed" ? "text-[#c2620a]" : p.status === "queued_browser" ? "text-[#9a5b00]" : p.status === "handled" ? "text-[#34568a]" : "text-[#15803d]")}>
+                <span className={cn("font-bold mr-1.5", p.status === "denied" ? "text-[#e11d48]" : p.status === "failed" ? "text-[#c2620a]" : p.status === "queued_browser" || p.status === "running" || p.status === "needs_teammate" ? "text-[#9a5b00]" : p.status === "handled" ? "text-[#34568a]" : "text-[#15803d]")}>
                   {STATUS_LABEL[p.status] ?? p.status}
                 </span>
                 <span className="font-semibold text-[#1f3559]">{p.contact_name}</span> — {p.summary}
@@ -1022,6 +1039,52 @@ function AgentActivity({ proposals, lastScan, loading, err, onRefresh, onOpen, o
         </div>
       )}
     </div>
+  );
+}
+
+/* A task typed by a teammate (owner, 2026-10-10: "if my team member asks for
+   that request, it can do it as well"). It becomes a normal card — still
+   needs Approve — and the Mac Mini does it in GoHighLevel. */
+function NewTaskBox({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [client, setClient] = useState("");
+  const [task, setTask] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (busy || !client.trim() || !task.trim()) return;
+    setBusy(true);
+    try {
+      const r = await fetch("/api/agent/task", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client, task }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Failed");
+      toast.success(`Task added for ${j.client} — approve it under "Waiting for you"`);
+      setClient(""); setTask(""); setOpen(false);
+      onCreated();
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally { setBusy(false); }
+  };
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="w-full rounded-lg border border-dashed border-[#c9dbfb] bg-white px-3 py-2 text-xs font-semibold text-[#34568a] hover:border-[#15B7AE] text-left">
+        ➕ New task for the AI (e.g. &ldquo;Add a &lsquo;Later date&rsquo; stage before Declining in Tammy&apos;s pipeline&rdquo;)
+      </button>
+    );
+  }
+  return (
+    <form className="rounded-lg border border-[#c9dbfb] bg-[#f7faff] p-2.5 space-y-2" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+      <input value={client} onChange={(e) => setClient(e.target.value)} placeholder="Client — owner or business name" autoFocus
+        className="w-full px-2 py-1.5 bg-white border border-[#d7e0ea] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
+      <textarea value={task} onChange={(e) => setTask(e.target.value)} rows={3} placeholder="What should be done in their GoHighLevel account? Be specific."
+        className="w-full px-2 py-1.5 bg-white border border-[#d7e0ea] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE] resize-none" />
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={busy || !client.trim() || !task.trim()} className="px-3 py-1.5 rounded bg-[#15803d] text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1">
+          {busy ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Add task
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="text-[11px] text-[#697a91] hover:underline">cancel</button>
+        <span className="ml-auto text-[10px] text-[#8595a8]">Nothing runs until it&apos;s approved</span>
+      </div>
+    </form>
   );
 }
 
@@ -1106,7 +1169,6 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
   const [showDetails, setShowDetails] = useState(false);
   const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
   const plan = p.action_plan ?? [];
-  const manualOnly = plan.length > 0 && plan.every((s) => s.type === "manual");
   // Payment links: amounts editable on the card; the reply's link lines follow.
   const linkStep = plan.find((s) => s.type === "payment_links") ?? null;
   const plannedCents = (linkStep?.amounts_cents as number[] | undefined) ?? [];
@@ -1137,7 +1199,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
       if (decision === "deny") { toast.success("Denied — nothing sent or changed"); onPhase("denied"); return; }
       // Keep the card up with the proof until the owner has read it.
       setOutcome({ status: json.status, result: json.result ?? "" });
-      toast.success(json.status === "done" ? "Done — change made (nothing texted to the client)" : json.status === "queued_browser" ? "Partly done — a teammate must finish this one" : "Something failed — see the card");
+      toast.success(json.status === "queued_browser" ? "Approved — the Mac Mini will do it and send screenshots" : json.status === "done" ? "Done (nothing texted to the client)" : json.status === "needs_teammate" ? "A teammate must do this one by hand" : "Something failed — see the card");
       setBusy(null);
       onPhase("approved");
     } catch (e) {
@@ -1149,18 +1211,32 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
 
   // A card that was decided elsewhere (SMS link, another admin, a remount)
   // shows its stored result — never live Approve/Deny buttons again.
-  const shown = outcome ?? (p.status !== "pending" ? { status: p.status, result: p.result ?? "" } : null);
+  // The stored card wins once it's decided — it keeps moving (queued →
+  // Mac Mini working → done) and the page refreshes it every 25 s.
+  const shown = p.status !== "pending" ? { status: p.status, result: p.result ?? "" } : outcome;
   if (shown) {
     const ok = shown.status === "done";
-    const label = ok ? "✅ done" : shown.status === "failed" ? "❌ failed" : shown.status === "queued_browser" ? "👤 needs a teammate" : STATUS_LABEL[shown.status] ?? shown.status;
+    const label = ok ? "✅ done" : shown.status === "failed" ? "❌ failed" : shown.status === "queued_browser" ? "⏳ waiting for the Mac Mini" : shown.status === "running" ? "🖥️ Mac Mini working…" : shown.status === "needs_teammate" ? "👤 needs a teammate" : STATUS_LABEL[shown.status] ?? shown.status;
+    const shots = p.screenshots ?? [];
     return (
-      <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", ok ? "border-[#bfe3cd] bg-[#f3fbf6]" : shown.status === "failed" ? "border-[#f5c2cf] bg-[#fffafb]" : shown.status === "queued_browser" ? "border-[#fcd9a8] bg-[#fff7ec]" : "border-[#e4ebf2] bg-white")}>
+      <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", ok ? "border-[#bfe3cd] bg-[#f3fbf6]" : shown.status === "failed" ? "border-[#f5c2cf] bg-[#fffafb]" : ["queued_browser", "running", "needs_teammate"].includes(shown.status) ? "border-[#fcd9a8] bg-[#fff7ec]" : "border-[#e4ebf2] bg-white")}>
         <div className="flex items-center justify-between gap-2">
           <span className="text-[13px] font-bold text-[#1f3559]">{p.contact_name} — {label}</span>
           <button onClick={() => onPhase("dismissed")} className="text-[11px] text-[#0e8f88] hover:underline">dismiss</button>
         </div>
         <p className="mt-1 text-xs text-[#697a91]">{p.summary}</p>
         {shown.result && <pre className="mt-2 whitespace-pre-wrap font-sans text-[12px] text-[#1f3559] bg-white/70 rounded-lg px-2.5 py-2 border border-black/5">{shown.result}</pre>}
+        {shots.length > 0 && (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {shots.map((s, i) => (
+              <a key={i} href={s.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-black/10 overflow-hidden bg-white hover:border-[#15B7AE]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={s.url} alt={s.name || `Screenshot ${i + 1}`} className="w-full h-28 object-cover object-top" loading="lazy" />
+                <span className="block px-2 py-1 text-[10px] text-[#697a91] truncate">{s.name || `Screenshot ${i + 1}`}</span>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -1169,7 +1245,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
   // itself before Approve (owner, 2026-10-01): what the client asked, then
   // exactly what Approve will do, in order. The client's own words and the
   // AI's notes sit behind "details".
-  const tag = sensitive ? "💰 money" : linkStep ? "💳 payment links" : p.action_type === "account_change" ? (manualOnly ? "👤 teammate" : "🔧 change") : "💬 reply";
+  const tag = sensitive ? "💰 money" : linkStep ? "💳 payment links" : isTask(p) ? "📝 team task" : p.action_type === "account_change" ? "🔧 change" : "💬 reply";
   const change = (p.action_detail ?? "").replace(/^SENSITIVE:\s*/, "");
   // In the order executeProposal runs them. The client is never texted.
   const willDo: string[] = [];
@@ -1177,9 +1253,10 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
   if (sensitive) willDo.push(`👤 Money is never automatic — a teammate makes this change by hand${change ? `: ${change}` : ""}`);
   else if (p.action_type === "account_change") {
     const steps = plan.filter((s) => s.type !== "payment_links");
-    if (steps.length) willDo.push(...steps.map((s) => `${s.type === "manual" ? "👤 Teammate: " : ""}${stepText(s)}`));
-    else if (change) willDo.push(`Make this change in ${p.contact_name}'s account: ${change}`);
-    if (!manualOnly && steps.length) willDo.push("Text you a confirmation with before → after");
+    willDo.push(`On the Mac Mini, open ${p.contact_name}'s GoHighLevel account and:`);
+    if (steps.length) willDo.push(...steps.map((s) => `   ${stepText(s)}`));
+    else if (change) willDo.push(`   ${change}`);
+    willDo.push("Screenshot the result and text it to you");
   }
   return (
     <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", sensitive ? "border-[#f5c2cf] bg-[#fffafb]" : "border-[#c9dbfb] bg-[#f7faff]", focused && "ring-2 ring-[#15B7AE]")}>
