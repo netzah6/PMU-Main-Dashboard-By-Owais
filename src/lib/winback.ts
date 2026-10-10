@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
-import { readSheetValues } from "@/lib/sheets";
+import { getSheetsClient, readSheetValues, resolveTabName } from "@/lib/sheets";
 import { GHL_BASE } from "@/lib/ghl-tasks";
 import { getThread, type PmuAccount, type ThreadMessage } from "@/lib/ghl-conversations";
 
@@ -297,6 +297,7 @@ export async function reviewWinback(acct: PmuAccount, budgetMs = 230_000): Promi
     }
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
+  await writeRedFlags().catch((e) => { throw new Error(`Reviewed, but couldn't write the "Red flag" column (share the sheet as Editor): ${e instanceof Error ? e.message : e}`); });
 
   const { data: after } = await svc.from("winback_contacts").select("contact_id, match_note, reviewed_at, review_verdict").eq("active", true);
   const a = (after ?? []) as Array<{ contact_id: string | null; match_note: string | null; reviewed_at: string | null; review_verdict: string | null }>;
@@ -308,4 +309,59 @@ export async function reviewWinback(acct: PmuAccount, budgetMs = 230_000): Promi
     remaining: a.filter((x) => (x.contact_id && !x.reviewed_at) || !x.match_note).length,
     notFound: a.filter((x) => !x.contact_id && x.match_note).length,
   };
+}
+
+const RED_FLAG_LABEL: Record<ReviewVerdict, string> = {
+  bad: "🚩 Ended badly",
+  opted_out: "⛔ Asked us to stop",
+  tense: "⚠ Unhappy",
+  ok: "✅ No red flag",
+  no_chat: "✅ No red flag (never chatted with us)",
+};
+const OUR_NOTE = /^(🚩|⛔|⚠|✅|❔)/;
+
+/* Write each reviewed person's result into the sheet's "Red flag" column
+   (owner, 2026-10-10). Rows are found by the "#" column (the sheet gets
+   re-sorted), and a cell the owner typed himself is never overwritten — only
+   empty cells and our own earlier notes. */
+export async function writeRedFlags(): Promise<number> {
+  const svc = createServiceClient();
+  const { data } = await svc.from("winback_contacts").select("*").eq("active", true);
+  const byNum = new Map(((data ?? []) as WinbackRow[]).map((r) => [r.sheet_row, r]));
+
+  const values = await readSheetValues(WINBACK_SHEET_ID, "Sheet1", 0);
+  const head = (values[0] ?? []).map((h) => lower(h));
+  const nCol = head.findIndex((h) => /^#$/.test(h));
+  const flagCol = head.findIndex((h) => /red\s*flag/.test(h));
+  if (nCol < 0 || flagCol < 0) throw new Error('No "Red flag" column in the sheet');
+  const tab = await resolveTabName(WINBACK_SHEET_ID, "Sheet1", 0);
+  const colA1 = (i: number) => { let n = i + 1, out = ""; while (n > 0) { const m = (n - 1) % 26; out = String.fromCharCode(65 + m) + out; n = Math.floor((n - 1) / 26); } return out; };
+
+  const updates: { range: string; values: string[][] }[] = [];
+  values.slice(1).forEach((r, i) => {
+    const n = Number(r[nCol]);
+    const cur = String(r[flagCol] ?? "").trim();
+    if (cur && !OUR_NOTE.test(cur)) return; // the owner's own note
+    const w = byNum.get(n);
+    let text = "";
+    if (!w) return; // "Not" rows are left alone
+    if (w.review_verdict) {
+      text = RED_FLAG_LABEL[w.review_verdict];
+      if (["bad", "opted_out", "tense"].includes(w.review_verdict)) {
+        text += ` — ${w.review_note ?? ""}${w.review_quote ? ` (“${w.review_quote}”)` : ""}`;
+      }
+    } else if (!w.contact_id && w.match_note) {
+      text = "❔ Not checked — not found in PMU Bookings On Demand";
+    }
+    if (text && text !== cur) updates.push({ range: `'${tab}'!${colA1(flagCol)}${i + 2}`, values: [[text]] });
+  });
+  if (!updates.length) return 0;
+  const sheets = await getSheetsClient();
+  for (let i = 0; i < updates.length; i += 200) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: WINBACK_SHEET_ID,
+      requestBody: { valueInputOption: "RAW", data: updates.slice(i, i + 200) },
+    });
+  }
+  return updates.length;
 }
