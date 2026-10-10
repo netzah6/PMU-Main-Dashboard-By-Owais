@@ -28,6 +28,11 @@ export type PlanStep =
   | { type: "custom_value_set"; name: string; value: string }
   | { type: "calendar_block_dates"; dates: string[]; calendar?: string; reason?: string }
   | { type: "calendar_hours_set"; calendar?: string; hours: Array<{ days: number[]; open: string; close: string }> }
+  /* Fixed start times (owner, 2026-10-10 — Mindy: "weekends only, 10:00,
+     1:30, 5:00, max 3 a day"). Each time becomes a window exactly one
+     appointment long, so GHL offers that one slot and nothing in between. */
+  | { type: "calendar_slots_set"; calendar?: string; days: number[]; times: string[]; max_per_day?: number }
+  | { type: "calendar_max_per_day"; calendar?: string; max: number }
   | { type: "location_address_set"; address1?: string; city?: string; state?: string; postalCode?: string }
   | { type: "manual"; what: string }
   /* Square one-time payment links (owner, 2026-10-05: "generate links from
@@ -45,6 +50,8 @@ export const PLAN_SCHEMA_TEXT = `"action_plan": an array of typed steps that a p
   {"type":"custom_value_set","name":"<exact or close custom-value name, e.g. 'CC - Offer', 'CC - Original Price', 'CC - Studio Address', 'CC - Directions'>","value":"<new value>"}
   {"type":"calendar_block_dates","dates":["YYYY-MM-DD", ...],"calendar":"<calendar name if the client named one, else omit>","reason":"<short>"}
   {"type":"calendar_hours_set","calendar":"<name or omit>","hours":[{"days":[1,2,3],"open":"09:00","close":"17:00"}]}   (days: 0=Sunday … 6=Saturday; list every day that should be OPEN — days left out become closed)
+  {"type":"calendar_slots_set","calendar":"<name or omit>","days":[0,6],"times":["10:00","13:30","17:00"],"max_per_day":3}   (use INSTEAD of calendar_hours_set when the client gives exact appointment start times; 24h times; days left out become closed; max_per_day only if they gave a daily limit)
+  {"type":"calendar_max_per_day","calendar":"<name or omit>","max":3}   (a daily booking limit on its own, without fixed times)
   {"type":"location_address_set","address1":"...","city":"...","state":"...","postalCode":"..."}   (only the fields that change)
   {"type":"manual","what":"<what a teammate must do by hand — pipeline stages, workflows, funnel pages, ads, anything not covered above>"}
   {"type":"payment_links","label":"<what it pays for, e.g. 'October service fee'>","amounts_cents":[10000,15000,15000]}   (Square one-time payment links texted to the client — use when they ask to pay, ask for a payment link, or ask to split a payment into parts)
@@ -171,6 +178,14 @@ export function sanitizePlan(raw: unknown): PlanStep[] {
         .filter((h) => h && Array.isArray(h.days) && /^\d{1,2}:\d{2}$/.test(String(h.open)) && /^\d{1,2}:\d{2}$/.test(String(h.close)))
         .map((h) => ({ days: (h.days as unknown[]).map(Number).filter((d) => d >= 0 && d <= 6), open: String(h.open), close: String(h.close) }));
       if (hours.length) out.push({ type: t, calendar: s.calendar ? String(s.calendar) : undefined, hours });
+    } else if (t === "calendar_slots_set" && Array.isArray(s.days) && Array.isArray(s.times)) {
+      const days = [...new Set((s.days as unknown[]).map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))];
+      const times = [...new Set((s.times as unknown[]).map(String).filter((x) => /^([01]?\d|2[0-3]):[0-5]\d$/.test(x)))].sort((a, b) => toMin(a) - toMin(b));
+      const max = Number(s.max_per_day);
+      if (days.length && times.length && times.length <= 12) out.push({ type: t, calendar: s.calendar ? String(s.calendar) : undefined, days, times, ...(Number.isInteger(max) && max >= 1 && max <= 50 ? { max_per_day: max } : {}) });
+    } else if (t === "calendar_max_per_day") {
+      const max = Number(s.max);
+      if (Number.isInteger(max) && max >= 1 && max <= 50) out.push({ type: t, calendar: s.calendar ? String(s.calendar) : undefined, max });
     } else if (t === "location_address_set") {
       const step: PlanStep = { type: t };
       for (const k of ["address1", "city", "state", "postalCode"] as const) if (s[k]) step[k] = String(s[k]);
@@ -195,6 +210,9 @@ export function sanitizePlan(raw: unknown): PlanStep[] {
   return out;
 }
 
+const toMin = (hhmm: string) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+const to12 = (hhmm: string) => { const [h, m] = hhmm.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")}${h < 12 ? "am" : "pm"}`; };
+
 // ── Human-readable one-liner per step, for the card and the SMS ──────────────
 export function describeStep(s: PlanStep): string {
   switch (s.type) {
@@ -204,6 +222,11 @@ export function describeStep(s: PlanStep): string {
       const D = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       return `Hours${s.calendar ? ` on "${s.calendar}"` : ""}: ` + s.hours.map((h) => `${h.days.map((d) => D[d]).join("/")} ${h.open}–${h.close}`).join(", ");
     }
+    case "calendar_slots_set": {
+      const D = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      return `Calendar${s.calendar ? ` "${s.calendar}"` : ""}: open ${s.days.map((d) => D[d]).join("/")} only, appointments at ${s.times.map(to12).join(", ")}${s.max_per_day ? `, max ${s.max_per_day} a day` : ""}`;
+    }
+    case "calendar_max_per_day": return `Calendar${s.calendar ? ` "${s.calendar}"` : ""}: max ${s.max} appointment${s.max === 1 ? "" : "s"} a day`;
     case "location_address_set": return `Address → ${[s.address1, s.city, s.state, s.postalCode].filter(Boolean).join(", ")}`;
     case "manual": return `Needs a teammate: ${s.what}`;
     case "payment_links": {
@@ -232,7 +255,7 @@ async function listCustomValues(locationId: string, token: string): Promise<Cust
   return j.customValues ?? [];
 }
 
-type Calendar = { id: string; name: string; openHours?: unknown };
+type Calendar = { id: string; name: string; openHours?: unknown; slotDuration?: number; slotDurationUnit?: string; appoinmentPerDay?: number | string | null };
 async function listCalendars(locationId: string, token: string): Promise<Calendar[]> {
   const r = await fetch(`${GHL}/calendars/?locationId=${locationId}`, { headers: locHeaders(token, V_CAL) });
   if (!r.ok) throw new Error(`calendars HTTP ${r.status}`);
@@ -256,6 +279,23 @@ function pickCalendar(cals: Calendar[], wanted?: string): Calendar | null {
   }
   if (cals.length === 1) return cals[0];
   return cals.find((c) => /book|appoint|consult|session/i.test(c.name)) ?? null;
+}
+
+// Distinct start times ("10:00am") GHL offers on this calendar over the next
+// 14 days, in the studio's timezone. null = the check itself failed.
+async function offeredStartTimes(calendarId: string, token: string, tz: string): Promise<Set<string> | null> {
+  const start = Date.now();
+  const r = await fetch(`${GHL}/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${start + 14 * 86_400_000}&timezone=${encodeURIComponent(tz)}`, { headers: locHeaders(token, V_CAL) });
+  if (!r.ok) return null;
+  const j = (await r.json()) as Record<string, { slots?: string[] } | unknown>;
+  const out = new Set<string>();
+  for (const v of Object.values(j)) {
+    for (const iso of (v as { slots?: string[] })?.slots ?? []) {
+      const hhmm = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
+      out.add(to12(hhmm));
+    }
+  }
+  return out;
 }
 
 type Location = { name?: string; address?: string; city?: string; state?: string; postalCode?: string; timezone?: string };
@@ -354,6 +394,49 @@ export async function executePlan(
         if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 120)}`);
         const after = fmtHours((await getCalendar(cal.id, token))?.openHours);
         steps.push({ step, ok: true, before, after, note: `hours updated on "${cal.name}"` });
+        continue;
+      }
+      if (step.type === "calendar_slots_set" || step.type === "calendar_max_per_day") {
+        const cal = pickCalendar(await listCalendars(locationId, token), step.calendar);
+        if (!cal) { steps.push({ step, ok: false, note: "could not tell which calendar — several exist and none was named" }); continue; }
+        const full = await getCalendar(cal.id, token);
+        if (!full) throw new Error("could not read the calendar");
+        const cap = (c: Calendar | null) => (c?.appoinmentPerDay ? `max ${c.appoinmentPerDay}/day` : "no daily max");
+        const body: Record<string, unknown> = {};
+        let want = "";
+        if (step.type === "calendar_slots_set") {
+          // One window per start time, exactly one appointment long — GHL then
+          // offers that single slot. Duration is the calendar's own.
+          const dur = (full.slotDurationUnit === "hours" ? 60 : 1) * Number(full.slotDuration || 60);
+          if (step.times.some((t) => toMin(t) + dur > 24 * 60)) { steps.push({ step, ok: false, note: "a start time runs past midnight" }); continue; }
+          const hours = step.times.map((t) => { const end = toMin(t) + dur; const [oh, om] = t.split(":").map(Number); return { openHour: oh, openMinute: om, closeHour: Math.floor(end / 60), closeMinute: end % 60 }; });
+          body.openHours = [{ daysOfTheWeek: step.days, hours }];
+          if (step.max_per_day) body.appoinmentPerDay = step.max_per_day;
+          want = fmtHours(body.openHours);
+        } else {
+          body.appoinmentPerDay = step.max;
+        }
+        const before = step.type === "calendar_slots_set" ? `${fmtHours(full.openHours)} · ${cap(full)}` : cap(full);
+        const r = await fetch(`${GHL}/calendars/${cal.id}`, { method: "PUT", headers: locHeaders(token, V_CAL), body: JSON.stringify(body) });
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text()).slice(0, 120)}`);
+        const back = await getCalendar(cal.id, token);
+        const capOk = body.appoinmentPerDay === undefined || Number(back?.appoinmentPerDay) === body.appoinmentPerDay;
+        const hoursOk = !want || fmtHours(back?.openHours) === want;
+        let after = step.type === "calendar_slots_set" ? `${fmtHours(back?.openHours)} · ${cap(back)}` : cap(back);
+        let slotsOk = true;
+        if (step.type === "calendar_slots_set" && hoursOk) {
+          // The real proof: what a lead is offered over the next 2 weeks.
+          const tz = (await getLocation(locationId, token)).timezone || "America/Los_Angeles";
+          const offered = await offeredStartTimes(cal.id, token, tz);
+          if (offered) {
+            const wanted = new Set(step.times.map(to12));
+            const extra = [...offered].filter((t) => !wanted.has(t));
+            slotsOk = offered.size > 0 && extra.length === 0;
+            after += ` · leads now see: ${offered.size ? [...offered].join(", ") : "NO open times"}`;
+          }
+        }
+        const ok = capOk && hoursOk && slotsOk;
+        steps.push({ step, ok, before, after, note: ok ? `updated "${cal.name}" (checked)` : !slotsOk ? `"${cal.name}" saved, but the times leads see don't match — check it by hand` : `"${cal.name}" did not keep the new settings` });
         continue;
       }
       if (step.type === "location_address_set") {

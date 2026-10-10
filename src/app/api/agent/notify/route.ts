@@ -27,14 +27,14 @@ export async function GET() {
   const a = await requireAdmin();
   if ("error" in a) return a.error;
   const s = await getNotifySettings(a.svc);
-  return NextResponse.json({ settings: s ? { enabled: s.enabled, phone: s.phone, updatedAt: s.updatedAt } : null });
+  return NextResponse.json({ settings: s ? { enabled: s.enabled, phone: s.phone, newCards: !!s.newCards, updatedAt: s.updatedAt } : null });
 }
 
 export async function POST(req: NextRequest) {
   const a = await requireAdmin();
   if ("error" in a) return a.error;
   const { user, svc } = a;
-  const body = (await req.json().catch(() => ({}))) as { phone?: string; enabled?: boolean; test?: boolean };
+  const body = (await req.json().catch(() => ({}))) as { phone?: string; enabled?: boolean; newCards?: boolean; test?: boolean };
   const by = user.email ?? user.id;
 
   if (body.test) {
@@ -44,17 +44,24 @@ export async function POST(req: NextRequest) {
     if (!acct) return NextResponse.json({ error: "Main account token unavailable" }, { status: 500 });
     const r = await sendConversationMessage(acct, {
       contactId: s.contactId, channel: "SMS",
-      message: `Test from the PMU dashboard: this is where client requests will arrive. Example link: ${proposalLink("test")}`,
+      message: `Test from the PMU dashboard: confirmations of the AI agent's fixes will arrive here.${s.newCards ? ` New requests too, e.g. ${proposalLink("test")}` : ""}`,
     });
     if (!r.ok) return NextResponse.json({ error: `Send failed: ${r.error}` }, { status: 500 });
     return NextResponse.json({ success: true });
+  }
+
+  if (typeof body.newCards === "boolean" && !body.phone) {
+    const s = await getNotifySettings(svc);
+    if (!s) return NextResponse.json({ error: "Save a phone number first" }, { status: 400 });
+    await saveNotifySettings(svc, { ...s, newCards: body.newCards }, by);
+    return NextResponse.json({ success: true, settings: { enabled: s.enabled, phone: s.phone, newCards: body.newCards } });
   }
 
   if (typeof body.enabled === "boolean" && !body.phone) {
     const s = await getNotifySettings(svc);
     if (!s) return NextResponse.json({ error: "Save a phone number first" }, { status: 400 });
     await saveNotifySettings(svc, { ...s, enabled: body.enabled }, by);
-    return NextResponse.json({ success: true, settings: { enabled: body.enabled, phone: s.phone } });
+    return NextResponse.json({ success: true, settings: { enabled: body.enabled, phone: s.phone, newCards: !!s.newCards } });
   }
 
   const digits = String(body.phone ?? "").replace(/[^\d+]/g, "");
@@ -75,6 +82,7 @@ export async function POST(req: NextRequest) {
   const contactId = j.contact?.id;
   if (!r.ok || !contactId) return NextResponse.json({ error: `Could not save the number in GHL: ${j.message ?? `HTTP ${r.status}`}` }, { status: 500 });
 
-  await saveNotifySettings(svc, { enabled: true, phone, contactId, email: user.email ?? undefined }, by);
-  return NextResponse.json({ success: true, settings: { enabled: true, phone } });
+  const prev = await getNotifySettings(svc);
+  await saveNotifySettings(svc, { enabled: true, phone, contactId, email: user.email ?? undefined, newCards: !!prev?.newCards }, by);
+  return NextResponse.json({ success: true, settings: { enabled: true, phone, newCards: !!prev?.newCards } });
 }

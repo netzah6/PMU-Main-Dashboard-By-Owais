@@ -877,7 +877,7 @@ export default function AskPage() {
 // Client requests the scanner detected — or that someone handed over with 🪄
 // — waiting for an explicit Approve/Deny. Since 2026-10-01 the cards live in
 // the chat itself (next to their conversation) instead of a separate tab.
-// Approve sends the (editable) reply and — phase 2, 2026-09-28 — runs the
+// Approve never texts the client (owner, 2026-10-10) — phase 2 runs the
 // account change in the client's own sub-account through the GHL API,
 // keeping a before → after line per step as proof. Steps the API cannot
 // reach (pipeline stages, workflows) park the card as "needs a teammate".
@@ -912,6 +912,11 @@ function stepText(s: PlanStep): string {
     case "custom_value_set": return `Set "${s.name}" to "${s.value}"`;
     case "calendar_block_dates": return `Block ${(s.dates as string[]).join(", ")}${s.calendar ? ` on "${s.calendar}"` : ""}`;
     case "calendar_hours_set": return `Hours${s.calendar ? ` on "${s.calendar}"` : ""}: ${(s.hours as Array<{ days: number[]; open: string; close: string }>).map((h) => `${h.days.map((d) => D[d]).join("/")} ${h.open}–${h.close}`).join(", ")}`;
+    case "calendar_slots_set": {
+      const t12 = (x: string) => { const [h, m] = x.split(":").map(Number); return `${h % 12 || 12}:${String(m).padStart(2, "0")}${h < 12 ? "am" : "pm"}`; };
+      return `Calendar${s.calendar ? ` "${s.calendar}"` : ""}: open ${(s.days as number[]).map((d) => D[d]).join("/")} only, appointments at ${(s.times as string[]).map(t12).join(", ")}${s.max_per_day ? `, max ${s.max_per_day} a day` : ""}`;
+    }
+    case "calendar_max_per_day": return `Calendar${s.calendar ? ` "${s.calendar}"` : ""}: max ${s.max} appointments a day`;
     case "location_address_set": return `Address → ${[s.address1, s.city, s.state, s.postalCode].filter(Boolean).join(", ")}`;
     case "manual": return `Needs a teammate: ${s.what}`;
     case "payment_links": {
@@ -960,7 +965,7 @@ function AgentActivity({ proposals, lastScan, loading, err, onRefresh, onOpen, o
           <button onClick={onClose} title="Back to chat" className="p-1.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
         </div>
       </div>
-      <p className="text-xs text-[#697a91]">Client requests are checked every 10 minutes — or open a chat and press 🪄 Let AI handle it. Chats with a plan show 🕵️. <b>Nothing runs without your Approve.</b></p>
+      <p className="text-xs text-[#697a91]">Client requests are checked every 10 minutes — or open a chat and press 🪄 Let AI handle it. Chats with a plan show 🕵️. <b>Nothing runs without your Approve, and the agent never texts clients.</b></p>
       <NotifySettingsBox />
       {lastScan && (
         <div className="text-[11px] text-[#8595a8] flex items-center gap-2 flex-wrap">
@@ -1024,14 +1029,14 @@ function AgentActivity({ proposals, lastScan, loading, err, onRefresh, onOpen, o
 // text goes out through the main account, so the owner becomes a contact
 // there; the API does that and stores the contact id.
 function NotifySettingsBox() {
-  const [settings, setSettings] = useState<{ enabled: boolean; phone: string } | null | undefined>(undefined);
+  const [settings, setSettings] = useState<{ enabled: boolean; phone: string; newCards?: boolean } | null | undefined>(undefined);
   const [phone, setPhone] = useState("");
-  const [busy, setBusy] = useState<"save" | "test" | "toggle" | null>(null);
+  const [busy, setBusy] = useState<"save" | "test" | "toggle" | "cards" | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     fetch("/api/agent/notify").then((r) => r.json()).then((j) => setSettings(j.settings ?? null)).catch(() => setSettings(null));
   }, []);
-  const post = async (body: Record<string, unknown>, kind: "save" | "test" | "toggle", okMsg: string) => {
+  const post = async (body: Record<string, unknown>, kind: "save" | "test" | "toggle" | "cards", okMsg: string) => {
     setBusy(kind);
     try {
       const r = await fetch("/api/agent/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1049,11 +1054,16 @@ function NotifySettingsBox() {
     <div className={cn("rounded-lg border px-3 py-2 text-xs", settings?.enabled ? "border-[#bfe3cd] bg-[#f3fbf6]" : "border-[#fcd9a8] bg-[#fff7ec]")}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <span className={settings?.enabled ? "text-[#15803d]" : "text-[#9a5b00]"}>
-          {settings ? (settings.enabled ? `📱 Texting you at ${settings.phone} when a request comes in` : `⏸ Texts paused (${settings.phone})`) : "⚠ Not texting you yet — add your mobile number so new requests reach you"}
+          {settings ? (settings.enabled ? `📱 Texting you at ${settings.phone} after each fix${settings.newCards ? " and when a request comes in" : ""}` : `⏸ Texts paused (${settings.phone})`) : "⚠ Add your mobile number to get a confirmation text after each fix"}
         </span>
         <div className="flex items-center gap-1.5">
           {settings && (
             <>
+              <label className="flex items-center gap-1 text-[#34568a] cursor-pointer">
+                <input type="checkbox" checked={!!settings.newCards} disabled={!!busy}
+                  onChange={(e) => post({ newCards: e.target.checked }, "cards", e.target.checked ? "You'll also be texted about new requests" : "Confirmations only")} />
+                {busy === "cards" && <Loader2 size={11} className="animate-spin" />}new requests too
+              </label>
               <button onClick={() => post({ enabled: !settings.enabled }, "toggle", settings.enabled ? "Texts paused" : "Texts resumed")} disabled={!!busy}
                 className="px-2 py-1 rounded border border-[#d7e0ea] bg-white text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50 flex items-center gap-1">
                 {busy === "toggle" && <Loader2 size={11} className="animate-spin" />}{settings.enabled ? "Pause" : "Resume"}
@@ -1070,7 +1080,7 @@ function NotifySettingsBox() {
         </div>
       </div>
       {open && (
-        <form className="mt-2 flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void post({ phone }, "save", "Saved — you'll be texted on the next request"); }}>
+        <form className="mt-2 flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void post({ phone }, "save", "Saved — you'll get a text after the next fix"); }}>
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Your mobile, e.g. 213-555-0100" inputMode="tel" autoFocus
             className="flex-1 px-2 py-1.5 bg-white border border-[#d7e0ea] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
           <button type="submit" disabled={!!busy || !phone.trim()} className="px-3 py-1.5 rounded bg-[#15803d] text-white disabled:opacity-50 flex items-center gap-1">
@@ -1082,20 +1092,18 @@ function NotifySettingsBox() {
   );
 }
 
-function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, amounts: keptAmounts, onAmountsChange, working, checking }: {
+function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmounts, onAmountsChange, working, checking }: {
   p: AgentProposal; onPhase: (phase: CardPhase) => void; focused?: boolean;
   reply?: string; onReplyChange?: (v: string) => void;
   amounts?: string; onAmountsChange?: (v: string) => void;
   working?: boolean;  // an Approve for this card is still running (page-level)
   checking?: boolean; // the chat is being re-read — this plan may be replaced
 }) {
-  const [localReply, setLocalReply] = useState(stripLinkLines(p.proposed_reply ?? ""));
+  const [localReply] = useState(stripLinkLines(p.proposed_reply ?? ""));
   const reply = keptReply ?? localReply;
-  const setReply = (v: string) => { setLocalReply(v); onReplyChange?.(v); };
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
   const [outcome, setOutcome] = useState<{ status: string; result: string } | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [calling, setCalling] = useState(false); // re-drafting the reply with a call invite
   const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
   const plan = p.action_plan ?? [];
   const manualOnly = plan.length > 0 && plan.every((s) => s.type === "manual");
@@ -1108,7 +1116,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, am
   const editedCents = linkStep ? parseAmounts(amountsText) : null;
   const billCents = (linkStep?.bill_cents as number | null | undefined) ?? null;
   const billPaid = /\bpaid\b/i.test(String(linkStep?.bill_status ?? ""));
-  const needsMessage = !!linkStep && !reply.trim();
+  const needsMessage = false; // the team writes the reply; links are copied into it
 
   const decide = useCallback(async (decision: "approve" | "deny") => {
     if (busy || working || checking) return;
@@ -1129,7 +1137,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, am
       if (decision === "deny") { toast.success("Denied — nothing sent or changed"); onPhase("denied"); return; }
       // Keep the card up with the proof until the owner has read it.
       setOutcome({ status: json.status, result: json.result ?? "" });
-      toast.success(json.status === "done" ? "Done — change made and reply sent" : json.status === "queued_browser" ? "Reply sent · a teammate must finish this one" : "Something failed — see the card");
+      toast.success(json.status === "done" ? "Done — change made (nothing texted to the client)" : json.status === "queued_browser" ? "Partly done — a teammate must finish this one" : "Something failed — see the card");
       setBusy(null);
       onPhase("approved");
     } catch (e) {
@@ -1138,30 +1146,6 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, am
       onPhase("error");
     }
   }, [busy, working, checking, p.id, reply, onPhase, linkStep, editedCents]);
-
-  // The agent never invites to a call by itself — this re-drafts the reply
-  // WITH an invite, only when someone clicks it.
-  const addCallInvite = async () => {
-    if (calling || busy || working || checking) return;
-    setCalling(true);
-    try {
-      const res = await fetch("/api/ghl/reply/draft", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversationId: p.conversation_id, contactName: p.contact_name, contactId: p.contact_id,
-          instructions: `What the client needs (from triage): ${p.summary}.`, inviteCall: true, source: "agent",
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.draft) throw new Error(json.error || "Couldn't redraft the reply");
-      setReply(json.draft);
-    } catch (e) {
-      toast.error(`${e}`.replace("Error: ", ""));
-    } finally {
-      setCalling(false);
-    }
-  };
 
   // A card that was decided elsewhere (SMS link, another admin, a remount)
   // shows its stored result — never live Approve/Deny buttons again.
@@ -1187,18 +1171,15 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, am
   // AI's notes sit behind "details".
   const tag = sensitive ? "💰 money" : linkStep ? "💳 payment links" : p.action_type === "account_change" ? (manualOnly ? "👤 teammate" : "🔧 change") : "💬 reply";
   const change = (p.action_detail ?? "").replace(/^SENSITIVE:\s*/, "");
-  // In the order executeProposal runs them: the reply goes out first.
+  // In the order executeProposal runs them. The client is never texted.
   const willDo: string[] = [];
-  if (linkStep) willDo.push(editedCents ? stepText({ ...linkStep, amounts_cents: editedCents }).replace(/ and add (it|them) to the reply$/, "") : "⚠️ Fix the payment amounts below");
-  willDo.push(linkStep
-    ? (needsMessage ? "⚠️ Type a short message — the links are sent under it" : `Send your message with the ${editedCents && editedCents.length > 1 ? `${editedCents.length} links` : "link"} under it`)
-    : reply.trim() ? "Send the reply below" : "Send nothing (the reply box is empty)");
+  if (linkStep) willDo.push(editedCents ? `${stepText({ ...linkStep, amounts_cents: editedCents }).replace(/ and add (it|them) to the reply$/, "")} for you to paste in your reply` : "⚠️ Fix the payment amounts below");
   if (sensitive) willDo.push(`👤 Money is never automatic — a teammate makes this change by hand${change ? `: ${change}` : ""}`);
   else if (p.action_type === "account_change") {
     const steps = plan.filter((s) => s.type !== "payment_links");
     if (steps.length) willDo.push(...steps.map((s) => `${s.type === "manual" ? "👤 Teammate: " : ""}${stepText(s)}`));
     else if (change) willDo.push(`Make this change in ${p.contact_name}'s account: ${change}`);
-    if (!manualOnly && steps.length) willDo.push("Show you before → after for each change");
+    if (!manualOnly && steps.length) willDo.push("Text you a confirmation with before → after");
   }
   return (
     <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", sensitive ? "border-[#f5c2cf] bg-[#fffafb]" : "border-[#c9dbfb] bg-[#f7faff]", focused && "ring-2 ring-[#15B7AE]")}>
@@ -1247,28 +1228,21 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, onReplyChange, am
           </p>
         </div>
       )}
-      <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={2} placeholder={linkStep ? "A short message to go with the links" : "Reply to the client (empty = send nothing)"}
-        className="w-full mt-2 px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none" />
       {linkStep && editedCents && (
         <div className="mt-1 rounded-lg border border-dashed border-[#c9dbfb] bg-white/60 px-3 py-1.5 text-[12px] text-[#34568a]">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8]">Sent under your message</p>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8]">Links for your reply (copy after Approve)</p>
           {linkLines(editedCents).map((l, i) => <p key={i} className="tabular-nums">{l}</p>)}
           <p className="text-[10px] text-[#8595a8]">The real Square links replace 🔗 when you Approve.</p>
         </div>
       )}
       <div className="flex items-center gap-2 mt-2">
-        <button onClick={() => decide("approve")} disabled={!!busy || working || checking || calling || (!!linkStep && (!editedCents || needsMessage))}
+        <button onClick={() => decide("approve")} disabled={!!busy || working || checking || (!!linkStep && (!editedCents || needsMessage))}
           className="px-3 py-1.5 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
           {busy === "approve" || working ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} {busy === "approve" || working ? "Working…" : "Approve"}
         </button>
-        <button onClick={() => decide("deny")} disabled={!!busy || working || checking || calling}
+        <button onClick={() => decide("deny")} disabled={!!busy || working || checking}
           className="px-3 py-1.5 rounded-lg border border-[#f5c2cf] text-[#e11d48] hover:bg-[#fde8ee] text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
           {busy === "deny" ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} Deny
-        </button>
-        <button onClick={addCallInvite} disabled={calling || !!busy || working || checking}
-          title="Re-draft the reply with an invite to book a strategy call"
-          className="ml-auto px-2.5 py-1.5 rounded-lg border border-[#c9dbfb] bg-white text-[#34568a] hover:border-[#15B7AE] text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-50">
-          {calling ? <Loader2 size={12} className="animate-spin" /> : "📞"} Add a call invite
         </button>
       </div>
     </div>
