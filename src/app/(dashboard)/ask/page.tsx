@@ -4,6 +4,7 @@ import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, Check, Messag
 import { toast } from "sonner";
 import { cn, userColor } from "@/lib/utils";
 import { VoiceNoteButton } from "@/components/conversations/VoiceNoteButton";
+import { WinbackList } from "@/components/conversations/WinbackList";
 
 // voiceInfo only comes from /api/ghl/reply/draft — AI-chat drafts carry just
 // the name, so the "written in …'s voice" line is skipped for those.
@@ -50,6 +51,8 @@ export default function AskPage() {
   const [roster, setRoster] = useState<{ id: string; name: string }[]>([]);
   const [filterUser, setFilterUser] = useState<string>("all");
   const [showChats, setShowChats] = useState(false); // mobile toggle
+  // 🔁 Win-back: admin-only list of the former clients we're bringing back.
+  const [listView, setListView] = useState<"unread" | "winback">("unread");
   const [locationId, setLocationId] = useState<string>("");
   const [pending, setPending] = useState<Conv | null>(null); // chat awaiting a draft
   const [note, setNote] = useState("");                       // optional steer for the AI
@@ -513,7 +516,20 @@ export default function AskPage() {
   const chatList = (
     <>
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#eef3f8]">
-        <span className="text-xs font-bold text-[#1f3559] flex items-center gap-1.5"><MessageCircle size={13} className="text-[#15B7AE]" /> {role === "member" ? "Your unread chats" : "Unread chats"} {shownConvs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{shownConvs.length}</span>}</span>
+        {isAdmin ? (
+          <div className="flex items-center gap-0.5 text-xs font-bold">
+            <button onClick={() => setListView("unread")}
+              className={cn("px-1.5 py-0.5 rounded flex items-center gap-1", listView === "unread" ? "bg-[#e6f7f5] text-[#1f3559]" : "text-[#8595a8] hover:bg-[#f7fdfc]")}>
+              <MessageCircle size={13} className="text-[#15B7AE]" /> Unread {shownConvs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{shownConvs.length}</span>}
+            </button>
+            <button onClick={() => setListView("winback")} title="Former clients we're bringing back"
+              className={cn("px-1.5 py-0.5 rounded", listView === "winback" ? "bg-[#e6f7f5] text-[#1f3559]" : "text-[#8595a8] hover:bg-[#f7fdfc]")}>
+              🔁 Win-back
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs font-bold text-[#1f3559] flex items-center gap-1.5"><MessageCircle size={13} className="text-[#15B7AE]" /> Your unread chats {shownConvs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{shownConvs.length}</span>}</span>
+        )}
         <div className="flex items-center gap-0.5">
           {isAdmin && (
             // Where the old Agent tab's scan log, history and SMS settings live now.
@@ -530,6 +546,9 @@ export default function AskPage() {
           <button onClick={() => { loadConvs(); if (isAdmin) loadProposals({ silent: true }); }} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading || proposalsLoading ? "animate-spin" : ""} /></button>
         </div>
       </div>
+      {isAdmin && listView === "winback" ? (
+        <WinbackList activeId={pending?.id ?? null} disabled={busy} onOpen={(c) => clickConv(c)} />
+      ) : (<>
       {role === "admin" && (
         <div className="px-3 py-1.5 border-b border-[#eef3f8]">
           <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)}
@@ -585,6 +604,7 @@ export default function AskPage() {
           ? "Click a chat → draft a reply, or 🪄 let the AI handle it (you approve first)"
           : "Click a chat → add an optional note → the AI drafts a reply in your voice"}
       </p>
+      </>)}
     </>
   );
 

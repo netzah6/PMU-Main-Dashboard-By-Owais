@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getReplyAccount } from "@/lib/ghl-conversations";
 import { draftReplyFor } from "@/lib/reply-draft";
+import { getWinbackForContact, winbackInstructions } from "@/lib/winback";
 
 export const maxDuration = 60;
 
@@ -33,6 +34,13 @@ export async function POST(req: Request) {
   const acct = await getReplyAccount();
   if (!acct) return NextResponse.json({ error: "Account not found" }, { status: 404 });
 
+  // 🔁 Win-back people: the AI also gets who they are and the ONE offer the
+  // owner approved for them (none yet → it must not pitch anything).
+  const winback = body.contactId ? await getWinbackForContact(body.contactId).catch(() => null) : null;
+  const instructions = winback
+    ? [winbackInstructions(winback), body.instructions?.trim()].filter(Boolean).join("\n\n")
+    : body.instructions;
+
   try {
     // Same engine as the AI chat and the Agent cards: dated last-2-days
     // context, the logged-in teammate's real voice (else Nicolas's).
@@ -42,7 +50,7 @@ export async function POST(req: Request) {
       contactName: body.contactName ?? "",
       contactId: body.contactId ?? null,
       voiceEmail: user.email ?? null,
-      instructions: body.instructions,
+      instructions,
       inviteCall: body.inviteCall === true,
       revise: body.revise === true,
       source: body.source === "agent" ? "agent" : "draft",
