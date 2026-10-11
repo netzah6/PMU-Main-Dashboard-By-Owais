@@ -2575,11 +2575,18 @@ export default function FunnelsPage() {
                     <p className="text-[11px] font-bold text-[#0b7f7f]">Step 3 &middot; Save to GoHighLevel</p>
                     <button
                       onClick={() => void (async () => {
+                        /* Save sends EVERY filled-in value, not only the edited
+                           ones (owner, 2026-10-11): a value the funnel only showed
+                           as a default — the $50 deposit — never reached the
+                           sub-account, so GHL (CPD tab, AI) saw it blank. The
+                           server skips values GHL already holds. */
                         const changed: Record<string, string> = {};
                         for (const [k, v] of Object.entries(cvForm)) {
                           if (k === "surveyRaw") continue; // managed by the row editor below
-                          if ((f.cv[k] ?? "") !== v) changed[k] = v;
+                          if ((f.cv[k] ?? "") !== v || (v ?? "").trim()) changed[k] = v;
                         }
+                        // Only values typed here may create a missing custom value.
+                        const edited = Object.keys(changed).filter((k) => (f.cv[k] ?? "") !== changed[k]);
                         /* V3 defaults (owner, 2026-09-24): an empty first-touch-up
                            answer becomes the standard line, and an empty deposit
                            funnel URL becomes this client's own one-box link.
@@ -2619,7 +2626,7 @@ export default function FunnelsPage() {
                         setSaveNote((n) => ({ ...n, [f.slug]: "" }));
                         lastRejected.current[f.slug] = [];
                         const saved = await Promise.all([
-                          Object.keys(changed).length ? act("cvs", f.slug, { values: JSON.stringify(changed) }) : Promise.resolve(true),
+                          Object.keys(changed).length ? act("cvs", f.slug, { values: JSON.stringify(changed), edited: JSON.stringify(edited) }) : Promise.resolve(true),
                           Object.keys(extras).length ? act("extras", f.slug, extras) : Promise.resolve(true),
                         ]);
                         if (!switchVer || saved.includes(false)) return;
