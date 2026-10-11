@@ -18,3 +18,11 @@ owner's phone. The dashboard never texts clients.
 
 The AI tab's 🕵️ Agent panel shows "Mac Mini online" once it checks in.
 Each run's files (screenshots, Claude output) are in `~/.pmu-agent/runs/`.
+
+## Security (run `bash security-check.sh` — it only reports, changes nothing)
+- FileVault on, firewall on, no automatic login, password right after the screen locks.
+- Remote Login and Screen Sharing off unless you use them.
+- macOS kept up to date; the Mac is used ONLY for the agent (no personal email/browsing).
+- The GoHighLevel user (aiagent@pmu-bookings.com) has no Conversations, Marketing, Payments,
+  Phone or Agency-settings access — and can be switched off in GHL in seconds.
+- `~/.pmu-agent/.env` (the worker key) stays private (mode 600); never paste it into a chat.
