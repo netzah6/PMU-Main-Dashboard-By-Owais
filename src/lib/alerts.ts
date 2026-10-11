@@ -37,7 +37,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
