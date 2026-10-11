@@ -19,6 +19,7 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   status: { label: "Leads but not Live", icon: "🚦", chip: "bg-amber-50 text-amber-800 border-amber-200" },
   coach_tracker: { label: "Coach report", icon: "📋", chip: "bg-teal-50 text-teal-700 border-teal-200" },
   silent_leads: { label: "Leads got no text", icon: "🔇", chip: "bg-rose-50 text-rose-700 border-rose-200" },
+  paid_not_synced: { label: "Paid, GHL missed it", icon: "💳", chip: "bg-amber-50 text-amber-800 border-amber-200" },
 };
 
 function typeMeta(t: string) {
