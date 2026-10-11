@@ -529,7 +529,7 @@ export async function setDepositFunnelUrl(locationId: string, url: string): Prom
 
 export async function setOneboxCustomValues(
   locationId: string,
-  entries: { name: string; value: string }[]
+  entries: { name: string; value: string; noCreate?: boolean }[]
 ): Promise<{ written: string[]; error?: string }> {
   try {
     const tok = await getAppLocationToken(locationId);
@@ -542,7 +542,8 @@ export async function setOneboxCustomValues(
     };
     const r = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues`, { headers: H });
     if (!r.ok) return { written: [], error: `list ${r.status}` };
-    const { customValues } = (await r.json()) as { customValues?: { id?: string; name?: string }[] };
+    const { customValues } = (await r.json()) as { customValues?: { id?: string; name?: string; value?: string }[] };
+    const valueById = new Map((customValues ?? []).map((v) => [String(v.id ?? ""), String(v.value ?? "")]));
     /* Same duplicate problem on the way OUT: two custom values can share a
        name, and keeping one id per name wrote to whichever the API listed
        last — which may not be the one the funnel template actually renders,
@@ -565,7 +566,7 @@ export async function setOneboxCustomValues(
       idsByNorm.set(norm(name), [...(idsByNorm.get(norm(name)) ?? []), id]);
     }
     const written: string[] = [];
-    for (const { name, value } of entries) {
+    for (const { name, value, noCreate } of entries) {
       /* A renamed value (2026-10-08 "… New Brows …") must be written onto
          the account's existing old-name value — the PUT renames it — never
          created fresh: a fresh one gets a NEW key that CloseBot and the
@@ -573,11 +574,15 @@ export async function setOneboxCustomValues(
       const aliasIds = (CV_RENAMED_FROM[name] ?? []).flatMap((old) => idsByName.get(old) ?? []);
       const ids = idsByName.get(name) ?? (aliasIds.length ? aliasIds : undefined) ?? idsByNorm.get(norm(name)) ?? [];
       if (!ids.length) {
+        if (noCreate) continue;
         if (await createCustomValue(locationId, H, name, value)) written.push(name);
         continue;
       }
+      // Save now sends every filled value; skip the ones GHL already holds.
+      if (ids.every((id) => valueById.get(id) === value)) { written.push(name); continue; }
       let anyOk = false;
       for (const id of ids) {
+        if (valueById.get(id) === value) { anyOk = true; continue; }
         const res = await fetch(`https://services.leadconnectorhq.com/locations/${locationId}/customValues/${id}`, {
           method: "PUT", headers: H, body: JSON.stringify({ name, value }),
         });
