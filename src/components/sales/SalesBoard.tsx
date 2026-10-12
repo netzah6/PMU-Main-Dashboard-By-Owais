@@ -229,10 +229,6 @@ export function SalesBoardView() {
           <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> Reload
         </button>
       </div>
-      <p className="text-[11px] text-[#8595a8]">
-        From the Sales Calls Stats sheet + the setter/closer trackers (synced every 15 min). Targets: discovery show-up {TARGETS.discShowUp}%, book rate {TARGETS.bookRate}%, demo show-up {TARGETS.demoShowUp}%, close rate {TARGETS.closeRate}%.
-        Follow-up dots come from the tracker sheets — mark them there.
-      </p>
       {seat !== "team" && (() => {
         const former = seat === "setter" ? b.formerSetters : b.formerClosers;
         const names = Object.entries(former).sort((a, c) => c[1] - a[1]);
