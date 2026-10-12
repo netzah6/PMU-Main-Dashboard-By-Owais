@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { effectiveSalesRole } from "@/lib/view-as";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { buildCloserPayments, nameKey } from "@/lib/closer-payments";
@@ -8,20 +9,22 @@ export const dynamic = "force-dynamic";
 
 // Closer payment tracker. Admins see every closer; a closer / setter+closer
 // seat sees only the deals under their own sales-sheet name.
-async function scope() {
+async function scope(headers: Headers) {
   const auth = await getAuth();
   if (!auth) return { error: "Sign in", status: 401 } as const;
-  if (auth.role === "admin") return { auth, closer: null as string | null, isAdmin: true } as const;
-  if (auth.role !== "closer" && auth.role !== "sales") return { error: "Admins and closers only", status: 403 } as const;
+  // An admin previewing a seat ("View as") is trimmed like that seat — reads only.
+  const { role, previewName, previewing } = effectiveSalesRole(auth.role, headers);
+  if (role === "admin") return { auth, closer: null as string | null, isAdmin: true, previewing: false } as const;
+  if (role !== "closer" && role !== "sales") return { error: "Admins and closers only", status: 403 } as const;
   const svc = createServiceClient();
   const { data } = await svc.from("user_roles").select("sales_name").eq("user_id", auth.userId).maybeSingle();
-  const name = (data?.sales_name ?? "").trim();
+  const name = previewing ? (previewName ?? "") : (data?.sales_name ?? "").trim();
   if (!name) return { error: "Your login isn't linked to a name in the sales sheet yet — ask an admin to set it in Settings.", status: 403 } as const;
-  return { auth, closer: name, isAdmin: false } as const;
+  return { auth, closer: name, isAdmin: false, previewing } as const;
 }
 
-export async function GET() {
-  const s = await scope();
+export async function GET(req: Request) {
+  const s = await scope(req.headers);
   if ("error" in s) return NextResponse.json({ error: s.error }, { status: s.status });
   try {
     return NextResponse.json({ ...(await buildCloserPayments(createServiceClient(), s.closer)), isAdmin: s.isAdmin, me: s.closer });
@@ -33,8 +36,9 @@ export async function GET() {
 // action "request": the closer asks for the commission on one installment.
 // action "paid" / "unpaid": admin marks it paid (or undoes that).
 export async function POST(req: Request) {
-  const s = await scope();
+  const s = await scope(req.headers);
   if ("error" in s) return NextResponse.json({ error: s.error }, { status: s.status });
+  if (s.previewing) return NextResponse.json({ error: "You're previewing as a closer — turn off View as to change payments" }, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const svc0 = createServiceClient();
   const now0 = new Date().toISOString();

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Deal, Installment } from "@/lib/closer-payments";
+import { viewAsHeaders, VIEW_AS_EVENT } from "@/lib/view-as";
 
 /* Payment plans of the closer's won deals, month by month from the Financing
    sheet, with a commission request / paid flow per installment. */
@@ -18,10 +19,10 @@ export function CloserPayments({ who }: { who: string }) {
   const [open, setOpen] = useState(true);
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
-    try { const r = await fetch("/api/sales/payments"); const j = await r.json(); if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`); setData(j); }
+    try { const r = await fetch("/api/sales/payments", { headers: viewAsHeaders() }); const j = await r.json(); if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`); setData(j); }
     catch (e) { setErr(e instanceof Error ? e.message : "failed"); } finally { setLoading(false); }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); window.addEventListener(VIEW_AS_EVENT, load); return () => window.removeEventListener(VIEW_AS_EVENT, load); }, [load]);
 
   const act = async (d: Deal, i: Installment, action: "request" | "paid" | "unpaid") => {
     const id = `${d.key}|${i.ym}`; setBusy(id);
