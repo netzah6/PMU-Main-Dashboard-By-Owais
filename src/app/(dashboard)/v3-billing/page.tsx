@@ -911,16 +911,13 @@ function AdminBilling() {
   }, [vBy]);
 
   const totals = useMemo(() => {
-    const t = { count: clients.length, ready: 0, readyUsd: 0, chargedUsd: 0, showed: 0, noShow: 0 };
+    const t = { count: clients.length, ready: 0, readyUsd: 0 };
     for (const c of clients) {
       const r = readyOf(c);
       t.ready += r.ready; t.readyUsd += r.owed;
-      t.chargedUsd += c.chargedAmount;
-      t.showed += c.showed; t.noShow += c.noShowMarked;
     }
     return t;
   }, [clients, readyOf]);
-  const programShowRate = totals.showed + totals.noShow > 0 ? Math.round((totals.showed / (totals.showed + totals.noShow)) * 100) : null;
 
   // The Monday worklist — clients with appointments ready to charge.
   const worklist = useMemo(() =>
@@ -974,29 +971,12 @@ function AdminBilling() {
 
   return (
     <div className="p-3 sm:p-4 space-y-3">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold text-[#1f3559]">PPS Billing</h1>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#eef7ff] text-[#1d4ed8] border border-[#c9dbfb]" title="Showed ÷ (showed + no-shows), from your review decisions">
-            Show rate {programShowRate == null ? "—" : `${programShowRate}%`}
-          </span>
-          {totals.chargedUsd > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">{money(totals.chargedUsd)} charged</span>}
-          {verify && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]" title="Fully verified: Square customer + usable card + no warnings — safe to charge">{verify.totals.ready} verified</span>}
-          {verify && verify.totals.blocked > 0 && <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]" title="Money waiting but something needs your eyes first">{verify.totals.blocked} need review</span>}
-          <button onClick={() => { load(true); loadVerify(); }} disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
-            <RefreshCw size={12} className={loading || verifyLoading ? "animate-spin" : ""} /> Refresh
-          </button>
-        </div>
-      </div>
-
-      {/* One line of dropdowns. Everything that used to stack above the client
-          table now hides behind these chips; each chip still carries the one
-          number that says whether it needs attention. */}
+      {/* One line: title, the two counters, then every dropdown chip and
+          Refresh — nothing stacks above the client table any more. */}
       <div className="flex items-center gap-1.5 flex-wrap">
+        <h1 className="text-xl font-bold text-[#1f3559] mr-1.5">PPS Billing</h1>
+        <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
+        {verify && verify.totals.blocked > 0 && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]" title="Money waiting but something needs your eyes first">{verify.totals.blocked} need review</span>}
         {autoRun && (
           <PanelChip k="auto" panel={panel} onClick={togglePanel} label="Auto-charge run"
             icon="⚡" alert={autoRun.failed > 0}
@@ -1018,6 +998,10 @@ function AdminBilling() {
         )}
         <PanelChip k="charge" panel={panel} onClick={togglePanel} label="To charge" icon="🗓️"
           badge={totals.ready > 0 ? `${totals.ready} · ${money(totals.readyUsd)}` : "all caught up"} />
+        <button onClick={() => { load(true); loadVerify(); }} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
+          <RefreshCw size={12} className={loading || verifyLoading ? "animate-spin" : ""} /> Refresh
+        </button>
       </div>
 
       {/* The panels themselves. They stay mounted so their chips keep showing
