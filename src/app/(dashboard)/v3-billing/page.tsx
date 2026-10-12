@@ -82,12 +82,20 @@ const isReady = (a: Appt) => !a.charged && !a.excluded && !a.refunded &&
   (a.chargeStatus === "served" || a.chargeStatus === "past_due" || a.chargeStatus === "self_booked" || a.chargeStatus === "calendar_booked" || a.chargeStatus === "chat_booked");
 
 function money(n: number): string {
-  return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: n % 1 ? 2 : 0 });
+  return "$" + (n || 0).toLocaleString("en-US", { minimumFractionDigits: n % 1 ? 2 : 0 });
 }
+// Dates are always US-style (owner rule 2026-10-12): locale pinned to en-US
+// so an Israeli or other browser never renders day-first.
 function fmtDate(d: string | null): string {
   if (!d) return "—";
   const dt = new Date(d);
-  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+// Numeric US date for the pasted list: 10/12/2026.
+function usDate(d: string | null): string {
+  if (!d) return "—";
+  const dt = new Date(d);
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 }
 
 // ── Copyable client list ────────────────────────────────────────────────────
@@ -106,27 +114,27 @@ function clientListText(d: Drill): string {
   const deposits = d.appointments
     .filter((a) => a.depositDate != null)
     .sort((x, y) => String(x.depositDate ?? "").localeCompare(String(y.depositDate ?? "")));
-  const lines = [`${who} — ${fmtDate(new Date().toISOString())}`, ""];
+  const lines = [`${who} — ${usDate(new Date().toISOString())}`, ""];
 
   // Everyone who paid a deposit, oldest first, so the artist can tick them
   // off against the charged and upcoming lists below.
   lines.push(`💵 Paid deposit — ${deposits.length}`);
   if (deposits.length === 0) lines.push("  (none yet)");
-  for (const a of deposits) lines.push(`  • ${a.contactName ?? "—"}${a.depositDate ? ` — ${fmtDate(a.depositDate)}` : ""}${a.refunded ? " (refunded)" : ""}`);
+  for (const a of deposits) lines.push(`  • ${a.contactName ?? "—"}${a.depositDate ? ` — ${usDate(a.depositDate)}` : ""}${a.refunded ? " (refunded)" : ""}`);
 
   lines.push("", `✅ Charged — ${shows} show${shows === 1 ? "" : "s"} · ${money(paid)}`);
   if (shows === 0) lines.push("  (none yet)");
   for (const p of pays) {
     if (p.shows === 0) continue;
-    lines.push(`  ${fmtDate(p.chargedAt)} · ${money(p.total + (p.credit ?? 0))}`);
+    lines.push(`  ${usDate(p.chargedAt)} · ${money(p.total + (p.credit ?? 0))}`);
     const items = [...(p.items ?? (p.contacts ?? []).map((name) => ({ name, date: null, dateLabel: null })))]
       .sort((x, y) => (x.date ? 0 : 1) - (y.date ? 0 : 1) || String(x.date ?? "").localeCompare(String(y.date ?? "")));
-    for (const it of items) lines.push(`  • ${it.name}${it.date ? ` — ${fmtDate(it.date)}` : ""}`);
+    for (const it of items) lines.push(`  • ${it.name}${it.date ? ` — ${usDate(it.date)}` : ""}`);
   }
 
   lines.push("", `📅 Upcoming — ${upcoming.length}`);
   if (upcoming.length === 0) lines.push("  (none booked)");
-  for (const a of upcoming) lines.push(`  • ${a.contactName ?? "—"}${a.appointmentDate ? ` — ${fmtDate(a.appointmentDate)}` : ""}`);
+  for (const a of upcoming) lines.push(`  • ${a.contactName ?? "—"}${a.appointmentDate ? ` — ${usDate(a.appointmentDate)}` : ""}`);
 
   // Billing: the rate, when we charge, and each charge broken down — who was
   // in it and any account credit that came off it (with the reason, which is
@@ -140,8 +148,8 @@ function clientListText(d: Drill): string {
     const gross = p.total + (p.credit ?? 0);
     const math = p.shows * fee === gross ? `${p.shows} × ${money(fee)}` : `${p.shows} show${p.shows === 1 ? "" : "s"}`;
     lines.push((p.credit ?? 0) > 0
-      ? `  ${fmtDate(p.chargedAt)} — ${money(p.total)} charged (${money(gross)} for ${math}, minus ${money(p.credit ?? 0)} credit)`
-      : `  ${fmtDate(p.chargedAt)} — ${money(gross)} (${math})`);
+      ? `  ${usDate(p.chargedAt)} — ${money(p.total)} charged (${money(gross)} for ${math}, minus ${money(p.credit ?? 0)} credit)`
+      : `  ${usDate(p.chargedAt)} — ${money(gross)} (${math})`);
     const names = (p.items ?? []).map((it) => it.name).concat(p.items ? [] : (p.contacts ?? []));
     if (names.length) lines.push(`    ${names.join(", ")}`);
     for (const c of p.credits ?? []) lines.push(`    ↳ credit ${money(c.amount)}${c.reason ? ` — ${c.reason}` : ""}`);
@@ -149,7 +157,7 @@ function clientListText(d: Drill): string {
   const unused = (d.credits ?? []).filter((c) => c.amount - c.applied > 0.005);
   if (unused.length) {
     lines.push(`  Credit still available: ${money(unused.reduce((n, c) => n + c.amount - c.applied, 0))}`);
-    for (const c of unused) lines.push(`    • ${money(c.amount - c.applied)}${c.reason ? ` — ${c.reason}` : ""}${c.approvedAt ? ` (${fmtDate(c.approvedAt)})` : ""}`);
+    for (const c of unused) lines.push(`    • ${money(c.amount - c.applied)}${c.reason ? ` — ${c.reason}` : ""}${c.approvedAt ? ` (${usDate(c.approvedAt)})` : ""}`);
   }
   return lines.join("\n");
 }
@@ -320,7 +328,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                 <span className="font-semibold text-[#15803d]">{money(p.total)}</span>
                 {(p.credit ?? 0) > 0 && <span className="text-[10px] text-[#697a91]">({money(p.gross ?? 0)} less {money(p.credit ?? 0)} credit)</span>}
                 <span className="text-[#697a91]">{p.shows} show{p.shows === 1 ? "" : "s"}</span>
-                <span className="text-[#8595a8]">{p.chargedAt ? new Date(p.chargedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
+                <span className="text-[#8595a8]">{p.chargedAt ? new Date(p.chargedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
                 {p.chargedBy && <span className="text-[#8595a8]">by {p.chargedBy}</span>}
                 {p.manual ? (
                   <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0]" title="Recorded in the dashboard as collected outside it (e.g. charged directly in Square)">recorded manually</span>
@@ -716,7 +724,7 @@ function ChatFlagsPanel({ feeByOwner, nameByOwner, onBilled, onSummary }: {
         <h2 className="text-sm font-bold text-[#1f3559]">💬 Booked in chat</h2>
         {flags.length > 0
           ? <span className="text-xs font-semibold text-[#7c3aed]">{flags.length} to review — found in conversations, no deposit / stage / calendar entry</span>
-          : <span className="text-xs text-[#8595a8]">No unreviewed chat bookings{lastScanAt ? ` · last scan ${new Date(lastScanAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : " — run a scan"}</span>}
+          : <span className="text-xs text-[#8595a8]">No unreviewed chat bookings{lastScanAt ? ` · last scan ${new Date(lastScanAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : " — run a scan"}</span>}
         <button onClick={scan} disabled={scanning}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white hover:bg-[#f3e8ff] text-[#7c3aed] border border-[#ddd6fe]">
           {scanning ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />} {scanning ? "Reading chats…" : "Scan chats"}
@@ -792,7 +800,7 @@ function AutoRunBanner({ onSummary }: { onSummary?: (s: { failed: number; charge
     <div className={cn("relative rounded-xl border px-3 py-2 pr-7 text-[12px]", failed.length ? "border-[#f5c2cf] bg-[#fde8ee] text-[#be123c]" : "border-[#c9dbfb] bg-[#eef7ff] text-[#1d4ed8]")}>
       <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2 w-full text-left">
         <span className="font-bold">⚡ Last auto-charge run</span>
-        <span>{new Date(run.runAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+        <span>{new Date(run.runAt).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
         <span>· {charged.length} charged ({money(total)})</span>
         {skipped.length > 0 && <span>· {skipped.length} skipped</span>}
         {failed.length > 0 && <span className="font-bold">· {failed.length} FAILED</span>}
