@@ -136,15 +136,16 @@ function clientListText(d: Drill): string {
   if (upcoming.length === 0) lines.push("  (none booked)");
   for (const a of upcoming) lines.push(`  • ${a.contactName ?? "—"}${a.appointmentDate ? ` — ${usDate(a.appointmentDate)}` : ""}`);
 
-  // Billing: the rate, when we charge, and each charge broken down — who was
-  // in it and any account credit that came off it (with the reason, which is
-  // where the credited client's name lives).
+  // Billing: each charge broken down — who was in it and any account credit
+  // that came off it (with the reason, which is where the credited client's
+  // name lives). Blank line between charges (owner's layout, 2026-10-12).
   const fee = d.client.fee;
-  lines.push("", "💳 Billing", `  Rate: ${money(fee)} per show · charged every Monday for appointments that already happened`);
+  lines.push("", "💳 Billing");
   const charges = [...pays].filter((p) => p.shows > 0)
     .sort((x, y) => String(x.chargedAt ?? "").localeCompare(String(y.chargedAt ?? "")));
   if (charges.length === 0) lines.push("  No charges yet");
-  for (const p of charges) {
+  charges.forEach((p, i) => {
+    if (i > 0) lines.push("");
     const gross = p.total + (p.credit ?? 0);
     const math = p.shows * fee === gross ? `${p.shows} × ${money(fee)}` : `${p.shows} show${p.shows === 1 ? "" : "s"}`;
     lines.push((p.credit ?? 0) > 0
@@ -153,10 +154,10 @@ function clientListText(d: Drill): string {
     const names = (p.items ?? []).map((it) => it.name).concat(p.items ? [] : (p.contacts ?? []));
     if (names.length) lines.push(`    ${names.join(", ")}`);
     for (const c of p.credits ?? []) lines.push(`    ↳ credit ${money(c.amount)}${c.reason ? ` — ${c.reason}` : ""}`);
-  }
+  });
   const unused = (d.credits ?? []).filter((c) => c.amount - c.applied > 0.005);
   if (unused.length) {
-    lines.push(`  Credit still available: ${money(unused.reduce((n, c) => n + c.amount - c.applied, 0))}`);
+    lines.push("", `  Credit still available: ${money(unused.reduce((n, c) => n + c.amount - c.applied, 0))}`);
     for (const c of unused) lines.push(`    • ${money(c.amount - c.applied)}${c.reason ? ` — ${c.reason}` : ""}${c.approvedAt ? ` (${usDate(c.approvedAt)})` : ""}`);
   }
   return lines.join("\n");
