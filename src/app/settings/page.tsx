@@ -89,7 +89,7 @@ export default function SettingsPage() {
       // for the admin to send directly — emailed PKCE links broke cross-device.
       try {
         await navigator.clipboard.writeText(json.link);
-        toast.success(`Reset link for ${email} copied — paste it to them (valid 24h, one use).`, { duration: 9000 });
+        toast.success(`Password link for ${email} copied — nothing was emailed; paste it to them on Slack or by text (valid 24h, one use).`, { duration: 12000 });
       } catch {
         window.prompt(`Copy this reset link and send it to ${email} (valid 24h, one use):`, json.link);
       }
@@ -262,11 +262,11 @@ export default function SettingsPage() {
                     <button
                       onClick={() => handleResetPassword(u.email)}
                       disabled={resetting === u.email}
-                      title="Email this member a link to set a new password (use when the invite link expired or the password was forgotten)"
+                      title="Copies a one-time password link (valid 24h) — nothing is emailed; paste it to them yourself"
                       className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium border border-[#d7e0ea] text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88] disabled:opacity-50"
                     >
                       {resetting === u.email ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
-                      Reset password
+                      Copy password link
                     </button>
                     {u.user_id !== user?.id && (
                       <button
