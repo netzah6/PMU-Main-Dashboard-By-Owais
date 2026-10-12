@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
 
 // Sales tab data: setter + closer KPIs and their to-do lists, from the synced
 // sales sheets. Admins get everything; a sales seat gets its own side only —
-// setter: the discovery side (every setter), closer: their own demos (matched
-// by user_roles.sales_name), "sales": both. Trimmed here, not in the page,
-// so a closer can't read another closer's numbers from the API.
+// setter: the discovery side (every setter) PLUS every closer's demos (she
+// tracks them), closer: their own demos only (matched by
+// user_roles.sales_name), "sales": both sides, all closers. Trimmed here, not
+// in the page, so a closer can't read another closer's numbers from the API.
 export async function GET() {
   const auth = await getAuth();
   const role = auth?.role ?? null;
@@ -23,9 +24,14 @@ export async function GET() {
     const { data: me } = await svc.from("user_roles").select("sales_name").eq("user_id", auth.userId).maybeSingle();
     const myName = (me?.sales_name ?? "").trim();
     const seesSetter = role === "setter" || role === "sales";
-    const seesCloser = role === "closer" || role === "sales";
-    // Closer side: only the seat that matches the login's sales name.
-    const mine = board.closers.filter((n) => n.toLowerCase() === myName.toLowerCase());
+    const seesCloser = role === "closer" || role === "sales" || role === "setter";
+    // Closer side: a closer sees only the seat matching their sales name; a
+    // setter (and the setter+closer "sales" seat) sees EVERY closer — the
+    // setter tracks the demos she booked through to the close (owner,
+    // 2026-10-12: "Jennifer needs to track the demos of the closers").
+    const mine = role === "closer"
+      ? board.closers.filter((n) => n.toLowerCase() === myName.toLowerCase())
+      : board.closers;
     const out: SalesBoard & { scope: { setter: boolean; closer: boolean; myName: string } } = {
       ...board,
       scope: { setter: seesSetter, closer: seesCloser, myName },
@@ -36,7 +42,7 @@ export async function GET() {
       closers: seesCloser ? mine : [],
       closerStats: seesCloser ? Object.fromEntries(mine.map((n) => [n, board.closerStats[n]])) : {},
       closerTodos: seesCloser ? board.closerTodos.filter((t) => mine.includes(t.who)) : [],
-      formerClosers: {},
+      formerClosers: role === "closer" ? {} : board.formerClosers,
     };
     return NextResponse.json(out);
   } catch (e) {
