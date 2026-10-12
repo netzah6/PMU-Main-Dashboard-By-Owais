@@ -332,8 +332,10 @@ export default function SalesPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
+      {/* Title and the three views on ONE line (owner, 2026-10-12: save space). */}
+      <div className="flex items-center gap-4 flex-wrap">
       <h1 className="text-2xl font-bold text-[#1f3559] tracking-tight">💼 Sales</h1>
-      {isAdmin && <div className="mt-3 flex gap-1 rounded-lg bg-[#eef2f7] p-1 w-fit flex-wrap">
+      {isAdmin && <div className="flex gap-1 rounded-lg bg-[#eef2f7] p-1 w-fit flex-wrap">
         {([["board", "Sales board"], ["demos", "Demo Checker"], ["coaches", "Coach Tracker"]] as const).map(([k, label]) => (
           <button key={k} onClick={() => setView(k)}
             className={`px-4 py-1.5 rounded-md text-sm font-semibold ${view === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]"}`}>
@@ -341,6 +343,7 @@ export default function SalesPage() {
           </button>
         ))}
       </div>}
+      </div>
       {view === "board" || !isAdmin ? <SalesBoardView /> : view === "coaches" ? <CoachTracker /> : (<>
       <p className="mt-4 text-sm text-[#697a91]">
         Paste contact names (one per line). Each is checked against its sales-pipeline stage — the stage is what proves
