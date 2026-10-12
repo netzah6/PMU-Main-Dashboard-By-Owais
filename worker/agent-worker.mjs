@@ -62,6 +62,7 @@ RULES (never break these):
 - Work ONLY inside sub-account ${t.location_id}. If the page shows a different account, switch to it or stop.
 - Do only what the task says. Never delete anything unless the task explicitly says to delete it.
 - NEVER send any message, email, text, or review request to anyone. Never touch billing, payment methods, or the agency settings.
+- If the task is to produce a document (an export, a list, a report), save it in the current folder as .xlsx or .csv (or .pdf) and list it under "files" in your final JSON — the team downloads it from the dashboard and sends it themselves.
 - If you hit a login page, a security code, or a CAPTCHA: stop, change nothing, status "failed", summary "Mac Mini needs to be signed in to GoHighLevel again".
 - If the task is unclear, risky, or the screen doesn't match what you expect: change nothing, status "needs_teammate", and explain why in one sentence.
 - Calendars: GoHighLevel sets availability per staff member (calendar → Availability → the staff member → Weekly hours / Custom schedule). After saving, reload the page and confirm the new values are really there.
@@ -71,7 +72,7 @@ PROOF (required):
 - After saving, reload the page, check the change stuck, and take screenshot(s) "after-1.png" (and "after-2.png" etc. if needed) clearly showing the result.
 
 When finished, reply with ONLY this JSON (no other text):
-{"status":"done" | "failed" | "needs_teammate","summary":"<one plain sentence: what you did or why not>","steps":["<short line per thing you did, with before → after values>"],"screenshots":[{"file":"before-1.png","name":"Before: <what it shows>"},{"file":"after-1.png","name":"After: <what it shows>"}]}`;
+{"status":"done" | "failed" | "needs_teammate","summary":"<one plain sentence: what you did or why not>","steps":["<short line per thing you did, with before → after values>"],"screenshots":[{"file":"before-1.png","name":"Before: <what it shows>"},{"file":"after-1.png","name":"After: <what it shows>"}],"files":[{"file":"<name>.xlsx","name":"<what it is>"}]}   ("files" only when the task produced a document; else [])`;
 }
 
 function runClaude(prompt, dir) {
@@ -107,8 +108,8 @@ async function doTask(t) {
 
   // Upload the screenshots it named, else any image it saved.
   const named = Array.isArray(rep?.screenshots) ? rep.screenshots : [];
-  const files = readdirSync(dir).filter((f) => /\.(png|jpe?g)$/i.test(f));
-  const list = named.length ? named.filter((s) => files.includes(s.file)) : files.sort().map((f) => ({ file: f, name: f.replace(/\.(png|jpe?g)$/i, "") }));
+  const images = readdirSync(dir).filter((f) => /\.(png|jpe?g)$/i.test(f));
+  const list = named.length ? named.filter((s) => images.includes(s.file)) : images.sort().map((f) => ({ file: f, name: f.replace(/\.(png|jpe?g)$/i, "") }));
   const screenshots = [];
   for (const s of list.slice(0, 10)) {
     try {
@@ -116,8 +117,19 @@ async function doTask(t) {
       screenshots.push({ name: s.name, url });
     } catch (e) { log("upload failed", s.file, e.message); }
   }
-  await api("finish", { id: t.id, status, summary, steps: Array.isArray(rep?.steps) ? rep.steps : [], screenshots });
-  log(`task ${t.id} → ${status} (${screenshots.length} screenshots)`);
+  // Documents the task produced (named in the report, else any xlsx/csv/pdf it saved).
+  const docFiles = readdirSync(dir).filter((f) => /\.(xlsx|csv|pdf|docx|txt)$/i.test(f));
+  const namedDocs = Array.isArray(rep?.files) ? rep.files.filter((f) => docFiles.includes(f.file)) : [];
+  const docList = namedDocs.length ? namedDocs : docFiles.map((f) => ({ file: f, name: f }));
+  const files = [];
+  for (const f of docList.slice(0, 10)) {
+    try {
+      const { url, bytes } = await api("upload", { id: t.id, kind: "file", name: f.file, base64: readFileSync(join(dir, f.file)).toString("base64") });
+      files.push({ name: f.name || f.file, url, bytes });
+    } catch (e) { log("file upload failed", f.file, e.message); }
+  }
+  await api("finish", { id: t.id, status, summary, steps: Array.isArray(rep?.steps) ? rep.steps : [], screenshots, files });
+  log(`task ${t.id} → ${status} (${screenshots.length} screenshots, ${files.length} files)`);
 }
 
 async function loop(once) {
