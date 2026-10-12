@@ -37,9 +37,11 @@ interface PaymentGroup {
   shows: number; total: number; manual: boolean; receiptUrl: string | null; contacts?: string[];
   gross?: number; credit?: number; creditOnly?: boolean;
   items?: Array<{ name: string; date: string | null; dateLabel: string | null }>;
+  credits?: Array<{ amount: number; reason: string }>;
 }
 interface Drill {
   payments?: PaymentGroup[];
+  credits?: Array<{ amount: number; applied: number; reason: string; approvedAt: string | null }>;
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
   summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; readyToCharge: number; excluded: number; refunded?: number; showed: number; noShowMarked: number; showRate: number | null };
   appointments: Appt[];
@@ -89,9 +91,10 @@ function fmtDate(d: string | null): string {
 }
 
 // ── Copyable client list ────────────────────────────────────────────────────
-// Three short sections the artist can read in a glance: everyone who paid a
+// Four short sections the artist can read in a glance: everyone who paid a
 // deposit, who we already charged her for (grouped by charge, with dates),
-// and whose appointments are still ahead. Plain text, ready to paste.
+// whose appointments are still ahead, and the billing math per charge with
+// any account credit. Plain text, ready to paste.
 function clientListText(d: Drill): string {
   const who = d.client.business || d.client.ownerName;
   const pays = d.payments ?? [];
@@ -124,6 +127,30 @@ function clientListText(d: Drill): string {
   lines.push("", `📅 Upcoming — ${upcoming.length}`);
   if (upcoming.length === 0) lines.push("  (none booked)");
   for (const a of upcoming) lines.push(`  • ${a.contactName ?? "—"}${a.appointmentDate ? ` — ${fmtDate(a.appointmentDate)}` : ""}`);
+
+  // Billing: the rate, when we charge, and each charge broken down — who was
+  // in it and any account credit that came off it (with the reason, which is
+  // where the credited client's name lives).
+  const fee = d.client.fee;
+  lines.push("", "💳 Billing", `  Rate: ${money(fee)} per show · charged every Monday for appointments that already happened`);
+  const charges = [...pays].filter((p) => p.shows > 0)
+    .sort((x, y) => String(x.chargedAt ?? "").localeCompare(String(y.chargedAt ?? "")));
+  if (charges.length === 0) lines.push("  No charges yet");
+  for (const p of charges) {
+    const gross = p.total + (p.credit ?? 0);
+    const math = p.shows * fee === gross ? `${p.shows} × ${money(fee)}` : `${p.shows} show${p.shows === 1 ? "" : "s"}`;
+    lines.push((p.credit ?? 0) > 0
+      ? `  ${fmtDate(p.chargedAt)} — ${money(p.total)} charged (${money(gross)} for ${math}, minus ${money(p.credit ?? 0)} credit)`
+      : `  ${fmtDate(p.chargedAt)} — ${money(gross)} (${math})`);
+    const names = (p.items ?? []).map((it) => it.name).concat(p.items ? [] : (p.contacts ?? []));
+    if (names.length) lines.push(`    ${names.join(", ")}`);
+    for (const c of p.credits ?? []) lines.push(`    ↳ credit ${money(c.amount)}${c.reason ? ` — ${c.reason}` : ""}`);
+  }
+  const unused = (d.credits ?? []).filter((c) => c.amount - c.applied > 0.005);
+  if (unused.length) {
+    lines.push(`  Credit still available: ${money(unused.reduce((n, c) => n + c.amount - c.applied, 0))}`);
+    for (const c of unused) lines.push(`    • ${money(c.amount - c.applied)}${c.reason ? ` — ${c.reason}` : ""}${c.approvedAt ? ` (${fmtDate(c.approvedAt)})` : ""}`);
+  }
   return lines.join("\n");
 }
 

@@ -276,6 +276,9 @@ export async function GET(req: NextRequest) {
     paymentId: string | null; chargedAt: string | null; chargedBy: string | null;
     shows: number; gross: number; credit: number; total: number; manual: boolean; creditOnly: boolean;
     contacts: string[];
+    // Which account credit(s) came off this charge, with the reason the
+    // credit was given — the artist's "why only $90?" answer.
+    credits: Array<{ amount: number; reason: string }>;
     // Each show, so the "Copy list" button can send the artist exactly who
     // she was charged for.
     items: Array<{ name: string; date: string | null; dateLabel: string | null }>;
@@ -290,7 +293,7 @@ export async function GET(req: NextRequest) {
     const g = payGroups.get(key) ?? {
       paymentId: r.square_payment_id ?? null, chargedAt: r.charged_at, chargedBy: r.charged_by,
       shows: 0, gross: 0, credit: 0, total: 0, manual: !r.square_payment_id, creditOnly: false,
-      contacts: [], items: [],
+      contacts: [], items: [], credits: [],
     };
     const a = apptById.get(r.appt_id);
     const name = a?.contactName || nameFromNote(r.note) || "(name not recorded)";
@@ -306,13 +309,19 @@ export async function GET(req: NextRequest) {
   // GROSS per-show fee, so without this a $135 run paid $100 by card + $35
   // credit would read $135. Same matching as /api/ppa/payments: by payment
   // id, and a credit-only settlement (no payment id) by day.
-  const { data: creditRows } = await svc.from("credit_applications")
-    .select("amount, square_payment_id, applied_at").eq("owner_key", ownerKey);
-  for (const c of (creditRows ?? []) as Array<{ amount: number | null; square_payment_id: string | null; applied_at: string | null }>) {
+  const [{ data: creditRows }, { data: creditDefs }] = await Promise.all([
+    svc.from("credit_applications").select("credit_id, amount, square_payment_id, applied_at").eq("owner_key", ownerKey),
+    svc.from("client_credits").select("id, amount, applied, reason, decided_at").eq("owner_key", ownerKey).eq("status", "approved"),
+  ]);
+  type CreditDef = { id: string; amount: number | null; applied: number | null; reason: string | null; decided_at: string | null };
+  const reasonOf = new Map<string, string>();
+  for (const d of (creditDefs ?? []) as CreditDef[]) reasonOf.set(d.id, d.reason ?? "");
+  for (const c of (creditRows ?? []) as Array<{ credit_id: string; amount: number | null; square_payment_id: string | null; applied_at: string | null }>) {
     let left = Number(c.amount) || 0;
+    const reason = reasonOf.get(c.credit_id) ?? "";
     if (c.square_payment_id) {
       const g = payGroups.get(c.square_payment_id);
-      if (g) g.credit += left;
+      if (g) { g.credit += left; g.credits.push({ amount: left, reason }); }
       continue;
     }
     // Credit-only: spread over that day's credit-settled groups (a run that
@@ -322,6 +331,7 @@ export async function GET(req: NextRequest) {
       if (left <= 0 || !g.creditOnly || String(g.chargedAt ?? "").slice(0, 10) !== day) continue;
       const take = Math.min(left, Math.max(0, g.gross - g.credit));
       g.credit += take;
+      if (take > 0) g.credits.push({ amount: take, reason });
       left -= take;
     }
   }
@@ -333,8 +343,15 @@ export async function GET(req: NextRequest) {
       receiptUrl: g.paymentId ? `https://squareup.com/receipt/preview/${g.paymentId}` : null,
     }));
 
+  // Every approved credit, so the list can say what she was credited for and
+  // how much of it is still unused.
+  const credits = ((creditDefs ?? []) as CreditDef[])
+    .map((d) => ({ amount: Number(d.amount) || 0, applied: Number(d.applied) || 0, reason: d.reason ?? "", approvedAt: d.decided_at }))
+    .sort((a, b) => String(a.approvedAt ?? "").localeCompare(String(b.approvedAt ?? "")));
+
   return NextResponse.json({
     payments,
+    credits,
     client: {
       ownerKey: client.ownerKey,
       ownerName: client.ownerName,
