@@ -7,7 +7,6 @@ import { Search, ChevronRight, Copy, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 import { LeadBreakdown } from "@/components/clients/LeadBreakdown";
-import { OpenConversations } from "@/components/clients/OpenConversations";
 import { SyncHealthBanner } from "@/components/SyncHealthBanner";
 
 interface Row {
@@ -140,76 +139,6 @@ const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "M
    can see at a glance which accounts have the conversion (and whether the
    rest of that funnel's tracking is healthy enough for it to matter). */
 type SchedFlag = { owner_name: string; schedule_installed_at: string | null; lead_status: string | null; notes: string | null };
-
-type Issue = {
-  fingerprint: string; kind: string; who: string; detail: string;
-  location_id: string | null; contact_id: string | null; seen_at: string;
-};
-
-// Daily problems dropdown: data errors (e.g. swapped original/discounted
-// price) + fresh chat complaints, from the cpd_issues view. Ignore hides an
-// issue for everyone (issue_dismissals).
-function IssuesPanel() {
-  const [issues, setIssues] = useState<Issue[] | null>(null);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const sb = createClient();
-    Promise.all([
-      sb.from("cpd_issues").select("*"),
-      sb.from("issue_dismissals").select("fingerprint"),
-    ]).then(([i, d]) => {
-      const dismissed = new Set(((d.data ?? []) as { fingerprint: string }[]).map((x) => x.fingerprint));
-      setIssues(((i.data ?? []) as Issue[]).filter((x) => !dismissed.has(x.fingerprint))
-        .sort((a, b) => String(b.seen_at).localeCompare(String(a.seen_at))));
-    });
-  }, []);
-  const ignore = async (f: Issue) => {
-    setIssues((cur) => (cur ?? []).filter((x) => x.fingerprint !== f.fingerprint));
-    await createClient().from("issue_dismissals").insert({ fingerprint: f.fingerprint, kind: f.kind });
-  };
-  if (!issues || issues.length === 0) return null;
-  const KIND: Record<string, { chip: string; cls: string }> = {
-    price_swap: { chip: "\ud83d\udcb8 Price swapped", cls: "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]" },
-    complaint: { chip: "\ud83d\udcac Client complaint", cls: "bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]" },
-  };
-  return (
-    <div className="rounded-xl border border-[#ecd3a8] bg-[#fbf7f1]">
-      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
-        <span className="text-sm font-bold text-[#6b4d16]">{issues.length} problem{issues.length === 1 ? "" : "s"} found</span>
-        <span className="text-xs text-[#8a7442]">V3 bot &amp; data problems from the daily check &mdash; click to review</span>
-        <span className="ml-auto text-[#8a7442]">{open ? "\u25b2" : "\u25bc"}</span>
-      </button>
-      {open && (
-        <div className="px-3 pb-3 space-y-1.5">
-          {issues.map((f) => (
-            <div key={f.fingerprint} className="rounded-lg border border-[#e4ebf2] bg-white px-3 py-2 flex items-start gap-2 flex-wrap">
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${KIND[f.kind]?.cls ?? "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]"}`}>
-                {KIND[f.kind]?.chip ?? f.kind}
-              </span>
-              <div className="min-w-[200px] flex-1">
-                <div className="text-[12px] font-bold text-[#1f3559]">{f.who}</div>
-                <div className="text-[12px] text-[#34568a]">{f.detail}</div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {f.location_id && f.contact_id && (
-                  <a href={`https://app.gohighlevel.com/v2/location/${f.location_id}/contacts/detail/${f.contact_id}`}
-                    target="_blank" rel="noreferrer"
-                    className="px-1.5 sm:px-2 py-1 rounded-lg text-[11px] font-semibold text-[#0e8f88] border border-[#a7e3df] bg-[#e6f7f5] hover:bg-[#d6f0ed]">
-                    Open in GHL \u2197
-                  </a>
-                )}
-                <button onClick={() => ignore(f)}
-                  className="px-1.5 sm:px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#94a3b8] border-[#e4ebf2] hover:border-[#94a3b8]">
-                  Ignore
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function CostPerDepositPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -382,9 +311,6 @@ export default function CostPerDepositPage() {
   return (
     <div className="p-3 md:p-4 space-y-3">
       <SyncHealthBanner />
-      <IssuesPanel />
-      {/* Replied leads still waiting on us — the ones we could still close. */}
-      <OpenConversations />
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
