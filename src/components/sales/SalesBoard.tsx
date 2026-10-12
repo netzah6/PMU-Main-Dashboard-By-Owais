@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import type { SalesBoard as Board, SetterStats, CloserStats, Todo, Win } from "@/lib/sales-board";
 import { TARGETS, WINDOWS, FORMER } from "@/lib/sales-board";
 import { CloserPayments } from "@/components/sales/CloserPayments";
+import { viewAsHeaders, setViewAsName, VIEW_AS_EVENT } from "@/lib/view-as";
 
 /* The Sales tab: two seats — the appointment setter (discovery calls) and the
    closer (demo calls). For each: the KPIs the trackers print, graded against
@@ -176,7 +177,7 @@ function TeamTable({ b, win }: { b: Board; win: Win }) {
   );
 }
 
-type Scoped = Board & { scope?: { setter: boolean; closer: boolean; myName: string } };
+type Scoped = Board & { scope?: { setter: boolean; closer: boolean; myName: string; previewNames?: string[] } };
 
 export function SalesBoardView() {
   const [b, setB] = useState<Scoped | null>(null);
@@ -187,10 +188,11 @@ export function SalesBoardView() {
   const [who, setWho] = useState<string>("ALL");
   const load = async () => {
     setLoading(true); setErr(null);
-    try { const r = await fetch("/api/sales/board"); const j = await r.json(); if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`); setB(j); }
+    try { const r = await fetch("/api/sales/board", { headers: viewAsHeaders() }); const j = await r.json(); if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`); setB(j); }
     catch (e) { setErr(e instanceof Error ? e.message : "failed"); } finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  // Reload when an admin switches "View as" (or the previewed closer).
+  useEffect(() => { load(); window.addEventListener(VIEW_AS_EVENT, load); return () => window.removeEventListener(VIEW_AS_EVENT, load); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // A sales seat only gets its own side from the API: hide the other seat's
   // button (and the team table), and land on the side they do have.
   const scope = b?.scope;
@@ -243,6 +245,14 @@ export function SalesBoardView() {
           </div>
         );
       })()}
+      {scope?.previewNames && seat === "closer" && (
+        <div className="flex items-center gap-2 rounded-lg border border-[#fcd9a8] bg-[#fff7ec] px-3 py-2 text-sm text-[#9a5b00]">
+          👁 Previewing the Sales tab exactly as this closer sees it:
+          <select value={scope.myName} onChange={(e) => setViewAsName(e.target.value)} className="rounded border border-[#fcd9a8] bg-white px-2 py-1 text-sm text-[#1f3559]">
+            {scope.previewNames.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+      )}
       {seat === "setter" && <SetterView b={b} who={who} win={win} />}
       {seat === "closer" && scope?.closer && b.closers.length === 0 && (
         <div className="rounded-lg border border-[#fcd9a8] bg-[#fff7ec] px-3 py-2 text-sm text-[#9a5b00]">

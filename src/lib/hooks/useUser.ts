@@ -25,8 +25,7 @@ interface UserWithRole {
 // only: every API still checks the real role on the server, so an admin
 // previewing as a coach sees the coach's tabs and layout but is never
 // actually restricted — and never gains anything either.
-const VIEW_AS_KEY = "pmu_view_as";
-const VIEW_AS_EVENT = "pmu-view-as";
+import { VIEW_AS_KEY, VIEW_AS_EVENT, VIEW_AS_NAME_KEY } from "@/lib/view-as";
 const PREVIEWABLE: ReadonlyArray<UserRole> = ["editor", "media_buyer", "va", "setter", "closer", "sales", "viewer"];
 
 function readViewAs(): UserRole | null {
@@ -91,6 +90,7 @@ export function useUser(): UserWithRole {
     try {
       if (next && PREVIEWABLE.includes(next)) window.localStorage.setItem(VIEW_AS_KEY, next);
       else window.localStorage.removeItem(VIEW_AS_KEY);
+      window.localStorage.removeItem(VIEW_AS_NAME_KEY); // a new preview starts on the first closer
     } catch {}
     window.dispatchEvent(new Event(VIEW_AS_EVENT));
   }, []);
