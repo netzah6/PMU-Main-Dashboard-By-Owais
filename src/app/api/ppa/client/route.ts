@@ -87,8 +87,8 @@ export async function GET(req: NextRequest) {
     else summary.noAppt++;
     if (excluded) summary.excluded++;
     if (refunded) summary.refunded++;
-    if (charged) summary.showed++;
-    else if (excluded && excludeReason === "no_show") summary.noShowMarked++;
+    if (excluded) { if (excludeReason === "no_show") summary.noShowMarked++; }
+    else if (charged) summary.showed++;
     // Ready = a past appointment we haven't reviewed yet (not charged, not excluded).
     if (!charged && !excluded && !refunded && (chargeStatus === "served" || chargeStatus === "past_due")) summary.readyToCharge++;
     return {
@@ -124,8 +124,8 @@ export async function GET(req: NextRequest) {
     const excluded = c?.excluded ?? false;
     summary.selfBooked++;
     if (excluded) summary.excluded++;
-    if (charged) summary.showed++;
-    else if (excluded && c?.exclude_reason === "no_show") summary.noShowMarked++;
+    if (excluded) { if (c?.exclude_reason === "no_show") summary.noShowMarked++; }
+    else if (charged) summary.showed++;
     if (!charged && !excluded) summary.readyToCharge++;
     appointments.push({
       apptId: s.appt_id,
@@ -202,8 +202,8 @@ export async function GET(req: NextRequest) {
     summary.selfBooked++;
     if (!past) summary.upcoming++;
     if (excluded) summary.excluded++;
-    if (charged) summary.showed++;
-    else if (excluded && c?.exclude_reason === "no_show") summary.noShowMarked++;
+    if (excluded) { if (c?.exclude_reason === "no_show") summary.noShowMarked++; }
+    else if (charged) summary.showed++;
     if (past && !charged && !excluded) summary.readyToCharge++;
     appointments.push({
       apptId: s.appt_id,

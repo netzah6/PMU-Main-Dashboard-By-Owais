@@ -212,6 +212,8 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // "✓ $45 credited to Jessica" after a void of an already-collected show.
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -252,15 +254,27 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   const setExclude = async (a: Appt, excluded: boolean, reason?: string) => {
     if (!drill) return;
     setMenuFor(null);
+    setNotice(null);
     setBusy((b) => new Set(b).add(a.apptId));
     setDrill({ ...drill, appointments: drill.appointments.map((x) => x.apptId === a.apptId
-      ? { ...x, excluded, excludeReason: excluded ? (reason ?? "other") : null, charged: excluded ? false : x.charged } : x) });
+      ? { ...x, excluded, excludeReason: excluded ? (reason ?? "other") : null } : x) });
     try {
       const res = await fetch("/api/ppa/charge", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appt_id: a.apptId, owner_key: client.ownerKey, excluded, exclude_reason: reason }),
+        body: JSON.stringify({
+          appt_id: a.apptId, owner_key: client.ownerKey, excluded, exclude_reason: reason,
+          contact_name: a.contactName, client_label: client.ownerName,
+        }),
       });
-      if (!res.ok) throw new Error((await res.json()).error || "save failed");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "save failed");
+      // The server decides whether the charge stays on the books (fee was
+      // already collected → stays + credit) or simply clears (never collected).
+      const keptCharge = !!json.keptCharge;
+      setDrill((d) => d ? { ...d, appointments: d.appointments.map((x) => x.apptId === a.apptId
+        ? { ...x, charged: keptCharge ? x.charged : false } : x) } : d);
+      if (json.credited > 0) setNotice(`✓ ${money(json.credited)} credited to ${client.ownerName} for ${a.contactName || "this lead"} — it comes off her next charge automatically.`);
+      else if (json.withdrawn > 0) setNotice(`Restored — the unused ${money(json.withdrawn)} credit for ${a.contactName || "this lead"} was withdrawn.`);
       onCharged();
     } catch (e) {
       setError(`${e}`.replace("Error: ", "")); await load();
@@ -272,6 +286,12 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
   if (loading) return <div className="flex items-center gap-2 text-xs text-[#697a91] py-6 justify-center"><Loader2 size={13} className="animate-spin" /> Loading appointments…</div>;
   if (error) return <div className="text-xs text-[#e11d48] py-4 text-center">{error}</div>;
   if (!drill) return null;
+  const noticeBar = notice ? (
+    <div className="flex items-center gap-2 rounded-lg border border-[#bfdbfe] bg-[#eff6ff] px-2.5 py-1.5 text-[11px] font-semibold text-[#1d4ed8]">
+      <span className="flex-1">{notice}</span>
+      <button onClick={() => setNotice(null)} className="text-[#93c5fd] hover:text-[#1d4ed8]">✕</button>
+    </div>
+  ) : null;
 
   const s = drill.summary;
   const readyCount = drill.appointments.filter(isReady).length;
@@ -300,6 +320,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
 
       {/* Exactly WHO is ready to charge — names, path, and date — so the
           Ready number on the card is never a mystery. */}
+      {noticeBar}
       {readyCount > 0 && (
         <div className="rounded-lg border border-[#fcd9a8] bg-[#fffdf7] px-2.5 py-2">
           <div className="text-[10px] font-bold uppercase tracking-wider text-[#b45309] mb-1">🟡 Ready to charge ({readyCount} × {money(client.fee)} = {money(readyCount * client.fee)})</div>
@@ -410,8 +431,15 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                     <td className="px-2.5 py-1.5">
                       {a.excluded ? (
                         <div className="flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0] whitespace-nowrap">Excluded · {reasonLabel(a.excludeReason)}</span>
-                          <button onClick={() => setExclude(a, false)} disabled={b} title="Restore" className="text-[#94a3b8] hover:text-[#0e8f88]">
+                          {a.charged ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-[#eff6ff] text-[#1d4ed8] border-[#bfdbfe] whitespace-nowrap"
+                              title={`${reasonLabel(a.excludeReason)} after the ${money(a.chargedAmount ?? client.fee)} fee was collected — credited back; comes off the next charge.`}>
+                              {reasonLabel(a.excludeReason)} · {money(a.chargedAmount ?? client.fee)} credited ✓
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold border bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0] whitespace-nowrap">Excluded · {reasonLabel(a.excludeReason)}</span>
+                          )}
+                          <button onClick={() => setExclude(a, false)} disabled={b} title={a.charged ? "Restore (withdraws the credit if it hasn't been used yet)" : "Restore"} className="text-[#94a3b8] hover:text-[#0e8f88]">
                             {b ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={12} />}
                           </button>
                         </div>
