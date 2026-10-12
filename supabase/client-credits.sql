@@ -31,3 +31,10 @@ CREATE POLICY "Credits request" ON client_credits FOR INSERT TO authenticated
 DROP POLICY IF EXISTS "Credits decide" ON client_credits;
 CREATE POLICY "Credits decide" ON client_credits FOR UPDATE TO authenticated
   USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+
+-- 2026-10-12: a credit can point at the show it came from. Voiding an
+-- already-charged show (Cancelled / No-show / …) auto-creates an approved
+-- credit for that show's fee; the link keeps it idempotent and lets a
+-- Restore withdraw the unused credit. Applied to the US project via MCP.
+ALTER TABLE client_credits ADD COLUMN IF NOT EXISTS appt_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS client_credits_appt_uq ON client_credits (appt_id) WHERE appt_id IS NOT NULL;
