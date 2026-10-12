@@ -89,9 +89,9 @@ function fmtDate(d: string | null): string {
 }
 
 // ── Copyable client list ────────────────────────────────────────────────────
-// Two short sections the artist can read in a glance: who we already charged
-// her for (grouped by charge, with dates) and whose appointments are still
-// ahead. Plain text, ready to paste into a message.
+// Three short sections the artist can read in a glance: everyone who paid a
+// deposit, who we already charged her for (grouped by charge, with dates),
+// and whose appointments are still ahead. Plain text, ready to paste.
 function clientListText(d: Drill): string {
   const who = d.client.business || d.client.ownerName;
   const pays = d.payments ?? [];
@@ -100,9 +100,18 @@ function clientListText(d: Drill): string {
   const upcoming = d.appointments
     .filter((a) => a.chargeStatus === "upcoming" && !a.excluded && !a.refunded)
     .sort((x, y) => String(x.appointmentDate ?? "").localeCompare(String(y.appointmentDate ?? "")));
+  const deposits = d.appointments
+    .filter((a) => a.depositDate != null)
+    .sort((x, y) => String(x.depositDate ?? "").localeCompare(String(y.depositDate ?? "")));
   const lines = [`${who} — ${fmtDate(new Date().toISOString())}`, ""];
 
-  lines.push(`✅ Charged — ${shows} show${shows === 1 ? "" : "s"} · ${money(paid)}`);
+  // Everyone who paid a deposit, oldest first, so the artist can tick them
+  // off against the charged and upcoming lists below.
+  lines.push(`💵 Paid deposit — ${deposits.length}`);
+  if (deposits.length === 0) lines.push("  (none yet)");
+  for (const a of deposits) lines.push(`  • ${a.contactName ?? "—"}${a.depositDate ? ` — ${fmtDate(a.depositDate)}` : ""}${a.refunded ? " (refunded)" : ""}`);
+
+  lines.push("", `✅ Charged — ${shows} show${shows === 1 ? "" : "s"} · ${money(paid)}`);
   if (shows === 0) lines.push("  (none yet)");
   for (const p of pays) {
     if (p.shows === 0) continue;
