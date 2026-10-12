@@ -88,34 +88,33 @@ function fmtDate(d: string | null): string {
   return isNaN(dt.getTime()) ? d : dt.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-// ── "Who did we charge her for?" — copyable list ───────────────────────────
-// Clients ask which of their customers they were charged for. This is the
-// "Charged & went through" box as plain text, grouped by the charge that
-// covered each show, with what actually hit her card (after any account
-// credit) — ready to paste to her so both sides see the same list.
-function chargedListText(d: Drill): string {
-  const pays = d.payments ?? [];
+// ── Copyable client list ────────────────────────────────────────────────────
+// Two short sections the artist can read in a glance: who we already charged
+// her for (grouped by charge, with dates) and whose appointments are still
+// ahead. Plain text, ready to paste into a message.
+function clientListText(d: Drill): string {
   const who = d.client.business || d.client.ownerName;
+  const pays = d.payments ?? [];
   const shows = pays.reduce((n, p) => n + p.shows, 0);
-  if (shows === 0) return `${who}: no shows charged yet.`;
-  const plural = (n: number) => `${n} show${n === 1 ? "" : "s"}`;
-  const paid = pays.reduce((n, p) => n + p.total, 0);
-  const credit = pays.reduce((n, p) => n + (p.credit ?? 0), 0);
-  const lines = [`${who} — clients we charged you for`,
-    `Total: ${plural(shows)} · ${money(paid)} charged${credit > 0 ? ` + ${money(credit)} covered by account credit` : ""}`];
+  const paid = pays.reduce((n, p) => n + p.total + (p.credit ?? 0), 0);
+  const upcoming = d.appointments
+    .filter((a) => a.chargeStatus === "upcoming" && !a.excluded && !a.refunded)
+    .sort((x, y) => String(x.appointmentDate ?? "").localeCompare(String(y.appointmentDate ?? "")));
+  const lines = [`${who} — ${fmtDate(new Date().toISOString())}`, ""];
+
+  lines.push(`✅ Charged — ${shows} show${shows === 1 ? "" : "s"} · ${money(paid)}`);
+  if (shows === 0) lines.push("  (none yet)");
   for (const p of pays) {
-    const credited = p.credit ?? 0;
-    lines.push("", p.creditOnly && p.total === 0
-      ? `Covered by account credit ${fmtDate(p.chargedAt)} — ${plural(p.shows)} (${money(p.gross ?? credited)})`
-      : `Charged ${fmtDate(p.chargedAt)} — ${money(p.total)} (${plural(p.shows)}${credited > 0 ? `; ${money(p.gross ?? p.total + credited)} less ${money(credited)} account credit` : ""})`);
-    // Dated shows in session order; undated ones (chat, touch-up pending) last.
+    if (p.shows === 0) continue;
+    lines.push(`  ${fmtDate(p.chargedAt)} · ${money(p.total + (p.credit ?? 0))}`);
     const items = [...(p.items ?? (p.contacts ?? []).map((name) => ({ name, date: null, dateLabel: null })))]
       .sort((x, y) => (x.date ? 0 : 1) - (y.date ? 0 : 1) || String(x.date ?? "").localeCompare(String(y.date ?? "")));
-    for (const it of items) {
-      const when = it.dateLabel ? ` — ${it.dateLabel}${it.date ? ` ${fmtDate(it.date)}` : ""}` : "";
-      lines.push(`  • ${it.name}${when}`);
-    }
+    for (const it of items) lines.push(`  • ${it.name}${it.date ? ` — ${fmtDate(it.date)}` : ""}`);
   }
+
+  lines.push("", `📅 Upcoming — ${upcoming.length}`);
+  if (upcoming.length === 0) lines.push("  (none booked)");
+  for (const a of upcoming) lines.push(`  • ${a.contactName ?? "—"}${a.appointmentDate ? ` — ${fmtDate(a.appointmentDate)}` : ""}`);
   return lines.join("\n");
 }
 
@@ -123,7 +122,7 @@ function chargedListText(d: Drill): string {
 // must be in it). Passing the fetch as a promise to ClipboardItem keeps the
 // click's permission alive while the data loads (a plain writeText after an
 // await can be refused); writeText is the fallback.
-function CopyChargedButton({ ownerKey, label, className }: { ownerKey: string; label: string; className?: string }) {
+function CopyListButton({ ownerKey, className }: { ownerKey: string; className?: string }) {
   const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -134,7 +133,7 @@ function CopyChargedButton({ ownerKey, label, className }: { ownerKey: string; l
     const text: Promise<string> = fetch(`/api/ppa/client?owner_key=${encodeURIComponent(ownerKey)}`).then(async (r) => {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "load failed");
-      return chargedListText(j as Drill);
+      return clientListText(j as Drill);
     });
     try {
       try {
@@ -150,11 +149,13 @@ function CopyChargedButton({ ownerKey, label, className }: { ownerKey: string; l
   };
   return (
     <button onClick={copy} disabled={state === "busy"}
-      title="Copy the clients we charged her for (grouped by charge, with dates and any account credit) — paste it to her so you're on the same page"
-      className={cn("inline-flex items-center gap-1 font-semibold transition-colors disabled:opacity-60",
-        state === "done" ? "text-[#15803d]" : state === "error" ? "text-[#e11d48]" : "text-[#0e8f88] hover:text-[#0a6f69]", className)}>
-      {state === "busy" ? <Loader2 size={10} className="animate-spin" /> : state === "done" ? <Check size={10} /> : <Copy size={10} />}
-      {state === "busy" ? "Copying…" : state === "done" ? "Copied" : state === "error" ? "Copy failed" : label}
+      title="Copy this client's list: who we charged for + upcoming appointments"
+      className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold whitespace-nowrap transition-colors disabled:opacity-60",
+        state === "done" ? "bg-[#e6f7ee] border-[#c7edd4] text-[#15803d]"
+          : state === "error" ? "bg-[#fde8ee] border-[#f5c2cf] text-[#e11d48]"
+          : "bg-white border-[#a7e3df] text-[#0e8f88] hover:bg-[#e6f7f5]", className)}>
+      {state === "busy" ? <Loader2 size={12} className="animate-spin" /> : state === "done" ? <Check size={12} /> : <Copy size={12} />}
+      {state === "busy" ? "Copying…" : state === "done" ? "Copied" : state === "error" ? "Failed" : "Copy list"}
     </button>
   );
 }
@@ -275,7 +276,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
         <div className="rounded-lg border border-[#c7edd4] bg-[#f4fbf7] px-2.5 py-2">
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="text-[10px] font-bold uppercase tracking-wider text-[#15803d]">✅ Charged &amp; went through</div>
-            <CopyChargedButton ownerKey={client.ownerKey} label="Copy list" className="text-[10px] px-1.5 py-0.5 rounded border border-[#c7edd4] bg-white hover:bg-[#e6f7ee]" />
+            <CopyListButton ownerKey={client.ownerKey} />
           </div>
           <div className="space-y-0.5">
             {drill.payments!.map((p, i) => (
@@ -518,7 +519,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           <div className={cn("text-[9px] leading-tight whitespace-nowrap", c.chargedCount > 0 ? "text-[#0e8f88] font-semibold" : "text-[#8595a8]")}>
             {c.chargedCount} charged · {money(c.chargedAmount)}
           </div>
-          {c.chargedCount > 0 && <CopyChargedButton ownerKey={c.ownerKey} label="copy list" className="text-[9px] leading-tight" />}
+          <div className="mt-1"><CopyListButton ownerKey={c.ownerKey} /></div>
         </td>
         <NumCell value={c.showRate == null ? "—" : `${c.showRate}%`}
           sub={c.showRate == null ? "no reviews" : `${c.showed}/${c.showed + c.noShowMarked}`}
