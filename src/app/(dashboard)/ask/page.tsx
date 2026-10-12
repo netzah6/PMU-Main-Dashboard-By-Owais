@@ -893,6 +893,7 @@ type AgentProposal = {
   status: string; decided_by: string | null; result: string | null;
   action_plan?: PlanStep[] | null; location_id?: string | null; notified_at?: string | null;
   screenshots?: Array<{ name: string; url: string }> | null;
+  files?: Array<{ name: string; url: string; bytes?: number }> | null; // documents the Mac Mini produced
 };
 // Typed by a teammate on the Agent panel — no chat behind it.
 const isTask = (p: { conversation_id: string }) => p.conversation_id.startsWith("task:");
@@ -1218,6 +1219,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
     const ok = shown.status === "done";
     const label = ok ? "✅ done" : shown.status === "failed" ? "❌ failed" : shown.status === "queued_browser" ? "⏳ waiting for the Mac Mini" : shown.status === "running" ? "🖥️ Mac Mini working…" : shown.status === "needs_teammate" ? "👤 needs a teammate" : STATUS_LABEL[shown.status] ?? shown.status;
     const shots = p.screenshots ?? [];
+    const files = p.files ?? [];
     return (
       <div id={`proposal-${p.id}`} className={cn("rounded-xl border p-3", ok ? "border-[#bfe3cd] bg-[#f3fbf6]" : shown.status === "failed" ? "border-[#f5c2cf] bg-[#fffafb]" : ["queued_browser", "running", "needs_teammate"].includes(shown.status) ? "border-[#fcd9a8] bg-[#fff7ec]" : "border-[#e4ebf2] bg-white")}>
         <div className="flex items-center justify-between gap-2">
@@ -1226,6 +1228,16 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
         </div>
         <p className="mt-1 text-xs text-[#697a91]">{p.summary}</p>
         {shown.result && <pre className="mt-2 whitespace-pre-wrap font-sans text-[12px] text-[#1f3559] bg-white/70 rounded-lg px-2.5 py-2 border border-black/5">{shown.result}</pre>}
+        {files.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {files.map((f, i) => (
+              <a key={i} href={f.url} download target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#bfe3cd] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#15803d] hover:border-[#15B7AE]">
+                📎 {f.name}{f.bytes ? <span className="font-normal text-[#8595a8]">{` · ${f.bytes > 1_000_000 ? `${(f.bytes / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(f.bytes / 1000))} KB`}`}</span> : null}
+              </a>
+            ))}
+          </div>
+        )}
         {shots.length > 0 && (
           <div className="mt-2 grid grid-cols-2 gap-2">
             {shots.map((s, i) => (

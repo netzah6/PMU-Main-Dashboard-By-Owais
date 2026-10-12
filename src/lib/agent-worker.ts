@@ -92,7 +92,33 @@ export type FinishInput = {
   summary: string;
   steps?: string[];
   screenshots?: Array<{ name: string; url: string }>; // from uploadProof
+  files?: Array<{ name: string; url: string; bytes?: number }>; // from uploadFile (Excel, CSV, PDF…)
 };
+
+/* A file the task PRODUCED (owner, 2026-10-12: the Excel of a client's
+   contacts sat on the Mac Mini where nobody could reach it). Stored next to
+   the screenshots; the card shows a download button. Office/CSV/PDF/text
+   only — never scripts or pages. */
+const FILE_TYPES: Record<string, string> = {
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  csv: "text/csv", pdf: "application/pdf", txt: "text/plain",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  json: "application/json",
+};
+export async function uploadFile(svc: Svc, id: string, name: string, base64: string): Promise<{ url?: string; bytes?: number; error?: string }> {
+  const { data: row } = await svc.from("agent_proposals").select("status").eq("id", id).maybeSingle();
+  if ((row as { status?: string } | null)?.status !== "running") return { error: "card is not running" };
+  const ext = (name.split(".").pop() ?? "").toLowerCase();
+  const type = FILE_TYPES[ext];
+  if (!type) return { error: `file type .${ext} not allowed` };
+  const bytes = Buffer.from(base64, "base64");
+  if (!bytes.length || bytes.length > 4_000_000) return { error: "file missing or over 4 MB" };
+  const safe = name.replace(/[^A-Za-z0-9._ -]+/g, "_").slice(0, 80);
+  const path = `${id}/files/${randomUUID().slice(0, 8)}-${safe}`;
+  const { error } = await svc.storage.from(BUCKET).upload(path, bytes, { contentType: type, upsert: false });
+  if (error) return { error: error.message };
+  return { url: svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl, bytes: bytes.length };
+}
 
 /* One screenshot per call — Vercel caps a request body at 4.5 MB, so the
    worker uploads each proof image first and passes the URLs to finish. */
@@ -118,13 +144,16 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
   const prefix = svc.storage.from(BUCKET).getPublicUrl(`${p.id}/`).data.publicUrl;
   const urls = (input.screenshots ?? []).filter((s) => typeof s?.url === "string" && s.url.startsWith(prefix)).slice(0, 10)
     .map((s) => ({ name: String(s.name ?? "").slice(0, 60), url: s.url }));
+  const files = (input.files ?? []).filter((f) => typeof f?.url === "string" && f.url.startsWith(`${prefix}files/`)).slice(0, 10)
+    .map((f) => ({ name: String(f.name ?? "").slice(0, 80), url: f.url, bytes: Number(f.bytes) || undefined }));
 
   const icon = input.status === "done" ? "✓" : input.status === "needs_teammate" ? "👤" : "✗";
   const lines = [`${icon} ${input.summary.slice(0, 400)}`, ...(input.steps ?? []).slice(0, 12).map((l) => `• ${String(l).slice(0, 300)}`)];
   if (!urls.length) lines.push("⚠ no screenshots came back");
+  if (files.length) lines.push(`📎 ${files.length === 1 ? "1 file" : `${files.length} files`} attached below — download and send it yourself (the agent never messages clients)`);
   const result = lines.join("\n");
   const { error } = await svc.from("agent_proposals").update({
-    status: input.status, result, screenshots: urls, executed_at: new Date().toISOString(),
+    status: input.status, result, screenshots: urls, files, executed_at: new Date().toISOString(),
   }).eq("id", p.id).eq("status", "running");
   if (error) return { ok: false, error: error.message };
 

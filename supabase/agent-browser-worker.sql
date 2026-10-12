@@ -21,3 +21,6 @@ update public.agent_proposals set status = 'needs_teammate' where status = 'queu
 -- paths are random UUIDs.
 insert into storage.buckets (id, name, public) values ('agent-proofs', 'agent-proofs', true)
   on conflict (id) do nothing;
+
+-- 2026-10-12: documents the Mac Mini produced (Excel/CSV/PDF), shown as downloads on the card.
+alter table public.agent_proposals add column if not exists files jsonb;
