@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
+import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { pushLeadToGhl, cleanTz } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
@@ -265,7 +265,7 @@ export async function POST(req: NextRequest) {
     const token = capiToken(ex);
     const eventId = String(body.eventId ?? "");
     if (pixelId && token && eventId) {
-      await sendCapiEvent({
+      const res = await sendCapiEvent({
         pixelId, token, eventName: "Lead", eventId,
         eventSourceUrl: String(body.pageUrl ?? "") || undefined,
         user: {
@@ -274,6 +274,12 @@ export async function POST(req: NextRequest) {
           clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
           userAgent: req.headers.get("user-agent"),
         },
+      });
+      await recordCapi(svc, { slug, eventName: "Lead", eventId, pixelId, phone, ok: res.ok, error: res.error });
+    } else {
+      await recordCapi(svc, {
+        slug, eventName: "Lead", eventId, pixelId, phone, ok: false,
+        error: !pixelId ? "no pixel on funnel" : !token ? "no META_CAPI_TOKEN" : "no event id from browser",
       });
     }
   }

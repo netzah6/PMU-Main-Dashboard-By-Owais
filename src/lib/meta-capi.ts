@@ -114,3 +114,30 @@ export async function sendCapiEvent(ev: CapiEvent): Promise<{ ok: boolean; error
 export function capiToken(extras: { capiToken?: string } | null | undefined): string {
   return (extras?.capiToken ?? "").trim() || (process.env.META_CAPI_TOKEN ?? "").trim();
 }
+
+/* Every server-side send (or skip) lands in capi_events so the Funnels tab
+   can prove Purchase tracking is flowing per funnel and name the reason
+   when it isn't (no token, no pixel, Meta rejected). Owner, 2026-10-13:
+   "so we know exactly from which ad we get the clients that pay". Logging
+   never blocks the request that triggered it. */
+type Insertable = { from: (table: string) => { insert: (row: Record<string, unknown>) => PromiseLike<{ error?: { message?: string } | null }> } };
+export async function recordCapi(
+  svc: Insertable,
+  row: { slug: string; eventName: CapiEvent["eventName"]; eventId?: string; pixelId?: string; ok: boolean; error?: string; phone?: string },
+): Promise<void> {
+  try {
+    /* supabase-js resolves DB errors instead of throwing — read them, or a
+       dead log would make the Funnels card read "0 sent ✓" (review, Oct 13). */
+    const clean = (v?: string) => (v ?? "").replace(/\0/g, "").slice(0, 200) || null;
+    const { error } = await svc.from("capi_events").insert({
+      slug: row.slug,
+      event_name: row.eventName,
+      event_id: clean(row.eventId),
+      pixel_id: clean(row.pixelId),
+      ok: row.ok,
+      error: clean(row.error),
+      lead_phone: clean(row.phone),
+    });
+    if (error) console.error("[capi_events] insert failed:", error.message);
+  } catch (e) { console.error("[capi_events] insert threw:", e); /* never costs the lead */ }
+}

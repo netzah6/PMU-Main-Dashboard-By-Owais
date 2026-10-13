@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
+import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
 import { cleanTz, calendarDurationMin } from "@/lib/ghl-push";
@@ -269,9 +269,16 @@ export async function POST(req: NextRequest) {
     // B2B books a free call (no purchase); the agency workflow's own
     // appointment-status CAPI covers Meta, same as the original funnel.
     (async () => {
-      if (isB2B || !pixelId || !token || !eventId) return;
+      if (isB2B) return;
+      if (!pixelId || !token || !eventId) {
+        await recordCapi(svc, {
+          slug, eventName: "Purchase", eventId, pixelId, phone, ok: false,
+          error: !pixelId ? "no pixel on funnel" : !token ? "no META_CAPI_TOKEN" : "no event id from browser",
+        });
+        return;
+      }
       const amount = parseFloat(String(cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
-      await sendCapiEvent({
+      const res = await sendCapiEvent({
         pixelId, token, eventName: "Purchase", eventId,
         eventSourceUrl: String(body.pageUrl ?? "") || undefined,
         value: Number.isFinite(amount) ? amount : undefined,
@@ -282,7 +289,8 @@ export async function POST(req: NextRequest) {
           clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
           userAgent: req.headers.get("user-agent"),
         },
-      }).catch(() => {});
+      }).catch(() => ({ ok: false, error: "send threw" }));
+      await recordCapi(svc, { slug, eventName: "Purchase", eventId, pixelId, phone, ok: res.ok, error: res.error });
     })(),
   ]);
 

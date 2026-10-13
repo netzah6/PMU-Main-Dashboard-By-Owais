@@ -741,6 +741,49 @@ function Ab2TestCards() {
   </>);
 }
 
+/* 📡 Meta Purchase tracking health (owner, 2026-10-13: "track the purchase
+   so we know exactly which ad brings the clients that pay"). Browser half =
+   the pixel fires Purchase the moment a deposit clears on every V2.3/V3
+   one-box; server half = the Conversions API copy, which needs the agency
+   token. Admins + media buyers. */
+function CapiStatusCard() {
+  type Tally = { sent: number; failed: number; errors: Record<string, number> };
+  const [d, setD] = useState<{ since: string; tokenConfigured: boolean; browserPurchases: number; purchase: Tally; lead: Tally; noPixel: { slug: string; name: string }[] } | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    fetch("/api/onebox/capi-status").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
+  }, []);
+  if (!d) return null;
+  const serverOk = d.tokenConfigured && d.purchase.failed === 0;
+  const topErr = Object.entries(d.purchase.errors).sort((a, b) => b[1] - a[1])[0];
+  return (
+    <div className={cn("mb-4 border rounded-xl bg-white", serverOk && d.noPixel.length === 0 ? "border-[#e4ebf2]" : "border-[#f5d0a9]")}>
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
+        <span className="text-sm font-medium text-[#1c2b3a]">📡 Meta Purchase tracking — all V2.3/V3 funnels</span>
+        <span className="text-xs text-[#697a91]">last 7 days</span>
+        <span className={cn("ml-auto text-xs font-semibold", serverOk ? "text-[#15803d]" : "text-[#b45309]")}>
+          {d.browserPurchases} paid deposits (pixel fires Purchase on each)
+          {" · server copy: "}
+          {!d.tokenConfigured ? "OFF — Meta token not set" : d.purchase.failed ? `${d.purchase.sent} sent, ${d.purchase.failed} failed` : `${d.purchase.sent} sent ✓`}
+          {d.noPixel.length ? ` · ${d.noPixel.length} funnel${d.noPixel.length === 1 ? "" : "s"} with NO pixel` : ""}
+        </span>
+        <span className="text-[#697a91] text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3 text-xs text-[#4a5a6e] space-y-1.5">
+          <p><b>Browser pixel:</b> fires <code>Purchase</code> (with the deposit amount) the instant the checkout clears, on every one-box funnel that has a pixel — existing and future ones alike. {d.browserPurchases} paid deposits this week on funnels with a pixel (counted from our lead records; the browser itself can&rsquo;t report back).</p>
+          <p><b>Server copy (Conversions API):</b> {d.tokenConfigured
+            ? `token set — Purchase ${d.purchase.sent} sent / ${d.purchase.failed} failed; Lead ${d.lead.sent} sent / ${d.lead.failed} failed.${topErr ? ` Top error: ${topErr[0]} (${topErr[1]}).` : ""}`
+            : "not sending — add the agency Meta token (META_CAPI_TOKEN) in Vercel and every funnel starts sending deduplicated Lead + Purchase events server-side, which is what gives Meta reliable ad attribution on iPhones and blocked browsers."}</p>
+          {d.noPixel.length > 0 && (
+            <p><b>No pixel set</b> (nothing can be tracked there): {d.noPixel.map((f) => f.name).join(", ")} — pick a pixel in Start Setup.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TopbarTestCard() {
   type Side = { leads: number; picked: number; paid: number };
   const [d, setD] = useState<{ since: string; visitorsPerArm?: number; a: Side; b: Side } | null>(null);
@@ -1521,6 +1564,7 @@ export default function FunnelsPage() {
       <IntakeReviewCards />
       {/* Split-test results are the owner's dials — coaches don't see them
           (owner, 2026-10-09). */}
+      {seesFleetTraffic && <CapiStatusCard />}
       {isAdmin && (<>
         <DeprowTestCard />
         <TopbarTestCard />
