@@ -54,10 +54,10 @@ export const REPLY_KB = `
 ## 5. Tone & style norms (common across staff)
 - Greeting: "Hi/Hey [FirstName]," — first name. In an ongoing chat, don't re-introduce yourself.
 - Warm, direct, peer-to-peer. Reassure when it fits ("No worries," "I totally understand"), but don't pad.
-- Emojis: follow the sender's own habit from their real replies (Nicolas rarely uses them). Never add 😊 by default.
+- Emojis: mirror the CLIENT's latest message — emojis back when they used them (same energy, not more), none when they didn't. Never add 😊 by default.
 - Length: mostly 1–3 sentences for check-ins; longer only to explain the offer or a process. Texty, not formal.
 - End naturally. Ask a question only when something is actually needed from the client — no call invites or links unless they asked.
-- Mirror the client's layout: greeting line if they used one, same paragraph structure, and a thank-you line + the sender's first name on its own line when the client signed off that way. A one-liner gets a one-liner.
+- Complete mirroring of the client's latest message: their energy (excited ↔ calm), their register (formal "Regards" ↔ casual text), their emojis, their layout (greeting line if they used one, same paragraph structure) and their sign-off (a closing word + the sender's first name on its own line ONLY when the client signed off that way — otherwise no name at the end). A one-liner gets a one-liner.
 
 ## 6. Do NOT say / cautions
 - Don't promise data portability that isn't real: chat history cannot be moved between GHL accounts and the system is company-owned. Offer the connected-phone-number workaround instead of implying they keep everything.

@@ -61,6 +61,39 @@ function emojiRule(agentName: string, samples: string[]): string {
 
 const wordCount = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
 
+/* COMPLETE MIRRORING (owner, 2026-10-12): the reply matches the CLIENT's
+   latest message in every way — energy, formality, emojis, layout and
+   sign-off. "Nicolas" at the bottom of a reply to a casual text was the
+   complaint: a sign-off exists only when the client signed off. The
+   client's own habits are measured from their NEW messages so the rule is
+   stated as facts, not left to the model's own habit. */
+function clientVibe(thread: ThreadMessage[], agentName: string): string {
+  const inbound = thread.filter((m) => m.direction === "inbound").map((m) => m.body ?? "");
+  const latest = inbound.slice(-3).join("\n").trim();
+  if (!latest) return "No client message to mirror — write one short, plain, friendly line.";
+  const emojis = [...new Set(latest.match(EMOJI_RE) ?? [])];
+  const exclaim = (latest.match(/!/g) ?? []).length;
+  const lines = latest.split("\n").map((l) => l.trim()).filter(Boolean);
+  const greeting = /^(hi|hey|hello|good (morning|afternoon|evening))\b/i.test(lines[0] ?? "");
+  const last = lines[lines.length - 1] ?? "";
+  const prev = lines[lines.length - 2] ?? "";
+  const signOffWord = /^(thanks?|thank you|regards|best|cheers|sincerely|warmly|talk soon)[,!. ]*/i;
+  const signedOff = signOffWord.test(last) || (signOffWord.test(prev) && wordCount(last) <= 3) || (wordCount(last) <= 2 && /^[A-Z][a-z]+/.test(last) && lines.length >= 2);
+  const formal = /\b(regards|sincerely|dear|kindly|please advise|appreciate your)\b/i.test(latest) && !emojis.length;
+  const parts: string[] = [];
+  parts.push(emojis.length
+    ? `EMOJIS: the client used ${emojis.join(" ")} — match that energy with a similar amount of emojis (${emojis.join(" ")} or close in spirit). Not more than they did.`
+    : "EMOJIS: the client used none — use none.");
+  parts.push(exclaim >= 2 ? "ENERGY: excited (several '!') — be warm and upbeat, '!' is fine." : exclaim === 1 ? "ENERGY: friendly — at most one '!'." : "ENERGY: calm — no exclamation marks.");
+  parts.push(formal ? "REGISTER: formal and polite — full sentences, no slang, no emojis." : "REGISTER: casual, texty, like a peer.");
+  parts.push(greeting ? `GREETING: they opened with a greeting line ("${lines[0].slice(0, 40)}") — open with a greeting line to them, with their first name.` : "GREETING: they opened without a greeting — do the same, start straight in.");
+  parts.push(signedOff
+    ? `SIGN-OFF: they closed with a sign-off ("${prev && signOffWord.test(prev) ? prev : last}"${signOffWord.test(prev) ? ` / "${last}"` : ""}) — close the same way: the same kind of closing word, then "${agentName.split(" ")[0]}" on its own line.`
+    : `SIGN-OFF: they did NOT sign off — NO closing line and NO name at the end. Never add "${agentName.split(" ")[0]}" on its own.`);
+  parts.push(lines.length >= 3 ? `LAYOUT: ${lines.length} short lines/paragraphs — answer in the same shape and order.` : lines.length === 2 ? "LAYOUT: two short parts — reply in two short parts." : "LAYOUT: one line — reply in one line.");
+  return parts.join(" ");
+}
+
 /* Same idea for length (live test 2026-10-01: a client with five questions
    got a five-point numbered essay; Nicolas texts a line or two). The limit
    is measured from his real replies, not guessed. */
@@ -85,7 +118,7 @@ function buildSystemPrompt(input: DraftInput): string {
     "RULES THAT MATTER MOST:",
     "1. READ THE WHOLE RECENT EXCHANGE — clients often send several texts in a row, and what they mean is often in an earlier message from today or yesterday. Answer everything in the messages marked NEW, using the last 2 days for context. Never reply to only the very last line.",
     `2. VOICE — sound exactly like ${agentName} in the real replies below: same greeting style, length, punctuation and capitalization. Lines marked "Automated" are workflow texts, NOT ${agentName} — never copy their wording, emojis or calls to action. Lines marked "Agency" were really sent to the client — treat them as already said.`,
-    `3. EMOJIS — ${emojiRule(agentName, voiceSamples)} Do not copy the client's emojis.`,
+    `3. COMPLETE MIRRORING — the reply must match the CLIENT's latest message in vibe and form, measured from what they wrote: ${clientVibe(input.thread, agentName)} This rule beats ${agentName}'s own habits (${emojiRule(agentName, voiceSamples).replace(/^Do not use emojis\.$/, "no emojis by default")}) whenever they differ: an excited client with emojis gets emojis back; a formal "Regards, Sara" gets a formal "Regards, ${agentName.split(" ")[0]}" back; a plain one-liner gets a plain one-liner with no name at the end.`,
     "4. FACTS — only use information from the KNOWLEDGE BASE below for prices, the offer, policies, and the booking process. Never invent a price, a discount, a date, or a policy. If the knowledge base does not cover what the client asked, say what you safely can and stop.",
     input.inviteCall
       ? `5. CALL INVITE — the team switched ON "invite to a strategy call" for this reply: answer what the client said, then end with ONE short, natural invite to book ${callInviteText(agentName)} (no emoji arrows). Never promise a fix, a name change or a setting you don't know is right.`
@@ -98,7 +131,7 @@ function buildSystemPrompt(input: DraftInput): string {
     // Owner, 2026-10-08 (Sara's "Hi Nicholas! … Thank you so much, Sara"
     // message got a flat text back): the reply must LOOK like the client's
     // message, not just answer it.
-    "7. MIRROR THE CLIENT'S LAYOUT — shape the reply the way the client shaped their latest message. If they opened with a greeting on its own line (\"Hi Nicholas!\"), open with a greeting line to them. If they wrote in several short paragraphs, answer in several short paragraphs that follow their order of points. If they closed with a thank-you line and then their first name on its own line, close with a thank-you/warm line and then " + agentName + "'s first name on its own line. A one-line text gets a one-line text back. Mirror the shape, not the length of every paragraph.",
+    "7. MIRROR THE CLIENT'S LAYOUT — shape the reply the way the client shaped their latest message (rule 3 has the measured facts). Greeting line only if they used one; several short paragraphs in their order if they wrote that way; a closing line and " + agentName.split(" ")[0] + "'s first name on its own line ONLY if they closed with a sign-off and their name. A one-line text gets a one-line text back. Mirror the shape, not the length of every paragraph.",
     "",
     `=== ${agentName.toUpperCase()}'S REAL PAST REPLIES (mimic this voice) ===`,
     samplesBlock,
@@ -122,7 +155,7 @@ function buildSystemPrompt(input: DraftInput): string {
         ]
       : []),
     "OUTPUT RULES:",
-    "- Return ONLY the message text to send. No preamble, no quotes, no notes. A signature (first name on the last line) only when the client signed theirs (rule 7) or the past replies show one.",
+    "- Return ONLY the message text to send. No preamble, no quotes, no notes. A signature (first name on the last line) ONLY when the client signed theirs (rule 3) — never because past replies had one.",
     "- Reply in the same language the client is using.",
     "- Match the client's level of formality and warmth.",
     "- When the client is describing money pressure or hardship, acknowledge it plainly before anything else, and never follow it immediately with a new ask.",
