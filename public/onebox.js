@@ -979,12 +979,16 @@
     /* The checkout calls this the moment the deposit clears — that's when
        the appointment goes from held to confirmed. */
     window.OB_ONPAID = function () {
-      if (state.paidSent || !state.slotIso) return;
+      if (state.paidSent) return;
       state.paidSent = true;
       // The deposit cleared — tell Meta, so campaigns can optimise for
-      // clients who actually pay, not just form fills.
+      // clients who actually pay, not just form fills. This fires on EVERY
+      // cleared deposit (owner, 2026-10-13: "track the purchase so we know
+      // exactly which ad brings paying clients"); the booking call below
+      // still needs a held time.
       var amt = parseFloat(String(C.deposit || "").replace(/[^0-9.]/g, ""));
       var purchaseId = pixelTrack("Purchase", { value: isNaN(amt) ? 0 : amt, currency: "USD" });
+      if (!state.slotIso) return;
       try {
         fetch((C.submitUrl || "").replace(/submit$/, "book"), {
           method: "POST",
