@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { bookAppointmentForLead, pushLeadToGhl } from "@/lib/ghl-push";
 import { addOneboxBookedTag, ensureContactOwner } from "@/lib/artist-notify";
+import { filePaidNotBookedAlert, resolvePaidNotBookedAlert } from "@/lib/alerts";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 300;
@@ -159,6 +160,7 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       if (booked.appointmentId) {
         apptsCreated++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: booked.appointmentId }).eq("id", lead.id);
+        await resolvePaidNotBookedAlert(svc, lead.slug as string, contactId, lead.full_name as string).catch(() => {});
         /* A healed booking is as new to the artist as a live one — the
            "onebox-booked" tag fires the account's notification workflow
            (bookAppointmentForLead already wrote the reserved-time field
@@ -176,8 +178,14 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       } else if (booked.alreadyBooked) {
         alreadyBooked++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: "manual" }).eq("id", lead.id);
+        await resolvePaidNotBookedAlert(svc, lead.slug as string, contactId, lead.full_name as string).catch(() => {});
       } else {
         errors.push(`${lead.full_name}: ${booked.error ?? "booking failed"}`);
+        // Owner (2026-10-12): a paid lead still not booked must be on the Alerts tab.
+        await filePaidNotBookedAlert(svc, {
+          slug: lead.slug as string, locationId: client.location_id as string, contactId, name: lead.full_name as string,
+          slotIso: String(lead.slot_iso), error: booked.error ?? "booking failed",
+        }).catch(() => {});
       }
     }
   }

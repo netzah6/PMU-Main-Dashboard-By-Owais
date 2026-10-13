@@ -158,6 +158,19 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
   }
 }
 
+/* The length GHL will accept for a booking. Since GHL's per-calendar
+   "duration options", the booking length is the DEFAULT option — not
+   slotDuration (that is only the grid the slots sit on). Beauty By Size:
+   slots every 30 min, bookings 90 min → a 30-min appointment was refused
+   ("Selected slot duration is not a valid duration option"), and Tracy
+   Murphy sat paid-not-booked for two weeks (owner, 2026-10-12). */
+export function calendarDurationMin(cal: { slotDuration?: number; slotDurationUnit?: string; durationOptions?: Array<{ duration?: number; durationUnit?: string; isDefault?: boolean }> } | undefined): number {
+  const mins = (n: number | undefined, unit: string | undefined) => (n && n > 0 ? (unit === "hours" ? n * 60 : n) : 0);
+  const opts = (cal?.durationOptions ?? []).filter((o) => mins(o.duration, o.durationUnit) > 0);
+  const def = opts.find((o) => o.isDefault) ?? opts[0];
+  return (def && mins(def.duration, def.durationUnit)) || mins(cal?.slotDuration, cal?.slotDurationUnit) || 30;
+}
+
 /* Create the native GHL appointment a paid lead should already have —
    the same call /api/onebox/book makes (confirmed status, calendar's own
    duration + title, reserved-time custom field), so all appointment
@@ -187,8 +200,8 @@ export async function bookAppointmentForLead(inp: {
       headers: { ...H, Version: "2021-04-15" },
     }).catch(() => null);
     if (calR?.ok) {
-      const calJ = (await calR.json()) as { calendar?: { slotDuration?: number; name?: string } };
-      if (calJ.calendar?.slotDuration) durationMin = calJ.calendar.slotDuration;
+      const calJ = (await calR.json()) as { calendar?: { slotDuration?: number; slotDurationUnit?: string; durationOptions?: Array<{ duration?: number; durationUnit?: string; isDefault?: boolean }>; name?: string } };
+      durationMin = calendarDurationMin(calJ.calendar);
       if (calJ.calendar?.name) title = calJ.calendar.name;
     }
     const endTime = new Date(new Date(inp.slotIso).getTime() + durationMin * 60000).toISOString();

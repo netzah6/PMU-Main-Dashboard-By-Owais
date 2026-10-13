@@ -37,7 +37,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -924,4 +924,34 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
     resolved = toClose.length;
   }
   return { checked, filed, resolved };
+}
+
+
+// ── Paid but not booked (owner, 2026-10-12) ──────────────────────────────────
+// G Kelly (Framed Brow Studio) and Tracy Murphy (Beauty By Size) paid their
+// deposit, but the appointment call to GHL was refused, and nobody knew: the
+// contact got an "onebox-booking-failed" tag and the lead sat paid-not-booked
+// for days. Every booking failure now lands on the Alerts tab, one box per
+// lead, with GHL's reason; it closes itself once the appointment exists.
+export async function filePaidNotBookedAlert(
+  svc: Svc,
+  a: { slug: string; locationId: string; contactId: string | null; name: string; slotIso: string; error: string; business?: string | null },
+): Promise<"filed" | "appended" | "skipped"> {
+  const when = (() => { try { return new Date(a.slotIso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return a.slotIso; } })();
+  const biz = a.business ?? a.slug;
+  return fileOrAppendAlert(svc, {
+    type: "paid_not_booked", severity: "high",
+    title: `${a.name} paid ${biz} but is NOT on the calendar (${when})`,
+    detail: `GoHighLevel refused the booking: "${a.error}". She paid the deposit and picked ${when}. The dashboard retries every 30 min; if this box is still open, book her by hand on the calendar at that time.`,
+    source_key: `paid-not-booked:${a.slug}:${a.contactId ?? a.name}`,
+    meta: { slug: a.slug, location_id: a.locationId, contact_id: a.contactId, slot_iso: a.slotIso, link: a.contactId ? ghlContactUrl(a.locationId, a.contactId) : null },
+  }, `— Still failing (${new Date().toISOString().slice(0, 16).replace("T", " ")}): "${a.error}"`);
+}
+
+// Close the box once the lead has an appointment (retry healed it, or the
+// team booked her by hand).
+export async function resolvePaidNotBookedAlert(svc: Svc, slug: string, contactId: string | null, name: string): Promise<void> {
+  await svc.from("alerts")
+    .update({ status: "resolved", resolved_by: "system (appointment now on the calendar)", resolved_at: new Date().toISOString() })
+    .eq("type", "paid_not_booked").eq("source_key", `paid-not-booked:${slug}:${contactId ?? name}`).eq("status", "open");
 }

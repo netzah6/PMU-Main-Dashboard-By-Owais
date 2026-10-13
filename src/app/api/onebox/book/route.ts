@@ -4,7 +4,8 @@ import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
-import { cleanTz } from "@/lib/ghl-push";
+import { cleanTz, calendarDurationMin } from "@/lib/ghl-push";
+import { filePaidNotBookedAlert } from "@/lib/alerts";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -112,8 +113,8 @@ export async function POST(req: NextRequest) {
   let durationMin = 30;
   let title = "Appointment";
   if (calR.ok) {
-    const calJ = (await calR.json()) as { calendar?: { slotDuration?: number; name?: string } };
-    if (calJ.calendar?.slotDuration) durationMin = calJ.calendar.slotDuration;
+    const calJ = (await calR.json()) as { calendar?: { slotDuration?: number; slotDurationUnit?: string; durationOptions?: Array<{ duration?: number; durationUnit?: string; isDefault?: boolean }>; name?: string } };
+    durationMin = calendarDurationMin(calJ.calendar); // the calendar's default booking length, not the slot grid
     if (calJ.calendar?.name) title = calJ.calendar.name;
   }
   /* She may already be on this calendar — the AI books leads here in chat,
@@ -189,6 +190,8 @@ export async function POST(req: NextRequest) {
       .eq("slug", slug)
       .eq("phone", phone)
       .then(() => {});
+    // Owner (2026-10-12): any booking glitch must reach the Alerts tab.
+    await filePaidNotBookedAlert(svc, { slug, locationId, contactId, name: fullName, slotIso: startIso, error: aj.message ?? `appointment ${ar.status}` }).catch(() => {});
     return NextResponse.json(
       { ok: false, error: aj.message ?? `appointment ${ar.status}` },
       { status: 502 }
