@@ -1425,20 +1425,13 @@
      to the deposit step with their reserved slot — or to the calendar when
      no time exists yet. Any failure (missing/unknown token, network) simply
      leaves the normal funnel, which is already on screen. */
-  /* Fleet-wide deposit-row test (Netzah 2026-09-21: measure, don't guess):
-     a = the original guarantee line, b = the secure-green wallet line.
-     Sticky per visitor via localStorage; independent of the per-slug
-     experiment system so it can run everywhere at once, page-1 tests
-     included. Every lead submission carries deprow:"a"|"b" (stored in the
-     lead's answers), so conversion per side reads straight off
-     onebox_leads: population = leads that picked a time, success = paid. */
-  var DEPROW_V = (function () {
-    try {
-      var v = localStorage.getItem("ob_deprow");
-      if (v !== "a" && v !== "b") { v = Math.random() < 0.5 ? "a" : "b"; localStorage.setItem("ob_deprow", v); }
-      return v;
-    } catch (e) { return "a"; }
-  })();
+  /* Deposit-row line: the secure-green wallet line ("b") is now the default
+     everywhere. It was a fleet-wide 50/50 against the original guarantee
+     line from 2026-09-21 to 2026-10-13 — 134 vs 128 deposits over ~27k
+     visitors a side, a tie — and the owner locked "b" (judged on deposits,
+     never leads). Leads still carry deprow:"b" so the old readout stays
+     consistent. */
+  var DEPROW_V = "b";
 
   var PAY = String(C.pay || "") === "1";
   var PAY_T = "";

@@ -10,8 +10,13 @@ export const fetchCache = "force-no-store";
    submission records that side in answers.deprow. It runs on every
    funnel at once — independent of the per-slug experiment system — so
    its readout is fleet-wide too: population = leads that picked a time,
-   success = paid the deposit. */
+   success = paid the deposit.
+   ENDED 2026-10-13 (engine v94 locks "b" everywhere): 134 vs 128 deposits
+   over ~27k visitors a side = a tie; owner chose b. The window is frozen
+   so leads after the lock (all tagged "b") don't skew the final read. */
 const TEST_START = "2026-09-21T20:00:00Z"; // first tagged lead 20:56 UTC
+const TEST_END = "2026-10-13T10:00:00Z";
+const WINNER = "b";
 
 // Same definition of "paid" as onebox-insights (paid-followup = via the
 // AI's payment link — the deposit row is shown on that path too).
@@ -27,6 +32,7 @@ export async function GET() {
       .from("onebox_leads")
       .select("id", { count: "exact", head: true })
       .gte("created_at", TEST_START)
+      .lt("created_at", TEST_END)
       .eq("answers->>deprow", v);
     if (kind === "picked") q = q.or(`picked_time_at.not.is.null,ghl_status.in.(${PAID.join(",")})`);
     if (kind === "paid") q = q.in("ghl_status", PAID);
@@ -42,6 +48,9 @@ export async function GET() {
     ]);
     return NextResponse.json({
       since: TEST_START,
+      until: TEST_END,
+      ended: true,
+      winner: WINNER,
       a: { leads: aLeads, picked: aPicked, paid: aPaid },
       b: { leads: bLeads, picked: bPicked, paid: bPaid },
     });
