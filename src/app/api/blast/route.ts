@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { livePipelineIds, blastClients, fetchAudience, renderTemplate, DEFAULT_TEMPLATE } from "@/lib/blast";
+import { templateProblem, blastErrorReason, isPermanentBlastError } from "@/lib/blast-template";
 
 export const maxDuration = 300;
 
@@ -29,7 +30,26 @@ export async function GET(req: NextRequest) {
 
   if (sp.get("jobs")) {
     const { data } = await svc.from("blast_jobs").select("*").order("created_at", { ascending: false }).limit(25);
-    return NextResponse.json({ jobs: data ?? [] });
+    const jobs = (data ?? []) as Array<Record<string, unknown> & { id: string; failed: number }>;
+    // Why it failed, in words, per job — so the team can fix it themselves
+    // instead of asking (owner request 2026-10-13).
+    const failedIds = jobs.filter((j) => (j.failed ?? 0) > 0).map((j) => j.id);
+    const reasons = new Map<string, Map<string, number>>();
+    if (failedIds.length) {
+      const { data: rs } = await svc.from("blast_recipients").select("job_id, error").in("job_id", failedIds).eq("status", "failed");
+      for (const r of (rs ?? []) as Array<{ job_id: string; error: string | null }>) {
+        const m = reasons.get(r.job_id) ?? new Map<string, number>();
+        const k = blastErrorReason(r.error);
+        m.set(k, (m.get(k) ?? 0) + 1);
+        reasons.set(r.job_id, m);
+      }
+    }
+    return NextResponse.json({
+      jobs: jobs.map((j) => ({
+        ...j,
+        fail_reasons: [...(reasons.get(j.id) ?? new Map<string, number>())].map(([reason, n]) => ({ reason, n })).sort((a, b) => b.n - a.n),
+      })),
+    });
   }
 
   const locationId = sp.get("locationId");
@@ -79,20 +99,42 @@ export async function POST(req: NextRequest) {
   // (already-sent ones are NOT re-texted) and the job re-enters the cron's
   // pickup immediately.
   if (body.action === "retry") {
-    const { data: job } = await svc.from("blast_jobs").select("status").eq("id", body.jobId).single();
+    const { data: job } = await svc.from("blast_jobs").select("status, message_template, sender_name, service_word").eq("id", body.jobId).single();
     if (!job) return NextResponse.json({ error: "job not found" }, { status: 404 });
     if (!["failed", "error", "done", "cancelled"].includes(job.status)) return NextResponse.json({ error: "job is still active" }, { status: 400 });
     // The picker's chosen moment — required so a reschedule is always a
     // deliberate, dated decision (no accidental immediate sends).
     const sendAt = body.sendAt ? new Date(body.sendAt) : null;
     if (!sendAt || isNaN(sendAt.getTime())) return NextResponse.json({ error: "sendAt (date+time) required" }, { status: 400 });
-    // Re-queue everyone who has NOT received the text (failed + skipped);
-    // already-sent recipients are never re-texted.
-    await svc.from("blast_recipients").update({ status: "queued", error: null }).eq("job_id", body.jobId).in("status", ["failed", "skipped"]);
+    // Optional corrected message (the "Fix message & resend" box). Checked the
+    // same way as a new blast, then re-rendered for everyone still to text.
+    const template = typeof body.template === "string" && body.template.trim() ? String(body.template) : null;
+    if (template) {
+      const problem = templateProblem(template);
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    }
+    // Re-queue everyone who has NOT received the text (failed + skipped),
+    // except numbers that will fail again whatever we send (DND,
+    // unsubscribed, no phone); already-sent recipients are never re-texted.
+    const { data: pending } = await svc.from("blast_recipients").select("id, name, error").eq("job_id", body.jobId).in("status", ["failed", "skipped"]);
+    const requeue = ((pending ?? []) as Array<{ id: string; name: string | null; error: string | null }>).filter((r) => !isPermanentBlastError(r.error));
+    if (template && template !== job.message_template) {
+      const firstNameOf = (name: string | null) => { const n = String(name ?? "").trim(); return /^\(no name\)$/.test(n) ? "" : (n.split(/\s+/)[0] ?? ""); };
+      for (let i = 0; i < requeue.length; i += 25) {
+        await Promise.all(requeue.slice(i, i + 25).map((r) => svc.from("blast_recipients").update({
+          status: "queued", error: null,
+          rendered_message: renderTemplate(template, { firstName: firstNameOf(r.name), senderName: job.sender_name ?? "", service: job.service_word ?? "" }),
+        }).eq("id", r.id)));
+      }
+    } else if (requeue.length) {
+      await svc.from("blast_recipients").update({ status: "queued", error: null }).in("id", requeue.map((r) => r.id));
+    }
+    if (requeue.length === 0) return NextResponse.json({ error: "Nobody left to text — everyone either got it or can't be texted (DND / unsubscribed)." }, { status: 400 });
     await svc.from("blast_jobs").update({
       status: "scheduled", error: null, send_at: sendAt.toISOString(), updated_at: new Date().toISOString(),
+      ...(template ? { message_template: template } : {}),
     }).eq("id", body.jobId);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, requeued: requeue.length, skipped: (pending?.length ?? 0) - requeue.length });
   }
 
   // Remove a finished job from the list entirely (recipients first, then job).
@@ -115,6 +157,8 @@ export async function POST(req: NextRequest) {
   if (!locationId || !senderName?.trim() || !template?.trim() || !stageIds?.length) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
+  const problem = templateProblem(template);
+  if (problem) return NextResponse.json({ error: problem }, { status: 400 });
 
   // Re-fetch the audience server-side at schedule time — the confirmed count
   // must match what the admin saw, or we refuse (audience changed under them).
