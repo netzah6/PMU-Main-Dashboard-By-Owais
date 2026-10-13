@@ -203,8 +203,15 @@ export async function POST(req: NextRequest) {
 
   // Create/upsert the contact in GHL so automations fire. Extracted to
   // src/lib/ghl-push.ts so the ghl-retry cron can re-run failed pushes.
+  /* Short-survey arm (shortq2 = b, Oct 13): the commutable question isn't
+     asked, so the lead can't be distance-disqualified. GHL's Commutable
+     field gets "Yes" so the survey workflow runs exactly as for a
+     qualified lead; the stored lead keeps "" and the contact note says
+     "not asked", so nobody mistakes it for an answer. */
+  const commuteNotAsked = !isB2B && !answers.commutable && answers.shortq2 === "b";
+  const ghlAnswers = commuteNotAsked ? { ...answers, commutable: "Yes" } : answers;
   const push = await pushLeadToGhl({
-    locationId, fullName, phone, email, answers,
+    locationId, fullName, phone, email, answers: ghlAnswers,
     isB2B, b2bFieldMap: extras.b2b?.fieldMap, surveyTag,
     withTag: true, partial, disqualified,
     timezone: cleanTz(body.tz),
