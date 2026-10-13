@@ -67,7 +67,8 @@ export async function GET(req: NextRequest) {
       fullName: String(lead.full_name ?? ""),
       phone: String(lead.phone ?? ""),
       email: String(a.email ?? ""),
-      answers: a,
+      // short-survey arm never asked about commuting — same "Yes" the live push sends
+      answers: !isB2B && !a.commutable && a.shortq2 === "b" ? { ...a, commutable: "Yes" } : a,
       isB2B, b2bFieldMap: extras.b2b?.fieldMap,
       surveyTag: isB2B ? (extras.b2b?.tag || "b2b-onebox-survey") : "onebox-survey",
       withTag, partial: false, disqualified,

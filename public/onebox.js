@@ -126,11 +126,16 @@
        scar   — calendar scarcity: a = show up to 5 slots/day (current),
                 b = show up to 3 ("only 3 openings left").
        shortq — survey length: a = full survey (current), b = drops the
-                had_pmu / age / aftercare questions (3 fewer taps). The
-                commute + seriousness questions STAY — disqualification
-                depends on them.
+                commutable + aftercare-kit questions (2 fewer taps). Owner
+                rule 2026-10-13: every other question stays (area, had PMU,
+                age, seriousness all feed the AI's quote/qualification).
+                Leads not asked about commuting are never distance-
+                disqualified; the server sets GHL's Commutable field to
+                "Yes" for them so the survey workflow runs unchanged.
+                Re-cut from the first draft (which dropped had_pmu/age) —
+                new coin + tag "shortq2" so the first-draft leads don't mix in.
      Sticky per visitor, recorded on every lead via the submit payload's
-     generic extras (answers.scar / answers.shortq); before the start date
+     generic extras (answers.scar / answers.shortq2); before the start date
      both read "a" and nothing is recorded. */
   var AB2_ON = Date.now() >= Date.parse("2026-10-13T07:00:00Z");
   function ab2coin(key) {
@@ -142,7 +147,7 @@
     } catch (e) { return "a"; }
   }
   var SCAR_V = ab2coin("ob_scar");
-  var SHORTQ_V = ab2coin("ob_shortq");
+  var SHORTQ_V = ab2coin("ob_shortq2");
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
@@ -426,7 +431,7 @@
     { k: "email", q: "Email Address", type: "email", ph: "Email Address" }
   ]);
   if (SHORTQ_V === "b") {
-    QUESTIONS = QUESTIONS.filter(function (x) { return x.k !== "had_pmu" && x.k !== "age" && x.k !== "aftercare"; });
+    QUESTIONS = QUESTIONS.filter(function (x) { return x.k !== "commute" && x.k !== "aftercare"; });
   }
   var N = QUESTIONS.length;
   var state = { eventIds: {}, answers: {}, submitted: false };
@@ -462,7 +467,7 @@
       deprow: DEPROW_V,
       topbar: TOPBAR_V,
       scar: AB2_ON ? SCAR_V : "",
-      shortq: AB2_ON ? SHORTQ_V : "",
+      shortq2: AB2_ON ? SHORTQ_V : "",
       source: "onebox"
     };
     /* Genuinely new custom-survey questions ride along too — anything in
