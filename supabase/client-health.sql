@@ -313,3 +313,7 @@ left join lateral (select cp.payment_status, cp.usd from client_payments cp
   where cp.owner_key in (public.health_nk(lv.owner_name), lv.owner_key) order by cp.updated_at desc limit 1) cp on true;
 
 revoke all on public.client_health_base from public, anon, authenticated;
+
+-- 2026-10-13: team_name = the name a user goes by on the Clients tab dropdowns
+-- (Media Buyer options = admins + media_buyer users that have one).
+alter table public.user_roles add column if not exists team_name text;

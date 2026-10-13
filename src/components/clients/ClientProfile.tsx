@@ -76,6 +76,13 @@ export function ClientProfile({
   client, role, deposits, bookings, leads, calls, performance, payment, onUpdate,
 }: ClientProfileProps) {
   const [localClient, setLocalClient] = useState<ClientRecord>(client);
+  /* Media buyers = admins + media_buyer users with a team name on Settings
+     (owner, 2026-10-13). Falls back to the old fixed list until it loads. */
+  const [mediaBuyers, setMediaBuyers] = useState<string[] | null>(null);
+  useEffect(() => {
+    fetch("/api/users/team?kind=media_buyer").then((r) => r.json()).then((j) => { if (Array.isArray(j.names)) setMediaBuyers(j.names); }).catch(() => undefined);
+  }, []);
+  const mediaBuyerOptions = mediaBuyers ?? TEAM_OPTIONS;
   const [editMode, setEditMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const editOriginalRef = useRef<Record<string, string>>({});
@@ -521,8 +528,8 @@ export function ClientProfile({
                     className="px-2 py-1 rounded-md text-xs font-bold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
                   >
                     <option value="">—</option>
-                    {localClient.media_buyer && !TEAM_OPTIONS.includes(String(localClient.media_buyer)) && <option value={String(localClient.media_buyer)}>{String(localClient.media_buyer)}</option>}
-                    {TEAM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    {localClient.media_buyer && !mediaBuyerOptions.includes(String(localClient.media_buyer)) && <option value={String(localClient.media_buyer)}>{String(localClient.media_buyer)}</option>}
+                    {mediaBuyerOptions.map((u) => <option key={u} value={u}>{u}</option>)}
                   </select>
                   {assignSaving === "Media Buyer" && <Loader2 size={12} className="animate-spin text-[#0e8f88]" />}
                 </span>

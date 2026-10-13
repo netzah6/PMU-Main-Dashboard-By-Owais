@@ -132,6 +132,12 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleTeamName(userId: string, name: string) {
+    const { error } = await supabase.from("user_roles").update({ team_name: name || null }).eq("user_id", userId);
+    if (error) toast.error("Failed to save the team name");
+    else { toast.success(name ? `Team name set to ${name}` : "Team name cleared"); fetchUsers(); }
+  }
+
   async function handleSalesName(userId: string, name: string) {
     const { error } = await supabase.from("user_roles").update({ sales_name: name || null }).eq("user_id", userId);
     if (error) toast.error("Failed to save the sales name");
@@ -248,6 +254,16 @@ export default function SettingsPage() {
                         <option value="closer">Closer</option>
                         <option value="sales">Setter + Closer</option>
                       </select>
+                    )}
+                    {(u.role === "admin" || u.role === "media_buyer" || u.role === "editor") && (
+                      <input
+                        defaultValue={u.team_name ?? ""}
+                        placeholder="Team name (e.g. Marie)"
+                        title="The name this person goes by on the Clients tab (Media Buyer / Assigned dropdowns) — admins and media buyers with a name here are the Media Buyer options"
+                        onBlur={(e) => { if (e.target.value.trim() !== (u.team_name ?? "")) void handleTeamName(u.user_id, e.target.value.trim()); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                        className={cn("px-2 py-1 border rounded text-xs w-36 focus:outline-none focus:border-[#15B7AE]", u.team_name ? "bg-white border-[#d7e0ea] text-[#1f3559]" : "bg-[#fff7ec] border-[#fcd9a8] text-[#9a5b00]")}
+                      />
                     )}
                     {SALES_ROLES.includes(u.role) && (
                       <input

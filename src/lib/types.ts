@@ -29,6 +29,7 @@ export interface UserRoleRecord {
   email: string;
   created_at: string;
   sales_name?: string | null;
+  team_name?: string | null; // name on the Clients tab dropdowns (Media Buyer / Assigned)
 }
 
 // Raw DB row: { id, data: jsonb }
