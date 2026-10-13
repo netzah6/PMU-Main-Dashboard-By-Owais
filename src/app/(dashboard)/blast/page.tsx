@@ -1,8 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle, Trash2 } from "lucide-react";
+import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { templateProblem, autoFixTemplate } from "@/lib/blast-template";
 
 // Admin text-blast tab. Human-only by design: the AI tab can't reach this —
 // an admin picks the audience, sees the exact list, and presses the button.
@@ -13,6 +14,7 @@ type Recipient = { contactId: string; name: string; firstName: string; phone: st
 type Job = {
   id: string; client_label: string | null; status: string; total: number; sent: number; failed: number;
   send_at: string; created_at: string; stage_names: string[]; message_template: string;
+  error?: string | null; fail_reasons?: Array<{ reason: string; n: number }>;
 };
 
 export default function BlastPage() {
@@ -95,6 +97,10 @@ export default function BlastPage() {
       .replaceAll("{{service}}", serviceWord || "…");
   }, [template, senderName, serviceWord, preview]);
 
+  // Live check of the message — the same rule the API enforces, shown while
+  // typing so a broken tag never reaches the Send button.
+  const problem = useMemo(() => templateProblem(template), [template]);
+
   const schedule = useCallback(async () => {
     if (!client || !preview) return;
     setScheduling(true);
@@ -125,21 +131,33 @@ export default function BlastPage() {
   // Reschedule flow: pick date+time, then confirm — nothing sends until then.
   const [reschedId, setReschedId] = useState<string | null>(null);
   const [reschedAt, setReschedAt] = useState("");
-  const openResched = (id: string) => {
+  // The message is editable here so the team can fix a typo (a broken tag)
+  // and resend on their own — the Violet Zherka blast, 2026-10-12.
+  const [reschedTemplate, setReschedTemplate] = useState("");
+  const [reschedBusy, setReschedBusy] = useState(false);
+  const reschedProblem = useMemo(() => templateProblem(reschedTemplate), [reschedTemplate]);
+  const openResched = (j: Job) => {
     const d = new Date(Date.now() + 24 * 3600 * 1000); // default: tomorrow, same time
     d.setMinutes(0, 0, 0);
     const pad = (n: number) => String(n).padStart(2, "0");
     setReschedAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`);
-    setReschedId(id);
+    setReschedTemplate(j.message_template ?? "");
+    setReschedId(j.id);
   };
   const confirmResched = async () => {
-    if (!reschedId || !reschedAt) return;
-    const res = await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "retry", jobId: reschedId, sendAt: new Date(reschedAt).toISOString() }) });
-    const j = await res.json();
-    if (!res.ok) toast.error(j.error ?? "Reschedule failed");
-    else toast.success(`Rescheduled for ${new Date(reschedAt).toLocaleString()} — sends only to people who haven't received it`);
-    setReschedId(null);
-    loadJobs();
+    if (!reschedId || !reschedAt || reschedProblem || reschedBusy) return;
+    setReschedBusy(true);
+    try {
+      const res = await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry", jobId: reschedId, sendAt: new Date(reschedAt).toISOString(), template: reschedTemplate }) });
+      const j = await res.json();
+      if (!res.ok) { toast.error(j.error ?? "Reschedule failed"); return; }
+      toast.success(`Rescheduled for ${new Date(reschedAt).toLocaleString("en-US")} — ${j.requeued} people will get it${j.skipped ? ` (${j.skipped} skipped: already got it, DND or unsubscribed)` : ""}`);
+      setReschedId(null);
+      loadJobs();
+    } finally {
+      setReschedBusy(false);
+    }
   };
   const removeJob = async (id: string) => {
     if (!window.confirm("Remove this blast from the list? (Nothing is sent or unsent — it just deletes the record.)")) return;
@@ -231,6 +249,15 @@ export default function BlastPage() {
               <label className="block text-xs font-bold text-[#34568a] mb-1">Message</label>
               <textarea value={template} onChange={(e) => setTemplate(e.target.value)} rows={4}
                 className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 text-[#1f3559] resize-y" />
+              {problem && (
+                <div className="mt-1 flex flex-wrap items-center gap-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] px-2.5 py-1.5">
+                  <span className="text-[11px] font-semibold text-[#be123c]">⚠ {problem}</span>
+                  <button onClick={() => setTemplate(autoFixTemplate(template))}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#f5c2cf] text-[10px] font-bold text-[#be123c] hover:bg-[#fff5f7]">
+                    <Wrench size={10} /> Fix it
+                  </button>
+                </div>
+              )}
               <div className="flex items-center justify-between mt-1">
                 <p className="text-[10px] text-[#8595a8]">Placeholders: {"{{contact.first_name}}"} · {"{{user.first_name}}"} · {"{{service}}"}</p>
                 <button onClick={() => setTemplate(defaultTemplate)} className="text-[10px] font-semibold text-[#0e8f88] hover:underline">Reset to default</button>
@@ -308,7 +335,8 @@ export default function BlastPage() {
                     className="text-xs border border-[#d7e0ea] rounded-lg px-2 py-1 text-[#1f3559]" />
                 )}
               </div>
-              <button onClick={() => setConfirmOpen(true)} disabled={preview.recipients.length === 0 || (when === "later" && !sendAt)}
+              <button onClick={() => setConfirmOpen(true)} disabled={preview.recipients.length === 0 || (when === "later" && !sendAt) || !!problem}
+                title={problem ?? undefined}
                 className="px-4 py-2 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-sm font-bold flex items-center gap-1.5 disabled:opacity-50">
                 <Send size={14} /> {when === "now" ? `Send to ${preview.recipients.length} people…` : `Schedule for ${preview.recipients.length} people…`}
               </button>
@@ -354,8 +382,15 @@ export default function BlastPage() {
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-[#1f3559] truncate">{j.client_label ?? j.id}</p>
                   <p className="text-[10px] text-[#8595a8]">
-                    {(j.stage_names ?? []).join(", ")} · {new Date(j.send_at).toLocaleString()} · {j.sent}/{j.total} sent{j.failed > 0 ? ` · ${j.failed} failed` : ""}
+                    {(j.stage_names ?? []).join(", ")} · {new Date(j.send_at).toLocaleString("en-US")} · {j.sent}/{j.total} sent{j.failed > 0 ? ` · ${j.failed} failed` : ""}
                   </p>
+                  {/* Why it failed, in words — so the fix is obvious without asking. */}
+                  {(j.fail_reasons?.length || j.error) && (
+                    <p className="text-[10px] font-semibold text-[#be123c] mt-0.5">
+                      {j.error ? `Stopped: ${j.error}` : (j.fail_reasons ?? []).map((r) => `${r.n} ${r.reason}`).join(" · ")}
+                      {j.fail_reasons?.some((r) => r.reason === "broken tag in message") && " — fix the message below and resend"}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold",
@@ -370,22 +405,45 @@ export default function BlastPage() {
                     <button onClick={() => cancelJob(j.id)} title="Cancel" className="p-1 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={13} /></button>
                   )}
                   {(j.status === "failed" || j.status === "error" || j.status === "cancelled" || (j.status === "done" && j.failed > 0)) && (
-                    <button onClick={() => openResched(j.id)} title="Pick a date & time to send to everyone who hasn't received it"
-                      className="px-2 py-0.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc] text-[10px] font-semibold">Reschedule</button>
+                    <button onClick={() => openResched(j)} title="Check or fix the message, pick a date & time, and send to everyone who hasn't received it"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border border-[#a7e3df] text-[#0e8f88] hover:bg-[#f7fdfc] text-[10px] font-semibold">
+                      <Wrench size={10} /> Fix &amp; resend
+                    </button>
                   )}
                   {!["scheduled", "sending"].includes(j.status) && (
                     <button onClick={() => removeJob(j.id)} title="Remove from the list" className="p-1 rounded text-[#8595a8] hover:text-[#e11d48]"><Trash2 size={13} /></button>
                   )}
                 </div>
                 {reschedId === j.id && (
-                  <div className="w-full mt-2 flex items-center gap-2 rounded-lg border border-[#a7e3df] bg-[#f7fdfc] px-2 py-2">
-                    <span className="text-[10px] font-bold text-[#0e8f88]">Send on:</span>
-                    <input type="datetime-local" value={reschedAt} onChange={(e) => setReschedAt(e.target.value)}
-                      className="px-2 py-1 bg-white border border-[#a7e3df] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
-                    <button onClick={confirmResched} disabled={!reschedAt}
-                      className="px-2.5 py-1 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-[10px] font-bold disabled:opacity-50">Confirm</button>
-                    <button onClick={() => setReschedId(null)} className="px-2 py-1 rounded-lg text-[10px] font-semibold text-[#8595a8] hover:text-[#e11d48]">Cancel</button>
-                    <span className="text-[9px] text-[#8595a8]">only people who haven&apos;t received it will get the text</span>
+                  <div className="w-full mt-2 space-y-2 rounded-lg border border-[#a7e3df] bg-[#f7fdfc] px-3 py-2.5">
+                    <div>
+                      <p className="text-[10px] font-bold text-[#0e8f88] mb-1">Message</p>
+                      <textarea value={reschedTemplate} onChange={(e) => setReschedTemplate(e.target.value)} rows={4}
+                        className={cn("w-full text-xs border rounded-lg px-2.5 py-2 text-[#1f3559] bg-white resize-y focus:outline-none",
+                          reschedProblem ? "border-[#f5c2cf] focus:border-[#be123c]" : "border-[#a7e3df] focus:border-[#15B7AE]")} />
+                      {reschedProblem ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] px-2.5 py-1.5">
+                          <span className="text-[11px] font-semibold text-[#be123c]">⚠ {reschedProblem}</span>
+                          <button onClick={() => setReschedTemplate(autoFixTemplate(reschedTemplate))}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#f5c2cf] text-[10px] font-bold text-[#be123c] hover:bg-[#fff5f7]">
+                            <Wrench size={10} /> Fix it
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="mt-1 text-[10px] text-[#0e8f88]">✓ Message looks good</p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-bold text-[#0e8f88]">Send on:</span>
+                      <input type="datetime-local" value={reschedAt} onChange={(e) => setReschedAt(e.target.value)}
+                        className="px-2 py-1 bg-white border border-[#a7e3df] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
+                      <button onClick={confirmResched} disabled={!reschedAt || !!reschedProblem || reschedBusy}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-[10px] font-bold disabled:opacity-50">
+                        {reschedBusy ? <Loader2 size={10} className="animate-spin" /> : <Send size={10} />} Confirm
+                      </button>
+                      <button onClick={() => setReschedId(null)} className="px-2 py-1 rounded-lg text-[10px] font-semibold text-[#8595a8] hover:text-[#e11d48]">Cancel</button>
+                      <span className="text-[9px] text-[#8595a8]">goes only to people who haven&apos;t received it · DND and unsubscribed numbers are skipped</span>
+                    </div>
                   </div>
                 )}
               </div>
