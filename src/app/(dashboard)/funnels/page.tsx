@@ -558,7 +558,7 @@ function SplitOverviewTable({ rows, ab, showTotals, footnote }: {
    exists on the deposit step. */
 function DeprowTestCard() {
   type Side = { leads: number; picked: number; paid: number };
-  const [d, setD] = useState<{ since: string; a: Side; b: Side } | null>(null);
+  const [d, setD] = useState<{ since: string; until?: string; ended?: boolean; winner?: "a" | "b"; a: Side; b: Side } | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     fetch("/api/onebox/deprow").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
@@ -567,7 +567,9 @@ function DeprowTestCard() {
   const pct = (s: Side) => (s.picked > 0 ? Math.round((s.paid / s.picked) * 1000) / 10 : null);
   const enough = d.a.picked >= 40 && d.b.picked >= 40;
   const pa = pct(d.a), pb = pct(d.b);
-  const leader = enough && pa !== null && pb !== null && pa !== pb ? (pa > pb ? "a" : "b") : null;
+  /* Ended tests show the locked side, not a live leader — the owner reads
+     winners on deposits, and this one closed as a tie with B kept. */
+  const leader = d.ended ? (d.winner ?? null) : enough && pa !== null && pb !== null && pa !== pb ? (pa > pb ? "a" : "b") : null;
   const SIDES: { k: "a" | "b"; name: string; text: string }[] = [
     { k: "a", name: "A — original", text: "\u2714 Refunded in full or applied to your service — you\u2019re 100% covered" },
     { k: "b", name: "B — secure green", text: "\ud83d\udd12 Secure checkout \u00b7 100% refundable \u00b7 \uf8ff Pay & Cash App accepted — tap \u201cMore\u201d (green box; mobile only, desktop keeps the original words)" },
@@ -576,9 +578,12 @@ function DeprowTestCard() {
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
         <span className="text-sm font-medium text-[#1c2b3a]">🧪 Deposit-line test — all funnels, 50/50</span>
-        <span className="text-xs text-[#697a91]">since {new Date(d.since).toLocaleDateString()}</span>
+        <span className="text-xs text-[#697a91]">
+          {d.ended ? "ENDED · " : "since "}{new Date(d.since).toLocaleDateString()}{d.until && ` – ${new Date(d.until).toLocaleDateString()}`}
+        </span>
         <span className={cn("ml-auto text-xs font-semibold", leader ? "text-[#15803d]" : "text-[#697a91]")}>
-          {leader ? `${leader.toUpperCase()} is ahead — ${leader === "a" ? pa : pb}% vs ${leader === "a" ? pb : pa}% pay-through`
+          {d.ended ? `Tie on deposits (A ${d.a.paid} · B ${d.b.paid}) — ${String(d.winner ?? "b").toUpperCase()} locked on every V2.3/V3 funnel`
+            : leader ? `${leader.toUpperCase()} is ahead — ${leader === "a" ? pa : pb}% vs ${leader === "a" ? pb : pa}% pay-through`
             : `A ${d.a.paid}/${d.a.picked} paid \u00b7 B ${d.b.paid}/${d.b.picked} paid \u00b7 too early to call`}
         </span>
         <span className="text-[#697a91] text-xs">{open ? "▲" : "▼"}</span>
@@ -605,7 +610,9 @@ function DeprowTestCard() {
             </tbody>
           </table>
           <p className="mt-1.5 text-[11px] text-[#8595a8]">
-            Every visitor is stuck to one side (per browser), on every funnel at once. Pay-through = of the people who picked a time, how many paid — the line only appears on the deposit step, so that&rsquo;s the number it can move. Wait for at least ~40 picks per side before trusting a winner.
+            {d.ended
+              ? "Final numbers, frozen at the lock. Judged on deposits: 134 vs 128 over ~27k visitors a side is a tie — proving a 5% edge would take ~50× the traffic — so B (secure green) was kept as the default on every V2.3/V3 funnel (engine v94)."
+              : "Every visitor is stuck to one side (per browser), on every funnel at once. Pay-through = of the people who picked a time, how many paid — the line only appears on the deposit step, so that’s the number it can move. Wait for at least ~40 picks per side before trusting a winner."}
           </p>
         </div>
       )}
