@@ -56,6 +56,7 @@ export default function AskPage() {
   const [locationId, setLocationId] = useState<string>("");
   const [pending, setPending] = useState<Conv | null>(null); // chat awaiting a draft
   const [note, setNote] = useState("");                       // optional steer for the AI
+  const [composeMode, setComposeMode] = useState<"ai" | "send">("ai"); // which text the one compose box shows
   // "📞 Invite to a strategy call" — OFF by default, per chat. The AI never
   // adds a call invite or link on its own (owner, 2026-10-01).
   const [inviteCall, setInviteCall] = useState(false);
@@ -297,6 +298,7 @@ export default function AskPage() {
     setNote("");
     setInviteCall(false);
     setSendText("");
+    setComposeMode("ai");
     setPending(c);
   }, []);
 
@@ -792,66 +794,75 @@ export default function AskPage() {
             )}
           </div>
 
-          {/* Note box — explicitly labelled so it's clear the AI reads it */}
-          <div className="rounded-lg border border-[#ffd8a8] bg-[#fffaf2] p-2">
-            <label htmlFor="ai-note" className="flex items-center gap-1.5 text-[11px] font-bold text-[#c2620a] mb-1">
-              📝 Note for the AI
-            </label>
+          {/* One compose box, two modes (owner, 2026-10-13: the two stacked
+              boxes pushed the chat off the screen on a phone). "Note for the AI"
+              steers a draft; "Send yourself" goes straight into the GHL chat.
+              Each mode keeps its own text, so switching never loses anything. */}
+          <div className={cn("rounded-lg border p-2", composeMode === "ai" ? "border-[#ffd8a8] bg-[#fffaf2]" : "border-[#c9dbfb] bg-[#f7faff]")}>
+            <div className="flex items-center gap-1 mb-1.5" role="tablist">
+              <button type="button" role="tab" aria-selected={composeMode === "ai"} onClick={() => setComposeMode("ai")}
+                className={cn("px-2 py-0.5 rounded-md text-[11px] font-bold", composeMode === "ai" ? "bg-[#c2620a] text-white" : "text-[#c2620a] hover:bg-[#ffefd6]")}>
+                📝 Note for the AI
+              </button>
+              <button type="button" role="tab" aria-selected={composeMode === "send"} onClick={() => setComposeMode("send")}
+                className={cn("px-2 py-0.5 rounded-md text-[11px] font-bold", composeMode === "send" ? "bg-[#4f46e5] text-white" : "text-[#34568a] hover:bg-[#e8eefb]")}>
+                ✍️ Send a message yourself
+              </button>
+              {composeMode === "ai" && note.trim() === "" && sendText.trim() !== "" && <span className="text-[10px] text-[#8595a8] ml-auto">unsent text kept in ✍️</span>}
+              {composeMode === "send" && sendText.trim() === "" && note.trim() !== "" && <span className="text-[10px] text-[#8595a8] ml-auto">note kept in 📝</span>}
+            </div>
             <textarea
-              id="ai-note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); generateDraft(pending, note, inviteCall); } }}
+              key={composeMode}
+              id="compose"
+              value={composeMode === "ai" ? note : sendText}
+              onChange={(e) => (composeMode === "ai" ? setNote : setSendText)(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  if (composeMode === "ai") generateDraft(pending, note, inviteCall); else sendManual();
+                }
+              }}
               rows={2}
               autoFocus
-              placeholder="e.g. 'let her know Tue 2pm is open' or 'gently ask for the $50 deposit'. Leave blank for a standard draft."
-              className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#f0d9ae] rounded-lg focus:outline-none focus:border-[#f0a742] resize-none"
+              placeholder={composeMode === "ai"
+                ? "e.g. 'let her know Tue 2pm is open' or 'gently ask for the $50 deposit'. Leave blank for a standard draft."
+                : `Type the exact message to send to ${pending.contactName}…`}
+              className={cn("w-full px-3 py-2 text-sm text-[#1f3559] bg-white border rounded-lg focus:outline-none resize-none",
+                composeMode === "ai" ? "border-[#f0d9ae] focus:border-[#f0a742]" : "border-[#c9dbfb] focus:border-[#4f46e5]")}
             />
-          </div>
 
-          <div className="flex items-center gap-2 mt-2">
-            <button onClick={() => generateDraft(pending, note, inviteCall)} disabled={busy}
-              className="px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
-              {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Generate draft
-            </button>
-            {/* Off by default: the AI never invites to a call by itself. */}
-            <label className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer select-none",
-              inviteCall ? "border-[#15B7AE] bg-[#e6f7f5] text-[#0e8f88]" : "border-[#e4ebf2] bg-white text-[#697a91]")}>
-              <input type="checkbox" checked={inviteCall} onChange={(e) => setInviteCall(e.target.checked)} className="accent-[#15B7AE]" />
-              📞 Invite to a strategy call
-            </label>
-            <span className="text-[10px] text-[#8595a8] hidden sm:inline">⌘/Ctrl+Enter to generate</span>
-          </div>
-
-          {/* Manual send — goes straight into the GHL chat, only when YOU click Send */}
-          <div className="mt-2.5 rounded-lg border border-[#c9dbfb] bg-[#f7faff] p-2">
-            <label htmlFor="manual-send" className="flex items-center gap-1.5 text-[11px] font-bold text-[#34568a] mb-1">
-              ✍️ Send a message yourself
-            </label>
-            <textarea
-              id="manual-send"
-              value={sendText}
-              onChange={(e) => setSendText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendManual(); } }}
-              rows={2}
-              placeholder={`Type the exact message to send to ${pending.contactName}…`}
-              className="w-full px-3 py-2 text-sm text-[#1f3559] bg-white border border-[#c9dbfb] rounded-lg focus:outline-none focus:border-[#4f46e5] resize-none"
-            />
-            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <button onClick={sendManual} disabled={sending || composerSchedBusy || !sendText.trim() || !pending.contactId}
-                className="px-3 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
-                {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Send to {pending.contactName}
-              </button>
-              {pending.contactId && pending.channel !== "Email" && pending.channel !== "Call" && (
-                <ScheduleControl contactId={pending.contactId} contactName={pending.contactName} channel={pending.channel}
-                  text={sendText} disabled={!sendText.trim() || sending}
-                  onScheduled={() => { setSendText(""); setSchedTick((t) => t + 1); }} onBusyChange={setComposerSchedBusy} />
-              )}
-              <span className="text-[10px] text-[#8595a8]">{pending.contactId ? "⌘/Ctrl+Enter to send" : "no contact id — open the chat in GHL"}</span>
-              {/* Keyed by chat: switching chats throws away a half-made recording. */}
-              <VoiceNoteButton key={pending.id} contactId={pending.contactId ?? null} contactName={pending.contactName} channel={pending.channel}
-                onSent={() => { reloadThread(); loadConvs(); }} />
-            </div>
+            {composeMode === "ai" ? (
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <button onClick={() => generateDraft(pending, note, inviteCall)} disabled={busy}
+                  className="px-3 py-1.5 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+                  {busy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Generate draft
+                </button>
+                {/* Off by default: the AI never invites to a call by itself. */}
+                <label className={cn("flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer select-none",
+                  inviteCall ? "border-[#15B7AE] bg-[#e6f7f5] text-[#0e8f88]" : "border-[#e4ebf2] bg-white text-[#697a91]")}>
+                  <input type="checkbox" checked={inviteCall} onChange={(e) => setInviteCall(e.target.checked)} className="accent-[#15B7AE]" />
+                  📞 Invite to a strategy call
+                </label>
+                <span className="text-[10px] text-[#8595a8] hidden sm:inline">⌘/Ctrl+Enter to generate</span>
+              </div>
+            ) : (
+              /* Manual send — goes straight into the GHL chat, only when YOU click Send */
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <button onClick={sendManual} disabled={sending || composerSchedBusy || !sendText.trim() || !pending.contactId}
+                  className="px-3 py-1.5 rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+                  {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Send to {pending.contactName}
+                </button>
+                {pending.contactId && pending.channel !== "Email" && pending.channel !== "Call" && (
+                  <ScheduleControl contactId={pending.contactId} contactName={pending.contactName} channel={pending.channel}
+                    text={sendText} disabled={!sendText.trim() || sending}
+                    onScheduled={() => { setSendText(""); setSchedTick((t) => t + 1); }} onBusyChange={setComposerSchedBusy} />
+                )}
+                <span className="text-[10px] text-[#8595a8]">{pending.contactId ? "⌘/Ctrl+Enter to send" : "no contact id — open the chat in GHL"}</span>
+                {/* Keyed by chat: switching chats throws away a half-made recording. */}
+                <VoiceNoteButton key={pending.id} contactId={pending.contactId ?? null} contactName={pending.contactName} channel={pending.channel}
+                  onSent={() => { reloadThread(); loadConvs(); }} />
+              </div>
+            )}
             {pending.contactId && <ScheduledList contactId={pending.contactId} refreshKey={schedTick} />}
           </div>
         </div>
