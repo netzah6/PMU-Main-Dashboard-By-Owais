@@ -53,6 +53,13 @@ function CopyName({ name }: { name: string }) {
   );
 }
 
+/* Tooltip on the dots: every follow-up the call log shows, newest last. */
+function fuTitle(t: Todo): string {
+  if (t.fuSource !== "ghl") return t.lastFollowUp ? `From the sheet — last follow-up: ${t.lastFollowUp}` : "Not synced from GHL yet (sheet shows none) — press Refresh follow-ups";
+  if (!t.fuEvents?.length) return "GHL call log: no follow-up yet (a call over 30 s, or 2 call attempts + a text)";
+  return "GHL call log:\n" + t.fuEvents.map((e) => `${new Date(e.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} — ${e.detail}`).join("\n");
+}
+
 function TodoList({ todos, who, kinds, win }: { todos: Todo[]; who: string; kinds: Todo["kind"][]; win: Win }) {
   const [kind, setKind] = useState<Todo["kind"] | "all">("all");
   const mine = todos.filter((t) => (who === "ALL" || t.who === who) && kinds.includes(t.kind) && (t.kind === "upcoming" || t.ageDays <= win));
@@ -97,9 +104,10 @@ function TodoList({ todos, who, kinds, win }: { todos: Todo[]; who: string; kind
               })()}
               {t.kind === "closed" && <span className="font-bold text-[#15803d]">{t.amount ? `$${t.amount.toLocaleString()}` : "no upfront logged"}</span>}
               {t.kind !== "upcoming" && t.kind !== "no_status" && t.kind !== "closed" && (t.kind !== "booked" || t.demo?.outcome === "no_show") && (
-                <span className="inline-flex items-center gap-0.5 ml-1" title={t.lastFollowUp ? `Last follow-up: ${t.lastFollowUp}` : "No follow-up logged yet"}>
+                <span className="inline-flex items-center gap-0.5 ml-1" title={fuTitle(t)}>
                   {[0, 1, 2].map((n) => <span key={n} className={cn("w-2.5 h-2.5 rounded-full border", n < t.followUps ? "bg-[#15B7AE] border-[#15B7AE]" : "bg-white border-[#c3cdd9]")} />)}
-                  <span className="ml-1 text-[10px] text-[#697a91]">{t.followUps}/3 follow-ups</span>
+                  <span className="ml-1 text-[10px] text-[#697a91]">{t.followUps > 3 ? `${t.followUps} follow-ups` : `${t.followUps}/3 follow-ups`}{t.fuSource === "sheet" ? " (sheet)" : ""}</span>
+                  {t.fuSource === "ghl" && t.lastFollowUp && <span className="ml-1 text-[10px] text-[#8595a8]">· last {t.lastFollowUp}</span>}
                 </span>
               )}
               {t.urgent && <span className="text-[10px] font-bold text-[#be123c]">← {t.followUps === 0 && t.kind !== "no_status" ? "no follow-up yet" : t.kind === "no_status" ? "update the sheet" : "next follow-up due"}</span>}
@@ -186,10 +194,23 @@ export function SalesBoardView() {
   const [seat, setSeat] = useState<"setter" | "closer" | "team">("setter");
   const [win, setWin] = useState<Win>(30);
   const [who, setWho] = useState<string>("ALL");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const load = async () => {
     setLoading(true); setErr(null);
     try { const r = await fetch("/api/sales/board", { headers: viewAsHeaders() }); const j = await r.json(); if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`); setB(j); }
     catch (e) { setErr(e instanceof Error ? e.message : "failed"); } finally { setLoading(false); }
+  };
+  // Re-read the GHL call/text log for every lead on the lists, then reload.
+  const refreshFollowUps = async () => {
+    setSyncing(true); setSyncMsg(null);
+    try {
+      const r = await fetch("/api/sales/followups", { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      setSyncMsg(`${j.updated} leads re-checked${j.partial ? " (ran out of time — press again for the rest)" : ""}`);
+      await load();
+    } catch (e) { setSyncMsg(e instanceof Error ? e.message : "failed"); } finally { setSyncing(false); }
   };
   // Reload when an admin switches "View as" (or the previewed closer).
   useEffect(() => { load(); window.addEventListener(VIEW_AS_EVENT, load); return () => window.removeEventListener(VIEW_AS_EVENT, load); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -225,9 +246,17 @@ export function SalesBoardView() {
             {[...(scope && people.length <= 1 ? [] : ["ALL"]), ...people].map((n) => <button key={n} onClick={() => setWho(n)} title={n === FORMER ? "Leads whose sheet row still names a rep who left — see the note below" : undefined} className={cn("px-2.5 py-1 rounded-lg text-xs font-semibold border", who === n ? "bg-[#1f3559] text-white border-[#1f3559]" : n === FORMER ? "bg-white text-[#8595a8] border-dashed border-[#c3cdd9]" : "bg-white text-[#34568a] border-[#d7e0ea] hover:bg-[#f6f9fc]")}>{n === "ALL" ? "Everyone" : n === FORMER ? "⚠ Former reps" : n}</button>)}
           </div>
         )}
-        <button onClick={load} disabled={loading} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#d7e0ea] bg-white text-[#34568a] hover:bg-[#f6f9fc] disabled:opacity-60" title="The sheets sync every 15 minutes; this re-reads what's synced">
+        <button onClick={refreshFollowUps} disabled={syncing || loading} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#9fe0dc] bg-[#e9f9f8] text-[#0e8f88] hover:bg-[#d8f3f1] disabled:opacity-60" title="Re-read the GHL call/text log for every lead on the lists (also runs every hour)">
+          {syncing ? <Loader2 size={11} className="animate-spin" /> : <span>📞</span>} {syncing ? "Reading the call log…" : "Refresh follow-ups"}
+        </button>
+        <button onClick={load} disabled={loading} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#d7e0ea] bg-white text-[#34568a] hover:bg-[#f6f9fc] disabled:opacity-60" title="The sheets sync every 15 minutes; this re-reads what's synced">
           <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> Reload
         </button>
+      </div>
+      <div className="text-[11px] text-[#697a91]">
+        Follow-ups come from the GHL call log: <b>a call over 30 seconds</b>, or <b>2 call attempts + a text</b> = 1 follow-up.
+        {b.followUpsSyncedAt ? ` Last read ${new Date(b.followUpsSyncedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : " Not read yet — press Refresh follow-ups."}
+        {syncMsg && <span className="ml-1 font-semibold text-[#0e8f88]">{syncMsg}</span>}
       </div>
       {seat !== "team" && (() => {
         const former = seat === "setter" ? b.formerSetters : b.formerClosers;

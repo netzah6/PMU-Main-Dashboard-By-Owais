@@ -163,8 +163,14 @@ export type Todo = {
      from the demos sheet — so the setter sees a no-show and chases it. */
   demo?: { when: string | null; outcome: "showed" | "no_show" | "cancelled" | "upcoming" | "pending" | "missing" };
   when: string | null; ageDays: number; followUps: number; lastFollowUp: string; notes: string; status: string;
+  /* Where the follow-up count comes from: "ghl" = the agency account's
+     call/text log (sales_followups, the real record), "sheet" = the
+     hand-typed "Follow up 1/2/3" columns (only until the first GHL sync). */
+  fuSource: "ghl" | "sheet";
+  fuEvents?: FuEvent[];
   urgent: boolean; // nothing logged yet, or stale
 };
+export type FuEvent = { at: string; kind: "call" | "attempts_text"; detail: string };
 
 function fuIndex(rows: FollowUp[]): Map<string, FollowUp> {
   const m = new Map<string, FollowUp>();
@@ -176,9 +182,34 @@ function todo(kind: Todo["kind"], name: string, who: string, when: Date | null, 
   const ageDays = when ? Math.floor((now - when.getTime()) / DAY) : 0;
   return {
     name, who, sheetWho, kind, when: when ? when.toISOString() : null, ageDays, status,
-    followUps: fus.length, lastFollowUp: fus[fus.length - 1] ?? "", notes: notes || fu?.notes || "",
+    followUps: fus.length, lastFollowUp: fus[fus.length - 1] ?? "", notes: notes || fu?.notes || "", fuSource: "sheet",
     urgent: kind === "upcoming" || kind === "closed" || kind === "booked" ? false : fus.length === 0 || (fus.length < 3 && ageDays >= 2),
   };
+}
+
+type GhlFuRow = { name_key: string; follow_ups: number; events: FuEvent[] | null; last_at: string | null; synced_at: string };
+
+/* Overlay the real follow-up count (GHL call/text log, see
+   lib/sales-followups) on the to-dos that are the rep's to chase. The sheet
+   count stays only for leads the sync hasn't reached yet. Returns the
+   newest sync time among the leads it touched. */
+function applyGhlFollowUps(todos: Todo[], rows: GhlFuRow[]): string | null {
+  const byKey = new Map(rows.map((r) => [r.name_key, r]));
+  let newest: string | null = null;
+  for (const t of todos) {
+    const chase = t.kind === "booked" ? t.demo?.outcome === "no_show" : ["no_show", "cancelled", "didnt_book", "demo_no_show", "didnt_close"].includes(t.kind);
+    if (!chase) continue;
+    const r = byKey.get(norm(t.name));
+    if (!r) continue;
+    const events = Array.isArray(r.events) ? r.events : [];
+    t.followUps = r.follow_ups; t.fuSource = "ghl"; t.fuEvents = events;
+    const last = events[events.length - 1];
+    t.lastFollowUp = last ? `${new Date(last.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${last.detail}` : "";
+    const age = t.kind === "booked" && t.demo?.when ? Math.floor((Date.now() - Date.parse(t.demo.when)) / DAY) : t.ageDays;
+    t.urgent = t.followUps === 0 ? age >= (t.kind === "didnt_close" ? 1 : 0) : t.followUps < 3 && age >= 2;
+    if (!newest || r.synced_at > newest) newest = r.synced_at;
+  }
+  return newest;
 }
 
 export type SalesBoard = {
@@ -190,6 +221,8 @@ export type SalesBoard = {
   setterStats: Record<string, Record<Win, SetterStats>>;
   closerStats: Record<string, Record<Win, CloserStats>>;
   setterTodos: Todo[]; closerTodos: Todo[];
+  /* Newest GHL follow-up sync among the leads shown (null = never synced). */
+  followUpsSyncedAt: string | null;
 };
 
 /* Won demos (for the closer payment tracker): every Closed row with a
@@ -205,9 +238,11 @@ export async function loadClosedDeals(svc: Svc): Promise<Demo[]> {
 }
 
 export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
-  const [dRows, mRows, fuNoShow, fuCancelled, fuDidntBook, fuDemoNoShow] = await Promise.all([
+  const [dRows, mRows, fuNoShow, fuCancelled, fuDidntBook, fuDemoNoShow, fuDidntClose, ghlFu] = await Promise.all([
     loadAll(svc, "sales_discoveries"), loadAll(svc, "sales_demos"),
     loadAll(svc, "sales_fu_disc_noshow"), loadAll(svc, "sales_fu_disc_cancelled"), loadAll(svc, "sales_fu_didnt_book"), loadAll(svc, "sales_fu_demo_noshow"),
+    loadAll(svc, "sales_fu_demo_didnt_close"),
+    svc.from("sales_followups").select("name_key, follow_ups, events, last_at, synced_at").then((r) => (r.data ?? []) as GhlFuRow[]),
   ]);
   const now = Date.now();
   const discs = dRows.map(discovery).filter((d) => d.name && !/test/i.test(d.name));
@@ -253,7 +288,7 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
   // Lists cover the longest window (90 d); the page narrows them to the
   // selected 14/30/60/90 by each item's own date (ageDays).
   const fuNS = fuIndex(fuNoShow.map(followUp)), fuCA = fuIndex(fuCancelled.map(followUp)), fuDB = fuIndex(fuDidntBook.map(followUp));
-  const fuDN = fuIndex(fuDemoNoShow.map(followUp));
+  const fuDN = fuIndex(fuDemoNoShow.map(followUp)), fuDC = fuIndex(fuDidntClose.map(followUp));
   const setterTodos: Todo[] = [];
   for (const d of discs) {
     if (!inWin(d.signUp, 90)) continue;
@@ -288,12 +323,13 @@ export async function buildSalesBoard(svc: Svc): Promise<SalesBoard> {
     if (isWon(d)) { const t = todo("closed", d.name, closerOf(d), d.closeDate ?? d.demoAt ?? d.date, d.status, undefined, now, "", d.closer); t.amount = d.upfront; closerTodos.push(t); }
     else if (isClosed(d.status)) { const t = todo("no_status", d.name, closerOf(d), d.demoAt, "", undefined, now, `sheet says Closed on ${d.closeDate!.toLocaleDateString()} — that's the old sale, update the row`, d.closer); t.urgent = true; closerTodos.push(t); }
     else if (isNoShow(d.status)) closerTodos.push(todo("demo_no_show", d.name, closerOf(d), d.demoAt ?? d.date, d.status, fuDN.get(k), now, "", d.closer));
-    else if (isDidntClose(d.status)) { const t = todo("didnt_close", d.name, closerOf(d), d.demoAt ?? d.date, d.status, undefined, now, "", d.closer); t.urgent = t.ageDays >= 1; closerTodos.push(t); }
+    else if (isDidntClose(d.status)) { const t = todo("didnt_close", d.name, closerOf(d), d.demoAt ?? d.date, d.status, fuDC.get(k), now, "", d.closer); t.urgent = t.followUps === 0 ? t.ageDays >= 1 : t.followUps < 3 && t.ageDays >= 2; closerTodos.push(t); }
     else if (!d.status && d.demoAt && d.demoAt.getTime() > now - 2 * 3600_000 && d.demoAt.getTime() < now + 7 * DAY) closerTodos.push(todo("upcoming", d.name, closerOf(d), d.demoAt, "", undefined, now, "", d.closer));
     else if (!d.status && d.demoAt && d.demoAt.getTime() <= now - 2 * 3600_000) { const t = todo("no_status", d.name, closerOf(d), d.demoAt, "", undefined, now, "", d.closer); t.urgent = true; closerTodos.push(t); }
   }
+  const followUpsSyncedAt = applyGhlFollowUps([...setterTodos, ...closerTodos], ghlFu);
   const byUrgency = (a: Todo, b: Todo) => Number(b.urgent) - Number(a.urgent) || (b.when ?? "").localeCompare(a.when ?? "");
   setterTodos.sort(byUrgency); closerTodos.sort(byUrgency);
 
-  return { generatedAt: new Date().toISOString(), setters: seatSetters, closers: seatClosers, formerSetters, formerClosers, setterStats: setterStatsOut, closerStats: closerStatsOut, setterTodos, closerTodos };
+  return { generatedAt: new Date().toISOString(), setters: seatSetters, closers: seatClosers, formerSetters, formerClosers, setterStats: setterStatsOut, closerStats: closerStatsOut, setterTodos, closerTodos, followUpsSyncedAt };
 }
