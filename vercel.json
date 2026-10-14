@@ -87,6 +87,10 @@
     {
       "path": "/api/cron/video-autobook",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sales-followups",
+      "schedule": "20 * * * *"
     }
   ],
   "headers": [
