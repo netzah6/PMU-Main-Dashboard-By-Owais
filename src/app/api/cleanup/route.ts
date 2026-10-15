@@ -5,6 +5,7 @@ import {
   searchLocations, inspectLocation, cleanLocation, renameToPool, isProtectedLocation, syncPool, setPoolA2p,
   refreshPoolCleanliness,
 } from "@/lib/ghl-cleanup";
+import { clearSnapshotMark, queueSnapshotLoad } from "@/lib/pool-snapshot";
 import { readSheetValues, writeRowToSheet, rowsToObjects } from "@/lib/sheets";
 
 export const maxDuration = 300;
@@ -15,7 +16,11 @@ export const maxDuration = 300;
 //   GET  ?history=1     → past cleanups
 //   POST {action:"clean", locationId, confirmName}    → wipe via API
 //   POST {action:"finalize", locationId}              → rename into pool +
-//        flip the client's Clients Master status "Paused" → "Offboarded"
+//        flip the client's Clients Master status "Paused" → "Offboarded" +
+//        queue the Mac Mini to load the Demo snapshot back (the account is
+//        offered for a setup only once that task is done)
+//   POST {action:"snapshotLoad", locationId}          → queue that task again
+//        for a pool account (failed load, or one pooled before 10/15/2026)
 
 const norm = (s: string) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -135,7 +140,21 @@ export async function POST(req: NextRequest) {
         cleaned_at: new Date().toISOString(),
         cleaned_by: auth.email,
       });
+      // The wipe just removed whatever snapshot the account had (a re-cleaned
+      // pool account) — it must be loaded again before a setup may take it.
+      if (inspect.isPool) await clearSnapshotMark(svc, locationId).catch(() => {});
       return NextResponse.json({ steps, workflowsLeft: inspect.counts.workflows });
+    }
+
+    // Queue (again) the Mac Mini task that loads the Demo snapshot onto a
+    // pool account: after a failed load, or for accounts pooled before this
+    // existed (Clean New Account 71–97 sat empty since 09/29–09/30).
+    if (body.action === "snapshotLoad") {
+      const { data: row } = await svc.from("pool_accounts").select("pool_name, status").eq("location_id", locationId).maybeSingle();
+      const pool = row as { pool_name: string; status: string } | null;
+      if (!pool || pool.status !== "available") return NextResponse.json({ error: "Only an unclaimed pool account can have the snapshot loaded." }, { status: 400 });
+      const q = await queueSnapshotLoad(svc, { locationId, poolName: pool.pool_name, by: auth.email ?? "admin", reason: "has no Demo snapshot on it" });
+      return NextResponse.json({ taskId: q.taskId, reused: q.reused, note: q.reused ? "already queued for the Mac Mini" : "queued for the Mac Mini" });
     }
 
     if (body.action === "finalize") {
@@ -172,7 +191,7 @@ export async function POST(req: NextRequest) {
       const { oldName, poolName } = await renameToPool(locationId);
       await syncPool().catch(() => {}); // record the new pool account right away
 
-      // A cleaned client account joins the pool READY. Every client we clean
+      // A cleaned client account's A2P carries over. Every client we clean
       // was already A2P-verified in GHL (they registered it and the number
       // stays with the sub-account — a 25-account sweep on 2026-09-30 found
       // all "A2P Verified"), and the inspect above just proved it empty. So
@@ -182,18 +201,35 @@ export async function POST(req: NextRequest) {
       // one the clean step logged): an original pool account (#4–50) or a
       // claimed-then-abandoned setup never went through A2P and keeps its own
       // flag. Runs before the sheet step so a Sheets error can't strand it.
-      let ready = false;
-      let readyNote = "not a client account — A2P left as is";
+      const notes: string[] = [];
       if (client || priorClient) {
         try {
           await setPoolA2p(locationId, "approved", auth.email);
-          const rows = await refreshPoolCleanliness([locationId]);
-          ready = rows.some((r) => r.location_id === locationId && r.a2p === "approved" && (r.dirty ?? 1) === 0 && (r.workflows ?? 1) === 0);
-          readyNote = ready ? "A2P approved, verified empty" : "auto-ready did not stick — tick A2P by hand";
+          await refreshPoolCleanliness([locationId]);
+          notes.push("A2P approved, verified empty");
         } catch (e) {
-          readyNote = `auto-ready failed (${e instanceof Error ? e.message : "error"}) — tick A2P by hand`;
+          notes.push(`auto-A2P failed (${e instanceof Error ? e.message : "error"}) — tick A2P by hand`);
         }
+      } else {
+        notes.push("not a client account — A2P left as is");
       }
+
+      // The wipe took the custom values, fields and calendars with it, and
+      // the API cannot load a snapshot onto an existing location — so the
+      // account is NOT ready yet. One Mac Mini task loads the Demo snapshot
+      // back; the pool offers the account only once that task is done
+      // (Sally Nails And Spa on Clean New Account 78, 10/15/2026: every
+      // custom value "missing" because this step did not exist).
+      let snapshotTaskId: string | null = null;
+      try {
+        const q = await queueSnapshotLoad(svc, { locationId, poolName, by: auth.email ?? "admin" });
+        snapshotTaskId = q.taskId;
+        notes.push(q.reused ? "snapshot load already queued for the Mac Mini" : "snapshot load queued for the Mac Mini — ready to use once it's done");
+      } catch (e) {
+        notes.push(`✗ snapshot task not queued (${e instanceof Error ? e.message : "error"}) — press "Load snapshot" on the pool chip`);
+      }
+      const ready = false; // never at finalize: the snapshot comes first
+      const readyNote = notes.join(" · ");
 
       // Sheet status: Paused → Offboarded, written ONLY to the status cell and
       // only when the live sheet still says "Paused" (verified right now, not
@@ -224,7 +260,7 @@ export async function POST(req: NextRequest) {
         cleaned_by: auth.email,
       }, { onConflict: "location_id" }); // steps column not in payload → prior clean results are kept
 
-      return NextResponse.json({ oldName, poolName, sheetChange, ready, readyNote });
+      return NextResponse.json({ oldName, poolName, sheetChange, ready, readyNote, snapshotTaskId });
     }
 
     return NextResponse.json({ error: "unknown action" }, { status: 400 });

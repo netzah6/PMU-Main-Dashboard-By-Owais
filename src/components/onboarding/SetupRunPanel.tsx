@@ -141,7 +141,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                 </select>
                 {pick && (
                   <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-full", pick.readiness === "ready" ? "bg-[#e4f5e9] text-[#1b7f3a]" : "bg-[#fff1df] text-[#b35a00]")}>
-                    {pick.readiness === "ready" ? "empty + A2P approved" : pick.blocker ?? pick.readiness}
+                    {pick.readiness === "ready" ? "snapshot loaded + A2P approved" : pick.blocker ?? pick.readiness}
                   </span>
                 )}
               </div>

@@ -3,10 +3,12 @@ import { useEffect, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, Search, Trash2, Sparkles, AlertTriangle, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { poolReadiness, poolBlocker, READINESS_LABEL, type PoolReadiness } from "@/lib/pool-readiness";
 
 // Cleanup — wipe an offboarded client's sub-account, rename it into the
-// "Clean New Account N" pool (keeps its A2P approval for reuse) and flip the
-// client's status in Clients Master from Paused → Offboarded. Admin only.
+// "Clean New Account N" pool (keeps its A2P approval for reuse), flip the
+// client's status in Clients Master from Paused → Offboarded, and queue the
+// Mac Mini to load the Demo snapshot back onto it. Admin only.
 
 type Candidate = { id: string; name: string };
 type Counts = { contacts: number; customValues: number; customFields: number; calendars: number; users: number; workflows: number; conversations: number; pipelines: number; funnels: number };
@@ -20,24 +22,26 @@ type PoolRow = {
   a2p_updated_at: string | null;
   workflows: number | null; dirty: number | null;
   clean_checked_at: string | null; clean_note: string | null;
+  // Snapshot reload (10/15/2026): the wipe empties the account, the Mac Mini
+  // loads the Demo snapshot back, and only then is it ready for a setup.
+  snapshot_task_id: string | null; snapshot_queued_at: string | null;
+  snapshot_loaded_at: string | null; snapshot_note: string | null;
 };
 
-type Readiness = "ready" | "partial" | "dirty" | "unknown";
+type Readiness = PoolReadiness;
 
-// Green only when the account is genuinely empty AND A2P-approved, because the
-// chip is what the team acts on — anything less has to look different.
-function readinessOf(p: PoolRow): Readiness {
-  if (p.clean_checked_at == null || p.workflows == null || p.dirty == null) return "unknown";
-  if (p.dirty > 0) return "dirty";
-  if (p.workflows > 0) return "partial";
-  return p.a2p === "approved" ? "ready" : "partial";
-}
+// Green only when the snapshot is loaded, no client data is left AND A2P is
+// approved, because the chip is what the team acts on — anything less has to
+// look different. The rule itself lives in lib/pool-readiness (shared with
+// the server, so the Onboarding panel and this tab can never disagree).
+const readinessOf = (p: PoolRow): Readiness => poolReadiness(p);
 
 const READINESS: Record<Readiness, { label: string; chip: string; text: string }> = {
-  ready:   { label: "Ready to use", chip: "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd] hover:bg-[#d7efdf]", text: "text-[#15803d]" },
-  partial: { label: "Nearly ready", chip: "bg-[#fff3e6] text-[#c2410c] border-[#fdba74] hover:bg-[#ffe8d1]", text: "text-[#c2410c]" },
-  dirty:   { label: "Not clean",    chip: "bg-[#fef2f2] text-[#b91c1c] border-[#fca5a5] hover:bg-[#fee2e2]", text: "text-[#b91c1c]" },
-  unknown: { label: "Not checked",  chip: "bg-[#f1f5f9] text-[#697a91] border-[#e2e8f0] hover:bg-[#e8eef5]", text: "text-[#697a91]" },
+  ready:    { label: READINESS_LABEL.ready,    chip: "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd] hover:bg-[#d7efdf]", text: "text-[#15803d]" },
+  snapshot: { label: READINESS_LABEL.snapshot, chip: "bg-[#eaf2ff] text-[#1d4ed8] border-[#bfd3fb] hover:bg-[#dce8ff]", text: "text-[#1d4ed8]" },
+  partial:  { label: READINESS_LABEL.partial,  chip: "bg-[#fff3e6] text-[#c2410c] border-[#fdba74] hover:bg-[#ffe8d1]", text: "text-[#c2410c]" },
+  dirty:    { label: READINESS_LABEL.dirty,    chip: "bg-[#fef2f2] text-[#b91c1c] border-[#fca5a5] hover:bg-[#fee2e2]", text: "text-[#b91c1c]" },
+  unknown:  { label: READINESS_LABEL.unknown,  chip: "bg-[#f1f5f9] text-[#697a91] border-[#e2e8f0] hover:bg-[#e8eef5]", text: "text-[#697a91]" },
 };
 
 function ago(iso: string): string {
@@ -139,9 +143,34 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
   }, [finalized, onPoolChanged]);
 
   const poolReadyCount = pool?.available.filter((p) => readinessOf(p) === "ready").length ?? 0;
+  const snapshotCount = pool?.available.filter((p) => readinessOf(p) === "snapshot").length ?? 0;
   const partialCount = pool?.available.filter((p) => readinessOf(p) === "partial").length ?? 0;
   const dirtyCount = pool?.available.filter((p) => readinessOf(p) === "dirty").length ?? 0;
   const uncheckedCount = pool?.available.filter((p) => readinessOf(p) === "unknown").length ?? 0;
+
+  // Queue (again) the Mac Mini task that loads the Demo snapshot onto a pool
+  // account. Finalize queues it on its own; this is for a failed load or an
+  // account that was pooled before the task existed.
+  const [snapshotQueuing, setSnapshotQueuing] = useState<string | null>(null);
+  const queueSnapshot = async (row: PoolRow) => {
+    setSnapshotQueuing(row.location_id);
+    try {
+      const j = await fetch("/api/cleanup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "snapshotLoad", locationId: row.location_id }),
+      }).then((r) => r.json());
+      if (j.error) throw new Error(j.error);
+      setPool((prev) => prev && {
+        ...prev,
+        available: prev.available.map((p) => (p.location_id === row.location_id
+          ? { ...p, snapshot_task_id: j.taskId, snapshot_queued_at: new Date().toISOString(), snapshot_loaded_at: null, snapshot_note: j.note }
+          : p)),
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not queue the snapshot load");
+    }
+    setSnapshotQueuing(null);
+  };
 
   // Optimistic flip so the chip recolors instantly; the row is persisted server-side.
   const toggleA2p = async (row: PoolRow) => {
@@ -423,6 +452,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
             {poolLoading && pool && <Loader2 size={12} className="animate-spin text-[#9aa8bc]" />}
           </div>
           <div className="flex items-center gap-3 text-xs text-[#697a91]">
+            {pool && snapshotCount > 0 && <span className="text-[#1d4ed8]">{snapshotCount} waiting for snapshot</span>}
             {pool && partialCount > 0 && <span className="text-[#c2410c]">{partialCount} nearly ready</span>}
             {pool && dirtyCount > 0 && <span className="text-[#b91c1c]">{dirtyCount} not clean</span>}
             {pool && uncheckedCount > 0 && <span>{uncheckedCount} not checked</span>}
@@ -460,7 +490,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
                     )}
                   >
                     {p.pool_name}
-                    {state === "partial" && p.workflows ? ` · ${p.workflows}⚙` : ""}
+                    {state === "snapshot" ? (p.snapshot_note?.startsWith("✗") ? " · ✗📸" : p.snapshot_task_id ? " · ⏳📸" : " · 📸") : ""}
                     {state === "dirty" ? " · ⚠" : ""}
                     {/* A2P is invisible on red/orange chips otherwise — an
                         approved-but-dirty account is the one worth cleaning first. */}
@@ -472,32 +502,50 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
             {/* Anything not green needs a reason next to it, not just a colour. */}
             {pool.available.some((p) => readinessOf(p) !== "ready") && (
               <div className="mt-2 space-y-0.5">
-                {pool.available.filter((p) => readinessOf(p) !== "ready").slice(0, 8).map((p) => (
-                  <p key={p.location_id} className="text-[11px] text-[#697a91]">
-                    <b className={READINESS[readinessOf(p)].text}>{p.pool_name}</b> —{" "}
-                    {readinessOf(p) === "unknown"
-                      ? "never checked — hit Re-check to see what's in it"
-                      : readinessOf(p) === "dirty"
-                        ? `still has data: ${p.clean_note}`
-                        : p.workflows
-                          ? `${p.workflows} automations left — delete them in GHL, then Re-check`
-                          : "A2P not approved yet"}
-                    {" · "}
-                    <span className={p.a2p === "approved" ? "text-[#15803d]" : ""}>
-                      A2P {p.a2p === "approved" ? "✓ approved" : "not approved"}
-                      {p.a2p_updated_at ? ` (checked ${ago(p.a2p_updated_at)})` : " (never scanned)"}
-                    </span>
-                  </p>
-                ))}
-                {pool.available.filter((p) => readinessOf(p) !== "ready").length > 8 && (
-                  <p className="text-[11px] text-[#9aa8bc]">…and {pool.available.filter((p) => readinessOf(p) !== "ready").length - 8} more</p>
+                {pool.available.filter((p) => readinessOf(p) !== "ready").slice(0, 12).map((p) => {
+                  const state = readinessOf(p);
+                  return (
+                    <p key={p.location_id} className="text-[11px] text-[#697a91] flex flex-wrap items-center gap-x-1.5">
+                      <span>
+                        <b className={READINESS[state].text}>{p.pool_name}</b> —{" "}
+                        {state === "unknown"
+                          ? "never checked — hit Re-check to see what's in it"
+                          : state === "snapshot"
+                            ? (p.snapshot_note?.startsWith("✗")
+                                ? `snapshot load failed: ${p.snapshot_note.slice(1).trim()}`
+                                : p.snapshot_task_id
+                                  ? `waiting for the Mac Mini to load the snapshot${p.snapshot_queued_at ? ` (queued ${ago(p.snapshot_queued_at)})` : ""}`
+                                  : "no snapshot loaded — the setup needs its custom values")
+                            : poolBlocker(p)}
+                        {" · "}
+                        <span className={p.a2p === "approved" ? "text-[#15803d]" : ""}>
+                          A2P {p.a2p === "approved" ? "✓ approved" : "not approved"}
+                          {p.a2p_updated_at ? ` (checked ${ago(p.a2p_updated_at)})` : " (never scanned)"}
+                        </span>
+                      </span>
+                      {state === "snapshot" && (!p.snapshot_task_id || p.snapshot_note?.startsWith("✗")) && (
+                        <button
+                          onClick={() => queueSnapshot(p)}
+                          disabled={snapshotQueuing === p.location_id}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-[#eaf2ff] hover:bg-[#dce8ff] text-[#1d4ed8] border border-[#bfd3fb] disabled:opacity-50"
+                        >
+                          {snapshotQueuing === p.location_id ? <Loader2 size={10} className="animate-spin" /> : "📸"} Load snapshot
+                        </button>
+                      )}
+                    </p>
+                  );
+                })}
+                {pool.available.filter((p) => readinessOf(p) !== "ready").length > 12 && (
+                  <p className="text-[11px] text-[#9aa8bc]">…and {pool.available.filter((p) => readinessOf(p) !== "ready").length - 12} more</p>
                 )}
               </div>
             )}
             <p className="text-[11px] text-[#9aa8bc] mt-2">
-              🟢 empty + A2P approved — safe to use · 🟠 nearly there (automations left, or A2P not approved) ·
-              🔴 still has data · ⚪ not checked yet · ✓A2P on a red/orange chip = A2P already approved, worth cleaning first.
-              Click a chip to toggle A2P; use Re-check to refresh what&apos;s inside (A2P itself has no API — ask Claude to re-scan it).
+              🟢 snapshot loaded + no client data + A2P approved — safe to use · 🔵 waiting for the Demo snapshot
+              (the wipe removes custom values and fields; the Mac Mini loads them back, the setup refuses an account without them) ·
+              🟠 A2P not approved · 🔴 still has the old client&apos;s contacts · ⚪ not checked yet ·
+              ✓A2P on a coloured chip = A2P already approved.
+              Click a chip to toggle A2P; use Re-check to refresh what&apos;s inside (it also detects a snapshot loaded by hand).
             </p>
           </>
         )}
@@ -790,7 +838,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
             <div className="p-3 rounded-lg bg-[#e7f6ec] border border-[#bfe3cd] text-sm text-[#15803d] space-y-1">
               <div><b>{finalized.oldName}</b> → <b>{finalized.poolName}</b> ✓ added to the clean pool</div>
               <div className="text-xs">Clients Master: {finalized.sheetChange}</div>
-              {finalized.readyNote && <div className="text-xs">Ready to use: {finalized.readyNote}</div>}
+              {finalized.readyNote && <div className="text-xs">Pool: {finalized.readyNote}</div>}
             </div>
           )}
         </div>
