@@ -35,8 +35,18 @@ export async function GET(req: NextRequest) {
   if (!owner && !business) return NextResponse.json({ eligible: false });
   const svc = createServiceClient();
   const loc = await resolveClientLocation(svc, null, owner).catch(() => null);
+  // A returning client (Sally Nails And Spa, 10/15/2026): her name still
+  // resolves to the sub-account we wiped into the pool, so she looked like
+  // she "had an account". A location in cleanup_log was recycled — it is
+  // not hers any more, and she needs a fresh setup like a new client.
+  let recycled = false;
+  if (loc) {
+    const { data: wiped } = await svc.from("cleanup_log").select("pool_name").eq("location_id", loc.locationId).limit(1).maybeSingle();
+    recycled = !!wiped;
+  }
+  const hasLocation = !!loc && !recycled;
   const card = await existingCard(svc, owner, business);
-  return NextResponse.json({ eligible: !loc, hasLocation: !!loc, locationId: loc?.locationId ?? null, card });
+  return NextResponse.json({ eligible: !hasLocation, hasLocation, recycled, locationId: hasLocation ? loc!.locationId : null, card });
 }
 
 // Clients Master → New Client form. Only what the sheet knows; the rest is
