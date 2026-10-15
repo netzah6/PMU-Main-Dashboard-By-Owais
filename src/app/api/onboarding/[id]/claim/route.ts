@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, setExistingCustomValue, type ClaimResult, type ClaimAction } from "@/lib/ghl-claim";
-import { createDepositProduct, parseAmountCents } from "@/lib/fanbasis";
+import { createDepositProductFromForm } from "@/lib/deposit-product";
 
 export const maxDuration = 60;
 
@@ -46,26 +46,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   };
 
   // Fanbasis deposit product: part of every new claim, and runnable on its
-  // own for already-claimed onboardings ({ fanbasis: true }).
-  const runFanbasis = async (form: Record<string, string>): Promise<{ action: ClaimAction; productId?: string; checkoutUrl?: string }> => {
-    const cents = parseAmountCents(form.deposit_amount ?? "");
-    if (!cents) return { action: { action: "Commas product", ok: false, detail: "no valid deposit amount on the form" } };
-    // Team convention: "FULL NAME - BUSINESS NAME" (e.g. "Ivan Androsov - PMU by Ivan")
-    const title = [form.owner_name?.trim(), form.business_name?.trim()].filter(Boolean).join(" - ");
-    try {
-      const p = await createDepositProduct(title, cents);
-      return {
-        action: {
-          action: `Commas product "${title}" ($${(cents / 100).toFixed(2)})${p.productId ? ` → ID ${p.productId}` : ""}${p.checkoutUrl ? ` · ${p.checkoutUrl}` : ""}`,
-          ok: true,
-        },
-        productId: p.productId ?? undefined,
-        checkoutUrl: p.checkoutUrl ?? undefined,
-      };
-    } catch (e) {
-      return { action: { action: "Commas product", ok: false, detail: e instanceof Error ? e.message : "failed" } };
-    }
-  };
+  // own for already-claimed onboardings ({ fanbasis: true }). Shared with the
+  // New Client Setup run (lib/deposit-product).
+  const runFanbasis = createDepositProductFromForm;
 
   if (body.fanbasis) {
     if (!row.claim) return NextResponse.json({ error: "Claim the GHL account first" }, { status: 409 });

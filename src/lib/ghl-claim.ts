@@ -242,6 +242,35 @@ export async function createEmployeeUser(locationId: string, ownerName: string, 
   }
 }
 
+// ── Password by the team rule, on a user that already exists ───────────────
+// The New Client Setup run has the Mac Mini create the user (the owner
+// approves that step first), then sets the real password here by API. The
+// password is stored on the Onboarding card only — never in a chat or a
+// screenshot.
+export async function findLocationUserByEmail(locationId: string, email: string): Promise<{ id: string; name: string } | null> {
+  const tok = await getAppLocationToken(locationId);
+  if (!tok.token) throw new Error(`no app token: ${tok.error}`);
+  const r = await fetch(`${GHL}/users/?locationId=${locationId}`, {
+    headers: { Authorization: `Bearer ${tok.token}`, Version: VERSION, Accept: "application/json" },
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`users HTTP ${r.status}: ${text.slice(0, 150)}`);
+  const j = JSON.parse(text) as { users?: Array<{ id?: string; _id?: string; email?: string; name?: string; firstName?: string; lastName?: string }> };
+  const want = email.trim().toLowerCase();
+  const u = (j.users ?? []).find((x) => String(x.email ?? "").trim().toLowerCase() === want);
+  if (!u) return null;
+  return { id: String(u.id ?? u._id ?? ""), name: String(u.name ?? `${u.firstName ?? ""} ${u.lastName ?? ""}`).trim() };
+}
+
+export async function setUserPassword(userId: string, password: string): Promise<void> {
+  const r = await fetch(`${GHL}/users/${userId}`, {
+    method: "PUT",
+    headers: { ...agencyHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!r.ok) throw new Error(`users/${userId} HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+}
+
 // ── Treated-areas custom field ──────────────────────────────────────────────
 // The funnel survey asks "Which Area(s) Would You Like Treated?" — its answer
 // options are derived from the services chosen on the onboarding form:
@@ -303,6 +332,9 @@ export type ClaimResult = {
 export async function claimPoolAccount(
   poolLocationId: string,
   form: Record<string, string>,
+  /* skipUser: the New Client Setup run creates the employee user later,
+     only after the owner approves that step (GHL emails the client). */
+  opts: { skipUser?: boolean } = {},
 ): Promise<ClaimResult> {
   assertNotProtected(poolLocationId);
   const businessName = String(form.business_name ?? "").trim();
@@ -394,7 +426,7 @@ export async function claimPoolAccount(
   }
 
   // 4. Employee user (the client's login) when the form has an email.
-  if (String(form.email ?? "").trim() && String(form.owner_name ?? "").trim()) {
+  if (!opts.skipUser && String(form.email ?? "").trim() && String(form.owner_name ?? "").trim()) {
     actions.push(await createEmployeeUser(poolLocationId, form.owner_name, form.email));
   }
 

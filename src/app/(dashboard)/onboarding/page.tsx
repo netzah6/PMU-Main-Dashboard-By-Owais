@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, SERVICE_OPTIONS, formSections, type OnboardingStep } from "@/lib/onboarding-steps";
 import { useUser } from "@/lib/hooks/useUser";
 import { CleanupPanel } from "@/components/cleanup/CleanupPanel";
+import { SetupRunPanel } from "@/components/onboarding/SetupRunPanel";
 
 // Same version colors as the Clients tab: V3 solid blue, V2.3 light purple.
 const VERSION_PILLS: { value: string; label: string; on: string; off: string }[] = [
@@ -42,6 +43,7 @@ interface Onboarding {
   form: Record<string, string>;
   checklist: Record<string, { done: boolean; by: string; at: string }>;
   claim?: Claim | null;
+  setup?: { status: string } | null; // the New Client Setup run (full state is loaded by its panel)
 }
 
 function stepsFor(o: Onboarding): OnboardingStep[] {
@@ -100,6 +102,8 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.hash === "#cleanup") setCleanupOpen(true);
   }, []);
+  // /onboarding?open=<card id> — the Clients tab's "Set up account" lands here.
+  const [openFromUrl] = useState<string | null>(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("open") : null));
   const [list, setList] = useState<Onboarding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -158,12 +162,13 @@ export default function OnboardingPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load");
       setList(json.onboardings ?? []);
+      if (openFromUrl && (json.onboardings ?? []).some((o: Onboarding) => o.id === openFromUrl)) setOpenId(openFromUrl);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [openFromUrl]);
   useEffect(() => { load(); }, [load]);
 
   const create = useCallback(async () => {
@@ -322,7 +327,7 @@ export default function OnboardingPage() {
               <ChevronLeft size={13} /> All onboardings
             </button>
             <h1 className="text-xl font-bold text-[#1f3559] truncate">{open.form.business_name}</h1>
-            <p className="text-sm text-[#697a91]">{open.form.owner_name} · {open.form.version || "—"} · started {new Date(open.created_at).toLocaleDateString()}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}</p>
+            <p className="text-sm text-[#697a91]">{open.form.owner_name} · {open.form.version || "—"} · started {new Date(open.created_at).toLocaleDateString("en-US")}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => runVerify(open.id)} disabled={verifying}
@@ -366,7 +371,7 @@ export default function OnboardingPage() {
                 🤖 Setup check
                 <span className="text-[#15803d]">{pass} passed</span>
                 {fail > 0 && <span className="text-[#c2410c]">· {fail} problem{fail === 1 ? "" : "s"}</span>}
-                <span className="text-[#8595a8] font-normal">· {manual} manual · {new Date(verifiedAt).toLocaleTimeString()}</span>
+                <span className="text-[#8595a8] font-normal">· {manual} manual · {new Date(verifiedAt).toLocaleTimeString("en-US")}</span>
               </div>
               {fails.length > 0 && (
                 <ul className="mt-1.5 space-y-0.5">
@@ -379,6 +384,9 @@ export default function OnboardingPage() {
           );
         })()}
 
+        {/* New Client Setup run — approve first, then the dashboard + Mac Mini do the steps */}
+        <SetupRunPanel onboardingId={open.id} role={role} form={open.form} onChanged={() => void load()} />
+
         {/* GHL account (pool claim) */}
         <div className="rounded-xl border border-[#e4ebf2] bg-white p-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -387,7 +395,7 @@ export default function OnboardingPage() {
               {open.claim ? (
                 <p className="text-xs text-[#697a91] mt-0.5">
                   <span className="font-semibold text-[#15803d]">✓ Claimed</span> — {open.claim.original_name} → <strong>{open.claim.business_name}</strong>
-                  {" · "}{new Date(open.claim.claimed_at).toLocaleString()} by {open.claim.claimed_by.split("@")[0]}
+                  {" · "}{new Date(open.claim.claimed_at).toLocaleString("en-US")} by {open.claim.claimed_by.split("@")[0]}
                   {" · "}
                   <a href={`https://app.gohighlevel.com/location/${open.claim.location_id}`} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">open in GHL ↗</a>
                 </p>
@@ -517,7 +525,7 @@ export default function OnboardingPage() {
                           {!v && s.auto && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#eef2ff] text-[#4f46e5]" title="Auto-checked by the Verify setup button">auto</span>}
                         </p>
                         {v && v.status === "fail" && <p className="text-[10px] text-[#e11d48] mt-0.5">{v.detail}</p>}
-                        {state?.done && <p className="text-[10px] text-[#a6b3c4]">✓ {state.by.split("@")[0]} · {new Date(state.at).toLocaleDateString()}</p>}
+                        {state?.done && <p className="text-[10px] text-[#a6b3c4]">✓ {state.by.split("@")[0]} · {new Date(state.at).toLocaleDateString("en-US")}</p>}
                       </div>
                       {(s.loom || s.doc) && (
                         <span className="shrink-0 flex items-center gap-2">
@@ -587,7 +595,7 @@ export default function OnboardingPage() {
             <div className="flex flex-wrap gap-1.5 mt-3">
               {poolInfo.ready.map((p) => (
                 <span key={p.location_id}
-                  title={p.clean_checked_at ? `Verified empty and A2P-approved · checked ${new Date(p.clean_checked_at).toLocaleString()}` : undefined}
+                  title={p.clean_checked_at ? `Verified empty and A2P-approved · checked ${new Date(p.clean_checked_at).toLocaleString("en-US")}` : undefined}
                   className="px-2 py-1 rounded-md text-[11px] font-medium border bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd]">
                   {p.pool_name}
                 </span>
@@ -749,8 +757,14 @@ export default function OnboardingPage() {
                       <span className="text-xs text-[#697a91]">{o.form.owner_name}</span>
                       {o.form.version && <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold", verBadge(o.form.version))}>{o.form.version}</span>}
                       {o.status === "done" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#e6f7ee] text-[#15803d]">✓ COMPLETE</span>}
+                      {o.setup?.status && o.status !== "done" && (
+                        <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold",
+                          o.setup.status === "done" ? "bg-[#e6f7ee] text-[#15803d]" : o.setup.status === "failed" ? "bg-[#fde8ee] text-[#e11d48]" : o.setup.status === "waiting" ? "bg-[#fff1df] text-[#b35a00]" : "bg-[#e6edfb] text-[#2f5fb8]")}>
+                          🧩 {o.setup.status === "done" ? "SETUP DONE" : o.setup.status === "failed" ? "SETUP FAILED" : o.setup.status === "waiting" ? "NEEDS YOU" : "SETUP RUNNING"}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[11px] text-[#8595a8] mt-0.5">Started {new Date(o.created_at).toLocaleDateString()}{o.created_by ? ` by ${o.created_by.split("@")[0]}` : ""}</p>
+                    <p className="text-[11px] text-[#8595a8] mt-0.5">Started {new Date(o.created_at).toLocaleDateString("en-US")}{o.created_by ? ` by ${o.created_by.split("@")[0]}` : ""}</p>
                   </div>
                   <div className="shrink-0 flex items-center gap-3">
                     <div className="w-28 hidden sm:block">

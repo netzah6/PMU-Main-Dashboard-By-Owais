@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveClientLocation, describeStep, type PlanStep } from "@/lib/agent-exec";
 import { confirmToOwner } from "@/lib/agent-notify";
+import { onSetupProposalClosed, parseSetupConvId } from "@/lib/setup-run";
 
 // ── AI agent, browser worker (owner, 2026-10-10) ─────────────────────────────
 // Every approved account change is done in a real Chrome on the Mac Mini, on
@@ -42,14 +43,19 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
   });
 
   const staleBefore = new Date(Date.now() - STALE_MS).toISOString();
-  const { data: stale } = await svc.from("agent_proposals").select("id, browser_attempts, result")
+  const { data: stale } = await svc.from("agent_proposals").select("id, browser_attempts, result, conversation_id")
     .eq("status", "running").lt("browser_claimed_at", staleBefore);
-  for (const r of (stale ?? []) as Array<{ id: string; browser_attempts: number; result: string | null }>) {
+  for (const r of (stale ?? []) as Array<{ id: string; browser_attempts: number; result: string | null; conversation_id: string }>) {
     const retry = r.browser_attempts < MAX_ATTEMPTS;
+    const result = `${r.result ?? ""}\n✗ The Mac Mini stopped responding twice — check the account and finish by hand`.trim();
     await svc.from("agent_proposals").update(retry
       ? { status: "queued_browser", browser_claimed_at: null }
-      : { status: "failed", result: `${r.result ?? ""}\n✗ The Mac Mini stopped responding twice — check the account and finish by hand`.trim() },
+      : { status: "failed", result },
     ).eq("id", r.id).eq("status", "running");
+    // A New Client Setup step that died twice stops the run (red on the card).
+    if (!retry && parseSetupConvId(r.conversation_id)) {
+      try { await onSetupProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result, screenshots: [] }); } catch { /* the card still shows the failed card */ }
+    }
   }
 
   const { data: next } = await svc.from("agent_proposals").select("*")
@@ -57,12 +63,13 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
   if (!next) return null;
   const p = next as {
     id: string; contact_id: string | null; contact_name: string; summary: string; client_message: string;
-    action_plan: PlanStep[] | null; action_detail: string | null; location_id: string | null; browser_attempts: number;
+    action_plan: PlanStep[] | null; action_detail: string | null; location_id: string | null; browser_attempts: number; conversation_id: string;
   };
 
   let locationId = p.location_id;
   let business: string | null = null;
-  const loc = await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
+  const setupRef = parseSetupConvId(p.conversation_id);
+  const loc = setupRef ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
   if (loc) { locationId = locationId || loc.locationId; business = loc.businessName || null; }
   if (!locationId) {
     await svc.from("agent_proposals").update({
@@ -135,9 +142,9 @@ export async function uploadProof(svc: Svc, id: string, name: string, base64: st
 }
 
 export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: boolean; error?: string }> {
-  const { data: row } = await svc.from("agent_proposals").select("id, status, contact_name, summary").eq("id", input.id).maybeSingle();
+  const { data: row } = await svc.from("agent_proposals").select("id, status, contact_name, summary, conversation_id").eq("id", input.id).maybeSingle();
   if (!row) return { ok: false, error: "not found" };
-  const p = row as { id: string; status: string; contact_name: string; summary: string };
+  const p = row as { id: string; status: string; contact_name: string; summary: string; conversation_id: string };
   if (p.status !== "running") return { ok: false, error: `card is ${p.status}, not running` };
 
   // Only images this card uploaded to our own bucket.
@@ -156,6 +163,15 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
     status: input.status, result, screenshots: urls, files, executed_at: new Date().toISOString(),
   }).eq("id", p.id).eq("status", "running");
   if (error) return { ok: false, error: error.message };
+
+  /* A New Client Setup step: tick the Onboarding card, keep the screenshots
+     there, queue the next browser step. The run sends ONE text at the end
+     instead of one per step (owner: "you get one text at the end"). */
+  if (parseSetupConvId(p.conversation_id)) {
+    try { await onSetupProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result, screenshots: urls }); }
+    catch { /* the card shows the step as still open; Refresh re-runs the engine */ }
+    return { ok: true };
+  }
 
   try {
     await confirmToOwner(svc, { contact_name: p.contact_name, summary: p.summary, status: input.status, result }, urls.slice(-2).map((u) => u.url));
