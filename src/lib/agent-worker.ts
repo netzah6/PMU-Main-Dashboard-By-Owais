@@ -70,6 +70,7 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
   const p = next as {
     id: string; contact_id: string | null; contact_name: string; summary: string; client_message: string;
     action_plan: PlanStep[] | null; action_detail: string | null; location_id: string | null; browser_attempts: number; conversation_id: string;
+    owner_note?: string | null;
   };
 
   let locationId = p.location_id;
@@ -97,7 +98,8 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
     id: p.id, contact_name: p.contact_name, business_name: business, location_id: locationId,
     summary: p.summary, client_message: p.client_message,
     steps: steps.length ? steps : [p.action_detail || p.summary],
-    notes: p.action_detail,
+    // The owner's correction (Correct & retry) is the most reliable context the worker has.
+    notes: [p.owner_note ? `Owner's note (authoritative): ${p.owner_note}` : "", p.action_detail ?? ""].filter(Boolean).join("\n") || null,
   };
 }
 

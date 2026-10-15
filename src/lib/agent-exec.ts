@@ -137,6 +137,34 @@ export async function resolveClientLocation(
   return { locationId, ownerName, businessName };
 }
 
+/* The owner named the client in a note ("this is Theresa Butler, Microblading
+   Pro Studio") because the contact who texted could not be matched — a new
+   phone number with no name, a nickname. Find the Clients Master row whose
+   owner or business name appears in the note (longest match wins), then the
+   sub-account the usual way. */
+export async function resolveClientByHint(
+  svc: Svc,
+  hint: string,
+): Promise<{ locationId: string; ownerName: string; businessName: string; contactId: string | null } | null> {
+  const norm = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const h = ` ${norm(hint)} `;
+  if (h.trim().length < 3) return null;
+  const { data: cm } = await svc.from("clients_master").select("data");
+  const rows = (cm ?? []).map((r) => r.data as Record<string, unknown>);
+  let best: { row: Record<string, unknown>; len: number } | null = null;
+  for (const d of rows) {
+    for (const key of ["Owner Full Name", "Business Name"]) {
+      const v = norm(d[key]);
+      if (v.length >= 4 && h.includes(` ${v} `) && (!best || v.length > best.len)) best = { row: d, len: v.length };
+    }
+  }
+  if (!best) return null;
+  const ownerName = String(best.row["Owner Full Name"] ?? "").trim();
+  const contactId = String(best.row["Contact ID"] ?? "").trim() || null;
+  const loc = await resolveClientLocation(svc, contactId, ownerName);
+  return loc ? { ...loc, contactId } : null;
+}
+
 // ── Plan from free text (older cards filed before plans existed) ─────────────
 export async function planFromDetail(input: { summary: string; actionDetail: string | null; clientMessage: string }): Promise<PlanStep[]> {
   if (!process.env.ANTHROPIC_API_KEY) return [{ type: "manual", what: input.actionDetail || input.summary }];

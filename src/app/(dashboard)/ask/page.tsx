@@ -386,6 +386,18 @@ export default function AskPage() {
     setOpenCardId(p.id);
   }, [convs, clickConv, focusCard, showAgent]);
 
+  // "Correct & retry" produced a new card: show it where the old one was
+  // (same chat, or the stand-alone view), focused, and let the old one go.
+  const onCardRetried = useCallback((oldId: string, np: AgentProposal) => {
+    proposalsReq.current++;
+    setProposals((list) => [np, ...list.filter((x) => x.id !== np.id)]);
+    setPinned((s) => { const n = new Set(s); n.delete(oldId); return n; });
+    setOpenCardId((cur) => (cur === oldId ? np.id : cur));
+    if (composerRef.current.id === np.conversation_id) setAgentOpenFor(np.conversation_id);
+    focusCard(np.id);
+    loadProposals({ silent: true });
+  }, [focusCard, loadProposals]);
+
   // Card lifecycle → list upkeep. Approving pins the card so its proof stays
   // up through the refresh; deny / dismiss / a failed request let it go.
   const onCardPhase = useCallback((id: string, phase: CardPhase) => {
@@ -699,7 +711,7 @@ export default function AskPage() {
             </div>
           </div>
           {/* Keyed by id: a card's typed reply must never carry over to the next card shown here. */}
-          <ProposalCard key={openCard.id} p={openCard} focused={openCard.id === focusProposal} onPhase={(ph) => onCardPhase(openCard.id, ph)}
+          <ProposalCard key={openCard.id} p={openCard} focused={openCard.id === focusProposal} onPhase={(ph) => onCardPhase(openCard.id, ph)} onRetried={(np) => onCardRetried(openCard.id, np)}
             reply={cardReplies[openCard.id]} onReplyChange={(v) => setCardReply(openCard.id, v)}
             amounts={cardAmounts[openCard.id]} onAmountsChange={(v) => setCardAmount(openCard.id, v)} working={approvingIds.has(openCard.id)} />
         </div>
@@ -746,7 +758,7 @@ export default function AskPage() {
               {convCards.length > 0 ? (
                 <div className="space-y-2">
                   {convCards.map((p) => (
-                    <ProposalCard key={p.id} p={p} focused={p.id === focusProposal} onPhase={(ph) => onCardPhase(p.id, ph)}
+                    <ProposalCard key={p.id} p={p} focused={p.id === focusProposal} onPhase={(ph) => onCardPhase(p.id, ph)} onRetried={(np) => onCardRetried(p.id, np)}
                       reply={cardReplies[p.id]} onReplyChange={(v) => setCardReply(p.id, v)}
                       amounts={cardAmounts[p.id]} onAmountsChange={(v) => setCardAmount(p.id, v)}
                       working={approvingIds.has(p.id)} checking={checkingHere} />
@@ -905,6 +917,8 @@ type AgentProposal = {
   action_plan?: PlanStep[] | null; location_id?: string | null; notified_at?: string | null;
   screenshots?: Array<{ name: string; url: string }> | null;
   files?: Array<{ name: string; url: string; bytes?: number }> | null; // documents the Mac Mini produced
+  owner_note?: string | null; // "Correct & retry": the note this plan was made with
+  retry_of?: string | null;
 };
 // Typed by a teammate on the Agent panel — no chat behind it.
 // …or filed by the New Client Setup run ("setup:<card>:<step>") — no chat either.
@@ -1169,8 +1183,48 @@ function NotifySettingsBox() {
   );
 }
 
-function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmounts, onAmountsChange, working, checking }: {
-  p: AgentProposal; onPhase: (phase: CardPhase) => void; focused?: boolean;
+/* "Correct & retry" (owner, 2026-10-15): when the AI misread the request or
+   couldn't find the client ("no Clients Master match"), the owner tells it
+   what it got wrong — who the client is, what to do instead — and the chat
+   is planned again with that note. The new card still needs Approve. */
+function CorrectBox({ p, onRetried, onClose }: { p: AgentProposal; onRetried?: (np: AgentProposal) => void; onClose: () => void }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const noClient = /no Clients Master match|Could not find/i.test(p.result ?? "");
+  const retry = async () => {
+    if (busy || note.trim().length < 3) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/agent/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, note: note.trim() }) });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.proposal) throw new Error(json.error || "The AI couldn't re-plan this one");
+      toast.success("New plan ready — review it and Approve");
+      onRetried?.(json.proposal as AgentProposal);
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-2 rounded-lg border border-[#c9dbfb] bg-white p-2">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8]">Tell the AI what it got wrong, then it plans again</div>
+      <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} disabled={busy} autoFocus
+        placeholder={noClient ? "e.g. This is Theresa Butler (Microblading Pro Studio) — her new number. Do it in her account." : "e.g. She means the reactivation workflow, not the funnel. Set the texts to 1, 3 and 6 months after sign-up."}
+        className="mt-1 w-full rounded-lg border border-[#d7e0ea] px-2.5 py-1.5 text-[12px] text-[#1f3559] focus:outline-none focus:border-[#15B7AE] disabled:opacity-60" />
+      <div className="mt-1.5 flex items-center gap-2">
+        <button onClick={retry} disabled={busy || note.trim().length < 3}
+          className="px-3 py-1.5 rounded-lg bg-[#1f3559] hover:bg-[#2b4a7a] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <span>↻</span>} {busy ? "Re-planning (10–30 s)…" : "Re-plan with this note"}
+        </button>
+        <button onClick={onClose} disabled={busy} className="text-[11px] text-[#697a91] hover:underline disabled:opacity-50">cancel</button>
+        <span className="ml-auto text-[10px] text-[#8595a8]">Nothing runs until you Approve the new plan</span>
+      </div>
+    </div>
+  );
+}
+
+function ProposalCard({ p, onPhase, onRetried, focused, reply: keptReply, amounts: keptAmounts, onAmountsChange, working, checking }: {
+  p: AgentProposal; onPhase: (phase: CardPhase) => void; onRetried?: (np: AgentProposal) => void; focused?: boolean;
   reply?: string; onReplyChange?: (v: string) => void;
   amounts?: string; onAmountsChange?: (v: string) => void;
   working?: boolean;  // an Approve for this card is still running (page-level)
@@ -1181,6 +1235,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
   const [outcome, setOutcome] = useState<{ status: string; result: string } | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
   const sensitive = (p.action_detail ?? "").startsWith("SENSITIVE:");
   const plan = p.action_plan ?? [];
   // Payment links: amounts editable on the card; the reply's link lines follow.
@@ -1240,7 +1295,13 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
           <button onClick={() => onPhase("dismissed")} className="text-[11px] text-[#0e8f88] hover:underline">dismiss</button>
         </div>
         <p className="mt-1 text-xs text-[#697a91]">{p.summary}</p>
+        {p.owner_note && <p className="mt-1 text-[11px] text-[#34568a]"><span className="font-bold">📝 Your note:</span> {p.owner_note}</p>}
         {shown.result && <pre className="mt-2 whitespace-pre-wrap font-sans text-[12px] text-[#1f3559] bg-white/70 rounded-lg px-2.5 py-2 border border-black/5">{shown.result}</pre>}
+        {["failed", "denied", "needs_teammate"].includes(shown.status) && !/↻ re-planned/.test(shown.result) && (
+          correcting
+            ? <CorrectBox p={p} onRetried={onRetried} onClose={() => setCorrecting(false)} />
+            : <button onClick={() => setCorrecting(true)} className="mt-2 px-2.5 py-1 rounded-lg border border-[#c9dbfb] bg-white text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88]">✏️ Correct & retry</button>
+        )}
         {files.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {files.map((f, i) => (
@@ -1291,6 +1352,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
         <span className="ml-auto text-[10px] text-[#8595a8]">{timeAgo(p.created_at)}{p.channel ? ` · ${p.channel}` : ""}</span>
       </div>
       <p className="mt-1 text-sm text-[#1f3559]"><span className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8] mr-1.5">Asked</span>{p.summary}</p>
+      {p.owner_note && <p className="mt-1 text-[11px] text-[#34568a]"><span className="font-bold">📝 Your note:</span> {p.owner_note}</p>}
       <div className="mt-1.5">
         <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8]">If you Approve, the AI will</div>
         <ol className="mt-0.5 space-y-0.5 text-[12px] text-[#34568a]">
@@ -1346,7 +1408,10 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
           className="px-3 py-1.5 rounded-lg border border-[#f5c2cf] text-[#e11d48] hover:bg-[#fde8ee] text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
           {busy === "deny" ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />} Deny
         </button>
+        {!correcting && <button onClick={() => setCorrecting(true)} disabled={!!busy || working || checking} title="The AI got it wrong? Tell it what to do instead and it plans again"
+          className="text-[11px] font-semibold text-[#34568a] hover:text-[#0e8f88] hover:underline disabled:opacity-50">✏️ Correct</button>}
       </div>
+      {correcting && <CorrectBox p={p} onRetried={onRetried} onClose={() => setCorrecting(false)} />}
     </div>
   );
 }

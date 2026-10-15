@@ -12,7 +12,7 @@ import {
   type ThreadMessage,
 } from "@/lib/ghl-conversations";
 import {
-  PLAN_SCHEMA_TEXT, sanitizePlan, planFromDetail, resolveClientLocation,
+  PLAN_SCHEMA_TEXT, sanitizePlan, planFromDetail, resolveClientLocation, resolveClientByHint,
   withPaymentLinks, describeAmounts, type PlanStep,
 } from "@/lib/agent-exec";
 import { billingFor, billingLine, createLinksForProposal, NothingSentError, type Billing, type LinkStep } from "@/lib/agent-pay-links";
@@ -53,6 +53,10 @@ export type Proposal = {
   action_plan?: PlanStep[] | null;
   location_id?: string | null;
   notified_at?: string | null;
+  /* "Correct & retry" (2026-10-15): the owner's note the plan was made with,
+     and the card it replaces. */
+  owner_note?: string | null;
+  retry_of?: string | null;
 };
 
 type Classification = {
@@ -65,6 +69,8 @@ type Classification = {
   // Churn-risk read of the SAME conversation — independent of actionable.
   upset?: boolean;
   upset_reason?: string;
+  // Who the client is, when the owner's note says so (used to find the sub-account).
+  client_name?: string;
 };
 
 // One conversation's tail → does the client want something done? The model
@@ -77,10 +83,16 @@ async function classify(
   client: Anthropic,
   contactName: string,
   convo: string,
-  opts: { force?: boolean; billing?: Billing | null } = {},
+  opts: { force?: boolean; billing?: Billing | null; ownerNote?: string } = {},
 ): Promise<Classification | null> {
+  const ownerBlock = opts.ownerNote ? `
+INSTRUCTIONS FROM THE AGENCY OWNER about this conversation (authoritative — they override your own reading of the chat, and may name the client, correct what is being asked, or say exactly what to do):
+"""
+${opts.ownerNote}
+"""
+` : "";
   const prompt = `You triage messages for a PMU (permanent-makeup) marketing agency. The people writing in are the agency's CLIENTS (artists whose ads/funnels/booking systems the agency runs).
-
+${ownerBlock}
 Conversation (each line has its day and time; lines marked NEW are not answered yet; "Automated" lines are workflow texts):
 """
 ${convo}
@@ -99,7 +111,8 @@ Reply with ONLY a JSON object, no other text:
   "action_detail": "<for account_change: exactly what to change, where (which setting/page), so a teammate could do it>",
   ${PLAN_SCHEMA_TEXT}
   "upset": true/false,
-  "upset_reason": "<only when upset: one sentence on why this client is a churn risk>"
+  "upset_reason": "<only when upset: one sentence on why this client is a churn risk>"${opts.ownerNote ? `,
+  "client_name": "<the client's full name or business name exactly as the owner's instructions give it, or \"\" if they don't name the client>"` : ""}
 }
 
 Rules:
@@ -236,6 +249,10 @@ export async function proposeForConversation(opts: {
   requestedBy: string;
   /** "re-read chat" clicked: plan again even if no new message arrived. */
   fresh?: boolean;
+  /** "Correct & retry": the owner's note, planned with as authoritative
+   *  context; `retryOf` is the card being replaced. */
+  ownerNote?: string;
+  retryOf?: string;
 }): Promise<{ proposal?: Proposal; error?: string }> {
   if (!process.env.ANTHROPIC_API_KEY) return { error: "ANTHROPIC_API_KEY not set" };
   const acct = await getReplyAccount();
@@ -265,15 +282,26 @@ export async function proposeForConversation(opts: {
   const nameByUserId = await rosterNames(acct);
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const billing = await billingFor(svc, opts.contactName, opts.contactId).catch(() => null);
+  const ownerNote = (opts.ownerNote ?? "").trim().slice(0, 1500) || undefined;
   const cls = await classify(anthropic, opts.contactName,
-    formatThreadForPrompt(thread, { contactName: opts.contactName, nameByUserId }), { force: true, billing });
+    formatThreadForPrompt(thread, { contactName: opts.contactName, nameByUserId }), { force: true, billing, ownerNote });
   if (!cls || !cls.summary) return { error: "The AI couldn't read this chat — try again" };
 
   const { actionType, plan } = planFor(cls, billing);
   if (actionType === "reply" && !plan.length) return { error: `Nothing to change in the account — just reply in the chat (${cls.summary})` };
   let locationId: string | null = null;
+  // The card's name: the contact's, unless the owner's note identified a
+  // client the contact itself could not be matched to (a new number with
+  // no name) — then the Clients Master owner name, so the Mac Mini and the
+  // card both show who this really is.
+  let contactName = opts.contactName;
+  let contactId = opts.contactId;
   if (actionType === "account_change") {
     try { locationId = (await resolveClientLocation(svc, opts.contactId, opts.contactName))?.locationId ?? null; } catch { /* resolved again at approve */ }
+    if (!locationId && ownerNote) {
+      const hinted = (await resolveClientByHint(svc, `${cls.client_name ?? ""} ${ownerNote}`).catch(() => null));
+      if (hinted) { locationId = hinted.locationId; contactName = hinted.ownerName || contactName; contactId = contactId ?? hinted.contactId; }
+    }
   }
   const unanswered = unansweredClientTexts(thread);
   const lastInbound = [...thread].reverse().find((m) => m.direction === "inbound")?.body;
@@ -291,9 +319,11 @@ export async function proposeForConversation(opts: {
   const { data: inserted, error } = await svc.from("agent_proposals").insert({
     conversation_id: opts.conversationId,
     message_id: prior ? `${last.id}#${Date.now()}` : last.id,
-    contact_id: opts.contactId,
-    contact_name: opts.contactName,
+    contact_id: contactId,
+    contact_name: contactName,
     channel: opts.channel,
+    owner_note: ownerNote ?? null,
+    retry_of: opts.retryOf ?? null,
     client_message: clientMessage,
     summary: cls.summary.slice(0, 500),
     action_type: actionType,
@@ -304,6 +334,17 @@ export async function proposeForConversation(opts: {
   }).select("*").maybeSingle();
   if (error || !inserted) return { error: error?.message ?? "could not save the card" };
   if (opts.fresh) await retire("replaced — the chat was re-read on request");
+  // The card being corrected keeps its own outcome; just note it moved on.
+  if (opts.retryOf) {
+    const { data: old } = await svc.from("agent_proposals").select("result, status").eq("id", opts.retryOf).maybeSingle();
+    const o = old as { result: string | null; status: string } | null;
+    if (o && !/↻ re-planned/.test(o.result ?? "")) {
+      await svc.from("agent_proposals").update({
+        ...(o.status === "pending" ? { status: "handled", decided_by: opts.requestedBy || "auto", decided_at: new Date().toISOString() } : {}),
+        result: `${(o.result ?? "").trim()}${o.result ? "\n" : ""}↻ re-planned with your note`.trim(),
+      }).eq("id", opts.retryOf);
+    }
+  }
   return { proposal: inserted as Proposal };
 }
 
