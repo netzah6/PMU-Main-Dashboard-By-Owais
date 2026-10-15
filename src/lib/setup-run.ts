@@ -4,7 +4,7 @@ import {
   claimPoolAccount, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
   employeePassword, findLocationUserByEmail, setUserPassword, slugify, type ClaimResult, type ClaimAction,
 } from "@/lib/ghl-claim";
-import { poolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
+import { poolBlocker, poolReadiness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
 import { createDepositProductFromForm } from "@/lib/deposit-product";
 import { addOneboxFunnel, FUNNEL_ORIGIN } from "@/lib/onebox-add";
 import { harvestFirstPixel, setDepositFunnelUrl } from "@/lib/onebox";
@@ -85,11 +85,12 @@ function tick(checklist: Record<string, unknown>, keys: string[] | undefined, by
 }
 
 // ── The clean account to take ───────────────────────────────────────────────
-export type PoolChoice = { id: string; name: string; readiness: "ready" | "partial" | "dirty" | "unknown"; blocker: string | null };
+export type PoolChoice = { id: string; name: string; readiness: PoolReadiness; blocker: string | null; snapshot: boolean };
 
 /* Every location still named "Clean New Account N" in GHL, with what the
-   pool table knows about its cleanliness. The default is the lowest-numbered
-   READY one. Without a GHL agency token (local dev) the table alone is used. */
+   pool table knows about it. The default is the lowest-numbered READY one
+   (snapshot loaded, no client data, A2P approved — lib/pool-readiness).
+   Without a GHL agency token (local dev) the table alone is used. */
 export async function poolChoices(svc: Svc): Promise<{ choices: PoolChoice[]; defaultId: string | null; note?: string }> {
   const { data } = await svc.from("pool_accounts").select("*").eq("status", "available");
   const rows = (data ?? []) as PoolRow[];
@@ -103,16 +104,12 @@ export async function poolChoices(svc: Svc): Promise<{ choices: PoolChoice[]; de
     .map((l) => {
       const r = byId.get(l.id);
       const readiness = r ? poolReadiness(r) : "unknown";
-      const blocker = readiness === "ready" ? null
-        : !r || r.clean_checked_at == null ? "not checked yet"
-          : (r.dirty ?? 0) > 0 ? `still has data — ${r.clean_note ?? ""}`.trim()
-            : (r.workflows ?? 0) > 0 ? `${r.workflows} automations still in it`
-              : "A2P not confirmed";
-      return { id: l.id, name: l.name, readiness, blocker };
+      const blocker = r ? poolBlocker(r) : "not checked yet";
+      return { id: l.id, name: l.name, readiness, blocker, snapshot: !!r?.snapshot_loaded_at };
     })
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   const ready = choices.filter((c) => c.readiness === "ready");
-  return { choices, defaultId: (ready[0] ?? choices[0])?.id ?? null, note };
+  return { choices, defaultId: (ready[0] ?? choices.find((c) => c.snapshot) ?? choices[0])?.id ?? null, note };
 }
 
 // ── Approve ─────────────────────────────────────────────────────────────────
@@ -130,6 +127,10 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
     const { choices } = await poolChoices(svc);
     const pick = choices.find((c) => c.id === poolLocationId);
     if (!pick) throw new Error("That clean account is not available anymore — pick another one");
+    // Hard stop, not a per-value "missing" later: the run fills EXISTING
+    // custom values and never creates them, so an account without the Demo
+    // snapshot fails every fill step (Clean New Account 78, 10/15/2026).
+    if (!pick.snapshot) throw new Error(`${pick.name} has no snapshot loaded — load it first (Onboarding → clean-account pool → "Load snapshot"), then Approve`);
     poolName = pick.name;
   }
 

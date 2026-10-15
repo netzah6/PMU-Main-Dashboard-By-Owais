@@ -346,6 +346,22 @@ export async function claimPoolAccount(
     throw new Error(`Location ${poolLocationId} is "${currentName}" — not an unclaimed pool account, refusing to touch it`);
   }
 
+  // Guard 3: the account must have its snapshot. The claim fills EXISTING
+  // custom values and never creates them, so a wiped account with none
+  // would be renamed and then fail every single value (Clean New Account
+  // 78 → Sally Nails And Spa, 10/15/2026). Refuse BEFORE the rename, with
+  // one clear message. A token failure is reported by the fill step below,
+  // as before — this guard only speaks when it can actually see the values.
+  {
+    const probe = await getAppLocationToken(poolLocationId);
+    if (probe.token) {
+      const have = await listCustomValues(poolLocationId, probe.token);
+      if (have.length === 0) {
+        throw new Error(`${currentName} has no snapshot loaded (0 custom values) — load it first (Onboarding → clean-account pool → "Load snapshot"), then try again`);
+      }
+    }
+  }
+
   const actions: ClaimAction[] = [];
 
   // 1. Rename the sub-account (+ contact details when provided).

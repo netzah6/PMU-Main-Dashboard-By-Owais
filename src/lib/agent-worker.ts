@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveClientLocation, describeStep, type PlanStep } from "@/lib/agent-exec";
 import { confirmToOwner } from "@/lib/agent-notify";
 import { onSetupProposalClosed, parseSetupConvId } from "@/lib/setup-run";
+import { onSnapshotProposalClosed, parseSnapshotConvId } from "@/lib/pool-snapshot";
 
 // ── AI agent, browser worker (owner, 2026-10-10) ─────────────────────────────
 // Every approved account change is done in a real Chrome on the Mac Mini, on
@@ -56,6 +57,11 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
     if (!retry && parseSetupConvId(r.conversation_id)) {
       try { await onSetupProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result, screenshots: [] }); } catch { /* the card still shows the failed card */ }
     }
+    // A pool snapshot load that died twice: the account stays "waiting for
+    // snapshot" with the reason, and the Cleanup tab can queue it again.
+    if (!retry && parseSnapshotConvId(r.conversation_id)) {
+      try { await onSnapshotProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result }); } catch { /* the pool row keeps its last note */ }
+    }
   }
 
   const { data: next } = await svc.from("agent_proposals").select("*")
@@ -68,7 +74,9 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
 
   let locationId = p.location_id;
   let business: string | null = null;
-  const setupRef = parseSetupConvId(p.conversation_id);
+  // Setup-run and pool-snapshot cards carry their location; "Clean New
+  // Account N" is not a client and has no Clients Master row to resolve.
+  const setupRef = parseSetupConvId(p.conversation_id) ?? parseSnapshotConvId(p.conversation_id);
   const loc = setupRef ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
   if (loc) { locationId = locationId || loc.locationId; business = loc.businessName || null; }
   if (!locationId) {
@@ -171,6 +179,14 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
     try { await onSetupProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result, screenshots: urls }); }
     catch { /* the card shows the step as still open; Refresh re-runs the engine */ }
     return { ok: true };
+  }
+
+  /* A pool snapshot load: mark the clean account ready (done) or keep it
+     "waiting for snapshot" with the reason. The owner still gets the usual
+     one text with the proof below — it is an account change like any other. */
+  if (parseSnapshotConvId(p.conversation_id)) {
+    try { await onSnapshotProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
+    catch { /* the next Re-check in the Cleanup tab marks it */ }
   }
 
   try {

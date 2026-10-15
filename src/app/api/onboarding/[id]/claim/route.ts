@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, setExistingCustomValue, type ClaimResult, type ClaimAction } from "@/lib/ghl-claim";
 import { createDepositProductFromForm } from "@/lib/deposit-product";
+import { listReadyPool } from "@/lib/ghl-cleanup";
 
 export const maxDuration = 60;
 
@@ -88,9 +89,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     let poolId = String(body.poolLocationId ?? "").trim();
     if (!poolId) {
-      const pool = await discoverPool();
-      if (!pool.length) return NextResponse.json({ error: "No unclaimed pool accounts available" }, { status: 409 });
-      poolId = pool[0].id;
+      // Default = the lowest-numbered READY account (snapshot loaded, no
+      // client data, A2P approved) — never just the first pool name in GHL,
+      // which since the Cleanup existed was usually a wiped, empty one.
+      const ready = await listReadyPool();
+      if (!ready.length) {
+        const pool = await discoverPool();
+        return NextResponse.json({ error: pool.length
+          ? `${pool.length} clean accounts exist but none is ready (no snapshot loaded, or A2P not approved) — see the pool in the Onboarding tab`
+          : "No unclaimed pool accounts available" }, { status: 409 });
+      }
+      poolId = ready[0].location_id;
     }
 
     const result = await claimPoolAccount(poolId, row.form as Record<string, string>);

@@ -1,5 +1,6 @@
 import { getAppAgencyToken, getAppLocationToken } from "@/lib/ghl-app";
 import { POOL_NAME_RE, discoverPool } from "@/lib/ghl-claim";
+import { poolReadiness } from "@/lib/pool-readiness";
 import { createServiceClient } from "@/lib/supabase/server";
 
 // Sub-account cleanup: wipe an offboarded client's location (contacts, custom
@@ -81,13 +82,34 @@ export type CleanupCounts = {
   funnels: number;
 };
 
+// Is the Demo snapshot on the account? The setup fills EXISTING "CC - "
+// custom values and the funnel rides on the template workflows, so these
+// are what "snapshot loaded" means — the same things the Mac Mini verifies
+// on screen after a load.
+export type SnapshotCheck = {
+  ccValues: number;          // custom values whose name starts "CC - "
+  fanbasisWorkflow: boolean; // "FanBasis to GHL workflow"
+  surveyWorkflow: boolean;   // "CC- Funnel Survey -> (V1 / V2 / V3)"
+  present: boolean;
+};
+
 export type InspectResult = {
   id: string;
   name: string;
   counts: CleanupCounts;
+  snapshot: SnapshotCheck;
   protected: boolean;
   isPool: boolean;
 };
+
+export function snapshotCheck(cvNames: string[], workflowNames: string[]): SnapshotCheck {
+  const ccValues = cvNames.filter((n) => /^cc\s*-/i.test(n.trim())).length;
+  const fanbasisWorkflow = workflowNames.some((n) => /fanbasis\s*to\s*ghl/i.test(n));
+  const surveyWorkflow = workflowNames.some((n) => /funnel\s*survey/i.test(n));
+  // Lenient on the workflow names (they may be renamed in a future snapshot):
+  // CC values plus at least one of the two template workflows.
+  return { ccValues, fanbasisWorkflow, surveyWorkflow, present: ccValues > 0 && (fanbasisWorkflow || surveyWorkflow) };
+}
 
 async function getJson(url: string, headers: Record<string, string>): Promise<Record<string, unknown>> {
   const r = await fetch(url, { headers });
@@ -157,6 +179,10 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
       pipelines: ((pipelines.pipelines as unknown[]) ?? []).length,
       funnels: funnels.funnels === null ? -1 : ((funnels.funnels as unknown[]) ?? []).length,
     },
+    snapshot: snapshotCheck(
+      ((cvs.customValues as Array<{ name?: string }>) ?? []).map((c) => String(c.name ?? "")),
+      ((workflows.workflows as Array<{ name?: string }>) ?? []).map((w) => String(w.name ?? "")),
+    ),
     protected: isProtectedLocation(locationId),
     isPool: POOL_NAME_RE.test(name),
   };
@@ -352,54 +378,54 @@ export type PoolRow = {
   first_seen_at: string;
   a2p: string; // "approved" | "pending" — A2P isn't in any API, so it's tracked by hand
   // Cleanliness, filled in by refreshPoolCleanliness(). null = never checked.
-  workflows: number | null; // automations left; deletable only by hand in GHL
-  dirty: number | null;     // contacts + values + fields + calendars + pipelines + funnels
+  workflows: number | null; // automations in it (the snapshot brings 18 — expected, not dirt)
+  dirty: number | null;     // CLIENT data left: contacts
   clean_checked_at: string | null;
   clean_note: string | null;
+  // Snapshot reload (supabase/pool-snapshot.sql, 10/15/2026). An account is
+  // offered for a setup only with snapshot_loaded_at set — see lib/pool-snapshot.
+  snapshot_task_id: string | null;   // latest Mac Mini card
+  snapshot_queued_at: string | null;
+  snapshot_loaded_at: string | null; // confirmed loaded (Mac Mini done, or a Re-check saw the template)
+  snapshot_note: string | null;
 };
 
-// Is this account actually safe to hand to a new client?
-//   ready   — nothing left in it and A2P approved
-//   partial — data is gone but automations remain, or A2P not approved yet
-//   dirty   — still holds real data
-//   unknown — never checked
-export type PoolReadiness = "ready" | "partial" | "dirty" | "unknown";
+// Readiness lives in lib/pool-readiness (pure, shared with the Cleanup tab).
+export { poolReadiness, poolBlocker, type PoolReadiness } from "@/lib/pool-readiness";
 
-export function poolReadiness(r: Pick<PoolRow, "workflows" | "dirty" | "a2p" | "clean_checked_at">): PoolReadiness {
-  if (r.clean_checked_at == null || r.workflows == null || r.dirty == null) return "unknown";
-  if (r.dirty > 0) return "dirty";
-  if (r.workflows > 0) return "partial";
-  return r.a2p === "approved" ? "ready" : "partial";
-}
-
-// Re-inspect pool accounts and store what's left in each. Batched by the
-// caller: one inspect is ~10 GHL calls, so checking the whole pool in a single
+// Re-inspect pool accounts and store what's in each. Batched by the caller:
+// one inspect is ~10 GHL calls, so checking the whole pool in a single
 // request would outrun the serverless limit.
+//
+// Dirt = the previous client's data (contacts). Custom values, fields,
+// calendars, pipelines and automations are what the Demo snapshot brings and
+// what a setup NEEDS, so seeing them marks the snapshot as loaded — that is
+// how the pre-provisioned accounts (4–50, created from the snapshot and
+// never wiped) and anything loaded by hand become ready without a Mac Mini
+// task. Seeing none clears the mark: the Mini's "done" never outranks what
+// the API shows.
 export async function refreshPoolCleanliness(locationIds: string[]): Promise<PoolRow[]> {
   const svc = createServiceClient();
   const now = new Date().toISOString();
+  const { data: before } = await svc.from("pool_accounts").select("location_id, snapshot_loaded_at, snapshot_task_id, snapshot_note").in("location_id", locationIds);
+  const prior = new Map(((before ?? []) as Array<Pick<PoolRow, "location_id" | "snapshot_loaded_at" | "snapshot_task_id" | "snapshot_note">>).map((r) => [r.location_id, r]));
   const results = await Promise.all(
     locationIds.map(async (id) => {
+      const was = prior.get(id);
       try {
         const inspect = await inspectLocation(id);
         const c = inspect.counts;
-        const funnels = c.funnels > 0 ? c.funnels : 0; // -1 = unreadable, can't be counted as dirt
-        const dirty = c.contacts + c.customValues + c.customFields + c.calendars + c.pipelines + funnels;
+        const s = inspect.snapshot;
+        const dirty = c.contacts;
         const bits: string[] = [];
-        if (c.contacts) bits.push(`${c.contacts} contacts`);
-        if (c.customValues) bits.push(`${c.customValues} custom values`);
-        if (c.customFields) bits.push(`${c.customFields} custom fields`);
-        if (c.calendars) bits.push(`${c.calendars} calendars`);
-        if (c.pipelines) bits.push(`${c.pipelines} pipelines`);
-        if (funnels) bits.push(`${funnels} funnels`);
-        if (c.workflows) bits.push(`${c.workflows} automations`);
-        return {
-          location_id: id,
-          workflows: c.workflows,
-          dirty,
-          clean_checked_at: now,
-          clean_note: bits.length ? `${bits.join(", ")} left` : "empty",
-        };
+        if (c.contacts) bits.push(`${c.contacts} contacts left`);
+        if (s.present) bits.push(`snapshot ✓ ${s.ccValues} CC values, ${c.workflows} automations`);
+        else if (c.customValues || c.workflows) bits.push(`${c.customValues} custom values, ${c.workflows} automations — not the Demo snapshot`);
+        else bits.push("empty — waiting for snapshot");
+        const snapshot: Partial<PoolRow> = s.present
+          ? (was?.snapshot_loaded_at ? {} : { snapshot_loaded_at: now, snapshot_note: `snapshot found on Re-check ${new Date(now).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}` })
+          : (was?.snapshot_loaded_at ? { snapshot_loaded_at: null, snapshot_note: `✗ Re-check sees no snapshot (${s.ccValues} CC values, ${c.workflows} automations) — load it again` } : {});
+        return { location_id: id, workflows: c.workflows, dirty, clean_checked_at: now, clean_note: bits.join(" · "), ...snapshot };
       } catch (e) {
         return {
           location_id: id, workflows: null, dirty: null, clean_checked_at: now,
@@ -409,13 +435,21 @@ export async function refreshPoolCleanliness(locationIds: string[]): Promise<Poo
     })
   );
   for (const r of results) {
-    await svc.from("pool_accounts").update({
-      workflows: r.workflows, dirty: r.dirty,
-      clean_checked_at: r.clean_checked_at, clean_note: r.clean_note,
-    }).eq("location_id", r.location_id);
+    const { location_id, ...upd } = r;
+    await svc.from("pool_accounts").update(upd).eq("location_id", location_id);
   }
   const { data } = await svc.from("pool_accounts").select("*").in("location_id", locationIds);
   return (data ?? []) as PoolRow[];
+}
+
+// The accounts a setup may take right now: snapshot loaded, no client data,
+// A2P approved — lowest number first.
+export async function listReadyPool(): Promise<PoolRow[]> {
+  const svc = createServiceClient();
+  const { data } = await svc.from("pool_accounts").select("*").eq("status", "available");
+  const rows = (data ?? []) as PoolRow[];
+  const num = (n: string) => Number(n.replace(/\D+/g, "")) || 0;
+  return rows.filter((r) => poolReadiness(r) === "ready").sort((a, b) => num(a.pool_name) - num(b.pool_name));
 }
 
 // A2P registration status isn't exposed anywhere in GHL's API (checked the

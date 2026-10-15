@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { poolReadiness, syncPool, type PoolRow } from "@/lib/ghl-cleanup";
+import { poolBlocker, poolReadiness, syncPool, type PoolRow } from "@/lib/ghl-cleanup";
 
 export const maxDuration = 60;
 
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const rows = (data ?? []) as PoolRow[];
+  // Ready = snapshot loaded + no client data + A2P approved (lib/pool-readiness).
   const withState = rows.map((r) => ({
     location_id: r.location_id,
     pool_name: r.pool_name,
@@ -50,14 +51,11 @@ export async function GET(req: NextRequest) {
     workflows: r.workflows,
     clean_note: r.clean_note,
     clean_checked_at: r.clean_checked_at,
+    snapshot_loaded_at: r.snapshot_loaded_at,
+    snapshot_note: r.snapshot_note,
     readiness: poolReadiness(r),
     // Why this one isn't offered, in the words the team would use.
-    blocker:
-      poolReadiness(r) === "ready" ? null
-        : r.clean_checked_at == null ? "not checked yet"
-          : (r.dirty ?? 0) > 0 ? `still has data — ${r.clean_note}`
-            : (r.workflows ?? 0) > 0 ? `${r.workflows} automations still in it`
-              : "A2P not confirmed",
+    blocker: poolBlocker(r),
   }));
 
   // Sort so the lowest-numbered ready account is the obvious one to take next.
