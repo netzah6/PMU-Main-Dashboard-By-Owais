@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { GhlNotes } from "./GhlNotes";
 import { StepTracker } from "./StepTracker";
-import { ActivityTabs } from "./ActivityTabs";
+import { ActivityTabs, RangePicker, type Range } from "./ActivityTabs";
 import { formatCurrency, formatPercent, userColor, cn } from "@/lib/utils";
 import type { ClientRecord, PaymentRecord, UserRole } from "@/lib/types";
 
@@ -76,6 +76,7 @@ export function ClientProfile({
   client, role, deposits, bookings, leads, calls, performance, payment, onUpdate,
 }: ClientProfileProps) {
   const [localClient, setLocalClient] = useState<ClientRecord>(client);
+  const [activityRange, setActivityRange] = useState<Range>("all"); // 7/14/30/All, shown in the Activity title line
   /* Media buyers = admins + media_buyer users with a team name on Settings
      (owner, 2026-10-13). Falls back to the old fixed list until it loads. */
   const [mediaBuyers, setMediaBuyers] = useState<string[] | null>(null);
@@ -611,13 +612,15 @@ export function ClientProfile({
       <div className="px-3 sm:px-6 py-3 sm:py-4 space-y-3 sm:space-y-5">
 
         {/* Activity */}
-        <Section icon={null} title="Activity — Deposits, Bookings, Leads & Calls">
+        <Section icon={null} title="Activity — Deposits, Bookings, Leads & Calls" actions={<RangePicker range={activityRange} onChange={setActivityRange} />}>
           <ActivityTabs
             clientName={String(localClient.business_name ?? "")}
             deposits={deposits}
             bookings={bookings}
             leads={leads}
             calls={calls}
+            range={activityRange}
+            onRangeChange={setActivityRange}
           />
         </Section>
 
@@ -679,13 +682,14 @@ export function ClientProfile({
   );
 }
 
-function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Section({ icon, title, actions, children }: { icon: React.ReactNode; title: string; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="border border-[#e4ebf2] rounded-xl p-4 bg-white">
       {title && (
-        <h3 className="text-sm font-semibold text-[#34568a] mb-3 flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-[#34568a] mb-3 flex items-center gap-2 flex-wrap">
           {icon}
           {title}
+          {actions && <span className="ml-auto">{actions}</span>}
         </h3>
       )}
       {children}

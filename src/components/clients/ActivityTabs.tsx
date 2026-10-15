@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { formatDate, formatCurrency, sortNewestFirst, cn } from "@/lib/utils";
 
-type Range = "7" | "14" | "30" | "all";
+export type Range = "7" | "14" | "30" | "all";
 
 // Parse DD/MM/YYYY, MM/DD/YYYY, or ISO dates into a timestamp for range filtering.
 function parseMs(s: string): number {
@@ -89,10 +89,32 @@ interface ActivityTabsProps {
   bookings: Record<string, unknown>[];
   leads: Record<string, unknown>[];
   calls: Record<string, unknown>[];
+  /** Parent-owned range (then the picker is not rendered here). */
+  range?: Range;
+  onRangeChange?: (r: Range) => void;
 }
 
-export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: ActivityTabsProps) {
-  const [range, setRange] = useState<Range>("all");
+/* The 7/14/30/All buttons. Rendered by ActivityTabs itself unless the parent
+   owns the range (then it sits in the section's title line — owner request
+   2026-10-15: one line instead of two). */
+export function RangePicker({ range, onChange }: { range: Range; onChange: (r: Range) => void }) {
+  return (
+    <div className="flex gap-1.5">
+      {([["7", "7 Days"], ["14", "14 Days"], ["30", "30 Days"], ["all", "All Time"]] as const).map(([val, label]) => (
+        <button key={val} onClick={() => onChange(val)}
+          className={cn("px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors",
+            range === val ? "bg-[#15B7AE] text-white border-[#15B7AE]" : "bg-white text-[#697a91] border-[#e4ebf2] hover:bg-[#f1f5f9]")}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function ActivityTabs({ clientName, deposits, bookings, leads, calls, range: outerRange, onRangeChange }: ActivityTabsProps) {
+  const [innerRange, setInnerRange] = useState<Range>("all");
+  const range = outerRange ?? innerRange;
+  const setRange = onRangeChange ?? setInnerRange;
   const normalize = (name: string) => name.toLowerCase().trim();
   const cn2 = normalize(clientName);
 
@@ -119,16 +141,8 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls }: A
 
   return (
     <div className="space-y-3">
-      {/* Date-range filter */}
-      <div className="flex gap-1.5">
-        {([["7", "7 Days"], ["14", "14 Days"], ["30", "30 Days"], ["all", "All Time"]] as const).map(([val, label]) => (
-          <button key={val} onClick={() => setRange(val)}
-            className={cn("px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors",
-              range === val ? "bg-[#15B7AE] text-white border-[#15B7AE]" : "bg-white text-[#697a91] border-[#e4ebf2] hover:bg-[#f1f5f9]")}>
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Date-range filter (only when the parent doesn't show it in its title line) */}
+      {outerRange === undefined && <RangePicker range={range} onChange={setRange} />}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <Column
