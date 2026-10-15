@@ -169,6 +169,36 @@ export function ClientProfile({
 
   const rowNumber = Number(localClient._row_number ?? localClient.row_number ?? 0);
 
+  /* "Set up account" (admin, 10/15/2026): only for a client who has no
+     GoHighLevel sub-account yet. Opens (or creates) their Onboarding card,
+     pre-filled from this sheet row; the approval and the run live there. */
+  const [setupInfo, setSetupInfo] = useState<{ eligible: boolean; card: { id: string; approved: boolean } | null } | null>(null);
+  const [setupBusy, setSetupBusy] = useState(false);
+  const setupOwner = String(localClient.owner_name ?? "").trim();
+  useEffect(() => {
+    setSetupInfo(null);
+    if (role !== "admin" || (!setupOwner && !tzBusiness)) return;
+    let cancelled = false;
+    fetch(`/api/onboarding/setup-start?owner=${encodeURIComponent(setupOwner)}&business=${encodeURIComponent(tzBusiness)}`)
+      .then((r) => r.json())
+      .then((j) => { if (!cancelled) setSetupInfo({ eligible: !!j.eligible, card: j.card ?? null }); })
+      .catch(() => { if (!cancelled) setSetupInfo({ eligible: false, card: null }); });
+    return () => { cancelled = true; };
+  }, [role, setupOwner, tzBusiness]);
+  const startSetup = useCallback(async () => {
+    if (setupBusy) return;
+    setSetupBusy(true);
+    try {
+      const r = await fetch("/api/onboarding/setup-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rowNumber, owner: setupOwner, business: tzBusiness }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Could not open the setup");
+      window.location.href = `/onboarding?open=${encodeURIComponent(j.id)}`;
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+      setSetupBusy(false);
+    }
+  }, [setupBusy, rowNumber, setupOwner, tzBusiness]);
+
   const perfRecord = performance.find(
     (p) => String(p.client_name ?? "").toLowerCase() === String(localClient.business_name ?? "").toLowerCase()
   ) as Record<string, unknown> | undefined;
@@ -404,6 +434,13 @@ export function ClientProfile({
                 className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] hover:bg-[#e6f7f5] transition-colors">
                 <MessageSquare size={12} /> Click To Chat
               </a>
+            )}
+            {role === "admin" && setupInfo && (setupInfo.eligible || setupInfo.card) && !editMode && (
+              <button onClick={() => void startSetup()} disabled={setupBusy}
+                title={setupInfo.card ? "Open this client's Onboarding card and setup run" : "No GoHighLevel account yet — open the Onboarding card, approve, and the dashboard + Mac Mini set it up"}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#4f46e5] hover:bg-[#4338ca] text-white transition-colors disabled:opacity-60">
+                {setupBusy ? <Loader2 size={12} className="animate-spin" /> : "🧩"} {setupInfo.card ? (setupInfo.card.approved ? "Setup run" : "Continue setup") : "Set up account"}
+              </button>
             )}
             {canEdit && !editMode && (
               <button onClick={openEdit}

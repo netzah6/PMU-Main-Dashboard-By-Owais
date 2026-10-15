@@ -88,3 +88,15 @@ export async function confirmToOwner(
   const r = await sendConversationMessage(acct, { contactId: s.contactId, message, channel: "SMS", ...(screenshots.length ? { attachments: screenshots } : {}) });
   return r.ok ? { sent: true, note: `texted ${s.phone}` } : { sent: false, note: `text failed: ${r.error}` };
 }
+
+// ── One plain text to the owner (the New Client Setup run's pauses) ─────────
+// "Step 9 needs you: buy the phone number" with the Approve link. Same
+// settings and sender as the confirmations; never throws.
+export async function textOwner(svc: Svc, message: string, attachments: string[] = []): Promise<{ sent: boolean; note: string }> {
+  const s = await getNotifySettings(svc);
+  if (!s || !s.enabled) return { sent: false, note: "owner notifications not set up" };
+  const acct = await getReplyAccount();
+  if (!acct) return { sent: false, note: "main account token unavailable" };
+  const r = await sendConversationMessage(acct, { contactId: s.contactId, message: message.slice(0, 900), channel: "SMS", ...(attachments.length ? { attachments } : {}) });
+  return r.ok ? { sent: true, note: `texted ${s.phone}` } : { sent: false, note: `text failed: ${r.error}` };
+}

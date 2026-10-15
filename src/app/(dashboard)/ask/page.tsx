@@ -907,7 +907,9 @@ type AgentProposal = {
   files?: Array<{ name: string; url: string; bytes?: number }> | null; // documents the Mac Mini produced
 };
 // Typed by a teammate on the Agent panel — no chat behind it.
-const isTask = (p: { conversation_id: string }) => p.conversation_id.startsWith("task:");
+// …or filed by the New Client Setup run ("setup:<card>:<step>") — no chat either.
+const isTask = (p: { conversation_id: string }) => p.conversation_id.startsWith("task:") || p.conversation_id.startsWith("setup:");
+const isSetup = (p: { conversation_id: string }) => p.conversation_id.startsWith("setup:");
 type WorkerBeat = { at: string; host?: string } | null;
 type ScanLog = { at: string; unread: number; scanned: number; filed: number; closed?: number; skipped: Array<{ who: string; why: string }>; errors: string[]; notify?: { sent: boolean; note: string } };
 // What a card tells the page so it can keep the shared list in step.
@@ -1268,7 +1270,7 @@ function ProposalCard({ p, onPhase, focused, reply: keptReply, amounts: keptAmou
   // itself before Approve (owner, 2026-10-01): what the client asked, then
   // exactly what Approve will do, in order. The client's own words and the
   // AI's notes sit behind "details".
-  const tag = sensitive ? "💰 money" : linkStep ? "💳 payment links" : isTask(p) ? "📝 team task" : p.action_type === "account_change" ? "🔧 change" : "💬 reply";
+  const tag = sensitive ? "💰 money" : linkStep ? "💳 payment links" : isSetup(p) ? "🧩 new client setup" : isTask(p) ? "📝 team task" : p.action_type === "account_change" ? "🔧 change" : "💬 reply";
   const change = (p.action_detail ?? "").replace(/^SENSITIVE:\s*/, "");
   // In the order executeProposal runs them. The client is never texted.
   const willDo: string[] = [];

@@ -113,6 +113,7 @@ export type SetupState = {
   status: "running" | "waiting" | "done" | "failed";
   steps: Record<string, StepState>;
   busy_at?: string | null;   // the dashboard is running API steps (lock)
+  busy_token?: string | null;
   // Facts the later steps need, gathered as the run goes.
   slug?: string;
   funnel_url?: string;
@@ -245,7 +246,7 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Open ${funnel} in a new tab. Fill the survey as a test lead: name "Setup Test ${new Date().toLocaleDateString("en-US")}", email setup.test.${Date.now()}@pmu-bookings.com, phone +1 (929) 555-01${String(Math.floor(Math.random() * 90) + 10)}. Pick any answers and a time slot; stop at the deposit page (do NOT pay).`,
       `Confirm the deposit page loads with the Commas checkout box. Screenshot it.`,
       `In GHL open ${ghl(L, "contacts")} and find the test contact. Confirm it has the tag "onebox-survey" and that the "CC - Funnel Survey" workflow fired (Conversations shows the first AI text within ~2 minutes). Screenshot the contact.`,
-      `Then DELETE that test contact (and only it). Report what worked and what did not.`,
+      `Then DELETE that test contact (and only it). If a contact "Router Test" (router.test.pmu@example.com) exists from the payment-route test, delete that one too. Report what worked and what did not.`,
     ];
     case "last_profile": return [
       `Open ${ghl(L, "settings/business_info")} (Business Profile). Check: logo/profile image uploaded, business name "${biz}", address "${address}", phone, website/Instagram filled.`,

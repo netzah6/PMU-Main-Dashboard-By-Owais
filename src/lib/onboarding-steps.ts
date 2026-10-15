@@ -146,6 +146,14 @@ export const FORM_FIELDS: { key: string; label: string; required?: boolean; long
   { key: "gmb_link", label: "Google My Business", heading: "🔗 Links" },
   { key: "ig_link", label: "Instagram Page" },
   { key: "fb_link", label: "Facebook Page" },
+  // New Client Setup run (10/15/2026): who owns the client on the dashboard,
+  // and what the funnel steps need. Pre-filled from the Clients Master row
+  // when the card is opened from the Clients tab.
+  { key: "assigned", label: "Assigned coach", heading: "🧩 Setup run" },
+  { key: "media_buyer", label: "Media buyer" },
+  { key: "old_funnel_url", label: "Old funnel URL (for the pixel + redirect)" },
+  { key: "meta_pixel_id", label: "Meta Pixel ID (if known)" },
+  { key: "connect_caller_id", label: "Connect the client's Caller ID? (yes / no)" },
   { key: "years_in_business", label: "Years in Business", heading: "📘 V3 Details" },
   { key: "business_hours", label: "Business Hours" },
   { key: "first_touchup", label: "When is the first touch-up?" },
