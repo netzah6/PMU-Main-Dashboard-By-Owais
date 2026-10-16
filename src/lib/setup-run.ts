@@ -7,7 +7,7 @@ import {
 import { poolBlocker, poolReadiness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
 import { createDepositProductFromForm } from "@/lib/deposit-product";
 import { addOneboxFunnel, FUNNEL_ORIGIN } from "@/lib/onebox-add";
-import { harvestFirstPixel, setDepositFunnelUrl } from "@/lib/onebox";
+import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl } from "@/lib/onebox";
 import { buildReplayPayload, isValidHookUrlForLocation, replayToClientHook } from "@/lib/payment-router";
 import { verifyOnboarding } from "@/lib/onboarding-verify";
 import { writeRowToSheet, getSheetEntryForTable } from "@/lib/sheets";
@@ -227,6 +227,7 @@ async function runApiStep(svc: Svc, ob: Ob, step: RunbookStep): Promise<void> {
     if (out.status === "done" || out.status === "warn") tick(checklist, step.checklist, DASHBOARD);
     return { setup: o.setup, checklist, ...(out.form ? { form: { ...o.form, ...out.form } } : {}), ...(out.claim ? { claim: out.claim } : {}) };
   });
+  if (["account_cvs", "cal_id", "product", "funnel_create"].includes(step.key)) await refreshCard(svc, ob.id);
 }
 
 /* Pre-live check (V3 one-box): the "CC -" values the AI and the funnel read
@@ -591,7 +592,19 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
     } catch (e) { notes.push(`✗ custom value: ${errMsg(e)}`); }
     await patch(svc, ref.onboardingId, (o) => { if (!o.setup) return; const st = o.setup.steps[ref.key]; setStep(o.setup, ref.key, { status: st.status, note: `${st.note ?? ""}\n${notes.join(" · ")}`.trim() }); return { setup: o.setup }; });
   }
+  if (ok && ref.key === "webhook_url") await refreshCard(svc, ref.onboardingId);
   await advanceSetup(svc, ref.onboardingId).catch(() => undefined);
+}
+
+/* The Funnels card (onebox_clients.config) is a copy of the sub-account's
+   custom values taken when the funnel was created — before steps 3/6/7/24
+   filled them, so Sally's card showed Calendar ID, product ID and webhook
+   URL empty (10/16/2026). Re-copy after each of those steps. */
+async function refreshCard(svc: Svc, onboardingId: string): Promise<void> {
+  const ob = await loadOb(svc, onboardingId).catch(() => null);
+  const slug = ob?.setup?.slug;
+  if (!slug || !ob?.setup?.location_id) return;
+  try { await refreshOneboxConfig(svc, slug, ob.setup.location_id); } catch { /* the card's Sync button does the same */ }
 }
 
 /* Live card statuses for the steps that have one (the AI tab card may have

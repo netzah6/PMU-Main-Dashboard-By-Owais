@@ -80,6 +80,20 @@ export async function createDepositProduct(title: string, amountCents: number): 
   return { productId, checkoutUrl, raw: j };
 }
 
+/* Every product on the Commas account (paged). Read-only, so it uses the
+   read fallback key. */
+export async function listProducts(): Promise<Array<{ id: string; title: string; price: string; checkout_url?: string }>> {
+  const out: Array<{ id: string; title: string; price: string; checkout_url?: string }> = [];
+  for (let page = 1; page <= 50; page++) {
+    const r = await getWithFallback(`${BASE}/products?page=${page}&per_page=100`);
+    if (!r.ok) throw new Error(`Commas products HTTP ${r.status}`);
+    const j = JSON.parse(await r.text()) as { data?: { data?: Array<Record<string, unknown>>; last_page?: number } };
+    for (const p of j.data?.data ?? []) out.push({ id: String(p.id ?? ""), title: String(p.title ?? ""), price: String(p.price ?? ""), checkout_url: p.checkout_url ? String(p.checkout_url) : undefined });
+    if (page >= (j.data?.last_page ?? 1)) break;
+  }
+  return out;
+}
+
 // Build a live, shareable Fanbasis product checkout link. There is no API that
 // returns the hosted commas.com/checkout/{slug} link, so we reproduce exactly
 // what the funnel's deposit page does: POST to the embedded-checkout endpoint
