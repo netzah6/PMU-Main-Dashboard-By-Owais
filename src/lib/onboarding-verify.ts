@@ -98,14 +98,14 @@ const STATE_CODES: Record<string, number[]> = {
   WA: [206, 253, 360, 425, 509, 564], WV: [304, 681], WI: [262, 274, 414, 534, 608, 715, 920],
   WY: [307], PR: [787, 939],
 };
-const AREA_STATE: Record<string, string> = {};
+export const AREA_STATE: Record<string, string> = {};
 for (const [st, codes] of Object.entries(STATE_CODES)) for (const c of codes) AREA_STATE[String(c)] = st;
 
 // US state → acceptable IANA timezones for the sub-account's Business Profile.
 // Split states list every zone that crosses them, so a correct setting on
 // either side of the line passes.
 const ET = "America/New_York", CT_ = "America/Chicago", MT = "America/Denver", PT = "America/Los_Angeles";
-const STATE_TZ: Record<string, string[]> = {
+export const STATE_TZ: Record<string, string[]> = {
   CT: [ET], ME: [ET], MA: [ET], NH: [ET], NJ: [ET], NY: [ET], RI: [ET], VT: [ET], DE: [ET], MD: [ET], DC: [ET],
   VA: [ET], WV: [ET], NC: [ET], SC: [ET], GA: [ET], OH: [ET], PA: [ET],
   MI: [ET, "America/Detroit", CT_, "America/Menominee"],

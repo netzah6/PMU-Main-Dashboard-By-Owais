@@ -1,4 +1,5 @@
 import { getAppLocationToken, getAppAgencyToken } from "@/lib/ghl-app";
+import { AREA_STATE, STATE_TZ } from "@/lib/onboarding-verify";
 
 // Claim automation: turn a pre-provisioned "Clean New Account N" pool
 // sub-account into a new client's account — rename it and fill its custom
@@ -380,8 +381,14 @@ export async function claimPoolAccount(
   const updates: Record<string, string> = { name: businessName };
   if (String(form.email ?? "").trim()) updates.email = form.email.trim();
   if (String(form.phone ?? "").trim()) updates.phone = form.phone.trim();
+  // Business Profile address + time zone from the studio address: a recycled
+  // account keeps the OLD client's (Sally got Mesquite, TX), and every SMS and
+  // booking time renders in that zone.
+  const profile = await profileFromAddress(String(form.address ?? ""), String(form.phone ?? ""));
+  Object.assign(updates, profile.fields);
   await renameLocation(poolLocationId, updates);
   actions.push({ action: `Renamed "${currentName}" → "${businessName}"`, ok: true });
+  actions.push({ action: `Business profile → ${profile.summary}`, ok: profile.ok, detail: profile.ok ? undefined : profile.summary });
 
   // 2–4. Custom values, treated areas, calendar ID — unless the caller fills
   //      them later (the setup run does it as its own steps 3 and 24).
@@ -482,6 +489,50 @@ export async function fillCalendarId(poolLocationId: string): Promise<ClaimActio
   }
 
   return actions;
+}
+
+/* Studio address → GHL Business Profile fields + IANA time zone. The US
+   Census geocoder (free, no key) splits street / city / state / zip; if it
+   finds nothing, the zip + 2-letter state at the end are parsed and the rest
+   is kept as the street. The time zone comes from the state, else from the
+   business phone's area code. */
+export async function profileFromAddress(address: string, phone = ""): Promise<{ ok: boolean; fields: Record<string, string>; summary: string }> {
+  const raw = address.replace(/\s+/g, " ").trim();
+  const fields: Record<string, string> = {};
+  const title = (t: string) => t.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+  if (raw) {
+    try {
+      const u = `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?benchmark=Public_AR_Current&format=json&address=${encodeURIComponent(raw)}`;
+      const r = await fetch(u, { signal: AbortSignal.timeout(8000) });
+      const j = (await r.json()) as { result?: { addressMatches?: Array<{ addressComponents?: Record<string, string> }> } };
+      const c = j.result?.addressMatches?.[0]?.addressComponents;
+      if (c?.state && c.zip) {
+        const num = (raw.match(/^\s*(\d+[A-Za-z-]*)/) ?? [])[1] ?? "";
+        const street = [num, c.preDirection, c.preType && title(c.preType), title(c.streetName ?? ""), c.suffixType && title(c.suffixType), c.suffixDirection].filter(Boolean).join(" ");
+        Object.assign(fields, { address: street || raw, city: title(c.city ?? ""), state: c.state.toUpperCase(), postalCode: c.zip, country: "US" });
+      }
+    } catch { /* fall back to parsing */ }
+    if (!fields.state) {
+      const m = raw.match(/^(.*?)[\s,]+([A-Za-z]{2})[\s,]+(\d{5})(?:-\d{4})?\s*(?:,?\s*(?:US|USA|United States))?$/i);
+      if (m && STATE_TZ[m[2].toUpperCase()]) Object.assign(fields, { address: m[1].replace(/,\s*$/, ""), state: m[2].toUpperCase(), postalCode: m[3], country: "US" });
+    }
+  }
+  const digits = phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  const state = fields.state || AREA_STATE[digits.slice(0, 3)] || "";
+  const tz = STATE_TZ[state]?.[0];
+  if (tz) fields.timezone = tz;
+  if (!fields.address && !tz) return { ok: false, fields, summary: "could not read the studio address or area code — set address and time zone by hand (Settings → Business Profile)" };
+  const where = [fields.address, fields.city, [fields.state, fields.postalCode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return { ok: !!tz && !!fields.address, fields, summary: `${where || "(address not parsed)"} · time zone ${tz ?? "not set"}` };
+}
+
+/* Re-apply the Business Profile address + time zone on an account already
+   taken (Retry of step 2, or an account claimed before this existed). */
+export async function setLocationProfile(locationId: string, form: Record<string, string>): Promise<ClaimAction> {
+  const profile = await profileFromAddress(String(form.address ?? ""), String(form.phone ?? ""));
+  if (!Object.keys(profile.fields).length) return { action: "Business profile", ok: false, detail: profile.summary };
+  await renameLocation(locationId, profile.fields);
+  return { action: `Business profile → ${profile.summary}`, ok: profile.ok, detail: profile.ok ? undefined : profile.summary };
 }
 
 // Un-claim (testing / mistakes): rename the account back to its recorded pool
