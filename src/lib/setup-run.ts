@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import {
-  claimPoolAccount, fillAccountValues, fillCalendarId, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
+  claimPoolAccount, fillAccountValues, fillCalendarId, setLocationProfile, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
   employeePassword, findLocationUserByEmail, setUserPassword, slugify, type ClaimResult, type ClaimAction,
 } from "@/lib/ghl-claim";
 import { poolBlocker, poolReadiness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
@@ -270,14 +270,19 @@ const API_STEPS: Record<string, StepFn> = {
     const claim = { ...result, claimed_at: now(), claimed_by: `${setup.approved_by} (setup run)` };
     await patch(svc, ob.id, (o) => {
       if (!o.setup) return;
-      setStep(o.setup, "account_info", { status: "done", who: DASHBOARD, note: `name${ob.form.email ? ", email" : ""}${ob.form.phone ? ", phone" : ""} set on the sub-account` });
+      const prof = result.actions.find((a) => a.action.startsWith("Business profile"));
+      setStep(o.setup, "account_info", { status: prof && !prof.ok ? "warn" : "done", who: DASHBOARD, note: `name${ob.form.email ? ", email" : ""}${ob.form.phone ? ", phone" : ""} set on the sub-account${prof ? `\n${prof.ok ? "✓" : "⚠"} ${prof.action}` : ""}` });
       const checklist = { ...o.checklist };
       tick(checklist, stepByKey("account_info")?.checklist, DASHBOARD);
       return { setup: o.setup, checklist };
     });
     return { status: "done", note: `Renamed "${result.original_name}" → "${result.business_name}"`, claim };
   },
-  account_info: async () => ({ status: "done", note: "set with the rename" }),
+  /* 2 · Retry: re-apply the Business Profile address + time zone. */
+  account_info: async (_svc, ob) => {
+    const a = await setLocationProfile(ob.setup!.location_id, ob.form);
+    return { status: a.ok ? "done" : "warn", note: `${a.ok ? "✓" : "⚠"} ${a.action}${a.detail && a.detail !== a.action ? ` — ${a.detail}` : ""}` };
+  },
 
   /* 3 · "CC -" custom values from the client's record (the card's form,
      pre-filled from the Clients tab). Fills existing values only; an account
