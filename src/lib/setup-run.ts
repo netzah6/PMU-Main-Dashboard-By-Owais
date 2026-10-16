@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import {
-  claimPoolAccount, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
+  claimPoolAccount, fillAccountValues, fillCalendarId, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
   employeePassword, findLocationUserByEmail, setUserPassword, slugify, type ClaimResult, type ClaimAction,
 } from "@/lib/ghl-claim";
 import { poolBlocker, poolReadiness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
@@ -199,7 +199,7 @@ const done = (ob: Ob, key: string) => isSettled(stepState(ob.setup, key));
 function prereqsMet(ob: Ob, s: RunbookStep): boolean {
   switch (s.key) {
     case "account_take": case "master_row": return true;
-    case "account_info": case "account_cvs": case "cal_id": return done(ob, "account_take"); // filled in by the claim itself
+    case "account_info": case "account_cvs": case "cal_id": return done(ob, "account_take");
     case "connector": case "product": case "funnel_create": return done(ob, "account_take");
     case "funnel_pixel": return done(ob, "funnel_create");
     case "route_test": return done(ob, "webhook_url") && done(ob, "product") && !!ob.setup?.hook_url;
@@ -234,25 +234,17 @@ type StepFn = (svc: Svc, ob: Ob) => Promise<{ status: StepState["status"]; note:
 const lines = (acts: ClaimAction[]) => acts.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
 
 const API_STEPS: Record<string, StepFn> = {
-  /* 1 + 2 + 3 + 24 in one GHL pass — the existing Claim code: rename the pool
-     account, set email/phone, fill the "CC -" custom values (existing only),
-     treated-areas options, the Transformation calendar ID. The employee user
-     is NOT created here (step 14 asks the owner first). */
+  /* 1 + 2 · Take the pool account: rename it and set email/phone. The
+     employee user is NOT created here (step 14 asks the owner first), and the
+     custom values are steps 3 and 24 — their own steps so a Retry re-fills
+     them once the template is in (Sally Nails And Spa, 10/16/2026). */
   account_take: async (svc, ob) => {
     const setup = ob.setup!;
-    const result = await claimPoolAccount(setup.location_id, ob.form, { skipUser: true });
+    const result = await claimPoolAccount(setup.location_id, ob.form, { skipUser: true, skipValues: true });
     const claim = { ...result, claimed_at: now(), claimed_by: `${setup.approved_by} (setup run)` };
-    const cvActs = result.actions.filter((a) => !/^Renamed|^Calendar ID|^Treated areas/.test(a.action));
-    const missing = cvActs.filter((a) => !a.ok);
-    const cal = result.actions.find((a) => a.action.startsWith("Calendar ID"));
-    // Sub-steps 2, 3 and 24 are settled from the same actions.
     await patch(svc, ob.id, (o) => {
       if (!o.setup) return;
       setStep(o.setup, "account_info", { status: "done", who: DASHBOARD, note: `name${ob.form.email ? ", email" : ""}${ob.form.phone ? ", phone" : ""} set on the sub-account` });
-      setStep(o.setup, "account_cvs", missing.length
-        ? { status: "warn", who: DASHBOARD, note: `${cvActs.length - missing.length} of ${cvActs.length} filled. 🔴 MISSING — the team creates these by hand in GHL, then Retry:\n${lines(missing)}` }
-        : { status: "done", who: DASHBOARD, note: `${cvActs.length} custom values filled` });
-      setStep(o.setup, "cal_id", cal ? { status: cal.ok ? "done" : "failed", who: DASHBOARD, note: `${cal.action}${cal.detail ? ` — ${cal.detail}` : ""}`, error: cal.ok ? undefined : cal.detail } : { status: "failed", who: DASHBOARD, note: "no calendar found on the account", error: "no calendar" });
       const checklist = { ...o.checklist };
       tick(checklist, stepByKey("account_info")?.checklist, DASHBOARD);
       return { setup: o.setup, checklist };
@@ -260,8 +252,30 @@ const API_STEPS: Record<string, StepFn> = {
     return { status: "done", note: `Renamed "${result.original_name}" → "${result.business_name}"`, claim };
   },
   account_info: async () => ({ status: "done", note: "set with the rename" }),
-  account_cvs: async () => ({ status: "done", note: "filled with the rename" }),
-  cal_id: async () => ({ status: "done", note: "set with the rename" }),
+
+  /* 3 · "CC -" custom values from the client's record (the card's form,
+     pre-filled from the Clients tab). Fills existing values only; an account
+     with none means the template isn't loaded yet → red, Retry after it is.
+     The values it overwrote are kept on the claim so Un-claim restores them. */
+  account_cvs: async (_svc, ob) => {
+    const have = await listLocationCustomValues(ob.setup!.location_id);
+    if (!have.length) return { status: "failed", note: "the account has no custom values — the template (snapshot) is not loaded yet. Load it, then Retry" };
+    const acts = await fillAccountValues(ob.setup!.location_id, ob.form);
+    const missing = acts.filter((a) => !a.ok);
+    const claim = ob.claim ? { ...ob.claim, actions: [...ob.claim.actions, ...acts.filter((a) => a.ok)] } : undefined;
+    return missing.length
+      ? { status: "warn", note: `${acts.length - missing.length} of ${acts.length} filled. 🔴 MISSING — the team creates these by hand in GHL, then Retry:\n${lines(missing)}`, claim }
+      : { status: "done", note: `${acts.length} custom values filled from the client's record`, claim };
+  },
+
+  /* 24 · Transformation calendar ID → its custom value. */
+  cal_id: async (_svc, ob) => {
+    const acts = await fillCalendarId(ob.setup!.location_id);
+    const a = acts[0];
+    const claim = ob.claim && a?.ok ? { ...ob.claim, actions: [...ob.claim.actions, a] } : undefined;
+    if (!a) return { status: "failed", note: "could not read the account's calendars" };
+    return { status: a.ok ? "done" : "failed", note: `${a.action}${a.detail ? ` — ${a.detail}` : ""}`, claim };
+  },
 
   /* 4 · Clients Master row: Version / Assigned / Media Buyer from the form,
      status "Onboarding" unless the row already says Live/Paused/Offboarded.
@@ -304,7 +318,12 @@ const API_STEPS: Record<string, StepFn> = {
   /* 6 · Commas deposit product → card + "CC - Fanbasis Product ID". */
   product: async (_svc, ob) => {
     const existing = String(ob.form.product_id ?? "").trim();
-    if (existing) return { status: "done", note: `product ID ${existing} already on the form`, facts: { product_id: existing } };
+    if (existing) {
+      // Already created (an earlier run): just make sure the custom value has it.
+      try { await setExistingCustomValue(ob.setup!.location_id, "CC - Fanbasis Product ID", existing); }
+      catch (e) { return { status: "warn", note: `product ID ${existing} already on the form\n✗ custom value not set: ${errMsg(e)}`, facts: { product_id: existing } }; }
+      return { status: "done", note: `product ID ${existing} already on the form → custom value "CC - Fanbasis Product ID"`, facts: { product_id: existing } };
+    }
     const fb = await createDepositProductFromForm(ob.form);
     if (!fb.action.ok) return { status: "failed", note: fb.action.detail ?? "Commas failed" };
     const notes = [fb.action.action];

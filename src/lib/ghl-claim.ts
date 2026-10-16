@@ -333,8 +333,9 @@ export async function claimPoolAccount(
   poolLocationId: string,
   form: Record<string, string>,
   /* skipUser: the New Client Setup run creates the employee user later,
-     only after the owner approves that step (GHL emails the client). */
-  opts: { skipUser?: boolean } = {},
+     only after the owner approves that step (GHL emails the client).
+     skipValues: the setup run fills the values as its own step. */
+  opts: { skipUser?: boolean; skipValues?: boolean } = {},
 ): Promise<ClaimResult> {
   assertNotProtected(poolLocationId);
   const businessName = String(form.business_name ?? "").trim();
@@ -371,7 +372,28 @@ export async function claimPoolAccount(
   await renameLocation(poolLocationId, updates);
   actions.push({ action: `Renamed "${currentName}" → "${businessName}"`, ok: true });
 
-  // 2. Fill custom values from the form (best-effort per value).
+  // 2–4. Custom values, treated areas, calendar ID — unless the caller fills
+  //      them later (the setup run does it as its own steps 3 and 24).
+  if (!opts.skipValues) {
+    actions.push(...(await fillAccountValues(poolLocationId, form)));
+    actions.push(...(await fillCalendarId(poolLocationId)));
+  }
+
+  // 5. Employee user (the client's login) when the form has an email.
+  if (!opts.skipUser && String(form.email ?? "").trim() && String(form.owner_name ?? "").trim()) {
+    actions.push(await createEmployeeUser(poolLocationId, form.owner_name, form.email));
+  }
+
+  return { location_id: poolLocationId, original_name: currentName, business_name: businessName, actions };
+}
+
+/* Fill the "CC -" custom values (existing ones only, never created) and the
+   treated-areas options from the client's record: the Onboarding card's form,
+   pre-filled from the Clients tab. Safe to run again. */
+export async function fillAccountValues(poolLocationId: string, form: Record<string, string>): Promise<ClaimAction[]> {
+  assertNotProtected(poolLocationId);
+  const businessName = String(form.business_name ?? "").trim();
+  const actions: ClaimAction[] = [];
   const tok = await getAppLocationToken(poolLocationId);
   if (!tok.token) {
     actions.push({ action: "Custom values", ok: false, detail: `no app token: ${tok.error}` });
@@ -409,15 +431,22 @@ export async function claimPoolAccount(
     }
   }
 
-  // 3. Treated-areas survey options, derived from the chosen services.
+  // Treated-areas survey options, derived from the chosen services.
   if (tok.token && String(form.services ?? "").trim()) {
     const areas = areasFromServices(form.services);
     if (areas.length) actions.push(await updateAreaFieldOptions(poolLocationId, tok.token, areas));
   }
 
-  // 4. Transformation calendar ID: discovered from the claimed account's own
-  //    calendars and filled into the existing custom value (never created).
-  if (tok.token) {
+  return actions;
+}
+
+/* Save the Transformation calendar's ID into its existing custom value. */
+export async function fillCalendarId(poolLocationId: string): Promise<ClaimAction[]> {
+  assertNotProtected(poolLocationId);
+  const actions: ClaimAction[] = [];
+  const tok = await getAppLocationToken(poolLocationId);
+  if (!tok.token) return [{ action: "Calendar ID", ok: false, detail: `no app token: ${tok.error}` }];
+  {
     try {
       const cr = await fetch(`${GHL}/calendars/?locationId=${poolLocationId}`, {
         headers: { Authorization: `Bearer ${tok.token}`, Version: VERSION, Accept: "application/json" },
@@ -441,12 +470,7 @@ export async function claimPoolAccount(
     }
   }
 
-  // 4. Employee user (the client's login) when the form has an email.
-  if (!opts.skipUser && String(form.email ?? "").trim() && String(form.owner_name ?? "").trim()) {
-    actions.push(await createEmployeeUser(poolLocationId, form.owner_name, form.email));
-  }
-
-  return { location_id: poolLocationId, original_name: currentName, business_name: businessName, actions };
+  return actions;
 }
 
 // Un-claim (testing / mistakes): rename the account back to its recorded pool
