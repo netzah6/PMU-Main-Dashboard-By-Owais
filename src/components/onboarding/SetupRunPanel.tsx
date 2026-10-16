@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw, Check, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { MINI_REFRESH_EVENT } from "@/components/agent/MacMiniTracker";
 import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
 /* The New Client Setup run on an Onboarding card.
@@ -89,6 +90,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
       setData((d) => (d ? { ...d, setup: j.setup } : d));
       await load(true);
       onChanged?.();
+      window.dispatchEvent(new Event(MINI_REFRESH_EVENT)); // may have queued Mac Mini work
       if (action === "approve") toast.success("Approved — the account steps are running");
       if (action === "retry") toast.success("Step queued again");
       if (action === "skip") toast.success("Step marked done by hand");

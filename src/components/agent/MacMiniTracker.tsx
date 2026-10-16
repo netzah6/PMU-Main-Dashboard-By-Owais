@@ -1,28 +1,33 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
 import { Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/useUser";
 
-/* Mac Mini tracker — on every tab, for admins (owner, 2026-10-16: "I approve a
-   task, switch to another tab, come back to the AI tab and I have no idea
-   what's going on").
+/* Mac Mini tracker, for admins (owner, 2026-10-16: "I approve a task, switch
+   to another tab, come back to the AI tab and I have no idea what's going on").
+
+   Two places only (owner, same day — "not on every tab"):
+   - AI tab (scope "agent"): the tasks you approve there.
+   - Onboarding tab (scope "onboarding"): New Client Setup steps and the
+     clean-account snapshot loads.
 
    The Mini works from the server queue, so leaving the page never stops it;
-   what was missing was a place to SEE it. This pill sits bottom-left on every
-   tab while the Mini has work or has finished something you haven't seen, and
-   always on the AI tab. Click it for the list; a row opens its card.
+   this pill (bottom-left) is where you SEE it. Click it for the list; a row
+   opens its card.
 
    Alert: when a task this page saw waiting/running comes back done or failed,
-   a toast pops on whatever tab you're on — and, if you allowed it, a desktop
-   notification (works with the dashboard in a background browser tab).
-   Away from the computer entirely, the SMS confirmation in Agent settings is
-   the alert. */
+   a pop-up shows — and, if you allowed it, a desktop notification (works with
+   the dashboard in a background browser tab). */
+
+/** Fire after queueing Mini work so the tracker checks now, not in 20 s. */
+export const MINI_REFRESH_EVENT = "pmu:mini-tracker-refresh";
+
+export type TrackerScope = "agent" | "onboarding";
 
 type Row = {
-  id: string; contact_name: string; summary: string; status: string;
+  id: string; conversation_id: string | null; contact_name: string; summary: string; status: string;
   created_at: string; browser_claimed_at: string | null; browser_attempts: number | null; executed_at: string | null;
 };
 type Data = { worker: { at: string } | null; active: Row[]; finished: Row[] };
@@ -31,22 +36,22 @@ const POLL_VISIBLE_MS = 20_000;
 const POLL_HIDDEN_MS = 60_000;
 const STUCK_MS = 25 * 60_000;   // the worker re-queues a run this old (agent-worker stale rule)
 const OFFLINE_MS = 3 * 60_000;  // same threshold as the AI tab's online badge
-const SEEN_KEY = "pmu.miniTracker.seen";
+const seenKey = (scope: TrackerScope) => `pmu.miniTracker.seen.${scope}`;
 
-const memSeen: { ids: string[] } = { ids: [] };
-/** null = this browser never used the tracker (first load seeds it). */
-function readSeen(): string[] | null {
+const memSeen: Partial<Record<TrackerScope, string[]>> = {};
+/** null = this browser never used this tracker (first load seeds it). */
+function readSeen(scope: TrackerScope): string[] | null {
   try {
-    const v = JSON.parse(window.localStorage.getItem(SEEN_KEY) ?? "null");
+    const v = JSON.parse(window.localStorage.getItem(seenKey(scope)) ?? "null");
     if (Array.isArray(v)) return v.map(String);
-    if (v === null && !memSeen.ids.length) return null;
+    if (v === null && !memSeen[scope]) return null;
   } catch { /* blocked storage — memory copy */ }
-  return memSeen.ids;
+  return memSeen[scope] ?? [];
 }
-function writeSeen(ids: string[]) {
+function writeSeen(scope: TrackerScope, ids: string[]) {
   const keep = ids.slice(-80);
-  memSeen.ids = keep;
-  try { window.localStorage.setItem(SEEN_KEY, JSON.stringify(keep)); } catch { /* memory copy holds */ }
+  memSeen[scope] = keep;
+  try { window.localStorage.setItem(seenKey(scope), JSON.stringify(keep)); } catch { /* memory copy holds */ }
 }
 
 function ago(iso: string | null, now: number): string {
@@ -60,17 +65,22 @@ function ago(iso: string | null, now: number): string {
 
 const FINISHED_LABEL: Record<string, string> = { done: "✅ Done", failed: "❌ Failed", needs_teammate: "👤 Needs a teammate" };
 
-function openCard(id: string) {
-  // A full load on purpose: the AI tab reads ?p= once when it mounts, so a
-  // client-side push while already on /ask would not open the card.
-  window.location.assign(`/ask?p=${encodeURIComponent(id)}`);
+// Full loads on purpose: both tabs read their ?p= / ?open= once when they
+// mount, so a client-side push while already there would not open the card.
+function openCard(r: Row) {
+  const conv = r.conversation_id ?? "";
+  if (conv.startsWith("setup:")) {
+    // setup:<onboarding card id>:<step> → that client's Onboarding card.
+    const card = conv.split(":")[1];
+    if (card) { window.location.assign(`/onboarding?open=${encodeURIComponent(card)}`); return; }
+  }
+  if (conv.startsWith("pool:")) { window.location.assign("/onboarding#cleanup"); return; }
+  window.location.assign(`/ask?p=${encodeURIComponent(r.id)}`);
 }
 
-export function MacMiniTracker() {
+export function MacMiniTracker({ scope }: { scope: TrackerScope }) {
   const { role, loading } = useUser();
-  const pathname = usePathname();
   const enabled = !loading && role === "admin";
-  const onAiTab = pathname?.startsWith("/ask") ?? false;
 
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -82,20 +92,20 @@ export function MacMiniTracker() {
   const firstUse = useRef(false);
 
   useEffect(() => {
-    const s = readSeen();
+    const s = readSeen(scope);
     if (s) setSeen(s); else firstUse.current = true;
     if (typeof Notification !== "undefined") setNotifyPerm(Notification.permission);
-  }, []);
+  }, [scope]);
 
   const alertFinished = useCallback((r: Row) => {
     const head = FINISHED_LABEL[r.status] ?? r.status;
     const text = `${r.contact_name}: ${r.summary}`;
     const show = r.status === "done" ? toast.success : toast.error;
-    show(`Mac Mini — ${head}`, { description: text, duration: 30_000, action: { label: "Open", onClick: () => openCard(r.id) } });
+    show(`Mac Mini — ${head}`, { description: text, duration: 30_000, action: { label: "Open", onClick: () => openCard(r) } });
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         const n = new Notification(`Mac Mini — ${head}`, { body: text, tag: `mini-${r.id}` });
-        n.onclick = () => { window.focus(); openCard(r.id); };
+        n.onclick = () => { window.focus(); openCard(r); };
       }
     } catch { /* some browsers only allow notifications from a service worker */ }
   }, []);
@@ -104,7 +114,7 @@ export function MacMiniTracker() {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const res = await fetch("/api/agent/tracker", { cache: "no-store" });
+      const res = await fetch(`/api/agent/tracker?scope=${scope}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Couldn't load the Mac Mini's tasks");
       const d = json as Data;
@@ -119,7 +129,7 @@ export function MacMiniTracker() {
         firstUse.current = false;
         const ids = d.finished.map((r) => r.id);
         setSeen(ids);
-        writeSeen(ids);
+        writeSeen(scope, ids);
       }
       setData(d);
       setErr(null);
@@ -128,7 +138,7 @@ export function MacMiniTracker() {
     } finally {
       inFlight.current = false;
     }
-  }, [alertFinished]);
+  }, [alertFinished, scope]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -142,22 +152,21 @@ export function MacMiniTracker() {
     const onBack = () => { if (document.visibilityState === "visible") poll(); };
     document.addEventListener("visibilitychange", onBack);
     window.addEventListener("focus", onBack);
+    window.addEventListener(MINI_REFRESH_EVENT, poll);
     return () => {
       clearTimeout(t);
+      window.removeEventListener(MINI_REFRESH_EVENT, poll);
       document.removeEventListener("visibilitychange", onBack);
       window.removeEventListener("focus", onBack);
     };
   }, [enabled, poll]);
 
-  // Approving on the AI tab queues a card — check right away rather than in 20 s.
-  useEffect(() => { if (enabled && onAiTab) poll(); }, [enabled, onAiTab, poll]);
-
   const markSeen = useCallback(() => {
     if (!data) return;
     const ids = Array.from(new Set([...seen, ...data.finished.map((r) => r.id)]));
     setSeen(ids);
-    writeSeen(ids);
-  }, [data, seen]);
+    writeSeen(scope, ids);
+  }, [data, seen, scope]);
 
   const askNotify = useCallback(async () => {
     if (typeof Notification === "undefined") return;
@@ -173,8 +182,6 @@ export function MacMiniTracker() {
   const unseenFailed = unseen.filter((r) => r.status !== "done").length;
   const stuck = running.some((r) => r.browser_claimed_at && Date.now() - Date.parse(r.browser_claimed_at) > STUCK_MS);
 
-  if (!onAiTab && !open && data.active.length === 0 && unseen.length === 0) return null;
-
   // Pill: the one line that matters most right now.
   const warn = (!online && data.active.length > 0) || stuck;
   let pill: React.ReactNode;
@@ -188,7 +195,7 @@ export function MacMiniTracker() {
       {open && (
         <div className="w-[min(400px,calc(100vw-2rem))] max-h-[60vh] overflow-y-auto rounded-2xl border border-[#e4ebf2] bg-white shadow-xl p-3 space-y-3 text-xs">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-bold text-[#1f3559]">🖥️ Mac Mini tasks</span>
+            <span className="font-bold text-[#1f3559]">🖥️ Mac Mini — {scope === "onboarding" ? "onboarding tasks" : "your tasks"}</span>
             <button onClick={() => { setOpen(false); markSeen(); }} title="Close" className="p-1 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
           </div>
 
@@ -263,7 +270,7 @@ function Empty({ children }: { children: React.ReactNode }) {
 
 function TaskRow({ r, tone, fresh, children }: { r: Row; tone: "run" | "wait" | "ok" | "bad"; fresh?: boolean; children: React.ReactNode }) {
   return (
-    <button onClick={() => openCard(r.id)} title="Open this task's card on the AI tab"
+    <button onClick={() => openCard(r)} title="Open this task's card"
       className={cn("w-full text-left rounded-lg border px-2.5 py-1.5 hover:border-[#15B7AE]",
         tone === "run" ? "border-[#bfe8e5] bg-[#f3fcfb]" : tone === "wait" ? "border-[#fcd9a8] bg-[#fff7ec]"
           : tone === "ok" ? "border-[#eef3f8] bg-white" : "border-[#f5c2cf] bg-[#fffafb]")}>
