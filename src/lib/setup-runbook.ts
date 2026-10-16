@@ -29,7 +29,7 @@ export const RUNBOOK: RunbookStep[] = [
   // A · Account
   { n: 1, key: "account_take", section: "A · Account", who: "api", label: "Take the clean account and rename it to the business name", how: "Only an account still named \"Clean New Account N\" can be taken.", checklist: ["ghl_snapshot"] },
   { n: 2, key: "account_info", section: "A · Account", who: "api", label: "Sub-account info: name, email, phone", how: "From the New Client form.", checklist: ["ghl_info"] },
-  { n: 3, key: "account_cvs", section: "A · Account", who: "api", label: "Fill every \"CC -\" custom value from the form", how: "Fills existing values only. A missing value is flagged red for the team to create by hand." },
+  { n: 3, key: "account_cvs", section: "A · Account", who: "api", label: "Fill every \"CC -\" custom value from the client's record", how: "Uses the client's details from the Clients tab (no form to fill again). Runs once the template is loaded; fills existing values only, and a missing one is flagged red for the team." },
   { n: 4, key: "master_row", section: "A · Account", who: "api", label: "Clients Master row: status, version, assigned coach, media buyer" },
   { n: 5, key: "connector", section: "A · Account", who: "api", label: "Dashboard connector installed on the account (leads, chats and deposits sync)" },
   // B · Deposit product and payment route
