@@ -62,7 +62,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 27, key: "funnel_ig", section: "G · Funnel", who: "mini", label: "Instagram widget, only if the IG has 9+ posts and a profile picture; otherwise skipped with a note", checklist: ["funnel_ig_widget"] },
   { n: 28, key: "funnel_redirect", section: "G · Funnel", who: "mini", label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect" },
   { n: 29, key: "funnel_test", section: "G · Funnel", who: "mini", label: "Test the funnel as a lead: survey, text arrives, AI replies, deposit page loads; then delete the test contact", checklist: ["fin_test"] },
-  { n: 30, key: "funnel_live", section: "G · Funnel", who: "api", label: "Set the version to V3 and go live" },
+  { n: 30, key: "funnel_live", section: "G · Funnel", who: "api", label: "Check no client value is empty, then set the version to V3 and go live", how: "Stops red with the list of empty values (prices, deposit, address, product ID, webhook, calendar ID…) instead of going live with holes." },
   // H · Facebook
   { n: 31, key: "fb_bm", section: "H · Facebook", who: "team", label: "Business Manager name, payment method, partner access, invites" },
   { n: 32, key: "fb_campaign", section: "H · Facebook", who: "team", label: "Campaign, ad set and ad built from the template, left paused" },

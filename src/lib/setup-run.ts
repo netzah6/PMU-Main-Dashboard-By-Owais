@@ -229,6 +229,32 @@ async function runApiStep(svc: Svc, ob: Ob, step: RunbookStep): Promise<void> {
   });
 }
 
+/* Pre-live check (V3 one-box): the "CC -" values the AI and the funnel read
+   must be filled in the sub-account itself — the live source, not the form. */
+const PRE_LIVE_VALUES: Array<{ label: string; match: (n: string) => boolean }> = [
+  { label: "Business name", match: (n) => n === "ccbusinessname" || n === "businessname" },
+  { label: "Owner name", match: (n) => n.includes("ownersname") || n.includes("ownername") },
+  { label: "Business phone", match: (n) => n.includes("businessphone") },
+  { label: "Business address", match: (n) => n.includes("address") && !n.includes("url") && !n.includes("link") },
+  { label: "PMU services", match: (n) => n.includes("permanentmakeupservices") || n.includes("pmuservices") },
+  { label: "Offer", match: (n) => n === "ccoffer" || (n.endsWith("offer") && !n.includes("url")) },
+  { label: "Deposit amount", match: (n) => n.includes("depositamount") },
+  { label: "Original price (new brows)", match: (n) => n.includes("originalprice") && (n.includes("newbrows") || n.includes("forbrows")) },
+  { label: "Discounted price (new brows)", match: (n) => n.includes("discountedprice") && (n.includes("newbrows") || n.includes("forbrows")) },
+  { label: "Commas product ID", match: (n) => n.includes("fanbasisproductid") },
+  { label: "Payment webhook URL", match: (n) => n.includes("fanbasiswebhookurl") },
+  { label: "Calendar ID", match: (n) => n.includes("transformationcalendarid") },
+];
+
+async function preLiveGaps(locationId: string): Promise<string[]> {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const cvs = await listLocationCustomValues(locationId);
+  return PRE_LIVE_VALUES.filter((r) => {
+    const hits = cvs.filter((c) => r.match(norm(c.name)));
+    return !hits.some((c) => String(c.value ?? "").trim()); // missing or empty
+  }).map((r) => r.label);
+}
+
 type StepFn = (svc: Svc, ob: Ob) => Promise<{ status: StepState["status"]; note: string; facts?: Partial<SetupState>; form?: Record<string, string>; claim?: Ob["claim"] }>;
 
 const lines = (acts: ClaimAction[]) => acts.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
@@ -405,6 +431,9 @@ const API_STEPS: Record<string, StepFn> = {
   /* 30 · Go live (the Funnels tab's "Go live", incl. the deposit URL). */
   funnel_live: async (svc, ob) => {
     const slug = ob.setup!.slug!;
+    // Never go live with holes: the AI quotes these values to leads.
+    const gaps = await preLiveGaps(ob.setup!.location_id);
+    if (gaps.length) return { status: "failed", note: `NOT live yet — ${gaps.length} value${gaps.length > 1 ? "s" : ""} empty in the sub-account. Fill them (Clients tab or GHL Custom Values), then Retry:\n${gaps.map((g) => `✗ ${g}`).join("\n")}` };
     const { error } = await svc.from("onebox_clients").update({ status: "live", updated_at: now() }).eq("slug", slug);
     if (error) throw new Error(error.message);
     const url = `${FUNNEL_ORIGIN}/${slug}`;
