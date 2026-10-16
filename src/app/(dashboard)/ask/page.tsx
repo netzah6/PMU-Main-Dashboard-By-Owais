@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { cn, userColor } from "@/lib/utils";
 import { VoiceNoteButton } from "@/components/conversations/VoiceNoteButton";
 import { WinbackList } from "@/components/conversations/WinbackList";
+import { MacMiniTracker, MINI_REFRESH_EVENT } from "@/components/agent/MacMiniTracker";
 
 // voiceInfo only comes from /api/ghl/reply/draft — AI-chat drafts carry just
 // the name, so the "written in …'s voice" line is skipped for those.
@@ -626,6 +627,8 @@ export default function AskPage() {
 
   return (
     <div className="flex h-full w-full">
+      {/* What the Mac Mini is doing with the tasks you approve here (owner, 2026-10-16). */}
+      <MacMiniTracker scope="agent" />
       {/* Chats sidebar — desktop (wider so client names + assignee fit) */}
       <aside className="hidden md:flex flex-col w-80 xl:w-96 shrink-0 border-r border-[#e4ebf2] bg-white">
         {chatList}
@@ -1268,6 +1271,7 @@ function ProposalCard({ p, onPhase, onRetried, focused, reply: keptReply, amount
       if (decision === "deny") { toast.success("Denied — nothing sent or changed"); onPhase("denied"); return; }
       // Keep the card up with the proof until the owner has read it.
       setOutcome({ status: json.status, result: json.result ?? "" });
+      if (json.status === "queued_browser") window.dispatchEvent(new Event(MINI_REFRESH_EVENT));
       toast.success(json.status === "queued_browser" ? "Approved — the Mac Mini will do it and send screenshots" : json.status === "done" ? "Done (nothing texted to the client)" : json.status === "needs_teammate" ? "A teammate must do this one by hand" : "Something failed — see the card");
       setBusy(null);
       onPhase("approved");

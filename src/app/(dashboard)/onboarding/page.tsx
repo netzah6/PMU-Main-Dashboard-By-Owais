@@ -7,6 +7,7 @@ import { ONBOARDING_STEPS, SECTION_ORDER, FORM_FIELDS, OFFER_OPTIONS, SERVICE_OP
 import { useUser } from "@/lib/hooks/useUser";
 import { CleanupPanel } from "@/components/cleanup/CleanupPanel";
 import { SetupRunPanel } from "@/components/onboarding/SetupRunPanel";
+import { MacMiniTracker } from "@/components/agent/MacMiniTracker";
 
 // Same version colors as the Clients tab: V3 solid blue, V2.3 light purple.
 const VERSION_PILLS: { value: string; label: string; on: string; off: string }[] = [
@@ -561,6 +562,8 @@ export default function OnboardingPage() {
   const SHOW_ONBOARDING_LIST = true;
   return (
     <div className="p-4 sm:p-6">
+      {/* The Mac Mini's setup steps + snapshot loads (owner, 2026-10-16). */}
+      <MacMiniTracker scope="onboarding" />
       {/* Available clean accounts — the first thing you need before a setup. */}
       <div className="max-w-5xl mx-auto mb-4 rounded-xl border border-[#e2e8f0] bg-white p-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
