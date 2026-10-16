@@ -298,15 +298,14 @@ async function updateAreaFieldOptions(locationId: string, token: string, areas: 
     const field = (j.customFields ?? []).find((f) => /which\s*area/i.test(String(f.name ?? "")));
     if (!field) return { action: "Treated areas", ok: false, detail: `custom field "CC - Which Area(s) Would You Like Treated?" not found in the sub-account` };
 
-    // Mirror whichever options shape the field already uses.
+    // GET returns the choices as `picklistOptions`, but the update only
+    // accepts `options` (422 "property picklistOptions should not exist",
+    // Sally Nails And Spa 10/16/2026). Object-shaped options keep their shape.
     const body: Record<string, unknown> = { name: field.name };
-    if (Array.isArray(field.picklistOptions)) body.picklistOptions = areas;
-    else if (Array.isArray(field.options)) {
-      const first = (field.options as unknown[])[0];
-      body.options = typeof first === "object" && first !== null
-        ? areas.map((a) => ({ ...(first as object), name: a, label: a, value: a }))
-        : areas;
-    } else body.picklistOptions = areas;
+    const first = Array.isArray(field.options) ? (field.options as unknown[])[0] : undefined;
+    body.options = typeof first === "object" && first !== null
+      ? areas.map((a) => ({ ...(first as object), name: a, label: a, value: a }))
+      : areas;
 
     const ur = await fetch(`${GHL}/locations/${locationId}/customFields/${field.id}`, {
       method: "PUT",
@@ -314,6 +313,18 @@ async function updateAreaFieldOptions(locationId: string, token: string, areas: 
       body: JSON.stringify(body),
     });
     if (!ur.ok) throw new Error(`update HTTP ${ur.status}: ${(await ur.text()).slice(0, 200)}`);
+    // Read it back: a 200 that silently ignored the options is not a success.
+    const vr = await fetch(`${GHL}/locations/${locationId}/customFields/${field.id}`, {
+      headers: { Authorization: `Bearer ${token}`, Version: VERSION, Accept: "application/json" },
+    });
+    if (vr.ok) {
+      const vj = (await vr.json()) as { customField?: Record<string, unknown> };
+      const f = vj.customField ?? {};
+      const got = ((f.picklistOptions ?? f.options ?? []) as unknown[])
+        .map((o) => (typeof o === "object" && o !== null ? String((o as Record<string, unknown>).name ?? (o as Record<string, unknown>).label ?? "") : String(o)));
+      const miss = areas.filter((a) => !got.includes(a));
+      if (miss.length) return { action: "Treated areas", ok: false, detail: `GHL accepted the update but the field still shows: ${got.join(", ") || "(none)"}` };
+    }
     return { action: `Treated areas → ${areas.join(", ")} (field "${field.name}")`, ok: true };
   } catch (e) {
     return { action: "Treated areas", ok: false, detail: e instanceof Error ? e.message : "failed" };
