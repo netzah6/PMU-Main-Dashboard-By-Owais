@@ -534,7 +534,8 @@ export async function profileFromAddress(address: string, phone = ""): Promise<{
 export async function setLocationProfile(locationId: string, form: Record<string, string>): Promise<ClaimAction> {
   const profile = await profileFromAddress(String(form.address ?? ""), String(form.phone ?? ""));
   if (!Object.keys(profile.fields).length) return { action: "Business profile", ok: false, detail: profile.summary };
-  await renameLocation(locationId, profile.fields);
+  try { await renameLocation(locationId, profile.fields); }
+  catch (e) { return { action: "Business profile", ok: false, detail: `${e instanceof Error ? e.message : "update failed"} — set ${profile.summary} by hand (Settings → Business Profile)` }; }
   return { action: `Business profile → ${profile.summary}`, ok: profile.ok, detail: profile.ok ? undefined : profile.summary };
 }
 
