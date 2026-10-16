@@ -76,7 +76,11 @@ When finished, reply with ONLY this JSON (no other text):
 }
 
 function runClaude(prompt, dir) {
-  const mcp = { mcpServers: { playwright: { command: "npx", args: ["-y", "@playwright/mcp@0.0.83", "--browser", "chrome", "--user-data-dir", PROFILE, "--output-dir", dir, "--viewport-size", "1440x900"] } } };
+  // Browser always in English (US): GHL screens came up in Spanish, which
+  // cost the agent turns reading every screen (10/16/2026).
+  const pwFile = join(dir, "playwright.json");
+  writeFileSync(pwFile, JSON.stringify({ browser: { launchOptions: { args: ["--lang=en-US"] }, contextOptions: { locale: "en-US" } } }));
+  const mcp = { mcpServers: { playwright: { command: "npx", args: ["-y", "@playwright/mcp@0.0.83", "--config", pwFile, "--browser", "chrome", "--user-data-dir", PROFILE, "--output-dir", dir, "--viewport-size", "1440x900"], env: { LANG: "en_US.UTF-8", LANGUAGE: "en_US" } } } };
   const mcpFile = join(dir, "mcp.json");
   writeFileSync(mcpFile, JSON.stringify(mcp));
   return new Promise((resolve) => {
@@ -150,7 +154,7 @@ if (process.argv[2] === "login") {
   // The same Chrome profile the worker uses — sign in once, tick
   // "remember this device", then quit Chrome.
   mkdirSync(PROFILE, { recursive: true });
-  spawn("open", ["-na", "Google Chrome", "--args", `--user-data-dir=${PROFILE}`, "https://app.gohighlevel.com/"], { stdio: "inherit" });
+  spawn("open", ["-na", "Google Chrome", "--args", `--user-data-dir=${PROFILE}`, "--lang=en-US", "https://app.gohighlevel.com/"], { stdio: "inherit" });
   console.log("Sign in to GoHighLevel in the Chrome window that opened, then QUIT that Chrome (Cmd+Q).");
 } else {
   loop(process.argv[2] === "once");
