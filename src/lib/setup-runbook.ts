@@ -29,7 +29,7 @@ export const RUNBOOK: RunbookStep[] = [
   // A · Account
   { n: 1, key: "account_take", section: "A · Account", who: "api", label: "Take the clean account and rename it to the business name", how: "Only an account still named \"Clean New Account N\" can be taken.", checklist: ["ghl_snapshot"] },
   { n: 2, key: "account_info", section: "A · Account", who: "api", label: "Sub-account info: name, email, phone, studio address and time zone", how: "From the client's record. The time zone follows the studio's state (else the phone's area code), so texts and booking times are local.", checklist: ["ghl_info"] },
-  { n: 3, key: "account_cvs", section: "A · Account", who: "api", label: "Fill every \"CC -\" custom value from the client's record", how: "Uses the client's details from the Clients tab (no form to fill again). Runs once the template is loaded; fills existing values only, and a missing one is flagged red for the team." },
+  { n: 3, key: "account_cvs", section: "A · Account", who: "api", label: "Update the sub-account custom values", how: "Uses the client's details from the Clients tab (no form to fill again). Runs once the template is loaded; fills existing values only, and a missing one is flagged red for the team." },
   { n: 4, key: "master_row", section: "A · Account", who: "api", label: "Clients Master row: status, version, assigned coach, media buyer" },
   { n: 5, key: "connector", section: "A · Account", who: "api", label: "Dashboard connector installed on the account (leads, chats and deposits sync)" },
   // B · Deposit product and payment route
@@ -37,7 +37,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 7, key: "webhook_url", section: "B · Deposit product & payment route", who: "mini", label: "Read the payment route link from the \"FanBasis to GHL workflow\" (Inbound Webhook URL)", how: "Only visible in the GHL editor. The dashboard saves it to \"CC - Fanbasis Webhook URL\" and the funnel." },
   { n: 8, key: "route_test", section: "B · Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
   // C · Phone
-  { n: 9, key: "phone_buy", section: "C · Phone", who: "ask", label: "Pick a local number in the client's area code, check it in Robokiller, then buy it", checklist: ["phone_buy"] },
+  { n: 9, key: "phone_buy", section: "C · Phone", who: "ask", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
   { n: 10, key: "phone_a2p", section: "C · Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
   { n: 11, key: "phone_cnam", section: "C · Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"", checklist: ["phone_cnam"] },
   { n: 12, key: "phone_optout", section: "C · Phone", who: "mini", label: "Uncheck SMS Compliance Opt-Out, and the same switch under Phone → Advanced Settings", checklist: ["phone_optout", "phone_sms_adv"] },
@@ -174,7 +174,8 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Open ${ghl(L, "settings/phone_number")} → "Add Number". Search for a LOCAL number in the client's area code (client phone: ${clientPhone}; studio address: ${address}). If none, the nearest area code in the same state.`,
       `Before buying, open https://lookup.robokiller.com/ in a new tab and look the candidate number up. It must show as clean / not reported. If it is flagged, pick another number and check again.`,
       `Buy the clean number. Screenshot the Robokiller result and the Phone Numbers page showing the new number.`,
-      `Report the number you bought in your summary (digits only is fine).`,
+      `Set the new number as the DEFAULT (⋮ → Set as default). Then DELETE every other number on this sub-account — they belong to the previous client (the owner's rule: one user, one number). Reload: only the new number is listed, marked Default. Screenshot.`,
+      `Report the number you bought in your summary (digits only is fine), and every number you deleted.`,
     ];
     case "phone_a2p": return [
       `Open ${ghl(L, "settings/phone_number")} → Trust Center (A2P / 10DLC). Confirm the brand and campaign are APPROVED (green).`,

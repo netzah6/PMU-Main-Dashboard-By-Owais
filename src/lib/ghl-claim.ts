@@ -270,7 +270,8 @@ export async function setUserPassword(userId: string, password: string): Promise
   const r = await fetch(`${GHL}/users/${userId}`, {
     method: "PUT",
     headers: { ...(await agencyHeaders()), "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    // GHL 422s "companyId can't be undefined" without it (Sally, 10/16/2026).
+    body: JSON.stringify({ password, companyId: (await getAppAgencyToken())?.companyId }),
   });
   if (!r.ok) throw new Error(`users/${userId} HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
 }
