@@ -26,16 +26,19 @@ function assertNotProtected(locationId: string): void {
 }
 
 // ── Agency-token helpers ────────────────────────────────────────────────────
-function agencyHeaders(): Record<string, string> {
-  const token = process.env.GHL_AGENCY_TOKEN;
-  if (!token) throw new Error("GHL_AGENCY_TOKEN not set");
+/* Agency-level auth: the GHL_AGENCY_TOKEN env when set, else the marketplace
+   app's agency token (the env is missing on production — Retry of Sally's
+   step 2 failed with "GHL_AGENCY_TOKEN not set", 10/16/2026). */
+async function agencyHeaders(): Promise<Record<string, string>> {
+  const token = process.env.GHL_AGENCY_TOKEN || (await getAppAgencyToken())?.token;
+  if (!token) throw new Error("no agency token: GHL_AGENCY_TOKEN not set and the marketplace app is not connected");
   return { Authorization: `Bearer ${token}`, Version: VERSION, Accept: "application/json" };
 }
 
 export type PoolAccount = { id: string; name: string };
 
 export async function discoverPool(): Promise<PoolAccount[]> {
-  const r = await fetch(`${GHL}/locations/search?limit=500`, { headers: agencyHeaders() });
+  const r = await fetch(`${GHL}/locations/search?limit=500`, { headers: await agencyHeaders() });
   const text = await r.text();
   if (!r.ok) throw new Error(`locations/search HTTP ${r.status}: ${text.slice(0, 150)}`);
   const j = JSON.parse(text) as { locations?: Array<{ id?: string; _id?: string; name?: string }> };
@@ -46,7 +49,7 @@ export async function discoverPool(): Promise<PoolAccount[]> {
 }
 
 async function getLocationName(locationId: string): Promise<string> {
-  const r = await fetch(`${GHL}/locations/${locationId}`, { headers: agencyHeaders() });
+  const r = await fetch(`${GHL}/locations/${locationId}`, { headers: await agencyHeaders() });
   const text = await r.text();
   if (!r.ok) throw new Error(`locations/${locationId} HTTP ${r.status}: ${text.slice(0, 150)}`);
   const j = JSON.parse(text) as { location?: { name?: string } };
@@ -57,7 +60,7 @@ async function renameLocation(locationId: string, updates: Record<string, string
   assertNotProtected(locationId);
   const r = await fetch(`${GHL}/locations/${locationId}`, {
     method: "PUT",
-    headers: { ...agencyHeaders(), "Content-Type": "application/json" },
+    headers: { ...(await agencyHeaders()), "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
   if (!r.ok) throw new Error(`rename HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -201,7 +204,7 @@ export async function createEmployeeUser(locationId: string, ownerName: string, 
 
     // Template user → permissions to copy.
     const sr = await fetch(`${GHL}/users/search?companyId=${encodeURIComponent(agency.companyId)}&query=${encodeURIComponent(TEMPLATE_USER_EMAIL)}`, {
-      headers: agencyHeaders(),
+      headers: await agencyHeaders(),
     });
     const stext = await sr.text();
     if (!sr.ok) throw new Error(`users/search HTTP ${sr.status}: ${stext.slice(0, 150)}`);
@@ -216,7 +219,7 @@ export async function createEmployeeUser(locationId: string, ownerName: string, 
 
     const r = await fetch(`${GHL}/users/`, {
       method: "POST",
-      headers: { ...agencyHeaders(), "Content-Type": "application/json" },
+      headers: { ...(await agencyHeaders()), "Content-Type": "application/json" },
       body: JSON.stringify({
         companyId: agency.companyId,
         firstName,
@@ -266,7 +269,7 @@ export async function findLocationUserByEmail(locationId: string, email: string)
 export async function setUserPassword(userId: string, password: string): Promise<void> {
   const r = await fetch(`${GHL}/users/${userId}`, {
     method: "PUT",
-    headers: { ...agencyHeaders(), "Content-Type": "application/json" },
+    headers: { ...(await agencyHeaders()), "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
   });
   if (!r.ok) throw new Error(`users/${userId} HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
@@ -551,7 +554,7 @@ export async function unclaimPoolAccount(claim: ClaimResult): Promise<ClaimActio
   // Remove the employee user the claim created (test resets).
   for (const a of (claim.actions ?? []).filter((x) => x.ok && x.userId)) {
     try {
-      const r = await fetch(`${GHL}/users/${a.userId}`, { method: "DELETE", headers: agencyHeaders() });
+      const r = await fetch(`${GHL}/users/${a.userId}`, { method: "DELETE", headers: await agencyHeaders() });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       restored.push({ action: "Removed employee user", ok: true });
     } catch (e) {
