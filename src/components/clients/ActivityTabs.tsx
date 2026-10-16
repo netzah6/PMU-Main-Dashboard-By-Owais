@@ -151,6 +151,15 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls, ran
         count={dDeposits.length}
         rows={dDeposits}
         empty="No deposits matched."
+        action={
+          // Owner request 2026-10-16: date + full name only, never the amount.
+          <CopyButton
+            disabled={!dDeposits.length}
+            text={() => dDeposits
+              .map((r) => `${formatDate(String(r.date ?? ""))} - ${String(r.name ?? r.client_name ?? "").trim()}`)
+              .join("\n")}
+          />
+        }
         subtitle={
           dDeposits.length ? (
             <>
@@ -226,8 +235,30 @@ export function ActivityTabs({ clientName, deposits, bookings, leads, calls, ran
   );
 }
 
+function CopyButton({ text, disabled }: { text: () => string; disabled?: boolean }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text());
+      setState("copied");
+    } catch {
+      setState("failed");
+    }
+    setTimeout(() => setState("idle"), 1500);
+  };
+  return (
+    <button onClick={copy} disabled={disabled}
+      className={cn("px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors disabled:opacity-40",
+        state === "copied" ? "bg-[#15B7AE] text-white border-[#15B7AE]"
+          : state === "failed" ? "bg-[#fef2f2] text-[#b91c1c] border-[#fecaca]"
+          : "bg-white text-[#697a91] border-[#e4ebf2] hover:bg-[#f1f5f9]")}>
+      {state === "copied" ? "Copied ✓" : state === "failed" ? "Copy failed" : "Copy"}
+    </button>
+  );
+}
+
 function Column({
-  label, color, count, rows, empty, subtitle, render,
+  label, color, count, rows, empty, subtitle, action, render,
 }: {
   label: string;
   color: string;
@@ -235,14 +266,18 @@ function Column({
   rows: Record<string, unknown>[];
   empty: string;
   subtitle?: React.ReactNode;
+  action?: React.ReactNode;
   render: (row: Record<string, unknown>) => React.ReactNode;
 }) {
   return (
     <div className="flex flex-col h-80 rounded-xl border border-[#e4ebf2] bg-white overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#eef3f8]">
+      <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-[#eef3f8]">
         <span className="text-xs font-bold uppercase tracking-wide" style={{ color }}>{label}</span>
-        <span className="text-sm font-semibold" style={{ color }}>{count}</span>
+        <span className="flex items-center gap-2">
+          {action}
+          <span className="text-sm font-semibold" style={{ color }}>{count}</span>
+        </span>
       </div>
 
       {subtitle && (
