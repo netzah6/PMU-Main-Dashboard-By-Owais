@@ -5,6 +5,7 @@ import { Navbar } from "./Navbar";
 import { TabNav, pathAllowedFor, homeFor } from "./TabNav";
 import { FetchActivity } from "./FetchActivity";
 import { TaskPopup } from "./TaskPopup";
+import { MacMiniTracker } from "./MacMiniTracker";
 import { useUser } from "@/lib/hooks/useUser";
 
 // Role enforcement lives HERE, not in middleware. A per-request role lookup
@@ -55,6 +56,8 @@ export function DashboardShell({ children, userEmail, syncing }: DashboardShellP
       </main>
       {/* Coaches' open tasks, in front of their eyes (owner, 2026-10-02). */}
       <TaskPopup />
+      {/* What the Mac Mini is doing, on every tab — admins (owner, 2026-10-16). */}
+      <MacMiniTracker />
     </div>
   );
 }
