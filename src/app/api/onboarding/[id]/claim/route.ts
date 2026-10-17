@@ -42,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = (await req.json().catch(() => ({}))) as {
     poolLocationId?: string;
-    repairCv?: { name: string; value: string }; dedupeCvs?: { dryRun?: boolean };
+    repairCv?: { name: string; value: string }; dedupeCvs?: { dryRun?: boolean; only?: string };
     fanbasis?: boolean;
   };
 
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (body.dedupeCvs) {
     if (!row.claim) return NextResponse.json({ error: "No claim" }, { status: 409 });
     try {
-      return NextResponse.json({ dedupe: await dedupeCustomValues((row.claim as ClaimResult).location_id, body.dedupeCvs.dryRun !== false) });
+      return NextResponse.json({ dedupe: await dedupeCustomValues((row.claim as ClaimResult).location_id, body.dedupeCvs.dryRun !== false, body.dedupeCvs.only) });
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "dedupe failed" }, { status: 500 });
     }

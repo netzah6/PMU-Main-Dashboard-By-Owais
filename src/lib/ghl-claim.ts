@@ -548,7 +548,7 @@ export async function setLocationProfile(locationId: string, form: Record<string
    (its key has no extra suffix = the one workflows and the AI reference),
    move a value into it if only the twin had one, delete the twin. A pair
    with two DIFFERENT values is left alone and reported. dryRun = plan only. */
-export async function dedupeCustomValues(locationId: string, dryRun: boolean): Promise<Array<{ name: string; keep: string; keepKey: string; move?: string; remove: Array<{ id: string; key: string; value: string }>; skipped?: string; done?: boolean; error?: string }>> {
+export async function dedupeCustomValues(locationId: string, dryRun: boolean, only?: string): Promise<Array<{ name: string; keep: string; keepKey: string; keyAfter?: string; move?: string; remove: Array<{ id: string; key: string; value: string }>; skipped?: string; done?: boolean; error?: string }>> {
   assertNotProtected(locationId);
   const tok = await getAppLocationToken(locationId);
   if (!tok.token) throw new Error(`no app token: ${tok.error}`);
@@ -560,7 +560,7 @@ export async function dedupeCustomValues(locationId: string, dryRun: boolean): P
   for (const c of all) if (/^cc\s*-/i.test(c.name)) groups.set(c.name, [...(groups.get(c.name) ?? []), c]);
   const out: Awaited<ReturnType<typeof dedupeCustomValues>> = [];
   for (const [name, list] of groups) {
-    if (list.length < 2) continue;
+    if (list.length < 2 || (only && name !== only)) continue;
     const key = (c: (typeof all)[number]) => String(c.fieldKey ?? "").replace(/[{}\s]/g, "");
     const keep = [...list].sort((a, b) => key(a).length - key(b).length)[0];
     const others = list.filter((c) => c.id !== keep.id);
@@ -570,11 +570,15 @@ export async function dedupeCustomValues(locationId: string, dryRun: boolean): P
     if (!String(keep.value ?? "").trim() && vals[0]) row.move = vals[0];
     if (!dryRun) {
       try {
-        if (row.move) await setCustomValue(locationId, tok.token, keep, row.move);
+        // Twin first: GHL refuses to save the original while a twin's key clashes.
         for (const o of others) {
           const d = await fetch(`${GHL}/locations/${locationId}/customValues/${o.id}`, { method: "DELETE", headers: H });
           if (!d.ok) throw new Error(`delete ${o.id} HTTP ${d.status}`);
         }
+        if (row.move) await setCustomValue(locationId, tok.token, keep, row.move);
+        // Report the kept value's key afterwards (must still be the template's).
+        const a = await fetch(`${GHL}/locations/${locationId}/customValues/${keep.id}`, { headers: H });
+        if (a.ok) row.keyAfter = String(((await a.json()) as { customValue?: { fieldKey?: string } }).customValue?.fieldKey ?? "").replace(/[{}\s]/g, "");
         row.done = true;
       } catch (e) { row.error = e instanceof Error ? e.message : "failed"; }
     }
