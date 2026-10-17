@@ -237,7 +237,7 @@ export function DashboardSubscriptions() {
      2026-10-17). A one-month price already set for the next bill stays. */
   const changePrice = async (s: Sub) => {
     const who = s.client_label || s.owner_key;
-    const raw = window.prompt(`New ${s.cadence === "monthly" ? "monthly" : ""} price for ${who}?\n\nNow ${money(s.amount_cents)}. The new price applies from the next charge on.`, (s.amount_cents / 100).toFixed(2));
+    const raw = window.prompt(`New ${s.cadence === "monthly" ? "monthly" : ""} price for ${who}?\n\nNow ${money(s.amount_cents)}. The new price applies from the next charge on${periodPrice(s) ? ` (the ${monthName(periodPrice(s)!.period_key)} one-month price of ${money(periodPrice(s)!.amount_cents)} still applies first)` : ""}.`, (s.amount_cents / 100).toFixed(2));
     if (raw == null) return;
     const amount = Number(raw.replace(/[$,\s]/g, ""));
     if (!Number.isFinite(amount) || amount <= 0) { setErr("Enter an amount above zero"); return; }
@@ -482,13 +482,6 @@ export function DashboardSubscriptions() {
                     ) : (
                       <>
                         <span className="text-[13px] font-bold text-[#0e8f88] tabular-nums">{money(s.amount_cents)}</span>
-                        {s.status !== "ended" && (
-                          <button onClick={() => void changePrice(s)} disabled={busy === `price:${s.id}`}
-                            title="Change the regular price for every charge from now on"
-                            className="text-[10px] text-[#34568a] underline decoration-dotted underline-offset-2 hover:text-[#0e8f88]">
-                            {busy === `price:${s.id}` ? <Loader2 size={10} className="inline animate-spin" /> : "change price"}
-                          </button>
-                        )}
                         {s.cadence === "monthly" && s.status !== "ended" && (
                           <button onClick={() => void setMonthPrice(s)} disabled={busy === `period:${s.id}`}
                             title="Change the price for the next charge's month only — the month after bills the normal amount"
@@ -499,6 +492,15 @@ export function DashboardSubscriptions() {
                       </>
                     );
                   })()}
+                  {/* Regular price, shown whether or not a one-month price is set
+                      (Sherri Sprinkle had one, so the link was missing). */}
+                  {s.status !== "ended" && (
+                    <button onClick={() => void changePrice(s)} disabled={busy === `price:${s.id}`}
+                      title="Change the regular price for every charge from now on"
+                      className="text-[10px] text-[#34568a] underline decoration-dotted underline-offset-2 hover:text-[#0e8f88]">
+                      {busy === `price:${s.id}` ? <Loader2 size={10} className="inline animate-spin" /> : "change price"}
+                    </button>
+                  )}
                   <span className="text-[11px] text-[#697a91]">{s.cadence === "monthly" ? "every month" : "one time"}</span>
                   {s.status !== "ended" && (dateEdit?.id === s.id ? (
                     <span className="flex items-center gap-1">
