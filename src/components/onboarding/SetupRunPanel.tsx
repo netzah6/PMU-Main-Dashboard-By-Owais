@@ -4,6 +4,7 @@ import { Loader2, RefreshCw, Check, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { MINI_REFRESH_EVENT } from "@/components/agent/MacMiniTracker";
+import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
 import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
 /* The New Client Setup run on an Onboarding card.
@@ -287,16 +288,7 @@ function PlanList({ steps, setup, cards, actions }: {
                       {st.note && setup && (
                         <pre className={cn("whitespace-pre-wrap font-sans text-[11px] mt-0.5", st.status === "failed" ? "text-[#b91c1c]" : st.status === "warn" ? "text-[#c2410c]" : "text-[#697a91]")}>{st.note}</pre>
                       )}
-                      {shots.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                          {shots.map((sh, i) => (
-                            <a key={i} href={sh.url} target="_blank" rel="noreferrer" title={sh.name} className="block w-24 rounded-md border border-black/10 overflow-hidden bg-white hover:border-[#15B7AE]">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={sh.url} alt={sh.name || `Screenshot ${i + 1}`} className="w-full h-14 object-cover object-top" loading="lazy" />
-                            </a>
-                          ))}
-                        </div>
-                      )}
+                      {shots.length > 0 && <ScreenshotGallery shots={shots} variant="row" />}
                       {actions?.(s, st)}
                     </div>
                   </li>
