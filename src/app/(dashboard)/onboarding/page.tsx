@@ -17,16 +17,6 @@ const VERSION_PILLS: { value: string; label: string; on: string; off: string }[]
 const verBadge = (v: string) =>
   v.toLowerCase().includes("v2.3") ? "bg-[#f3e8ff] text-[#7e22ce]" : v.toLowerCase().includes("v3") ? "bg-[#1d4ed8] text-white" : "bg-[#eef2ff] text-[#4f46e5]";
 
-// Mirrors src/lib/ghl-claim.ts (server) — funnel URL convention.
-const FUNNEL_DOMAIN = "https://pmu-care.com";
-const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-const FUNNEL_STEPS: { label: string; suffix: string }[] = [
-  { label: "📝 Survey", suffix: "-survey" },
-  { label: "📅 Booking", suffix: "-booking" },
-  { label: "💰 Deposit", suffix: "-last-step" },
-  { label: "🎉 Thank You", suffix: "-thank-you" },
-];
-
 interface ClaimAction { action: string; ok: boolean; detail?: string }
 interface Claim {
   location_id: string;
@@ -429,7 +419,6 @@ export default function OnboardingPage() {
           {open.claim && (() => {
             const MANUAL: { key: string; label: string }[] = [
               { key: "ghl_domain", label: "Connect pmu-care.com to the sub-account" },
-              { key: "funnel_path", label: "Set the 4 funnel paths (copy them from the Funnel paths box below)" },
               { key: "ghl_pixel", label: "Add the FB pixel to the funnel's Head Tracking Code" },
               { key: "user_add", label: "Create the employee user (API blocked by GHL plan)" },
             ];
@@ -450,31 +439,6 @@ export default function OnboardingPage() {
             );
           })()}
         </div>
-
-        {/* Funnel paths (generated from the business name) */}
-        {String(open.form.business_name ?? "").trim() && (
-          <div className="rounded-xl border border-[#e4ebf2] bg-white p-4">
-            <h2 className="text-sm font-bold text-[#1f3559]">Funnel paths</h2>
-            <p className="text-xs text-[#697a91] mt-0.5 mb-2">Paste each path into the matching step of &quot;CC - PMU Survey + Auto Booking (V2 / V3)&quot; (domain: pmu-care.com)</p>
-            <ul className="space-y-1.5">
-              {FUNNEL_STEPS.map((s) => {
-                const path = `${slugify(open.form.business_name)}${s.suffix}`;
-                return (
-                  <li key={s.suffix} className="flex items-center gap-2 text-xs">
-                    <span className="w-24 shrink-0 text-[#697a91]">{s.label}</span>
-                    <code className="px-2 py-1 rounded bg-[#f8fafc] border border-[#eef3f8] text-[#1f3559] truncate">/{path}</code>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(path); toast.success(`Copied: ${path}`); }}
-                      className="shrink-0 px-2 py-1 rounded-md text-[10px] font-semibold text-[#0e8f88] border border-[#a7e3df] hover:bg-[#f7fdfc]">
-                      Copy
-                    </button>
-                    <a href={`${FUNNEL_DOMAIN}/${path}`} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[10px] text-[#8595a8] hover:text-[#0e8f88] hover:underline">open ↗</a>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        )}
 
         {/* Client details */}
         <details className="rounded-xl border border-[#e4ebf2] bg-white">
