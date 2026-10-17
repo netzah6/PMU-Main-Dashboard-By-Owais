@@ -254,6 +254,23 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
   );
 }
 
+/* The result's first line, with the rest (the Mac Mini's step-by-step
+   report) folded behind "details" — warnings and failures stay open. */
+function StepNote({ note, status }: { note: string; status: StepState["status"] }) {
+  const [first, ...rest] = note.split("\n");
+  const cls = status === "failed" ? "text-[#b91c1c]" : status === "warn" ? "text-[#c2410c]" : "text-[#697a91]";
+  const body = rest.join("\n").trim();
+  if (!body) return <p className={cn("text-[11px] mt-0.5 whitespace-pre-wrap", cls)}>{first}</p>;
+  return (
+    <details className="mt-0.5 group" open={status === "failed" || status === "warn"}>
+      <summary className={cn("text-[11px] cursor-pointer list-none", cls)}>
+        {first} <span className="text-[10px] text-[#0e8f88] group-open:hidden">· details</span><span className="text-[10px] text-[#0e8f88] hidden group-open:inline">· hide</span>
+      </summary>
+      <pre className={cn("whitespace-pre-wrap font-sans text-[11px] mt-0.5", cls)}>{body}</pre>
+    </details>
+  );
+}
+
 function PlanList({ steps, setup, cards, actions }: {
   steps: RunbookStep[]; setup: Setup | null; cards: Record<string, Card>;
   actions?: (s: RunbookStep, st: StepState) => React.ReactNode;
@@ -279,15 +296,14 @@ function PlanList({ steps, setup, cards, actions }: {
                     {ic && <span className={cn("w-4 shrink-0 text-[13px] leading-5", ic.cls)} title={ic.label}>{ic.icon}</span>}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start gap-2 flex-wrap">
-                        <span className={cn("text-[12.5px]", st.status === "done" || st.status === "skipped" ? "text-[#64748b]" : "text-[#1f3559]")}>{s.label}</span>
+                        <span className={cn("text-[12.5px] font-semibold", st.status === "done" || st.status === "skipped" ? "text-[#475569]" : "text-[#1f3559]")}>{s.title ?? s.label}</span>
                         <span className={cn("text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap", WHO_STYLE[s.who])}>{WHO_LABEL[s.who]}</span>
                       </div>
+                      {s.title && <p className="text-[10.5px] text-[#8595a8]">{s.label}</p>}
                       {!setup && s.how && <p className="text-[10.5px] text-[#8595a8]">{s.how}</p>}
                       {ic?.label && !["done", "skipped"].includes(st.status) && <p className={cn("text-[10.5px] font-semibold", ic.cls)}>{ic.label}</p>}
                       {settledLine && <p className="text-[10px] text-[#a6b3c4]">{settledLine}</p>}
-                      {st.note && setup && (
-                        <pre className={cn("whitespace-pre-wrap font-sans text-[11px] mt-0.5", st.status === "failed" ? "text-[#b91c1c]" : st.status === "warn" ? "text-[#c2410c]" : "text-[#697a91]")}>{st.note}</pre>
-                      )}
+                      {st.note && setup && <StepNote note={st.note} status={st.status} />}
                       {shots.length > 0 && <ScreenshotGallery shots={shots} variant="row" />}
                       {actions?.(s, st)}
                     </div>

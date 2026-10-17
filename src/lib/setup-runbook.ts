@@ -25,6 +25,7 @@ export type RunbookStep = {
   key: string;
   section: string;
   label: string;
+  title?: string;            // short step name shown first (filled from STEP_TITLES)
   who: Who;
   how?: string;              // one line of context shown under the label
   checklist?: string[];      // onboarding checklist keys this step ticks
@@ -74,6 +75,22 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 33, key: "first_cycle", section: "H · Last check", who: "api", label: "Move the client to \"First Cycle\" and text you the summary with the last screenshots", checklist: ["fin_master"] },
   { n: 34, key: "later_hours", section: "H · Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
 ];
+
+/* Short names, shown bold on the setup card; the label stays as the
+   description (owner, 10/17/2026: "include the name of every step"). */
+const STEP_TITLES: Record<string, string> = {
+  account_take: "Take & rename the account", account_info: "Account info, address & time zone", account_cvs: "Custom values",
+  master_row: "Clients Master row", connector: "Dashboard connector",
+  product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
+  phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_forward: "Call forwarding",
+  user_create: "Create the client's login", user_password: "Set the password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
+  wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow",
+  cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy & booking rules", cal_id: "Calendar ID",
+  funnel_create: "Create the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram widget", funnel_redirect: "Old funnel redirect",
+  funnel_test: "Test the funnel", funnel_live: "Check values & go live",
+  last_profile: "Profile check", last_check: "Check-Setup grade", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
+};
+for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
 
 export const RUNBOOK_SECTIONS = Array.from(new Set(RUNBOOK.map((s) => s.section)));
 export const stepByKey = (key: string): RunbookStep | undefined => RUNBOOK.find((s) => s.key === key);
