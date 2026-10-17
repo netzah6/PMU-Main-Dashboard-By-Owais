@@ -18,6 +18,21 @@ async function admin() {
   return auth;
 }
 
+type OpenSub = { id: string; status: string; amount_cents: number; next_charge_on: string };
+
+async function openSubsFor(svc: ReturnType<typeof createServiceClient>, ownerKey: string): Promise<OpenSub[]> {
+  const { data } = await svc.from("client_subscriptions").select("id, status, amount_cents, next_charge_on")
+    .eq("owner_key", ownerKey).in("status", ["draft", "active", "paused"]);
+  return (data ?? []) as OpenSub[];
+}
+
+function duplicateMessage(open: OpenSub[]) {
+  const o = open[0];
+  const [y, m, d] = o.next_charge_on.split("-");
+  return `This client already has ${open.length > 1 ? `${open.length} subscriptions` : `a ${o.status} subscription`} `
+    + `($${(o.amount_cents / 100).toFixed(2)}, next charge ${m}/${d}/${y}). Change that one instead of adding a second.`;
+}
+
 export async function GET() {
   const auth = await admin();
   if (!auth) return NextResponse.json({ error: "Admins only" }, { status: 403 });
@@ -80,6 +95,13 @@ export async function POST(req: NextRequest) {
     if (cadence === "monthly" && day > 28) {
       return NextResponse.json({ error: "Pick a day from 1–28 so every month has that date" }, { status: 400 });
     }
+    /* One open subscription per client (owner, 2026-10-17 — Evalizzeth Gano
+       got a second one while her first was still billing). A real second
+       plan is still possible, but only when the admin confirms it. */
+    if (body.allowDuplicate !== true) {
+      const open = await openSubsFor(svc, ownerKey);
+      if (open.length) return NextResponse.json({ error: duplicateMessage(open), duplicate: open }, { status: 409 });
+    }
     const { data, error } = await svc.from("client_subscriptions").insert({
       owner_key: ownerKey,
       client_label: String(body.clientLabel ?? "") || null,
@@ -102,6 +124,11 @@ export async function POST(req: NextRequest) {
   const sub = cur as Subscription;
 
   if (action === "activate" || action === "resume") {
+    // Switching on a second plan for the same client bills her twice.
+    if (body.allowDuplicate !== true) {
+      const others = (await openSubsFor(svc, sub.owner_key)).filter((o) => o.id !== id && o.status === "active");
+      if (others.length) return NextResponse.json({ error: duplicateMessage(others), duplicate: others }, { status: 409 });
+    }
     // Resuming after a card failure starts the retry count fresh.
     const patch: Record<string, unknown> = { status: "active", retry_attempt: 0, retry_period: null, pause_reason: null, updated_at: now };
     if (!sub.activated_at) { patch.activated_by = auth.email; patch.activated_at = now; }

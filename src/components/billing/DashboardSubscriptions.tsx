@@ -197,10 +197,18 @@ export function DashboardSubscriptions() {
   const act = async (body: Record<string, unknown>, tag: string) => {
     setBusy(tag); setErr(null); setMsg(null);
     try {
-      const r = await fetch("/api/subscriptions/manage", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      const post = (b: Record<string, unknown>) => fetch("/api/subscriptions/manage", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b),
       });
-      const j = await r.json();
+      let r = await post(body);
+      let j = await r.json();
+      /* The server refuses a second open subscription for the same client
+         (Evalizzeth Gano, 2026-10-17). Only a deliberate "yes" adds one. */
+      if (r.status === 409 && j.duplicate) {
+        if (!window.confirm(`${j.error}\n\nAdd a SECOND subscription anyway? She would be billed by both.`)) return false;
+        r = await post({ ...body, allowDuplicate: true });
+        j = await r.json();
+      }
       if (!r.ok) throw new Error(j.error || "Action failed");
       await load();
       return true;
@@ -223,6 +231,19 @@ export function DashboardSubscriptions() {
     const reason = pct ? `${pct[1]}% off ${monthName(period)}` : `${monthName(period)} price`;
     const ok = await act({ action: "period_amount", id: s.id, period: period.slice(0, 7), amount, reason }, `period:${s.id}`);
     if (ok) setMsg(`${s.client_label || s.owner_key}: ${monthName(period)} bills $${amount.toFixed(2)}; then back to ${money(s.amount_cents)}.`);
+  };
+
+  /* Change the regular price for every month from now on (owner,
+     2026-10-17). A one-month price already set for the next bill stays. */
+  const changePrice = async (s: Sub) => {
+    const who = s.client_label || s.owner_key;
+    const raw = window.prompt(`New ${s.cadence === "monthly" ? "monthly" : ""} price for ${who}?\n\nNow ${money(s.amount_cents)}. The new price applies from the next charge on.`, (s.amount_cents / 100).toFixed(2));
+    if (raw == null) return;
+    const amount = Number(raw.replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(amount) || amount <= 0) { setErr("Enter an amount above zero"); return; }
+    if (Math.round(amount * 100) === s.amount_cents) return;
+    const ok = await act({ action: "update", id: s.id, amount }, `price:${s.id}`);
+    if (ok) setMsg(`${who}: price changed from ${money(s.amount_cents)} to $${amount.toFixed(2)}.`);
   };
 
   const chargeNow = async (s: Sub) => {
@@ -294,6 +315,13 @@ export function DashboardSubscriptions() {
     if (!q) return [];
     return clients.filter((c) => c.label.toLowerCase().includes(q)).slice(0, 8);
   }, [clientQuery, clients]);
+
+  // Open (not ended) subscriptions per client, to flag doubles on the rows.
+  const openCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const x of subs) if (x.status !== "ended") m.set(x.owner_key, (m.get(x.owner_key) ?? 0) + 1);
+    return m;
+  }, [subs]);
 
   const byId = useMemo(() => {
     const m = new Map<string, Charge[]>();
@@ -432,6 +460,12 @@ export function DashboardSubscriptions() {
                 <div className="flex items-center gap-2 flex-wrap px-2.5 py-1.5">
                   <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border", TONE[s.status])}>{s.status}</span>
                   <span className="text-[13px] font-semibold text-[#1f3559]">{s.client_label || s.owner_key}</span>
+                  {s.status !== "ended" && (openCount.get(s.owner_key) ?? 0) > 1 && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#fff1f2] text-[#e11d48] border border-[#fecdd3]"
+                      title="This client has more than one open subscription — check she isn't billed twice">
+                      ⚠ {openCount.get(s.owner_key)} subscriptions
+                    </span>
+                  )}
                   {(() => {
                     const pp = s.cadence === "monthly" && s.status !== "ended" ? periodPrice(s) : null;
                     return pp ? (
@@ -448,6 +482,13 @@ export function DashboardSubscriptions() {
                     ) : (
                       <>
                         <span className="text-[13px] font-bold text-[#0e8f88] tabular-nums">{money(s.amount_cents)}</span>
+                        {s.status !== "ended" && (
+                          <button onClick={() => void changePrice(s)} disabled={busy === `price:${s.id}`}
+                            title="Change the regular price for every charge from now on"
+                            className="text-[10px] text-[#34568a] underline decoration-dotted underline-offset-2 hover:text-[#0e8f88]">
+                            {busy === `price:${s.id}` ? <Loader2 size={10} className="inline animate-spin" /> : "change price"}
+                          </button>
+                        )}
                         {s.cadence === "monthly" && s.status !== "ended" && (
                           <button onClick={() => void setMonthPrice(s)} disabled={busy === `period:${s.id}`}
                             title="Change the price for the next charge's month only — the month after bills the normal amount"
