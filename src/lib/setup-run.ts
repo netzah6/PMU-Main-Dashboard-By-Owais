@@ -256,6 +256,33 @@ async function preLiveGaps(locationId: string): Promise<string[]> {
   }).map((r) => r.label);
 }
 
+/* The onboarding survey (main account) saves Business Hours and Years in
+   Business on the client's contact; the Clients Master row has no columns
+   for them (AI onward is the monthly tracker), so read them from the
+   contact by its Contact ID. Only fills what the card doesn't have yet. */
+async function answersFromMainContact(contactId: string, form: Record<string, string>): Promise<Record<string, string>> {
+  const want: Record<string, string> = { business_hours: "contact.cc__business_hours", years_in_business: "contact.cc__years_in_business" };
+  const need = Object.keys(want).filter((k) => !String(form[k] ?? "").trim());
+  if (!contactId || !need.length) return {};
+  try {
+    const tok = await getAppLocationToken(MAIN_LOC);
+    if (!tok.token) return {};
+    const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" };
+    const fr = await fetch(`${GHL}/locations/${MAIN_LOC}/customFields`, { headers: H });
+    const fields = fr.ok ? (((await fr.json()) as { customFields?: Array<{ id: string; fieldKey?: string }> }).customFields ?? []) : [];
+    const cr = await fetch(`${GHL}/contacts/${contactId}`, { headers: H });
+    if (!cr.ok) return {};
+    const vals = (((await cr.json()) as { contact?: { customFields?: Array<{ id: string; value?: unknown }> } }).contact?.customFields ?? []);
+    const out: Record<string, string> = {};
+    for (const k of need) {
+      const f = fields.find((x) => x.fieldKey === want[k]) ?? fields.find((x) => String(x.fieldKey ?? "").startsWith(want[k]));
+      const v = f ? vals.find((x) => x.id === f.id)?.value : undefined;
+      if (v !== undefined && String(v).trim()) out[k] = String(v).trim();
+    }
+    return out;
+  } catch { return {}; }
+}
+
 type StepFn = (svc: Svc, ob: Ob) => Promise<{ status: StepState["status"]; note: string; facts?: Partial<SetupState>; form?: Record<string, string>; claim?: Ob["claim"] }>;
 
 const lines = (acts: ClaimAction[]) => acts.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
@@ -292,12 +319,14 @@ const API_STEPS: Record<string, StepFn> = {
   account_cvs: async (_svc, ob) => {
     const have = await listLocationCustomValues(ob.setup!.location_id);
     if (!have.length) return { status: "failed", note: "the account has no custom values — the template (snapshot) is not loaded yet. Load it, then Retry" };
-    const acts = await fillAccountValues(ob.setup!.location_id, ob.form, { depositUrl: ob.setup!.slug ? `${FUNNEL_ORIGIN}/${ob.setup!.slug}` : null });
+    const extra = await answersFromMainContact(String(ob.form.master_contact_id ?? ""), ob.form);
+    const form = { ...ob.form, ...extra };
+    const acts = await fillAccountValues(ob.setup!.location_id, form, { depositUrl: ob.setup!.slug ? `${FUNNEL_ORIGIN}/${ob.setup!.slug}` : null });
     const missing = acts.filter((a) => !a.ok);
     const claim = ob.claim ? { ...ob.claim, actions: [...ob.claim.actions, ...acts.filter((a) => a.ok)] } : undefined;
     return missing.length
-      ? { status: "warn", note: `${acts.length - missing.length} of ${acts.length} filled. 🔴 MISSING — the team creates these by hand in GHL, then Retry:\n${lines(missing)}`, claim }
-      : { status: "done", note: `${acts.length} custom values filled from the client's record`, claim };
+      ? { status: "warn", note: `${acts.length - missing.length} of ${acts.length} filled. 🔴 MISSING — the team creates these by hand in GHL, then Retry:\n${lines(missing)}`, claim, form: extra }
+      : { status: "done", note: `${acts.length} custom values filled from the client's record`, claim, form: extra };
   },
 
   /* 24 · Transformation calendar ID → its custom value. */
