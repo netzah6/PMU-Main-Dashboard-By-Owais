@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, setExistingCustomValue, type ClaimResult, type ClaimAction } from "@/lib/ghl-claim";
+import { dedupeCustomValues, claimPoolAccount, unclaimPoolAccount, discoverPool, listLocationCustomValues, repairCustomValue, setExistingCustomValue, type ClaimResult, type ClaimAction } from "@/lib/ghl-claim";
 import { createDepositProductFromForm } from "@/lib/deposit-product";
 import { listReadyPool } from "@/lib/ghl-cleanup";
 
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = (await req.json().catch(() => ({}))) as {
     poolLocationId?: string;
-    repairCv?: { name: string; value: string };
+    repairCv?: { name: string; value: string }; dedupeCvs?: { dryRun?: boolean };
     fanbasis?: boolean;
   };
 
@@ -72,6 +72,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const { data, error } = await svc.from("onboardings").update({ claim, checklist, form: newForm }).eq("id", params.id).select("*").single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ onboarding: data, fanbasis: res });
+  }
+
+  // Remove duplicate "CC -" custom values (dryRun true = plan only).
+  if (body.dedupeCvs) {
+    if (!row.claim) return NextResponse.json({ error: "No claim" }, { status: 409 });
+    try {
+      return NextResponse.json({ dedupe: await dedupeCustomValues((row.claim as ClaimResult).location_id, body.dedupeCvs.dryRun !== false) });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "dedupe failed" }, { status: 500 });
+    }
   }
 
   // Targeted repair of one custom value on this onboarding's claimed location.
