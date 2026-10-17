@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
 import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, Check, MessageCircle, RefreshCw, X, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { cn, userColor } from "@/lib/utils";
@@ -1316,17 +1317,7 @@ function ProposalCard({ p, onPhase, onRetried, focused, reply: keptReply, amount
             ))}
           </div>
         )}
-        {shots.length > 0 && (
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {shots.map((s, i) => (
-              <a key={i} href={s.url} target="_blank" rel="noreferrer" className="block rounded-lg border border-black/10 overflow-hidden bg-white hover:border-[#15B7AE]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={s.url} alt={s.name || `Screenshot ${i + 1}`} className="w-full h-28 object-cover object-top" loading="lazy" />
-                <span className="block px-2 py-1 text-[10px] text-[#697a91] truncate">{s.name || `Screenshot ${i + 1}`}</span>
-              </a>
-            ))}
-          </div>
-        )}
+        {shots.length > 0 && <ScreenshotGallery shots={shots} />}
       </div>
     );
   }
