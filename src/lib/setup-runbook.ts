@@ -223,14 +223,17 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Open ${ghl(L, "settings/staff")} → edit ${email} → User Availability / Calendar access. The user should be able to see the "Physical Appointment" (Permanent Makeup Transformation) calendar only. Save and screenshot.`,
     ];
     case "wf_survey": return [
+      `The template keeps its workflows INSIDE FOLDERS (e.g. "CC - Funnel Setup - Take Action Here", "Account Automations - Don't Touch"). Open each folder, or type the name in the workflows search box, before deciding a workflow is missing. Only report it missing after checking every folder.`,
       `Open ${ghl(L, "automation/workflows")} and open the workflow whose name starts "CC - Funnel Survey" (V1 / V2 / V3 variants — the one that is Published).`,
       `Find the "Assign to user" action and set it to ${owner} (${email}). Save and publish.`,
       `Check the triggers: there must be a "Contact Tag" trigger with tag "onebox-survey" (tag added). If it is missing, ADD it (Contact tag added → onebox-survey) and publish. Screenshot the trigger list and the assign step.`,
     ];
     case "wf_notify": return [
+      `Workflows live INSIDE FOLDERS — open each folder or use the workflows search box before deciding one is missing.`,
       `Open ${ghl(L, "automation/workflows")} → the workflow named like "CC - One-Box Booking → Notify Artist" (or "Notify Artist"). Its SMS/notification step must go to the artist's own phone ${clientPhone}. Fix the number if it is a placeholder, save, publish. Screenshot the step.`,
     ];
     case "wf_callkill": return [
+      `Workflows live INSIDE FOLDERS — open each folder or use the workflows search box before deciding one is missing.`,
       `Open ${ghl(L, "automation/workflows")} → the outgoing-call workflow (name contains "Outgoing" or "Call"). Make sure there is NO step "Remove from workflow: CC - Funnel Survey" (it kills the AI follow-up). If there is one, DELETE that single step only, save, publish. Screenshot the workflow steps.`,
     ];
     case "cal_team": return [
