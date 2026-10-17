@@ -594,7 +594,7 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
     } catch (e) { notes.push(`✗ custom value: ${errMsg(e)}`); }
     await patch(svc, ref.onboardingId, (o) => { if (!o.setup) return; const st = o.setup.steps[ref.key]; setStep(o.setup, ref.key, { status: st.status, note: `${st.note ?? ""}\n${notes.join(" · ")}`.trim() }); return { setup: o.setup }; });
   }
-  if (ok && ref.key === "webhook_url") await refreshCard(svc, ref.onboardingId);
+  if (ok && (ref.key === "webhook_url" || ref.key === "funnel_ig")) await refreshCard(svc, ref.onboardingId);
   await advanceSetup(svc, ref.onboardingId).catch(() => undefined);
 }
 

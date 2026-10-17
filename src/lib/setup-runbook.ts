@@ -41,10 +41,10 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 5, key: "connector", section: "A · Account", who: "api", label: "Dashboard connector installed on the account (leads, chats and deposits sync)" },
   // B · Deposit product and payment route
   { n: 6, key: "product", section: "B · Deposit product & payment route", who: "api", label: "Create the Commas deposit product \"FULL NAME - BUSINESS NAME\" and save the product ID", checklist: ["fanbasis_product"] },
-  { n: 7, key: "webhook_url", section: "B · Deposit product & payment route", who: "mini", label: "Read the payment route link from the \"FanBasis to GHL workflow\" (Inbound Webhook URL)", how: "Only visible in the GHL editor. The dashboard saves it to \"CC - Fanbasis Webhook URL\" and the funnel." },
+  { n: 7, key: "webhook_url", section: "B · Deposit product & payment route", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The Mac Mini reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
   { n: 8, key: "route_test", section: "B · Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
   // C · Phone
-  { n: 9, key: "phone_buy", section: "C · Phone", who: "ask", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
+  { n: 9, key: "phone_buy", section: "C · Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
   { n: 10, key: "phone_a2p", section: "C · Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
   { n: 11, key: "phone_cnam", section: "C · Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"", checklist: ["phone_cnam"] },
   { n: 12, key: "phone_optout", section: "C · Phone", who: "mini", label: "Uncheck SMS Compliance Opt-Out, and the same switch under Phone → Advanced Settings", checklist: ["phone_optout", "phone_sms_adv"] },
@@ -52,21 +52,21 @@ export const RUNBOOK: RunbookStep[] = [
   // D · GHL user
   { n: 14, key: "user_create", section: "D · GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
   { n: 15, key: "user_password", section: "D · GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The Mac Mini sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
-  { n: 16, key: "user_settings", section: "D · GHL user for the client", who: "mini", label: "Standard client permission set, call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
+  { n: 16, key: "user_settings", section: "D · GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
   { n: 17, key: "user_calendar", section: "D · GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
   // E · Workflows
   { n: 18, key: "wf_survey", section: "E · Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
   { n: 19, key: "wf_notify", section: "E · Workflows", who: "mini", label: "\"CC - One-Box Booking → Notify Artist\": artist's number set so she gets booking texts" },
   { n: 20, key: "wf_callkill", section: "E · Workflows", who: "mini", label: "Outgoing-call workflow: no \"Remove from Funnel Survey\" step that kills the AI" },
   // F · Calendar
-  { n: 21, key: "cal_team", section: "F · Calendar", who: "mini", label: "Team member = the new user; meeting location = full studio address", checklist: ["cal_team", "cal_location"] },
+  { n: 21, key: "cal_team", section: "F · Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
   { n: 22, key: "cal_hours", section: "F · Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen", how: "Browser only. The API path mangles this screen (Mindy To).", checklist: ["cal_availability"] },
   { n: 23, key: "cal_rules", section: "F · Calendar", who: "mini", label: "Booking rules: Look Busy 75%, slot length and buffer per the template", checklist: ["cal_lookbusy"] },
   { n: 24, key: "cal_id", section: "F · Calendar", who: "api", label: "Save the calendar ID to \"CC - Permanent Makeup Transformation Calendar ID\"" },
   // G · Funnel
   { n: 25, key: "funnel_create", section: "G · Funnel", who: "api", label: "Create the one-box funnel at book.pmu-care.com/<slug> and set \"CC - Deposit Funnel URL (V3)\"", checklist: ["funnel_onebox"] },
   { n: 26, key: "funnel_pixel", section: "G · Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
-  { n: 27, key: "funnel_ig", section: "G · Funnel", who: "mini", label: "Instagram widget, only if the IG has 9+ posts and a profile picture; otherwise skipped with a note", checklist: ["funnel_ig_widget"] },
+  { n: 27, key: "funnel_ig", section: "G · Funnel", who: "ask", label: "Instagram widget in Elfsight (after your approval), only if the IG has 9+ posts and a profile picture", how: "Needs the Mac Mini signed in to dash.elfsight.com. The widget link goes into \"CC - IG Widget LINK\"; the funnel picks it up.", checklist: ["funnel_ig_widget"] },
   { n: 28, key: "funnel_redirect", section: "G · Funnel", who: "mini", label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect" },
   { n: 29, key: "funnel_test", section: "G · Funnel", who: "mini", label: "Test the funnel as a lead: survey, text arrives, AI replies, deposit page loads; then delete the test contact", checklist: ["fin_test"] },
   { n: 30, key: "funnel_live", section: "G · Funnel", who: "api", label: "Check no client value is empty, then set the version to V3 and go live", how: "Stops red with the list of empty values (prices, deposit, address, product ID, webhook, calendar ID…) instead of going live with holes." },
@@ -225,10 +225,12 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Do not write the password in your summary — just say it was set.`,
     ];
     case "user_settings": return [
-      `Open ${ghl(L, "settings/staff")} and edit the user ${email}.`,
-      `Permissions: the standard client set — turn OFF Settings, Workflows/Automations, Funnels/Websites, Marketing, Export payments, Payments, Blogs, Social Planner, Reporting/Agent reporting, Affiliate manager; leave ON Contacts, Conversations, Calendars, Opportunities, Dashboard stats, Online listings off.`,
+      `Open ${ghl(L, "settings/staff")} and edit the user ${email}. Role / user type: "User" (NOT Admin).`,
+      `Permissions — turn EVERY module and checkbox OFF except exactly these (owner's list):`,
+      `• Contacts: "View & manage contacts" ON (bulk action OFF). • Opportunities: "View & manage opportunities" + "View opportunities lead value" ON (bulk actions, create pipeline OFF). • Conversations: "View & manage conversation" ON. • Calendars: "View Calendars" + "Manage appointments" ON (setup, groups, resources, preferences OFF). • Dashboard: "View dashboard" ON only. • Reputations: "View & manage review" + "View & manage Listings" ON (Reviews AI Agents, GBP OFF). • Marketing: "View & manage marketing" + "View & manage social planner" ON (affiliate, payout, ad manager, prospecting OFF). • Medias: "View & manage media storage" ON.`,
+      `Every other module (Settings, Automation/Workflows, Funnels/Websites, Payments, Blogs, Reporting, AI, Forms, Surveys, Communities, Courses, etc.) fully OFF.`,
       `Call & Voicemail settings: "Forward Calls To" — set EVERY option (desktop, mobile app, both) to the account's new GHL number; leave voicemail as the default.`,
-      `Save, reload, confirm. Screenshot the permissions tab and the call settings.`,
+      `Save, reload, confirm the permissions stuck. Screenshot the permission modules and the call settings.`,
     ];
     case "user_calendar": return [
       `Open ${ghl(L, "settings/staff")} → edit ${email} → User Availability / Calendar access. The user should be able to see the "Physical Appointment" (Permanent Makeup Transformation) calendar only. Save and screenshot.`,
@@ -249,7 +251,7 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     ];
     case "cal_team": return [
       `Open ${ghl(L, "settings/calendars")} → the "Permanent Makeup Transformation" (Physical Appointment) calendar → edit.`,
-      `Team members: add ${owner} (${email}) as the only team member. Meeting location: "${address}". Save and screenshot.`,
+      `Staff & location: ${owner} (${email}) must be the ONLY staff member (remove anyone else). Her meeting location: choose "Full address" so the field shows {{location.full_address}} — do NOT type the address itself. Save changes and screenshot.`,
     ];
     case "cal_hours": return [
       `Open ${ghl(L, "settings/staff")} → edit ${email} → "User Availability" (the per-staff weekly schedule) — NOT the calendar's own availability.`,
@@ -260,9 +262,10 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Open ${ghl(L, "settings/calendars")} → "Permanent Makeup Transformation" → edit → Availability / Advanced: set "Look Busy" to 75%. Keep the slot duration and buffer the template has (do not change them unless they are blank). Save, reload, screenshot.`,
     ];
     case "funnel_ig": return [
-      ig ? `Open the client's Instagram ${ig} in a new tab. Count: does it have at least 9 posts AND a profile picture?` : `No Instagram link is on the form — status "done", summary "skipped: no Instagram on the form", no changes.`,
-      ig ? `If YES: in the dashboard Funnels tab (https://pmu-main-dashboard-by-owais1.vercel.app/funnels), open ${biz} → Start Setup → Instagram widget, and follow the Elfsight widget steps the team uses (create the widget for ${ig}, paste its ID, Save). If NO: change nothing and report "skipped: IG too thin (N posts / no picture)".` : `Screenshot nothing — just report.`,
-      ig ? `Screenshot the booking page ${funnel} showing the widget (or the IG profile showing why it was skipped).` : ``,
+      ig ? `Open the client's Instagram ${ig}. Count: at least 9 posts AND a profile picture? If NO: change nothing, report "skipped: IG too thin (N posts / no picture)".` : `No Instagram link is on the form — status "done", summary "skipped: no Instagram on the form", no changes.`,
+      ig ? `If YES: open https://dash.elfsight.com/apps/instagram-feed (must be signed in — if you see a login page, stop: status "needs_teammate", "Mac Mini is not signed in to Elfsight"). Search the widgets for "${biz}" first and REUSE an existing one for this business; only if none exists, create a new Instagram Feed widget named "${biz}" for ${ig} with the team's usual layout.` : ``,
+      ig ? `Copy the widget's install/share link (or its ID). Paste it into the sub-account custom value "CC - IG Widget LINK": ${ghl(L, "settings/custom_values")}. Save.` : ``,
+      ig ? `Screenshot the Elfsight widget and the saved custom value. Report the widget link in your summary.` : ``,
     ].filter(Boolean);
     case "funnel_redirect": return [
       oldFunnel ? `The client's old GHL funnel is ${oldFunnel}. Open ${ghl(L, "funnels-websites/funnels")}, find that funnel's survey page and rename its path by adding "-old" (so the old address stops serving the page).` : `No old funnel is on the form — status "done", summary "skipped: no old funnel", no changes.`,
