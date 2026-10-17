@@ -743,7 +743,7 @@
          calendar-insights data). Display only; nothing is blocked. */
       var scarCap = SCAR_V === "b" ? 3 : 5;
       if (V2 && dayList.length > scarCap) {
-        dayList = dayList.slice(0, scarCap);
+        dayList = pickSlots(dayList, scarCap);
         scarce = '<p class="v2scarce">&#128293; This day is almost full &mdash; ' + dayList.length + ' openings left</p>';
       } else if (V2) {
         scarce = '<p class="v2scarce">&#128293; Only ' + dayList.length + (dayList.length === 1 ? ' opening' : ' openings') + ' left this day</p>';
@@ -765,6 +765,30 @@
       scarce +
       '<p class="obmore" id="ob-more">&darr; Scroll for more times</p>' +
       '<p class="obcal-note" id="ob-note"></p>';
+  }
+
+  /* Which openings to show when the day is capped. Taking the first N
+     showed mornings only (PhiMaker, 2026-10-17: 9:00–11:00 of a 9–5:30
+     day). Instead split the day into N equal stretches and show the most
+     popular time in each, so every day offers morning, midday and
+     afternoon. Popularity = local start hour of fleet bookings (GHL
+     appointments + one-box picks from before the cap): 11am and 1pm
+     peak, 10am–4pm strong, edges weak. Ties go to on-the-hour times. */
+  var HOUR_WEIGHT = { 8: 15, 9: 40, 10: 85, 11: 100, 12: 90, 13: 100, 14: 95, 15: 85, 16: 70, 17: 35, 18: 20, 19: 10 };
+  function pickSlots(list, cap) {
+    if (list.length <= cap) return list;
+    var out = [];
+    for (var s = 0; s < cap; s++) {
+      var from = Math.floor(s * list.length / cap), to = Math.floor((s + 1) * list.length / cap);
+      var best = null, bestScore = -1;
+      for (var i = from; i < to; i++) {
+        var iso = list[i];
+        var score = (HOUR_WEIGHT[parseInt(iso.slice(11, 13), 10)] || 5) * 2 + (iso.slice(14, 16) === "00" ? 1 : 0);
+        if (score > bestScore) { best = iso; bestScore = score; }
+      }
+      out.push(best);
+    }
+    return out;
   }
 
   var DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
