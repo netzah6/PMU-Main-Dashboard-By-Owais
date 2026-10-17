@@ -519,7 +519,7 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
     contact_name: ob.form.business_name.trim(),
     channel: null,
     client_message: miniContext(next, f),
-    summary: `Setup step ${next.n}/38: ${next.label}`.slice(0, 500),
+    summary: `Setup step ${next.n}/${RUNBOOK.length}: ${next.label}`.slice(0, 500),
     action_type: "account_change",
     proposed_reply: null,
     action_detail: `${next.label}${next.how ? ` — ${next.how}` : ""}`.slice(0, 1500),
@@ -681,7 +681,7 @@ async function settle(svc: Svc, onboardingId: string): Promise<void> {
       setup.funnel_url ? `Funnel: ${setup.funnel_url}` : "",
       ...failed.map((x) => `✗ Step ${x.s.n} ${x.s.label}: ${(x.st.error ?? x.st.note ?? "failed").split("\n")[0].slice(0, 160)}`),
       ...warns.map((x) => `⚠ Step ${x.s.n} ${x.s.label}: ${(x.st.note ?? "").split("\n")[0].slice(0, 160)}`),
-      nextStatus === "done" ? "Still yours: Facebook (steps 31–34) and the client's FB/IG connection." : `Open the card to Retry or Skip: ${dashboardUrl()}/onboarding?open=${onboardingId}`,
+      nextStatus === "done" ? "Still yours: Facebook (Business Manager, campaign, publish) and the client's FB/IG connection — done by the team, outside this run." : `Open the card to Retry or Skip: ${dashboardUrl()}/onboarding?open=${onboardingId}`,
     ].filter(Boolean);
     finalText = `${head}\n${body.join("\n")}`;
     const lastShots = states.flatMap((x) => x.st.screenshots ?? []).slice(-2).map((s) => s.url);
