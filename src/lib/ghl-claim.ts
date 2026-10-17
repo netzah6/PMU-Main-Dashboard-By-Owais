@@ -190,11 +190,9 @@ export async function repairCustomValue(locationId: string, name: string, value:
 // from the team's template user so GHL-side changes propagate automatically.
 const TEMPLATE_USER_EMAIL = "mzrhynzh@gmail.com"; // "Demo Lastdemo"
 
-// Password convention: FirstnameLastname1212! (e.g. "IvanAndrosov1212!")
-export function employeePassword(ownerName: string): string {
-  const compact = ownerName.trim().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("").replace(/[^a-zA-Z0-9]/g, "");
-  return `${compact}1212!`;
-}
+// Password convention lives in setup-runbook (the Mac Mini's plan needs it).
+import { employeePassword } from "@/lib/setup-runbook";
+export { employeePassword };
 
 export async function createEmployeeUser(locationId: string, ownerName: string, email: string): Promise<ClaimAction> {
   assertNotProtected(locationId);
