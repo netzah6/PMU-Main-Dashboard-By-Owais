@@ -1,3 +1,9 @@
+// Password convention: FirstnameLastname1212! (e.g. "IvanAndrosov1212!")
+export function employeePassword(ownerName: string): string {
+  const compact = ownerName.trim().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("").replace(/[^a-zA-Z0-9]/g, "");
+  return `${compact}1212!`;
+}
+
 // The New Client Setup runbook (owner-approved 10/15/2026): the team's
 // 59-step Onboarding sheet merged with the dashboard's Claim and Start Setup
 // steps, as 38 steps with WHO does each one.
@@ -44,7 +50,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 13, key: "phone_forward", section: "C · Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
   { n: 14, key: "user_create", section: "D · GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
-  { n: 15, key: "user_password", section: "D · GHL user for the client", who: "api", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "Never shown in chat or screenshots.", checklist: ["user_password"] },
+  { n: 15, key: "user_password", section: "D · GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The Mac Mini sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
   { n: 16, key: "user_settings", section: "D · GHL user for the client", who: "mini", label: "Standard client permission set, call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
   { n: 17, key: "user_calendar", section: "D · GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
   // E · Workflows
@@ -197,9 +203,15 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     ];
     case "user_create": return [
       `Open ${ghl(L, "settings/staff")} (Settings → My Staff) → "+ Add Employee".`,
-      `First name / last name: "${owner}". Email: ${email}. Choose a temporary strong password (the dashboard sets the real one right after you finish). Role: User. Type: Account. Make sure the user is added to THIS sub-account only.`,
+      `First name / last name: "${owner}". Email: ${email}. Password: use a temporary strong one (the next step sets the real one). Role: User. Type: Account. Make sure the user is added to THIS sub-account only.`,
       `Save. GHL emails the client an invite — that is expected. Reload and confirm the user appears in the staff list. Screenshot the list.`,
       `Report the exact email you used in your summary.`,
+    ];
+    case "user_password": return [
+      `Open ${ghl(L, "settings/staff")} and edit the user ${email}. Open the password section (often under "Advanced settings" → Password / Change password).`,
+      `Set the password to exactly: ${employeePassword(owner)}  (type it in both fields if there is a confirm box). Save.`,
+      `NEVER take a screenshot while the password is visible or typed in a field. Take the screenshot only after saving, with the dialog closed (e.g. the staff list showing ${email}).`,
+      `Do not write the password in your summary — just say it was set.`,
     ];
     case "user_settings": return [
       `Open ${ghl(L, "settings/staff")} and edit the user ${email}.`,

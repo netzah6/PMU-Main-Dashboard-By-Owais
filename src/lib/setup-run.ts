@@ -564,6 +564,8 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
     setStep(o.setup, ref.key, { status, who: "Mac Mini", note: text.slice(0, 1500), screenshots: shots, error: ok ? undefined : (p.status === "needs_teammate" ? "the Mac Mini needs a teammate — see its note" : "the Mac Mini could not finish") }, `card ${p.id} → ${p.status}`);
     const checklist = { ...o.checklist };
     if (ok) tick(checklist, step.checklist, "Mac Mini");
+    // Step 15: the password the Mini set by the team rule, kept on the card.
+    if (ok && ref.key === "user_password") o.setup.password = employeePassword(String(o.form.owner_name ?? ""));
     // Step 7: the payment route URL the Mini read off the workflow editor.
     if (ok && ref.key === "webhook_url") {
       const m = text.match(/https:\/\/(?:services|backend)\.leadconnectorhq\.com\/hooks\/[A-Za-z0-9/_-]+/);
