@@ -60,7 +60,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 20, key: "wf_callkill", section: "E · Workflows", who: "mini", label: "Outgoing-call workflow: no \"Remove from Funnel Survey\" step that kills the AI" },
   // F · Calendar
   { n: 21, key: "cal_team", section: "F · Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
-  { n: 22, key: "cal_hours", section: "F · Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen", how: "Browser only. The API path mangles this screen (Mindy To).", checklist: ["cal_availability"] },
+  { n: 22, key: "cal_hours", section: "F · Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the last check (step 32) fixes it if not.", checklist: ["cal_availability"] },
   { n: 23, key: "cal_rules", section: "F · Calendar", who: "mini", label: "Booking rules: Look Busy 75%, slot length and buffer per the template", checklist: ["cal_lookbusy"] },
   { n: 24, key: "cal_id", section: "F · Calendar", who: "api", label: "Save the calendar ID to \"CC - Permanent Makeup Transformation Calendar ID\"" },
   // G · Funnel
@@ -255,6 +255,7 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     ];
     case "cal_hours": return [
       `Open ${ghl(L, "settings/staff")} → edit ${email} → "User Availability" (the per-staff weekly schedule) — NOT the calendar's own availability.`,
+      `Set the schedule's Timezone to the SAME zone as Settings → Business Profile → Time Zone (the studio's local time) — never your own or Israel time.`,
       `Set the weekly hours and days from the form: ${hours}. Days not listed are closed. Save.`,
       `Reload the page and confirm the exact values are still there (GHL sometimes drops them). Screenshot before and after.`,
     ];

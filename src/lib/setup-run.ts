@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import {
-  claimPoolAccount, fillAccountValues, fillCalendarId, setLocationProfile, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
+  claimPoolAccount, fillAccountValues, fillCalendarId, syncScheduleTimezones, setLocationProfile, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
   employeePassword, findLocationUserByEmail, setUserPassword, slugify, type ClaimResult, type ClaimAction,
 } from "@/lib/ghl-claim";
 import { poolBlocker, poolReadiness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
@@ -478,11 +478,15 @@ const API_STEPS: Record<string, StepFn> = {
 
   /* 36 · The Check-Setup grade on the finished account. */
   last_check: async (_svc, ob) => {
+    // Safety net: the artist's schedule must be in the studio's time zone.
+    const tz: ClaimAction[] = await syncScheduleTimezones(ob.setup!.location_id).catch((e) => [{ action: "Schedule time zone", ok: false, detail: errMsg(e) }]);
+    const tzBad = tz.filter((a) => !a.ok).length;
+    const tzNote = tz.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
     const r = await verifyOnboarding({ ...ob.form, product_id: ob.setup!.product_id ?? ob.form.product_id }, { locationId: ob.setup!.location_id });
     const fails = r.checks.filter((c) => c.status === "fail");
     const pass = r.checks.filter((c) => c.status === "pass").length;
-    if (!fails.length) return { status: "done", note: `all green — ${pass} checks passed` };
-    return { status: "warn", note: `${pass} passed, ${fails.length} to fix:\n${fails.map((f) => `✗ ${f.key}: ${f.detail}`).join("\n")}` };
+    if (!fails.length && !tzBad) return { status: "done", note: `all green — ${pass} checks passed\n${tzNote}` };
+    return { status: "warn", note: `${pass} passed, ${fails.length + tzBad} to fix:\n${[...fails.map((f) => `✗ ${f.key}: ${f.detail}`), tzNote].join("\n")}` };
   },
 
   /* 37 · Move the client's deal to "First Cycle" in the agency pipeline, then
