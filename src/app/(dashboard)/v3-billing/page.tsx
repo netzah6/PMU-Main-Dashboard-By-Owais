@@ -633,7 +633,11 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
         </td>
 
         {/* Card · status · actions */}
-        <td className="px-2 py-1 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} onOpen={open ? undefined : onToggle} /></td>
+        <td className="px-2 py-1 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} onOpen={() => {
+          if (!open) onToggle();
+          // Land on the card list in the opened row.
+          setTimeout(() => { if (v) document.getElementById(`cards-${v.ownerKey}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 80);
+        }} /></td>
         <td className="px-2 py-1 text-center align-middle">
           {c.billingExempt ? (
             <button onClick={() => saveConfig({ billing_exempt: false })}
