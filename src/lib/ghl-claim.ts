@@ -542,6 +542,47 @@ export async function setLocationProfile(locationId: string, form: Record<string
   return { action: `Business profile → ${profile.summary}`, ok: profile.ok, detail: profile.ok ? undefined : profile.summary };
 }
 
+/* Duplicate "CC -" custom values (same name twice: the funnel step created
+   values on an account whose template wasn't loaded yet, then the snapshot
+   brought the originals — Sally, 10/17/2026). Keep the template's original
+   (its key has no extra suffix = the one workflows and the AI reference),
+   move a value into it if only the twin had one, delete the twin. A pair
+   with two DIFFERENT values is left alone and reported. dryRun = plan only. */
+export async function dedupeCustomValues(locationId: string, dryRun: boolean): Promise<Array<{ name: string; keep: string; keepKey: string; move?: string; remove: Array<{ id: string; key: string; value: string }>; skipped?: string; done?: boolean; error?: string }>> {
+  assertNotProtected(locationId);
+  const tok = await getAppLocationToken(locationId);
+  if (!tok.token) throw new Error(`no app token: ${tok.error}`);
+  const H = { Authorization: `Bearer ${tok.token}`, Version: VERSION, Accept: "application/json" };
+  const r = await fetch(`${GHL}/locations/${locationId}/customValues`, { headers: H });
+  if (!r.ok) throw new Error(`customValues HTTP ${r.status}`);
+  const all = ((await r.json()) as { customValues?: Array<{ id: string; name: string; value?: string; fieldKey?: string }> }).customValues ?? [];
+  const groups = new Map<string, typeof all>();
+  for (const c of all) if (/^cc\s*-/i.test(c.name)) groups.set(c.name, [...(groups.get(c.name) ?? []), c]);
+  const out: Awaited<ReturnType<typeof dedupeCustomValues>> = [];
+  for (const [name, list] of groups) {
+    if (list.length < 2) continue;
+    const key = (c: (typeof all)[number]) => String(c.fieldKey ?? "").replace(/[{}\s]/g, "");
+    const keep = [...list].sort((a, b) => key(a).length - key(b).length)[0];
+    const others = list.filter((c) => c.id !== keep.id);
+    const vals = [...new Set(list.map((c) => String(c.value ?? "").trim()).filter(Boolean))];
+    const row: (typeof out)[number] = { name, keep: keep.id, keepKey: key(keep), remove: others.map((c) => ({ id: c.id, key: key(c), value: String(c.value ?? "") })) };
+    if (vals.length > 1) { row.skipped = `different values: ${vals.join(" | ").slice(0, 200)}`; out.push(row); continue; }
+    if (!String(keep.value ?? "").trim() && vals[0]) row.move = vals[0];
+    if (!dryRun) {
+      try {
+        if (row.move) await setCustomValue(locationId, tok.token, keep, row.move);
+        for (const o of others) {
+          const d = await fetch(`${GHL}/locations/${locationId}/customValues/${o.id}`, { method: "DELETE", headers: H });
+          if (!d.ok) throw new Error(`delete ${o.id} HTTP ${d.status}`);
+        }
+        row.done = true;
+      } catch (e) { row.error = e instanceof Error ? e.message : "failed"; }
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 // Un-claim (testing / mistakes): rename the account back to its recorded pool
 // name and restore any custom values the claim overwrote (recorded prevValue).
 // Only allowed when the claim's own record identifies the location.
