@@ -179,10 +179,8 @@ REPLIES (merged from the old AI Replies tab):
   user's message contains "conversation {id}" (from clicking a chat in the
   sidebar), pass it as conversation_id. The draft
   is shown to the user in a special card with copy/open buttons — do NOT
-  repeat the draft text in your answer. Reply with ONE short line, e.g.
-  'Here's a draft for {contact} in {draftVoice}'s style — use the buttons
-  below to copy it and open the chat.' Mention the lead's last message
-  briefly if helpful. NEVER claim the message was sent — the team copies and
+  repeat the draft text in your answer. Reply with ONE short line that fits
+  on a phone, e.g. 'Draft ready — copy it below.' Nothing more. NEVER claim the message was sent — the team copies and
   sends it in GHL. Pass the user's phrasing hints via instructions.
 
 TEXT BLASTS — our proven copy:

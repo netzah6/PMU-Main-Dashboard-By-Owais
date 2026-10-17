@@ -262,7 +262,25 @@ export default function AskPage() {
     return () => { cancelled = true; };
   }, [pending, threadTick]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
+  const msgsBoxRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+  const toBottom = () => { const el = msgsBoxRef.current; if (el) el.scrollTop = el.scrollHeight; };
+  useEffect(() => {
+    stickToBottom.current = true;
+    toBottom();
+    const raf = requestAnimationFrame(toBottom);
+    return () => cancelAnimationFrame(raf);
+  }, [msgs, busy]);
+  // Content or box size changes (draft card renders, composer closes) keep the
+  // view pinned to the bottom — unless the user has scrolled up to read.
+  useEffect(() => {
+    const el = msgsBoxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => { if (stickToBottom.current) toBottom(); });
+    ro.observe(el);
+    Array.from(el.children).forEach((c) => ro.observe(c));
+    return () => ro.disconnect();
+  }, [msgs]);
 
   const send = useCallback(async (text: string) => {
     const q = text.trim();
@@ -460,7 +478,7 @@ export default function AskPage() {
       if (!res.ok) throw new Error(json.error || "Failed to draft a reply");
       const voice = json.voice?.name ?? "";
       const draft: Draft = { contactName: c.contactName, channel: c.channel, draft: json.draft, voice, voiceInfo: json.voice ?? undefined, conversationUrl: chatUrl(c), conversationId: c.id, contactId: c.contactId, inviteCall: call, notes: trimmed ? [trimmed] : [] };
-      setMsgs((m) => [...m, { role: "assistant", content: `Here's a draft for ${c.contactName}${voice ? ` in ${voice}'s style` : ""} — use the buttons below to copy it and open the chat.`, drafts: [draft] }]);
+      setMsgs((m) => [...m, { role: "assistant", content: "Draft ready — copy it below.", drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
       setMsgs((m) => m.slice(0, -1));
@@ -656,7 +674,8 @@ export default function AskPage() {
         <AgentActivity proposals={proposals} lastScan={lastScan} worker={workerBeat} loading={proposalsLoading} err={proposalsErr}
           onRefresh={() => loadProposals()} onOpen={openProposal} onClose={() => setShowActivity(false)} />
       ) : (
-      <div className="flex-1 overflow-y-auto space-y-3 pb-4">
+      <div ref={msgsBoxRef} onScroll={(e) => { const el = e.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}
+        className="flex-1 overflow-y-auto space-y-3 pb-4">
         {msgs.length === 0 && (
           <div className="pt-16 text-center text-sm text-[#8595a8]">
             Ask me anything &mdash; write a text blast, draft an email, think something through.
@@ -1577,10 +1596,11 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
   const vi = d.voiceInfo;
   const voiceLine = !vi ? ""
     : [
-        vi.samplesUsed > 0 ? `Written in ${vi.name}'s voice · ${vi.samplesUsed} real ${vi.samplesUsed === 1 ? "reply" : "replies"}` : "No real replies found — plain style",
-        vi.learnedFrom ? `learned from ${vi.learnedFrom} past edit${vi.learnedFrom === 1 ? "" : "s"}` : "",
-        vi.knowsClient ? `remembers ${d.contactName.split(" ")[0]}'s history` : "",
-        d.inviteCall ? "📞 call invite on" : "",
+        // Kept short so it fits one line on a phone (owner, 2026-10-17).
+        vi.samplesUsed > 0 ? `${vi.name.split(" ")[0]}'s voice · ${vi.samplesUsed} ${vi.samplesUsed === 1 ? "reply" : "replies"}` : "Plain style",
+        vi.learnedFrom ? `${vi.learnedFrom} edit${vi.learnedFrom === 1 ? "" : "s"}` : "",
+        vi.knowsClient ? `knows ${d.contactName.split(" ")[0]}` : "",
+        d.inviteCall ? "📞 call" : "",
       ].filter(Boolean).join(" · ");
   return (
     <>
@@ -1673,7 +1693,7 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
         </div>
       )}
     </div>
-    {voiceLine && <p className="mt-1 px-1 text-[10px] text-[#8595a8]">{voiceLine}</p>}
+    {voiceLine && <p className="mt-1 px-1 text-[10px] text-[#8595a8] truncate" title={voiceLine}>{voiceLine}</p>}
     </>
   );
 }
