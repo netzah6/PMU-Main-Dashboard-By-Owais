@@ -146,14 +146,22 @@ export function CardCell({ v, loading, onOpen }: { v: VRow | undefined; loading:
         </button>
       );
     }
-    return <span className="text-[11px] font-semibold text-[#be123c] whitespace-nowrap">{v.match ? (v.cards.length ? "No usable card" : "No card on file") : "No Square customer"}</span>;
+    const label = v.match ? (v.cards.length ? "No usable card" : "No card on file") : "No Square customer";
+    return onOpen ? (
+      <button onClick={onOpen} title="Open the client's cards" className="text-[11px] font-semibold text-[#be123c] whitespace-nowrap hover:underline">{label}</button>
+    ) : <span className="text-[11px] font-semibold text-[#be123c] whitespace-nowrap">{label}</span>;
   }
-  return (
+  // Click the card to change it — same as the Subs tab (owner, 2026-10-17).
+  const body = (
     <>
-      <div className="text-[11px] font-semibold text-[#34568a] whitespace-nowrap">{card.brand} ••{card.last4}{card.isChosenDefault && <Star size={9} className="inline ml-0.5 -mt-0.5 text-[#a16207]" fill="currentColor" />}</div>
+      <div className="text-[11px] font-semibold text-[#34568a] whitespace-nowrap">
+        {card.brand} ••{card.last4}{card.isChosenDefault && <Star size={9} className="inline ml-0.5 -mt-0.5 text-[#a16207]" fill="currentColor" />}
+        {onOpen && <span className="ml-1 text-[9px] font-bold text-[#0e8f88] border border-[#a7e3df] bg-[#e6f7f5] rounded px-1 py-px">change</span>}
+      </div>
       <div className="text-[9px] text-[#8595a8] whitespace-nowrap">{card.lastUsedAt ? `last used ${fmtDate(card.lastUsedAt)}` : "never used"}</div>
     </>
   );
+  return onOpen ? <button onClick={onOpen} title="Pick which card on file to charge" className="text-left hover:opacity-80">{body}</button> : body;
 }
 
 export function StatusCell({ v }: { v: VRow | undefined }) {
@@ -708,8 +716,8 @@ export function PaymentDetails({ v, onMsg, onReload }: {
               name/email/phone and pin the right profile. */}
           <CustomerLinkSearch v={v} busy={busy} onLink={setLink} />
         </div>
-        <div>
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#697a91] mb-1">Cards on file (newest first)</h4>
+        <div id={`cards-${v.ownerKey}`} className="scroll-mt-24">
+          <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#697a91] mb-1">Cards on file (newest first) — pick one with “use this card”</h4>
           {v.cards.length === 0
             ? <div className="text-[11px] text-[#be123c]">None — Square has no card for this customer.</div>
             : (
