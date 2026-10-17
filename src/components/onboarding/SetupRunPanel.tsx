@@ -8,7 +8,7 @@ import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
 import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
 /* The New Client Setup run on an Onboarding card.
-   Before Approve: which clean account it will take (dropdown), the 38-step
+   Before Approve: which clean account it will take (dropdown), the step-by-step
    plan with who does each, and the Approve button. Nothing touches GHL
    before that click.
    After: a banner (running / needs you / done / failed), every step with
@@ -159,7 +159,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
         {/* The plan */}
         <div>
-          <button onClick={() => setShowPlan((v) => !v)} className="text-[11px] text-[#0e8f88] hover:underline">{showPlan ? "hide" : "show"} the 38-step plan</button>
+          <button onClick={() => setShowPlan((v) => !v)} className="text-[11px] text-[#0e8f88] hover:underline">{showPlan ? "hide" : "show"} the {RUNBOOK.length}-step plan</button>
           {showPlan && <PlanList steps={steps} setup={null} cards={{}} />}
         </div>
 

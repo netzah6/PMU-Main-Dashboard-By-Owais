@@ -69,16 +69,10 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 28, key: "funnel_redirect", section: "G · Funnel", who: "mini", label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect" },
   { n: 29, key: "funnel_test", section: "G · Funnel", who: "mini", label: "Test the funnel as a lead: survey, text arrives, AI replies, deposit page loads; then delete the test contact", checklist: ["fin_test"] },
   { n: 30, key: "funnel_live", section: "G · Funnel", who: "api", label: "Check no client value is empty, then set the version to V3 and go live", how: "Stops red with the list of empty values (prices, deposit, address, product ID, webhook, calendar ID…) instead of going live with holes." },
-  // H · Facebook
-  { n: 31, key: "fb_bm", section: "H · Facebook", who: "team", label: "Business Manager name, payment method, partner access, invites" },
-  { n: 32, key: "fb_campaign", section: "H · Facebook", who: "team", label: "Campaign, ad set and ad built from the template, left paused" },
-  { n: 33, key: "fb_publish", section: "H · Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["last_publish"] },
-  { n: 34, key: "client_connect", section: "H · Facebook", who: "client", label: "Client connects her FB and IG to the account", checklist: ["last_connect"] },
-  // I · Last check
-  { n: 35, key: "last_profile", section: "I · Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", checklist: ["last_profile"] },
-  { n: 36, key: "last_check", section: "I · Last check", who: "api", label: "Check-Setup grade is green: funnel, Commas, sheet, sync" },
-  { n: 37, key: "first_cycle", section: "I · Last check", who: "api", label: "Move the client to \"First Cycle\" and text you the summary with the last screenshots", checklist: ["fin_master"] },
-  { n: 38, key: "later_hours", section: "I · Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
+  { n: 31, key: "last_profile", section: "H · Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", checklist: ["last_profile"] },
+  { n: 32, key: "last_check", section: "H · Last check", who: "api", label: "Check-Setup grade is green: funnel, Commas, sheet, sync" },
+  { n: 33, key: "first_cycle", section: "H · Last check", who: "api", label: "Move the client to \"First Cycle\" and text you the summary with the last screenshots", checklist: ["fin_master"] },
+  { n: 34, key: "later_hours", section: "H · Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
 ];
 
 export const RUNBOOK_SECTIONS = Array.from(new Set(RUNBOOK.map((s) => s.section)));
