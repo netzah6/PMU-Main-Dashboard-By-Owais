@@ -464,6 +464,46 @@ export async function fillAccountValues(poolLocationId: string, form: Record<str
   return actions;
 }
 
+/* The artist's schedule on the Transformation calendar carries its OWN time
+   zone, separate from the sub-account's. When they differ, GHL shifts every
+   slot (10/17/2026 sweep: 21 schedules set to Israel / wrong US zones →
+   5 AM or overnight slots). Owner rule: the studio's address decides, and
+   step 2 already sets the sub-account's zone from it — so the schedule
+   follows the sub-account. Only the time zone changes; hours stay as typed.
+   PUT /calendars/schedules/{id} {timezone} keeps rules and calendarIds
+   (verified on 21 live accounts). The search needs calendarId AND userId,
+   or it misses the calendar's "Custom schedule". */
+export async function syncScheduleTimezones(locationId: string): Promise<ClaimAction[]> {
+  assertNotProtected(locationId);
+  const tok = await getAppLocationToken(locationId);
+  if (!tok.token) return [{ action: "Schedule time zone", ok: false, detail: `no app token: ${tok.error}` }];
+  const H = { Authorization: `Bearer ${tok.token}`, Accept: "application/json", "Content-Type": "application/json" };
+  const get = (p: string, v = "2021-04-15") => fetch(`${GHL}${p}`, { headers: { ...H, Version: v } }).then((r) => r.json()).catch(() => ({}));
+  const locTz = String(((await get(`/locations/${locationId}`, VERSION)) as { location?: { timezone?: string } }).location?.timezone ?? "");
+  if (!locTz) return [{ action: "Schedule time zone", ok: false, detail: "the sub-account has no time zone — set it in Business Profile first" }];
+  const cj = (await get(`/calendars/?locationId=${locationId}`)) as { calendars?: Array<{ id?: string; name?: string; teamMembers?: Array<{ userId?: string }> }> };
+  const cal = (cj.calendars ?? []).find((c) => /transformation/i.test(String(c.name ?? "")));
+  if (!cal?.id) return [{ action: "Schedule time zone", ok: false, detail: "no Transformation calendar found" }];
+  const offset = (tz: string, d: Date) => { try { return new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" }).format(d).split(" ").pop(); } catch { return `?${tz}`; } };
+  const sameZone = (a: string, b: string) => [new Date("2026-01-15"), new Date("2026-07-15")].every((d) => offset(a, d) === offset(b, d));
+  const actions: ClaimAction[] = [];
+  for (const m of cal.teamMembers ?? []) {
+    if (!m.userId) continue;
+    const sj = (await get(`/calendars/schedules/search?locationId=${locationId}&calendarId=${cal.id}&userId=${m.userId}`)) as { schedules?: Array<{ id: string; name?: string; timezone?: string; calendarIds?: string[] }> };
+    for (const s of sj.schedules ?? []) {
+      if (!(s.calendarIds ?? []).includes(cal.id)) continue;
+      const from = String(s.timezone ?? "");
+      if (from && sameZone(from, locTz)) { actions.push({ action: `Schedule "${s.name ?? s.id}" already in ${from}`, ok: true }); continue; }
+      const r = await fetch(`${GHL}/calendars/schedules/${s.id}`, { method: "PUT", headers: { ...H, Version: "2021-04-15" }, body: JSON.stringify({ timezone: locTz }) });
+      const back = (await get(`/calendars/schedules/${s.id}`)) as { schedule?: { timezone?: string } };
+      const ok = r.ok && back.schedule?.timezone === locTz;
+      actions.push({ action: `Schedule "${s.name ?? s.id}" time zone ${from || "(none)"} → ${locTz}`, ok, detail: ok ? undefined : `HTTP ${r.status}` });
+    }
+  }
+  if (!actions.length) actions.push({ action: "Schedule time zone", ok: false, detail: "no schedule is linked to the Transformation calendar — set the artist's hours (step 22) first" });
+  return actions;
+}
+
 /* Save the Transformation calendar's ID into its existing custom value. */
 export async function fillCalendarId(poolLocationId: string): Promise<ClaimAction[]> {
   assertNotProtected(poolLocationId);
