@@ -292,7 +292,7 @@ const API_STEPS: Record<string, StepFn> = {
   account_cvs: async (_svc, ob) => {
     const have = await listLocationCustomValues(ob.setup!.location_id);
     if (!have.length) return { status: "failed", note: "the account has no custom values — the template (snapshot) is not loaded yet. Load it, then Retry" };
-    const acts = await fillAccountValues(ob.setup!.location_id, ob.form);
+    const acts = await fillAccountValues(ob.setup!.location_id, ob.form, { depositUrl: ob.setup!.slug ? `${FUNNEL_ORIGIN}/${ob.setup!.slug}` : null });
     const missing = acts.filter((a) => !a.ok);
     const claim = ob.claim ? { ...ob.claim, actions: [...ob.claim.actions, ...acts.filter((a) => a.ok)] } : undefined;
     return missing.length

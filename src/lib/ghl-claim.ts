@@ -410,7 +410,11 @@ export async function claimPoolAccount(
 /* Fill the "CC -" custom values (existing ones only, never created) and the
    treated-areas options from the client's record: the Onboarding card's form,
    pre-filled from the Clients tab. Safe to run again. */
-export async function fillAccountValues(poolLocationId: string, form: Record<string, string>): Promise<ClaimAction[]> {
+/* depositUrl: the setup run passes the one-box URL (or null to leave it to
+   the funnel steps). Left undefined, the old 4-page "-last-step" path is
+   used (Claim button). The run used to write that old path over Sally's
+   one-box URL on a step-3 retry, 10/17/2026. */
+export async function fillAccountValues(poolLocationId: string, form: Record<string, string>, opts: { depositUrl?: string | null } = {}): Promise<ClaimAction[]> {
   assertNotProtected(poolLocationId);
   const businessName = String(form.business_name ?? "").trim();
   const actions: ClaimAction[] = [];
@@ -426,7 +430,7 @@ export async function fillAccountValues(poolLocationId: string, form: Record<str
     }
     // Computed values from the funnel URL convention (not on the form).
     const paths = funnelPaths(businessName);
-    const computed: Record<string, string> = { deposit_funnel_url: `${FUNNEL_DOMAIN}/${paths.deposit}` };
+    const computed: Record<string, string> = { deposit_funnel_url: opts.depositUrl === undefined ? `${FUNNEL_DOMAIN}/${paths.deposit}` : (opts.depositUrl ?? "") };
     const FULL_MAP = [
       ...CV_MAP,
       { formKey: "deposit_funnel_url", match: (n: string) => n.includes("depositfunnelurl"), label: "Deposit funnel URL" },
