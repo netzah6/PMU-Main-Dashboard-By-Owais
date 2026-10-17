@@ -218,7 +218,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         </div>
       )}
 
-      <PlanList steps={steps} setup={setup} cards={data.cards}
+      <PlanList steps={steps} setup={setup} cards={data.cards} onboardingId={onboardingId}
         actions={(s, st) => {
           const card = st.proposal_id ? data.cards[st.proposal_id] : undefined;
           const failed = st.status === "failed" || card?.status === "denied";
@@ -260,9 +260,9 @@ function StepNote({ note, status }: { note: string; status: StepState["status"] 
   const [first, ...rest] = note.split("\n");
   const cls = status === "failed" ? "text-[#b91c1c]" : status === "warn" ? "text-[#c2410c]" : "text-[#697a91]";
   const body = rest.join("\n").trim();
-  if (!body) return <p className={cn("text-[11px] mt-0.5 whitespace-pre-wrap", cls)}>{first}</p>;
+  if (!body) return <p className={cn("text-[11px] whitespace-pre-wrap", cls)}>{first}</p>;
   return (
-    <details className="mt-0.5 group" open={status === "failed" || status === "warn"}>
+    <details className="group" open={status === "failed" || status === "warn"}>
       <summary className={cn("text-[11px] cursor-pointer list-none", cls)}>
         {first} <span className="text-[10px] text-[#0e8f88] group-open:hidden">· details</span><span className="text-[10px] text-[#0e8f88] hidden group-open:inline">· hide</span>
       </summary>
@@ -271,10 +271,81 @@ function StepNote({ note, status }: { note: string; status: StepState["status"] 
   );
 }
 
-function PlanList({ steps, setup, cards, actions }: {
+/* Step 3's custom values, live from the sub-account: what's filled, what's
+   empty, and an inline edit to fill one (owner, 10/17/2026). */
+function CustomValuesList({ onboardingId, locationId }: { onboardingId: string; locationId: string }) {
+  const [rows, setRows] = useState<Array<{ name: string; value?: string }> | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [onlyEmpty, setOnlyEmpty] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    setErr(null);
+    try {
+      const r = await fetch(`/api/onboarding/${onboardingId}/claim?cvs=${encodeURIComponent(locationId)}`, { cache: "no-store" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      setRows(((j.customValues ?? []) as Array<{ name: string; value?: string }>).filter((c) => /^cc\s*-/i.test(c.name)).sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (e) { setErr(e instanceof Error ? e.message : "could not load"); }
+  }, [onboardingId, locationId]);
+  useEffect(() => { void load(); }, [load]);
+  const save = async (name: string) => {
+    setSaving(name);
+    try {
+      const r = await fetch(`/api/onboarding/${onboardingId}/claim`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repairCv: { name, value: draft[name] ?? "" } }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      toast.success(`Saved: ${name}`);
+      setDraft((d) => { const n = { ...d }; delete n[name]; return n; });
+      await load();
+    } catch (e) { toast.error(e instanceof Error ? e.message : "save failed"); }
+    finally { setSaving(null); }
+  };
+  if (err) return <p className="text-[11px] text-[#b91c1c] mt-1">Custom values: {err}</p>;
+  if (!rows) return <p className="text-[11px] text-[#8595a8] mt-1 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> loading custom values…</p>;
+  const empty = rows.filter((r) => !String(r.value ?? "").trim()).length;
+  const shown = onlyEmpty ? rows.filter((r) => !String(r.value ?? "").trim()) : rows;
+  return (
+    <div className="mt-1 rounded-md border border-[#eef3f8] bg-[#fbfdff]">
+      <div className="flex items-center gap-3 px-2 py-1 text-[10.5px] text-[#697a91] border-b border-[#eef3f8]">
+        <span><b className="text-[#15803d]">{rows.length - empty}</b> filled · <b className={empty ? "text-[#b91c1c]" : ""}>{empty}</b> empty</span>
+        <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={onlyEmpty} onChange={(e) => setOnlyEmpty(e.target.checked)} /> only empty</label>
+        <button onClick={() => void load()} className="ml-auto text-[#0e8f88] hover:underline flex items-center gap-1"><RefreshCw size={10} /> refresh</button>
+      </div>
+      <ul className="max-h-72 overflow-y-auto divide-y divide-[#f1f5f9]">
+        {shown.map((c) => {
+          const val = String(c.value ?? "");
+          const editing = c.name in draft;
+          return (
+            <li key={c.name} className="px-2 py-1 flex items-center gap-2 text-[11px]">
+              <span className="w-56 shrink-0 truncate text-[#34568a]" title={c.name}>{c.name}</span>
+              {editing ? (
+                <>
+                  <input autoFocus value={draft[c.name]} onChange={(e) => setDraft((d) => ({ ...d, [c.name]: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") void save(c.name); if (e.key === "Escape") setDraft((d) => { const n = { ...d }; delete n[c.name]; return n; }); }}
+                    className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-[#c9dbfb] text-[11px]" />
+                  <button onClick={() => void save(c.name)} disabled={saving === c.name} className="px-1.5 py-0.5 rounded bg-[#15B7AE] text-white text-[10px] font-semibold disabled:opacity-50">{saving === c.name ? "…" : "Save"}</button>
+                </>
+              ) : (
+                <button onClick={() => setDraft((d) => ({ ...d, [c.name]: val }))} title="Click to edit"
+                  className={cn("flex-1 min-w-0 text-left truncate hover:underline", val.trim() ? "text-[#1f3559]" : "text-[#b91c1c] italic")}>
+                  {val.trim() ? val : "empty — click to fill"}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function PlanList({ steps, setup, cards, actions, onboardingId }: {
   steps: RunbookStep[]; setup: Setup | null; cards: Record<string, Card>;
   actions?: (s: RunbookStep, st: StepState) => React.ReactNode;
+  onboardingId?: string;
 }) {
+  const [cvOpen, setCvOpen] = useState(false);
   return (
     <div className="mt-1.5 space-y-2">
       {RUNBOOK_SECTIONS.map((section) => {
@@ -291,20 +362,27 @@ function PlanList({ steps, setup, cards, actions }: {
                 const shots = (st.screenshots?.length ? st.screenshots : card?.screenshots) ?? [];
                 const settledLine = st.at && ["done", "warn", "failed", "skipped"].includes(st.status) ? `${st.who ?? ""} · ${usWhen(st.at)}` : "";
                 return (
-                  <li key={s.key} className="px-3 py-1.5 flex items-start gap-2">
+                  <li key={s.key} className="px-3 py-1 flex items-start gap-2">
                     <span className="w-6 shrink-0 text-[11px] text-[#8595a8] tabular-nums mt-0.5">{s.n}</span>
                     {ic && <span className={cn("w-4 shrink-0 text-[13px] leading-5", ic.cls)} title={ic.label}>{ic.icon}</span>}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start gap-2 flex-wrap">
-                        <span className={cn("text-[12.5px] font-semibold", st.status === "done" || st.status === "skipped" ? "text-[#475569]" : "text-[#1f3559]")}>{s.title ?? s.label}</span>
+                      {/* Line 1: name · who · when · screenshots — the description is a tooltip once settled */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {s.key === "account_cvs" && setup && onboardingId ? (
+                          <button onClick={() => setCvOpen((v) => !v)} title={s.label}
+                            className="text-[12.5px] font-semibold text-[#0e8f88] hover:underline">{s.title ?? s.label} {cvOpen ? "▴" : "▾"}</button>
+                        ) : (
+                          <span title={s.label} className={cn("text-[12.5px] font-semibold", st.status === "done" || st.status === "skipped" ? "text-[#475569]" : "text-[#1f3559]")}>{s.title ?? s.label}</span>
+                        )}
                         <span className={cn("text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap", WHO_STYLE[s.who])}>{WHO_LABEL[s.who]}</span>
+                        {settledLine && <span className="text-[10px] text-[#a6b3c4] whitespace-nowrap">{settledLine}</span>}
+                        {shots.length > 0 && <ScreenshotGallery shots={shots} variant="chip" />}
                       </div>
-                      {s.title && <p className="text-[10.5px] text-[#8595a8]">{s.label}</p>}
+                      {s.title && !["done", "skipped"].includes(st.status) && <p className="text-[10.5px] text-[#8595a8]">{s.label}</p>}
                       {!setup && s.how && <p className="text-[10.5px] text-[#8595a8]">{s.how}</p>}
                       {ic?.label && !["done", "skipped"].includes(st.status) && <p className={cn("text-[10.5px] font-semibold", ic.cls)}>{ic.label}</p>}
-                      {settledLine && <p className="text-[10px] text-[#a6b3c4]">{settledLine}</p>}
                       {st.note && setup && <StepNote note={st.note} status={st.status} />}
-                      {shots.length > 0 && <ScreenshotGallery shots={shots} variant="row" />}
+                      {s.key === "account_cvs" && cvOpen && setup?.location_id && onboardingId && <CustomValuesList onboardingId={onboardingId} locationId={setup.location_id} />}
                       {actions?.(s, st)}
                     </div>
                   </li>

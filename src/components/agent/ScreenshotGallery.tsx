@@ -9,7 +9,7 @@ import { ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
 
 export type Shot = { name?: string; url: string };
 
-export default function ScreenshotGallery({ shots, variant = "grid" }: { shots: Shot[]; variant?: "grid" | "row" }) {
+export default function ScreenshotGallery({ shots, variant = "grid" }: { shots: Shot[]; variant?: "grid" | "row" | "chip" }) {
   const [open, setOpen] = useState<number | null>(null);
   const touchX = useRef<number | null>(null);
   const n = shots.length;
@@ -36,7 +36,12 @@ export default function ScreenshotGallery({ shots, variant = "grid" }: { shots: 
 
   return (
     <>
-      {variant === "grid" ? (
+      {variant === "chip" ? (
+        <button type="button" onClick={() => setOpen(0)} title="Screenshots"
+          className="inline-flex items-center gap-1 rounded-full border border-[#cfe9e6] bg-[#f3fbfa] px-1.5 py-px text-[10px] font-semibold text-[#0e8f88] hover:border-[#15B7AE]">
+          📷 {n}
+        </button>
+      ) : variant === "grid" ? (
         <div className="mt-2 grid grid-cols-2 gap-2">
           {shots.map((s, i) => (
             <button key={i} type="button" onClick={() => setOpen(i)} className="block text-left rounded-lg border border-black/10 overflow-hidden bg-white hover:border-[#15B7AE]">
