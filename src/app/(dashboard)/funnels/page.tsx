@@ -704,40 +704,54 @@ function Ab2TestCards() {
   /* Each test has its own start (the short survey was re-cut mid-day on
      Oct 13), so visitors-per-arm comes from the pair when it carries one. */
   const leadPct = (s: Side, visitors?: number) => (visitors ? Math.round((s.leads / visitors) * 1000) / 10 : null);
-  const row = (name: string, note: string, s: Side, visitors?: number) => (
+  const pickPct = (s: Side) => (s.leads > 0 ? Math.round((s.picked / s.leads) * 1000) / 10 : null);
+  const pct = (v: number | null) => (v === null ? "—" : `${v}%`);
+  /* Each card shows only the steps its test can move (owner, 10/17/2026):
+     scarcity acts on the calendar, so it starts at the lead (lead → picked
+     a time → paid); the shorter survey acts before the lead, so it starts
+     at the visitor (visitors → leads, with the visitor → lead rate). */
+  type Col = { h: string; v: (s: Side, visitors?: number) => string | number; bold?: boolean };
+  const SCAR_COLS: Col[] = [
+    { h: "Leads", v: (s) => s.leads },
+    { h: "Picked a time", v: (s) => s.picked },
+    { h: "Lead → picked", v: (s) => pct(pickPct(s)) },
+    { h: "Paid", v: (s) => s.paid },
+    { h: "Pay-through (paid ÷ picked)", v: (s) => pct(payPct(s)), bold: true },
+  ];
+  const SHORTQ_COLS: Col[] = [
+    { h: "Visitors (est.)", v: (_s, vis) => (vis ? vis.toLocaleString("en-US") : "—") },
+    { h: "Leads", v: (s) => s.leads },
+    { h: "Visitor → lead", v: (s, vis) => pct(leadPct(s, vis)), bold: true },
+    { h: "Picked a time", v: (s) => s.picked },
+    { h: "Paid", v: (s) => s.paid },
+  ];
+  const row = (name: string, note: string, s: Side, cols: Col[], visitors?: number) => (
     <tr className="border-t border-[#f0f4f8]">
       <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{name}</b><div className="text-[#8595a8] max-w-[380px]">{note}</div></td>
-      <td className="py-1.5">{leadPct(s, visitors) === null ? "—" : `${leadPct(s, visitors)}%`}</td>
-      <td className="py-1.5 font-semibold">{s.leads}</td>
-      <td className="py-1.5">{s.picked}</td><td className="py-1.5">{s.paid}</td>
-      <td className="py-1.5 font-semibold">{payPct(s) === null ? "—" : `${payPct(s)}%`}</td>
+      {cols.map((c) => <td key={c.h} className={`py-1.5${c.bold ? " font-semibold" : ""}`}>{c.v(s, visitors)}</td>)}
     </tr>
   );
-  const table = (title: string, p: Pair, aNote: string, bNote: string) => (
+  const table = (title: string, p: Pair, cols: Col[], aNote: string, bNote: string) => (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-sm font-medium text-[#1c2b3a]">{title}</span>
-        <span className="text-xs text-[#697a91]">since {new Date(p.since ?? d.since).toLocaleDateString()}</span>
+        <span className="text-xs text-[#697a91]">since {new Date(p.since ?? d.since).toLocaleDateString("en-US")}</span>
       </div>
       <table className="w-full text-xs">
         <thead><tr className="text-left text-[#697a91]">
           <th className="py-1 font-medium">Side</th>
-          <th className="py-1 font-medium">Visitor → lead</th>
-          <th className="py-1 font-medium">Leads</th>
-          <th className="py-1 font-medium">Picked a time</th>
-          <th className="py-1 font-medium">Paid</th>
-          <th className="py-1 font-medium">Pay-through</th>
+          {cols.map((c) => <th key={c.h} className="py-1 font-medium">{c.h}</th>)}
         </tr></thead>
         <tbody>
-          {row("A — control", aNote, p.a, p.visitorsPerArm ?? d.visitorsPerArm)}
-          {row("B — variant", bNote, p.b, p.visitorsPerArm ?? d.visitorsPerArm)}
+          {row("A — control", aNote, p.a, cols, p.visitorsPerArm ?? d.visitorsPerArm)}
+          {row("B — variant", bNote, p.b, cols, p.visitorsPerArm ?? d.visitorsPerArm)}
         </tbody>
       </table>
     </div>
   );
   return (<>
-    {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, "Up to 5 open slots shown per day (current)", "Up to 3 shown — \u201Conly 3 openings left\u201D")}
-    {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, "Full survey (current): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps). Not-asked leads are never distance-disqualified; GHL's Commutable field is set Yes so the flow runs.")}
+    {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, SCAR_COLS, "Up to 5 open slots shown per day (current)", "Up to 3 shown — \u201Conly 3 openings left\u201D")}
+    {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, SHORTQ_COLS, "Full survey (current): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps). Not-asked leads are never distance-disqualified; GHL's Commutable field is set Yes so the flow runs.")}
   </>);
 }
 
