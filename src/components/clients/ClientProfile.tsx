@@ -832,6 +832,18 @@ function ClientDetails({
   onEditChange: (sheetKey: string, value: string) => void;
 }) {
   const data = client as Record<string, unknown>;
+  const contactId = String(data["Contact ID"] ?? "").trim();
+  const [survey, setSurvey] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setSurvey({});
+    if (!contactId) return;
+    let alive = true;
+    fetch(`/api/clients/survey-answers?contactId=${encodeURIComponent(contactId)}`)
+      .then((r) => (r.ok ? r.json() : { answers: {} }))
+      .then((j: { answers?: Record<string, string> }) => { if (alive) setSurvey(j.answers ?? {}); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [contactId]);
 
   // Edit mode (entered via "Edit Profile"): every detail field becomes an input,
   // except the two name fields, which are edited at the top of the panel.
@@ -857,10 +869,13 @@ function ClientDetails({
     );
   }
 
-  // Read mode: only non-empty fields, read-only.
-  const readEntries = DETAIL_FIELDS
-    .map((f) => ({ key: f.key, label: f.label, value: data[f.key] }))
-    .filter((f) => !isEmptyVal(f.value));
+  // Read mode: only non-empty fields, read-only. Business hours and years
+  // in business come live from the client's contact (not in the sheet).
+  const readEntries = [
+    ...DETAIL_FIELDS.map((f) => ({ key: f.key, label: f.label, value: data[f.key] })),
+    { key: "survey_hours", label: "Business Hours", value: survey.business_hours },
+    { key: "survey_years", label: "Years in Business", value: survey.years_in_business },
+  ].filter((f) => !isEmptyVal(f.value));
   if (readEntries.length === 0) return null;
 
   return (
