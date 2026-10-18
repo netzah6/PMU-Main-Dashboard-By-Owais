@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { autoconfirmEnabled, buildMonth, listMonthTabs, type MonthPayload } from "@/lib/payment-check";
+import { normalizeOwnerKey } from "@/lib/normalizers";
 
 export const maxDuration = 300;
 
@@ -50,7 +51,21 @@ export async function GET(req: NextRequest) {
     const scored = (all ?? []) as Array<{ decision: string; suggested: string }>;
     const agreement = { agreed: scored.filter((d) => d.decision === d.suggested).length, total: scored.length };
 
-    return NextResponse.json({ months, ...payload, decisions: decisions ?? [], autoconfirm, agreement });
+    // Coach share (owner 2026-10-18, admin review only — nothing is paid out):
+    // each client's coach comes from the Clients Master "Assigned" column.
+    const [{ data: master }, { data: shareRow }] = await Promise.all([
+      svc.from("clients_master").select("data"),
+      svc.from("app_settings").select("value").eq("key", "coach_share_percents").maybeSingle(),
+    ]);
+    const coaches: Record<string, string> = {};
+    for (const m of (master ?? []) as Array<{ data: Record<string, unknown> }>) {
+      const key = normalizeOwnerKey(m.data?.["Owner Full Name"]);
+      const coach = String(m.data?.["Assigned"] ?? "").trim();
+      if (key && coach && !coaches[key]) coaches[key] = coach;
+    }
+    const shares = ((shareRow?.value as Record<string, number> | null) ?? {});
+
+    return NextResponse.json({ months, ...payload, decisions: decisions ?? [], autoconfirm, agreement, coaches, shares });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
@@ -58,7 +73,8 @@ export async function GET(req: NextRequest) {
 
 type Body =
   | { action: "decide"; month: string; items: Array<{ ownerKey: string; clientName?: string; decision: "paid" | "not_paid" | null; suggested?: string | null; note?: string | null }> }
-  | { action: "autoconfirm"; enabled: boolean };
+  | { action: "autoconfirm"; enabled: boolean }
+  | { action: "share"; coach: string; percent: number | null };
 
 export async function POST(req: NextRequest) {
   const auth = await admin();
@@ -74,6 +90,22 @@ export async function POST(req: NextRequest) {
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, autoconfirm: !!body.enabled });
+  }
+
+  // Only records the percent used for the admin's review — no money moves.
+  if (body.action === "share") {
+    const coach = String(body.coach ?? "").trim();
+    const pct = body.percent == null ? null : Number(body.percent);
+    if (!coach || (pct != null && (!isFinite(pct) || pct < 0 || pct > 100)))
+      return NextResponse.json({ error: "Enter a percent between 0 and 100" }, { status: 400 });
+    const { data: cur } = await svc.from("app_settings").select("value").eq("key", "coach_share_percents").maybeSingle();
+    const next = { ...((cur?.value as Record<string, number> | null) ?? {}) };
+    if (pct == null) delete next[coach]; else next[coach] = pct;
+    const { error } = await svc.from("app_settings").upsert({
+      key: "coach_share_percents", value: next, updated_by: auth.email ?? auth.userId, updated_at: new Date().toISOString(),
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true, shares: next });
   }
 
   if (body.action === "decide") {

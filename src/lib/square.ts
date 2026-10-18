@@ -381,6 +381,8 @@ export type RecentPayment = {
   cardFingerprint: string | null;
   createdAt: string;
   amountCents: number;
+  /** Already refunded on this payment (partial or full). */
+  refundedCents: number;
   note: string | null;
   receiptUrl: string | null;
 };
@@ -441,6 +443,7 @@ async function fetchPayments(begin: string, end?: string): Promise<RecentPayment
         cardFingerprint: card?.fingerprint ?? null,
         createdAt: String(p.created_at ?? ""),
         amountCents: amt?.amount ?? 0,
+        refundedCents: (p.refunded_money as { amount?: number } | undefined)?.amount ?? 0,
         note: (p.note as string) ?? null,
         receiptUrl: (p.receipt_url as string) ?? null,
       });

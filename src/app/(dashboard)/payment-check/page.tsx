@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, RefreshCw, Check, X, Search } from "lucide-react";
+import { Loader2, RefreshCw, Check, X, Search, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/useUser";
 
@@ -19,6 +19,7 @@ type MonthTab = { month: string; tab: string; label: string };
 type Payload = {
   months: MonthTab[]; month: string; tab: string; rows: Row[]; squareChecked: boolean; warnings: string[];
   builtAt: string; decisions: Decision[]; autoconfirm: boolean; agreement: { agreed: number; total: number };
+  coaches: Record<string, string>; shares: Record<string, number>;
 };
 
 const REVIEW: Category[] = ["declined", "amount", "unrecorded", "norecord", "late"];
@@ -71,6 +72,7 @@ export default function PaymentCheckPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [view, setView] = useState<"payments" | "coaches">("payments");
 
   const load = useCallback(async (m: string | null, refresh = false) => {
     if (refresh) setRefreshing(true); else setLoading(true);
@@ -131,6 +133,14 @@ export default function PaymentCheckPage() {
     <div className="max-w-[1400px] mx-auto px-4 py-5 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-lg font-bold text-[#1f3559] mr-2">Payment Check</h1>
+        <span className="inline-flex rounded-lg border border-[#d7e0ea] bg-white p-0.5">
+          {(["payments", "coaches"] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)}
+              className={cn("h-7 rounded-md px-3 text-sm font-semibold", view === v ? "bg-[#1f3559] text-white" : "text-[#1f3559]")}>
+              {v === "payments" ? "Payments" : "Coach share"}
+            </button>
+          ))}
+        </span>
         <select id="pc-month" value={data?.month ?? ""} disabled={loading || refreshing || !data} onChange={(e) => load(e.target.value)}
           className="h-8 rounded-lg border border-[#d7e0ea] bg-white px-2 text-sm font-semibold text-[#1f3559]">
           {(data?.months ?? []).map((m) => <option key={m.month} value={m.month}>{m.label}</option>)}
@@ -160,7 +170,12 @@ export default function PaymentCheckPage() {
       {error && <div className="rounded-lg border border-[#f5c2cf] bg-[#fde8ee] px-3 py-2 text-sm text-[#e11d48]">{error}</div>}
       {data?.warnings.map((w) => <div key={w} className="rounded-lg border border-[#fcd9a8] bg-[#fff7ec] px-3 py-1.5 text-sm text-[#b45309]">{w}</div>)}
 
-      {data && (
+      {data && view === "coaches" && (
+        <CoachShare data={data} decided={decided} q={q}
+          onShares={(shares) => setData((d) => d && ({ ...d, shares }))} onError={setError} />
+      )}
+
+      {data && view === "payments" && (
         <div className="flex flex-wrap items-center gap-1.5">
           {FILTERS.map((f) => (
             <button key={f.key} onClick={() => setFilter(f.key)}
@@ -179,7 +194,7 @@ export default function PaymentCheckPage() {
 
       {loading && !data && <div className="flex items-center justify-center gap-2 py-10 text-sm text-[#64748b]"><Loader2 className="w-4 h-4 animate-spin" /> Matching payments… the first load of a month can take a minute.</div>}
 
-      {data && (
+      {data && view === "payments" && (
         <div className="rounded-xl border border-[#d7e0ea] bg-white overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-[#f6f9fc] text-left text-[11px] uppercase tracking-wide text-[#64748b]">
@@ -239,6 +254,132 @@ export default function PaymentCheckPage() {
       )}
 
       {data && <p className="text-xs text-[#94a3b8]">Sheet tab {data.tab} · checked {new Date(data.builtAt).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })} · hover “Found” for details · highlighted rows need a look</p>}
+    </div>
+  );
+}
+
+/* Coach share — admin review only (owner 2026-10-18: "don't make any payment
+   to anyone… only for me"). Each coach's clients come from the Clients Master
+   "Assigned" column; the share counts only money the owner confirmed (or that
+   auto-confirmed), after refunds and chargebacks. Nothing here pays anyone. */
+function CoachShare({ data, decided, q, onShares, onError }: {
+  data: Payload; decided: Map<string, "paid" | "not_paid">; q: string;
+  onShares: (s: Record<string, number>) => void; onError: (e: string) => void;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+
+  const groups = useMemo(() => {
+    const by = new Map<string, Array<{ r: Row; confirmed: number; waiting: number }>>();
+    for (const r of data.rows) {
+      if (q && !r.name.toLowerCase().includes(q.toLowerCase())) continue;
+      const coach = data.coaches[r.ownerKey] ?? "Unassigned";
+      const d = decided.get(r.ownerKey);
+      const ok = d === "paid" || (!d && data.autoconfirm && r.category === "match");
+      const confirmed = ok ? Math.max(0, r.paidCents) : 0;
+      const waiting = !d && !ok && r.suggested === "paid" ? Math.max(0, r.paidCents) : 0;
+      by.set(coach, [...(by.get(coach) ?? []), { r, confirmed, waiting }]);
+    }
+    return [...by.entries()].map(([coach, items]) => ({
+      coach, items,
+      confirmed: items.reduce((s, i) => s + i.confirmed, 0),
+      waiting: items.reduce((s, i) => s + i.waiting, 0),
+      paying: items.filter((i) => i.confirmed > 0).length,
+    })).sort((a, b) => (a.coach === "Unassigned" ? 1 : b.coach === "Unassigned" ? -1 : b.confirmed - a.confirmed));
+  }, [data, decided, q]);
+
+  const save = async (coach: string) => {
+    const raw = (draft[coach] ?? "").trim();
+    const percent = raw === "" ? null : Number(raw);
+    if (percent != null && (!isFinite(percent) || percent < 0 || percent > 100)) { onError("Enter a percent between 0 and 100"); return; }
+    if ((data.shares[coach] ?? null) === percent) return;
+    setSaving(coach);
+    try {
+      const r = await fetch("/api/payment-check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "share", coach, percent }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Couldn't save");
+      onShares(j.shares);
+    } catch (e) { onError(e instanceof Error ? e.message : String(e)); } finally { setSaving(null); }
+  };
+
+  const total = groups.reduce((s, g) => s + (g.coach === "Unassigned" ? 0 : g.confirmed * (data.shares[g.coach] ?? 0) / 100), 0);
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-[#64748b]">Review only, visible to admins. Nothing is paid to coaches. Counts payments you confirmed{data.autoconfirm ? " or that auto-confirmed" : ""}, after refunds and chargebacks.</p>
+      <div className="rounded-xl border border-[#d7e0ea] bg-white overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-[#f6f9fc] text-left text-[11px] uppercase tracking-wide text-[#64748b]">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Coach</th>
+              <th className="px-3 py-2 font-semibold text-right">Clients</th>
+              <th className="px-3 py-2 font-semibold text-right">Paying</th>
+              <th className="px-3 py-2 font-semibold text-right">Confirmed</th>
+              <th className="px-3 py-2 font-semibold text-right">Waiting your OK</th>
+              <th className="px-3 py-2 font-semibold text-right">Share %</th>
+              <th className="px-3 py-2 font-semibold text-right">Share $</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#eef2f6]">
+            {groups.map((g) => {
+              const pct = data.shares[g.coach];
+              const isOpen = open === g.coach;
+              return [
+                <tr key={g.coach} className="hover:bg-[#f9fbfd] cursor-pointer" onClick={() => setOpen(isOpen ? null : g.coach)}>
+                  <td className="px-3 py-2 font-semibold text-[#1f3559] whitespace-nowrap">
+                    {isOpen ? <ChevronDown className="w-3.5 h-3.5 inline mr-1" /> : <ChevronRight className="w-3.5 h-3.5 inline mr-1" />}{g.coach}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{g.items.length}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{g.paying}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold text-[#15803d]">{short(g.confirmed / 100)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-[#d97706]">{g.waiting ? short(g.waiting / 100) : ""}</td>
+                  <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                    {g.coach === "Unassigned" ? "" : (
+                      <span className="inline-flex items-center gap-1">
+                        {saving === g.coach && <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0e8f88]" />}
+                        <input id={`share-${g.coach}`} inputMode="decimal" placeholder="—"
+                          value={draft[g.coach] ?? (pct != null ? String(pct) : "")}
+                          onChange={(e) => setDraft((d) => ({ ...d, [g.coach]: e.target.value }))}
+                          onBlur={() => save(g.coach)} onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                          className="w-14 h-7 rounded-md border border-[#d7e0ea] px-1.5 text-right tabular-nums" />%
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold text-[#1f3559]">{g.coach !== "Unassigned" && pct != null ? short(g.confirmed * pct / 10000) : ""}</td>
+                </tr>,
+                isOpen && (
+                  <tr key={`${g.coach}-detail`}>
+                    <td colSpan={7} className="bg-[#fbfcfe] px-3 py-1">
+                      <table className="w-full text-xs">
+                        <tbody className="divide-y divide-[#eef2f6]">
+                          {g.items.map(({ r, confirmed, waiting }) => (
+                            <tr key={r.ownerKey}>
+                              <td className="py-1 pl-5 text-[#1f3559] font-medium whitespace-nowrap">{r.name}</td>
+                              <td className="py-1">{r.sheetStatus && <span className={cn("rounded px-1.5 py-0.5 font-semibold", statusCls(r.sheetStatus))}>{r.sheetStatus}</span>}</td>
+                              <td className={cn("py-1 whitespace-nowrap", found(r).cls)} title={r.evidence.map((e) => e.text).join("\n")}>{found(r).text}</td>
+                              <td className="py-1 text-right tabular-nums whitespace-nowrap">
+                                {confirmed ? <span className="text-[#15803d] font-semibold">{short(confirmed / 100)}</span>
+                                  : waiting ? <span className="text-[#d97706]">{short(waiting / 100)} waiting</span> : <span className="text-[#a6b3c4]">—</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                ),
+              ];
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="bg-[#f6f9fc] font-semibold text-[#1f3559]">
+              <td className="px-3 py-2" colSpan={6}>Total share this month (assigned coaches)</td>
+              <td className="px-3 py-2 text-right tabular-nums">{short(total)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }
