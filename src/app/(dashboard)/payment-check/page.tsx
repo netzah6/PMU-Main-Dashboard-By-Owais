@@ -64,7 +64,7 @@ export default function PaymentCheckPage() {
   const [q, setQ] = useState("");
 
   const load = useCallback(async (m: string | null, refresh = false) => {
-    refresh ? setRefreshing(true) : setLoading(true);
+    if (refresh) setRefreshing(true); else setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
