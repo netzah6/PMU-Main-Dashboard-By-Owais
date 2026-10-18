@@ -93,16 +93,18 @@ export async function refreshOffers(): Promise<OfferRefreshResult> {
     // Pricing rows to auto-add to the V3 tab (client had custom values but no
     // OWNER/BUSINESS row in the sheet).
     const toAppend: string[][] = [];
+    const filledKeys = new Set<string>();
     for (const { name, locationId } of locations) {
       const tokens = nameTokens(name);
-      let ownerKey = matchV3(tokens);
-      let appendAs: string | null = null; // proper-case name for the new sheet row
-      if (!ownerKey) {
-        const rc = matchRoster(tokens);
-        if (!rc) { skipped++; continue; } // not a V2.3+/V3 client at all
-        ownerKey = rc.owner.toLowerCase();
-        appendAs = rc.owner;
-      }
+      /* Key by the Clients Master name when it matches: deposit_overview joins
+         on that exact name. The V3 sheet's spelling can differ ("Xuan Luong"
+         vs "Annie Luong (Xuan)", "Maria A Blanco" vs "Maria Blanco"), which
+         left all four CPD columns blank for those clients (10/17/2026). */
+      const v3Key = matchV3(tokens);
+      const rc = matchRoster(tokens);
+      if (!v3Key && !rc) { skipped++; continue; } // not a V2.3+/V3 client at all
+      const ownerKey = rc ? rc.owner.toLowerCase() : v3Key!;
+      const appendAs: string | null = v3Key ? null : rc!.owner; // proper-case name for the new sheet row
       try {
         const { token } = await getAppLocationToken(locationId);
         if (!token) { failed++; continue; }
@@ -126,6 +128,11 @@ export async function refreshOffers(): Promise<OfferRefreshResult> {
         const brows = (newName: string, oldName: string) => cv(newName) || cv(oldName);
         const originalPrice = brows("ccoriginalpricenewbrows", "ccoriginalpriceforbrows");
         const discountedPrice = brows("ccdiscountedpricenewbrows", "ccdiscountedpriceforbrows");
+        /* Some owners have two synced sub-accounts (an old one under another
+           spelling); an empty one must not overwrite the filled one. */
+        const hasData = !!(offer || depositAmount || originalPrice || discountedPrice);
+        if (!hasData && filledKeys.has(ownerKey)) { ok++; continue; }
+        if (hasData) filledKeys.add(ownerKey);
         await supabase.from("client_offers").upsert(
           {
             owner_key: ownerKey,
