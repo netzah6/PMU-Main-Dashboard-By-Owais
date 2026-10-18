@@ -110,16 +110,12 @@
     return m ? decodeURIComponent(m[2]) : "";
   }
 
-  /* A/B: "Call Us Today" bar at the top — a = shown (control), b = hidden
-     (less chrome above the quiz on mobile). 50/50, sticky per visitor,
-     reported on every lead as answers.topbar (owner test, 2026-10-01). */
-  var TOPBAR_V = (function () {
-    try {
-      var v = localStorage.getItem("ob_topbar");
-      if (v !== "a" && v !== "b") { v = Math.random() < 0.5 ? "a" : "b"; localStorage.setItem("ob_topbar", v); }
-      return v;
-    } catch (e) { return "a"; }
-  })();
+  /* "Call Us Today" bar: hidden everywhere. It was a fleet-wide 50/50 from
+     2026-10-01 to 2026-10-18 — bar hidden won on completed surveys (2,590
+     vs 2,444, 11.3% vs 10.7% of visitors) and on deposits (119 vs 93);
+     the owner locked "b". No longer reported on leads (answers.topbar),
+     so the ended test's numbers stay frozen. */
+  var TOPBAR_V = "b";
 
   /* A/B pair #2, starting 2026-10-13T07:00Z (the moment the deposit-line
      test's window closes) — both run in parallel, independent coins:
@@ -465,7 +461,6 @@
       seriousness: a.serious || "",
       aftercare_kit: a.aftercare || "",
       deprow: DEPROW_V,
-      topbar: TOPBAR_V,
       scar: AB2_ON ? SCAR_V : "",
       shortq2: AB2_ON ? SHORTQ_V : "",
       source: "onebox"

@@ -13,6 +13,11 @@ export const fetchCache = "force-no-store";
    comparison (a skew from 50/50 is the effect). Downstream pay-through
    is reported too, in case trust moves payment. */
 const TEST_START = "2026-10-01T13:28:00Z"; // first tagged lead 13:28 UTC
+/* ENDED 10/17/2026 (engine v99 hides the bar everywhere, owner locked "b").
+   Leads after this moment are not part of the test; deposits of in-window
+   leads keep counting as they come in. */
+const TEST_END = "2026-10-18T02:00:00Z";
+const WINNER = "b";
 
 const PAID = ["booked", "paid", "paid-not-booked", "paid-followup"];
 
@@ -26,6 +31,7 @@ export async function GET() {
       .from("onebox_leads")
       .select("id", { count: "exact", head: true })
       .gte("created_at", TEST_START)
+      .lt("created_at", TEST_END)
       .eq("answers->>topbar", v);
     if (kind === "picked") q = q.or(`picked_time_at.not.is.null,ghl_status.in.(${PAID.join(",")})`);
     if (kind === "paid") q = q.in("ghl_status", PAID);
@@ -41,11 +47,14 @@ export async function GET() {
       /* The coin flips client-side, so page hits carry no variant — but the
          flip is a fair 50/50, so half the total visitors per arm is the
          right denominator for a visitor→lead rate. */
-      sb.from("onebox_hits").select("id", { count: "exact", head: true }).gte("created_at", TEST_START),
+      sb.from("onebox_hits").select("id", { count: "exact", head: true }).gte("created_at", TEST_START).lt("created_at", TEST_END),
     ]);
     const visitors = hitsRes.count ?? 0;
     return NextResponse.json({
       since: TEST_START,
+      until: TEST_END,
+      ended: true,
+      winner: WINNER,
       visitors,
       visitorsPerArm: Math.round(visitors / 2),
       a: { leads: aLeads, picked: aPicked, paid: aPaid },
