@@ -144,6 +144,20 @@
   }
   var SCAR_V = ab2coin("ob_scar");
   var SHORTQ_V = ab2coin("ob_shortq2");
+  /* A/B #3 — offer framing (owner, 10/18/2026), fleet 50/50 on funnels
+     that have a discounted brows price and no custom headline:
+       a = the client's own offer ("Congrats on claiming $200 OFF…"),
+       b = model-style price: "Only $399 for the First 5 Clients This Month!"
+     (the one standout offer in the data — 12.8 deposits per 100 leads, a
+     single small client, hence the test). Same price either way; only the
+     framing changes. Recorded on every lead as answers.offer3; judged on
+     deposits per visitor. */
+  var OFFER_PRICE = String(C.discountedPrice || "").trim();
+  /* Plain prices only ("$399", "399") — placeholders and phrases like
+     "starting at $397" stay on their own offer. */
+  var OFFER_ON = /^\$?\s*\d[\d,]*(\.\d{2})?$/.test(OFFER_PRICE) && !C.congrats && !C.bookingHead;
+  var OFFER_V = OFFER_ON ? ab2coin("ob_offer3") : "";
+  var OFFER_PRICE_TXT = "$" + OFFER_PRICE.replace(/^\$\s*/, "");
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
@@ -463,6 +477,7 @@
       deprow: DEPROW_V,
       scar: AB2_ON ? SCAR_V : "",
       shortq2: AB2_ON ? SHORTQ_V : "",
+      offer3: OFFER_V,
       source: "onebox"
     };
     /* Genuinely new custom-survey questions ride along too — anything in
@@ -505,6 +520,7 @@
     (LOGO ? '<img class="biglogo" src="' + esc(fastImg(LOGO, 320)) + '" fetchpriority="high" alt="' + esc(BIZ) + ' logo">' : "") +
     '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     '<p class="lede">' + (C.congrats ? esc(C.congrats)
+      : OFFER_V === "b" ? 'Only <b class="ledeoffer">' + esc(OFFER_PRICE_TXT) + "</b> for the First 5 Clients This Month!"
       : "Congrats on claiming " + (OFFERR ? '<b class="ledeoffer">' + esc(OFFERR) + "</b>" : "") + "<br>All Permanent Makeup Packages!") + "</p>" +
     '<h1 class="page">' + esc(C.headline || "Fill Out Our Quiz To See If You Qualify") + "</h1>" +
     '<p class="sub">' + esc(C.sub || "(30 Seconds)") + "</p>" +
@@ -699,7 +715,9 @@
       calState.y = n.getFullYear(); calState.m = n.getMonth();
     }
     var bookNoun = VIDEO ? "Video Consultation" : "Appointment";
-    return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
+    return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFER_V === "b"
+      ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Lock In ' + esc(OFFER_PRICE_TXT) + "</span>"
+      : OFFERR
       ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR) + "</span>"
       : "Book Your " + bookNoun + " NOW!") + "</h2>" +
       '<div id="ob-calbox">' + calHTML() + "</div>" +

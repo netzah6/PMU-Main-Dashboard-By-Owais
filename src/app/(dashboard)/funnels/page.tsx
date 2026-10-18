@@ -693,7 +693,7 @@ function IntakeReviewCards() {
    share one box, each still expandable for its final numbers. */
 function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: React.ReactNode; ended: React.ReactNode; endedCount: number; clientTests: number }) {
   const [open, setOpen] = useState(false);
-  const fleetActive = 2; // calendar scarcity + shorter survey
+  const fleetActive = 3; // calendar scarcity + shorter survey + offer framing
   return (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
@@ -718,7 +718,7 @@ function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: 
 function Ab2TestCards() {
   type Side = { leads: number; picked: number; paid: number };
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair } | null>(null);
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { funnels?: number } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -753,6 +753,15 @@ function Ab2TestCards() {
     { h: "Picked a time", v: (s) => s.picked },
     { h: "Paid", v: (s) => s.paid },
   ];
+  const perK = (s: Side, vis?: number) => (vis ? Math.round((s.paid / vis) * 10000) / 10 : null);
+  const OFFER_COLS: Col[] = [
+    { h: "Visitors (est.)", v: (_s, vis) => (vis ? vis.toLocaleString("en-US") : "—") },
+    { h: "Leads", v: (s) => s.leads },
+    { h: "Visitor → lead", v: (s, vis) => pct(leadPct(s, vis)) },
+    { h: "Picked a time", v: (s) => s.picked },
+    { h: "Paid", v: (s) => s.paid },
+    { h: "Paid per 1,000 visitors", v: (s, vis) => (perK(s, vis) === null ? "—" : String(perK(s, vis))), bold: true },
+  ];
   const row = (name: string, note: string, s: Side, cols: Col[], visitors?: number) => (
     <tr className="border-t border-[#f0f4f8]">
       <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{name}</b><div className="text-[#8595a8] max-w-[380px]">{note}</div></td>
@@ -779,6 +788,9 @@ function Ab2TestCards() {
   );
   return (<>
     {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, SCAR_COLS, "Up to 5 open slots shown per day (current)", "Up to 3 shown — \u201Conly 3 openings left\u201D")}
+    {d.offer && (d.offer.since
+      ? table(`🧪 Offer framing — ${d.offer.funnels ?? ""} funnels with a brows price, 50/50`, d.offer, OFFER_COLS, "The client's own offer (e.g. \u201CCongrats on claiming $200 OFF\u201D)", "Model-style price: \u201COnly $399 for the First 5 Clients This Month!\u201D (same price, new framing)")
+      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Offer framing</b> (client&apos;s offer vs &ldquo;Only $X for the First 5 Clients This Month!&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
     {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, SHORTQ_COLS, "Full survey (current): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps). Not-asked leads are never distance-disqualified; GHL's Commutable field is set Yes so the flow runs.")}
   </>);
 }

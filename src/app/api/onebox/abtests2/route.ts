@@ -24,7 +24,7 @@ export async function GET() {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const sb = createServiceClient();
-  const count = async (tag: "scar" | "shortq2", v: "a" | "b", since: string, kind: "leads" | "picked" | "paid") => {
+  const count = async (tag: "scar" | "shortq2" | "offer3", v: "a" | "b", since: string, kind: "leads" | "picked" | "paid") => {
     let q = sb
       .from("onebox_leads")
       .select("id", { count: "exact", head: true })
@@ -36,15 +36,17 @@ export async function GET() {
     if (error) throw new Error(error.message);
     return n ?? 0;
   };
-  const hitsSince = async (since: string) => {
-    const { count: n } = await sb.from("onebox_hits").select("id", { count: "exact", head: true }).gte("created_at", since);
+  const hitsSince = async (since: string, slugs?: string[]) => {
+    let q = sb.from("onebox_hits").select("id", { count: "exact", head: true }).gte("created_at", since);
+    if (slugs) q = q.in("slug", slugs.length ? slugs : ["-"]);
+    const { count: n } = await q;
     return Math.round((n ?? 0) / 2);
   };
 
   try {
     const started = Date.now() >= Date.parse(TEST_START);
     if (!started) return NextResponse.json({ since: TEST_START, started: false });
-    const side = async (tag: "scar" | "shortq2", v: "a" | "b", since: string) => ({
+    const side = async (tag: "scar" | "shortq2" | "offer3", v: "a" | "b", since: string) => ({
       leads: await count(tag, v, since, "leads"),
       picked: await count(tag, v, since, "picked"),
       paid: await count(tag, v, since, "paid"),
@@ -58,10 +60,31 @@ export async function GET() {
       .limit(1)
       .maybeSingle();
     const shortSince = (firstShort?.created_at as string | undefined) ?? new Date().toISOString();
-    const [scarA, scarB, shortA, shortB, scarVisitors, shortVisitors] = await Promise.all([
+    /* Offer test (#3, engine v100): only funnels with a discounted brows
+       price and no custom headline flip the coin, so its visitors come from
+       those funnels' hits alone, counted from its first tagged lead. */
+    const { data: firstOffer } = await sb
+      .from("onebox_leads")
+      .select("created_at")
+      .in("answers->>offer3", ["a", "b"])
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const offerSince = (firstOffer?.created_at as string | undefined) ?? null;
+    const { data: clients } = await sb.from("onebox_clients").select("slug, config, extras").eq("status", "live");
+    const offerSlugs = (clients ?? [])
+      .filter((c) => {
+        const cfg = (c.config ?? {}) as Record<string, string>;
+        return (c.extras as { template?: string } | null)?.template !== "b2b" && /^\$?\s*\d[\d,]*(\.\d{2})?$/.test(String(cfg.discountedPrice ?? "").trim()) && !cfg.congrats && !cfg.bookingHead;
+      })
+      .map((c) => c.slug as string);
+    const zero = { leads: 0, picked: 0, paid: 0 };
+    const [scarA, scarB, shortA, shortB, scarVisitors, shortVisitors, offerA, offerB, offerVisitors] = await Promise.all([
       side("scar", "a", TEST_START), side("scar", "b", TEST_START),
       side("shortq2", "a", shortSince), side("shortq2", "b", shortSince),
       hitsSince(TEST_START), hitsSince(shortSince),
+      offerSince ? side("offer3", "a", offerSince) : zero, offerSince ? side("offer3", "b", offerSince) : zero,
+      offerSince ? hitsSince(offerSince, offerSlugs) : 0,
     ]);
     return NextResponse.json({
       since: TEST_START,
@@ -69,6 +92,7 @@ export async function GET() {
       visitorsPerArm: scarVisitors,
       scar: { a: scarA, b: scarB },
       shortq: { a: shortA, b: shortB, since: shortSince, visitorsPerArm: shortVisitors },
+      offer: { a: offerA, b: offerB, since: offerSince ?? undefined, visitorsPerArm: offerVisitors, funnels: offerSlugs.length },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e).slice(0, 200) }, { status: 500 });
