@@ -24,7 +24,7 @@ export async function GET() {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const sb = createServiceClient();
-  const count = async (tag: "scar" | "shortq2" | "offer3", v: "a" | "b", since: string, kind: "leads" | "picked" | "paid") => {
+  const count = async (tag: "scar" | "shortq2" | "offer3", v: "a" | "b" | "c", since: string, kind: "leads" | "picked" | "paid") => {
     let q = sb
       .from("onebox_leads")
       .select("id", { count: "exact", head: true })
@@ -46,7 +46,7 @@ export async function GET() {
   try {
     const started = Date.now() >= Date.parse(TEST_START);
     if (!started) return NextResponse.json({ since: TEST_START, started: false });
-    const side = async (tag: "scar" | "shortq2" | "offer3", v: "a" | "b", since: string) => ({
+    const side = async (tag: "scar" | "shortq2" | "offer3", v: "a" | "b" | "c", since: string) => ({
       leads: await count(tag, v, since, "leads"),
       picked: await count(tag, v, since, "picked"),
       paid: await count(tag, v, since, "paid"),
@@ -67,7 +67,7 @@ export async function GET() {
     const { data: firstOffer } = await sb
       .from("onebox_leads")
       .select("created_at")
-      .in("answers->>offer3", ["a", "b"])
+      .in("answers->>offer3", ["a", "b", "c"])
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -80,12 +80,12 @@ export async function GET() {
       })
       .map((c) => c.slug as string);
     const zero = { leads: 0, picked: 0, paid: 0 };
-    const [scarA, scarB, shortA, shortB, scarVisitors, shortVisitors, offerA, offerB, offerVisitors] = await Promise.all([
+    const [scarA, scarB, shortA, shortB, scarVisitors, shortVisitors, offerA, offerB, offerC] = await Promise.all([
       side("scar", "a", TEST_START), side("scar", "b", TEST_START),
       side("shortq2", "a", shortSince), side("shortq2", "b", shortSince),
       hitsSince(TEST_START), hitsSince(shortSince),
       offerSince ? side("offer3", "a", offerSince) : zero, offerSince ? side("offer3", "b", offerSince) : zero,
-      offerSince ? hitsSince(offerSince, offerSlugs) : 0,
+      offerSince ? side("offer3", "c", offerSince) : zero,
     ]);
     return NextResponse.json({
       since: TEST_START,
@@ -93,7 +93,7 @@ export async function GET() {
       visitorsPerArm: scarVisitors,
       scar: { a: scarA, b: scarB },
       shortq: { a: shortA, b: shortB, since: shortSince, visitorsPerArm: shortVisitors },
-      offer: { a: offerA, b: offerB, since: offerSince ?? undefined, visitorsPerArm: offerVisitors, funnels: offerSlugs.length },
+      offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, funnels: offerSlugs.length },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e).slice(0, 200) }, { status: 500 });

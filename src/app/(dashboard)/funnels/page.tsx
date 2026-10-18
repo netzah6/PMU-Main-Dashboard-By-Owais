@@ -718,7 +718,7 @@ function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: 
 function Ab2TestCards() {
   type Side = { leads: number; picked: number; paid: number };
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { funnels?: number } } | null>(null);
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { c?: Side; funnels?: number } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -753,14 +753,13 @@ function Ab2TestCards() {
     { h: "Picked a time", v: (s) => s.picked },
     { h: "Paid", v: (s) => s.paid },
   ];
-  const perK = (s: Side, vis?: number) => (vis ? Math.round((s.paid / vis) * 10000) / 10 : null);
-  const OFFER_COLS: Col[] = [
-    { h: "Visitors (est.)", v: (_s, vis) => (vis ? vis.toLocaleString("en-US") : "—") },
+  const per100 = (s: Side) => (s.leads > 0 ? Math.round((s.paid / s.leads) * 1000) / 10 : null);
+  const URG_COLS: Col[] = [
     { h: "Leads", v: (s) => s.leads },
-    { h: "Visitor → lead", v: (s, vis) => pct(leadPct(s, vis)) },
     { h: "Picked a time", v: (s) => s.picked },
+    { h: "Lead → picked", v: (s) => pct(pickPct(s)) },
     { h: "Paid", v: (s) => s.paid },
-    { h: "Paid per 1,000 visitors", v: (s, vis) => (perK(s, vis) === null ? "—" : String(perK(s, vis))), bold: true },
+    { h: "Paid per 100 leads", v: (s) => (per100(s) === null ? "—" : String(per100(s))), bold: true },
   ];
   const row = (name: string, note: string, s: Side, cols: Col[], visitors?: number) => (
     <tr className="border-t border-[#f0f4f8]">
@@ -789,8 +788,24 @@ function Ab2TestCards() {
   return (<>
     {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, SCAR_COLS, "Up to 5 open slots shown per day (current)", "Up to 3 shown — \u201Conly 3 openings left\u201D")}
     {d.offer && (d.offer.since
-      ? table(`🧪 Calendar urgency — ${d.offer.funnels ?? ""} funnels with a "$ OFF" offer, 50/50`, d.offer, OFFER_COLS, "Calendar page: \u201CBook Your Appointment NOW \u2014 to Claim $150 OFF\u201D (current)", "Same + \u201Cfor the First 5 Clients This Month\u201D under the offer (same offer, same price)")
-      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Calendar urgency</b> (&ldquo;to Claim $150 OFF&rdquo; vs the same + &ldquo;for the First 5 Clients This Month&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
+      ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Calendar urgency — {d.offer.funnels ?? ""} funnels with a &ldquo;$ OFF&rdquo; offer, A/B/C thirds</span>
+            <span className="text-xs text-[#697a91]">since {new Date(d.offer.since).toLocaleDateString("en-US")}</span>
+          </div>
+          <table className="w-full text-xs">
+            <thead><tr className="text-left text-[#697a91]">
+              <th className="py-1 font-medium">Side</th>
+              {URG_COLS.map((c) => <th key={c.h} className="py-1 font-medium">{c.h}</th>)}
+            </tr></thead>
+            <tbody>
+              {row("A — control", "Calendar page: \u201CBook Your Appointment NOW \u2014 to Claim $150 OFF\u201D (current)", d.offer.a, URG_COLS)}
+              {row("B — first 5", "Same + \u201Cfor the First 5 Clients This Month\u201D", d.offer.b, URG_COLS)}
+              {d.offer.c && row("C — first 5 + Sunday", "Same + \u201Cfor the First 5 Clients \u2014 Until Sunday, Oct 25\u201D (the coming Sunday, resets weekly)", d.offer.c, URG_COLS)}
+            </tbody>
+          </table>
+        </div>
+      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Calendar urgency</b> (A: &ldquo;to Claim $150 OFF&rdquo; · B: + &ldquo;for the First 5 Clients This Month&rdquo; · C: + &ldquo;for the First 5 Clients — Until Sunday&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
     {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, SHORTQ_COLS, "Full survey (current): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps). Not-asked leads are never distance-disqualified; GHL's Commutable field is set Yes so the flow runs.")}
   </>);
 }
