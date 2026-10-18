@@ -144,12 +144,13 @@
   }
   var SCAR_V = ab2coin("ob_scar");
   var SHORTQ_V = ab2coin("ob_shortq2");
-  /* A/B/C #3 — calendar urgency (owner, 10/18/2026), fleet thirds on
+  /* A/B #3 — calendar urgency (owner, 10/18/2026), fleet 50/50 on
      funnels whose offer is a plain "$X OFF" (optionally "for new
      clients"), with no custom booking headline. Only the calendar step:
        a = "Book Your Appointment NOW — to Claim $150 OFF" (current),
-       b = the same + "for the First 5 Clients This Month",
-       c = the same + "for the First 5 Clients — Until Sunday, Oct 25".
+       c = the same + "for the First 5 Clients — Until Sunday, Oct 25"
+     (a plain "This Month" arm was dropped before launch; the tag stays
+     "c" so the arms read unambiguously).
      The deadline is the coming Sunday (today when it is Sunday): a real
      weekly cut-off, the same date all week — never a moving countdown.
      Same offer, same price. Recorded on every lead as answers.offer3;
@@ -159,22 +160,18 @@
   if (OFFER_M && !C.bookingHead && AB2_ON) {
     try {
       OFFER_V = localStorage.getItem("ob_urg3") || "";
-      if (OFFER_V !== "a" && OFFER_V !== "b" && OFFER_V !== "c") {
-        var r3 = Math.random();
-        OFFER_V = r3 < 1 / 3 ? "a" : r3 < 2 / 3 ? "b" : "c";
+      if (OFFER_V !== "a" && OFFER_V !== "c") {
+        OFFER_V = Math.random() < 0.5 ? "a" : "c";
         localStorage.setItem("ob_urg3", OFFER_V);
       }
     } catch (e) { OFFER_V = "a"; }
   }
   var OFFER_URGENCY = "";
-  if (OFFER_V === "b" || OFFER_V === "c") {
-    OFFER_URGENCY = "for the First 5 " + (OFFER_M[2] ? "New " : "") + "Clients";
-    if (OFFER_V === "b") OFFER_URGENCY += " This Month";
-    else {
-      var sun = new Date();
-      sun.setDate(sun.getDate() + ((7 - sun.getDay()) % 7));
-      OFFER_URGENCY += " — Until Sunday, " + ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][sun.getMonth()] + " " + sun.getDate();
-    }
+  if (OFFER_V === "c") {
+    var sun = new Date();
+    sun.setDate(sun.getDate() + ((7 - sun.getDay()) % 7));
+    OFFER_URGENCY = "for the First 5 " + (OFFER_M[2] ? "New " : "") + "Clients — Until Sunday, " +
+      ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][sun.getMonth()] + " " + sun.getDate();
   }
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */

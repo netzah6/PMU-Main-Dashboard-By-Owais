@@ -67,7 +67,7 @@ export async function GET() {
     const { data: firstOffer } = await sb
       .from("onebox_leads")
       .select("created_at")
-      .in("answers->>offer3", ["a", "b", "c"])
+      .in("answers->>offer3", ["a", "c"])
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();

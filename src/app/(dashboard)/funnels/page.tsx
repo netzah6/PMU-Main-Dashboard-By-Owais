@@ -790,7 +790,7 @@ function Ab2TestCards() {
     {d.offer && (d.offer.since
       ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Calendar urgency — {d.offer.funnels ?? ""} funnels with a &ldquo;$ OFF&rdquo; offer, A/B/C thirds</span>
+            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Calendar urgency — {d.offer.funnels ?? ""} funnels with a &ldquo;$ OFF&rdquo; offer, A vs C 50/50</span>
             <span className="text-xs text-[#697a91]">since {new Date(d.offer.since).toLocaleDateString("en-US")}</span>
           </div>
           <table className="w-full text-xs">
@@ -800,12 +800,11 @@ function Ab2TestCards() {
             </tr></thead>
             <tbody>
               {row("A — control", "Calendar page: \u201CBook Your Appointment NOW \u2014 to Claim $150 OFF\u201D (current)", d.offer.a, URG_COLS)}
-              {row("B — first 5", "Same + \u201Cfor the First 5 Clients This Month\u201D", d.offer.b, URG_COLS)}
-              {d.offer.c && row("C — first 5 + Sunday", "Same + \u201Cfor the First 5 Clients \u2014 Until Sunday, Oct 25\u201D (the coming Sunday, resets weekly)", d.offer.c, URG_COLS)}
+              {d.offer.c && row("C — first 5 + Until Sunday", "Same + \u201Cfor the First 5 Clients \u2014 Until Sunday, Oct 25\u201D (the coming Sunday, resets weekly)", d.offer.c, URG_COLS)}
             </tbody>
           </table>
         </div>
-      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Calendar urgency</b> (A: &ldquo;to Claim $150 OFF&rdquo; · B: + &ldquo;for the First 5 Clients This Month&rdquo; · C: + &ldquo;for the First 5 Clients — Until Sunday&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
+      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Calendar urgency</b> (A: &ldquo;to Claim $150 OFF&rdquo; vs C: + &ldquo;for the First 5 Clients — Until Sunday&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
     {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, SHORTQ_COLS, "Full survey (current): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps). Not-asked leads are never distance-disqualified; GHL's Commutable field is set Yes so the flow runs.")}
   </>);
 }
