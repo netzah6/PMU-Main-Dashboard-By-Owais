@@ -23,6 +23,8 @@ const TABS: Tab[] = [
   // Sales + Subs sit right after AI, always visible (user request 2026-09-16).
   { label: "💼 Sales", href: "/sales", adminOnly: true }, // sales board (setter + closer KPIs & to-dos), demo checker, coach tracker
   { label: "🔄 Subs", href: "/subscriptions", adminOnly: true }, // Square + dashboard billing — admins only
+  // Financing sheet vs. real Square/dashboard charges, owner confirms each month (2026-10-18).
+  { label: "🧮 Payment Check", href: "/payment-check", adminOnly: true },
   { label: "✅ Tasks", href: "/tasks" },
   { label: "📈 Performance", href: "/performance" },
   // Hidden from the menu (page still exists at /client-health) — owner request 2026-10-08.
