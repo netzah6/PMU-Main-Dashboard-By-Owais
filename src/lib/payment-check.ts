@@ -8,7 +8,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getSheetsClient, getTabNames } from "@/lib/sheets";
 import { normalizeOwnerKey } from "@/lib/normalizers";
 import { FINANCING_SHEET_ID, isSkipRow, mapColumns, monthOf, parseUsd } from "@/lib/payments";
-import { listAllCustomers, listPaymentsBetween, squareConfigured, type SquareCustomer } from "@/lib/square";
+import { listAllCustomers, listDisputes, listPaymentsBetween, squareConfigured, type SquareCustomer } from "@/lib/square";
 import { peopleKeys } from "@/lib/subscriptions";
 
 type Svc = ReturnType<typeof createServiceClient>;
@@ -19,7 +19,7 @@ const SHEET_YEAR = 2026;
 export type MonthTab = { month: string; tab: string; label: string };
 
 export type Evidence = {
-  kind: "square" | "dashboard" | "pps" | "plan" | "declined" | "scheduled";
+  kind: "square" | "dashboard" | "pps" | "plan" | "declined" | "scheduled" | "refund" | "chargeback";
   text: string;
   amountCents?: number;
   at?: string;
@@ -177,6 +177,8 @@ export async function buildMonth(svc: Svc, mt: MonthTab): Promise<MonthPayload> 
   const push = (key: string, e: Evidence) => { ev.set(key, [...(ev.get(key) ?? []), e]); };
   const addPaid = (key: string, cents: number) => paid.set(key, (paid.get(key) ?? 0) + cents);
   const booked = new Set<string>();
+  // Square payment id → sheet row, so refunds and chargebacks come off the right client.
+  const payOwner = new Map<string, string>();
 
   // Dashboard subscription charges.
   const okSub = new Set<string>();
@@ -186,6 +188,7 @@ export async function buildMonth(svc: Svc, mt: MonthTab): Promise<MonthPayload> 
     if (c.square_payment_id) booked.add(c.square_payment_id);
     const key = rowFor(c.owner_key);
     if (!key || c.status !== "succeeded") continue;
+    if (c.square_payment_id) payOwner.set(c.square_payment_id, key);
     okSub.add(key);
     addPaid(key, c.amount_cents);
     push(key, { kind: "dashboard", text: `Dashboard charged ${money(c.amount_cents)} on ${usDay(c.charged_at)}`, amountCents: c.amount_cents, at: c.charged_at, receiptUrl: c.receipt_url });
@@ -206,6 +209,7 @@ export async function buildMonth(svc: Svc, mt: MonthTab): Promise<MonthPayload> 
     if (c.excluded) continue;
     const key = rowFor(c.owner_key);
     if (!key) continue;
+    if (c.square_payment_id) payOwner.set(c.square_payment_id, key);
     const cents = Math.round(Number(c.amount ?? 0) * 100);
     const p = pps.get(key) ?? { n: 0, cents: 0, last: "" };
     pps.set(key, { n: p.n + 1, cents: p.cents + cents, last: c.charged_at > p.last ? c.charged_at : p.last });
@@ -274,8 +278,27 @@ export async function buildMonth(svc: Svc, mt: MonthTab): Promise<MonthPayload> 
           unmatched.push({ id: p.id, customer: c?.name ?? "No customer on payment", amountCents: p.amountCents, at: p.createdAt, note: p.note, receiptUrl: p.receiptUrl });
           continue;
         }
+        payOwner.set(p.id, key);
         addPaid(key, p.amountCents);
         push(key, { kind: "square", text: `Square payment ${money(p.amountCents)} on ${usDay(p.createdAt)}`, amountCents: p.amountCents, at: p.createdAt, receiptUrl: p.receiptUrl });
+      }
+      // Refunds come off what the client paid, whichever way the payment was made.
+      for (const p of payments) {
+        const key = payOwner.get(p.id);
+        if (!key || !p.refundedCents) continue;
+        addPaid(key, -p.refundedCents);
+        push(key, { kind: "refund", text: `Refunded ${money(p.refundedCents)} of the ${usDay(p.createdAt)} payment`, amountCents: -p.refundedCents });
+      }
+      // Chargebacks on this month's payments, unless we won them.
+      try {
+        for (const d of await listDisputes()) {
+          const key = d.paymentId ? payOwner.get(d.paymentId) : undefined;
+          if (!key || d.state === "WON") continue;
+          addPaid(key, -d.amountCents);
+          push(key, { kind: "chargeback", text: `Chargeback ${money(d.amountCents)} (${d.state.toLowerCase().replace(/_/g, " ")})`, amountCents: -d.amountCents });
+        }
+      } catch (e) {
+        warnings.push(`Couldn't read Square chargebacks: ${String(e).slice(0, 120)}`);
       }
     } catch (e) {
       warnings.push(`Couldn't read Square payments: ${String(e).slice(0, 160)}`);
