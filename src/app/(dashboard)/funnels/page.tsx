@@ -693,7 +693,7 @@ function IntakeReviewCards() {
    share one box, each still expandable for its final numbers. */
 function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: React.ReactNode; ended: React.ReactNode; endedCount: number; clientTests: number }) {
   const [open, setOpen] = useState(false);
-  const fleetActive = 3; // calendar scarcity + shorter survey + offer framing
+  const fleetActive = 3; // calendar scarcity + shorter survey + calendar urgency
   return (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
@@ -789,8 +789,8 @@ function Ab2TestCards() {
   return (<>
     {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, SCAR_COLS, "Up to 5 open slots shown per day (current)", "Up to 3 shown — \u201Conly 3 openings left\u201D")}
     {d.offer && (d.offer.since
-      ? table(`🧪 Offer framing — ${d.offer.funnels ?? ""} funnels with a brows price, 50/50`, d.offer, OFFER_COLS, "The client's own offer (e.g. \u201CCongrats on claiming $200 OFF\u201D)", "Model-style price: \u201COnly $399 for the First 5 Clients This Month!\u201D (same price, new framing)")
-      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Offer framing</b> (client&apos;s offer vs &ldquo;Only $X for the First 5 Clients This Month!&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
+      ? table(`🧪 Calendar urgency — ${d.offer.funnels ?? ""} funnels with a "$ OFF" offer, 50/50`, d.offer, OFFER_COLS, "Calendar page: \u201CBook Your Appointment NOW \u2014 to Claim $150 OFF\u201D (current)", "Same + \u201Cfor the First 5 Clients This Month\u201D under the offer (same offer, same price)")
+      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Calendar urgency</b> (&ldquo;to Claim $150 OFF&rdquo; vs the same + &ldquo;for the First 5 Clients This Month&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
     {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, SHORTQ_COLS, "Full survey (current): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps). Not-asked leads are never distance-disqualified; GHL's Commutable field is set Yes so the flow runs.")}
   </>);
 }

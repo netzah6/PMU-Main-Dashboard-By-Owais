@@ -144,20 +144,16 @@
   }
   var SCAR_V = ab2coin("ob_scar");
   var SHORTQ_V = ab2coin("ob_shortq2");
-  /* A/B #3 — offer framing (owner, 10/18/2026), fleet 50/50 on funnels
-     that have a discounted brows price and no custom headline:
-       a = the client's own offer ("Congrats on claiming $200 OFF…"),
-       b = model-style price: "Only $399 for the First 5 Clients This Month!"
-     (the one standout offer in the data — 12.8 deposits per 100 leads, a
-     single small client, hence the test). Same price either way; only the
-     framing changes. Recorded on every lead as answers.offer3; judged on
-     deposits per visitor. */
-  var OFFER_PRICE = String(C.discountedPrice || "").trim();
-  /* Plain prices only ("$399", "399") — placeholders and phrases like
-     "starting at $397" stay on their own offer. */
-  var OFFER_ON = /^\$?\s*\d[\d,]*(\.\d{2})?$/.test(OFFER_PRICE) && !C.congrats && !C.bookingHead;
-  var OFFER_V = OFFER_ON ? ab2coin("ob_offer3") : "";
-  var OFFER_PRICE_TXT = "$" + OFFER_PRICE.replace(/^\$\s*/, "");
+  /* A/B #3 — calendar urgency (owner, 10/18/2026), fleet 50/50 on funnels
+     whose offer is a plain "$X OFF" (optionally "for new clients"), with
+     no custom booking headline. Only the calendar step changes:
+       a = "Book Your Appointment NOW — to Claim $150 OFF" (current),
+       b = the same + "for the First 5 Clients This Month".
+     Same offer, same price — urgency where they pick a time. Recorded on
+     every lead as answers.offer3; judged on deposits per visitor. */
+  var OFFER_M = String(OFFERR).match(/^\$?\s*(\d[\d,]*)\s*OFF(\s+for\s+new\s+clients)?\s*!?$/i);
+  var OFFER_V = OFFER_M && !C.bookingHead ? ab2coin("ob_offer3") : "";
+  var OFFER_URGENCY = OFFER_M ? "for the First 5 " + (OFFER_M[2] ? "New " : "") + "Clients This Month" : "";
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
@@ -520,7 +516,6 @@
     (LOGO ? '<img class="biglogo" src="' + esc(fastImg(LOGO, 320)) + '" fetchpriority="high" alt="' + esc(BIZ) + ' logo">' : "") +
     '<div class="trust"><p>Trusted by 5,600+ Happy Clients</p><div class="stars">&#9733;&#9733;&#9733;&#9733;&#9733;</div></div>' +
     '<p class="lede">' + (C.congrats ? esc(C.congrats)
-      : OFFER_V === "b" ? 'Only <b class="ledeoffer">' + esc(OFFER_PRICE_TXT) + "</b> for the First 5 Clients This Month!"
       : "Congrats on claiming " + (OFFERR ? '<b class="ledeoffer">' + esc(OFFERR) + "</b>" : "") + "<br>All Permanent Makeup Packages!") + "</p>" +
     '<h1 class="page">' + esc(C.headline || "Fill Out Our Quiz To See If You Qualify") + "</h1>" +
     '<p class="sub">' + esc(C.sub || "(30 Seconds)") + "</p>" +
@@ -716,7 +711,8 @@
     }
     var bookNoun = VIDEO ? "Video Consultation" : "Appointment";
     return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFER_V === "b"
-      ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Lock In ' + esc(OFFER_PRICE_TXT) + "</span>"
+      ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR.replace(/\s+for\s+new\s+clients\s*!?$/i, "").replace(/!$/, "")) +
+        "<br>" + esc(OFFER_URGENCY) + "</span>"
       : OFFERR
       ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR) + "</span>"
       : "Book Your " + bookNoun + " NOW!") + "</h2>" +

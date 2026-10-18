@@ -60,8 +60,9 @@ export async function GET() {
       .limit(1)
       .maybeSingle();
     const shortSince = (firstShort?.created_at as string | undefined) ?? new Date().toISOString();
-    /* Offer test (#3, engine v100): only funnels with a discounted brows
-       price and no custom headline flip the coin, so its visitors come from
+    /* Calendar-urgency test (#3, engine v100): only funnels whose offer is
+       a plain "$X OFF" (optionally "for new clients") and that have no
+       custom booking headline flip the coin, so its visitors come from
        those funnels' hits alone, counted from its first tagged lead. */
     const { data: firstOffer } = await sb
       .from("onebox_leads")
@@ -75,7 +76,7 @@ export async function GET() {
     const offerSlugs = (clients ?? [])
       .filter((c) => {
         const cfg = (c.config ?? {}) as Record<string, string>;
-        return (c.extras as { template?: string } | null)?.template !== "b2b" && /^\$?\s*\d[\d,]*(\.\d{2})?$/.test(String(cfg.discountedPrice ?? "").trim()) && !cfg.congrats && !cfg.bookingHead;
+        return (c.extras as { template?: string } | null)?.template !== "b2b" && /^\$?\s*\d[\d,]*\s*OFF(\s+for\s+new\s+clients)?\s*!?$/i.test(String(cfg.offer ?? "").trim()) && !cfg.bookingHead;
       })
       .map((c) => c.slug as string);
     const zero = { leads: 0, picked: 0, paid: 0 };
