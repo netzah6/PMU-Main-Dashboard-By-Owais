@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   const [{ data: variants }, { data: assigns }, { data: leads }, { data: client }] = await Promise.all([
     svc.from("onebox_variants").select("vkey, label, kind, target, weight, config_override").eq("experiment_id", exp.id).order("vkey"),
     svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id).gte("created_at", exp.created_at),
-    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, picked_time_at, answers, created_at, phone, full_name").eq("slug", slug).gte("created_at", exp.created_at),
+    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, ghl_contact_id, picked_time_at, answers, created_at, phone, full_name").eq("slug", slug).gte("created_at", exp.created_at),
     svc.from("onebox_clients").select("location_id, config, client_name, extras").eq("slug", slug).single(),
   ]);
 
