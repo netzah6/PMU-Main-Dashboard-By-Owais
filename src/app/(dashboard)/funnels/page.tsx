@@ -556,7 +556,7 @@ function SplitOverviewTable({ rows, ab, showTotals, footnote }: {
    payment box. Read straight off onebox_leads.answers.deprow; the fair
    comparison is pay-through (picked a time -> paid), since the line only
    exists on the deposit step. */
-function DeprowTestCard() {
+function DeprowTestCard({ bare }: { bare?: boolean } = {}) {
   type Side = { leads: number; picked: number; paid: number };
   const [d, setD] = useState<{ since: string; until?: string; ended?: boolean; winner?: "a" | "b"; a: Side; b: Side } | null>(null);
   const [open, setOpen] = useState(false);
@@ -575,7 +575,7 @@ function DeprowTestCard() {
     { k: "b", name: "B — secure green", text: "\ud83d\udd12 Secure checkout \u00b7 100% refundable \u00b7 \uf8ff Pay & Cash App accepted — tap \u201cMore\u201d (green box; mobile only, desktop keeps the original words)" },
   ];
   return (
-    <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
+    <div className={bare ? "border-t border-[#f0f4f8] first:border-t-0" : "mb-4 border border-[#e4ebf2] rounded-xl bg-white"}>
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
         <span className="text-sm font-medium text-[#1c2b3a]">🧪 Deposit-line test — all funnels, 50/50</span>
         <span className="text-xs text-[#697a91]">
@@ -685,6 +685,34 @@ function IntakeReviewCards() {
       </div>
     ))}
   </>);
+}
+
+/* All B2C A/B tests behind ONE collapsed row (owner, 10/18/2026: "a
+   dropdown with the active and the ended tests, so they don't open on my
+   screen"). Active = the fleet coins + per-client page tests; ended tests
+   share one box, each still expandable for its final numbers. */
+function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: React.ReactNode; ended: React.ReactNode; endedCount: number; clientTests: number }) {
+  const [open, setOpen] = useState(false);
+  const fleetActive = 2; // calendar scarcity + shorter survey
+  return (
+    <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
+        <span className="text-sm font-medium text-[#1c2b3a]">🧪 B2C A/B tests</span>
+        <span className="text-xs text-[#697a91]">
+          {fleetActive} fleet{clientTests > 0 ? ` + ${clientTests} client` : ""} active · {endedCount} ended
+        </span>
+        <span className="ml-auto text-[#697a91] text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d] mt-1 mb-2">Active</div>
+          {active}
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#697a91] mt-3 mb-2">Ended</div>
+          <div className="border border-[#e4ebf2] rounded-xl bg-[#fbfcfd]">{ended}</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Ab2TestCards() {
@@ -798,7 +826,7 @@ function CapiStatusCard() {
   );
 }
 
-function TopbarTestCard() {
+function TopbarTestCard({ bare }: { bare?: boolean } = {}) {
   type Side = { leads: number; picked: number; paid: number };
   const [d, setD] = useState<{ since: string; until?: string; ended?: boolean; winner?: "a" | "b"; visitorsPerArm?: number; a: Side; b: Side } | null>(null);
   const [open, setOpen] = useState(false);
@@ -818,7 +846,7 @@ function TopbarTestCard() {
   ];
   const day = (iso: string) => new Date(iso).toLocaleDateString("en-US");
   return (
-    <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
+    <div className={bare ? "border-t border-[#f0f4f8] first:border-t-0" : "mb-4 border border-[#e4ebf2] rounded-xl bg-white"}>
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
         <span className="text-sm font-medium text-[#1c2b3a]">🧪 Phone-bar test — all funnels, 50/50</span>
         <span className="text-xs text-[#697a91]">{d.ended ? `ENDED · ${day(d.since)} – ${day(d.until ?? d.since)}` : `since ${day(d.since)}`}</span>
@@ -1583,11 +1611,44 @@ export default function FunnelsPage() {
       {/* Split-test results are the owner's dials — coaches don't see them
           (owner, 2026-10-09). */}
       {seesFleetTraffic && <CapiStatusCard />}
-      {isAdmin && (<>
-        <DeprowTestCard />
-        <TopbarTestCard />
-        <Ab2TestCards />
-      </>)}
+      {isAdmin && (
+        <B2cTestsDropdown
+          clientTests={funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b").length}
+          active={<>
+            <Ab2TestCards />
+          {funnels.some((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b") && (
+            <div className="mb-4 border border-[#d8b4fe] rounded-xl bg-white p-4">
+              <button
+                onClick={() => {
+                  const open = !overviewOpen;
+                  setOverviewOpen(open);
+                  if (open) funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b").forEach((f) => void loadAb(f.slug));
+                }}
+                className="w-full flex items-center gap-2 text-sm font-medium text-[#1c2b3a]">
+                <span className="w-2 h-2 rounded-full bg-[#7c3aed] animate-pulse" />
+                Split tests overview — all clients
+                <span className="text-xs text-[#697a91]">
+                  ({funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b").length} running)
+                </span>
+                <span className="ml-auto text-[#697a91]">{overviewOpen ? "▲" : "▼"}</span>
+              </button>
+              {overviewOpen && (
+                <SplitOverviewTable
+                  rows={funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b")}
+                  ab={ab}
+                  showTotals
+                />
+              )}
+            </div>
+          )}
+          </>}
+          ended={<>
+            <DeprowTestCard bare />
+            <TopbarTestCard bare />
+          </>}
+          endedCount={2}
+        />
+      )}
 
       {showAdd && (() => {
         /* One sub-account, one funnel: flag a location ID that already has
@@ -1848,31 +1909,6 @@ export default function FunnelsPage() {
                     Extras (or the client name).
                   </p>
                 </div>
-              )}
-            </div>
-          )}
-          {funnels.some((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b") && (
-            <div className="border border-[#d8b4fe] rounded-xl bg-white p-4">
-              <button
-                onClick={() => {
-                  const open = !overviewOpen;
-                  setOverviewOpen(open);
-                  if (open) funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b").forEach((f) => void loadAb(f.slug));
-                }}
-                className="w-full flex items-center gap-2 text-sm font-medium text-[#1c2b3a]">
-                <span className="w-2 h-2 rounded-full bg-[#7c3aed] animate-pulse" />
-                Split tests overview — all clients
-                <span className="text-xs text-[#697a91]">
-                  ({funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b").length} running)
-                </span>
-                <span className="ml-auto text-[#697a91]">{overviewOpen ? "▲" : "▼"}</span>
-              </button>
-              {overviewOpen && (
-                <SplitOverviewTable
-                  rows={funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b")}
-                  ab={ab}
-                  showTotals
-                />
               )}
             </div>
           )}
