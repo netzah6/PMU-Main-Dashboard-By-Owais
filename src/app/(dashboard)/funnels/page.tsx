@@ -800,7 +800,7 @@ function CapiStatusCard() {
 
 function TopbarTestCard() {
   type Side = { leads: number; picked: number; paid: number };
-  const [d, setD] = useState<{ since: string; visitorsPerArm?: number; a: Side; b: Side } | null>(null);
+  const [d, setD] = useState<{ since: string; until?: string; ended?: boolean; winner?: "a" | "b"; visitorsPerArm?: number; a: Side; b: Side } | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     fetch("/api/onebox/topbar").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
@@ -809,19 +809,23 @@ function TopbarTestCard() {
   const total = d.a.leads + d.b.leads;
   const enough = total >= 200;
   const share = total > 0 ? Math.round((d.b.leads / total) * 1000) / 10 : null;
-  const leader = enough && d.a.leads !== d.b.leads ? (d.a.leads > d.b.leads ? "a" : "b") : null;
+  /* Ended tests show the locked side (owner locked "b" on 10/17/2026). */
+  const leader = d.ended ? (d.winner ?? null) : enough && d.a.leads !== d.b.leads ? (d.a.leads > d.b.leads ? "a" : "b") : null;
   const payPct = (s: Side) => (s.picked > 0 ? Math.round((s.paid / s.picked) * 1000) / 10 : null);
   const SIDES: { k: "a" | "b"; name: string; text: string }[] = [
     { k: "a", name: "A — phone bar shown", text: "“Call Us Today: …” stays at the top (trust)" },
     { k: "b", name: "B — phone bar hidden", text: "No call bar — the quiz sits higher on the first mobile screen (less friction)" },
   ];
+  const day = (iso: string) => new Date(iso).toLocaleDateString("en-US");
   return (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
         <span className="text-sm font-medium text-[#1c2b3a]">🧪 Phone-bar test — all funnels, 50/50</span>
-        <span className="text-xs text-[#697a91]">since {new Date(d.since).toLocaleDateString()}</span>
+        <span className="text-xs text-[#697a91]">{d.ended ? `ENDED · ${day(d.since)} – ${day(d.until ?? d.since)}` : `since ${day(d.since)}`}</span>
         <span className={cn("ml-auto text-xs font-semibold", leader ? "text-[#15803d]" : "text-[#697a91]")}>
-          {leader
+          {d.ended
+            ? `B won (surveys ${d.b.leads} vs ${d.a.leads} · deposits ${d.b.paid} vs ${d.a.paid}) — bar hidden on every funnel`
+            : leader
             ? `${leader.toUpperCase()} is ahead — ${leader === "b" ? share : share === null ? "" : Math.round((100 - share) * 10) / 10}% of completed surveys`
             : `A ${d.a.leads} · B ${d.b.leads} completed surveys · too early to call`}
         </span>
