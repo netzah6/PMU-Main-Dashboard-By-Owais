@@ -409,12 +409,18 @@ export async function listPaymentsSince(days: number): Promise<RecentPayment[]> 
   return fetchPayments(new Date(Date.now() - days * 24 * 3600 * 1000).toISOString());
 }
 
-async function fetchPayments(begin: string): Promise<RecentPayment[]> {
+/* COMPLETED payments inside one window (Payment Check reads a whole month). */
+export async function listPaymentsBetween(begin: string, end: string): Promise<RecentPayment[]> {
+  return fetchPayments(begin, end);
+}
+
+async function fetchPayments(begin: string, end?: string): Promise<RecentPayment[]> {
   const list: RecentPayment[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < RECENT_PAYMENTS_MAX_PAGES; page++) {
     const url = new URL(`${BASE}/v2/payments`);
     url.searchParams.set("begin_time", begin);
+    if (end) url.searchParams.set("end_time", end);
     url.searchParams.set("sort_order", "DESC");
     url.searchParams.set("limit", "100");
     if (cursor) url.searchParams.set("cursor", cursor);

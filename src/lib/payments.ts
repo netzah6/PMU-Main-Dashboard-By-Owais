@@ -10,7 +10,7 @@ const MONTHS: Record<string, number> = {
   september: 9, oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12,
 };
 
-function monthOf(tabTitle: string): number | null {
+export function monthOf(tabTitle: string): number | null {
   const first = tabTitle.trim().toLowerCase().split(/\s+/)[0];
   return MONTHS[first] ?? null;
 }
@@ -41,10 +41,12 @@ interface PaymentRow {
 const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();
 
 /** Locate header row + column indices by matching header text (robust to layout shifts). */
-function mapColumns(rows: string[][]) {
+export function mapColumns(rows: string[][]) {
   for (let i = 0; i < Math.min(rows.length, 12); i++) {
     const row = rows[i].map(norm);
-    const nameIdx = row.findIndex((c) => c === "client name");
+    // Jan–March tabs predate the V2 layout and label the name column "Customer".
+    let nameIdx = row.findIndex((c) => c === "client name");
+    if (nameIdx === -1) nameIdx = row.findIndex((c) => c === "customer");
     if (nameIdx === -1) continue;
     const find = (...labels: string[]) =>
       row.findIndex((c) => labels.some((l) => c === l || c.includes(l)));
@@ -61,20 +63,21 @@ function mapColumns(rows: string[][]) {
   return null;
 }
 
-function parseUsd(v: unknown): number | null {
+export function parseUsd(v: unknown): number | null {
   if (v == null || v === "") return null;
   const n = parseFloat(String(v).replace(/[$,]/g, ""));
   return isNaN(n) ? null : n;
 }
 
 /** Skip non-client aggregate rows. */
-function isSkipRow(name: string): boolean {
+export function isSkipRow(name: string): boolean {
   const n = name.toLowerCase();
   return (
     !name ||
     n.includes("total") ||
     n.includes("deposits from clients") ||
-    n === "client name"
+    n === "client name" ||
+    n === "customer"
   );
 }
 
@@ -93,7 +96,7 @@ export interface PaymentSyncResult {
 // sync errored on every run and client_payments went stale (last write was a
 // manual local run on Jul 14). A sheet ID is not a credential — access still
 // requires the service account — so hardcoding the fallback is safe.
-const FINANCING_SHEET_ID = "1h0QdmsUVm6Ss8OQWz0yXt6dy5fkXHL2wwQWpjV3_P7A";
+export const FINANCING_SHEET_ID = "1h0QdmsUVm6Ss8OQWz0yXt6dy5fkXHL2wwQWpjV3_P7A";
 
 export async function syncPayments(): Promise<PaymentSyncResult> {
   const spreadsheetId = process.env.SHEET5_ID || FINANCING_SHEET_ID;
