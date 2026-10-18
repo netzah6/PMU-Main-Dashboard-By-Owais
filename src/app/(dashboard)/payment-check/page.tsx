@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, RefreshCw, Check, X, Search, ChevronDown, ChevronRight } from "lucide-react";
+import { Loader2, RefreshCw, Check, X, Search, ChevronDown, ChevronRight, Plus, Trash2, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/useUser";
 
@@ -13,17 +13,20 @@ import { useUser } from "@/lib/hooks/useUser";
 
 type Category = "declined" | "amount" | "unrecorded" | "norecord" | "late" | "match" | "scheduled" | "later" | "upfront" | "pps_none" | "noamount" | "inactive";
 type Evidence = { kind: string; text: string; amountCents?: number; at?: string; receiptUrl?: string | null };
-type Row = { ownerKey: string; name: string; usd: number | null; sheetStatus: string; billing: string; payDay: string; notes: string; paidCents: number; evidence: Evidence[]; category: Category; suggested: "paid" | "not_paid" | null };
+type Field = "usd" | "sheetStatus" | "billing" | "payDay" | "notes";
+type SheetFields = { usd: number | null; sheetStatus: string; billing: string; payDay: string; notes: string };
+type Row = SheetFields & { ownerKey: string; name: string; paidCents: number; evidence: Evidence[]; category: Category; suggested: "paid" | "not_paid" | null; sheet?: SheetFields; edited?: Field[]; added?: boolean };
 type Decision = { owner_key: string; decision: "paid" | "not_paid" };
 type MonthTab = { month: string; tab: string; label: string };
 type Payload = {
   months: MonthTab[]; month: string; tab: string; rows: Row[]; squareChecked: boolean; warnings: string[];
   builtAt: string; decisions: Decision[]; autoconfirm: boolean; agreement: { agreed: number; total: number };
   coaches: Record<string, string>; shares: Record<string, number>;
+  removed: Row[]; options: { sheetStatus: string[]; billing: string[] };
 };
 
 const REVIEW: Category[] = ["declined", "amount", "unrecorded", "norecord", "late"];
-type Filter = "all" | "check" | "paid" | "unpaid" | "off";
+type Filter = "all" | "check" | "paid" | "unpaid" | "off" | "removed";
 const FILTERS: Array<{ key: Filter; label: string; test: (r: Row) => boolean }> = [
   { key: "all", label: "All", test: () => true },
   { key: "check", label: "Needs check", test: (r) => REVIEW.includes(r.category) },
@@ -74,9 +77,10 @@ export default function PaymentCheckPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<"payments" | "coaches">("payments");
 
-  const load = useCallback(async (m: string | null, refresh = false) => {
-    if (refresh) setRefreshing(true); else setLoading(true);
-    setError(null);
+  const [adding, setAdding] = useState<string | null>(null);
+  const load = useCallback(async (m: string | null, refresh = false, silent = false) => {
+    if (refresh) setRefreshing(true); else if (!silent) setLoading(true);
+    if (!silent) setError(null);
     try {
       const params = new URLSearchParams();
       if (m) params.set("month", m);
@@ -90,6 +94,21 @@ export default function PaymentCheckPage() {
     } finally { setLoading(false); setRefreshing(false); }
   }, []);
   useEffect(() => { if (role === "admin") load(null); }, [role, load]);
+
+  // Edits are saved on the dashboard only — the Financing sheet is never written.
+  const post = useCallback(async (body: Record<string, unknown>, key: string) => {
+    if (!data) return false;
+    setBusy(key);
+    try {
+      const r = await fetch("/api/payment-check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ month: data.month, ...body }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Couldn't save");
+      await load(data.month, false, true);
+      return true;
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); return false; } finally { setBusy(null); }
+  }, [data, load]);
+  const edit = useCallback((r: Row, field: Field, value: string | null) =>
+    post({ action: "edit", ownerKey: r.ownerKey, clientName: r.name, field, value }, `e:${r.ownerKey}:${field}`), [post]);
 
   const decided = useMemo(() => new Map((data?.decisions ?? []).map((d) => [d.owner_key, d.decision])), [data]);
 
@@ -118,10 +137,15 @@ export default function PaymentCheckPage() {
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }, []);
 
-  const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.key, (data?.rows ?? []).filter(f.test).length])) as Record<Filter, number>, [data]);
+  const counts = useMemo(() => ({
+    ...Object.fromEntries(FILTERS.map((f) => [f.key, (data?.rows ?? []).filter(f.test).length])),
+    removed: data?.removed?.length ?? 0,
+  }) as Record<Filter, number>, [data]);
   const rows = useMemo(() => {
+    const match = (r: Row) => !q || r.name.toLowerCase().includes(q.toLowerCase());
+    if (filter === "removed") return (data?.removed ?? []).filter(match);
     const f = FILTERS.find((x) => x.key === filter)!;
-    return (data?.rows ?? []).filter((r) => f.test(r) && (!q || r.name.toLowerCase().includes(q.toLowerCase())));
+    return (data?.rows ?? []).filter((r) => f.test(r) && match(r));
   }, [data, filter, q]);
   const openMatches = useMemo(() => (data && !data.autoconfirm ? data.rows.filter((r) => r.category === "match" && !decided.has(r.ownerKey)) : []), [data, decided]);
   const left = (data?.rows ?? []).filter((r) => (REVIEW.includes(r.category) || (!data?.autoconfirm && r.category === "match")) && !decided.has(r.ownerKey)).length;
@@ -183,6 +207,30 @@ export default function PaymentCheckPage() {
               {f.label} <span className="opacity-70">{counts[f.key]}</span>
             </button>
           ))}
+          {counts.removed > 0 && (
+            <button onClick={() => setFilter("removed")}
+              className={cn("h-7 rounded-full px-3 text-xs font-semibold border", filter === "removed" ? "bg-[#1f3559] border-[#1f3559] text-white" : "bg-white border-[#d7e0ea] text-[#64748b] hover:border-[#1f3559]")}>
+              Removed <span className="opacity-70">{counts.removed}</span>
+            </button>
+          )}
+          {adding === null ? (
+            <button onClick={() => setAdding("")} className="h-7 inline-flex items-center gap-1 rounded-full border border-dashed border-[#0e8f88] px-3 text-xs font-semibold text-[#0e8f88]">
+              <Plus className="w-3.5 h-3.5" /> Add client
+            </button>
+          ) : (
+            <form className="inline-flex items-center gap-1" onSubmit={async (e) => {
+              e.preventDefault();
+              if (await post({ action: "add", name: adding }, "add")) setAdding(null);
+            }}>
+              <input id="pc-add" autoFocus value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Client full name"
+                onKeyDown={(e) => { if (e.key === "Escape") setAdding(null); }}
+                className="h-7 w-48 rounded-full border border-[#0e8f88] px-3 text-xs" />
+              <button type="submit" disabled={busy === "add" || !adding.trim()} className="h-7 inline-flex items-center gap-1 rounded-full bg-[#0e8f88] px-3 text-xs font-semibold text-white disabled:opacity-60">
+                {busy === "add" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />} Add
+              </button>
+              <button type="button" onClick={() => setAdding(null)} className="text-xs text-[#64748b] px-1">Cancel</button>
+            </form>
+          )}
           {openMatches.length > 0 && (
             <button onClick={() => decide(openMatches, "paid", "all")} disabled={!!busy}
               className="ml-auto h-7 inline-flex items-center gap-1 rounded-full bg-[#15803d] px-3 text-xs font-semibold text-white disabled:opacity-60">
@@ -216,15 +264,23 @@ export default function PaymentCheckPage() {
                 const check = REVIEW.includes(r.category) && !d;
                 return (
                   <tr key={r.ownerKey} className={cn("hover:bg-[#f9fbfd]", check && "bg-[#fffaf0]")}>
-                    <td className="px-3 py-1.5 font-medium text-[#1f3559] whitespace-nowrap">{r.name}</td>
-                    <td className="px-3 py-1.5 text-[#64748b] max-w-[320px] truncate" title={r.notes}>{r.notes}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-[#1f3559]">{r.usd ? short(r.usd) : ""}</td>
-                    <td className="px-3 py-1.5 text-[#64748b] whitespace-nowrap">{r.payDay}</td>
-                    <td className="px-3 py-1.5 whitespace-nowrap">{r.sheetStatus && <span className={cn("rounded px-1.5 py-0.5 text-xs font-semibold", statusCls(r.sheetStatus))}>{r.sheetStatus}</span>}</td>
-                    <td className="px-3 py-1.5 text-[#64748b] whitespace-nowrap">{r.billing}</td>
+                    <td className="px-3 py-1.5 font-medium text-[#1f3559] whitespace-nowrap">
+                      {r.name}{r.added && <span className="ml-1.5 rounded bg-[#e6f7f5] px-1 text-[10px] font-bold text-[#0e8f88]" title="Added on the dashboard, not on the sheet">NEW</span>}
+                    </td>
+                    <td className="px-1.5 py-1 max-w-[320px]"><EditText r={r} field="notes" busy={busy} onSave={edit} className="text-[#64748b]" /></td>
+                    <td className="px-1.5 py-1 text-right"><EditText r={r} field="usd" busy={busy} onSave={edit} className="tabular-nums text-[#1f3559] text-right" /></td>
+                    <td className="px-1.5 py-1"><EditText r={r} field="payDay" busy={busy} onSave={edit} className="text-[#64748b]" /></td>
+                    <td className="px-1.5 py-1"><EditSelect r={r} field="sheetStatus" options={data.options.sheetStatus} busy={busy} onSave={edit} chip /></td>
+                    <td className="px-1.5 py-1"><EditSelect r={r} field="billing" options={data.options.billing} busy={busy} onSave={edit} /></td>
                     <td className={cn("px-3 py-1.5 whitespace-nowrap font-medium", f.cls)} title={r.evidence.map((e) => e.text).join("\n") || "Nothing found in Square or the dashboard"}>{f.text}</td>
                     <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                      {d ? (
+                      <span className="inline-flex items-center gap-1.5">
+                      {filter === "removed" ? (
+                        <button onClick={() => post({ action: "restore", ownerKey: r.ownerKey, clientName: r.name }, `rm:${r.ownerKey}`)} disabled={!!busy}
+                          className="inline-flex items-center gap-1 rounded-md border border-[#d7e0ea] px-2 py-1 text-xs font-semibold text-[#1f3559]">
+                          {busy === `rm:${r.ownerKey}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />} Restore
+                        </button>
+                      ) : d ? (
                         <button onClick={() => decide([r], null, `u:${r.ownerKey}`)} disabled={!!busy} title="Click to undo"
                           className={cn("rounded px-1.5 py-0.5 text-xs font-bold", d === "paid" ? "bg-[#e6f7ee] text-[#15803d]" : "bg-[#fde8ee] text-[#e11d48]")}>
                           {busy === `u:${r.ownerKey}` ? <Loader2 className="w-3 h-3 animate-spin inline" /> : d === "paid" ? "Paid ✓" : "Not paid"}
@@ -243,6 +299,13 @@ export default function PaymentCheckPage() {
                           </button>
                         </span>
                       ) : null}
+                      {filter !== "removed" && (
+                        <button onClick={() => post({ action: "remove", ownerKey: r.ownerKey, clientName: r.name }, `rm:${r.ownerKey}`)} disabled={!!busy}
+                          title="Remove from this month (sheet is not changed)" className="w-6 h-6 inline-flex items-center justify-center rounded text-[#cbd5e1] hover:text-[#e11d48]">
+                          {busy === `rm:${r.ownerKey}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -253,7 +316,7 @@ export default function PaymentCheckPage() {
         </div>
       )}
 
-      {data && <p className="text-xs text-[#94a3b8]">Sheet tab {data.tab} · checked {new Date(data.builtAt).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })} · hover “Found” for details · highlighted rows need a look</p>}
+      {data && <p className="text-xs text-[#94a3b8]">Sheet tab {data.tab} · checked {new Date(data.builtAt).toLocaleString("en-US", { month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" })} · hover “Found” for details · highlighted rows need a look · click any cell to edit — a teal dot means it was changed here (your sheet stays as it is)</p>}
     </div>
   );
 }
@@ -381,5 +444,72 @@ function CoachShare({ data, decided, q, onShares, onError }: {
         </table>
       </div>
     </div>
+  );
+}
+
+/* Inline editors. Changes are saved on the dashboard only; a teal dot marks a
+   changed cell and its tooltip shows the sheet's own value. */
+function sheetValue(r: Row, field: Field): string {
+  const v = r.sheet ? r.sheet[field] : r[field];
+  return field === "usd" ? (v ? short(Number(v)) : "blank") : String(v || "blank");
+}
+
+function EditedDot({ r, field, onSave }: { r: Row; field: Field; onSave: (r: Row, f: Field, v: string | null) => void }) {
+  if (!r.edited?.includes(field)) return null;
+  return (
+    <button onClick={(e) => { e.stopPropagation(); onSave(r, field, null); }} title={`Changed here · sheet says ${sheetValue(r, field)} · click to go back to the sheet value`}
+      className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-[#0e8f88] align-middle hover:ring-2 hover:ring-[#0e8f88]/30" />
+  );
+}
+
+function EditText({ r, field, busy, onSave, className }: {
+  r: Row; field: "notes" | "usd" | "payDay"; busy: string | null; className?: string;
+  onSave: (r: Row, f: Field, v: string | null) => void;
+}) {
+  const shown = field === "usd" ? (r.usd ? short(r.usd) : "") : String(r[field] ?? "");
+  const raw = field === "usd" ? (r.usd != null ? String(r.usd) : "") : String(r[field] ?? "");
+  const [val, setVal] = useState<string | null>(null);
+  const saving = busy === `e:${r.ownerKey}:${field}`;
+  const commit = () => {
+    if (val !== null && val.trim() !== raw.trim()) onSave(r, field, val.trim());
+    setVal(null);
+  };
+  if (val !== null) {
+    return (
+      <input id={`pc-${field}-${r.ownerKey}`} autoFocus value={val} onChange={(e) => setVal(e.target.value)} onBlur={commit}
+        inputMode={field === "notes" ? "text" : "decimal"}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setVal(null); }}
+        className={cn("w-full min-w-[60px] h-7 rounded border border-[#0e8f88] bg-white px-1.5 text-sm outline-none", className)} />
+    );
+  }
+  return (
+    <div onClick={() => setVal(raw)} title={field === "notes" ? r.notes : "Click to edit"}
+      className={cn("min-h-[28px] cursor-text rounded px-1.5 py-1 hover:bg-[#eef6f6] whitespace-nowrap", field === "notes" && "truncate", className)}>
+      {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin inline text-[#0e8f88]" /> : shown || <span className="text-[#cbd5e1]">—</span>}
+      <EditedDot r={r} field={field} onSave={onSave} />
+    </div>
+  );
+}
+
+function EditSelect({ r, field, options, busy, onSave, chip }: {
+  r: Row; field: "sheetStatus" | "billing"; options: string[]; busy: string | null; chip?: boolean;
+  onSave: (r: Row, f: Field, v: string | null) => void;
+}) {
+  const value = r[field];
+  const saving = busy === `e:${r.ownerKey}:${field}`;
+  const list = value && !options.includes(value) ? [value, ...options] : options;
+  return (
+    <span className="inline-flex items-center whitespace-nowrap">
+      <select id={`pc-${field}-${r.ownerKey}`} value={value} disabled={saving}
+        onChange={(e) => onSave(r, field, e.target.value === "__sheet" ? null : e.target.value)}
+        className={cn("h-7 max-w-[170px] cursor-pointer rounded border border-transparent bg-transparent px-1 text-xs hover:border-[#d7e0ea] focus:border-[#0e8f88] outline-none",
+          chip && value ? cn("font-semibold", statusCls(value)) : "text-[#64748b]")}>
+        <option value="">—</option>
+        {list.map((o) => <option key={o} value={o}>{o}</option>)}
+        {r.edited?.includes(field) && <option value="__sheet">↺ Sheet value ({sheetValue(r, field)})</option>}
+      </select>
+      {saving && <Loader2 className="ml-1 w-3.5 h-3.5 animate-spin text-[#0e8f88]" />}
+      <EditedDot r={r} field={field} onSave={onSave} />
+    </span>
   );
 }

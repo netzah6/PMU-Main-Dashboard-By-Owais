@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { autoconfirmEnabled, buildMonth, listMonthTabs, type MonthPayload } from "@/lib/payment-check";
+import { applyEdits, autoconfirmEnabled, buildMonth, EDIT_FIELDS, listMonthTabs, type EditField, type MonthPayload, type PaymentEdit } from "@/lib/payment-check";
 import { normalizeOwnerKey } from "@/lib/normalizers";
 
 export const maxDuration = 300;
@@ -34,12 +34,26 @@ export async function GET(req: NextRequest) {
     if (!refresh) {
       const { data } = await svc.from("payment_check_cache").select("payload, built_at").eq("month", mt.month).maybeSingle();
       const age = data ? Date.now() - new Date(data.built_at as string).getTime() : Infinity;
-      if (data && (!isCurrent || age < FRESH_MS)) payload = data.payload as MonthPayload;
+      const cached = data?.payload as MonthPayload | undefined;
+      // Copies saved before edits existed lack the facts edits need — rebuild those.
+      const usable = !!cached && (!cached.rows.length || !!cached.rows[0].facts);
+      if (usable && (!isCurrent || age < FRESH_MS)) payload = cached!;
     }
     if (!payload) {
       payload = await buildMonth(svc, mt);
       await svc.from("payment_check_cache").upsert({ month: mt.month, payload, built_at: payload.builtAt });
     }
+
+    // Dashboard edits sit on top of the sheet values (the sheet is never written).
+    const { data: editRows } = await svc.from("payment_edits").select("owner_key, client_name, fields, added, hidden").eq("month", mt.month);
+    const applied = applyEdits(mt.month, payload.rows, (editRows ?? []) as PaymentEdit[]);
+    // Dropdown choices: the statuses the sheet already uses, plus the usual ones.
+    const opts = (base: string[], pick: (r: MonthPayload["rows"][number]) => string) =>
+      [...new Set([...base, ...[...payload!.rows, ...applied.rows].map(pick).map((v) => v.trim()).filter(Boolean)])];
+    const options = {
+      sheetStatus: opts(["Paid", "Paid Upfront", "PPS", "Pending", "Grace", "Paused", "Need More Bookings"], (r) => r.sheet?.sheetStatus ?? r.sheetStatus),
+      billing: opts(["Card On File", "No Card On File", "Sub Dashboard", "Subscription Active", "Manually Send Link", "Deposit", "Ask for permission"], (r) => r.sheet?.billing ?? r.billing),
+    };
 
     const [{ data: decisions }, autoconfirm] = await Promise.all([
       svc.from("payment_checks").select("owner_key, decision, suggested, note, decided_by, decided_at").eq("month", mt.month),
@@ -65,7 +79,7 @@ export async function GET(req: NextRequest) {
     }
     const shares = ((shareRow?.value as Record<string, number> | null) ?? {});
 
-    return NextResponse.json({ months, ...payload, decisions: decisions ?? [], autoconfirm, agreement, coaches, shares });
+    return NextResponse.json({ months, ...payload, rows: applied.rows, removed: applied.removed, options, decisions: decisions ?? [], autoconfirm, agreement, coaches, shares });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
@@ -74,7 +88,10 @@ export async function GET(req: NextRequest) {
 type Body =
   | { action: "decide"; month: string; items: Array<{ ownerKey: string; clientName?: string; decision: "paid" | "not_paid" | null; suggested?: string | null; note?: string | null }> }
   | { action: "autoconfirm"; enabled: boolean }
-  | { action: "share"; coach: string; percent: number | null };
+  | { action: "share"; coach: string; percent: number | null }
+  | { action: "edit"; month: string; ownerKey: string; clientName?: string; field: EditField; value: string | number | null }
+  | { action: "add"; month: string; name: string }
+  | { action: "remove" | "restore"; month: string; ownerKey: string; clientName?: string };
 
 export async function POST(req: NextRequest) {
   const auth = await admin();
@@ -106,6 +123,44 @@ export async function POST(req: NextRequest) {
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, shares: next });
+  }
+
+  // Edits, added and removed clients — stored on the dashboard only.
+  if (body.action === "edit" || body.action === "add" || body.action === "remove" || body.action === "restore") {
+    if (!/^\d{4}-\d{2}$/.test(body.month)) return NextResponse.json({ error: "Pick a month" }, { status: 400 });
+    const name = body.action === "add" ? String(body.name ?? "").trim() : String(body.clientName ?? "").trim();
+    const ownerKey = body.action === "add" ? normalizeOwnerKey(name) : String(body.ownerKey ?? "");
+    if (!ownerKey) return NextResponse.json({ error: body.action === "add" ? "Type the client's name" : "Missing client" }, { status: 400 });
+    const { data: cur } = await svc.from("payment_edits").select("fields, added, hidden, client_name").eq("month", body.month).eq("owner_key", ownerKey).maybeSingle();
+    const row = {
+      month: body.month, owner_key: ownerKey, client_name: name || (cur?.client_name as string | null) || null,
+      fields: { ...((cur?.fields as Record<string, unknown>) ?? {}) },
+      added: !!cur?.added, hidden: !!cur?.hidden,
+      updated_by: auth.email ?? auth.userId, updated_at: new Date().toISOString(),
+    };
+    if (body.action === "edit") {
+      if (!(EDIT_FIELDS as readonly string[]).includes(body.field)) return NextResponse.json({ error: "That column can't be edited" }, { status: 400 });
+      // null = go back to the sheet's value.
+      if (body.value === null) delete row.fields[body.field];
+      else if (body.field === "usd") {
+        const raw = String(body.value).replace(/[$,\s]/g, "");
+        const n = raw === "" ? "" : Number(raw);
+        if (n !== "" && (!isFinite(n) || n < 0)) return NextResponse.json({ error: "Enter an amount like 697" }, { status: 400 });
+        row.fields.usd = n;
+      } else row.fields[body.field] = String(body.value).slice(0, 500);
+    }
+    if (body.action === "add") { row.added = true; row.hidden = false; }
+    if (body.action === "remove") row.hidden = true;
+    if (body.action === "restore") row.hidden = false;
+    // Nothing left to remember → drop the row so the sheet value shows again.
+    if (!row.added && !row.hidden && !Object.keys(row.fields).length) {
+      const { error } = await svc.from("payment_edits").delete().eq("month", body.month).eq("owner_key", ownerKey);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else {
+      const { error } = await svc.from("payment_edits").upsert(row);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, ownerKey });
   }
 
   if (body.action === "decide") {
