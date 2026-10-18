@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 
   const [{ data: variants }, { data: assigns }, { data: leads }, { data: client }] = await Promise.all([
     svc.from("onebox_variants").select("vkey, label, kind, target, weight, config_override").eq("experiment_id", exp.id).order("vkey"),
-    svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id),
+    svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id).gte("created_at", exp.created_at),
     svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, picked_time_at, answers, created_at, phone, full_name").eq("slug", slug).gte("created_at", exp.created_at),
     svc.from("onebox_clients").select("location_id, config, client_name, extras").eq("slug", slug).single(),
   ]);
@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
   const sorted = [...(leads ?? [])].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   for (const l of sorted) {
     if (l.ghl_appointment_id) ourApptIds.add(l.ghl_appointment_id);
+    if (/\btest\b/i.test(String(l.full_name ?? ""))) continue; // team test submissions never count
     const ms = new Date(l.created_at as string).getTime();
     const keys = personKeys(l.full_name as string, ((l.answers ?? {}) as { email?: string }).email, l.phone as string);
     let j: Journey | undefined;
@@ -237,25 +238,26 @@ export async function GET(req: NextRequest) {
     } catch { /* leave null — shown as unavailable, never wrong */ }
   }
 
-  /* ── B2B (agency) experiments: the profit view ────────────────────────
-     For original-vs-PPS the money question is calls → showed → closed,
-     read from the 💸 SALES PIPELINE opportunity stages (team convention:
-     any stage past the demo proves the call happened; "Closed Paying
-     Client" or a Client Journey opportunity = closed). Sides: one-box
-     calls = our leads with an appointment; original calls = the discovery
-     calendar's appointments since test start minus ours. The generic
+  /* ── B2B (agency) experiments: the full funnel ──────────────────────────
+     Owner's five steps per side (10/18/2026): lead → scheduled a discovery
+     call → showed to the discovery call → had the demo → closed, read from
+     the 💸 SALES PIPELINE stage each lead reached (furthest stage wins;
+     a 🎉 Client Journey opportunity = closed).
+       One-box side: our own leads (onebox_leads) since the test start.
+       Original side: GHL contacts with source "Facebook Ads" since the test
+       start — and ONLY those people's calls count, so a step can never
+       exceed the one before it (the old view counted every calendar
+       booking since the start and showed 35 leads from 25 visitors).
+     Test submissions (a name containing "test") never count. The generic
      external block above can't run for B2B (calendarId lives in
      extras.b2b, not config), so this branch also fills externalBooked. */
   type B2BPerson = { n: string; d?: string; old?: boolean };
   type B2BOutcome = {
-    calls: number; showed: number; closed: number; closedNames: string[];
-    /* Drill-down lists for the clickable metrics (owner, 2026-10-07):
-       old=true on a call whose contact predates the test — that's how
-       booked calls can exceed leads (follow-up booked an older lead). */
-    people: { leads: B2BPerson[]; calls: B2BPerson[]; showed: B2BPerson[]; closed: B2BPerson[] };
+    calls: number; showed: number; demo: number; closed: number; closedNames: string[];
+    people: { leads: B2BPerson[]; calls: B2BPerson[]; showed: B2BPerson[]; demo: B2BPerson[]; closed: B2BPerson[] };
   };
   let b2bOutcomes: { external: B2BOutcome; onebox: B2BOutcome } | null = null;
-  let extLeadPeople: B2BPerson[] = [];
+  const isTestName = (n: unknown) => /\btest\b/i.test(String(n ?? ""));
   const extrasAll = (client?.extras ?? {}) as { template?: string; b2b?: { calendarId?: string } };
   if (extrasAll.template === "b2b" && client?.location_id) {
     try {
@@ -263,127 +265,113 @@ export async function GET(req: NextRequest) {
       const calId = (extrasAll.b2b?.calendarId ?? "").trim();
       if (tok.token && calId) {
         const H = { Authorization: `Bearer ${tok.token}`, Accept: "application/json" };
+        const loc = encodeURIComponent(client.location_id as string);
         const startMs = new Date(exp.created_at as string).getTime();
-        const ourContactIds = new Set((leads ?? []).map((l) => String((l as { ghl_contact_id?: string }).ghl_contact_id ?? "")).filter(Boolean));
-        const oneboxCallIds = [...new Set((leads ?? [])
-          .filter((l) => l.ghl_appointment_id)
-          .map((l) => String((l as { ghl_contact_id?: string }).ghl_contact_id ?? ""))
-          .filter(Boolean))];
-        const evR = await fetch(
-          `https://services.leadconnectorhq.com/calendars/events?locationId=${encodeURIComponent(client.location_id as string)}` +
-            `&calendarId=${encodeURIComponent(calId)}&startTime=${startMs}&endTime=${Date.now() + 120 * 86400000}`,
-          { headers: { ...H, Version: "2021-04-15" }, signal: AbortSignal.timeout(20000) }
-        );
-        const evJ = (await evR.json()) as { events?: { id?: string; contactId?: string; dateAdded?: string; appointmentStatus?: string }[] };
-        const extIds = [...new Set((evJ.events ?? [])
-          .filter((e) => e.appointmentStatus !== "cancelled")
-          .filter((e) => (e.dateAdded ? new Date(e.dateAdded).getTime() : startMs) >= startMs)
-          .filter((e) => (!e.id || !ourApptIds.has(e.id)) && e.contactId && !ourContactIds.has(e.contactId))
-          .map((e) => String(e.contactId)))];
-        externalBooked = extIds.length;
 
-        /* Original-side LEADS: the B2B survey's contacts arrive with
-           source "Facebook Ads" (verified 2026-10-06: sampled contacts
-           all carry the survey's area field). One-box contacts carry
-           "One-Box Funnel", so they never collide. */
-        try {
+        // Original-side leads: the B2B survey's contacts arrive with source
+        // "Facebook Ads"; one-box contacts carry "One-Box Funnel".
+        const extLeads: { id: string; n: string; d?: string }[] = [];
+        for (let page = 1; page <= 5; page++) {
           const lr = await fetch("https://services.leadconnectorhq.com/contacts/search", {
             method: "POST",
             headers: { ...H, Version: "2021-07-28", "Content-Type": "application/json" },
             body: JSON.stringify({
-              locationId: client.location_id,
-              page: 1,
-              pageLimit: 100,
+              locationId: client.location_id, page, pageLimit: 100,
               filters: [
-                { field: "dateAdded", operator: "range", value: { gte: new Date(exp.created_at as string).toISOString() } },
+                { field: "dateAdded", operator: "range", value: { gte: new Date(startMs).toISOString() } },
                 { field: "source", operator: "eq", value: "Facebook Ads" },
               ],
             }),
             signal: AbortSignal.timeout(15000),
           });
-          if (lr.ok) {
-            const lj = (await lr.json()) as { total?: number; contacts?: { contactName?: string; firstNameLowerCase?: string; lastNameLowerCase?: string; dateAdded?: string }[] };
-            if (typeof lj.total === "number") externalLeads = lj.total;
-            extLeadPeople = (lj.contacts ?? []).map((c) => ({
-              n: String(c.contactName || `${c.firstNameLowerCase ?? ""} ${c.lastNameLowerCase ?? ""}`).trim(),
-              d: c.dateAdded ? String(c.dateAdded).slice(0, 10) : undefined,
-            }));
+          if (!lr.ok) break;
+          const lj = (await lr.json()) as { contacts?: { id?: string; contactName?: string; firstNameLowerCase?: string; lastNameLowerCase?: string; dateAdded?: string }[] };
+          for (const c of lj.contacts ?? []) {
+            const n = String(c.contactName || `${c.firstNameLowerCase ?? ""} ${c.lastNameLowerCase ?? ""}`).trim();
+            if (c.id && !isTestName(n)) extLeads.push({ id: c.id, n, d: c.dateAdded ? String(c.dateAdded).slice(0, 10) : undefined });
           }
-        } catch { /* leave null — shown as "in GHL" */ }
+          if ((lj.contacts ?? []).length < 100) break;
+        }
+        externalLeads = extLeads.length;
 
-        // Stage + pipeline names, classified by the team's own rules.
-        const pipeR = await fetch(`https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${encodeURIComponent(client.location_id as string)}`,
+        const oneboxLeads = (leads ?? []).filter((l) => !isTestName(l.full_name));
+        const oneboxCallIds = [...new Set(oneboxLeads
+          .filter((l) => l.ghl_appointment_id)
+          .map((l) => String((l as { ghl_contact_id?: string }).ghl_contact_id ?? ""))
+          .filter(Boolean))];
+
+        // Discovery-calendar bookings since the start, kept only for the
+        // original side's own leads.
+        const evR = await fetch(
+          `https://services.leadconnectorhq.com/calendars/events?locationId=${loc}&calendarId=${encodeURIComponent(calId)}&startTime=${startMs}&endTime=${Date.now() + 120 * 86400000}`,
+          { headers: { ...H, Version: "2021-04-15" }, signal: AbortSignal.timeout(20000) }
+        );
+        const evJ = (await evR.json()) as { events?: { id?: string; contactId?: string; dateAdded?: string; appointmentStatus?: string }[] };
+        const callDate = new Map<string, string>();
+        for (const e of evJ.events ?? []) {
+          if (!e.contactId || !e.dateAdded) continue;
+          const cur = callDate.get(e.contactId);
+          if (!cur || e.dateAdded < cur) callDate.set(e.contactId, e.dateAdded);
+        }
+
+        // Stage + pipeline names, classified by the team's own stages.
+        const pipeR = await fetch(`https://services.leadconnectorhq.com/opportunities/pipelines?locationId=${loc}`,
           { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(15000) });
         const pipeJ = (await pipeR.json()) as { pipelines?: { id?: string; name?: string; stages?: { id?: string; name?: string }[] }[] };
         const stageName = new Map<string, { stage: string; pipeline: string }>();
         for (const p of pipeJ.pipelines ?? [])
           for (const s of p.stages ?? [])
             if (s.id) stageName.set(s.id, { stage: String(s.name ?? ""), pipeline: String(p.name ?? "") });
-        const SHOWED_RE = /strategy booked|didn'?t close|don'?t have money|disqualified|paid deposit|showed|closed paying/i;
-        const CLOSED_RE = /closed paying client/i;
-        const JOURNEY_RE = /client journey/i;
-
-        /* Booking date per contact (earliest non-cancelled appointment). */
-        const callDate = new Map<string, string>();
-        for (const e of evJ.events ?? []) {
-          if (e.appointmentStatus === "cancelled" || !e.contactId || !e.dateAdded) continue;
-          const cur = callDate.get(e.contactId);
-          if (!cur || e.dateAdded < cur) callDate.set(e.contactId, e.dateAdded);
-        }
-
-        const classify = async (contactId: string): Promise<{ showed: boolean; closed: boolean; name: string; added?: string }> => {
+        /* Furthest step reached: 2 scheduled · 3 showed discovery · 4 demo · 5 closed. */
+        const level = (stage: string, pipeline: string): number => {
+          if (/client journey/i.test(pipeline) || /closed paying|pay per appointment/i.test(stage)) return 5;
+          if (/showed - didn|didn'?t close|strategy booked|don'?t have money|paid deposit/i.test(stage)) return 4;
+          if (/demo - booked|demo - cancelled|demo - no show|didn'?t convert/i.test(stage)) return 3;
+          if (/discovery/i.test(stage)) return 2;
+          return 1;
+        };
+        const classify = async (contactId: string): Promise<{ lvl: number; name: string }> => {
           try {
-            const [r, cr] = await Promise.all([
-              fetch(
-                `https://services.leadconnectorhq.com/opportunities/search?location_id=${encodeURIComponent(client.location_id as string)}&contact_id=${encodeURIComponent(contactId)}`,
-                { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(10000) }
-              ),
-              fetch(`https://services.leadconnectorhq.com/contacts/${encodeURIComponent(contactId)}`,
-                { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(10000) }),
-            ]);
-            const cj = cr.ok ? (await cr.json()) as { contact?: { contactName?: string; firstName?: string; lastName?: string; dateAdded?: string } } : {};
-            const cName = String(cj.contact?.contactName || `${cj.contact?.firstName ?? ""} ${cj.contact?.lastName ?? ""}`).trim();
-            const added = cj.contact?.dateAdded ? String(cj.contact.dateAdded) : undefined;
-            if (!r.ok) return { showed: false, closed: false, name: cName, added };
+            const r = await fetch(`https://services.leadconnectorhq.com/opportunities/search?location_id=${loc}&contact_id=${encodeURIComponent(contactId)}`,
+              { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(10000) });
+            if (!r.ok) return { lvl: 1, name: "" };
             const j = (await r.json()) as { opportunities?: { pipelineStageId?: string; name?: string }[] };
-            let showed = false, closed = false, name = cName;
+            let lvl = 1, name = "";
             for (const o of j.opportunities ?? []) {
               const s = stageName.get(String(o.pipelineStageId ?? ""));
-              if (!s) continue;
-              if (JOURNEY_RE.test(s.pipeline) || CLOSED_RE.test(s.stage)) { closed = true; showed = true; if (!name) name = String(o.name ?? ""); }
-              else if (SHOWED_RE.test(s.stage)) showed = true;
+              if (!s || !/sales pipeline|client journey/i.test(s.pipeline)) continue;
+              const v = level(s.stage, s.pipeline);
+              if (v > lvl) lvl = v;
+              if (!name) name = String(o.name ?? "");
             }
-            return { showed, closed, name, added };
-          } catch { return { showed: false, closed: false, name: "" }; }
+            return { lvl, name };
+          } catch { return { lvl: 1, name: "" }; }
         };
-        const run = async (ids: string[], oneboxNames?: Map<string, { n: string; d?: string }>): Promise<B2BOutcome> => {
-          const out: B2BOutcome = { calls: ids.length, showed: 0, closed: 0, closedNames: [],
-            people: { leads: [], calls: [], showed: [], closed: [] } };
-          const capped = ids.slice(0, 80);
+        const run = async (people: { id: string; n: string; d?: string }[], booked: Set<string>): Promise<B2BOutcome> => {
+          const out: B2BOutcome = { calls: 0, showed: 0, demo: 0, closed: 0, closedNames: [],
+            people: { leads: people.map((p) => ({ n: p.n, d: p.d })), calls: [], showed: [], demo: [], closed: [] } };
+          const capped = people.slice(0, 150);
           for (let i = 0; i < capped.length; i += 8) {
             const batch = capped.slice(i, i + 8);
-            const res = await Promise.all(batch.map(classify));
+            const res = await Promise.all(batch.map((p) => classify(p.id)));
             res.forEach((x, k) => {
-              const id = batch[k];
-              const fallback = oneboxNames?.get(id);
-              const n = x.name || fallback?.n || "(unknown)";
-              const d = (callDate.get(id) ?? fallback?.d ?? "").slice(0, 10) || undefined;
-              const old = x.added ? new Date(x.added).getTime() < startMs : false;
-              out.people.calls.push({ n, d, ...(old ? { old: true } : {}) });
-              if (x.showed) { out.showed++; out.people.showed.push({ n }); }
-              if (x.closed) { out.closed++; out.closedNames.push(n); out.people.closed.push({ n }); }
+              const p = batch[k];
+              const n = p.n || x.name || "(unknown)";
+              const lvl = booked.has(p.id) ? Math.max(x.lvl, 2) : x.lvl;
+              if (lvl >= 2) { out.calls++; out.people.calls.push({ n, d: (callDate.get(p.id) ?? "").slice(0, 10) || undefined }); }
+              if (lvl >= 3) { out.showed++; out.people.showed.push({ n }); }
+              if (lvl >= 4) { out.demo++; out.people.demo.push({ n }); }
+              if (lvl >= 5) { out.closed++; out.closedNames.push(n); out.people.closed.push({ n }); }
             });
           }
           return out;
         };
-        const oneboxNameById = new Map<string, { n: string; d?: string }>();
-        for (const l of leads ?? []) {
-          const id = String((l as { ghl_contact_id?: string }).ghl_contact_id ?? "");
-          if (id && !oneboxNameById.has(id)) oneboxNameById.set(id, { n: String(l.full_name ?? ""), d: String(l.created_at ?? "").slice(0, 10) });
-        }
-        const [extOut, obOut] = await Promise.all([run(extIds), run(oneboxCallIds, oneboxNameById)]);
-        extOut.people.leads = extLeadPeople;
-        obOut.people.leads = (leads ?? []).map((l) => ({ n: String(l.full_name ?? ""), d: String(l.created_at ?? "").slice(0, 10) }));
+        const extBooked = new Set(extLeads.filter((c) => callDate.has(c.id)).map((c) => c.id));
+        const oneboxPeople = [...new Map(oneboxLeads
+          .filter((l) => (l as { ghl_contact_id?: string }).ghl_contact_id)
+          .map((l) => [String((l as { ghl_contact_id?: string }).ghl_contact_id), { id: String((l as { ghl_contact_id?: string }).ghl_contact_id), n: String(l.full_name ?? ""), d: String(l.created_at ?? "").slice(0, 10) }] as const)).values()];
+        const [extOut, obOut] = await Promise.all([run(extLeads, extBooked), run(oneboxPeople, new Set(oneboxCallIds))]);
+        externalBooked = extOut.calls;
         b2bOutcomes = { external: extOut, onebox: obOut };
       }
     } catch { /* outcomes unavailable — panel shows dashes, never wrong numbers */ }

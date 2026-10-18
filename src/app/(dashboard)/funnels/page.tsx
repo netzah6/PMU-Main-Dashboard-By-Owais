@@ -34,8 +34,8 @@ type AbVariant = {
   leadRate: number | null; pickRate: number | null; spend: number | null; costPerBooking: number | null;
   /* B2B profit view: booked calls → showed → closed, from the sales pipeline. */
   outcomes?: {
-    calls: number; showed: number; closed: number; closedNames: string[];
-    people?: { leads: B2BPerson[]; calls: B2BPerson[]; showed: B2BPerson[]; closed: B2BPerson[] };
+    calls: number; showed: number; demo?: number; closed: number; closedNames: string[];
+    people?: { leads: B2BPerson[]; calls: B2BPerson[]; showed: B2BPerson[]; demo?: B2BPerson[]; closed: B2BPerson[] };
   } | null;
 };
 type B2BPerson = { n: string; d?: string; old?: boolean };
@@ -382,12 +382,10 @@ function B2BSplitTable({ rows, ab }: { rows: Funnel[]; ab: Record<string, AbResu
             <th className="py-1 pr-3 font-medium">Variant</th>
             <th className="py-1 pr-3 font-medium">Visitors</th>
             <th className="py-1 pr-3 font-medium">Leads</th>
-            <th className="py-1 pr-3 font-medium">Lead rate</th>
-            <th className="py-1 pr-3 font-medium">Booked calls</th>
-            <th className="py-1 pr-3 font-medium">Call rate</th>
-            <th className="py-1 pr-3 font-medium">Showed</th>
+            <th className="py-1 pr-3 font-medium">Scheduled a call</th>
+            <th className="py-1 pr-3 font-medium">Showed (discovery)</th>
+            <th className="py-1 pr-3 font-medium">Had the demo</th>
             <th className="py-1 pr-3 font-medium">Closed</th>
-            <th className="py-1 pr-3 font-medium">Close rate</th>
           </tr>
         </thead>
         <tbody>
@@ -396,7 +394,7 @@ function B2BSplitTable({ rows, ab }: { rows: Funnel[]; ab: Record<string, AbResu
             if (!d?.variants) {
               return (
                 <tr key={f.slug} className="border-t border-[#eef2f6]">
-                  <td className="py-1.5 pr-3 text-[#97a5b8]" colSpan={9}>loading…</td>
+                  <td className="py-1.5 pr-3 text-[#97a5b8]" colSpan={7}>loading…</td>
                 </tr>
               );
             }
@@ -404,26 +402,27 @@ function B2BSplitTable({ rows, ab }: { rows: Funnel[]; ab: Record<string, AbResu
               const P = v.outcomes?.people;
               const k = (m: string) => `${f.slug}:${v.vkey}:${m}`;
               const openKey = openList?.startsWith(`${f.slug}:${v.vkey}:`) ? openList.split(":")[2] : null;
-              const openPeople = openKey === "leads" ? P?.leads : openKey === "calls" ? P?.calls : openKey === "showed" ? P?.showed : openKey === "closed" ? P?.closed : undefined;
-              const label = openKey === "leads" ? "Leads" : openKey === "calls" ? "Booked calls" : openKey === "showed" ? "Showed" : "Closed";
+              const openPeople = openKey === "leads" ? P?.leads : openKey === "calls" ? P?.calls : openKey === "showed" ? P?.showed : openKey === "demo" ? P?.demo : openKey === "closed" ? P?.closed : undefined;
+              const label = openKey === "leads" ? "Leads" : openKey === "calls" ? "Scheduled a call" : openKey === "showed" ? "Showed (discovery)" : openKey === "demo" ? "Had the demo" : "Closed";
+              const O = v.outcomes;
+              /* Each step's % is of the step before it, so the row reads
+                 left to right as one funnel. */
+              const rate = (n: number | null | undefined, of: number | null | undefined) =>
+                n != null && of ? <span className="ml-1 text-[10px] text-[#97a5b8]">{Math.round((n / of) * 1000) / 10}%</span> : null;
               return (
               <Fragment key={f.slug + v.vkey}>
               <tr className="border-t border-[#eef2f6]">
                 <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{v.label}</td>
                 <td className="py-1.5 pr-3">{v.visitors}</td>
-                <td className="py-1.5 pr-3">{v.leads != null ? metricBtn(k("leads"), v.leads, P?.leads) : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}</td>
-                <td className="py-1.5 pr-3">{v.leadRate != null ? `${v.leadRate}%` : "—"}</td>
-                <td className="py-1.5 pr-3">{metricBtn(k("calls"), v.picked, P?.calls)}</td>
-                <td className="py-1.5 pr-3">{v.pickRate != null ? `${v.pickRate}%` : "—"}</td>
-                <td className="py-1.5 pr-3">{metricBtn(k("showed"), v.outcomes?.showed, P?.showed)}</td>
-                <td className="py-1.5 pr-3">{metricBtn(k("closed"), v.outcomes?.closed, P?.closed, "font-semibold text-[#15803d]")}</td>
-                <td className="py-1.5 pr-3">
-                  {v.outcomes && v.outcomes.calls ? `${Math.round((v.outcomes.closed / v.outcomes.calls) * 1000) / 10}%` : "—"}
-                </td>
+                <td className="py-1.5 pr-3">{v.leads != null ? <>{metricBtn(k("leads"), v.leads, P?.leads)}{rate(v.leads, v.visitors)}</> : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}</td>
+                <td className="py-1.5 pr-3">{metricBtn(k("calls"), O?.calls, P?.calls)}{rate(O?.calls, v.leads)}</td>
+                <td className="py-1.5 pr-3">{metricBtn(k("showed"), O?.showed, P?.showed)}{rate(O?.showed, O?.calls)}</td>
+                <td className="py-1.5 pr-3">{metricBtn(k("demo"), O?.demo, P?.demo)}{rate(O?.demo, O?.showed)}</td>
+                <td className="py-1.5 pr-3">{metricBtn(k("closed"), O?.closed, P?.closed, "font-semibold text-[#15803d]")}{rate(O?.closed, O?.demo)}</td>
               </tr>
               {openPeople && (
                 <tr className="border-t border-[#f4f7fa] bg-[#f8fdfc]">
-                  <td colSpan={9} className="py-2 px-3">
+                  <td colSpan={7} className="py-2 px-3">
                     <div className="text-[11px] text-[#1c2b3a]">
                       <b>{label} — {v.label}</b> ({openPeople.length})
                       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
