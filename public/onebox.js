@@ -1081,8 +1081,11 @@
       return '<h2 class="phead dephead v2dephead">' + (C.depositHead ? esc(C.depositHead)
         : "Lock In Your " + (VIDEO ? "Video Consultation" : "Spot") + " &mdash; " + esc(DEPOSIT) + ", Fully Refundable") + "</h2>" +
         '<div class="v2deprow' + (DEPROW_V === "b" ? " depb" : "") + '">' +
-          "<span>" + (DEPROW_V !== "b" || window.innerWidth > 700
-            ? "&#10004; Refunded in full or applied to your service &mdash; you&rsquo;re 100% covered"
+          /* The winning "b" line everywhere (owner, 10/17/2026: the old
+             guarantee line is retired). Wide screens show every wallet tile
+             already, so they get the line without "tap More". */
+          "<span>" + (window.innerWidth > 700
+            ? "&#128274; Secure checkout &middot; 100% refundable &middot; card, <b>Apple&nbsp;Pay</b>, <b>Google&nbsp;Pay</b> &amp; <b>Cash&nbsp;App</b> accepted"
             : "&#128274; Secure checkout &middot; 100% refundable &middot; " +
               (/iPhone|iPad|iPod/i.test(navigator.userAgent)
                 ? "<b>&#63743;&nbsp;Pay</b> &amp; <b>Cash&nbsp;App</b>"
