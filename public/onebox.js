@@ -144,6 +144,38 @@
   }
   var SCAR_V = ab2coin("ob_scar");
   var SHORTQ_V = ab2coin("ob_shortq2");
+  /* A/B/C #3 — calendar urgency (owner, 10/18/2026), fleet thirds on
+     funnels whose offer is a plain "$X OFF" (optionally "for new
+     clients"), with no custom booking headline. Only the calendar step:
+       a = "Book Your Appointment NOW — to Claim $150 OFF" (current),
+       b = the same + "for the First 5 Clients This Month",
+       c = the same + "for the First 5 Clients — Until Sunday, Oct 25".
+     The deadline is the coming Sunday (today when it is Sunday): a real
+     weekly cut-off, the same date all week — never a moving countdown.
+     Same offer, same price. Recorded on every lead as answers.offer3;
+     judged on paid deposits per 100 leads (the step comes after the lead). */
+  var OFFER_M = String(OFFERR).match(/^\$?\s*(\d[\d,]*)\s*OFF(\s+for\s+new\s+clients)?\s*!?$/i);
+  var OFFER_V = "";
+  if (OFFER_M && !C.bookingHead && AB2_ON) {
+    try {
+      OFFER_V = localStorage.getItem("ob_urg3") || "";
+      if (OFFER_V !== "a" && OFFER_V !== "b" && OFFER_V !== "c") {
+        var r3 = Math.random();
+        OFFER_V = r3 < 1 / 3 ? "a" : r3 < 2 / 3 ? "b" : "c";
+        localStorage.setItem("ob_urg3", OFFER_V);
+      }
+    } catch (e) { OFFER_V = "a"; }
+  }
+  var OFFER_URGENCY = "";
+  if (OFFER_V === "b" || OFFER_V === "c") {
+    OFFER_URGENCY = "for the First 5 " + (OFFER_M[2] ? "New " : "") + "Clients";
+    if (OFFER_V === "b") OFFER_URGENCY += " This Month";
+    else {
+      var sun = new Date();
+      sun.setDate(sun.getDate() + ((7 - sun.getDay()) % 7));
+      OFFER_URGENCY += " — Until Sunday, " + ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][sun.getMonth()] + " " + sun.getDate();
+    }
+  }
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
@@ -463,6 +495,7 @@
       deprow: DEPROW_V,
       scar: AB2_ON ? SCAR_V : "",
       shortq2: AB2_ON ? SHORTQ_V : "",
+      offer3: OFFER_V,
       source: "onebox"
     };
     /* Genuinely new custom-survey questions ride along too — anything in
@@ -699,7 +732,10 @@
       calState.y = n.getFullYear(); calState.m = n.getMonth();
     }
     var bookNoun = VIDEO ? "Video Consultation" : "Appointment";
-    return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
+    return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFER_URGENCY
+      ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR.replace(/\s+for\s+new\s+clients\s*!?$/i, "").replace(/!$/, "")) +
+        "<br>" + esc(OFFER_URGENCY) + "</span>"
+      : OFFERR
       ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR) + "</span>"
       : "Book Your " + bookNoun + " NOW!") + "</h2>" +
       '<div id="ob-calbox">' + calHTML() + "</div>" +
