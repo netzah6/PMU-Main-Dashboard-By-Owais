@@ -54,7 +54,88 @@ export type CheckRow = {
   evidence: Evidence[];
   category: Category;
   suggested: "paid" | "not_paid" | null;
+  /** What the payment sources showed — kept so edits can re-sort a row without re-matching. */
+  facts: Facts;
+  /** The sheet's own values, before any edit made on the dashboard. */
+  sheet: SheetFields;
+  /** Fields changed on the dashboard (the sheet itself is never written). */
+  edited?: EditField[];
+  /** Client added on the dashboard, not on the sheet. */
+  added?: boolean;
 };
+
+export type Facts = { hasPaid: boolean; covered: boolean; failed: boolean; scheduled: boolean };
+export type SheetFields = { usd: number | null; sheetStatus: string; billing: string; payDay: string; notes: string };
+export const EDIT_FIELDS = ["usd", "sheetStatus", "billing", "payDay", "notes"] as const;
+export type EditField = (typeof EDIT_FIELDS)[number];
+export type PaymentEdit = { owner_key: string; client_name: string | null; fields: Partial<Record<EditField, string | number | null>>; added: boolean; hidden: boolean };
+
+/** Sort one row into its bucket from the sheet values + what the sources showed. */
+export function categorize(r: SheetFields & { paidCents: number; facts: Facts }, month: string): { category: Category; suggested: CheckRow["suggested"] } {
+  const start = `${month}-01`;
+  const end = addMonths(start, 1);
+  const today = new Date().toISOString().slice(0, 10);
+  const isPast = today >= end;
+  const dayOfMonth = isPast ? 31 : today >= start ? Number(today.slice(8, 10)) : 0;
+  const st = r.sheetStatus.toLowerCase();
+  const sheetPaid = st.startsWith("paid");
+  const isPps = st === "pps" || st === "ppa";
+  const inactive = ["paused", "grace", "need more bookings", "churned", "cancelled", "canceled"].some((w) => st.includes(w));
+  const { hasPaid, covered, failed, scheduled } = r.facts;
+  const day = /^\d{1,2}$/.test(r.payDay.trim()) ? Number(r.payDay.trim()) : null;
+  const amountOff = !!r.usd && r.paidCents > 0 && !isPps && Math.abs(r.paidCents / 100 - r.usd) > 1;
+
+  let category: Category;
+  if (failed && !hasPaid) category = "declined";
+  else if (hasPaid && (sheetPaid || isPps)) category = amountOff ? "amount" : "match";
+  else if (hasPaid) category = "unrecorded";
+  else if (covered) category = sheetPaid ? "match" : "upfront";
+  else if (sheetPaid) category = st.includes("upfront") ? "upfront" : "norecord";
+  else if (inactive) category = "inactive";
+  else if (isPps) category = "pps_none";
+  else if (scheduled) category = "scheduled";
+  else if (!r.usd) category = "noamount";
+  else if (day != null && day <= dayOfMonth) category = "late";
+  else if (day == null && isPast) category = "late";
+  else category = "later";
+
+  const suggested = ["match", "amount", "unrecorded"].includes(category) ? "paid"
+    : ["declined", "norecord", "late"].includes(category) ? "not_paid" : null;
+  return { category, suggested };
+}
+
+/** Lay dashboard edits over the sheet values and re-sort the rows.
+ *  Removed clients come back separately so they can be restored. */
+export function applyEdits(month: string, rows: CheckRow[], edits: PaymentEdit[]): { rows: CheckRow[]; removed: CheckRow[] } {
+  const byKey = new Map(edits.map((e) => [e.owner_key, e]));
+  const out: CheckRow[] = [];
+  const removed: CheckRow[] = [];
+  const seen = new Set<string>();
+  const noFacts: Facts = { hasPaid: false, covered: false, failed: false, scheduled: false };
+  const blank: SheetFields = { usd: null, sheetStatus: "", billing: "", payDay: "", notes: "" };
+  // Added since the month was last matched: shown now, matched on the next Refresh.
+  const extra = edits.filter((e) => e.added && !rows.some((r) => r.ownerKey === e.owner_key)).map((e): CheckRow => ({
+    ownerKey: e.owner_key, name: e.client_name || e.owner_key, ...blank, paidCents: 0, evidence: [],
+    category: "noamount", suggested: null, facts: noFacts, sheet: blank, added: true,
+  }));
+  for (const base of [...rows, ...extra]) {
+    if (seen.has(base.ownerKey)) continue;
+    seen.add(base.ownerKey);
+    const sheet = base.sheet ?? { usd: base.usd, sheetStatus: base.sheetStatus, billing: base.billing, payDay: base.payDay, notes: base.notes };
+    const e = byKey.get(base.ownerKey);
+    const row: CheckRow = { ...base, ...sheet, sheet, edited: [], added: base.added || e?.added };
+    for (const f of EDIT_FIELDS) {
+      if (!e || !(f in e.fields)) continue;
+      const v = e.fields[f];
+      if (f === "usd") row.usd = v === "" || v == null ? null : Number(v);
+      else row[f] = String(v ?? "");
+      row.edited!.push(f);
+    }
+    Object.assign(row, categorize(row, month));
+    (e?.hidden ? removed : out).push(row);
+  }
+  return { rows: out, removed };
+}
 
 export type UnmatchedPayment = { id: string; customer: string; amountCents: number; at: string; note: string | null; receiptUrl: string | null };
 
@@ -141,11 +222,15 @@ function addMonths(iso: string, n: number): string {
 export async function buildMonth(svc: Svc, mt: MonthTab): Promise<MonthPayload> {
   const warnings: string[] = [];
   const sheetRows = await readMonth(mt.tab);
+  // Clients added on the dashboard get matched too.
+  const { data: addedRows } = await svc.from("payment_edits").select("owner_key, client_name").eq("month", mt.month).eq("added", true);
+  for (const a of (addedRows ?? []) as Array<{ owner_key: string; client_name: string | null }>)
+    if (!sheetRows.some((r) => r.ownerKey === a.owner_key))
+      sheetRows.push({ ownerKey: a.owner_key, name: a.client_name || a.owner_key, usd: null, status: "", billing: "", payDay: "", notes: "" });
   const start = `${mt.month}-01`;
   const end = addMonths(start, 1);
   const today = new Date().toISOString().slice(0, 10);
   const isCurrent = today >= start && today < end;
-  const isPast = today >= end;
   // Pacific midnight, so a charge late on the last evening stays in its month.
   const beginTs = `${start}T07:00:00Z`;
   const endTs = `${end}T07:00:00Z`;
@@ -337,40 +422,17 @@ export async function buildMonth(svc: Svc, mt: MonthTab): Promise<MonthPayload> 
       scheduled.set(key, `Dashboard charges ${usDay(d.next_charge_on)}`);
   }
 
-  const dayOfMonth = isPast ? 31 : isCurrent ? Number(today.slice(8, 10)) : 0;
   const rows: CheckRow[] = sheetRows.map((r) => {
     const evidence = [...(ev.get(r.ownerKey) ?? [])];
     const hasPaid = paid.has(r.ownerKey);
-    const paidCents = paid.get(r.ownerKey) ?? 0;
-    const st = r.status.toLowerCase();
-    const sheetPaid = st.startsWith("paid");
-    const isPps = st === "pps" || st === "ppa";
-    const inactive = ["paused", "grace", "need more bookings", "churned", "cancelled", "canceled"].some((w) => st.includes(w));
     const fail = fails.get(r.ownerKey);
     if (fail && !hasPaid) evidence.push({ kind: "declined", text: `Card declined ${fail.n}× this month${fail.err ? ` (${fail.err.replace(/^Square payment failed \(\d+\):\s*/, "").slice(0, 70)})` : ""}` });
     const sched = scheduled.get(r.ownerKey);
     if (sched && !hasPaid) evidence.push({ kind: "scheduled", text: sched });
-    const day = /^\d{1,2}$/.test(r.payDay) ? Number(r.payDay) : null;
-    const amountOff = !!r.usd && paidCents > 0 && !isPps && Math.abs(paidCents / 100 - r.usd) > 1;
-
-    const isCovered = covered.has(r.ownerKey);
-    let category: Category;
-    if (fail && !hasPaid) category = "declined";
-    else if (hasPaid && (sheetPaid || isPps)) category = amountOff ? "amount" : "match";
-    else if (hasPaid) category = "unrecorded";
-    else if (isCovered) category = sheetPaid ? "match" : "upfront";
-    else if (sheetPaid) category = st.includes("upfront") ? "upfront" : "norecord";
-    else if (inactive) category = "inactive";
-    else if (isPps) category = "pps_none";
-    else if (sched) category = "scheduled";
-    else if (!r.usd) category = "noamount";
-    else if (day != null && day <= dayOfMonth) category = "late";
-    else if (day == null && isPast) category = "late";
-    else category = "later";
-
-    const suggested = ["match", "amount", "unrecorded"].includes(category) ? "paid"
-      : ["declined", "norecord", "late"].includes(category) ? "not_paid" : null;
-    return { ownerKey: r.ownerKey, name: r.name, usd: r.usd, sheetStatus: r.status, billing: r.billing, payDay: r.payDay, notes: r.notes, paidCents, evidence, category, suggested };
+    const sheet: SheetFields = { usd: r.usd, sheetStatus: r.status, billing: r.billing, payDay: r.payDay, notes: r.notes };
+    const facts: Facts = { hasPaid, covered: covered.has(r.ownerKey), failed: !!fail, scheduled: !!sched };
+    const paidCents = paid.get(r.ownerKey) ?? 0;
+    return { ownerKey: r.ownerKey, name: r.name, ...sheet, paidCents, evidence, facts, sheet, ...categorize({ ...sheet, paidCents, facts }, mt.month) };
   });
 
   unmatched.sort((a, b) => b.at.localeCompare(a.at));

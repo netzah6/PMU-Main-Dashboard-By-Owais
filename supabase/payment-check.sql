@@ -25,3 +25,22 @@ create table if not exists public.payment_check_cache (
 alter table public.payment_check_cache enable row level security;
 revoke all on public.payment_check_cache from anon, authenticated;
 grant all on public.payment_check_cache to service_role;
+
+-- Edits made on the Payment Check tab (owner 2026-10-18). Laid over the sheet
+-- values on the dashboard only — the Financing sheet is never written.
+-- `fields` holds only the changed fields (usd, sheetStatus, billing, payDay,
+-- notes); a missing key means "use the sheet's value".
+create table if not exists public.payment_edits (
+  month text not null,
+  owner_key text not null,
+  client_name text,
+  fields jsonb not null default '{}'::jsonb,
+  added boolean not null default false,
+  hidden boolean not null default false,
+  updated_by text,
+  updated_at timestamptz not null default now(),
+  primary key (month, owner_key)
+);
+alter table public.payment_edits enable row level security;
+revoke all on public.payment_edits from anon, authenticated;
+grant all on public.payment_edits to service_role;
