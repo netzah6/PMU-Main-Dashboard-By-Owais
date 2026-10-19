@@ -34,14 +34,40 @@ const SECRET = env.AGENT_WORKER_SECRET;
 const CLAUDE = env.CLAUDE_BIN || "claude";
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+// ── Self-healing (10/19/2026) ────────────────────────────────────────────────
+// The worker sat alive-but-stuck for 16 h (no claim, no exit), so launchd's
+// KeepAlive never kicked in. Rules now: every dashboard call has a hard
+// timeout; a task that outlives its budget is SIGKILLed; and a watchdog
+// exits the process when nothing has succeeded for a while — launchd then
+// restarts it within seconds. While a task runs, a ping keeps the
+// dashboard's "Mac Mini" pill green.
+const API_TIMEOUT_MS = 30_000;
+const IDLE_EXIT_MS = 15 * 60_000;   // no successful dashboard call for 15 min → restart
+const TASK_HARD_MS = TASK_TIMEOUT_MS + 5 * 60_000; // task still alive 5 min past its budget → restart
+let lastOk = Date.now();
+let taskStartedAt = 0;
+
 async function api(path, body) {
   const r = await fetch(`${BASE}/api/agent/worker/${path}`, {
     method: "POST", headers: { Authorization: `Bearer ${SECRET}`, "Content-Type": "application/json" }, body: JSON.stringify(body),
+    signal: AbortSignal.timeout(API_TIMEOUT_MS),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status} ${j.error ?? ""}`);
+  lastOk = Date.now();
   return j;
 }
+
+function die(reason) {
+  log(`watchdog: ${reason} — exiting so launchd restarts the worker`);
+  setTimeout(() => process.exit(1), 200);
+}
+setInterval(() => {
+  if (taskStartedAt && Date.now() - taskStartedAt > TASK_HARD_MS) die("task ran past its hard limit");
+  if (!taskStartedAt && Date.now() - lastOk > IDLE_EXIT_MS) die("no successful dashboard call in 15 min");
+}, 60_000).unref();
+process.on("unhandledRejection", (e) => die(`unhandled rejection: ${e instanceof Error ? e.message : e}`));
+process.on("uncaughtException", (e) => die(`uncaught exception: ${e instanceof Error ? e.message : e}`));
 
 function promptFor(t) {
   return `You are the PMU Bookings On Demand agency's back-office assistant. A manager APPROVED the task below. Do it in GoHighLevel using the browser tools, exactly like a careful teammate would, then report.
@@ -88,7 +114,12 @@ function runClaude(prompt, dir) {
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
-    const timer = setTimeout(() => { child.kill("SIGTERM"); }, TASK_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      // Claude + the Playwright MCP sometimes ignore SIGTERM; a minute later
+      // force it, so "close" always fires and the task is reported.
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 60_000).unref();
+    }, TASK_TIMEOUT_MS);
     child.on("close", (code) => { clearTimeout(timer); writeFileSync(join(dir, "claude-output.json"), out || err); resolve({ code, out, err }); });
   });
 }
@@ -105,10 +136,21 @@ async function doTask(t) {
   const dir = join(RUNS, `${new Date().toISOString().replace(/[:.]/g, "-")}-${t.id.slice(0, 8)}`);
   mkdirSync(dir, { recursive: true });
   log(`task ${t.id} — ${t.contact_name}: ${t.summary}`);
-  const { code, out, err } = await runClaude(promptFor(t), dir);
+  taskStartedAt = Date.now();
+  // Heartbeat while Claude works, so the dashboard knows the Mini is alive
+  // mid-task (the claim ping only happens between tasks).
+  const ping = setInterval(() => { api("ping", { host: hostname(), task: t.id }).catch(() => {}); }, 60_000);
+  let code, out, err;
+  try { ({ code, out, err } = await runClaude(promptFor(t), dir)); }
+  finally { clearInterval(ping); taskStartedAt = 0; }
   const rep = parseReport(out);
-  const status = ["done", "failed", "needs_teammate"].includes(rep?.status) ? rep.status : "failed";
-  const summary = rep?.summary || (code === null ? "Timed out after 20 minutes — check the account by hand" : `The browser run did not finish (${(err || out).slice(-200).trim() || `exit ${code}`})`);
+  // Claude Code signed out / lost its session on the Mini: the owner must
+  // re-sign in by hand, so say that instead of a vague "did not finish".
+  const needsSignIn = !rep && /not logged in|please run \/login|authentication|invalid api key|unauthorized|oauth token/i.test(err || out);
+  const status = needsSignIn ? "needs_teammate" : ["done", "failed", "needs_teammate"].includes(rep?.status) ? rep.status : "failed";
+  const summary = needsSignIn
+    ? "The Mac Mini's Claude is signed out — open Claude on the Mini, sign in again, and the task will retry"
+    : rep?.summary || (code === null ? "Timed out after 20 minutes — check the account by hand" : `The browser run did not finish (${(err || out).slice(-200).trim() || `exit ${code}`})`);
 
   // Upload the screenshots it named, else any image it saved.
   const named = Array.isArray(rep?.screenshots) ? rep.screenshots : [];
