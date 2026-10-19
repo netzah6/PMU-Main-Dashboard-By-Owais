@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { livePipelineIds, blastClients, fetchAudience, renderTemplate, DEFAULT_TEMPLATE } from "@/lib/blast";
+import { livePipelineIds, blastClients, fetchAudience, renderTemplate, locationTimezone, DEFAULT_TEMPLATE } from "@/lib/blast";
 import { templateProblem, blastErrorReason, isPermanentBlastError } from "@/lib/blast-template";
 
 export const maxDuration = 300;
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
   const live = await livePipelineIds(locationId);
   if (live) stages = stages.filter((s) => live.has(String(s.pipeline_id)));
   const stagesParam = sp.get("stages");
-  if (!stagesParam) return NextResponse.json({ stages });
+  if (!stagesParam) return NextResponse.json({ stages, timezone: await locationTimezone(locationId).catch(() => null) });
 
   const stageIds = stagesParam.split(",").filter(Boolean);
   const pipelineId = stages.find((s) => stageIds.includes(s.stage_id))?.pipeline_id;
@@ -149,10 +149,10 @@ export async function POST(req: NextRequest) {
 
   if (body.action !== "schedule") return NextResponse.json({ error: "unknown action" }, { status: 400 });
 
-  const { locationId, ownerKey, clientLabel, senderName, serviceWord, stageIds, stageNames, template, sendAt, expectedCount, excludeDays, maxContacts } = body as {
+  const { locationId, ownerKey, clientLabel, senderName, serviceWord, stageIds, stageNames, template, sendAt, expectedCount, excludeDays, maxContacts, timezone } = body as {
     locationId: string; ownerKey: string; clientLabel: string; senderName: string; serviceWord: string;
     stageIds: string[]; stageNames: string[]; template: string; sendAt?: string; expectedCount: number;
-    excludeDays?: number; maxContacts?: number;
+    excludeDays?: number; maxContacts?: number; timezone?: string;
   };
   if (!locationId || !senderName?.trim() || !template?.trim() || !stageIds?.length) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
@@ -182,6 +182,9 @@ export async function POST(req: NextRequest) {
     location_id: locationId, owner_key: ownerKey ?? null, client_label: clientLabel ?? null,
     sender_name: senderName.trim(), service_word: serviceWord ?? "", stage_ids: stageIds, stage_names: stageNames ?? [],
     message_template: template, send_at: sendAt ? new Date(sendAt).toISOString() : new Date().toISOString(),
+    // The client's zone the time was entered in (shown back on the job; the
+    // page already converted sendAt to UTC with it).
+    timezone: typeof timezone === "string" && timezone.trim() ? timezone.trim().slice(0, 64) : null,
     status: "scheduled", total: audience.recipients.length, created_by: auth.email ?? auth.userId,
   }).select("id").single();
   if (jerr || !job) return NextResponse.json({ error: jerr?.message ?? "insert failed" }, { status: 500 });

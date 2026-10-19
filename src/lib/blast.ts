@@ -218,3 +218,18 @@ export async function blastClients(): Promise<Array<{ locationId: string; ownerK
     }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
+
+/** The sub-account's IANA time zone (GHL location setting), e.g.
+ *  "America/Los_Angeles". Blast times are entered in the CLIENT's zone
+ *  (owner, 10/19/2026) — before, the picker silently meant the scheduler's
+ *  laptop zone (Stephanie in Pacific vs the owner in Cyprus). */
+export async function locationTimezone(locationId: string): Promise<string | null> {
+  const tok = await getAppLocationToken(locationId);
+  if (!tok.token) return null;
+  const r = await fetch(`${GHL}/locations/${locationId}`, { headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" } });
+  if (!r.ok) return null;
+  const j = (await r.json().catch(() => ({}))) as { location?: { timezone?: string } };
+  const tz = String(j.location?.timezone ?? "").trim();
+  return tz || null;
+}
+
