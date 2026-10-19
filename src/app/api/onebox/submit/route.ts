@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
   const svc = createServiceClient();
   const { data: client } = await svc
     .from("onebox_clients")
-    .select("slug, location_id, status, config, extras")
+    .select("slug, client_name, location_id, status, config, extras")
     .eq("slug", slug)
     .single();
   if (!client || client.status === "draft") {
@@ -240,7 +240,11 @@ export async function POST(req: NextRequest) {
   // through the agency's own pipeline; partials are half-leads — skip both.
   if (!partial && !isB2B) {
     const cfg = (client.config ?? {}) as Record<string, string>;
-    const biz = String(cfg.biz ?? "").trim();
+    // File the row under the name the dashboard knows the client by (Clients
+    // Master "Business Name"), not the funnel's display name: Fine Arts'
+    // funnel says "Fine Arts Permanent Cosmetics, LLC", the sheet says "Fine
+    // Arts Permanent Makeup", and 39 leads vanished from Performance (10/19).
+    const biz = (await dashboardBusinessName(svc, [String(client.client_name ?? ""), String(cfg.biz ?? "")])) || String(cfg.biz ?? "").trim();
     if (biz) {
       const r = await ingestRow("leads_master", {
         full_name: fullName,
@@ -285,4 +289,18 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, ghl: ghlStatus });
+}
+
+/* The Clients Master "Business Name" matching any of the given names
+   (case/space-insensitive), Live/Paused rows only; "" when none matches. */
+async function dashboardBusinessName(svc: ReturnType<typeof createServiceClient>, names: string[]): Promise<string> {
+  const want = new Set(names.map((n) => n.toLowerCase().trim()).filter(Boolean));
+  if (!want.size) return "";
+  const { data } = await svc.from("clients_master").select("data").in("data->>col_1", ["Live", "Paused", "live", "paused"]);
+  for (const r of data ?? []) {
+    const d = (r as { data: Record<string, unknown> }).data ?? {};
+    const biz = String(d["Business Name"] ?? "").trim();
+    if (biz && want.has(biz.toLowerCase())) return biz;
+  }
+  return "";
 }

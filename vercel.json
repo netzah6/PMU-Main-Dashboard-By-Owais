@@ -91,6 +91,10 @@
     {
       "path": "/api/cron/sales-followups",
       "schedule": "20 * * * *"
+    },
+    {
+      "path": "/api/cron/lead-heal",
+      "schedule": "40 */2 * * *"
     }
   ],
   "headers": [
