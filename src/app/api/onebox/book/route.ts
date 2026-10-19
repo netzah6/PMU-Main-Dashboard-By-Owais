@@ -261,8 +261,18 @@ export async function POST(req: NextRequest) {
           await svc.from("onebox_leads")
             .update({ artist_notified_at: new Date().toISOString(), artist_notify_note: "onebox-booked tag added — GHL workflow notifies" })
             .eq("slug", slug).eq("phone", phone);
+        } else {
+          // Visible, not silent: the heal cron re-tries leads whose tag never landed.
+          await svc.from("onebox_leads")
+            .update({ artist_notify_note: `tag failed: HTTP ${tr.status} ${(await tr.text().catch(() => "")).slice(0, 120)}` })
+            .eq("slug", slug).eq("phone", phone);
         }
-      } catch { /* best effort — the appointment itself is already booked */ }
+      } catch (e) {
+        // best effort — the appointment itself is already booked; the heal cron re-tries the tag
+        await svc.from("onebox_leads")
+          .update({ artist_notify_note: `tag failed: ${e instanceof Error ? e.message : "error"}`.slice(0, 300) })
+          .eq("slug", slug).eq("phone", phone).then(() => {}, () => {});
+      }
     })(),
     // Server-side Purchase — this endpoint only runs once the deposit has
     // cleared, so it is the honest signal for optimising on paying clients.
