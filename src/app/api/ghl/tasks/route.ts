@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { getPmuTasksAccount, GHL_BASE, GHL_VERSION } from "@/lib/ghl-tasks";
 
 export const maxDuration = 60;
@@ -18,10 +18,12 @@ type GhlTask = {
 };
 
 // All open tasks for the PMU Bookings On Demand account, plus the user roster.
-export async function GET() {
+// ?users=1 → roster only (the Add-task forms need the assignee list, not every task).
+export async function GET(req: NextRequest) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const rosterOnly = req.nextUrl.searchParams.get("users") === "1";
   const { data: roleRow } = await supabase.from("user_roles").select("role").eq("user_id", user.id).single();
   const isAdmin = roleRow?.role === "admin";
 
@@ -45,6 +47,7 @@ export async function GET() {
       });
     }
   } catch { /* roster is best-effort */ }
+  if (rosterOnly) return NextResponse.json({ users, locationId: acct.locationId });
 
   // Everyone sees their own tasks only; admins see everyone's.
   const myEmail = (user.email ?? "").trim().toLowerCase();
@@ -90,3 +93,58 @@ export async function GET() {
 
   return NextResponse.json({ users, tasks, locationId: acct.locationId, scoped: !!scopedTo });
 }
+
+/* Create a task in GHL (owner, 10/19/2026: "Add task" on the Tasks tab and
+   "Create this as a task" in the AI tab). Any team member. The task hangs
+   off a contact in the PMU Bookings On Demand account: either the contact
+   id the AI tab already has, or the client's name resolved through Clients
+   Master ("Contact ID" column). The author is written into the body so a
+   coach with no GHL seat still sees it as theirs (same rule as GET). */
+export async function POST(req: NextRequest) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { data: roleRow } = await supabase.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+  if (!(roleRow as { role?: string } | null)?.role) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const b = (await req.json().catch(() => ({}))) as { contactId?: string; client?: string; title?: string; body?: string; dueDate?: string | null; assignedTo?: string | null };
+  const title = String(b.title ?? "").trim().slice(0, 200);
+  if (title.length < 3) return NextResponse.json({ error: "Give the task a title" }, { status: 400 });
+
+  let contactId = String(b.contactId ?? "").trim();
+  let contactName = "";
+  if (!contactId) {
+    const q = String(b.client ?? "").trim().toLowerCase();
+    if (q.length < 3) return NextResponse.json({ error: "Name the client (owner or business)" }, { status: 400 });
+    const svc = createServiceClient();
+    const { data: cm } = await svc.from("clients_master").select("data");
+    const rows = (cm ?? []).map((r) => r.data as Record<string, unknown>);
+    const owner = (d: Record<string, unknown>) => String(d["Owner Full Name"] ?? "").trim();
+    const biz = (d: Record<string, unknown>) => String(d["Business Name"] ?? "").trim();
+    const exact = rows.filter((d) => owner(d).toLowerCase() === q || biz(d).toLowerCase() === q);
+    const hits = exact.length ? exact : rows.filter((d) => owner(d).toLowerCase().includes(q) || biz(d).toLowerCase().includes(q));
+    const names = [...new Set(hits.map(owner).filter(Boolean))];
+    if (!names.length) return NextResponse.json({ error: `No client matches "${b.client}"` }, { status: 404 });
+    if (names.length > 1) return NextResponse.json({ error: `Several clients match: ${names.slice(0, 5).join(", ")} — type the full name` }, { status: 409 });
+    const row = hits.find((d) => owner(d) === names[0])!;
+    contactId = String(row["Contact ID"] ?? "").trim();
+    contactName = names[0];
+    if (!contactId) return NextResponse.json({ error: `${names[0]} has no Contact ID in Clients Master — open their chat in the AI tab and create the task from there` }, { status: 404 });
+  }
+
+  const acct = await getPmuTasksAccount();
+  if (!acct) return NextResponse.json({ error: "PMU Bookings On Demand token not found" }, { status: 404 });
+  const H = { Authorization: `Bearer ${acct.token}`, Version: GHL_VERSION, Accept: "application/json", "Content-Type": "application/json" };
+  const by = (user.email ?? "").trim();
+  const due = b.dueDate ? new Date(b.dueDate) : new Date(Date.now() + 86400_000);
+  const body = `${String(b.body ?? "").trim()}${by ? `\n\n— by ${by}` : ""}`.trim();
+  const payload: Record<string, unknown> = { title, body, dueDate: due.toISOString(), completed: false };
+  if (b.assignedTo) payload.assignedTo = b.assignedTo;
+  const r = await fetch(`${GHL_BASE}/contacts/${contactId}/tasks`, { method: "POST", headers: H, body: JSON.stringify(payload) });
+  const text = await r.text();
+  if (!r.ok) return NextResponse.json({ error: text.slice(0, 200) || "GHL create failed" }, { status: r.status });
+  let id = "";
+  try { id = String((JSON.parse(text) as { task?: { _id?: string; id?: string } }).task?._id ?? (JSON.parse(text) as { task?: { id?: string } }).task?.id ?? ""); } catch { /* id optional */ }
+  return NextResponse.json({ success: true, id, contactId, contactName });
+}
+

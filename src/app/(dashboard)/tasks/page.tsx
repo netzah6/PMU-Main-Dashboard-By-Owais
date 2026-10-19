@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Search, RefreshCw, Check, ChevronDown, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { cn, userColor } from "@/lib/utils";
+import { AddTaskForm } from "@/components/tasks/AddTaskForm";
 
 interface Task {
   id: string;
@@ -37,7 +38,7 @@ function dueLabel(iso: string | null): { text: string; overdue: boolean } {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return { text: "—", overdue: false };
   const overdue = d.getTime() < Date.now();
-  return { text: d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }), overdue };
+  return { text: d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }), overdue };
 }
 
 export default function TasksPage() {
@@ -50,6 +51,7 @@ export default function TasksPage() {
   const [userFilter, setUserFilter] = useState("All");
   const [scoped, setScoped] = useState(false); // non-admin: own tasks only
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false); // "Add task" form (owner, 10/19/2026)
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpand = useCallback((id: string) => {
     setExpanded((prev) => {
@@ -166,11 +168,18 @@ export default function TasksPage() {
           <h1 className="text-xl font-bold text-[#1f3559]">Tasks</h1>
           <p className="text-sm text-[#697a91]">{scoped ? "Your open tasks" : "GHL tasks for PMU Bookings On Demand"} · {tasks.length} open · edits sync to GHL</p>
         </div>
-        <button onClick={load} disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setAdding((v) => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white">
+            ➕ Add task
+          </button>
+          <button onClick={load} disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
+          </button>
+        </div>
       </div>
+      {adding && <AddTaskForm onDone={() => { setAdding(false); load(); }} onCancel={() => setAdding(false)} />}
 
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
