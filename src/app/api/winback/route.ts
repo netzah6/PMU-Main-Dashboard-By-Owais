@@ -3,7 +3,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { getReplyAccount, getRecentConversations, channelFromType, type ConvSummary } from "@/lib/ghl-conversations";
 import { GHL_BASE } from "@/lib/ghl-tasks";
-import { WINBACK_TAG, type WinbackRow } from "@/lib/winback";
+import { WINBACK_TAG } from "@/lib/winback";
+import type { SequenceRow } from "@/lib/winback-sequence";
 
 export const maxDuration = 60;
 
@@ -21,9 +22,14 @@ export async function GET(req: NextRequest) {
   if (one) return NextResponse.json({ conversation: await conversationFor(acct, one) });
 
   const svc = createServiceClient();
-  const { data, error } = await svc.from("winback_contacts").select("*").eq("active", true).order("sheet_row");
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const rows = (data ?? []) as WinbackRow[];
+  // Paged: Supabase returns at most 1,000 rows per read.
+  const rows: SequenceRow[] = [];
+  for (let off = 0; ; off += 1000) {
+    const { data, error } = await svc.from("winback_contacts").select("*").eq("active", true).order("sheet_row").range(off, off + 999);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    rows.push(...((data ?? []) as SequenceRow[]));
+    if (!data || data.length < 1000) break;
+  }
 
   // Recent chats in the account (any read state) → each person's latest message.
   const recent = await getRecentConversations(acct, 100);
@@ -37,6 +43,9 @@ export async function GET(req: NextRequest) {
       offer: r.offer, outcome: r.outcome, contactId: r.contact_id, matchNote: r.match_note, tagged: !!r.tagged_at,
       review: r.reviewed_at ? { verdict: r.review_verdict, note: r.review_note, quote: r.review_quote } : null,
       conv: r.contact_id ? byContact.get(r.contact_id) ?? null : null,
+      // Where the text sequence stands for this person (null batch = not started).
+      batchNo: r.batch_no ?? null, step: r.step ?? 0, nextDueAt: r.next_due_at ?? null, lastSentAt: r.last_sent_at ?? null,
+      repliedAt: r.replied_at ?? null, stoppedReason: r.stopped_reason ?? null, sendError: r.send_error ?? null,
     })),
   });
 }
