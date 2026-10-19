@@ -91,7 +91,59 @@ export async function GET(req: NextRequest) {
     }
   }
   const paidHeal = await healPaidLeads(svc);
-  return NextResponse.json({ retried: leads.length, ok, failed, tagged, errors, paidHeal });
+  const notifyHeal = await healMissedArtistNotifications(svc);
+  return NextResponse.json({ retried: leads.length, ok, failed, tagged, errors, paidHeal, notifyHeal });
+}
+
+/* Phase 3 — booked leads whose "onebox-booked" tag never landed, so the
+   artist was never texted (G Kelly, Framed Brow Studio, 10/11/2026: booked
+   fine, tag step failed silently inside the book route's best-effort
+   block, nobody noticed). Only future appointments — tagging a past one
+   would text the artist about a session that already happened. Every
+   attempt is written to the lead so a failure is visible, not silent. */
+async function healMissedArtistNotifications(svc: ReturnType<typeof createServiceClient>) {
+  const { data: leads } = await svc
+    .from("onebox_leads")
+    .select("id, slug, location_id, full_name, ghl_contact_id, ghl_appointment_id, slot_iso, created_at")
+    .is("artist_notified_at", null)
+    .not("ghl_appointment_id", "is", null)
+    .neq("ghl_appointment_id", "manual")
+    .not("ghl_contact_id", "is", null)
+    .gte("created_at", new Date(Date.now() - 30 * 86400_000).toISOString())
+    .order("created_at")
+    .limit(40);
+  let due = (leads ?? []).filter((l) => { const ms = Date.parse(String(l.slot_iso ?? "")); return Number.isFinite(ms) && ms > Date.now(); });
+  if (!due.length) return { tagged: 0 };
+  // A lead can have duplicate rows (double submit); if ANY row for that
+  // contact was already notified, don't text the artist a second time.
+  const { data: already } = await svc.from("onebox_leads").select("ghl_contact_id")
+    .in("ghl_contact_id", [...new Set(due.map((l) => l.ghl_contact_id as string))]).not("artist_notified_at", "is", null);
+  const notified = new Set((already ?? []).map((r) => r.ghl_contact_id as string));
+  for (const l of due.filter((l) => notified.has(l.ghl_contact_id as string))) {
+    await svc.from("onebox_leads").update({ artist_notified_at: new Date().toISOString(), artist_notify_note: "duplicate row — artist already notified for this contact" }).eq("id", l.id);
+  }
+  due = due.filter((l) => !notified.has(l.ghl_contact_id as string));
+  if (!due.length) return { tagged: 0 };
+  const { data: clients } = await svc.from("onebox_clients").select("slug, location_id, extras").in("slug", [...new Set(due.map((l) => l.slug))]);
+  const bySlug = new Map((clients ?? []).map((c) => [c.slug as string, c]));
+  let taggedNow = 0;
+  const errors: string[] = [];
+  for (const lead of due) {
+    const client = bySlug.get(lead.slug as string);
+    if (!client || ((client.extras ?? {}) as { template?: string }).template === "b2b") continue;
+    const locationId = client.location_id as string;
+    const contactId = lead.ghl_contact_id as string;
+    await ensureContactOwner(locationId, contactId);
+    const tagged = await addOneboxBookedTag(locationId, contactId);
+    if (tagged.ok) {
+      taggedNow++;
+      await svc.from("onebox_leads").update({ artist_notified_at: new Date().toISOString(), artist_notify_note: "onebox-booked tag added (late, by the heal cron) — GHL workflow notifies" }).eq("id", lead.id);
+    } else {
+      errors.push(`${lead.full_name}: ${tagged.note}`);
+      await svc.from("onebox_leads").update({ artist_notify_note: `tag failed (heal): ${tagged.note}`.slice(0, 300) }).eq("id", lead.id);
+    }
+  }
+  return { tagged: taggedNow, errors: errors.slice(0, 10) };
 }
 
 /* Phase 2 — PAID leads the outage (or an off-page payment) left broken:
