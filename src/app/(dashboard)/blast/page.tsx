@@ -13,15 +13,40 @@ type Stage = { pipeline_id: string; stage_id: string; stage_name: string; positi
 type Recipient = { contactId: string; name: string; firstName: string; phone: string };
 type Job = {
   id: string; client_label: string | null; status: string; total: number; sent: number; failed: number;
-  send_at: string; created_at: string; stage_names: string[]; message_template: string;
+  send_at: string; created_at: string; stage_names: string[]; message_template: string; timezone?: string | null;
   error?: string | null; fail_reasons?: Array<{ reason: string; n: number }>;
 };
+
+/* Blast times are the CLIENT's time (owner, 10/19/2026). A datetime-local
+   value has no zone, so it is read as wall-clock time in the client's IANA
+   zone and converted to UTC here; the browser's own zone never matters. */
+function zonedToIso(local: string, tz: string): string {
+  const [d, t] = local.split("T");
+  const [y, m, day] = d.split("-").map(Number);
+  const [hh, mm] = (t ?? "00:00").split(":").map(Number);
+  const wall = Date.UTC(y, m - 1, day, hh, mm);
+  const offsetAt = (ms: number) => {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(ms));
+    const g = (k: string) => Number(parts.find((p) => p.type === k)?.value ?? 0);
+    return Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute")) - ms;
+  };
+  let ms = wall - offsetAt(wall);
+  ms = wall - offsetAt(ms); // second pass settles DST edges
+  return new Date(ms).toISOString();
+}
+function fmtInTz(iso: string, tz: string | null | undefined): string {
+  try {
+    return new Date(iso).toLocaleString("en-US", { timeZone: tz || undefined, month: "numeric", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  } catch { return new Date(iso).toLocaleString("en-US"); }
+}
+const tzCity = (tz: string | null | undefined) => tz ? tz.split("/").pop()!.replace(/_/g, " ") : "your computer's time";
 
 export default function BlastPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [defaultTemplate, setDefaultTemplate] = useState("");
   const [client, setClient] = useState<Client | null>(null);
   const [stages, setStages] = useState<Stage[]>([]);
+  const [clientTz, setClientTz] = useState<string | null>(null); // the picked client's GHL time zone
   const [stagesLoading, setStagesLoading] = useState(false);
   const [selStages, setSelStages] = useState<Set<string>>(new Set());
   const [senderName, setSenderName] = useState("");
@@ -59,13 +84,13 @@ export default function BlastPage() {
 
   const pickClient = useCallback((loc: string) => {
     const c = clients.find((x) => x.locationId === loc) ?? null;
-    setClient(c); setPreview(null); setSelStages(new Set()); setStages([]);
+    setClient(c); setPreview(null); setSelStages(new Set()); setStages([]); setClientTz(null);
     if (!c) return;
     setSenderName(c.senderFirstName);
     setServiceWord(c.serviceWord);
     setStagesLoading(true);
     fetch(`/api/blast?locationId=${c.locationId}`).then((r) => r.json())
-      .then((j) => setStages(j.stages ?? []))
+      .then((j) => { setStages(j.stages ?? []); setClientTz(j.timezone ?? null); })
       .finally(() => setStagesLoading(false));
   }, [clients]);
 
@@ -111,14 +136,15 @@ export default function BlastPage() {
         body: JSON.stringify({
           action: "schedule", locationId: client.locationId, ownerKey: client.ownerKey, clientLabel: client.label,
           senderName, serviceWord, stageIds: [...selStages], stageNames, template,
-          sendAt: when === "later" && sendAt ? new Date(sendAt).toISOString() : undefined,
+          sendAt: when === "later" && sendAt ? (clientTz ? zonedToIso(sendAt, clientTz) : new Date(sendAt).toISOString()) : undefined,
+          timezone: clientTz ?? undefined,
           expectedCount: preview.recipients.length,
           excludeDays, maxContacts,
         }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to schedule");
-      toast.success(when === "now" ? `Blast queued — sending to ${j.total} people` : `Blast scheduled for ${new Date(sendAt).toLocaleString()}`);
+      toast.success(when === "now" ? `Blast queued — sending to ${j.total} people` : `Blast scheduled for ${sendAt.replace("T", " ")} ${tzCity(clientTz)} time`);
       setConfirmOpen(false); setChecked(false); setPreview(null); setSelStages(new Set());
       loadJobs();
     } catch (e) {
@@ -126,7 +152,7 @@ export default function BlastPage() {
     } finally {
       setScheduling(false);
     }
-  }, [client, preview, senderName, serviceWord, template, when, sendAt, stages, selStages, excludeDays, maxContacts]);
+  }, [client, preview, senderName, serviceWord, template, when, sendAt, stages, selStages, excludeDays, maxContacts, clientTz]);
 
   // Reschedule flow: pick date+time, then confirm — nothing sends until then.
   const [reschedId, setReschedId] = useState<string | null>(null);
@@ -134,6 +160,7 @@ export default function BlastPage() {
   // The message is editable here so the team can fix a typo (a broken tag)
   // and resend on their own — the Violet Zherka blast, 2026-10-12.
   const [reschedTemplate, setReschedTemplate] = useState("");
+  const [reschedTz, setReschedTz] = useState<string | null>(null);
   const [reschedBusy, setReschedBusy] = useState(false);
   const reschedProblem = useMemo(() => templateProblem(reschedTemplate), [reschedTemplate]);
   const openResched = (j: Job) => {
@@ -142,6 +169,7 @@ export default function BlastPage() {
     const pad = (n: number) => String(n).padStart(2, "0");
     setReschedAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`);
     setReschedTemplate(j.message_template ?? "");
+    setReschedTz(j.timezone ?? null);
     setReschedId(j.id);
   };
   const confirmResched = async () => {
@@ -149,10 +177,10 @@ export default function BlastPage() {
     setReschedBusy(true);
     try {
       const res = await fetch("/api/blast", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "retry", jobId: reschedId, sendAt: new Date(reschedAt).toISOString(), template: reschedTemplate }) });
+        body: JSON.stringify({ action: "retry", jobId: reschedId, sendAt: reschedTz ? zonedToIso(reschedAt, reschedTz) : new Date(reschedAt).toISOString(), template: reschedTemplate }) });
       const j = await res.json();
       if (!res.ok) { toast.error(j.error ?? "Reschedule failed"); return; }
-      toast.success(`Rescheduled for ${new Date(reschedAt).toLocaleString("en-US")} — ${j.requeued} people will get it${j.skipped ? ` (${j.skipped} skipped: already got it, DND or unsubscribed)` : ""}`);
+      toast.success(`Rescheduled for ${reschedAt.replace("T", " ")} ${tzCity(reschedTz)} time — ${j.requeued} people will get it${j.skipped ? ` (${j.skipped} skipped: already got it, DND or unsubscribed)` : ""}`);
       setReschedId(null);
       loadJobs();
     } finally {
@@ -331,8 +359,11 @@ export default function BlastPage() {
                   <input type="radio" checked={when === "later"} onChange={() => setWhen("later")} /> <Clock size={12} /> Schedule
                 </label>
                 {when === "later" && (
-                  <input type="datetime-local" value={sendAt} onChange={(e) => setSendAt(e.target.value)}
-                    className="text-xs border border-[#d7e0ea] rounded-lg px-2 py-1 text-[#1f3559]" />
+                  <>
+                    <input type="datetime-local" value={sendAt} onChange={(e) => setSendAt(e.target.value)}
+                      className="text-xs border border-[#d7e0ea] rounded-lg px-2 py-1 text-[#1f3559]" />
+                    <span className="text-[10px] font-semibold text-[#0e8f88]">🕒 {clientTz ? `client's time (${tzCity(clientTz)})` : "your computer's time — client zone unknown"}</span>
+                  </>
                 )}
               </div>
               <button onClick={() => setConfirmOpen(true)} disabled={preview.recipients.length === 0 || (when === "later" && !sendAt) || !!problem}
@@ -352,7 +383,7 @@ export default function BlastPage() {
             <p className="text-sm font-bold text-[#1f3559] flex items-center gap-1.5"><AlertTriangle size={15} className="text-[#f0a742]" /> Confirm blast</p>
             <p className="text-sm text-[#34568a]">
               Send this text to <b>{preview.recipients.length} real clients</b> of <b>{client.label}</b>
-              {when === "later" && sendAt ? <> at <b>{new Date(sendAt).toLocaleString()}</b></> : " right now"}?
+              {when === "later" && sendAt ? <> at <b>{sendAt.replace("T", " ")} {tzCity(clientTz)} time</b>{clientTz ? <span className="text-[#697a91]"> ({fmtInTz(zonedToIso(sendAt, clientTz), undefined)} on your clock)</span> : null}</> : " right now"}?
             </p>
             <label className="flex items-start gap-2 text-xs text-[#34568a]">
               <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} className="mt-0.5" />
@@ -382,7 +413,7 @@ export default function BlastPage() {
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-[#1f3559] truncate">{j.client_label ?? j.id}</p>
                   <p className="text-[10px] text-[#8595a8]">
-                    {(j.stage_names ?? []).join(", ")} · {new Date(j.send_at).toLocaleString("en-US")} · {j.sent}/{j.total} sent{j.failed > 0 ? ` · ${j.failed} failed` : ""}
+                    {(j.stage_names ?? []).join(", ")} · {fmtInTz(j.send_at, j.timezone)} {j.timezone ? `${tzCity(j.timezone)} time` : "your time"} · {j.sent}/{j.total} sent{j.failed > 0 ? ` · ${j.failed} failed` : ""}
                   </p>
                   {/* Why it failed, in words — so the fix is obvious without asking. */}
                   {(j.fail_reasons?.length || j.error) && (
@@ -434,7 +465,7 @@ export default function BlastPage() {
                       )}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-bold text-[#0e8f88]">Send on:</span>
+                      <span className="text-[10px] font-bold text-[#0e8f88]">Send on ({tzCity(reschedTz)} time):</span>
                       <input type="datetime-local" value={reschedAt} onChange={(e) => setReschedAt(e.target.value)}
                         className="px-2 py-1 bg-white border border-[#a7e3df] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
                       <button onClick={confirmResched} disabled={!reschedAt || !!reschedProblem || reschedBusy}
