@@ -5,7 +5,7 @@ import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
 import { cleanTz, calendarDurationMin } from "@/lib/ghl-push";
-import { filePaidNotBookedAlert } from "@/lib/alerts";
+import { fileDoubleBookingAlert, filePaidNotBookedAlert } from "@/lib/alerts";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
      "onebox-check-appointments" tag so the team cancels the extra. */
   // Paid one-box bookings for her, by phone or contact id (two plain
   // filters — a phone like "(505) 870-4376" can't go inside an .or()).
-  const [{ tz, appts }, { data: byPhone }, { data: byContact }] = await Promise.all([
+  const [{ tz, appts, ok: lookedUp, error: lookupError }, { data: byPhone }, { data: byContact }] = await Promise.all([
     liveAppointmentsOnCalendar(contactId, calendarId, locationId, tok.token),
     svc.from("onebox_leads").select("ghl_appointment_id").eq("slug", slug).eq("phone", phone),
     svc.from("onebox_leads").select("ghl_appointment_id").eq("slug", slug).eq("ghl_contact_id", contactId),
@@ -208,8 +208,35 @@ export async function POST(req: NextRequest) {
   const bookedId = aj.id ?? null;
   const recent = Date.now() - 30 * 86400_000;
   const extras = appts.filter((a) => a.id !== bookedId && !paidIds.has(a.id) && (a.addedMs || 0) >= recent);
-  const leftover = needsReview || extras.length > 0;
-  if (leftover) console.warn("[onebox/book] other live appointments remain for", contactId, extras.map((a) => a.id));
+  /* We just POSTed a new appointment: read the calendar again and make
+     sure nothing else sits at the same minute. If the pre-booking lookup
+     had failed (fail-closed = "no appointments"), this is the only place
+     the AI's booking at the same time becomes visible — Cheryl Fredieu /
+     Estrella Fernandez, The Aesthetic Couture, 2026-10-19: two confirmed
+     appointments each, every confirmation and reminder twice. */
+  let twins: string[] = [];
+  let verifyNote = "";
+  if (!reused && bookedId) {
+    const after = await liveAppointmentsOnCalendar(contactId, calendarId, locationId, tok.token);
+    if (after.ok) {
+      const mine = after.appts.find((a) => a.id === bookedId);
+      twins = after.appts.filter((a) => a.id !== bookedId && mine && Math.abs(a.startMs - mine.startMs) < 60_000).map((a) => a.id);
+    } else {
+      verifyNote = `could not re-check the calendar after booking (${after.error ?? "no response"})`;
+    }
+  }
+  if (!lookedUp) console.warn("[onebox/book] appointment lookup failed before booking:", contactId, lookupError);
+  if (twins.length || verifyNote || !lookedUp) {
+    await fileDoubleBookingAlert(svc, {
+      slug, locationId, contactId, name: fullName, startIso, ids: [...(bookedId ? [bookedId] : []), ...twins].sort(),
+      note: twins.length ? "" : `${verifyNote || `the lookup before booking failed (${lookupError ?? "unknown"})`} — check the contact's calendar by hand.`,
+    }).catch(() => {});
+    await svc.from("onebox_leads")
+      .update({ answers: { ...((leadPreRes.data?.answers as Record<string, unknown> | null) ?? {}), book_note: twins.length ? `double booked with ${twins.join(", ")}` : (verifyNote || `lookup failed: ${lookupError ?? "unknown"}`) } })
+      .eq("slug", slug).eq("phone", phone).then(() => {}, () => {});
+  }
+  const leftover = needsReview || extras.length > 0 || twins.length > 0;
+  if (leftover) console.warn("[onebox/book] other live appointments remain for", contactId, [...extras.map((a) => a.id), ...twins]);
   await Promise.all([
     /* More than one live appointment for this session (an AI booking left
        over, or a confirm that failed): tag it so the team cancels the extra

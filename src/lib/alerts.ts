@@ -37,7 +37,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -954,4 +954,85 @@ export async function resolvePaidNotBookedAlert(svc: Svc, slug: string, contactI
   await svc.from("alerts")
     .update({ status: "resolved", resolved_by: "system (appointment now on the calendar)", resolved_at: new Date().toISOString() })
     .eq("type", "paid_not_booked").eq("source_key", `paid-not-booked:${slug}:${contactId ?? name}`).eq("status", "open");
+}
+
+// ── Double booking (owner, 2026-10-19) ───────────────────────────────────────
+// Cheryl Fredieu and Estrella Fernandez (The Aesthetic Couture) each had TWO
+// confirmed appointments at the same time on the same calendar — the AI's
+// chat booking plus the one-box's post-deposit booking — so every
+// confirmation and reminder went out twice. 13 contacts in 11 accounts
+// since Oct 3. The book route guards against it, but a failed lookup used
+// to look like "no appointments" and book anyway; now that failure is
+// retried, re-checked after booking, and reported here, and the sweep
+// below catches the ones the AI books AFTER the one-box did.
+export async function fileDoubleBookingAlert(
+  svc: Svc,
+  a: { slug?: string | null; business?: string | null; locationId: string; contactId: string; name: string; startIso: string; ids: string[]; note?: string },
+): Promise<"filed" | "appended" | "skipped"> {
+  // The studio's wall clock, straight off the ISO text (GHL stores and shows
+  // appointments in the location's time; ghl_appointments.start_time holds
+  // that wall clock too). Never convert — a viewer in another zone would
+  // see a time nobody at the studio recognises.
+  const m = a.startIso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  const when = m
+    ? `${new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, ${((+m[4] + 11) % 12) + 1}:${m[5]} ${+m[4] < 12 ? "AM" : "PM"} studio time`
+    : a.startIso;
+  const biz = a.business || a.slug || a.locationId;
+  return fileOrAppendAlert(svc, {
+    type: "double_booking", severity: "medium",
+    title: `${a.name} has ${a.ids.length} appointments at the same time at ${biz} (${when})`,
+    detail: `${a.ids.length} confirmed appointments on the same calendar at ${when} — the AI's chat booking and the one-box's post-deposit booking. She gets every confirmation and reminder twice. Open the contact and cancel the extra one (keep the earliest / the one the AI named); the appointment ids are ${a.ids.join(", ")}.${a.note ? ` ${a.note}` : ""}`,
+    source_key: `double-booking:${a.locationId}:${a.contactId}:${a.startIso.slice(0, 16)}`,
+    meta: { slug: a.slug ?? null, location_id: a.locationId, contact_id: a.contactId, start_iso: a.startIso, appointment_ids: a.ids, link: ghlContactUrl(a.locationId, a.contactId) },
+  });
+}
+
+/* Sweep the synced calendars (ghl_appointments, every 3 h) for a contact
+   with two or more live future appointments at the same minute on one
+   calendar. Catches the order the book route can't: the AI booking AFTER
+   the deposit. Resolves itself once only one is left. */
+export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; filed: number; resolved: number }> {
+  const { data } = await svc.from("ghl_appointments")
+    .select("id, location_id, contact_id, calendar_id, start_time, raw")
+    .eq("status", "confirmed").gt("start_time", new Date().toISOString()).limit(5000);
+  const rows = ((data ?? []) as Array<{ id: string; location_id: string; contact_id: string; calendar_id: string; start_time: string; raw: Record<string, unknown> | null }>)
+    .filter((r) => r.contact_id && r.calendar_id && r.raw?.deleted !== true);
+  const groups = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const k = `${r.location_id}|${r.contact_id}|${r.calendar_id}|${r.start_time.slice(0, 16)}`;
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  const dupes = [...groups.values()].filter((g) => g.length > 1);
+  const names = new Map<string, string>();
+  const bizByLoc = new Map<string, string>();
+  if (dupes.length) {
+    const cids = [...new Set(dupes.map((g) => g[0].contact_id))];
+    const { data: cs } = await svc.from("ghl_contacts").select("id, contact_name").in("id", cids);
+    for (const c of cs ?? []) names.set(String(c.id), String(c.contact_name ?? ""));
+    const { data: ob } = await svc.from("onebox_clients").select("location_id, client_name").in("location_id", [...new Set(dupes.map((g) => g[0].location_id))]);
+    for (const o of ob ?? []) bizByLoc.set(String(o.location_id), String(o.client_name ?? ""));
+  }
+  let filed = 0;
+  const openKeys = new Set<string>();
+  for (const g of dupes) {
+    const r = g[0];
+    const name = (names.get(r.contact_id) || "A lead").replace(/\b\w/g, (c) => c.toUpperCase());
+    // start_time holds the studio wall clock (stored as if UTC) — keep it as text.
+    const startIso = new Date(r.start_time).toISOString().slice(0, 16);
+    openKeys.add(`double-booking:${r.location_id}:${r.contact_id}:${startIso}`);
+    const res = await fileDoubleBookingAlert(svc, {
+      locationId: r.location_id, contactId: r.contact_id, name, startIso, business: bizByLoc.get(r.location_id) ?? null,
+      ids: g.map((x) => x.id).sort(),
+    });
+    if (res === "filed") filed++;
+  }
+  // Boxes whose duplicate is gone (one was cancelled) close themselves.
+  const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "double_booking").eq("status", "open");
+  let resolved = 0;
+  for (const a of open ?? []) {
+    if (openKeys.has(String(a.source_key))) continue;
+    const { error } = await svc.from("alerts").update({ status: "resolved", resolved_by: "system (only one appointment left)", resolved_at: new Date().toISOString() }).eq("id", a.id);
+    if (!error) resolved++;
+  }
+  return { checked: rows.length, filed, resolved };
 }
