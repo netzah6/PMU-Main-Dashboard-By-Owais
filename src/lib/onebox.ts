@@ -825,9 +825,26 @@ export function wallToIso(local: string, tz: string): string {
    + two AI bookings = three confirmations). Fails closed: no timezone or no
    response → no appointments, and callers keep their old behaviour. */
 export type ContactAppointment = { id: string; startIso: string; startMs: number; addedMs: number; status: string };
+/* `ok` = the read actually happened (timezone known, GHL answered). A
+   caller that books on an empty list must know the difference between "no
+   appointments" and "could not look" — 13 leads got two confirmations in
+   Oct 2026 because one failed read (fail-closed = empty) booked over the
+   AI's appointment at the very same time. Three attempts with a short
+   back-off cover a 429 or a blip. */
 export async function liveAppointmentsOnCalendar(
   contactId: string, calendarId: string, locationId: string, token: string,
-): Promise<{ tz: string; appts: ContactAppointment[] }> {
+): Promise<{ tz: string; appts: ContactAppointment[]; ok: boolean; error?: string }> {
+  let last: { tz: string; appts: ContactAppointment[]; ok: boolean; error?: string } = { tz: "", appts: [], ok: false, error: "no attempt" };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, attempt === 1 ? 400 : 1200));
+    last = await readLiveAppointments(contactId, calendarId, locationId, token);
+    if (last.ok) return last;
+  }
+  return last;
+}
+async function readLiveAppointments(
+  contactId: string, calendarId: string, locationId: string, token: string,
+): Promise<{ tz: string; appts: ContactAppointment[]; ok: boolean; error?: string }> {
   try {
     const [tz, r] = await Promise.all([
       locationTimezone(locationId, token),
@@ -835,7 +852,7 @@ export async function liveAppointmentsOnCalendar(
         headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" },
       }),
     ]);
-    if (!tz || !r.ok) return { tz, appts: [] };
+    if (!tz || !r.ok) return { tz, appts: [], ok: false, error: !tz ? "location timezone unknown" : `appointments HTTP ${r.status}` };
     const j = (await r.json()) as { events?: Array<Record<string, unknown>> };
     const now = Date.now();
     const appts = (j.events ?? [])
@@ -854,8 +871,8 @@ export async function liveAppointmentsOnCalendar(
       })
       .filter((e) => Number.isFinite(e.startMs) && e.startMs > now)
       .sort((a, b) => (b.addedMs || 0) - (a.addedMs || 0));
-    return { tz, appts };
-  } catch {
-    return { tz: "", appts: [] };
+    return { tz, appts, ok: true };
+  } catch (e) {
+    return { tz: "", appts: [], ok: false, error: e instanceof Error ? e.message : "fetch failed" };
   }
 }
