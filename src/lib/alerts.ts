@@ -969,7 +969,14 @@ export async function fileDoubleBookingAlert(
   svc: Svc,
   a: { slug?: string | null; business?: string | null; locationId: string; contactId: string; name: string; startIso: string; ids: string[]; note?: string },
 ): Promise<"filed" | "appended" | "skipped"> {
-  const when = (() => { try { return new Date(a.startIso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }); } catch { return a.startIso; } })();
+  // The studio's wall clock, straight off the ISO text (GHL stores and shows
+  // appointments in the location's time; ghl_appointments.start_time holds
+  // that wall clock too). Never convert — a viewer in another zone would
+  // see a time nobody at the studio recognises.
+  const m = a.startIso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  const when = m
+    ? `${new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, ${((+m[4] + 11) % 12) + 1}:${m[5]} ${+m[4] < 12 ? "AM" : "PM"} studio time`
+    : a.startIso;
   const biz = a.business || a.slug || a.locationId;
   return fileOrAppendAlert(svc, {
     type: "double_booking", severity: "medium",
@@ -1010,8 +1017,9 @@ export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; f
   for (const g of dupes) {
     const r = g[0];
     const name = (names.get(r.contact_id) || "A lead").replace(/\b\w/g, (c) => c.toUpperCase());
-    const startIso = new Date(r.start_time).toISOString();
-    openKeys.add(`double-booking:${r.location_id}:${r.contact_id}:${startIso.slice(0, 16)}`);
+    // start_time holds the studio wall clock (stored as if UTC) — keep it as text.
+    const startIso = new Date(r.start_time).toISOString().slice(0, 16);
+    openKeys.add(`double-booking:${r.location_id}:${r.contact_id}:${startIso}`);
     const res = await fileDoubleBookingAlert(svc, {
       locationId: r.location_id, contactId: r.contact_id, name, startIso, business: bizByLoc.get(r.location_id) ?? null,
       ids: g.map((x) => x.id).sort(),
