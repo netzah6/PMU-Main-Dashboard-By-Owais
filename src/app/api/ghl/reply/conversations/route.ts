@@ -43,7 +43,8 @@ export async function GET() {
   // Visibility: team members only see chats ASSIGNED TO THEM (matched by
   // email → GHL user). Admins see everything + get the roster for filtering.
   const { data: roleRow } = await supabase.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
-  const isAdmin = (roleRow as { role?: string } | null)?.role === "admin";
+  const roleName = (roleRow as { role?: string } | null)?.role ?? null;
+  const isAdmin = roleName === "admin";
   const shown = isAdmin ? enriched : me.ghlUserId ? enriched.filter((c) => c.assignedTo === me.ghlUserId) : [];
   // Drop chats the team already answered — GHL's search lags (see keepWaitingChats).
   const visible = await keepWaitingChats(acct, shown);
@@ -62,7 +63,7 @@ export async function GET() {
 
   return NextResponse.json({
     me,
-    role: isAdmin ? "admin" : "member",
+    role: isAdmin ? "admin" : roleName === "editor" ? "editor" : "member",
     conversations: visible,
     locationId: acct.locationId,
     roster: isAdmin ? (teamRoster.length ? teamRoster : roster).map((u) => ({ id: u.id, name: u.name })) : undefined,

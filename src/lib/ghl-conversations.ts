@@ -96,11 +96,13 @@ export async function keepWaitingChats(acct: PmuAccount, list: ConvSummary[]): P
   const now = Date.now();
   // Whatever isn't checked by then is shown as GHL listed it — a slow GHL
   // must never cost the team the whole list.
-  const deadline = now + 20_000;
-  for (const [k, v] of liveCache) if (now - v.at > 60_000) liveCache.delete(k);
+  const deadline = now + 10_000; // was 20 s — the list must show fast; unchecked chats just stay listed
+  for (const [k, v] of liveCache) if (now - v.at > 120_000) liveCache.delete(k);
   const check = async (c: ConvSummary): Promise<ConvSummary | null> => {
     let hit = liveCache.get(c.id);
-    if (!hit || now - hit.at > 20_000) {
+    // Reuse a check for 45 s (was 20 s): the page re-fetches every 25 s, so
+    // most refreshes now cost zero thread reads.
+    if (!hit || now - hit.at > 45_000) {
       if (Date.now() > deadline) return c;
       const thread = await getThread(acct, c.id, { limit: 10, labelMedia: true, signal: AbortSignal.timeout(6000) }).catch(() => []);
       if (!thread.length) return c; // couldn't check — keep it
@@ -132,7 +134,7 @@ export async function keepWaitingChats(acct: PmuAccount, list: ConvSummary[]): P
   };
   const out: Array<ConvSummary | null> = new Array(list.length).fill(null);
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(6, list.length) }, async () => {
+  await Promise.all(Array.from({ length: Math.min(12, list.length) }, async () => {
     while (next < list.length) { const i = next++; out[i] = await check(list[i]); }
   }));
   return out.filter((c): c is ConvSummary => !!c)

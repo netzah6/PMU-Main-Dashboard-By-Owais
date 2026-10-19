@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { agentAccess, canAct } from "@/lib/agent-access";
 import { claimCutoff, executeProposal, isLiveClaim, NothingSentError, type Proposal } from "@/lib/agent";
 import { sanitizePlan } from "@/lib/agent-exec";
 
@@ -14,10 +15,9 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const svc = createServiceClient();
-  const { data: roleRow } = await svc.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
-  if ((roleRow as { role?: string } | null)?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 });
-  }
+  // Admins, and coaches for their own clients (src/lib/agent-access.ts).
+  const access = await agentAccess(svc, user);
+  if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as {
     id?: string; decision?: string; reply?: string;
@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
   const { data: row } = await svc.from("agent_proposals").select("*").eq("id", id).maybeSingle();
   if (!row) return NextResponse.json({ error: "Proposal not found" }, { status: 404 });
   const p = row as Proposal;
+  if (!canAct(access, p)) return NextResponse.json({ error: "Only the owner can decide this card" }, { status: 403 });
   if (p.status !== "pending") return NextResponse.json({ error: `Already ${p.status}` }, { status: 409 });
 
   // An earlier Approve already sent the reply and then died (timeout) before
