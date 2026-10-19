@@ -7,6 +7,7 @@ import { cn, userColor } from "@/lib/utils";
 import { VoiceNoteButton } from "@/components/conversations/VoiceNoteButton";
 import { WinbackList } from "@/components/conversations/WinbackList";
 import { MacMiniTracker, MINI_REFRESH_EVENT } from "@/components/agent/MacMiniTracker";
+import { AddTaskForm } from "@/components/tasks/AddTaskForm";
 
 // voiceInfo only comes from /api/ghl/reply/draft — AI-chat drafts carry just
 // the name, so the "written in …'s voice" line is skipped for those.
@@ -63,6 +64,7 @@ export default function AskPage() {
   // adds a call invite or link on its own (owner, 2026-10-01).
   const [inviteCall, setInviteCall] = useState(false);
   const [thread, setThread] = useState<ThreadMsg[]>([]);      // full conversation shown in the composer
+  const [taskFor, setTaskFor] = useState<string | null>(null); // "Create this as a task" form open for this chat id
   const [threadLoading, setThreadLoading] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   // Open conversations at the BOTTOM (latest message) — scrolling down from
@@ -635,6 +637,13 @@ export default function AskPage() {
           ))
         )}
       </div>
+      {/* Coaches can hand the Mac Mini a GoHighLevel task too (owner, 10/19/2026);
+          the owner still approves it under "Waiting for you" before it runs. */}
+      {!isAdmin && (
+        <div className="px-2 py-2 border-t border-[#eef3f8]">
+          <NewTaskBox onCreated={() => toast.success("Sent — the owner approves it, then the Mac Mini does it")} coach />
+        </div>
+      )}
       <p className="px-3 py-2 border-t border-[#eef3f8] text-[9px] text-[#a6b3c4]">
         {isAdmin
           ? "Click a chat → draft a reply, or 🪄 let the AI handle it (you approve first)"
@@ -749,8 +758,30 @@ export default function AskPage() {
             <span className="text-xs font-bold text-[#0e8f88] flex items-center gap-1.5">
               <MessageCircle size={13} /> {pending.contactName}{pending.channel ? ` · ${pending.channel}` : ""}
             </span>
-            <button onClick={() => setPending(null)} title="Cancel" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
+            <span className="flex items-center gap-2">
+              {/* Owner, 10/19/2026: turn this chat into a GHL task (Tasks tab) in one click. */}
+              {pending.contactId && taskFor !== pending.id && (
+                <button onClick={() => setTaskFor(pending.id)}
+                  className="px-2 py-0.5 rounded-lg border border-[#c9dbfb] bg-white text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88]">
+                  📋 Create this as a task
+                </button>
+              )}
+              <button onClick={() => setPending(null)} title="Cancel" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
+            </span>
           </div>
+          {taskFor === pending.id && pending.contactId && (() => {
+            const lastIn = [...thread].reverse().find((m) => m.direction === "inbound")?.body ?? pending.lastMessageBody ?? "";
+            const line = lastIn.replace(/\s+/g, " ").trim();
+            return (
+              <div className="mb-2.5">
+                <AddTaskForm contactId={pending.contactId} contactName={pending.contactName}
+                  initialTitle={`${pending.contactName}: ${line.slice(0, 70)}${line.length > 70 ? "…" : ""}`}
+                  initialBody={`From the ${pending.channel || "chat"} with ${pending.contactName}:\n"${line.slice(0, 600)}"`}
+                  initialAssignee={pending.assignedTo ?? ""}
+                  onDone={() => setTaskFor(null)} onCancel={() => setTaskFor(null)} />
+              </div>
+            );
+          })()}
 
           {/* The AI agent for this chat — admin only. Closed by default: one
               small button. Clicking it shows the plan (or asks the AI for one);
@@ -1096,7 +1127,7 @@ function AgentActivity({ proposals, lastScan, worker, loading, err, onRefresh, o
 /* A task typed by a teammate (owner, 2026-10-10: "if my team member asks for
    that request, it can do it as well"). It becomes a normal card — still
    needs Approve — and the Mac Mini does it in GoHighLevel. */
-function NewTaskBox({ onCreated }: { onCreated: () => void }) {
+function NewTaskBox({ onCreated, coach = false }: { onCreated: () => void; coach?: boolean }) {
   const [open, setOpen] = useState(false);
   const [client, setClient] = useState("");
   const [task, setTask] = useState("");
@@ -1108,7 +1139,7 @@ function NewTaskBox({ onCreated }: { onCreated: () => void }) {
       const r = await fetch("/api/agent/task", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client, task }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed");
-      toast.success(`Task added for ${j.client} — approve it under "Waiting for you"`);
+      toast.success(coach ? `Task sent for ${j.client} — the owner approves it, then the Mac Mini does it` : `Task added for ${j.client} — approve it under "Waiting for you"`);
       setClient(""); setTask(""); setOpen(false);
       onCreated();
     } catch (e) {
@@ -1118,7 +1149,7 @@ function NewTaskBox({ onCreated }: { onCreated: () => void }) {
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="w-full rounded-lg border border-dashed border-[#c9dbfb] bg-white px-3 py-2 text-xs font-semibold text-[#34568a] hover:border-[#15B7AE] text-left">
-        ➕ New task for the AI (e.g. &ldquo;Add a &lsquo;Later date&rsquo; stage before Declining in Tammy&apos;s pipeline&rdquo;)
+        {coach ? "🖥️ Ask the Mac Mini to do something in a client's GoHighLevel (the owner approves first)" : <>➕ New task for the AI (e.g. &ldquo;Add a &lsquo;Later date&rsquo; stage before Declining in Tammy&apos;s pipeline&rdquo;)</>}
       </button>
     );
   }
