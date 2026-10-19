@@ -41,6 +41,13 @@ const MONTHS_2027 = MONTH_FULL.map((label, i) => ({
   tabs: [`${label} V2 2027`, `${label} 2027 V2`, `${label} 2027`, `${label} V2`].filter((t) => !USED_2026.has(t)),
 }));
 
+/** One client row of a V2 month tab: B client, C plan note, D day of payment
+ *  (a day number, or free text like "Jan 14th 2027" / "Dec?" on prepaid rows),
+ *  E USD, F payment status, G billing status. */
+export interface FinanceRow {
+  name: string; note: string; dayRaw: string; day: number | null; amount: number; status: string; billing: string;
+}
+
 export interface MonthFinance {
   label: string;
   ym: string;
@@ -67,9 +74,16 @@ export interface MonthFinance {
   /** Everyone who paid this month: name as written, total, and whether the
    *  row is a pay-per-appointment charge ("$50 deposit + $45 per show"). */
   payers: Array<{ name: string; amount: number; pps: boolean; note: string; status: string; day: number | null;
+    /** BILLING STATUS (col G on the new layout): "Card On File", "Deposit",
+     *  "No Card On File", "Subscription Active"… blank on the old layout. */
+    billing: string;
     /** Of `amount`: rows marked Paid / Paid Upfront / PPS (old layout: all),
      *  and rows with no status yet. Pending / Grace / Paused rows are in neither. */
     paid: number; unmarked: number }>;
+  /** Every client row on the tab as written (new layout only), $0 rows
+   *  included — the owner keeps the current month's statuses up to date, so
+   *  the month plan reads them straight from here. */
+  rows: FinanceRow[];
   /** Pay-per-show rows this month, $0 ones included ("$50 deposit + $45 per
    *  show" with nothing billed yet) — proof the client was active. */
   ppsNames: string[];
@@ -78,6 +92,9 @@ export interface MonthFinance {
   graceNames: string[];
   /** $0 rows marked "Paid Upfront" — covered by an earlier prepayment. */
   upfrontNames: string[];
+  /** Prospects who only paid a hold deposit (billing status "Deposit", or a
+   *  bare "$150 deposit" note) — not clients yet, so never churn or a close. */
+  depositOnlyNames: string[];
   /** First month this name ever paid (> $0). */
   firstTimePayers: string[];
   /** Paid last month, not this month (names as written last month). */
@@ -113,6 +130,12 @@ function money(v: unknown): number {
 // deposit lines, and stray totals that land in the same column.
 const NOT_A_CLIENT = /deposits from clients|^total|^client name$|^customer$|^\s*\$/i;
 
+/** A plan note that is only a hold deposit ("$200 deposit", "Deposit $150
+ *  Mariya") — not "$500/mo + $50 deposit" or a per-show plan. */
+function bareDepositNote(note: string): boolean {
+  return /\$\s*\d[\d,]*\s*deposit|deposit\s*\$\s*\d/i.test(note) && !/\+|per\s*show|monthly|\/mo\b|plan/i.test(note);
+}
+
 export async function getAgencyFinance(): Promise<FinanceResult> {
   try {
     const sheets = await getSheetsClient();
@@ -147,10 +170,12 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
       let newClients = 0, newCash = 0, recurringClients = 0, recurringCash = 0;
       let depositIncome = 0;
       const newNames: string[] = [];
-      const paidBy = new Map<string, { name: string; amount: number; pps: boolean; note: string; status: string; day: number | null; paid: number; unmarked: number }>(); // key → this month
+      const paidBy = new Map<string, { name: string; amount: number; pps: boolean; note: string; status: string; day: number | null; billing: string; paid: number; unmarked: number }>(); // key → this month
+      const sheetRows: FinanceRow[] = [];
       const ppsNames: string[] = [];
       const graceNames: string[] = [];
       const upfrontNames: string[] = [];
+      const depositOnlyNames: string[] = [];
       let adSpend: number | null = null;
 
       for (const row of rows) {
@@ -172,22 +197,31 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
         const note = m.schema === "new" ? String(row?.[2] ?? "") : "";
         const pps = /per\s*show|\bpps\b|per\s*appointment|pay\s*per/i.test(note);
         const st = m.schema === "new" ? String(row?.[5] ?? "").trim() : "";
+        // New layout: D = day of payment (a day number — "15?" still parses —
+        // or free text like "Jan 14th 2027" on prepaid rows), G = billing status.
+        const dayRaw = m.schema === "new" ? String(row?.[3] ?? "").trim() : "";
+        const dayNum = m.schema === "new" ? parseInt(dayRaw, 10) : NaN;
+        const day = dayNum >= 1 && dayNum <= 31 ? dayNum : null;
+        const billing = m.schema === "new" ? String(row?.[6] ?? "").trim() : "";
+        if (m.schema === "new") sheetRows.push({ name: raw, note, dayRaw, day, amount: amt, status: st, billing });
         // Pay-per-show by the plan note, or by the PAYMENT STATUS column ("PPS").
-        if (pps || /^pps$/i.test(st)) ppsNames.push(raw);
+        const isPps = pps || /^pps$/i.test(st);
+        if (isPps) ppsNames.push(raw);
         if (m.schema === "new") {
           if (/\bgrace\b/i.test(st)) graceNames.push(raw);
           else if (/paid\s*upfront/i.test(st) && !(amt > 0)) upfrontNames.push(raw);
+          // A hold deposit from a prospect ("$150 Deposit Mariya", billing
+          // "Deposit") is not a client paying — they haven't started.
+          if (/^deposit$/i.test(billing) || (!isPps && bareDepositNote(note))) depositOnlyNames.push(raw);
         }
         if (amt > 0) {
-          // New layout: D = day of payment, F = payment status (Paid / Pending / PPS…).
-          const status = m.schema === "new" ? String(row?.[5] ?? "").trim() : "";
-          const dayNum = m.schema === "new" ? parseInt(String(row?.[3] ?? ""), 10) : NaN;
-          const isPaid = m.schema === "old" || /^(paid|paid upfront|pps)$/i.test(status);
+          // F = payment status (Paid / Pending / PPS…).
+          const isPaid = m.schema === "old" || /^(paid|paid upfront|pps)$/i.test(st);
           const cur = paidBy.get(key);
           paidBy.set(key, {
             name: cur?.name ?? raw, amount: (cur?.amount ?? 0) + amt, pps: (cur?.pps ?? false) || pps, note: cur?.note || note,
-            status: cur?.status || status, day: cur?.day ?? (dayNum >= 1 && dayNum <= 31 ? dayNum : null),
-            paid: (cur?.paid ?? 0) + (isPaid ? amt : 0), unmarked: (cur?.unmarked ?? 0) + (!isPaid && !status ? amt : 0),
+            status: cur?.status || st, day: cur?.day ?? day, billing: cur?.billing || billing,
+            paid: (cur?.paid ?? 0) + (isPaid ? amt : 0), unmarked: (cur?.unmarked ?? 0) + (!isPaid && !st ? amt : 0),
           });
         }
         if (seen.has(key)) {
@@ -224,11 +258,13 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
         under500: payers.filter((p) => !p.pps && p.amount < 500).length,
         adSpend,
         payers: payers.sort((a, b) => a.amount - b.amount),
+        rows: sheetRows,
         firstTimePayers,
         lostNames,
         ppsNames,
         graceNames,
         upfrontNames,
+        depositOnlyNames,
         ppsFeeCash: payers.filter((p) => p.pps).reduce((t, p) => t + p.amount, 0),
       });
       prevPayers = new Map([...paidBy.entries()].map(([k, v]) => [k, v.name]));

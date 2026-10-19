@@ -1,20 +1,22 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 /* This month's plan (owner, 2026-10-04: "a plan every month so I know exactly
    what I need to do"). Built from live data on every open — the profit goal
-   for the month on the way to $100k, then four short to-do lists with names.
-   Ticks are saved per month; next month starts fresh. */
+   for the month on the way to $100k, then three short to-do lists with names
+   and a "so far this month" line each. Ticks are saved per month; next month
+   starts fresh. Items flagged `info` (a close, a summary) are just shown —
+   no checkbox, not counted as to-dos. */
 
-type Item = { key: string; text: string; detail?: string; done: { by: string | null; at: string } | null };
-type Section = { key: string; title: string; why: string; target: string; last: string; ok: boolean | null; items: Item[] };
+type Item = { key: string; text: string; detail?: string; done: { by: string | null; at: string } | null; info?: boolean };
+type Section = { key: string; title: string; why: string; target: string; last: string; now?: string; ok: boolean | null; items: Item[] };
 type Plan = { ym: string; label: string; goalMonth: string; profitGoal: number | null; lastLabel: string; lastProfit: number | null; sections: Section[] };
 
 const k = (n: number | null | undefined) => (n == null ? "—" : `$${(n / 1000).toFixed(1)}k`);
-const goalMonthName = (ym: string) => new Date(`${ym}-15T12:00:00`).toLocaleString(undefined, { month: "long", year: "numeric" });
+const goalMonthName = (ym: string) => new Date(`${ym}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" });
 
 export function MonthPlan() {
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -47,7 +49,7 @@ export function MonthPlan() {
   if (err) return <div className="rounded-lg border border-[#fcd9a8] bg-[#fff7ec] px-3 py-2 text-xs text-[#b45309]">This month&apos;s plan unavailable: {err}</div>;
   if (!plan) return <div className="rounded-xl border border-[#e4ebf2] bg-white p-3 text-xs text-[#8595a8] flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Building this month&apos;s plan…</div>;
 
-  const all = plan.sections.flatMap((s) => s.items);
+  const all = plan.sections.flatMap((s) => s.items).filter((i) => !i.info);
   const doneCount = all.filter((i) => i.done).length;
 
   return (
@@ -62,7 +64,7 @@ export function MonthPlan() {
       </p>
       <div className="space-y-1.5">
         {plan.sections.map((s) => {
-          const left = s.items.filter((i) => !i.done).length;
+          const left = s.items.filter((i) => !i.done && !i.info).length;
           const isOpen = open[s.key] ?? false;
           return (
             <div key={s.key} className="rounded-lg border border-[#e4ebf2]">
@@ -74,6 +76,7 @@ export function MonthPlan() {
                   <p className="text-[11px] text-[#697a91]">
                     Goal: <b>{s.target}</b> · <span className={cn(s.ok === true && "text-[#15803d] font-semibold", s.ok === false && "text-[#b91c1c] font-semibold")}>{s.last}</span>
                   </p>
+                  {s.now && <p className="text-[11px] text-[#34568a]">{s.now}</p>}
                 </div>
               </button>
               {isOpen && (
@@ -83,7 +86,15 @@ export function MonthPlan() {
                     <p className="text-[12px] text-[#15803d]">Nothing to do here this month ✓</p>
                   ) : (
                     <ul className="space-y-1">
-                      {s.items.map((it) => (
+                      {s.items.map((it) => it.info ? (
+                        <li key={it.key} className="flex items-start gap-2 px-1 py-0.5">
+                          <span className="mt-0.5 shrink-0 w-4 h-4 flex items-center justify-center text-[#0e8f88]"><Info size={12} /></span>
+                          <span className="min-w-0">
+                            <span className="block text-[12px] text-[#1f3559]">{it.text}</span>
+                            {it.detail && <span className="block text-[11px] text-[#8595a8]">{it.detail}</span>}
+                          </span>
+                        </li>
+                      ) : (
                         <li key={it.key}>
                           <button onClick={() => void toggle(it)} disabled={saving === it.key}
                             className="w-full flex items-start gap-2 text-left rounded px-1 py-0.5 hover:bg-[#f7fdfc] disabled:opacity-60">
@@ -93,7 +104,7 @@ export function MonthPlan() {
                             </span>
                             <span className="min-w-0">
                               <span className={cn("block text-[12px] text-[#1f3559]", it.done && "line-through text-[#8595a8]")}>{it.text}</span>
-                              {it.detail && <span className="block text-[11px] text-[#8595a8]">{it.detail}{it.done ? ` · done by ${(it.done.by ?? "").split("@")[0]} ${new Date(it.done.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}</span>}
+                              {it.detail && <span className="block text-[11px] text-[#8595a8]">{it.detail}{it.done ? ` · done by ${(it.done.by ?? "").split("@")[0]} ${new Date(it.done.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}</span>}
                             </span>
                           </button>
                         </li>
