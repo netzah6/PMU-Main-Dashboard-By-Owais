@@ -8,16 +8,17 @@ import { toast } from "sonner";
    tab (contact already known, title/details pre-filled from the chat). It
    creates a real GHL task on the contact, so it shows up in GHL and on the
    Tasks tab for whoever it is assigned to. */
-export function AddTaskForm({ contactId, contactName, initialTitle = "", initialBody = "", initialAssignee = "", onDone, onCancel }: {
+export function AddTaskForm({ contactId, contactName, initialTitle = "", initialBody = "", initialAssignee = "", initialDueInDays = 1, aiNote, onRedraft, onDone, onCancel }: {
   contactId?: string | null; contactName?: string;
-  initialTitle?: string; initialBody?: string; initialAssignee?: string;
+  initialTitle?: string; initialBody?: string; initialAssignee?: string; initialDueInDays?: number;
+  aiNote?: string; onRedraft?: () => void;
   onDone: () => void; onCancel: () => void;
 }) {
   const [client, setClient] = useState(contactName ?? "");
   const [title, setTitle] = useState(initialTitle);
   const [body, setBody] = useState(initialBody);
   const [assignee, setAssignee] = useState(initialAssignee);
-  const tomorrow = new Date(Date.now() + 86400_000);
+  const tomorrow = new Date(Date.now() + Math.max(1, initialDueInDays) * 86400_000);
   const pad = (n: number) => String(n).padStart(2, "0");
   const [due, setDue] = useState(`${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`);
   const [users, setUsers] = useState<Array<{ id: string; name: string }>>([]);
@@ -43,7 +44,10 @@ export function AddTaskForm({ contactId, contactName, initialTitle = "", initial
   return (
     <form className="rounded-lg border border-[#c9dbfb] bg-[#f7faff] p-2.5 space-y-2" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       {contactId
-        ? <div className="text-[11px] font-bold text-[#34568a]">📋 New task for {contactName}</div>
+        ? <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold text-[#34568a]">📋 New task for {contactName}{aiNote ? <span className="font-normal text-[#697a91]"> · {aiNote}</span> : null}</span>
+            {onRedraft && <button type="button" onClick={onRedraft} className="text-[11px] text-[#0e8f88] hover:underline">re-read chat</button>}
+          </div>
         : <input id="task-client" value={client} onChange={(e) => setClient(e.target.value)} placeholder="Client — owner or business name" autoFocus className={inp} />}
       <input id="task-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" autoFocus={!!contactId} className={inp} />
       <textarea id="task-body" value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="Details (optional)" className={`${inp} resize-none`} />

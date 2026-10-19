@@ -65,6 +65,25 @@ export default function AskPage() {
   const [inviteCall, setInviteCall] = useState(false);
   const [thread, setThread] = useState<ThreadMsg[]>([]);      // full conversation shown in the composer
   const [taskFor, setTaskFor] = useState<string | null>(null); // "Create this as a task" form open for this chat id
+  // The AI's recap of the chat as a task (owner, 10/19/2026): drafted first,
+  // shown in the form to edit, created only on "Create task".
+  const [taskDraft, setTaskDraft] = useState<{ title: string; details: string; dueInDays: number } | null>(null);
+  const [taskDrafting, setTaskDrafting] = useState(false);
+  const draftTask = useCallback(async (c: Conv) => {
+    setTaskDrafting(true); setTaskDraft(null); setTaskFor(c.id);
+    try {
+      const r = await fetch("/api/ghl/tasks/draft", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId: c.id, contactName: c.contactName }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Could not draft the task");
+      setTaskDraft({ title: j.title, details: j.details, dueInDays: j.dueInDays });
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+      // Fall back to the last message so the form still opens.
+      const last = [...thread].reverse().find((m) => m.direction === "inbound")?.body ?? c.lastMessageBody ?? "";
+      const line = last.replace(/\s+/g, " ").trim();
+      setTaskDraft({ title: `${c.contactName}: ${line.slice(0, 70)}`, details: `From the chat with ${c.contactName}:\n"${line.slice(0, 600)}"`, dueInDays: 1 });
+    } finally { setTaskDrafting(false); }
+  }, [thread]);
   const [threadLoading, setThreadLoading] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
   // Open conversations at the BOTTOM (latest message) — scrolling down from
@@ -761,7 +780,7 @@ export default function AskPage() {
             <span className="flex items-center gap-2">
               {/* Owner, 10/19/2026: turn this chat into a GHL task (Tasks tab) in one click. */}
               {pending.contactId && taskFor !== pending.id && (
-                <button onClick={() => setTaskFor(pending.id)}
+                <button onClick={() => void draftTask(pending)}
                   className="px-2 py-0.5 rounded-lg border border-[#c9dbfb] bg-white text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88]">
                   📋 Create this as a task
                 </button>
@@ -769,19 +788,22 @@ export default function AskPage() {
               <button onClick={() => setPending(null)} title="Cancel" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
             </span>
           </div>
-          {taskFor === pending.id && pending.contactId && (() => {
-            const lastIn = [...thread].reverse().find((m) => m.direction === "inbound")?.body ?? pending.lastMessageBody ?? "";
-            const line = lastIn.replace(/\s+/g, " ").trim();
-            return (
-              <div className="mb-2.5">
-                <AddTaskForm contactId={pending.contactId} contactName={pending.contactName}
-                  initialTitle={`${pending.contactName}: ${line.slice(0, 70)}${line.length > 70 ? "…" : ""}`}
-                  initialBody={`From the ${pending.channel || "chat"} with ${pending.contactName}:\n"${line.slice(0, 600)}"`}
+          {taskFor === pending.id && pending.contactId && (
+            <div className="mb-2.5">
+              {taskDrafting || !taskDraft ? (
+                <div className="rounded-lg border border-[#c9dbfb] bg-[#f7faff] px-3 py-2.5 text-[11px] text-[#34568a] flex items-center gap-2">
+                  <Loader2 size={12} className="animate-spin" /> The AI is reading the chat and writing the task…
+                </div>
+              ) : (
+                <AddTaskForm key={`${pending.id}:${taskDraft.title}`} contactId={pending.contactId} contactName={pending.contactName}
+                  initialTitle={taskDraft.title} initialBody={taskDraft.details} initialDueInDays={taskDraft.dueInDays}
                   initialAssignee={pending.assignedTo ?? ""}
-                  onDone={() => setTaskFor(null)} onCancel={() => setTaskFor(null)} />
-              </div>
-            );
-          })()}
+                  aiNote="written by the AI from this chat — edit anything, then Create"
+                  onRedraft={() => void draftTask(pending)}
+                  onDone={() => { setTaskFor(null); setTaskDraft(null); }} onCancel={() => { setTaskFor(null); setTaskDraft(null); }} />
+              )}
+            </div>
+          )}
 
           {/* The AI agent for this chat — admin only. Closed by default: one
               small button. Clicking it shows the plan (or asks the AI for one);
