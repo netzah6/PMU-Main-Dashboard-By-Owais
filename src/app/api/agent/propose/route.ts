@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { agentAccess, inScope } from "@/lib/agent-access";
 import { proposeForConversation } from "@/lib/agent";
 
 export const maxDuration = 60; // reads the chat, triages it and drafts the reply
@@ -13,10 +14,9 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const svc = createServiceClient();
-  const { data: roleRow } = await svc.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
-  if ((roleRow as { role?: string } | null)?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 });
-  }
+  // Admins, and coaches for their own clients (src/lib/agent-access.ts).
+  const access = await agentAccess(svc, user);
+  if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as {
     conversationId?: string; contactId?: string | null; contactName?: string; channel?: string | null;
@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
   };
   const conversationId = String(body.conversationId ?? "").trim();
   if (!conversationId) return NextResponse.json({ error: "conversationId required" }, { status: 400 });
+  if (!inScope(access, body.contactName)) return NextResponse.json({ error: "This client is not in your book" }, { status: 403 });
 
   try {
     const r = await proposeForConversation({

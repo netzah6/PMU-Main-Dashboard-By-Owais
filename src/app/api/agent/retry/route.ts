@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { agentAccess, canAct } from "@/lib/agent-access";
 import { isLiveClaim, proposeForConversation, type Proposal } from "@/lib/agent";
 import { resolveClientByHint, resolveClientLocation } from "@/lib/agent-exec";
 
@@ -18,10 +19,9 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const svc = createServiceClient();
-  const { data: roleRow } = await svc.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
-  if ((roleRow as { role?: string } | null)?.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden — admin only" }, { status: 403 });
-  }
+  // Admins, and coaches for their own clients (src/lib/agent-access.ts).
+  const access = await agentAccess(svc, user);
+  if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json().catch(() => ({}))) as { id?: string; note?: string };
   const id = String(body.id ?? "").trim();
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
 
   const { data: row } = await svc.from("agent_proposals").select("*").eq("id", id).maybeSingle();
   if (!row) return NextResponse.json({ error: "Card not found" }, { status: 404 });
+  if (!canAct(access, row as { contact_name?: string | null; action_detail?: string | null; action_type?: string | null; client_message?: string | null })) return NextResponse.json({ error: "Only the owner can retry this card" }, { status: 403 });
   const p = row as Proposal;
   if (p.status === "queued_browser" || p.status === "running") return NextResponse.json({ error: "The Mac Mini is on this one — wait for it to finish" }, { status: 409 });
   if (p.status === "pending" && isLiveClaim(p)) return NextResponse.json({ error: "Already being approved — refresh in a moment" }, { status: 409 });

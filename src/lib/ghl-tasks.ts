@@ -3,7 +3,17 @@ import { getSheetsClient } from "@/lib/sheets";
 // Resolve the "PMU Bookings On Demand" sub-account (locationId + private token)
 // from the "Private Integrations - GHL" keys sheet. Tasks are read from this
 // account only.
+// Cached per warm instance (10 min): the keys sheet changes rarely and every
+// AI-tab request (chat list, thread, draft, send) re-read it from Google
+// Sheets, ~0.5–1 s each (speed-up, owner 10/19/2026).
+let acctCache: { at: number; value: { locationId: string; token: string } | null } | null = null;
 export async function getPmuTasksAccount(): Promise<{ locationId: string; token: string } | null> {
+  if (acctCache && Date.now() - acctCache.at < 10 * 60_000 && acctCache.value) return acctCache.value;
+  const value = await readPmuTasksAccount();
+  if (value) acctCache = { at: Date.now(), value };
+  return value;
+}
+async function readPmuTasksAccount(): Promise<{ locationId: string; token: string } | null> {
   const sheetId = process.env.GHL_KEYS_SHEET_ID;
   if (!sheetId) return null;
   const sheets = await getSheetsClient();

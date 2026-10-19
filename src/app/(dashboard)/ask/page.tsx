@@ -50,7 +50,7 @@ export default function AskPage() {
   const [convsError, setConvsError] = useState<string | null>(null);
   // Members are server-filtered to their own assigned chats; admins get
   // everything plus the roster and this client-side filter.
-  const [role, setRole] = useState<"admin" | "member">("member");
+  const [role, setRole] = useState<"admin" | "editor" | "member">("member");
   const [roster, setRoster] = useState<{ id: string; name: string }[]>([]);
   const [filterUser, setFilterUser] = useState<string>("all");
   const [showChats, setShowChats] = useState(false); // mobile toggle
@@ -187,6 +187,7 @@ export default function AskPage() {
     if (!opts?.silent) { setProposalsLoading(true); setProposalsErr(null); }
     try {
       const res = await fetch("/api/agent/proposals");
+      if (res.status === 403) { setProposals([]); return; } // members: no agent
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load agent requests");
       if (req !== proposalsReq.current) return; // a newer load or local change won
@@ -208,7 +209,10 @@ export default function AskPage() {
       ? `https://app.gohighlevel.com/v2/location/${locationId}/contacts/detail/${c.contactId}`
       : locationId ? `https://app.gohighlevel.com/v2/location/${locationId}/conversations/conversations/${c.id}` : "",
   [locationId]);
-  useEffect(() => { loadConvs(); }, [loadConvs]);
+  // Chats and agent cards load in PARALLEL (the cards used to wait for the
+  // chat list to come back with the role — the slowest call, 10/19/2026).
+  // Members get a 403 and simply see no cards.
+  useEffect(() => { loadConvs(); loadProposals({ silent: true }); }, [loadConvs, loadProposals]);
 
   // Keep the inbox fresh for the team: silently re-fetch every 25s while the
   // page is visible, and right away when someone comes back to the tab, so new
@@ -221,7 +225,7 @@ export default function AskPage() {
       if (document.visibilityState !== "visible" || Date.now() - lastRun < 5_000) return;
       lastRun = Date.now();
       loadConvs({ silent: true });
-      if (role === "admin") loadProposals({ silent: true });
+      if (role !== "member") loadProposals({ silent: true });
     };
     const t = setInterval(refresh, 25_000);
     document.addEventListener("visibilitychange", refresh);
@@ -257,7 +261,7 @@ export default function AskPage() {
 
   // Agent cards are admin-only — members never fetch (or see) them.
   useEffect(() => {
-    if (role === "admin") loadProposals();
+    if (role !== "member") loadProposals();
   }, [role, loadProposals]);
 
   // Closing the composer (X, Send, Generate draft, 🕵️) closes its agent
@@ -552,13 +556,16 @@ export default function AskPage() {
 
   // Agent view-model — empty for members, so none of the agent UI renders.
   const isAdmin = role === "admin";
-  const agentPending = isAdmin ? proposals.filter((p) => p.status === "pending") : [];
+  // Coaches get the agent too (owner, 10/19/2026) — the server scopes their
+  // cards to their own clients and refuses sensitive ones.
+  const agentOk = isAdmin || role === "editor";
+  const agentPending = agentOk ? proposals.filter((p) => p.status === "pending") : [];
   const cardConvIds = new Set(agentPending.map((p) => p.conversation_id));
   // The open chat's cards; approved ones stay (pinned) to show their proof.
-  const convCards = isAdmin && pending
+  const convCards = agentOk && pending
     ? proposals.filter((p) => p.conversation_id === pending.id && (p.status === "pending" || pinned.has(p.id)))
     : [];
-  const agentOpen = isAdmin && !!pending && agentOpenFor === pending.id;
+  const agentOpen = agentOk && !!pending && agentOpenFor === pending.id;
   const approvingHere = convCards.some((p) => approvingIds.has(p.id));
   const checkingHere = !!pending && proposing.has(pending.id);
   // The thread gets shorter when the panel opens — keep the newest messages
@@ -568,7 +575,7 @@ export default function AskPage() {
     const el = threadRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [shortThread]);
-  const openCard = isAdmin && openCardId ? proposals.find((p) => p.id === openCardId) ?? null : null;
+  const openCard = agentOk && openCardId ? proposals.find((p) => p.id === openCardId) ?? null : null;
 
   const chatList = (
     <>
@@ -588,7 +595,7 @@ export default function AskPage() {
           <span className="text-xs font-bold text-[#1f3559] flex items-center gap-1.5"><MessageCircle size={13} className="text-[#15B7AE]" /> Your unread chats {shownConvs.length > 0 && <span className="px-1.5 rounded-full bg-[#fde8ee] text-[#e11d48] text-[10px] font-bold">{shownConvs.length}</span>}</span>
         )}
         <div className="flex items-center gap-0.5">
-          {isAdmin && (
+          {agentOk && (
             // Where the old Agent tab's scan log, history and SMS settings live now.
             <button onClick={() => {
               // Give the activity view the whole main area — an open chat squeezed it to nothing.
@@ -600,7 +607,7 @@ export default function AskPage() {
               🕵️{agentPending.length > 0 && <span className="px-1 rounded-full bg-[#e11d48] text-white text-[9px] font-bold">{agentPending.length}</span>}
             </button>
           )}
-          <button onClick={() => { loadConvs(); if (isAdmin) loadProposals({ silent: true }); }} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading || proposalsLoading ? "animate-spin" : ""} /></button>
+          <button onClick={() => { loadConvs(); if (agentOk) loadProposals({ silent: true }); }} title="Refresh" className="p-1 rounded text-[#8595a8] hover:text-[#0e8f88]"><RefreshCw size={13} className={convsLoading || proposalsLoading ? "animate-spin" : ""} /></button>
         </div>
       </div>
       {isAdmin && listView === "winback" ? (
@@ -664,7 +671,7 @@ export default function AskPage() {
         </div>
       )}
       <p className="px-3 py-2 border-t border-[#eef3f8] text-[9px] text-[#a6b3c4]">
-        {isAdmin
+        {agentOk
           ? "Click a chat → draft a reply, or 🪄 let the AI handle it (you approve first)"
           : "Click a chat → add an optional note → the AI drafts a reply in your voice"}
       </p>
@@ -698,8 +705,8 @@ export default function AskPage() {
         </button>
       </div>
 
-      {showActivity && isAdmin ? (
-        <AgentActivity proposals={proposals} lastScan={lastScan} worker={workerBeat} loading={proposalsLoading} err={proposalsErr}
+      {showActivity && agentOk ? (
+        <AgentActivity admin={isAdmin} proposals={proposals} lastScan={lastScan} worker={workerBeat} loading={proposalsLoading} err={proposalsErr}
           onRefresh={() => loadProposals()} onOpen={openProposal} onClose={() => setShowActivity(false)} />
       ) : (
       <div ref={msgsBoxRef} onScroll={(e) => { const el = e.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; }}
@@ -808,7 +815,7 @@ export default function AskPage() {
           {/* The AI agent for this chat — admin only. Closed by default: one
               small button. Clicking it shows the plan (or asks the AI for one);
               nothing is sent or changed until Approve on the card. */}
-          {isAdmin && !agentOpen && (
+          {agentOk && !agentOpen && (
             <button onClick={() => showAgent(pending)}
               className="mb-2.5 px-2.5 py-1 rounded-lg border border-[#c9dbfb] bg-white text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88] flex items-center gap-1.5">
               {checkingHere
@@ -1056,8 +1063,8 @@ const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", f
 // SMS settings, what the last scan did and why it skipped chats, a short
 // list of what's waiting, and the decided history. Opened from 🕵️ in the
 // chats header; the data comes from the page so there is one list to refresh.
-function AgentActivity({ proposals, lastScan, worker, loading, err, onRefresh, onOpen, onClose }: {
-  proposals: AgentProposal[]; lastScan: ScanLog | null; worker: WorkerBeat; loading: boolean; err: string | null;
+function AgentActivity({ admin, proposals, lastScan, worker, loading, err, onRefresh, onOpen, onClose }: {
+  admin: boolean; proposals: AgentProposal[]; lastScan: ScanLog | null; worker: WorkerBeat; loading: boolean; err: string | null;
   onRefresh: () => void; onOpen: (p: AgentProposal) => void; onClose: () => void;
 }) {
   const [showSkipped, setShowSkipped] = useState(false);
@@ -1086,9 +1093,9 @@ function AgentActivity({ proposals, lastScan, worker, loading, err, onRefresh, o
           </div>
         );
       })()}
-      <NewTaskBox onCreated={onRefresh} />
-      <NotifySettingsBox />
-      {lastScan && (
+      <NewTaskBox onCreated={onRefresh} coach={!admin} />
+      {admin && <NotifySettingsBox />}
+      {admin && lastScan && (
         <div className="text-[11px] text-[#8595a8] flex items-center gap-2 flex-wrap">
           <span>Last scan {timeAgo(lastScan.at)} ago · {lastScan.unread} unread chats · {lastScan.scanned} new checked · <b className="text-[#1f3559]">{lastScan.filed} filed</b>{lastScan.closed ? ` · ${lastScan.closed} closed (answered in chat)` : ""}{lastScan.notify?.sent ? " · you were texted" : ""}</span>
           {lastScan.skipped?.length > 0 && (
