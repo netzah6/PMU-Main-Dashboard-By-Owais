@@ -128,7 +128,7 @@ async function findContact(acct: PmuAccount, p: SheetPerson): Promise<{ contact:
   return { contact: null, note: "Not found in PMU Bookings On Demand by email or phone" };
 }
 
-async function setTag(acct: PmuAccount, contactId: string, add: boolean): Promise<boolean> {
+export async function setTag(acct: PmuAccount, contactId: string, add: boolean): Promise<boolean> {
   const r = await fetchWithBackoff(`${GHL_BASE}/contacts/${contactId}/tags`, {
     method: add ? "POST" : "DELETE",
     headers: { Authorization: `Bearer ${acct.token}`, Version: "2021-07-28", "Content-Type": "application/json" },

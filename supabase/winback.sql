@@ -28,3 +28,23 @@ alter table public.winback_contacts add column if not exists review_verdict text
 alter table public.winback_contacts add column if not exists review_note text;
 alter table public.winback_contacts add column if not exists review_quote text;
 alter table public.winback_contacts add column if not exists reviewed_at timestamptz;
+
+-- Win-back text sequence (owner, 2026-10-10; confirmed 2026-10-19): small daily
+-- batches, newest leavers first, a human answers replies. Per person:
+-- day-0 text → day-3 nudge → day-7 email → day-14 close-out, then the silent
+-- ones get the win-back-no-reply tag. Sent by the winback-send cron.
+alter table public.winback_contacts add column if not exists batch_no int;                 -- 1, 2, 3… the daily batch this person started in
+alter table public.winback_contacts add column if not exists batch_started_at timestamptz;
+alter table public.winback_contacts add column if not exists step int not null default 0; -- 0 not started · 1 day-0 text sent · 2 day-3 nudge · 3 day-7 email · 4 day-14 close-out
+alter table public.winback_contacts add column if not exists next_due_at timestamptz;      -- when the cron may send the next step (null = nothing pending)
+alter table public.winback_contacts add column if not exists last_sent_at timestamptz;
+alter table public.winback_contacts add column if not exists replied_at timestamptz;       -- her reply after we started (the first one the cron saw)
+alter table public.winback_contacts add column if not exists stopped_reason text check (stopped_reason in ('replied', 'opted_out', 'failed', 'finished', 'current_client', 'human'));
+alter table public.winback_contacts add column if not exists send_error text;              -- last GHL send error, or why a current client was stopped
+create index if not exists winback_contacts_due_idx on public.winback_contacts (next_due_at) where batch_started_at is not null and stopped_reason is null;
+-- 'human' (2026-10-19): a teammate wrote to her by hand after the batch started,
+-- so the sequence stepped aside. Re-stated here so a table that got the column
+-- before this value existed accepts it too (the inline check above is skipped
+-- once the column exists).
+alter table public.winback_contacts drop constraint if exists winback_contacts_stopped_reason_check;
+alter table public.winback_contacts add constraint winback_contacts_stopped_reason_check check (stopped_reason in ('replied', 'opted_out', 'failed', 'finished', 'current_client', 'human'));
