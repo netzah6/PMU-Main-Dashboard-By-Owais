@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scanForProposals } from "@/lib/agent";
 import { learnFromSentReplies } from "@/lib/reply-learning";
+import { checkWorkerOffline } from "@/lib/agent-worker";
+import { textOwner } from "@/lib/agent-notify";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -17,5 +20,7 @@ export async function GET(req: NextRequest) {
   // Then learn: pair past AI drafts with what the team really sent (also
   // texts sent straight from GHL). Best-effort — never fails the scan.
   const learned = await learnFromSentReplies().catch((e) => ({ error: e instanceof Error ? e.message : "failed" }));
-  return NextResponse.json({ ...out, learned });
+  // Mac Mini heartbeat: text the owner once when it goes quiet, once when it's back.
+  const worker = await checkWorkerOffline(createServiceClient(), textOwner).catch((e) => ({ error: e instanceof Error ? e.message : "failed" }));
+  return NextResponse.json({ ...out, learned, worker });
 }

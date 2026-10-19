@@ -38,10 +38,15 @@ export type WorkerTask = {
 
 /* Release dead claims, then claim the oldest queued card. One worker today,
    so a conditional update (status still queued_browser) is enough. */
-export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | null> {
+/* "I'm alive" — written on every claim and every mid-task ping. */
+export async function touchWorker(svc: Svc, host: string, task?: string): Promise<void> {
   await svc.from("app_settings").upsert({
-    key: WORKER_KEY, value: { at: new Date().toISOString(), host }, updated_by: "worker", updated_at: new Date().toISOString(),
+    key: WORKER_KEY, value: { at: new Date().toISOString(), host, ...(task ? { task } : {}) }, updated_by: "worker", updated_at: new Date().toISOString(),
   });
+}
+
+export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | null> {
+  await touchWorker(svc, host);
 
   const staleBefore = new Date(Date.now() - STALE_MS).toISOString();
   const { data: stale } = await svc.from("agent_proposals").select("id, browser_attempts, result, conversation_id")
@@ -196,3 +201,41 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
   } catch { /* the card has the proof */ }
   return { ok: true };
 }
+
+/* ── Offline alert (10/19/2026) ───────────────────────────────────────────────
+   The worker was dead 16 h before anyone noticed. Every 10 min (agent-scan
+   cron): if the last heartbeat is older than OFFLINE_ALERT_MS, text the owner
+   ONCE for that outage (keyed on the heartbeat we alerted on, so the same
+   outage never texts twice) and say what to do. When it comes back, one
+   "back online" text, then the key clears. Never throws. */
+const OFFLINE_ALERT_MS = 20 * 60_000;
+const ALERT_KEY = "agent_worker_alert";
+export async function checkWorkerOffline(svc: Svc, textOwner: (svc: Svc, msg: string) => Promise<{ sent: boolean; note: string }>): Promise<{ state: "online" | "offline"; texted?: string }> {
+  const [{ data: hb }, { data: al }] = await Promise.all([
+    svc.from("app_settings").select("value").eq("key", WORKER_KEY).maybeSingle(),
+    svc.from("app_settings").select("value").eq("key", ALERT_KEY).maybeSingle(),
+  ]);
+  const at = String((hb?.value as { at?: string } | null)?.at ?? "");
+  const alerted = String((al?.value as { at?: string } | null)?.at ?? "");
+  const age = at ? Date.now() - Date.parse(at) : Infinity;
+  const offline = age > OFFLINE_ALERT_MS;
+  const { count } = await svc.from("agent_proposals").select("*", { count: "exact", head: true }).in("status", ["queued_browser", "running"]);
+  const save = (value: Record<string, unknown> | null) => value
+    ? svc.from("app_settings").upsert({ key: ALERT_KEY, value, updated_by: "cron", updated_at: new Date().toISOString() })
+    : svc.from("app_settings").delete().eq("key", ALERT_KEY);
+  if (offline && alerted !== at) {
+    const mins = Number.isFinite(age) ? Math.round(age / 60_000) : null;
+    const waiting = count ? ` ${count} task${count === 1 ? " is" : "s are"} waiting.` : "";
+    const msg = `🖥️ Mac Mini worker is offline${mins ? ` (last seen ${mins} min ago)` : ""}.${waiting} On the Mini: make sure it is awake and online, then in Terminal run: launchctl kickstart -k gui/$(id -u)/com.pmu.agent-worker — if Claude asks to sign in, sign in and it restarts by itself.`;
+    const r = await textOwner(svc, msg).catch((e) => ({ sent: false, note: e instanceof Error ? e.message : "failed" }));
+    await save({ at, texted_at: new Date().toISOString(), note: r.note });
+    return { state: "offline", texted: r.note };
+  }
+  if (!offline && alerted) {
+    const r = await textOwner(svc, "🖥️ Mac Mini worker is back online and taking tasks again.").catch((e) => ({ sent: false, note: e instanceof Error ? e.message : "failed" }));
+    await save(null);
+    return { state: "online", texted: r.note };
+  }
+  return { state: offline ? "offline" : "online" };
+}
+

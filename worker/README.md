@@ -26,3 +26,27 @@ Each run's files (screenshots, Claude output) are in `~/.pmu-agent/runs/`.
 - The GoHighLevel user (aiagent@pmu-bookings.com) has no Conversations, Marketing, Payments,
   Phone or Agency-settings access — and can be switched off in GHL in seconds.
 - `~/.pmu-agent/.env` (the worker key) stays private (mode 600); never paste it into a chat.
+
+## If the dashboard says "Mac Mini offline"
+
+The worker restarts itself when it hangs or crashes (watchdog + launchd KeepAlive, 10/19/2026), and the owner gets one text per outage. If it still shows offline, on the Mini:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.pmu.agent-worker
+```
+
+Then check it is talking to the dashboard:
+
+```bash
+tail -5 ~/.pmu-agent/worker.log
+```
+
+If the log says Claude is signed out, open Terminal on the Mini, run `claude`, sign in, then run the kickstart line again.
+
+## Updating the worker on the Mini
+
+After a change to `worker/agent-worker.mjs` lands on main, on the Mini (repo cloned there):
+
+```bash
+git -C ~/PMU-Main-Dashboard-By-Owais pull && cp ~/PMU-Main-Dashboard-By-Owais/worker/agent-worker.mjs ~/.pmu-agent/agent-worker.mjs && launchctl kickstart -k gui/$(id -u)/com.pmu.agent-worker
+```
