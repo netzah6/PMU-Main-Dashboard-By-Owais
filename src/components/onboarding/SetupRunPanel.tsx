@@ -19,7 +19,7 @@ import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, OP
 type Card = { status: string; screenshots: Array<{ name: string; url: string }>; result: string | null };
 type Pool = { choices: Array<{ id: string; name: string; readiness: string; blocker: string | null }>; defaultId: string | null; note?: string };
 type Setup = Omit<SetupState, "password"> & { has_password: boolean };
-type Data = { setup: Setup | null; cards: Record<string, Card>; pool: Pool | null; claimedLocation: string | null; canApprove: boolean };
+type Data = { setup: Setup | null; cards: Record<string, Card>; pool: Pool | null; claimedLocation: string | null; canApprove: boolean; autofilled?: string[] };
 
 // Steps the AI Agent does by itself (the dashboard's API steps count too — to
 // a coach both are "done for you"); the rest are done by hand.
@@ -86,6 +86,9 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
   // dropdown changed (poolId is read through a ref, not a dependency).
   const poolIdRef = useRef(poolId);
   poolIdRef.current = poolId;
+  // The page passes a fresh arrow each render — keep it in a ref so load() stays stable.
+  const onChangedRef = useRef(onChanged);
+  useEffect(() => { onChangedRef.current = onChanged; }, [onChanged]);
   const load = useCallback(async (quiet = false) => {
     try {
       const r = await fetch(`/api/onboarding/${onboardingId}/setup`, { cache: "no-store" });
@@ -93,6 +96,8 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
       if (!r.ok) throw new Error(j.error || "Could not load the setup run");
       setData(j); setErr(null);
       if (!poolIdRef.current && j.pool?.defaultId) setPoolId(j.pool.defaultId);
+      // The server just filled fields from the Clients tab → refresh the card's form.
+      if (Array.isArray(j.autofilled) && j.autofilled.length) { toast.success(`Filled from the Clients tab: ${j.autofilled.join(", ").replace(/_/g, " ")}`); onChangedRef.current?.(); }
     } catch (e) { if (!quiet) setErr(`${e}`.replace("Error: ", "")); }
   }, [onboardingId]);
   useEffect(() => { void load(); }, [load]);
@@ -271,7 +276,14 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
             {PREAPPROVABLE.map((p) => (
               <label key={p.key} className="flex items-start gap-1.5 text-[11px] text-[#1f3559] mt-0.5" title={p.label}>
                 <input type="checkbox" checked={preapproved.includes(p.key)} onChange={(e) => setPreapproved((v) => (e.target.checked ? [...v, p.key] : v.filter((k) => k !== p.key)))} className="mt-0.5" />
-                <span>{p.title} <span className="text-[#8595a8]">— {p.label}</span></span>
+                {p.key === "funnel_ig" ? (
+                  <span>{p.title} — {String(form.ig_link ?? "").trim()
+                    ? <a href={/^https?:/i.test(form.ig_link) ? form.ig_link : `https://instagram.com/${form.ig_link.replace(/^@/, "")}`} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">{form.ig_link} ↗</a>
+                    : <span className="text-[#b35a00]">no Instagram link on the form — add it, or untick to skip the widget</span>}
+                    <span className="text-[#8595a8]"> · check the page first (9+ posts, profile picture)</span></span>
+                ) : (
+                  <span>{p.title} <span className="text-[#8595a8]">— {p.label}</span></span>
+                )}
               </label>
             ))}
           </div>
