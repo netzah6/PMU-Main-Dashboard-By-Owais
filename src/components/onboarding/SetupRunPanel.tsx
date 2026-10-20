@@ -103,15 +103,20 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
       const first = String(form.owner_name ?? "").trim().split(/\s+/)[0] || "there";
       const funnel = data?.setup?.funnel_url ?? "";
       const lines = [
-        `Hi ${first}! 🎉 Your PMU Bookings On Demand setup for ${form.business_name} is ready.`,
+        `Hey ${first}! 🎉`,
         "",
-        funnel ? `Your booking funnel: ${funnel}` : "",
+        `I'm excited to share that your ${form.business_name} account is ready to go.`,
         "",
-        "Your GoHighLevel login: https://app.gohighlevel.com/",
+        "Here are your logins for the booking system:",
+        "Login page: https://app.gohighlevel.com/",
         form.email ? `Email: ${form.email}` : "",
         pw ? `Password: ${pw}` : role === "admin" ? "Password: (not set yet)" : "Password: (ask the admin)",
         "",
-        "Please log in once to confirm it works, and let us know when you'd like to go over it together. Welcome aboard!",
+        funnel ? `And here is the funnel we built for you — this is the page your ads will send clients to:\n${funnel}` : "",
+        "",
+        "Could you try logging in and let me know it works on your end? If you have any questions at all, just reply here — I'm happy to help.",
+        "",
+        "Welcome aboard!",
       ];
       await navigator.clipboard.writeText(lines.filter((l, i, a) => l !== "" || a[i - 1] !== "").join("\n").trim());
       toast.success("Message copied — paste it to the client, then mark the step completed");
@@ -263,6 +268,13 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                 {busy === "password" ? <Loader2 size={12} className="animate-spin" /> : password ? <EyeOff size={12} /> : <Eye size={12} />} {password ? "hide" : "show"}
               </button>
             </span>
+          )}
+          {/* Owner 10/20/2026: the welcome text for the client, one click to copy. */}
+          {setup.has_password && (
+            <button onClick={() => void copyClientMessage()} disabled={!!busy} title="Copy the welcome message with the funnel link and login — paste it to the client"
+              className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
+              {busy === "copy" ? <Loader2 size={11} className="animate-spin inline" /> : "📋"} Copy welcome message
+            </button>
           )}
         </div>
       )}
