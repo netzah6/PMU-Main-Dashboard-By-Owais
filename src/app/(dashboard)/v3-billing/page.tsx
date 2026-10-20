@@ -205,6 +205,34 @@ function CopyListButton({ ownerKey, className }: { ownerKey: string; className?:
   );
 }
 
+// ── Drill-down fold ──────────────────────────────────────────────────────────
+// Each block of the open row (Square data, charges that went through, the
+// contacts) sits behind its own fold, closed by default (owner, 2026-10-20):
+// "sometimes we only want to see that the charge went through, or we just come
+// for the Square data". The header carries the one-line summary so a closed
+// fold still answers the quick question.
+function Section({ title, summary, tone = "gray", defaultOpen = false, action, children }: {
+  title: string; summary?: React.ReactNode; tone?: "gray" | "green" | "teal";
+  defaultOpen?: boolean; action?: React.ReactNode; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const head = tone === "green" ? "text-[#15803d]" : tone === "teal" ? "text-[#0e8f88]" : "text-[#34568a]";
+  return (
+    <div className="rounded-lg border border-[#e4ebf2] bg-white">
+      <div className="flex items-center gap-2 px-2.5 py-1.5">
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+          className="flex items-center gap-2 flex-1 min-w-0 text-left">
+          <ChevronRight size={13} className={cn("shrink-0 text-[#8595a8] transition-transform", open && "rotate-90")} />
+          <span className={cn("text-[11px] font-bold whitespace-nowrap", head)}>{title}</span>
+          {summary && <span className="text-[11px] text-[#697a91] truncate">{summary}</span>}
+        </button>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+      {open && <div className="px-2.5 pb-2.5 pt-0.5 border-t border-[#eef3f8]">{children}</div>}
+    </div>
+  );
+}
+
 // ── Appointment tracker (drill-down) ─────────────────────────────────────────
 function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: () => void }) {
   const [drill, setDrill] = useState<Drill | null>(null);
@@ -298,24 +326,23 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
 
   return (
     <div className="space-y-3 pt-1">
-      {/* Show rate — from our review decisions (charged = showed, excluded no-show = didn't) */}
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      {/* One line (owner, 2026-10-20 — "to save some scrolling"): show rate
+          from our review decisions, then the deposit snapshot. Scrolls
+          sideways on a narrow screen instead of wrapping into two rows. */}
+      <div className="flex items-center gap-1.5 text-[11px] whitespace-nowrap overflow-x-auto pb-0.5">
         <span className="px-2 py-0.5 rounded-md font-bold border bg-[#eef7ff] text-[#1d4ed8] border-[#c9dbfb]">
-          Show rate: {s.showRate == null ? "—" : `${s.showRate}%`}
-          <span className="font-normal text-[#64748b]"> ({s.showed} showed / {s.noShowMarked} no-show)</span>
+          Show rate {s.showRate == null ? "—" : `${s.showRate}%`}
+          <span className="font-normal text-[#64748b]"> · {s.showed} showed / {s.noShowMarked} no-show</span>
         </span>
-        {s.excluded > 0 && <Pill label="Excluded" value={s.excluded} tone="gray" />}
         {(s.refunded ?? 0) > 0 && <Pill label="Refunded" value={s.refunded!} tone="amber" />}
-      </div>
-      {/* Deposit-linked snapshot */}
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-        <span className="text-[#8595a8]">These deposits:</span>
+        {s.excluded > 0 && <Pill label="Excluded" value={s.excluded} tone="gray" />}
+        <span className="text-[#c4ced9]">|</span>
         <Pill label="Served" value={s.served} tone="green" />
         <Pill label="Past due" value={s.pastDue} tone={s.pastDue > 0 ? "amber" : "gray"} />
         <Pill label="Upcoming" value={s.upcoming} tone="gray" />
-        {(s.selfBooked ?? 0) > 0 && <Pill label="Self-booked (no deposit)" value={s.selfBooked!} tone="amber" />}
+        {(s.selfBooked ?? 0) > 0 && <Pill label="Self-booked" value={s.selfBooked!} tone="amber" />}
         {s.noshow > 0 && <Pill label="No-show" value={s.noshow} tone="gray" />}
-        {s.noAppt > 0 && <Pill label="No appt booked" value={s.noAppt} tone="gray" />}
+        {s.noAppt > 0 && <Pill label="No appt" value={s.noAppt} tone="gray" />}
       </div>
 
       {/* Exactly WHO is ready to charge — names, path, and date — so the
@@ -338,14 +365,16 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
 
       {/* Every charge that actually went through — the keep-track trail the
           user asked for: date, amount, shows covered, who ran it, receipt. */}
-      {(drill.payments?.length ?? 0) > 0 && (
-        <div className="rounded-lg border border-[#c7edd4] bg-[#f4fbf7] px-2.5 py-2">
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[#15803d]">✅ Charged &amp; went through</div>
-            <CopyListButton ownerKey={client.ownerKey} />
-          </div>
+      {(drill.payments?.length ?? 0) > 0 && (() => {
+        const pays = drill.payments!;
+        const total = pays.reduce((n, p) => n + (p.total || 0), 0);
+        const last = pays.map((p) => p.chargedAt).filter(Boolean).sort().at(-1);
+        return (
+        <Section title="✅ Charged & went through" tone="green"
+          summary={`${pays.length} charge${pays.length === 1 ? "" : "s"} · ${money(total)}${last ? ` · last ${fmtDate(last)}` : ""}`}
+          action={<CopyListButton ownerKey={client.ownerKey} />}>
           <div className="space-y-0.5">
-            {drill.payments!.map((p, i) => (
+            {pays.map((p, i) => (
               <div key={i} className="flex items-center gap-2 text-[11px] text-[#1f3559] flex-wrap">
                 <span className="font-semibold text-[#15803d]">{money(p.total)}</span>
                 {(p.credit ?? 0) > 0 && <span className="text-[10px] text-[#697a91]">({money(p.gross ?? 0)} less {money(p.credit ?? 0)} credit)</span>}
@@ -365,19 +394,18 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
               </div>
             ))}
           </div>
-        </div>
-      )}
+        </Section>
+        );
+      })()}
 
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-[#697a91]">{drill.appointments.length} deposit{drill.appointments.length === 1 ? "" : "s"} · <strong className="text-[#0e8f88]">{readyCount} to review</strong></span>
-        {readyCount > 0 && (
+      <Section title="👤 Contacts we charge for" tone="teal"
+        summary={<>{drill.appointments.length} deposit{drill.appointments.length === 1 ? "" : "s"}{readyCount > 0 && <> · <strong className="text-[#0e8f88]">{readyCount} to review</strong></>}</>}
+        action={readyCount > 0 ? (
           <button onClick={chargeAllReady}
             className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-[#e6f7f5] hover:bg-[#d6f0ed] text-[#0e8f88] border border-[#a7e3df]">
             <Check size={11} /> Mark all charged manually ({money(readyCount * client.fee)})
           </button>
-        )}
-      </div>
-
+        ) : undefined}>
       {drill.appointments.length === 0 ? (
         <div className="text-xs text-[#8595a8] py-4 text-center border border-dashed border-[#e4ebf2] rounded-lg">
           No deposits found for this client{client.business ? ` (matched by business name "${client.business}")` : ""}.
@@ -484,6 +512,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
           </table>
         </div>
       )}
+      </Section>
     </div>
   );
 }
@@ -667,8 +696,19 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
       {open && (
         <tr className="border-b border-[#e4ebf2] bg-[#fbfcfe]">
           <td colSpan={COLS} className="px-4 py-3">
-            <div className="space-y-3">
-              <PaymentDetails v={v} onMsg={setPayMsg} onReload={onVerifyReload} />
+            <div className="space-y-2">
+              {/* Square customer + cards — folded; the header says which
+                  card will be charged so the fold rarely needs opening. */}
+              <Section title="💳 Square" tone="gray"
+                summary={v ? (() => {
+                  const card = v.cards.find((x) => x.wouldCharge);
+                  const warn = v.flags.filter((f) => f.level !== "info").length;
+                  return <>{v.match ? v.match.customerName : <span className="text-[#be123c]">no Square customer</span>}
+                    {card ? ` · ${card.brand} ••${card.last4}` : v.match ? " · no usable card" : ""}
+                    {warn > 0 && <span className="ml-1 text-[#b45309]">· {warn} note{warn === 1 ? "" : "s"}</span>}</>;
+                })() : "checking…"}>
+                <PaymentDetails v={v} onMsg={setPayMsg} onReload={onVerifyReload} />
+              </Section>
               <AppointmentList client={c} onCharged={onChange} />
             </div>
           </td>
