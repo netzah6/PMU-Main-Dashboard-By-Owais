@@ -34,7 +34,7 @@ export async function POST(req: Request) {
   if (!acct) return NextResponse.json({ error: "Account not found" }, { status: 404 });
 
   // 🔁 Win-back people are recognised inside draftReplyFor (by contactId), so
-  // the AI chat and the Agent cards get the same offer-aware flow.
+  // the AI chat's draft tool gets the same offer-aware flow as this button.
   const instructions = body.instructions;
 
   try {

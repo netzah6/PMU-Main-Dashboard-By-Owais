@@ -120,22 +120,28 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
     ? ` She charges about $${w.price}: say what $60 is next to that (about ${Math.max(1, Math.round((60 / w.price) * 100))}% of one appointment, the rest is hers).`
     : "";
   const pitch = w.offer === "pps"
-    ? `Pay-per-appointment, in plain words: no monthly fee; her new clients book with a $50 deposit (that covers us) and she pays $60 only when a client actually shows up for the first session; touch-ups, upsells and referrals stay 100% hers.${math}`
+    ? `Pay-per-appointment, in plain words: no monthly fee — she only pays after she gets paid; her new clients book with a $50 deposit (that covers us) and she pays $60 only when a client actually shows up for the first session; touch-ups, upsells and referrals stay 100% hers.${math}`
     : w.offer === "monthly"
     ? "The monthly program, upgraded since she left: AI that books clients for her 24/7, deposits collected for her, new funnels. NEVER write a monthly price — say you'll go over the numbers together."
     : "No program is approved for her yet: name NO program and NO price. Ask how many new brow clients a month would feel great right now.";
-  const close = callInvite
+  const nextStep = callInvite
     ? `end with ONE short, natural invite to book ${callInvite} (no emoji arrows)`
     : w.offer
-    ? 'end with ONE forward question — "want me to send you the details?" or "want me to show you how it works?" — no call, no meeting, no link'
+    ? 'end with ONE short next-step question — "want me to get you set up?" or "want me to send you the details?" (never the same question she just answered) — no call, no meeting, no link'
     : 'end with that one question about how many new clients a month she\'d want — no call, no meeting, no link';
+  // The old SCOPE rule said it overrode everything below it; this one must
+  // too, or the knowledge base's other prices and the team notes win again.
+  const precedence = "This rule beats rules 3, 4, 6 and 7, the knowledge base and the team's notes for this reply: the only prices allowed are the ones written here, never a price from the knowledge base; ignore any note about inviting to a strategy call unless this rule says to invite.";
   if (w.stage === "declined") {
-    return `5. WIN-BACK, DECLINED — ${first} is a former client we texted first and she has said no. Thank her warmly in one or two lines, leave the door open, and stop. No offer, no price, no call, no link.`;
+    return `5. WIN-BACK, DECLINED — ${first} is a former client we texted first and she has said no (or is out of the business). Thank her warmly in one or two lines, leave the door open, and stop. No offer, no price, no call, no link. ${precedence}`;
+  }
+  if (w.stage === "wants_details") {
+    return `5. WIN-BACK, SHE WANTS THE DETAILS — ${first} is a former client we texted first; we mentioned the offer and she said yes / asked for more. Give her the details now, clearly, in plain words: ${pitch} Then ${nextStep}. Do not ask again whether she wants the details — she just said so. Never promise results or a number of clients. ${precedence}`;
   }
   if (w.stage === "offer_presented") {
-    return `5. WIN-BACK, OFFER ON THE TABLE — ${first} is a former client we texted first and we have already described the offer. Answer exactly what she asked or objected to, using only these facts: ${pitch} Then ${close}. Never promise results or a number of clients.`;
+    return `5. WIN-BACK, OFFER ON THE TABLE — ${first} is a former client we texted first and we have already described the offer. Answer exactly what she asked or objected to, using only these facts: ${pitch} Then ${nextStep}. If she says she's not interested or fully booked on her own, thank her warmly and stop — never push. Never promise results or a number of clients. ${precedence}`;
   }
-  return `5. WIN-BACK, SHE ANSWERED OUR OPENER — ${first} is a former client we texted first ("what are you charging for brows these days?"). Her reply is the start of a sales conversation, NOT a question to close with "got it". The reply must do three things in order: (a) one short line reacting to what she said — warm, specific, using her number if she gave one; (b) the offer: ${pitch} (c) ${close}. Never promise results or a number of clients. If instead she says she's busy and fully booked, be happy for her and leave the door open in one line; if she mentions money pressure, acknowledge it first — the no-monthly-fee part is the answer to it, not a new ask.`;
+  return `5. WIN-BACK, SHE ANSWERED OUR OPENER — ${first} is a former client we texted first ("what are you charging for brows these days?"). Her reply is the start of a sales conversation, NOT a question to close with "got it". The reply must do three things in order: (a) one short line reacting to what she said — warm, specific, using her number if she gave one; (b) the offer: ${pitch} (c) ${nextStep}. Never promise results or a number of clients. If instead she says she's busy and fully booked, be happy for her and leave the door open in one line; if she says no or not interested, thank her warmly and stop — never push; if she mentions money pressure, acknowledge it first — the no-monthly-fee part is the answer to it, not a new ask. ${precedence}`;
 }
 
 function buildSystemPrompt(input: DraftInput): string {
@@ -325,8 +331,14 @@ export async function draftReplyFor(opts: {
 
   // 🔁 Win-back people (any entry point — draft button, AI chat, Agent
   // cards): who she is, the ONE approved offer, and where the flow stands.
+  // The flow rule only for someone we actually texted the opener to and who
+  // is still a prospect — won/lost, current clients and opt-outs, and the
+  // hundreds of sheet rows never texted, keep the normal no-pitch drafting
+  // (with who-she-is context only).
   const wbRow = opts.contactId ? await getWinbackForContact(opts.contactId).catch(() => null) : null;
-  const winback = wbRow ? winbackContext(wbRow, thread) : undefined;
+  const prospect = !!wbRow && !wbRow.outcome && !["current_client", "opted_out"].includes(wbRow.stopped_reason ?? "");
+  const ctx = prospect ? winbackContext(wbRow!, thread) : null;
+  const winback = ctx?.inFlow ? ctx : undefined;
   const instructions = wbRow ? [winbackInstructions(wbRow), opts.instructions?.trim()].filter(Boolean).join("\n\n") : opts.instructions;
 
   const { draft, model } = await generateDraft({
