@@ -160,9 +160,13 @@ const PERM_LABELS: Record<string, string> = {
   assignedDataOnly: "Assigned data only", settingsEnabled: "Settings", tagsEnabled: "Tags",
 };
 const permLabel = (k: string) => PERM_LABELS[k] ?? k;
+// Owner 10/20/2026: this is the SAME list the AI Agent is told to set
+// (lib/setup-runbook, step "user_settings") — Marketing + Social planner are
+// ON by the owner's rule, so the check must not call them extras.
 const EXPECTED_PERMS_ON = new Set([
   "appointmentsEnabled", "contactsEnabled", "conversationsEnabled", "dashboardStatsEnabled",
   "mediaStorageEnabled", "onlineListingsEnabled", "opportunitiesEnabled", "reviewsEnabled",
+  "marketingEnabled", "socialPlanner",
 ]);
 // Optional — fine ON or OFF, never graded: custom-menu-link keys aren't
 // visible in the permissions UI, and "View opportunities lead value" is
@@ -171,6 +175,7 @@ const EXPECTED_PERMS_ON = new Set([
 // still returns them true on some users, but the team can't see or toggle them).
 const PERM_IGNORE = new Set([
   "customMenuLinkReadOnly", "customMenuLinkWrite", "leadValueEnabled",
+  "attributionsReportingEnabled", // GHL flips it with Marketing; not in the owner's list either way
   "adPublishingReadOnly", "affiliateManagerEnabled", "phoneCallEnabled", "reportingEnabled",
 ]);
 
@@ -288,6 +293,29 @@ async function fixAddress(raw: string): Promise<string | null> {
 
 const areaCode = (phone: string) => phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "").slice(0, 3);
 const fmtPhone = (p: string) => { const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p; };
+
+/* One pending card per sub-account: "set the address to <fixed>". Reused
+   while it is still pending, so a second Verify never doubles it. */
+async function addressFixCard(locationId: string, business: string, current: string, fixed: string): Promise<string | null> {
+  const svc = createServiceClient();
+  const conversationId = `verify:${locationId}:address`;
+  const { data: open } = await svc.from("agent_proposals").select("id").eq("conversation_id", conversationId).eq("status", "pending").limit(1).maybeSingle();
+  if (open) return (open as { id: string }).id;
+  const m = fixed.match(/^(.+?),\s*(.+?),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+  const plan = [
+    { type: "custom_value_set", name: "CC - Full Business Address", value: fixed },
+    ...(m ? [{ type: "location_address_set", address1: m[1], city: m[2], state: m[3], postalCode: m[4] }] : []),
+  ];
+  const { data: ins } = await svc.from("agent_proposals").insert({
+    conversation_id: conversationId, message_id: `address#${Date.now()}`, contact_id: null, contact_name: business, channel: null,
+    client_message: `Verify setup found the studio address "${current}" not in the clean "street, city, ST zip" form. Suggested: "${fixed}".`,
+    summary: `Fix the studio address of ${business}: "${fixed}"`.slice(0, 500),
+    action_type: "account_change", proposed_reply: null,
+    action_detail: `Set "CC - Full Business Address" and the sub-account's business address to "${fixed}" (was "${current}"). The funnel and the texts read this value.`.slice(0, 1500),
+    action_plan: plan, location_id: locationId, status: "pending",
+  }).select("id").maybeSingle();
+  return (ins as { id: string } | null)?.id ?? null;
+}
 
 export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null; checkoutUrl: string | null; usersInfo: UserInfo[]; version: string }> {
   const business = String(form.business_name ?? "").trim();
@@ -430,12 +458,18 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         && !/\b[A-Z]{3,}\b/.test(addrV) // no SHOUTING ("WASHINGTON" is not valid)
         && (!fixed || norm(fixed) === norm(addrV)); // canonical match (catches wrong ZIP / missing "St")
       if (!addrOk) {
-        if (fixed && fixed !== addrV) { fmtIssues.push(`address "${addrV}" should be:`); fmtCopies.push(fixed); }
+        if (fixed && fixed !== addrV) {
+          // Owner 10/20/2026: not a red line — a card in the AI tab that
+          // writes the clean address on Approve (custom value + profile).
+          const card = locationId ? await addressFixCard(locationId, business, addrV, fixed).catch(() => null) : null;
+          fmtIssues.push(`address "${addrV}" → suggested "${fixed}"${card ? " — Approve the card in the AI tab to apply it" : ""}`);
+          fmtCopies.push(fixed);
+        }
         else if (!fixed) fmtIssues.push(`address "${addrV}" → use "street, city, ST zip", no periods, single spaces`);
       }
     }
     if (!fmtIssues.length) push("form_contact_format", "pass", `${phoneV} · ${addrV}`);
-    else checks.push({ key: "form_contact_format", status: "fail", detail: fmtIssues.join(" | "), copy: fmtCopies });
+    else checks.push({ key: "form_contact_format", status: fmtIssues.some((i) => i.includes("suggested")) && fmtIssues.length === 1 ? "manual" : "fail", detail: fmtIssues.join(" | "), copy: fmtCopies });
 
     // Charm pricing: the funnel prices must NOT be round numbers. Anything not
     // ending in 0 is fine ($397, $375, $389…) — only $400 / $500 / $450-style
@@ -696,8 +730,12 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // business (each route = filter on name/business/product + an HTTP module
   // posting to that client's GHL webhook). Needs MAKE_API_TOKEN in the env
   // (+ optional MAKE_ZONE, MAKE_SCENARIO_ID); without it the steps stay manual.
+  // 10/20/2026: payments route through the dashboard's payment router (the
+  // one-box's webhook URL), not Make — the Make scenario is a catch-all only.
+  // The route check stays in the code for the legacy funnels but is off.
+  const MAKE_ROUTES_IN_USE = false;
   const makeToken = process.env.MAKE_API_TOKEN;
-  if (makeToken && locationId) {
+  if (MAKE_ROUTES_IN_USE && makeToken && locationId) {
     try {
       // The token's home zone is unknown, so try each until /organizations
       // answers 200 with data. Diagnostics are collected so a failure explains
@@ -811,10 +849,8 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     } catch {
       for (const k of ["make_http", "make_filter"]) push(k, "manual", "Make API error — check MAKE_API_TOKEN / MAKE_ZONE");
     }
-  } else if (!makeToken && locationId) {
-    // V3 client but the Make API isn't connected yet — say so explicitly
-    // instead of the generic "check manually".
-    for (const k of ["make_http", "make_filter"]) push(k, "manual", "Auto-check available — add MAKE_API_TOKEN in Vercel (Make.com → profile → API → token with scenarios:read) to enable it");
+  } else {
+    for (const k of ["make_http", "make_filter"]) push(k, "skip", "Not used anymore — payments route through the one-box webhook, not Make");
   }
 
   let pagePid: string | null = null;
@@ -1031,6 +1067,25 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         }
       } catch { push("funnel_lead_pixel", "fail", "Couldn't load the booking page to check the Lead code"); }
     }
+  }
+
+  // One-box funnel (book.pmu-care.com/<slug>, owner 10/20/2026): one page
+  // built from the custom values — no survey/booking/thank-you paths, no
+  // redirect, pictures and offer come from the account, the pixel sits in
+  // the one-box config. The legacy page checks above don't apply to it.
+  if (depositUrl && /^https?:\/\/book\.pmu-care\.com\//i.test(depositUrl)) {
+    const set = (key: string, status: CheckStatus, detail: string) => {
+      const i = checks.findIndex((c) => c.key === key);
+      if (i >= 0) checks[i] = { key, status, detail }; else push(key, status, detail);
+    };
+    for (const k of ["funnel_path", "funnel_redirect", "funnel_map", "funnel_lead_pixel", "funnel_offer", "form_pictures", "funnel_ig_widget"])
+      set(k, "skip", "One-box funnel — built from the account's custom values, nothing to check on the page");
+    try {
+      const slug = depositUrl.replace(/^https?:\/\/book\.pmu-care\.com\//i, "").replace(/[/?#].*$/, "");
+      const { data: ob } = await createServiceClient().from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+      const pix = String(((ob?.extras ?? {}) as Record<string, unknown>).metaPixelId ?? "").replace(/\D/g, "");
+      set("ghl_pixel", pix ? "pass" : "fail", pix ? `Meta pixel ${pix} on the one-box funnel` : "No Meta pixel on the one-box funnel — add it in Start Setup (Funnels tab) or re-run step 26");
+    } catch { set("ghl_pixel", "manual", "Couldn't read the one-box config — check the pixel in the Funnels tab"); }
   }
 
   // Fanbasis product exists? Prefer the onboarding-form id; else the one the
