@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scanForProposals } from "@/lib/agent";
 import { learnFromSentReplies } from "@/lib/reply-learning";
-import { checkWorkerOffline } from "@/lib/agent-worker";
+import { checkWorkerOffline, queueKeepAlive } from "@/lib/agent-worker";
 import { textOwner } from "@/lib/agent-notify";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -22,5 +22,7 @@ export async function GET(req: NextRequest) {
   const learned = await learnFromSentReplies().catch((e) => ({ error: e instanceof Error ? e.message : "failed" }));
   // Mac Mini heartbeat: text the owner once when it goes quiet, once when it's back.
   const worker = await checkWorkerOffline(createServiceClient(), textOwner).catch((e) => ({ error: e instanceof Error ? e.message : "failed" }));
-  return NextResponse.json({ ...out, learned, worker });
+  // Every 6 h: a tiny Mini task that keeps the GoHighLevel session alive.
+  const keepalive = await queueKeepAlive(createServiceClient()).catch((e) => ({ queued: false, why: e instanceof Error ? e.message : "failed" }));
+  return NextResponse.json({ ...out, learned, worker, keepalive });
 }

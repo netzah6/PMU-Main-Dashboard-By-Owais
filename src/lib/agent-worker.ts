@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveClientLocation, describeStep, type PlanStep } from "@/lib/agent-exec";
-import { confirmToOwner } from "@/lib/agent-notify";
+import { confirmToOwner, textOwner as textOwnerFn } from "@/lib/agent-notify";
 import { onSetupProposalClosed, parseSetupConvId } from "@/lib/setup-run";
 import { onSnapshotProposalClosed, parseSnapshotConvId } from "@/lib/pool-snapshot";
 
@@ -196,11 +196,60 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
     catch { /* the next Re-check in the Cleanup tab marks it */ }
   }
 
+  /* Keep-alive check: no "done" text (it would be noise 4× a day); a failure
+     means the Mini could not get into GoHighLevel on its own — that IS worth
+     a text, once per outage, with what to do. */
+  if (p.conversation_id.startsWith("keepalive:")) {
+    if (input.status !== "done") {
+      const { data: al } = await svc.from("app_settings").select("value").eq("key", "agent_signin_alert").maybeSingle();
+      const last = String((al?.value as { at?: string } | null)?.at ?? "");
+      if (!last || Date.now() - Date.parse(last) > 6 * 3600_000) {
+        try {
+          await textOwnerFn(svc, `🖥️ Mac Mini could not sign in to GoHighLevel by itself (${input.summary.slice(0, 120)}). On the Mini: Terminal → node ~/.pmu-agent/agent-worker.mjs login → sign in as the AI Agent user. Tasks wait until then.`);
+          await svc.from("app_settings").upsert({ key: "agent_signin_alert", value: { at: new Date().toISOString() }, updated_by: "worker", updated_at: new Date().toISOString() });
+        } catch { /* best effort */ }
+      }
+    }
+    return { ok: true };
+  }
+
   try {
     await confirmToOwner(svc, { contact_name: p.contact_name, summary: p.summary, status: input.status, result }, urls.slice(-2).map((u) => u.url));
   } catch { /* the card has the proof */ }
   return { ok: true };
 }
+
+/* ── GoHighLevel session keep-alive (owner, 10/19/2026) ──────────────────────
+   The Mini's Chrome gets signed out of GoHighLevel when it sits unused (it
+   happened after the Wi-Fi drop: every coach task then failed on the login
+   page). Every 6 h, when the queue is idle, file one small Mini task: open
+   GoHighLevel, land on the dashboard (signing in — security code from the
+   mailbox — if needed), screenshot. Cards are tagged keepalive:<ts> so the AI
+   tab can hide them. Runs from the agent-scan cron. */
+export async function queueKeepAlive(svc: Svc): Promise<{ queued: boolean; why?: string }> {
+  const since = new Date(Date.now() - 6 * 3600_000).toISOString();
+  const { count: recent } = await svc.from("agent_proposals").select("*", { count: "exact", head: true })
+    .like("conversation_id", "keepalive:%").gte("created_at", since);
+  if ((recent ?? 0) > 0) return { queued: false, why: "ran in the last 6 h" };
+  const { count: busy } = await svc.from("agent_proposals").select("*", { count: "exact", head: true }).in("status", ["queued_browser", "running"]);
+  if ((busy ?? 0) > 0) return { queued: false, why: "queue busy" };
+  const ts = new Date().toISOString();
+  const { error } = await svc.from("agent_proposals").insert({
+    conversation_id: `keepalive:${ts}`, message_id: `keepalive#${ts.slice(0, 13)}`, contact_id: null, contact_name: "Mac Mini check",
+    channel: null, client_message: "Keep-alive: make sure the Mac Mini is still signed in to GoHighLevel (every 6 h).",
+    summary: "Keep-alive: confirm GoHighLevel sign-in", action_type: "account_change", proposed_reply: null,
+    action_detail: "Open GoHighLevel and confirm this Chrome is signed in; sign in (security code from the mailbox) if not.",
+    action_plan: [
+      { type: "manual", what: "Open https://app.gohighlevel.com/ and wait for it to load." },
+      { type: "manual", what: "If you land on the agency dashboard or any sub-account dashboard: done. Screenshot it as after-1.png. Do not change anything." },
+      { type: "manual", what: "If you land on the login page or a security-code screen: follow SIGN-IN RECOVERY, then screenshot the dashboard as after-1.png." },
+    ],
+    location_id: AGENCY_LOCATION_ID, status: "queued_browser", decided_by: "dashboard (keep-alive)", decided_at: ts, executed_at: ts,
+    result: "🖥️ Queued for the Mac Mini", browser_attempts: 0,
+  });
+  return error ? { queued: false, why: error.message } : { queued: true };
+}
+const AGENCY_LOCATION_ID = "SfpNMJ5YU9lBkxss47lK";
 
 /* ── Offline alert (10/19/2026) ───────────────────────────────────────────────
    The worker was dead 16 h before anyone noticed. Every 10 min (agent-scan
