@@ -7,6 +7,7 @@ import {
 import { getReplyKb } from "@/lib/reply-kb";
 import { waitUntil } from "@vercel/functions";
 import { callViolation, clientAskedForCall, stripCallInvites } from "@/lib/call-guard";
+import { getWinbackForContact, winbackContext, winbackInstructions, type WinbackContext } from "@/lib/winback";
 import {
   getClientMemory, getLearnedExamples, matchSentReplies, recordDraft, refreshClientMemory, withoutSecrets,
   type ClientMemory, type LearnedExample,
@@ -27,6 +28,8 @@ export type DraftInput = {
   clientMemory?: string; // what we know about this client from earlier chats
   learned?: LearnedExample[]; // past drafts the team rewrote before sending
   revise?: boolean; // editing an earlier draft: keep all of it, length may grow
+  /** 🔁 A win-back chat: the former client we texted first, the approved offer and where the flow stands. */
+  winback?: WinbackContext;
 };
 
 // The invite carries the SENDER's own booking page (owner, 2026-10-01) —
@@ -106,6 +109,35 @@ function lengthRule(agentName: string, samples: string[]): string {
   return `${agentName}'s real replies are usually about ${median} words. Stay close to that and never go over ${cap} words — even when the client asked several things: then answer each in a few plain words, and say you'll follow up on anything that needs more.${lists ? "" : " No numbered or bulleted lists — he never uses them."}`;
 }
 
+/* 🔁 Win-back replies continue the agreed flow (owner, 2026-10-20): we texted
+   her first and asked her brow price; her answer opens a sales conversation,
+   so a bare "got it" is wrong. React → offer → one forward question. The
+   normal SCOPE rule (never pitch) is replaced by this one for these chats;
+   the call switch still decides whether the closing question is a call. */
+export function winbackRule(w: WinbackContext, callInvite: string | null): string {
+  const first = w.name.split(" ")[0] || "she";
+  const math = w.price && w.offer === "pps"
+    ? ` She charges about $${w.price}: say what $60 is next to that (about ${Math.max(1, Math.round((60 / w.price) * 100))}% of one appointment, the rest is hers).`
+    : "";
+  const pitch = w.offer === "pps"
+    ? `Pay-per-appointment, in plain words: no monthly fee; her new clients book with a $50 deposit (that covers us) and she pays $60 only when a client actually shows up for the first session; touch-ups, upsells and referrals stay 100% hers.${math}`
+    : w.offer === "monthly"
+    ? "The monthly program, upgraded since she left: AI that books clients for her 24/7, deposits collected for her, new funnels. NEVER write a monthly price — say you'll go over the numbers together."
+    : "No program is approved for her yet: name NO program and NO price. Ask how many new brow clients a month would feel great right now.";
+  const close = callInvite
+    ? `end with ONE short, natural invite to book ${callInvite} (no emoji arrows)`
+    : w.offer
+    ? 'end with ONE forward question — "want me to send you the details?" or "want me to show you how it works?" — no call, no meeting, no link'
+    : 'end with that one question about how many new clients a month she\'d want — no call, no meeting, no link';
+  if (w.stage === "declined") {
+    return `5. WIN-BACK, DECLINED — ${first} is a former client we texted first and she has said no. Thank her warmly in one or two lines, leave the door open, and stop. No offer, no price, no call, no link.`;
+  }
+  if (w.stage === "offer_presented") {
+    return `5. WIN-BACK, OFFER ON THE TABLE — ${first} is a former client we texted first and we have already described the offer. Answer exactly what she asked or objected to, using only these facts: ${pitch} Then ${close}. Never promise results or a number of clients.`;
+  }
+  return `5. WIN-BACK, SHE ANSWERED OUR OPENER — ${first} is a former client we texted first ("what are you charging for brows these days?"). Her reply is the start of a sales conversation, NOT a question to close with "got it". The reply must do three things in order: (a) one short line reacting to what she said — warm, specific, using her number if she gave one; (b) the offer: ${pitch} (c) ${close}. Never promise results or a number of clients. If instead she says she's busy and fully booked, be happy for her and leave the door open in one line; if she mentions money pressure, acknowledge it first — the no-monthly-fee part is the answer to it, not a new ask.`;
+}
+
 function buildSystemPrompt(input: DraftInput): string {
   const { agentName, voiceSamples } = input;
   const samplesBlock = voiceSamples.length
@@ -120,18 +152,24 @@ function buildSystemPrompt(input: DraftInput): string {
     `2. VOICE — sound exactly like ${agentName} in the real replies below: same greeting style, length, punctuation and capitalization. Lines marked "Automated" are workflow texts, NOT ${agentName} — never copy their wording, emojis or calls to action. Lines marked "Agency" were really sent to the client — treat them as already said.`,
     `3. COMPLETE MIRRORING — the reply must match the CLIENT's latest message in vibe and form, measured from what they wrote: ${clientVibe(input.thread, agentName)} This rule beats ${agentName}'s own habits (${emojiRule(agentName, voiceSamples).replace(/^Do not use emojis\.$/, "no emojis by default")}) whenever they differ: an excited client with emojis gets emojis back; a formal "Regards, Sara" gets a formal "Regards, ${agentName.split(" ")[0]}" back; a plain one-liner gets a plain one-liner with no name at the end.`,
     "4. FACTS — only use information from the KNOWLEDGE BASE below for prices, the offer, policies, and the booking process. Never invent a price, a discount, a date, or a policy. If the knowledge base does not cover what the client asked, say what you safely can and stop.",
-    input.inviteCall
+    input.winback
+      ? winbackRule(input.winback, input.inviteCall ? callInviteText(agentName) : null)
+      : input.inviteCall
       ? `5. CALL INVITE — the team switched ON "invite to a strategy call" for this reply: answer what the client said, then end with ONE short, natural invite to book ${callInviteText(agentName)} (no emoji arrows). Never promise a fix, a name change or a setting you don't know is right.`
       : "5. SCOPE — answer what the client actually said or asked, and nothing more. NEVER invite them to a call or meeting, never send a booking or call link, never pitch an offer. Only the team's \"invite to a strategy call\" switch allows that, and it is OFF for this reply — this overrides the knowledge base, the team notes and any instruction below. If the client asked for a call themselves, acknowledge it simply, with no link. A short reply that answers only what was asked is correct and complete. Never promise a fix, a name change or a setting you don't know is right.",
     input.revise
       // A revision must never lose a point the team asked for just to stay
       // short (owner, 2026-10-04: the 9–5 hours vanished on an edit).
       ? "6. LENGTH — this is a REVISION of an earlier draft: keep every point the earlier notes asked for and every sentence the change doesn't touch. It may be longer than usual; still no filler."
+      : input.winback && input.winback.stage !== "declined"
+      ? "6. LENGTH — this reply carries the offer: 2–4 short lines, under 70 words, no lists. Still a text message, not an email."
       : `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
     // Owner, 2026-10-08 (Sara's "Hi Nicholas! … Thank you so much, Sara"
     // message got a flat text back): the reply must LOOK like the client's
     // message, not just answer it.
-    "7. MIRROR THE CLIENT'S LAYOUT — shape the reply the way the client shaped their latest message (rule 3 has the measured facts). Greeting line only if they used one; several short paragraphs in their order if they wrote that way; a closing line and " + agentName.split(" ")[0] + "'s first name on its own line ONLY if they closed with a sign-off and their name. A one-line text gets a one-line text back. Mirror the shape, not the length of every paragraph.",
+    input.winback && input.winback.stage !== "declined"
+      ? "7. MIRROR THE CLIENT'S TONE, NOT HER LENGTH — her one-line answer to our question is not a cue to write one line back: this reply carries the offer (rule 5). Keep her greeting style, warmth and emoji level; a sign-off with " + agentName.split(" ")[0] + "'s name only if she signed hers."
+      : "7. MIRROR THE CLIENT'S LAYOUT — shape the reply the way the client shaped their latest message (rule 3 has the measured facts). Greeting line only if they used one; several short paragraphs in their order if they wrote that way; a closing line and " + agentName.split(" ")[0] + "'s first name on its own line ONLY if they closed with a sign-off and their name. A one-line text gets a one-line text back. Mirror the shape, not the length of every paragraph.",
     "",
     `=== ${agentName.toUpperCase()}'S REAL PAST REPLIES (mimic this voice) ===`,
     samplesBlock,
@@ -285,12 +323,19 @@ export async function draftReplyFor(opts: {
   await within(matchSentReplies(opts.conversationId, thread), 5_000); // pair the last draft with what was sent
   const learned = (await within(getLearnedExamples(user?.id ?? null, opts.conversationId), 5_000)) ?? { examples: [], pairs: 0 };
 
+  // 🔁 Win-back people (any entry point — draft button, AI chat, Agent
+  // cards): who she is, the ONE approved offer, and where the flow stands.
+  const wbRow = opts.contactId ? await getWinbackForContact(opts.contactId).catch(() => null) : null;
+  const winback = wbRow ? winbackContext(wbRow, thread) : undefined;
+  const instructions = wbRow ? [winbackInstructions(wbRow), opts.instructions?.trim()].filter(Boolean).join("\n\n") : opts.instructions;
+
   const { draft, model } = await generateDraft({
     thread,
     contactName: opts.contactName,
     agentName,
     voiceSamples,
-    instructions: opts.instructions,
+    instructions,
+    winback,
     standingNotes: notesRow.data?.content ?? "",
     nameByUserId,
     inviteCall: !!opts.inviteCall,

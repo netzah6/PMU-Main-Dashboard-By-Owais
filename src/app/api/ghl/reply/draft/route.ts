@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getReplyAccount } from "@/lib/ghl-conversations";
 import { draftReplyFor } from "@/lib/reply-draft";
-import { getWinbackForContact, winbackInstructions } from "@/lib/winback";
 
 export const maxDuration = 60;
 
@@ -34,12 +33,9 @@ export async function POST(req: Request) {
   const acct = await getReplyAccount();
   if (!acct) return NextResponse.json({ error: "Account not found" }, { status: 404 });
 
-  // 🔁 Win-back people: the AI also gets who they are and the ONE offer the
-  // owner approved for them (none yet → it must not pitch anything).
-  const winback = body.contactId ? await getWinbackForContact(body.contactId).catch(() => null) : null;
-  const instructions = winback
-    ? [winbackInstructions(winback), body.instructions?.trim()].filter(Boolean).join("\n\n")
-    : body.instructions;
+  // 🔁 Win-back people are recognised inside draftReplyFor (by contactId), so
+  // the AI chat and the Agent cards get the same offer-aware flow.
+  const instructions = body.instructions;
 
   try {
     // Same engine as the AI chat and the Agent cards: dated last-2-days
