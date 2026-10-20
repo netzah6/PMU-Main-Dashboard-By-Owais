@@ -126,10 +126,11 @@ const REQUIRED_ALL: RequiredField[] = [
   { key: "business_name", label: "Business name" }, { key: "owner_name", label: "Owner full name" }, { key: "version", label: "Version" },
   { key: "email", label: "Email (the client's login)" }, { key: "phone", label: "Phone" }, { key: "address", label: "Studio address" },
   { key: "business_hours", label: "Business hours (calendar)" }, { key: "deposit_amount", label: "Deposit amount" }, { key: "offer", label: "Offer" },
-  { key: "original_price", label: "Original price" }, { key: "discounted_price", label: "Discounted price" }, { key: "services", label: "PMU services" },
-  { key: "assigned", label: "Assigned coach" }, { key: "media_buyer", label: "Media buyer" },
+  { key: "services", label: "PMU services" }, { key: "assigned", label: "Assigned coach" }, { key: "media_buyer", label: "Media buyer" },
 ];
+// V3 only (owner 10/20/2026): the prices are the one-box's V3 fields.
 const REQUIRED_V3: RequiredField[] = [
+  { key: "original_price", label: "Original price" }, { key: "discounted_price", label: "Discounted price" },
   { key: "years_in_business", label: "Years in business" }, { key: "first_touchup", label: "First touch-up timing" },
 ];
 export function requiredFields(version: string | undefined): RequiredField[] {

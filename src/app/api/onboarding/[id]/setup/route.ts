@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { advanceSetup, approveSetup, confirmStep, liveCardStatuses, poolChoices, retryStep, skipStep } from "@/lib/setup-run";
-import type { SetupState } from "@/lib/setup-runbook";
+import { missingFields, type SetupState } from "@/lib/setup-runbook";
+import { answersFromMainContact } from "@/lib/survey-answers";
 
 // The claim + the funnel creation + the Commas product run inside Approve.
 export const maxDuration = 300;
@@ -31,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const u = await who();
   if (!u) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const svc = createServiceClient();
-  const { data: row, error } = await svc.from("onboardings").select("setup, claim").eq("id", params.id).maybeSingle();
+  const { data: row, error } = await svc.from("onboardings").select("setup, claim, form").eq("id", params.id).maybeSingle();
   if (error) return NextResponse.json({ error: error.message.includes("setup") ? `${error.message} — run supabase/new-client-setup.sql` : error.message }, { status: 500 });
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const setup = (row.setup as SetupState | null) ?? null;
@@ -39,7 +40,23 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // The pool is only needed before Approve (and the Claim button's account wins).
   const claimLoc = (row.claim as { location_id?: string; original_name?: string } | null)?.location_id ?? null;
   const pool = setup || claimLoc ? null : await poolChoices(svc);
-  return NextResponse.json({ setup: redact(setup), cards, pool, claimedLocation: claimLoc, canApprove: u.role === "admin" });
+  // Before Approve: what the Clients tab already knows (business hours, years
+  // in business on the client's main contact) is filled in by itself — owner
+  // 10/20/2026: "it has the data, don't make us type it again".
+  let autofilled: string[] = [];
+  if (!setup) {
+    const form = (row.form ?? {}) as Record<string, string>;
+    const missing = missingFields(form).map((f) => f.key);
+    if (missing.includes("business_hours") || missing.includes("years_in_business")) {
+      const extra = await answersFromMainContact(String(form.master_contact_id ?? ""), form).catch(() => ({}));
+      const add = Object.fromEntries(Object.entries(extra).filter(([k]) => missing.includes(k)));
+      if (Object.keys(add).length) {
+        await svc.from("onboardings").update({ form: { ...form, ...add } }).eq("id", params.id);
+        autofilled = Object.keys(add);
+      }
+    }
+  }
+  return NextResponse.json({ setup: redact(setup), cards, pool, claimedLocation: claimLoc, canApprove: u.role === "admin", autofilled });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
