@@ -44,7 +44,7 @@ function stepIcon(st: StepState, card?: Card): { icon: string; cls: string; labe
     case "done": return { icon: "✓", cls: "text-[#15803d]", label: "done" };
     case "warn": return { icon: "⚠", cls: "text-[#c2410c]", label: "done, look at this" };
     case "failed": return { icon: "✗", cls: "text-[#e11d48]", label: "failed" };
-    case "skipped": return { icon: "↷", cls: "text-[#64748b]", label: "done by hand" };
+    case "skipped": return { icon: "↷", cls: "text-[#64748b]", label: "approved manually" };
     case "manual": return { icon: "○", cls: "text-[#8595a8]", label: "" };
     default: return { icon: "·", cls: "text-[#cbd5e1]", label: "" };
   }
@@ -78,8 +78,6 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
     setSavingFill(false);
   };
   const [password, setPassword] = useState<string | null>(null);
-  const [skipKey, setSkipKey] = useState<string | null>(null);
-  const [skipNote, setSkipNote] = useState("");
   // The page's sub-headline slot for the account line (exists once the page has rendered).
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => { setSlot(document.getElementById("setup-meta-slot")); }, [onboardingId]);
@@ -175,7 +173,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
       window.dispatchEvent(new Event(MINI_REFRESH_EVENT)); // may have queued AI Agent work
       if (action === "approve") toast.success("Approved — the account steps are running");
       if (action === "retry") toast.success("Step queued again");
-      if (action === "skip") toast.success(extra.note === "not needed" ? "Step marked not needed" : "Step marked completed");
+      if (action === "skip") toast.success(extra.note === "not needed" ? "Step marked not needed" : extra.note === "completed" ? "Step marked completed" : "Step approved manually");
       if (action === "confirm") toast.success("Approved — the dashboard is doing it now");
     } catch (e) { toast.error(`${e}`.replace("Error: ", "")); }
     finally { setBusy(null); }
@@ -406,16 +404,12 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                 <button onClick={() => void act("skip", { key: s.key, note: "not needed" }, `skip:${s.key}`)} disabled={!!busy}
                   className="px-2 py-1 rounded-md text-[11px] font-semibold border border-[#d7e0ea] text-[#64748b] hover:bg-[#f8fafc] disabled:opacity-50">Not needed</button>
               )}
-              {canSkip && skipKey !== s.key && (
-                <button onClick={() => { setSkipKey(s.key); setSkipNote(""); }} disabled={!!busy}
-                  className={cn("px-2 py-1 rounded-md text-[11px] font-semibold border disabled:opacity-50", byHand ? "border-[#bfe3cd] text-[#15803d] hover:bg-[#f3fbf6]" : "border-[#d7e0ea] text-[#64748b] hover:bg-[#f8fafc]")}>{byHand ? "✓ Mark completed" : "Done by hand"}</button>
-              )}
-              {skipKey === s.key && (
-                <span className="flex items-center gap-1.5">
-                  <input value={skipNote} onChange={(e) => setSkipNote(e.target.value)} placeholder="what you did (optional)" className="px-2 py-1 rounded-md border border-[#d7e0ea] text-[11px] w-48" />
-                  <button onClick={() => { void act("skip", { key: s.key, note: skipNote }, `skip:${s.key}`); setSkipKey(null); }} disabled={!!busy} className="px-2 py-1 rounded-md text-[11px] font-semibold bg-[#64748b] text-white">OK</button>
-                  <button onClick={() => setSkipKey(null)} className="text-[11px] text-[#8595a8] hover:underline">cancel</button>
-                </span>
+              {/* One click (owner 10/20/2026) — no note box in between. */}
+              {canSkip && (
+                <button onClick={() => void act("skip", { key: s.key, note: byHand ? "completed" : "approved manually" }, `skip:${s.key}`)} disabled={!!busy}
+                  className={cn("px-2 py-1 rounded-md text-[11px] font-semibold border disabled:opacity-50", byHand ? "border-[#bfe3cd] text-[#15803d] hover:bg-[#f3fbf6]" : "border-[#d7e0ea] text-[#64748b] hover:bg-[#f8fafc]")}>
+                  {busy === `skip:${s.key}` ? <Loader2 size={11} className="animate-spin inline" /> : "✓"} {byHand ? "Mark completed" : "Approve manually"}
+                </button>
               )}
             </div>
           );
