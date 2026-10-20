@@ -4,7 +4,7 @@ import {
   claimPoolAccount, fillAccountValues, fillCalendarId, syncScheduleTimezones, setLocationProfile, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
   employeePassword, findLocationUserByEmail, setUserPassword, slugify, type ClaimResult, type ClaimAction,
 } from "@/lib/ghl-claim";
-import { poolBlocker, poolReadiness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
+import { deleteAllContacts, poolBlocker, poolReadiness, refreshPoolCleanliness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
 import { createDepositProductFromForm } from "@/lib/deposit-product";
 import { addOneboxFunnel, FUNNEL_ORIGIN } from "@/lib/onebox-add";
 import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl } from "@/lib/onebox";
@@ -100,8 +100,12 @@ export async function poolChoices(svc: Svc): Promise<{ choices: PoolChoice[]; de
   let note: string | undefined;
   try { live = await discoverPool(); } catch (e) { note = `GHL pool list unavailable (${errMsg(e)}) — showing the dashboard's pool table`; }
   const src = live ?? rows.map((r) => ({ id: r.location_id, name: r.pool_name }));
+  // Owner 10/20/2026: only A2P-approved accounts are offered — a setup on an
+  // unverified account can't text. The rest stay in the pool list, not here.
+  let hidden = 0;
   const choices: PoolChoice[] = src
     .filter((l) => POOL_NAME_RE.test(l.name))
+    .filter((l) => { const ok = byId.get(l.id)?.a2p === "approved"; if (!ok) hidden++; return ok; })
     .map((l) => {
       const r = byId.get(l.id);
       const readiness = r ? poolReadiness(r) : "unknown";
@@ -110,6 +114,7 @@ export async function poolChoices(svc: Svc): Promise<{ choices: PoolChoice[]; de
     })
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   const ready = choices.filter((c) => c.readiness === "ready");
+  if (hidden) note = [note, `${hidden} more not A2P-approved (hidden)`].filter(Boolean).join(" · ");
   return { choices, defaultId: (ready[0] ?? choices.find((c) => c.snapshot) ?? choices[0])?.id ?? null, note };
 }
 
@@ -142,7 +147,7 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
   // Team / client / owner steps are shown, not run.
   for (const s of RUNBOOK) if (!["api", "mini", "ask"].includes(s.who) || s.later) setup.steps[s.key] = { status: "manual" };
   if (ob.claim) {
-    for (const k of ["account_take", "account_info", "account_cvs", "cal_id"]) setup.steps[k] = { status: "done", who: ob.claim.claimed_by ?? "Claim button", at: ob.claim.claimed_at ?? now(), note: `done earlier by the Claim button (${ob.claim.original_name} → ${ob.claim.business_name})` };
+    for (const k of ["account_check", "account_take", "account_info", "account_cvs", "cal_id"]) setup.steps[k] = { status: "done", who: ob.claim.claimed_by ?? "Claim button", at: ob.claim.claimed_at ?? now(), note: `done earlier by the Claim button (${ob.claim.original_name} → ${ob.claim.business_name})` };
     const pid = String(ob.form.product_id ?? "").trim();
     if (pid) { setup.steps.product = { status: "done", who: "Claim button", at: now(), note: `product ID ${pid} already on the form` }; setup.product_id = pid; }
   }
@@ -199,7 +204,8 @@ const done = (ob: Ob, key: string) => isSettled(stepState(ob.setup, key));
 
 function prereqsMet(ob: Ob, s: RunbookStep): boolean {
   switch (s.key) {
-    case "account_take": case "master_row": return true;
+    case "account_check": case "master_row": return true;
+    case "account_take": return done(ob, "account_check");
     case "account_info": case "account_cvs": case "cal_id": return done(ob, "account_take");
     case "connector": case "product": case "funnel_create": return done(ob, "account_take");
     case "funnel_pixel": return done(ob, "funnel_create");
@@ -262,6 +268,28 @@ type StepFn = (svc: Svc, ob: Ob) => Promise<{ status: StepState["status"]; note:
 const lines = (acts: ClaimAction[]) => acts.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
 
 const API_STEPS: Record<string, StepFn> = {
+  /* 0 · Check & clean (owner 10/20/2026): the pool table can be months stale
+     (Clean New Account 4–9 said "still has data" from an August check that
+     counted the template as dirt). So the account is inspected LIVE right
+     before it is taken: leftover contacts are deleted, the snapshot and A2P
+     are confirmed. Only contacts are ever deleted here — the custom values,
+     fields, calendars and automations are what the setup needs. */
+  account_check: async (_svc, ob) => {
+    const loc = ob.setup!.location_id;
+    let [row] = await refreshPoolCleanliness([loc]);
+    if (!row) throw new Error("this account is not in the clean-account pool");
+    const notes: string[] = [];
+    if ((row.dirty ?? 0) > 0) {
+      const lt = await getAppLocationToken(loc);
+      if (!lt.token) throw new Error(lt.error ?? "could not mint location token");
+      const r = await deleteAllContacts(loc, lt.token);
+      notes.push(`deleted ${r.deleted} of ${r.found} leftover contacts${r.failed ? ` (${r.failed} failed: ${r.error ?? ""})` : ""}`);
+      [row] = await refreshPoolCleanliness([loc]);
+    }
+    const blocker = poolBlocker(row);
+    if (blocker) return { status: "failed", note: [...notes, `not ready — ${blocker}. Fix it in the Onboarding tab's clean-account pool, then Retry`].join("\n") };
+    return { status: "done", note: [...notes, `✓ ${row.clean_note ?? "clean"} · A2P approved`].join("\n") };
+  },
   /* 1 + 2 · Take the pool account: rename it and set email/phone. The
      employee user is NOT created here (step 14 asks the owner first), and the
      custom values are steps 3 and 24 — their own steps so a Retry re-fills

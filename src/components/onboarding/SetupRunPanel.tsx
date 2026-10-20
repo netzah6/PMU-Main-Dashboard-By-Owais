@@ -144,7 +144,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <select value={poolId} onChange={(e) => setPoolId(e.target.value)}
                   className="px-2.5 py-1.5 rounded-lg border border-[#c9dbfb] bg-white text-sm font-semibold text-[#1f3559]">
-                  {pool.choices.length === 0 && <option value="">No clean account available</option>}
+                  {pool.choices.length === 0 && <option value="">No A2P-approved clean account available</option>}
                   {pool.choices.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}{c.readiness === "ready" ? " · ready" : c.blocker ? ` · ${c.blocker}` : ""}</option>
                   ))}
@@ -155,7 +155,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-[#8595a8] mt-1">Renamed to <b className="text-[#1f3559]">{form.business_name || "the business name"}</b>. Only an account still named &quot;Clean New Account N&quot; can be taken.{pool.note ? ` · ${pool.note}` : ""}</p>
+              <p className="text-[11px] text-[#8595a8] mt-1">Renamed to <b className="text-[#1f3559]">{form.business_name || "the business name"}</b>. Only A2P-approved accounts still named &quot;Clean New Account N&quot; are listed; step 0 checks it live and deletes leftover contacts.{pool.note ? ` · ${pool.note}` : ""}</p>
             </>
           ) : <p className="text-xs text-[#697a91]">Loading the pool…</p>}
         </div>

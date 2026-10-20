@@ -34,6 +34,7 @@ export type RunbookStep = {
 
 export const RUNBOOK: RunbookStep[] = [
   // A · Account
+  { n: 0, key: "account_check", section: "A · Account", who: "api", label: "Check the clean account and clean it if needed", how: "Live check before anything is renamed: no leftover contacts (any found are deleted), the template (snapshot) is loaded, and A2P is approved. The run stops here if the template or A2P is missing." },
   { n: 1, key: "account_take", section: "A · Account", who: "api", label: "Take the clean account and rename it to the business name", how: "Only an account still named \"Clean New Account N\" can be taken.", checklist: ["ghl_snapshot"] },
   { n: 2, key: "account_info", section: "A · Account", who: "api", label: "Sub-account info: name, email, phone, studio address and time zone", how: "From the client's record. The time zone follows the studio's state (else the phone's area code), so texts and booking times are local.", checklist: ["ghl_info"] },
   { n: 3, key: "account_cvs", section: "A · Account", who: "api", label: "Update the sub-account custom values", how: "Uses the client's details from the Clients tab (no form to fill again). Runs once the template is loaded; fills existing values only, and a missing one is flagged red for the team." },
@@ -79,7 +80,7 @@ export const RUNBOOK: RunbookStep[] = [
 /* Short names, shown bold on the setup card; the label stays as the
    description (owner, 10/17/2026: "include the name of every step"). */
 const STEP_TITLES: Record<string, string> = {
-  account_take: "Take & rename the account", account_info: "Account info, address & time zone", account_cvs: "Custom values",
+  account_check: "Check & clean the account", account_take: "Take & rename the account", account_info: "Account info, address & time zone", account_cvs: "Custom values",
   master_row: "Clients Master row", connector: "Dashboard connector",
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
   phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_forward: "Call forwarding",

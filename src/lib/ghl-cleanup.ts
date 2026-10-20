@@ -206,6 +206,33 @@ const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 // Deletes everything the API allows. Each step reports found/deleted/failed so
 // a missing scope shows up as a per-step error instead of a silent skip.
+// Contacts only — the previous client's data. Shared by the full wipe and
+// the setup run's first step (check & clean), which must never touch the
+// custom values, fields, calendars or automations the snapshot brought.
+export async function deleteAllContacts(locationId: string, tok: string): Promise<StepResult> {
+  const step: StepResult = { found: 0, deleted: 0, failed: 0 };
+  const first = await getJson(`${GHL}/contacts/?locationId=${locationId}&limit=1`, locHeaders(tok));
+  step.found = Number((first.meta as { total?: number } | undefined)?.total ?? 0);
+  let firstError = "";
+  for (let round = 0; round < 30; round++) {
+    const page = await getJson(`${GHL}/contacts/?locationId=${locationId}&limit=100`, locHeaders(tok));
+    const batch = (page.contacts as Array<{ id?: string }>) ?? [];
+    if (batch.length === 0) break;
+    let pageDeleted = 0;
+    for (const c of batch) {
+      const r = await del(`${GHL}/contacts/${c.id}`, locHeaders(tok));
+      if (r.ok) { step.deleted++; pageDeleted++; }
+      else if (!r.gone) { step.failed++; if (!firstError) firstError = `HTTP ${r.status}: ${r.body}`; }
+      await sleep(60);
+    }
+    // No successful delete in a whole page — either missing scope (401s) or
+    // the listing is stale (all already gone). Either way, stop looping.
+    if (pageDeleted === 0) break;
+  }
+  if (firstError) step.error = firstError;
+  return step;
+}
+
 export async function cleanLocation(locationId: string): Promise<CleanResult> {
   if (isProtectedLocation(locationId)) throw new Error("Refusing to clean protected location");
   const lt = await getAppLocationToken(locationId);
@@ -215,27 +242,7 @@ export async function cleanLocation(locationId: string): Promise<CleanResult> {
 
   // Contacts — paginate then delete; cap guards the serverless time limit.
   try {
-    const step: StepResult = { found: 0, deleted: 0, failed: 0 };
-    const first = await getJson(`${GHL}/contacts/?locationId=${locationId}&limit=1`, locHeaders(tok));
-    step.found = Number((first.meta as { total?: number } | undefined)?.total ?? 0);
-    let firstError = "";
-    for (let round = 0; round < 30; round++) {
-      const page = await getJson(`${GHL}/contacts/?locationId=${locationId}&limit=100`, locHeaders(tok));
-      const batch = (page.contacts as Array<{ id?: string }>) ?? [];
-      if (batch.length === 0) break;
-      let pageDeleted = 0;
-      for (const c of batch) {
-        const r = await del(`${GHL}/contacts/${c.id}`, locHeaders(tok));
-        if (r.ok) { step.deleted++; pageDeleted++; }
-        else if (!r.gone) { step.failed++; if (!firstError) firstError = `HTTP ${r.status}: ${r.body}`; }
-        await sleep(60);
-      }
-      // No successful delete in a whole page — either missing scope (401s) or
-      // the listing is stale (all already gone). Either way, stop looping.
-      if (pageDeleted === 0) break;
-    }
-    if (firstError) step.error = firstError;
-    out.contacts = step;
+    out.contacts = await deleteAllContacts(locationId, tok);
   } catch (e) {
     out.contacts = { found: 0, deleted: 0, failed: 0, error: e instanceof Error ? e.message : "failed" };
   }
