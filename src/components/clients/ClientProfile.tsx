@@ -437,7 +437,7 @@ export function ClientProfile({
             )}
             {role === "admin" && setupInfo && (setupInfo.eligible || setupInfo.card) && !editMode && (
               <button onClick={() => void startSetup()} disabled={setupBusy}
-                title={setupInfo.card ? "Open this client's Onboarding card and setup run" : "No GoHighLevel account yet — open the Onboarding card, approve, and the dashboard + Mac Mini set it up"}
+                title={setupInfo.card ? "Open this client's Onboarding card and setup run" : "No GoHighLevel account yet — open the Onboarding card, approve, and the dashboard + AI Agent set it up"}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#4f46e5] hover:bg-[#4338ca] text-white transition-colors disabled:opacity-60">
                 {setupBusy ? <Loader2 size={12} className="animate-spin" /> : "🧩"} {setupInfo.card ? (setupInfo.card.approved ? "Setup run" : "Continue setup") : "Set up account"}
               </button>

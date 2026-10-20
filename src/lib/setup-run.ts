@@ -24,7 +24,7 @@ import {
 
      Clients tab → "Set up account" → the card → Approve (clean account
      shown first) → the dashboard runs the API steps right away and queues
-     the browser steps to the Mac Mini ONE AT A TIME, in runbook order
+     the browser steps to the AI Agent ONE AT A TIME, in runbook order
      (each step depends on the one before: no A2P check before the number
      exists, no calendar hours before the user exists). "Asks you" steps are
      pending cards in the AI tab — the owner approves, the Mini does it.
@@ -154,7 +154,7 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
 // ── The engine ──────────────────────────────────────────────────────────────
 /* Run every API step whose prerequisites are met, then make sure the next
    browser step has its card. Safe to call again at any time (Approve, a
-   Mac Mini finish, the card's Refresh). */
+   AI Agent finish, the card's Refresh). */
 export async function advanceSetup(svc: Svc, onboardingId: string): Promise<SetupState> {
   // Lock: one API-step runner at a time (a stale lock from a dead run expires).
   const token = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -382,7 +382,7 @@ const API_STEPS: Record<string, StepFn> = {
     });
     const sent = await replayToClientHook(hook, payload);
     if (!sent.ok) return { status: "failed", note: `test payment not accepted: ${sent.note}` };
-    return { status: "done", note: `test payment accepted by the route (${sent.note}). The Mac Mini deletes the "Router Test" contact in the funnel test; VOID its deposit-sheet row if one appears.` };
+    return { status: "done", note: `test payment accepted by the route (${sent.note}). The AI Agent deletes the "Router Test" contact in the funnel test; VOID its deposit-sheet row if one appears.` };
   },
 
   /* 15 · Password by the team rule on the user the Mac Mini created. */
@@ -390,7 +390,7 @@ const API_STEPS: Record<string, StepFn> = {
     const email = String(ob.form.email ?? "").trim();
     if (!email) return { status: "failed", note: "no email on the form — the user cannot be found" };
     const u = await findLocationUserByEmail(ob.setup!.location_id, email);
-    if (!u) return { status: "failed", note: `no user with ${email} on the account yet — check the Mac Mini's screenshots, then Retry` };
+    if (!u) return { status: "failed", note: `no user with ${email} on the account yet — check the AI Agent's screenshots, then Retry` };
     const password = employeePassword(ob.form.owner_name);
     await setUserPassword(u.id, password);
     return { status: "done", note: `password set for ${email} (shown on this card only)`, facts: { user_id: u.id, password } };
@@ -532,16 +532,16 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
     action_detail: `${next.label}${next.how ? ` — ${next.how}` : ""}`.slice(0, 1500),
     action_plan: miniPlan(next, f).map((what) => ({ type: "manual", what })),
     location_id: setup.location_id,
-    ...(isAsk ? {} : { status: "queued_browser", decided_by: `${DASHBOARD} (setup run)`, decided_at: now(), executed_at: now(), result: "⏳ Waiting for the Mac Mini (new client setup)" }),
+    ...(isAsk ? {} : { status: "queued_browser", decided_by: `${DASHBOARD} (setup run)`, decided_at: now(), executed_at: now(), result: "⏳ Waiting for the AI Agent (new client setup)" }),
   }).select("id").maybeSingle();
   if (error || !ins) {
-    await patch(svc, onboardingId, (o) => { if (!o.setup) return; setStep(o.setup, next.key, { status: "failed", who: DASHBOARD, note: `could not queue the Mac Mini card: ${error?.message ?? "insert failed"}`, error: error?.message }); return { setup: o.setup }; });
+    await patch(svc, onboardingId, (o) => { if (!o.setup) return; setStep(o.setup, next.key, { status: "failed", who: DASHBOARD, note: `could not queue the AI Agent card: ${error?.message ?? "insert failed"}`, error: error?.message }); return { setup: o.setup }; });
     return;
   }
   const pid = (ins as { id: string }).id;
   await patch(svc, onboardingId, (o) => {
     if (!o.setup) return;
-    setStep(o.setup, next.key, { status: isAsk ? "waiting_owner" : "queued", who: isAsk ? "You → Mac Mini" : "Mac Mini", proposal_id: pid, note: isAsk ? "waiting for your Approve in the AI tab" : "queued for the Mac Mini" }, `card ${pid} ${isAsk ? "pending (asks you)" : "queued"}`);
+    setStep(o.setup, next.key, { status: isAsk ? "waiting_owner" : "queued", who: isAsk ? "You → AI Agent" : "AI Agent", proposal_id: pid, note: isAsk ? "waiting for your Approve in the AI tab" : "queued for the AI Agent" }, `card ${pid} ${isAsk ? "pending (asks you)" : "queued"}`);
     return { setup: o.setup };
   });
   if (isAsk) {
@@ -568,9 +568,9 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
     const cur = o.setup.steps[ref.key];
     if (cur?.proposal_id && cur.proposal_id !== p.id) return; // an older card for a retried step
     const status: StepState["status"] = ok ? "done" : "failed";
-    setStep(o.setup, ref.key, { status, who: "Mac Mini", note: text.slice(0, 1500), screenshots: shots, error: ok ? undefined : (p.status === "needs_teammate" ? "the Mac Mini needs a teammate — see its note" : "the Mac Mini could not finish") }, `card ${p.id} → ${p.status}`);
+    setStep(o.setup, ref.key, { status, who: "AI Agent", note: text.slice(0, 1500), screenshots: shots, error: ok ? undefined : (p.status === "needs_teammate" ? "the AI Agent needs a teammate — see its note" : "the AI Agent could not finish") }, `card ${p.id} → ${p.status}`);
     const checklist = { ...o.checklist };
-    if (ok) tick(checklist, step.checklist, "Mac Mini");
+    if (ok) tick(checklist, step.checklist, "AI Agent");
     // Step 15: the password the Mini set by the team rule, kept on the card.
     if (ok && ref.key === "user_password") o.setup.password = employeePassword(String(o.form.owner_name ?? ""));
     // Step 7: the payment route URL the Mini read off the workflow editor.
@@ -684,7 +684,7 @@ async function settle(svc: Svc, onboardingId: string): Promise<void> {
     const warns = states.filter((x) => x.st.status === "warn");
     const head = nextStatus === "done" ? `✅ Setup done — ${biz}` : `❌ Setup stopped — ${biz}`;
     const body = [
-      `${byApi} steps by the dashboard, ${byMini} by the Mac Mini · ${setup.pool_name} → ${biz}`,
+      `${byApi} steps by the dashboard, ${byMini} by the AI Agent · ${setup.pool_name} → ${biz}`,
       setup.funnel_url ? `Funnel: ${setup.funnel_url}` : "",
       ...failed.map((x) => `✗ Step ${x.s.n} ${x.s.label}: ${(x.st.error ?? x.st.note ?? "failed").split("\n")[0].slice(0, 160)}`),
       ...warns.map((x) => `⚠ Step ${x.s.n} ${x.s.label}: ${(x.st.note ?? "").split("\n")[0].slice(0, 160)}`),

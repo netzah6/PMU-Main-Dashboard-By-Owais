@@ -384,9 +384,9 @@ export type PoolRow = {
   clean_note: string | null;
   // Snapshot reload (supabase/pool-snapshot.sql, 10/15/2026). An account is
   // offered for a setup only with snapshot_loaded_at set — see lib/pool-snapshot.
-  snapshot_task_id: string | null;   // latest Mac Mini card
+  snapshot_task_id: string | null;   // latest AI Agent card
   snapshot_queued_at: string | null;
-  snapshot_loaded_at: string | null; // confirmed loaded (Mac Mini done, or a Re-check saw the template)
+  snapshot_loaded_at: string | null; // confirmed loaded (AI Agent done, or a Re-check saw the template)
   snapshot_note: string | null;
 };
 

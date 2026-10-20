@@ -17,7 +17,7 @@ export type PoolReadinessInput = {
   a2p: string;                       // "approved" | "pending"
   clean_checked_at: string | null;   // last Re-check
   snapshot_loaded_at: string | null; // snapshot confirmed on the account
-  snapshot_task_id?: string | null;  // latest Mac Mini task
+  snapshot_task_id?: string | null;  // latest AI Agent task
   snapshot_note?: string | null;     // what the task / Re-check said
 };
 
@@ -37,7 +37,7 @@ export function poolBlocker(r: PoolReadinessInput & { clean_note?: string | null
     case "snapshot":
       return r.snapshot_note?.startsWith("✗")
         ? `snapshot load failed — ${r.snapshot_note.slice(1).trim()}`
-        : r.snapshot_task_id ? "waiting for snapshot (Mac Mini)" : "no snapshot loaded — load it first";
+        : r.snapshot_task_id ? "waiting for snapshot (AI Agent)" : "no snapshot loaded — load it first";
     default: return "A2P not confirmed";
   }
 }

@@ -53,7 +53,7 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
     .eq("status", "running").lt("browser_claimed_at", staleBefore);
   for (const r of (stale ?? []) as Array<{ id: string; browser_attempts: number; result: string | null; conversation_id: string }>) {
     const retry = r.browser_attempts < MAX_ATTEMPTS;
-    const result = `${r.result ?? ""}\n✗ The Mac Mini stopped responding twice — check the account and finish by hand`.trim();
+    const result = `${r.result ?? ""}\n✗ The AI Agent stopped responding twice — check the account and finish by hand`.trim();
     await svc.from("agent_proposals").update(retry
       ? { status: "queued_browser", browser_claimed_at: null }
       : { status: "failed", result },
@@ -94,7 +94,7 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
 
   const { data: claimed } = await svc.from("agent_proposals").update({
     status: "running", browser_claimed_at: new Date().toISOString(), browser_attempts: (p.browser_attempts ?? 0) + 1, location_id: locationId,
-    result: "🖥️ The Mac Mini is doing this now…",
+    result: "🤖 The AI Agent is doing this now…",
   }).eq("id", p.id).eq("status", "queued_browser").select("id").maybeSingle();
   if (!claimed) return null; // someone else took it
 
@@ -118,7 +118,7 @@ export type FinishInput = {
 };
 
 /* A file the task PRODUCED (owner, 2026-10-12: the Excel of a client's
-   contacts sat on the Mac Mini where nobody could reach it). Stored next to
+   contacts sat on the AI Agent where nobody could reach it). Stored next to
    the screenshots; the card shows a download button. Office/CSV/PDF/text
    only — never scripts or pages. */
 const FILE_TYPES: Record<string, string> = {
@@ -205,7 +205,7 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
       const last = String((al?.value as { at?: string } | null)?.at ?? "");
       if (!last || Date.now() - Date.parse(last) > 6 * 3600_000) {
         try {
-          await textOwnerFn(svc, `🖥️ Mac Mini could not sign in to GoHighLevel by itself (${input.summary.slice(0, 120)}). On the Mini: Terminal → node ~/.pmu-agent/agent-worker.mjs login → sign in as the AI Agent user. Tasks wait until then.`);
+          await textOwnerFn(svc, `🤖 Mac Mini could not sign in to GoHighLevel by itself (${input.summary.slice(0, 120)}). On the Mini: Terminal → node ~/.pmu-agent/agent-worker.mjs login → sign in as the AI Agent user. Tasks wait until then.`);
           await svc.from("app_settings").upsert({ key: "agent_signin_alert", value: { at: new Date().toISOString() }, updated_by: "worker", updated_at: new Date().toISOString() });
         } catch { /* best effort */ }
       }
@@ -235,8 +235,8 @@ export async function queueKeepAlive(svc: Svc): Promise<{ queued: boolean; why?:
   if ((busy ?? 0) > 0) return { queued: false, why: "queue busy" };
   const ts = new Date().toISOString();
   const { error } = await svc.from("agent_proposals").insert({
-    conversation_id: `keepalive:${ts}`, message_id: `keepalive#${ts.slice(0, 13)}`, contact_id: null, contact_name: "Mac Mini check",
-    channel: null, client_message: "Keep-alive: make sure the Mac Mini is still signed in to GoHighLevel (every 6 h).",
+    conversation_id: `keepalive:${ts}`, message_id: `keepalive#${ts.slice(0, 13)}`, contact_id: null, contact_name: "AI Agent check",
+    channel: null, client_message: "Keep-alive: make sure the AI Agent is still signed in to GoHighLevel (every 6 h).",
     summary: "Keep-alive: confirm GoHighLevel sign-in", action_type: "account_change", proposed_reply: null,
     action_detail: "Open GoHighLevel and confirm this Chrome is signed in; sign in (security code from the mailbox) if not.",
     action_plan: [
@@ -245,7 +245,7 @@ export async function queueKeepAlive(svc: Svc): Promise<{ queued: boolean; why?:
       { type: "manual", what: "If you land on the login page or a security-code screen: follow SIGN-IN RECOVERY, then screenshot the dashboard as after-1.png." },
     ],
     location_id: AGENCY_LOCATION_ID, status: "queued_browser", decided_by: "dashboard (keep-alive)", decided_at: ts, executed_at: ts,
-    result: "🖥️ Queued for the Mac Mini", browser_attempts: 0,
+    result: "🤖 Queued for the AI Agent", browser_attempts: 0,
   });
   return error ? { queued: false, why: error.message } : { queued: true };
 }

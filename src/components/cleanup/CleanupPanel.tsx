@@ -514,7 +514,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
                             ? (p.snapshot_note?.startsWith("✗")
                                 ? `snapshot load failed: ${p.snapshot_note.slice(1).trim()}`
                                 : p.snapshot_task_id
-                                  ? `waiting for the Mac Mini to load the snapshot${p.snapshot_queued_at ? ` (queued ${ago(p.snapshot_queued_at)})` : ""}`
+                                  ? `waiting for the AI Agent to load the snapshot${p.snapshot_queued_at ? ` (queued ${ago(p.snapshot_queued_at)})` : ""}`
                                   : "no snapshot loaded — the setup needs its custom values")
                             : poolBlocker(p)}
                         {" · "}
@@ -542,7 +542,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
             )}
             <p className="text-[11px] text-[#9aa8bc] mt-2">
               🟢 snapshot loaded + no client data + A2P approved — safe to use · 🔵 waiting for the Demo snapshot
-              (the wipe removes custom values and fields; the Mac Mini loads them back, the setup refuses an account without them) ·
+              (the wipe removes custom values and fields; the AI Agent loads them back, the setup refuses an account without them) ·
               🟠 A2P not approved · 🔴 still has the old client&apos;s contacts · ⚪ not checked yet ·
               ✓A2P on a coloured chip = A2P already approved.
               Click a chip to toggle A2P; use Re-check to refresh what&apos;s inside (it also detects a snapshot loaded by hand).

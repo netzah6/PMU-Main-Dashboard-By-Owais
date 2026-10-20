@@ -587,7 +587,7 @@ export async function executeProposal(
               .map((s): PlanStep => (s.type === "payment_links" ? { type: "manual", what: `Send payment links: ${describeAmounts(s.amounts_cents)} (${s.label})` } : s));
         plan = [...(linkStep ? [linkStep] : []), ...steps];
         status = "queued_browser";
-        result = `${linkNote}\n⏳ Waiting for the Mac Mini to do it in GoHighLevel (screenshots will appear here)`;
+        result = `${linkNote}\n⏳ Waiting for the AI Agent to do it in GoHighLevel (screenshots will appear here)`;
       }
     }
   } catch (e) {
