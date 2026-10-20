@@ -717,12 +717,12 @@ export async function skipStep(svc: Svc, onboardingId: string, key: string, by: 
   // the Mini never does a step a person already finished by hand.
   const cur = (await loadOb(svc, onboardingId)).setup?.steps[key];
   if (cur?.proposal_id) {
-    await svc.from("agent_proposals").update({ status: "denied", result: `skipped on the Onboarding card by ${by} — done by hand`, decided_by: by, decided_at: now() })
+    await svc.from("agent_proposals").update({ status: "denied", result: `skipped on the Onboarding card by ${by} — approved manually`, decided_by: by, decided_at: now() })
       .eq("id", cur.proposal_id).in("status", ["pending", "queued_browser"]);
   }
   await patch(svc, onboardingId, (o) => {
     if (!o.setup) return;
-    setStep(o.setup, key, { status: "skipped", who: by, note: note?.trim() || "marked done by hand" }, `skipped by ${by}`);
+    setStep(o.setup, key, { status: "skipped", who: by, note: note?.trim() || "approved manually" }, `skipped by ${by}`);
     const checklist = { ...o.checklist };
     tick(checklist, step.checklist, by);
     if (o.setup.status !== "running") o.setup.status = "running";
