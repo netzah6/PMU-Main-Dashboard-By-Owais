@@ -667,7 +667,7 @@ export default function AskPage() {
           the owner still approves it under "Waiting for you" before it runs. */}
       {!isAdmin && (
         <div className="px-2 py-2 border-t border-[#eef3f8]">
-          <NewTaskBox onCreated={() => toast.success("Sent — the owner approves it, then the Mac Mini does it")} coach />
+          <NewTaskBox onCreated={() => toast.success("Sent — the owner approves it, then the AI Agent does it")} coach />
         </div>
       )}
       <p className="px-3 py-2 border-t border-[#eef3f8] text-[9px] text-[#a6b3c4]">
@@ -999,7 +999,7 @@ type AgentProposal = {
   status: string; decided_by: string | null; result: string | null;
   action_plan?: PlanStep[] | null; location_id?: string | null; notified_at?: string | null;
   screenshots?: Array<{ name: string; url: string }> | null;
-  files?: Array<{ name: string; url: string; bytes?: number }> | null; // documents the Mac Mini produced
+  files?: Array<{ name: string; url: string; bytes?: number }> | null; // documents the AI Agent produced
   owner_note?: string | null; // "Correct & retry": the note this plan was made with
   retry_of?: string | null;
 };
@@ -1057,7 +1057,7 @@ function parseAmounts(text: string): number[] | null {
   const cents = parts.map((t) => Math.round(Number(t) * 100));
   return cents.every((c) => Number.isInteger(c) && c >= 100 && c <= 1_000_000) ? cents : null;
 }
-const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "waiting for the Mac Mini", running: "Mac Mini working…", needs_teammate: "needs a teammate", handled: "handled in chat", pending: "pending" };
+const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", failed: "failed", queued_browser: "waiting for the AI Agent", running: "AI Agent working…", needs_teammate: "needs a teammate", handled: "handled in chat", pending: "pending" };
 
 // The old Agent tab minus the cards (those sit next to their chats now): the
 // SMS settings, what the last scan did and why it skipped chats, a short
@@ -1082,13 +1082,13 @@ function AgentActivity({ admin, proposals, lastScan, worker, loading, err, onRef
           <button onClick={onClose} title="Back to chat" className="p-1.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
         </div>
       </div>
-      <p className="text-xs text-[#697a91]">Client requests are checked every 10 minutes — or open a chat and press 🪄 Let AI handle it. Chats with a plan show 🕵️. <b>Nothing runs without your Approve, and the agent never texts clients.</b> Approved changes are done by the Mac Mini in GoHighLevel, with screenshots.</p>
+      <p className="text-xs text-[#697a91]">Client requests are checked every 10 minutes — or open a chat and press 🪄 Let AI handle it. Chats with a plan show 🕵️. <b>Nothing runs without your Approve, and the agent never texts clients.</b> Approved changes are done by the AI Agent in GoHighLevel, with screenshots.</p>
       {(() => {
         const online = !!worker && Date.now() - Date.parse(worker.at) < 3 * 60_000;
         const queued = proposals.filter((p) => p.status === "queued_browser" || p.status === "running").length;
         return (
           <div className={cn("rounded-lg border px-3 py-2 text-xs", online ? "border-[#bfe3cd] bg-[#f3fbf6] text-[#15803d]" : "border-[#f5c2cf] bg-[#fffafb] text-[#b91c1c]")}>
-            🖥️ {online ? `Mac Mini online (checked in ${timeAgo(worker!.at)} ago)` : worker ? `Mac Mini OFFLINE — last seen ${timeAgo(worker.at)} ago` : "Mac Mini not connected yet"}
+            🤖 {online ? `AI Agent online (checked in ${timeAgo(worker!.at)} ago)` : worker ? `AI Agent OFFLINE — last seen ${timeAgo(worker.at)} ago` : "AI Agent not connected yet"}
             {queued > 0 && <span className="text-[#697a91]"> · {queued} task{queued === 1 ? "" : "s"} in its queue</span>}
           </div>
         );
@@ -1155,7 +1155,7 @@ function AgentActivity({ admin, proposals, lastScan, worker, loading, err, onRef
 
 /* A task typed by a teammate (owner, 2026-10-10: "if my team member asks for
    that request, it can do it as well"). It becomes a normal card — still
-   needs Approve — and the Mac Mini does it in GoHighLevel. */
+   needs Approve — and the AI Agent does it in GoHighLevel. */
 function NewTaskBox({ onCreated, coach = false }: { onCreated: () => void; coach?: boolean }) {
   const [open, setOpen] = useState(false);
   const [client, setClient] = useState("");
@@ -1168,7 +1168,7 @@ function NewTaskBox({ onCreated, coach = false }: { onCreated: () => void; coach
       const r = await fetch("/api/agent/task", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client, task }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed");
-      toast.success(coach ? `Task sent for ${j.client} — the owner approves it, then the Mac Mini does it` : `Task added for ${j.client} — approve it under "Waiting for you"`);
+      toast.success(coach ? `Task sent for ${j.client} — the owner approves it, then the AI Agent does it` : `Task added for ${j.client} — approve it under "Waiting for you"`);
       setClient(""); setTask(""); setOpen(false);
       onCreated();
     } catch (e) {
@@ -1178,7 +1178,7 @@ function NewTaskBox({ onCreated, coach = false }: { onCreated: () => void; coach
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="w-full rounded-lg border border-dashed border-[#c9dbfb] bg-white px-3 py-2 text-xs font-semibold text-[#34568a] hover:border-[#15B7AE] text-left">
-        {coach ? "🖥️ Ask the Mac Mini to do something in a client's GoHighLevel (the owner approves first)" : <>➕ New task for the AI (e.g. &ldquo;Add a &lsquo;Later date&rsquo; stage before Declining in Tammy&apos;s pipeline&rdquo;)</>}
+        {coach ? "🤖 Ask the AI Agent to do something in a client's GoHighLevel (the owner approves first)" : <>➕ New task for the AI (e.g. &ldquo;Add a &lsquo;Later date&rsquo; stage before Declining in Tammy&apos;s pipeline&rdquo;)</>}
       </button>
     );
   }
@@ -1352,7 +1352,7 @@ function ProposalCard({ p, onPhase, onRetried, focused, reply: keptReply, amount
       // Keep the card up with the proof until the owner has read it.
       setOutcome({ status: json.status, result: json.result ?? "" });
       if (json.status === "queued_browser") window.dispatchEvent(new Event(MINI_REFRESH_EVENT));
-      toast.success(json.status === "queued_browser" ? "Approved — the Mac Mini will do it and send screenshots" : json.status === "done" ? "Done (nothing texted to the client)" : json.status === "needs_teammate" ? "A teammate must do this one by hand" : "Something failed — see the card");
+      toast.success(json.status === "queued_browser" ? "Approved — the AI Agent will do it and send screenshots" : json.status === "done" ? "Done (nothing texted to the client)" : json.status === "needs_teammate" ? "A teammate must do this one by hand" : "Something failed — see the card");
       setBusy(null);
       onPhase("approved");
     } catch (e) {
@@ -1369,7 +1369,7 @@ function ProposalCard({ p, onPhase, onRetried, focused, reply: keptReply, amount
   const shown = p.status !== "pending" ? { status: p.status, result: p.result ?? "" } : outcome;
   if (shown) {
     const ok = shown.status === "done";
-    const label = ok ? "✅ done" : shown.status === "failed" ? "❌ failed" : shown.status === "queued_browser" ? "⏳ waiting for the Mac Mini" : shown.status === "running" ? "🖥️ Mac Mini working…" : shown.status === "needs_teammate" ? "👤 needs a teammate" : STATUS_LABEL[shown.status] ?? shown.status;
+    const label = ok ? "✅ done" : shown.status === "failed" ? "❌ failed" : shown.status === "queued_browser" ? "⏳ waiting for the AI Agent" : shown.status === "running" ? "🤖 AI Agent working…" : shown.status === "needs_teammate" ? "👤 needs a teammate" : STATUS_LABEL[shown.status] ?? shown.status;
     const shots = p.screenshots ?? [];
     const files = p.files ?? [];
     return (
@@ -1413,7 +1413,7 @@ function ProposalCard({ p, onPhase, onRetried, focused, reply: keptReply, amount
   if (sensitive) willDo.push(`👤 Money is never automatic — a teammate makes this change by hand${change ? `: ${change}` : ""}`);
   else if (p.action_type === "account_change") {
     const steps = plan.filter((s) => s.type !== "payment_links");
-    willDo.push(`On the Mac Mini, open ${p.contact_name}'s GoHighLevel account and:`);
+    willDo.push(`The AI Agent opens ${p.contact_name}'s GoHighLevel account and:`);
     if (steps.length) willDo.push(...steps.map((s) => `   ${stepText(s)}`));
     else if (change) willDo.push(`   ${change}`);
     willDo.push("Screenshot the result and text it to you");

@@ -4,7 +4,7 @@ import { refreshPoolCleanliness } from "@/lib/ghl-cleanup";
 /* ── Snapshot reload for recycled pool accounts (owner, 10/15/2026) ─────────
    The Cleanup wipe deletes a sub-account's custom values, custom fields and
    calendars; the GHL API cannot load a snapshot onto an existing location.
-   So finalize queues ONE task for the 24/7 Mac Mini browser worker: load the
+   So finalize queues ONE task for the 24/7 AI Agent browser worker: load the
    newest "Demo (V2/V3) Snapshop …" snapshot from the agency Sub-Accounts
    screen and verify the custom values + template workflows are back. The
    account is offered for a New Client Setup only after that task is done.
@@ -75,11 +75,11 @@ export async function queueSnapshotLoad(svc: Svc, args: { locationId: string; po
     decided_by: `${args.by} (cleanup finalize)`,
     decided_at: now(),
     executed_at: now(),
-    result: "⏳ Waiting for the Mac Mini (snapshot load)",
+    result: "⏳ Waiting for the AI Agent (snapshot load)",
   }).select("id").maybeSingle();
   if (error || !ins) throw new Error(`could not queue the snapshot task: ${error?.message ?? "insert failed"}`);
   const taskId = (ins as { id: string }).id;
-  await markQueued(svc, args.locationId, taskId, attempt > 1 ? `queued again for the Mac Mini (try ${attempt})` : "queued for the Mac Mini");
+  await markQueued(svc, args.locationId, taskId, attempt > 1 ? `queued again for the AI Agent (try ${attempt})` : "queued for the AI Agent");
   return { taskId, reused: false };
 }
 
@@ -112,11 +112,11 @@ export async function onSnapshotProposalClosed(svc: Svc, p: { id: string; conver
   const firstLine = String(p.result ?? "").split("\n")[0].replace(/^[✓✗👤]\s*/, "").slice(0, 200);
   if (p.status === "done") {
     const at = now();
-    await svc.from("pool_accounts").update({ snapshot_loaded_at: at, snapshot_note: `loaded by the Mac Mini ${usDate(at)}` }).eq("location_id", ref.locationId);
+    await svc.from("pool_accounts").update({ snapshot_loaded_at: at, snapshot_note: `loaded by the AI Agent ${usDate(at)}` }).eq("location_id", ref.locationId);
     await svc.from("cleanup_log").update({ snapshot_loaded_at: at }).eq("location_id", ref.locationId);
     try { await refreshPoolCleanliness([ref.locationId]); } catch { /* the next Re-check verifies it */ }
     return;
   }
-  const why = p.status === "needs_teammate" ? "the Mac Mini needs a teammate" : "the Mac Mini could not finish";
+  const why = p.status === "needs_teammate" ? "the AI Agent needs a teammate" : "the AI Agent could not finish";
   await svc.from("pool_accounts").update({ snapshot_loaded_at: null, snapshot_note: `✗ ${why}: ${firstLine}`.slice(0, 300) }).eq("location_id", ref.locationId);
 }

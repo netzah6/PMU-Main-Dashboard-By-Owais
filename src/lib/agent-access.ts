@@ -2,11 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getCoachScope } from "@/lib/coach";
 
 /* Who may use the AI agent (owner, 10/19/2026: "my CSMs should be able to use
-   'The AI has a plan — review' so the Mac Mini does tasks for them").
+   'The AI has a plan — review' so the AI Agent does tasks for them").
    Admins: everything. Coaches (role editor): their own clients only (Clients
    Master "Assigned" = coach), plus tasks they typed themselves; never a
    SENSITIVE card (refunds / charges / cancellations) and never a card that
-   sends anything to a client (only account_change runs on the Mac Mini). */
+   sends anything to a client (only account_change runs on the AI Agent). */
 export type AgentAccess = { userId: string; email: string; isAdmin: boolean; ownerKeys: Set<string> | null };
 type Svc = SupabaseClient;
 const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();

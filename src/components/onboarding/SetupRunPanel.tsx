@@ -12,7 +12,7 @@ import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, type RunbookStep, type SetupState
    plan with who does each, and the Approve button. Nothing touches GHL
    before that click.
    After: a banner (running / needs you / done / failed), every step with
-   its tick, who did it, when (US dates), the Mac Mini's screenshots, Retry
+   its tick, who did it, when (US dates), the AI Agent's screenshots, Retry
    / Skip on a failed step, and the final summary text. */
 
 type Card = { status: string; screenshots: Array<{ name: string; url: string }>; result: string | null };
@@ -20,8 +20,11 @@ type Pool = { choices: Array<{ id: string; name: string; readiness: string; bloc
 type Setup = Omit<SetupState, "password"> & { has_password: boolean };
 type Data = { setup: Setup | null; cards: Record<string, Card>; pool: Pool | null; claimedLocation: string | null; canApprove: boolean };
 
+// Steps the AI Agent does by itself (the dashboard's API steps count too — to
+// a coach both are "done for you"); the rest are done by hand.
+const AGENT: Who[] = ["api", "mini", "ask"];
 const WHO_STYLE: Record<Who, string> = {
-  api: "bg-[#e4f5e9] text-[#1b7f3a]", mini: "bg-[#e6edfb] text-[#2f5fb8]", ask: "bg-[#fff1df] text-[#b35a00]",
+  api: "bg-[#e6edfb] text-[#2f5fb8]", mini: "bg-[#e6edfb] text-[#2f5fb8]", ask: "bg-[#e6edfb] text-[#2f5fb8]",
   owner: "bg-[#fff1df] text-[#b35a00]", team: "bg-[#ece9fb] text-[#6b5bd1]", client: "bg-[#eceff3] text-[#6b7280]",
 };
 const usWhen = (iso?: string) => (iso ? new Date(iso).toLocaleString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" }) : "");
@@ -29,8 +32,8 @@ const usWhen = (iso?: string) => (iso ? new Date(iso).toLocaleString("en-US", { 
 function stepIcon(st: StepState, card?: Card): { icon: string; cls: string; label: string } {
   const live = card?.status;
   if (st.status === "queued" || st.status === "waiting_owner" || st.status === "running") {
-    if (live === "running") return { icon: "🖥️", cls: "text-[#2f5fb8]", label: "Mac Mini working…" };
-    if (live === "queued_browser") return { icon: "⏳", cls: "text-[#b35a00]", label: "waiting for the Mac Mini" };
+    if (live === "running") return { icon: "🤖", cls: "text-[#2f5fb8]", label: "AI Agent working…" };
+    if (live === "queued_browser") return { icon: "⏳", cls: "text-[#b35a00]", label: "waiting for the AI Agent" };
     if (live === "pending" || st.status === "waiting_owner") return { icon: "✋", cls: "text-[#b35a00]", label: "needs your Approve (AI tab)" };
     if (live === "denied") return { icon: "✗", cls: "text-[#e11d48]", label: "denied in the AI tab — Retry to file it again" };
     if (st.status === "running") return { icon: "⟳", cls: "text-[#2f5fb8]", label: "dashboard working…" };
@@ -91,7 +94,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
       setData((d) => (d ? { ...d, setup: j.setup } : d));
       await load(true);
       onChanged?.();
-      window.dispatchEvent(new Event(MINI_REFRESH_EVENT)); // may have queued Mac Mini work
+      window.dispatchEvent(new Event(MINI_REFRESH_EVENT)); // may have queued AI Agent work
       if (action === "approve") toast.success("Approved — the account steps are running");
       if (action === "retry") toast.success("Step queued again");
       if (action === "skip") toast.success("Step marked done by hand");
@@ -122,7 +125,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h2 className="text-sm font-bold text-[#1f3559]">🧩 Set up this account</h2>
-            <p className="text-xs text-[#697a91] mt-0.5">The dashboard runs the account steps itself and the Mac Mini does the browser steps, with screenshots. <b>Nothing touches GoHighLevel before you approve.</b></p>
+            <p className="text-xs text-[#697a91] mt-0.5">The dashboard runs the account steps itself and the AI Agent does the browser steps, with screenshots. <b>Nothing touches GoHighLevel before you approve.</b></p>
           </div>
           <button onClick={() => void load()} className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88]" title="Refresh"><RefreshCw size={13} /></button>
         </div>
@@ -165,7 +168,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin ? (
-            <button onClick={() => { if (window.confirm(`Approve: take "${pick?.name ?? data.claimedLocation ?? "the claimed account"}" and set up ${form.business_name}?\n\nThe account steps run now; browser steps go to the Mac Mini one by one. You'll be asked again before the phone number is bought and before the user is created.`)) void act("approve", { poolLocationId: poolId }); }}
+            <button onClick={() => { if (window.confirm(`Approve: take "${pick?.name ?? data.claimedLocation ?? "the claimed account"}" and set up ${form.business_name}?\n\nThe account steps run now; browser steps go to the AI Agent one by one. You'll be asked again before the phone number is bought and before the user is created.`)) void act("approve", { poolLocationId: poolId }); }}
               disabled={!!busy || (!data.claimedLocation && !poolId)}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold disabled:opacity-50">
               {busy === "approve" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} {busy === "approve" ? "Running the account steps… (1–3 min)" : "Approve & start"}
@@ -183,7 +186,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
       ? { cls: "border-[#f5c2cf] bg-[#fffafb] text-[#b91c1c]", text: "❌ Setup stopped on a failed step — Retry or Skip it below" }
       : setup.status === "waiting"
         ? { cls: "border-[#fcd9a8] bg-[#fff7ec] text-[#b35a00]", text: "✋ Waiting for you — approve the step in the AI tab" }
-        : { cls: "border-[#c9dbfb] bg-[#f7faff] text-[#2f5fb8]", text: "⟳ Running — the dashboard and the Mac Mini are working through the steps" };
+        : { cls: "border-[#c9dbfb] bg-[#f7faff] text-[#2f5fb8]", text: "⟳ Running — the dashboard and the AI Agent are working through the steps" };
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white p-4 space-y-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -346,10 +349,36 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
   onboardingId?: string;
 }) {
   const [cvOpen, setCvOpen] = useState(false);
+  /* Once a run exists: finished steps on the left, what's left on the right,
+     so a coach sees at a glance what the AI Agent did and what is hers
+     (owner 2026-10-20 — the single long list used half the screen). */
+  const isDone = (s: RunbookStep) => ["done", "skipped", "warn"].includes(setup?.steps?.[s.key]?.status ?? "todo");
+  if (setup) {
+    const done = steps.filter(isDone);
+    const todo = steps.filter((s) => !isDone(s));
+    // A step the AI Agent failed is a person's job now.
+    const byAgent = todo.filter((s) => AGENT.includes(s.who) && setup.steps?.[s.key]?.status !== "failed").length;
+    return (
+      <div className="mt-1.5 grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+        <div className="min-w-0">
+          <p className="mb-1.5 text-xs font-bold text-[#15803d]">✅ Done · {done.length}</p>
+          {done.length ? renderSections(done) : <p className="text-xs text-[#8595a8]">Nothing finished yet.</p>}
+        </div>
+        <div className="min-w-0">
+          <p className="mb-1.5 text-xs font-bold text-[#b35a00]">📝 To do · {todo.length}
+            <span className="font-normal text-[#697a91]"> · 🤖 {byAgent} by the AI Agent · 👤 {todo.length - byAgent} by hand</span></p>
+          {todo.length ? renderSections(todo) : <p className="text-xs text-[#15803d]">All steps are done.</p>}
+        </div>
+      </div>
+    );
+  }
+  return renderSections(steps);
+
+  function renderSections(list: RunbookStep[]) {
   return (
     <div className="mt-1.5 space-y-2">
       {RUNBOOK_SECTIONS.map((section) => {
-        const sec = steps.filter((s) => s.section === section);
+        const sec = list.filter((s) => s.section === section);
         if (!sec.length) return null;
         return (
           <div key={section} className="rounded-lg border border-[#eef3f8] bg-white overflow-hidden">
@@ -375,6 +404,9 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
                           <span title={s.label} className={cn("text-[12.5px] font-semibold", st.status === "done" || st.status === "skipped" ? "text-[#475569]" : "text-[#1f3559]")}>{s.title ?? s.label}</span>
                         )}
                         <span className={cn("text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap", WHO_STYLE[s.who])}>{WHO_LABEL[s.who]}</span>
+                        {setup && st.status === "failed" && AGENT.includes(s.who) && (
+                          <span className="text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap bg-[#fde8ee] text-[#e11d48]">👤 needs a person</span>
+                        )}
                         {settledLine && <span className="text-[10px] text-[#a6b3c4] whitespace-nowrap">{settledLine}</span>}
                         {shots.length > 0 && <ScreenshotGallery shots={shots} variant="chip" />}
                       </div>
@@ -394,4 +426,5 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
       })}
     </div>
   );
+  }
 }

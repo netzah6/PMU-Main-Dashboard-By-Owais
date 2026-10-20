@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
       const pool = row as { pool_name: string; status: string } | null;
       if (!pool || pool.status !== "available") return NextResponse.json({ error: "Only an unclaimed pool account can have the snapshot loaded." }, { status: 400 });
       const q = await queueSnapshotLoad(svc, { locationId, poolName: pool.pool_name, by: auth.email ?? "admin", reason: "has no Demo snapshot on it" });
-      return NextResponse.json({ taskId: q.taskId, reused: q.reused, note: q.reused ? "already queued for the Mac Mini" : "queued for the Mac Mini" });
+      return NextResponse.json({ taskId: q.taskId, reused: q.reused, note: q.reused ? "already queued for the AI Agent" : "queued for the AI Agent" });
     }
 
     if (body.action === "finalize") {
@@ -224,7 +224,7 @@ export async function POST(req: NextRequest) {
       try {
         const q = await queueSnapshotLoad(svc, { locationId, poolName, by: auth.email ?? "admin" });
         snapshotTaskId = q.taskId;
-        notes.push(q.reused ? "snapshot load already queued for the Mac Mini" : "snapshot load queued for the Mac Mini — ready to use once it's done");
+        notes.push(q.reused ? "snapshot load already queued for the AI Agent" : "snapshot load queued for the AI Agent — ready to use once it's done");
       } catch (e) {
         notes.push(`✗ snapshot task not queued (${e instanceof Error ? e.message : "error"}) — press "Load snapshot" on the pool chip`);
       }

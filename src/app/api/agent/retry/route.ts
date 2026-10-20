@@ -12,7 +12,7 @@ export const maxDuration = 60; // re-reads the chat and plans again
    card — who the client is, what to do instead — and the chat is planned
    again WITH that note as authoritative context. A new pending card comes
    back; nothing runs until Approve on it. Works on failed, denied,
-   needs-teammate and still-pending cards; never on one the Mac Mini is
+   needs-teammate and still-pending cards; never on one the AI Agent is
    doing right now. Admin only. */
 export async function POST(req: NextRequest) {
   const supabase = createClient();
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   if (!row) return NextResponse.json({ error: "Card not found" }, { status: 404 });
   if (!canAct(access, row as { contact_name?: string | null; action_detail?: string | null; action_type?: string | null; client_message?: string | null })) return NextResponse.json({ error: "Only the owner can retry this card" }, { status: 403 });
   const p = row as Proposal;
-  if (p.status === "queued_browser" || p.status === "running") return NextResponse.json({ error: "The Mac Mini is on this one — wait for it to finish" }, { status: 409 });
+  if (p.status === "queued_browser" || p.status === "running") return NextResponse.json({ error: "The AI Agent is on this one — wait for it to finish" }, { status: 409 });
   if (p.status === "pending" && isLiveClaim(p)) return NextResponse.json({ error: "Already being approved — refresh in a moment" }, { status: 409 });
   const by = user.email ?? user.id;
 

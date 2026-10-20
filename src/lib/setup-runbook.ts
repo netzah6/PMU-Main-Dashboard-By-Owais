@@ -41,7 +41,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 5, key: "connector", section: "A · Account", who: "api", label: "Dashboard connector installed on the account (leads, chats and deposits sync)" },
   // B · Deposit product and payment route
   { n: 6, key: "product", section: "B · Deposit product & payment route", who: "api", label: "Create the Commas deposit product \"FULL NAME - BUSINESS NAME\" and save the product ID", checklist: ["fanbasis_product"] },
-  { n: 7, key: "webhook_url", section: "B · Deposit product & payment route", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The Mac Mini reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
+  { n: 7, key: "webhook_url", section: "B · Deposit product & payment route", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The AI Agent reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
   { n: 8, key: "route_test", section: "B · Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
   // C · Phone
   { n: 9, key: "phone_buy", section: "C · Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
@@ -51,7 +51,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 13, key: "phone_forward", section: "C · Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
   { n: 14, key: "user_create", section: "D · GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
-  { n: 15, key: "user_password", section: "D · GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The Mac Mini sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
+  { n: 15, key: "user_password", section: "D · GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The AI Agent sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
   { n: 16, key: "user_settings", section: "D · GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
   { n: 17, key: "user_calendar", section: "D · GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
   // E · Workflows
@@ -66,7 +66,7 @@ export const RUNBOOK: RunbookStep[] = [
   // G · Funnel
   { n: 25, key: "funnel_create", section: "G · Funnel", who: "api", label: "Create the one-box funnel at book.pmu-care.com/<slug> and set \"CC - Deposit Funnel URL (V3)\"", checklist: ["funnel_onebox"] },
   { n: 26, key: "funnel_pixel", section: "G · Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
-  { n: 27, key: "funnel_ig", section: "G · Funnel", who: "ask", label: "Instagram widget in Elfsight (after your approval), only if the IG has 9+ posts and a profile picture", how: "Needs the Mac Mini signed in to dash.elfsight.com. The widget link goes into \"CC - IG Widget LINK\"; the funnel picks it up.", checklist: ["funnel_ig_widget"] },
+  { n: 27, key: "funnel_ig", section: "G · Funnel", who: "ask", label: "Instagram widget in Elfsight (after your approval), only if the IG has 9+ posts and a profile picture", how: "Needs the AI Agent signed in to dash.elfsight.com. The widget link goes into \"CC - IG Widget LINK\"; the funnel picks it up.", checklist: ["funnel_ig_widget"] },
   { n: 28, key: "funnel_redirect", section: "G · Funnel", who: "mini", label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect" },
   { n: 29, key: "funnel_test", section: "G · Funnel", who: "mini", label: "Test the funnel as a lead: survey, text arrives, AI replies, deposit page loads; then delete the test contact", checklist: ["fin_test"] },
   { n: 30, key: "funnel_live", section: "G · Funnel", who: "api", label: "Check no client value is empty, then set the version to V3 and go live", how: "Stops red with the list of empty values (prices, deposit, address, product ID, webhook, calendar ID…) instead of going live with holes." },
@@ -96,14 +96,15 @@ export const RUNBOOK_SECTIONS = Array.from(new Set(RUNBOOK.map((s) => s.section)
 export const stepByKey = (key: string): RunbookStep | undefined => RUNBOOK.find((s) => s.key === key);
 
 export const WHO_LABEL: Record<Who, string> = {
-  api: "API · dashboard", mini: "Mac Mini · browser", ask: "Asks you first", owner: "You", team: "Team", client: "Client",
+  // Owner 2026-10-20: a coach only needs to know "done for you" vs "by hand".
+  api: "🤖 AI Agent", mini: "🤖 AI Agent", ask: "🤖 AI Agent · asks you first", owner: "👤 You (owner)", team: "👤 Coach", client: "👤 Client",
 };
 
 // ── Run state, stored in onboardings.setup ─────────────────────────────────
 export type StepStatus =
   | "todo"           // not started
-  | "running"        // the dashboard is on it right now / the Mac Mini claimed it
-  | "queued"         // waiting for the Mac Mini to pick it up
+  | "running"        // the dashboard is on it right now / the AI Agent claimed it
+  | "queued"         // waiting for the AI Agent to pick it up
   | "waiting_owner"  // an "Asks you" card is pending in the AI tab
   | "done"
   | "warn"           // done, but something to look at (missing custom values, …)
@@ -113,7 +114,7 @@ export type StepStatus =
 
 export type StepState = {
   status: StepStatus;
-  who?: string;              // "Dashboard", "Mac Mini", an email
+  who?: string;              // "Dashboard", "AI Agent", an email
   at?: string;               // ISO
   note?: string;             // one-liner result; several lines allowed
   proposal_id?: string;      // the agent_proposals card (mini / ask steps)

@@ -101,10 +101,10 @@ export function MacMiniTracker({ scope }: { scope: TrackerScope }) {
     const head = FINISHED_LABEL[r.status] ?? r.status;
     const text = `${r.contact_name}: ${r.summary}`;
     const show = r.status === "done" ? toast.success : toast.error;
-    show(`Mac Mini — ${head}`, { description: text, duration: 30_000, action: { label: "Open", onClick: () => openCard(r) } });
+    show(`AI Agent — ${head}`, { description: text, duration: 30_000, action: { label: "Open", onClick: () => openCard(r) } });
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        const n = new Notification(`Mac Mini — ${head}`, { body: text, tag: `mini-${r.id}` });
+        const n = new Notification(`AI Agent — ${head}`, { body: text, tag: `mini-${r.id}` });
         n.onclick = () => { window.focus(); openCard(r); };
       }
     } catch { /* some browsers only allow notifications from a service worker */ }
@@ -116,7 +116,7 @@ export function MacMiniTracker({ scope }: { scope: TrackerScope }) {
     try {
       const res = await fetch(`/api/agent/tracker?scope=${scope}`, { cache: "no-store" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Couldn't load the Mac Mini's tasks");
+      if (!res.ok) throw new Error(json.error || "Couldn't load the AI Agent's tasks");
       const d = json as Data;
       // Alert only on a change this page watched happen — a reload or a first
       // load shows earlier results as "unseen" on the pill instead of a burst.
@@ -185,17 +185,17 @@ export function MacMiniTracker({ scope }: { scope: TrackerScope }) {
   // Pill: the one line that matters most right now.
   const warn = (!online && data.active.length > 0) || stuck;
   let pill: React.ReactNode;
-  if (running.length) pill = <><Loader2 size={12} className="animate-spin shrink-0" /> Mac Mini working · <b className="truncate">{running[0].contact_name}</b>{queued.length > 0 && <span className="opacity-80"> · {queued.length} waiting</span>}</>;
-  else if (queued.length) pill = <>⏳ {queued.length} task{queued.length === 1 ? "" : "s"} waiting for the Mac Mini</>;
-  else if (unseen.length) pill = <>{unseenFailed ? "❌" : "✅"} Mac Mini finished {unseen.length} task{unseen.length === 1 ? "" : "s"}{unseenFailed ? ` · ${unseenFailed} need${unseenFailed === 1 ? "s" : ""} you` : ""}</>;
-  else pill = <>🖥️ Mac Mini {online ? "idle" : "offline"}</>;
+  if (running.length) pill = <><Loader2 size={12} className="animate-spin shrink-0" /> AI Agent working · <b className="truncate">{running[0].contact_name}</b>{queued.length > 0 && <span className="opacity-80"> · {queued.length} waiting</span>}</>;
+  else if (queued.length) pill = <>⏳ {queued.length} task{queued.length === 1 ? "" : "s"} waiting for the AI Agent</>;
+  else if (unseen.length) pill = <>{unseenFailed ? "❌" : "✅"} AI Agent finished {unseen.length} task{unseen.length === 1 ? "" : "s"}{unseenFailed ? ` · ${unseenFailed} need${unseenFailed === 1 ? "s" : ""} you` : ""}</>;
+  else pill = <>🤖 AI Agent {online ? "idle" : "offline"}</>;
 
   return (
     <div className="fixed z-40 bottom-4 left-4 max-w-[calc(100vw-2rem)] sm:max-w-[400px] flex flex-col items-start gap-2">
       {open && (
         <div className="w-[min(400px,calc(100vw-2rem))] max-h-[60vh] overflow-y-auto rounded-2xl border border-[#e4ebf2] bg-white shadow-xl p-3 space-y-3 text-xs">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-bold text-[#1f3559]">🖥️ Mac Mini — {scope === "onboarding" ? "onboarding tasks" : "your tasks"}</span>
+            <span className="font-bold text-[#1f3559]">🤖 AI Agent — {scope === "onboarding" ? "onboarding tasks" : "your tasks"}</span>
             <button onClick={() => { setOpen(false); markSeen(); }} title="Close" className="p-1 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
           </div>
 
@@ -242,7 +242,7 @@ export function MacMiniTracker({ scope }: { scope: TrackerScope }) {
 
       <button
         onClick={() => { if (open) markSeen(); setOpen((o) => !o); }}
-        title="Mac Mini tasks"
+        title="AI Agent tasks"
         className={cn("flex items-center gap-1.5 max-w-full rounded-full border px-3 py-1.5 text-xs font-medium shadow-md transition-colors",
           warn ? "bg-[#fff7ec] text-[#9a5b00] border-[#fcd9a8]"
             : running.length || queued.length ? "bg-[#15B7AE] text-white border-[#15B7AE]"
