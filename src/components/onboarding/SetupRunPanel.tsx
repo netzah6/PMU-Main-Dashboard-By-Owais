@@ -126,9 +126,13 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         `I'm excited to share that your ${form.business_name} account is ready to go.`,
         "",
         "Here are your logins for the booking system:",
-        "Login page: https://app.gohighlevel.com/",
+        "Login page: https://app.pmu-bookings.com/",
         form.email ? `Email: ${form.email}` : "",
         pw ? `Password: ${pw}` : role === "admin" ? "Password: (not set yet)" : "Password: (ask the admin)",
+        "",
+        "On your phone, download the \"Lead Connector\" app (see the picture) and log in with the same email and password:",
+        "iPhone: https://apps.apple.com/us/app/lead-connector/id1564302502",
+        "Android: https://play.google.com/store/apps/details?id=com.LeadConnector",
         "",
         funnel ? `And here is the funnel we built for you — this is the page your ads will send clients to:\n${funnel}` : "",
         "",
@@ -137,9 +141,23 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         "Welcome aboard!",
       ];
       await navigator.clipboard.writeText(lines.filter((l, i, a) => l !== "" || a[i - 1] !== "").join("\n").trim());
-      toast.success("Message copied — paste it to the client, then mark the step completed");
+      toast.success("Message copied — paste it to the client with the app picture, then mark the step completed");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not copy");
+    }
+    setBusy(null);
+  };
+
+  /* The "download the Lead Connector app" picture that goes with the message. */
+  const copyAppPicture = async () => {
+    setBusy("picture");
+    try {
+      const blob = await fetch("/leadconnector-app.png").then((r) => r.blob());
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast.success("Picture copied — paste it into the text or email");
+    } catch {
+      window.open("/leadconnector-app.png", "_blank");
+      toast("Opened the picture — save it and attach it to the message");
     }
     setBusy(null);
   };
@@ -335,6 +353,12 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
               {busy === "copy" ? <Loader2 size={11} className="animate-spin inline" /> : "📋"} Copy welcome message
             </button>
           )}
+          {setup.has_password && (
+            <button onClick={() => void copyAppPicture()} disabled={!!busy} title="Copy the Lead Connector app picture to send with the message"
+              className="px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#c9dbfb] text-[#2f5fb8] hover:bg-[#f7faff] disabled:opacity-50">
+              {busy === "picture" ? <Loader2 size={11} className="animate-spin inline" /> : "📱"} Copy app picture
+            </button>
+          )}
         </div>
       )}
 
@@ -361,6 +385,12 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                 <button onClick={() => void copyClientMessage()} disabled={!!busy}
                   className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
                   {busy === "copy" ? <Loader2 size={11} className="animate-spin inline" /> : "📋"} Copy the message
+                </button>
+              )}
+              {canCopy && (
+                <button onClick={() => void copyAppPicture()} disabled={!!busy}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-semibold border border-[#c9dbfb] text-[#2f5fb8] hover:bg-[#f7faff] disabled:opacity-50">
+                  {busy === "picture" ? <Loader2 size={11} className="animate-spin inline" /> : "📱"} Copy app picture
                 </button>
               )}
               {st.status === "waiting_owner" && st.proposal_id && card?.status === "pending" && (
