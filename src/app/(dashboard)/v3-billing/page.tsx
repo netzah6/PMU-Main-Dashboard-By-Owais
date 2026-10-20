@@ -39,9 +39,15 @@ interface PaymentGroup {
   items?: Array<{ name: string; date: string | null; dateLabel: string | null }>;
   credits?: Array<{ amount: number; reason: string }>;
 }
+interface LedgerEvent {
+  at: string; kind: "credit" | "card" | "credit_used"; amount: number; creditUsed: number;
+  names: string[]; reason: string | null; paymentId: string | null; receiptUrl: string | null; chargedBy: string | null; balanceAfter: number;
+}
 interface Drill {
   payments?: PaymentGroup[];
   credits?: Array<{ amount: number; applied: number; reason: string; approvedAt: string | null }>;
+  ledger?: LedgerEvent[];
+  creditLeft?: number;
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
   summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; readyToCharge: number; excluded: number; refunded?: number; showed: number; noShowMarked: number; showRate: number | null };
   appointments: Appt[];
@@ -361,6 +367,35 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
             ))}
           </div>
         </div>
+      )}
+
+      {/* Activity log — every payment and credit in order, with the credit
+          balance after each step (owner, 2026-10-20: "who were the two clients
+          we already charged her for since we issued the credit?"). */}
+      {(drill.ledger?.length ?? 0) > 0 && (
+        <Section title="📒 Activity & credit balance"
+          summary={<>{drill.ledger!.length} event{drill.ledger!.length === 1 ? "" : "s"}{(drill.creditLeft ?? 0) > 0 ? <> · <strong className="text-[#15803d]">{money(drill.creditLeft!)} credit left</strong></> : " · no credit on file"}</>}>
+          <div className="space-y-1">
+            {drill.ledger!.map((e, i) => {
+              const when = new Date(e.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+              const names = e.names.length ? e.names.join(" · ") : "";
+              return (
+                <div key={i} className={cn("flex items-start gap-2 text-[11px] flex-wrap rounded-md px-2 py-1 border",
+                  e.kind === "credit" ? "bg-[#eef7ff] border-[#c9dbfb]" : e.kind === "credit_used" ? "bg-[#fffbeb] border-[#fde68a]" : "bg-[#f4fbf7] border-[#c7edd4]")}>
+                  <span className="text-[#8595a8] whitespace-nowrap w-[92px] shrink-0">{when}</span>
+                  <span className="flex-1 min-w-[200px] text-[#1f3559]">
+                    {e.kind === "credit" && <><strong className="text-[#1d4ed8]">+{money(e.amount)} credit added</strong>{e.reason ? <span className="text-[#697a91]"> — {e.reason}</span> : null}</>}
+                    {e.kind === "credit_used" && <><strong className="text-[#b45309]">−{money(e.amount)} credit used</strong> for {e.names.length} show{e.names.length === 1 ? "" : "s"}{names ? <span className="text-[#697a91]"> — {names}</span> : null}</>}
+                    {e.kind === "card" && <><strong className="text-[#15803d]">{money(e.amount)} charged on card</strong> for {e.names.length} show{e.names.length === 1 ? "" : "s"}{e.creditUsed > 0 ? <span className="text-[#697a91]"> (less {money(e.creditUsed)} credit)</span> : null}{names ? <span className="text-[#697a91]"> — {names}</span> : null}
+                      {e.receiptUrl && <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="ml-1 text-[#15803d] underline">receipt ↗</a>}</>}
+                  </span>
+                  <span className={cn("whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-bold border", e.balanceAfter > 0 ? "bg-white text-[#1d4ed8] border-[#c9dbfb]" : "bg-white text-[#8595a8] border-[#e2e8f0]")}
+                    title="Unused credit after this step">credit left {money(e.balanceAfter)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
       )}
 
       {/* Every charge that actually went through — the keep-track trail the
