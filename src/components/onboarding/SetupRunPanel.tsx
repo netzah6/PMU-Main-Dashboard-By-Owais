@@ -88,6 +88,39 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
     return () => clearInterval(t);
   }, [active, load]);
 
+  /* The message the team pastes to the client once the funnel test passed
+     (owner 10/20/2026): funnel link + GoHighLevel login. The password is
+     fetched for admins; everyone else gets the message without it. */
+  const copyClientMessage = async () => {
+    setBusy("copy");
+    try {
+      let pw: string | null = null;
+      if (role === "admin") {
+        const r = await fetch(`/api/onboarding/${onboardingId}/setup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "password" }) });
+        const j = await r.json().catch(() => ({}));
+        pw = j.password ?? null;
+      }
+      const first = String(form.owner_name ?? "").trim().split(/\s+/)[0] || "there";
+      const funnel = data?.setup?.funnel_url ?? "";
+      const lines = [
+        `Hi ${first}! 🎉 Your PMU Bookings On Demand setup for ${form.business_name} is ready.`,
+        "",
+        funnel ? `Your booking funnel: ${funnel}` : "",
+        "",
+        "Your GoHighLevel login: https://app.gohighlevel.com/",
+        form.email ? `Email: ${form.email}` : "",
+        pw ? `Password: ${pw}` : role === "admin" ? "Password: (not set yet)" : "Password: (ask the admin)",
+        "",
+        "Please log in once to confirm it works, and let us know when you'd like to go over it together. Welcome aboard!",
+      ];
+      await navigator.clipboard.writeText(lines.filter((l, i, a) => l !== "" || a[i - 1] !== "").join("\n").trim());
+      toast.success("Message copied — paste it to the client, then mark the step completed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not copy");
+    }
+    setBusy(null);
+  };
+
   const act = useCallback(async (action: string, extra: Record<string, unknown> = {}, label = action) => {
     setBusy(label);
     try {
@@ -101,7 +134,8 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
       window.dispatchEvent(new Event(MINI_REFRESH_EVENT)); // may have queued AI Agent work
       if (action === "approve") toast.success("Approved — the account steps are running");
       if (action === "retry") toast.success("Step queued again");
-      if (action === "skip") toast.success("Step marked done by hand");
+      if (action === "skip") toast.success(extra.note === "not needed" ? "Step marked not needed" : "Step marked completed");
+      if (action === "confirm") toast.success("Approved — the dashboard is doing it now");
     } catch (e) { toast.error(`${e}`.replace("Error: ", "")); }
     finally { setBusy(null); }
   }, [onboardingId, load, onChanged]);
@@ -189,7 +223,9 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
     : setup.status === "failed"
       ? { cls: "border-[#f5c2cf] bg-[#fffafb] text-[#b91c1c]", text: "❌ Setup stopped on a failed step — Retry or Skip it below" }
       : setup.status === "waiting"
-        ? { cls: "border-[#fcd9a8] bg-[#fff7ec] text-[#b35a00]", text: "✋ Waiting for you — approve the step in the AI tab" }
+        ? { cls: "border-[#fcd9a8] bg-[#fff7ec] text-[#b35a00]", text: steps.some((s) => s.confirm && setup.steps[s.key]?.status !== "done" && setup.steps[s.key]?.status !== "skipped" && !setup.steps[s.key]?.confirmed_by && ["done", "warn", "skipped"].includes(setup.steps.funnel_test?.status ?? ""))
+            ? "✅ The AI Agent is done — send the client the logins, then click Approve on \"Move to First Cycle\" below"
+            : "✋ Waiting for you — approve the step in the AI tab" }
         : { cls: "border-[#c9dbfb] bg-[#f7faff] text-[#2f5fb8]", text: "⟳ Running — the dashboard and the AI Agent are working through the steps" };
   /* Owner 2026-10-20: no headline, no summary text. The account line sits in
      the page's sub-headline; here only the status, the funnel and the
@@ -236,10 +272,26 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
           const card = st.proposal_id ? data.cards[st.proposal_id] : undefined;
           const failed = st.status === "failed" || card?.status === "denied";
           const canRetry = isAdmin && (failed || st.status === "warn");
-          const canSkip = (isAdmin || role === "editor") && (failed || st.status === "warn" || st.status === "todo" || st.status === "queued" || st.status === "waiting_owner");
-          if (!canRetry && !canSkip && !(st.status === "waiting_owner" && st.proposal_id)) return null;
+          const byHand = !AGENT.includes(s.who);
+          // Team / owner / client steps are "manual" until someone marks them completed.
+          const canSkip = (isAdmin || role === "editor") && (failed || st.status === "warn" || st.status === "todo" || st.status === "queued" || st.status === "waiting_owner" || (byHand && st.status === "manual"));
+          const canConfirm = (isAdmin || role === "editor") && !!s.confirm && st.status === "todo" && !st.confirmed_by && ["done", "warn", "skipped"].includes(setup.steps.funnel_test?.status ?? "");
+          const canCopy = s.key === "send_client" && !["done", "skipped"].includes(st.status);
+          if (!canRetry && !canSkip && !canConfirm && !canCopy && !(st.status === "waiting_owner" && st.proposal_id)) return null;
           return (
             <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {canConfirm && (
+                <button onClick={() => { if (window.confirm(`Move ${form.business_name}'s deal to "First Cycle" in the PMU Bookings On Demand pipeline?`)) void act("confirm", { key: s.key }, `confirm:${s.key}`); }} disabled={!!busy}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#15B7AE] hover:bg-[#0e8f88] text-white disabled:opacity-50">
+                  {busy === `confirm:${s.key}` ? <Loader2 size={11} className="animate-spin inline" /> : "▶"} Approve — move to First Cycle
+                </button>
+              )}
+              {canCopy && (
+                <button onClick={() => void copyClientMessage()} disabled={!!busy}
+                  className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
+                  {busy === "copy" ? <Loader2 size={11} className="animate-spin inline" /> : "📋"} Copy the message
+                </button>
+              )}
               {st.status === "waiting_owner" && st.proposal_id && card?.status === "pending" && (
                 <a href={`/ask?view=agent&p=${encodeURIComponent(st.proposal_id)}`} className="px-2 py-1 rounded-md text-[11px] font-semibold bg-[#fff1df] text-[#b35a00] hover:bg-[#ffe6c7]">✋ Approve in the AI tab</a>
               )}
@@ -249,9 +301,13 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                   {busy === `retry:${s.key}` ? <Loader2 size={11} className="animate-spin inline" /> : "↻"} Retry
                 </button>
               )}
+              {s.optional && canSkip && st.status !== "failed" && (
+                <button onClick={() => void act("skip", { key: s.key, note: "not needed" }, `skip:${s.key}`)} disabled={!!busy}
+                  className="px-2 py-1 rounded-md text-[11px] font-semibold border border-[#d7e0ea] text-[#64748b] hover:bg-[#f8fafc] disabled:opacity-50">Not needed</button>
+              )}
               {canSkip && skipKey !== s.key && (
                 <button onClick={() => { setSkipKey(s.key); setSkipNote(""); }} disabled={!!busy}
-                  className="px-2 py-1 rounded-md text-[11px] font-semibold border border-[#d7e0ea] text-[#64748b] hover:bg-[#f8fafc] disabled:opacity-50">Done by hand</button>
+                  className={cn("px-2 py-1 rounded-md text-[11px] font-semibold border disabled:opacity-50", byHand ? "border-[#bfe3cd] text-[#15803d] hover:bg-[#f3fbf6]" : "border-[#d7e0ea] text-[#64748b] hover:bg-[#f8fafc]")}>{byHand ? "✓ Mark completed" : "Done by hand"}</button>
               )}
               {skipKey === s.key && (
                 <span className="flex items-center gap-1.5">
@@ -419,6 +475,13 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
                         {shots.length > 0 && <ScreenshotGallery shots={shots} variant="chip" />}
                       </div>
                       {s.title && !["done", "skipped"].includes(st.status) && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.label}>{s.label}</p>}
+                      {/* By-hand breakdown for the team (Facebook) — how to do it, with the Loom / docs. */}
+                      {s.steps && !["done", "skipped"].includes(st.status) && (
+                        <div className="mt-0.5">
+                          <ul className="text-[10.5px] text-[#475569] list-disc pl-4 space-y-px">{s.steps.map((t) => <li key={t}>{t}</li>)}</ul>
+                          {s.links && <p className="text-[10.5px] mt-0.5 flex gap-2 flex-wrap">{s.links.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">{l.label} ↗</a>)}</p>}
+                        </div>
+                      )}
                       {!setup && s.how && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.how}>{s.how}</p>}
                       {ic?.label && !["done", "skipped"].includes(st.status) && <p className={cn("text-[10.5px] font-semibold", ic.cls)}>{ic.label}</p>}
                       {st.note && setup && <StepNote note={st.note} status={st.status} />}

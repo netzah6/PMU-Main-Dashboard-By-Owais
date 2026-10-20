@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { advanceSetup, approveSetup, liveCardStatuses, poolChoices, retryStep, skipStep } from "@/lib/setup-run";
+import { advanceSetup, approveSetup, confirmStep, liveCardStatuses, poolChoices, retryStep, skipStep } from "@/lib/setup-run";
 import type { SetupState } from "@/lib/setup-runbook";
 
 // The claim + the funnel creation + the Commas product run inside Approve.
@@ -57,6 +57,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
       case "refresh": {
         const setup = await advanceSetup(svc, params.id);
+        return NextResponse.json({ setup: redact(setup) });
+      }
+      case "confirm": {
+        if (!(admin || u.role === "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        const setup = await confirmStep(svc, params.id, String(body.key ?? ""), u.email);
         return NextResponse.json({ setup: redact(setup) });
       }
       case "retry": {

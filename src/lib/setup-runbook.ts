@@ -30,58 +30,81 @@ export type RunbookStep = {
   how?: string;              // one line of context shown under the label
   checklist?: string[];      // onboarding checklist keys this step ticks
   later?: boolean;           // not part of the run (re-run from the AI tab later)
+  optional?: boolean;        // not every client needs it — the card offers "Not needed"
+  confirm?: boolean;         // the dashboard can do it, but only after a person clicks Approve on the card
+  steps?: string[];          // by-hand breakdown for the team (Facebook), shown on the card
+  links?: Array<{ label: string; url: string }>;
 };
 
 export const RUNBOOK: RunbookStep[] = [
   // A · Account
-  { n: 0, key: "account_check", section: "A · Account", who: "api", label: "Check the clean account and clean it if needed", how: "Live check before anything is renamed: no leftover contacts (any found are deleted), the template (snapshot) is loaded, and A2P is approved. The run stops here if the template or A2P is missing." },
-  { n: 1, key: "account_take", section: "A · Account", who: "api", label: "Take the clean account and rename it to the business name", how: "Only an account still named \"Clean New Account N\" can be taken.", checklist: ["ghl_snapshot"] },
-  { n: 2, key: "account_info", section: "A · Account", who: "api", label: "Sub-account info: name, email, phone, studio address and time zone", how: "From the client's record. The time zone follows the studio's state (else the phone's area code), so texts and booking times are local.", checklist: ["ghl_info"] },
-  { n: 3, key: "account_cvs", section: "A · Account", who: "api", label: "Update the sub-account custom values", how: "Uses the client's details from the Clients tab (no form to fill again). Runs once the template is loaded; fills existing values only, and a missing one is flagged red for the team." },
-  { n: 4, key: "master_row", section: "A · Account", who: "api", label: "Clients Master row: status, version, assigned coach, media buyer" },
-  { n: 5, key: "connector", section: "A · Account", who: "api", label: "Dashboard connector installed on the account (leads, chats and deposits sync)" },
+  { n: 0, key: "account_check", section: "A · 🏢 Account", who: "api", label: "Check the clean account and clean it if needed", how: "Live check before anything is renamed: no leftover contacts (any found are deleted), the template (snapshot) is loaded, and A2P is approved. The run stops here if the template or A2P is missing." },
+  { n: 1, key: "account_take", section: "A · 🏢 Account", who: "api", label: "Take the clean account and rename it to the business name", how: "Only an account still named \"Clean New Account N\" can be taken.", checklist: ["ghl_snapshot"] },
+  { n: 2, key: "account_info", section: "A · 🏢 Account", who: "api", label: "Sub-account info: name, email, phone, studio address and time zone", how: "From the client's record. The time zone follows the studio's state (else the phone's area code), so texts and booking times are local.", checklist: ["ghl_info"] },
+  { n: 3, key: "account_cvs", section: "A · 🏢 Account", who: "api", label: "Update the sub-account custom values", how: "Uses the client's details from the Clients tab (no form to fill again). Runs once the template is loaded; fills existing values only, and a missing one is flagged red for the team." },
+  { n: 4, key: "master_row", section: "A · 🏢 Account", who: "api", label: "Clients Master row: status, version, assigned coach, media buyer" },
+  { n: 5, key: "connector", section: "A · 🏢 Account", who: "api", label: "Dashboard connector installed on the account (leads, chats and deposits sync)" },
   // B · Deposit product and payment route
-  { n: 6, key: "product", section: "B · Deposit product & payment route", who: "api", label: "Create the Commas deposit product \"FULL NAME - BUSINESS NAME\" and save the product ID", checklist: ["fanbasis_product"] },
-  { n: 7, key: "webhook_url", section: "B · Deposit product & payment route", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The AI Agent reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
-  { n: 8, key: "route_test", section: "B · Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
+  { n: 6, key: "product", section: "B · 💳 Deposit product & payment route", who: "api", label: "Create the Commas deposit product \"FULL NAME - BUSINESS NAME\" and save the product ID", checklist: ["fanbasis_product"] },
+  { n: 7, key: "webhook_url", section: "B · 💳 Deposit product & payment route", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The AI Agent reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
+  { n: 8, key: "route_test", section: "B · 💳 Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
   // C · Phone
-  { n: 9, key: "phone_buy", section: "C · Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
-  { n: 10, key: "phone_a2p", section: "C · Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
-  { n: 11, key: "phone_cnam", section: "C · Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"", checklist: ["phone_cnam"] },
-  { n: 12, key: "phone_optout", section: "C · Phone", who: "mini", label: "Uncheck SMS Compliance Opt-Out, and the same switch under Phone → Advanced Settings", checklist: ["phone_optout", "phone_sms_adv"] },
-  { n: 13, key: "phone_forward", section: "C · Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
+  { n: 9, key: "phone_buy", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
+  { n: 10, key: "phone_a2p", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
+  { n: 11, key: "phone_cnam", section: "C · 📞 Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"", checklist: ["phone_cnam"] },
+  { n: 12, key: "phone_optout", section: "C · 📞 Phone", who: "mini", label: "Uncheck SMS Compliance Opt-Out, and the same switch under Phone → Advanced Settings", checklist: ["phone_optout", "phone_sms_adv"] },
+  { n: 13, key: "phone_forward", section: "C · 📞 Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
-  { n: 14, key: "user_create", section: "D · GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
-  { n: 15, key: "user_password", section: "D · GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The AI Agent sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
-  { n: 16, key: "user_settings", section: "D · GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
-  { n: 17, key: "user_calendar", section: "D · GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
+  { n: 14, key: "user_create", section: "D · 👤 GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
+  { n: 15, key: "user_password", section: "D · 👤 GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The AI Agent sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
+  { n: 16, key: "user_settings", section: "D · 👤 GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
+  { n: 17, key: "user_calendar", section: "D · 👤 GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
   // E · Workflows
-  { n: 18, key: "wf_survey", section: "E · Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
-  { n: 19, key: "wf_notify", section: "E · Workflows", who: "mini", label: "\"CC - One-Box Booking → Notify Artist\": artist's number set so she gets booking texts" },
-  { n: 20, key: "wf_callkill", section: "E · Workflows", who: "mini", label: "Outgoing-call workflow: no \"Remove from Funnel Survey\" step that kills the AI" },
+  { n: 18, key: "wf_survey", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
+  { n: 19, key: "wf_notify", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - One-Box Booking → Notify Artist\": artist's number set so she gets booking texts" },
+  { n: 20, key: "wf_callkill", section: "E · ⚙️ Workflows", who: "mini", label: "Outgoing-call workflow: no \"Remove from Funnel Survey\" step that kills the AI" },
   // F · Calendar
-  { n: 21, key: "cal_team", section: "F · Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
-  { n: 22, key: "cal_hours", section: "F · Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_availability"] },
-  { n: 23, key: "cal_rules", section: "F · Calendar", who: "mini", label: "Booking rules: Look Busy 75%, slot length and buffer per the template", checklist: ["cal_lookbusy"] },
-  { n: 24, key: "cal_id", section: "F · Calendar", who: "api", label: "Save the calendar ID to \"CC - Permanent Makeup Transformation Calendar ID\"" },
+  { n: 21, key: "cal_team", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
+  { n: 22, key: "cal_hours", section: "F · 📅 Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_availability"] },
+  { n: 23, key: "cal_rules", section: "F · 📅 Calendar", who: "mini", label: "Booking rules: Look Busy 75%, slot length and buffer per the template", checklist: ["cal_lookbusy"] },
+  { n: 24, key: "cal_id", section: "F · 📅 Calendar", who: "api", label: "Save the calendar ID to \"CC - Permanent Makeup Transformation Calendar ID\"" },
   // G · Funnel
-  { n: 25, key: "funnel_create", section: "G · Funnel", who: "api", label: "Create the one-box funnel at book.pmu-care.com/<slug> and set \"CC - Deposit Funnel URL (V3)\"", checklist: ["funnel_onebox"] },
-  { n: 26, key: "funnel_pixel", section: "G · Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
-  { n: 27, key: "funnel_ig", section: "G · Funnel", who: "ask", label: "Instagram widget in Elfsight (after your approval), only if the IG has 9+ posts and a profile picture", how: "Needs the AI Agent signed in to dash.elfsight.com. The widget link goes into \"CC - IG Widget LINK\"; the funnel picks it up.", checklist: ["funnel_ig_widget"] },
-  { n: 28, key: "funnel_redirect", section: "G · Funnel", who: "mini", label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect" },
-  { n: 29, key: "funnel_test", section: "G · Funnel", who: "mini", label: "Test the funnel as a lead: survey, text arrives, AI replies, deposit page loads; then delete the test contact", checklist: ["fin_test"] },
-  { n: 30, key: "funnel_live", section: "G · Funnel", who: "api", label: "Check no client value is empty, then set the version to V3 and go live", how: "Stops red with the list of empty values (prices, deposit, address, product ID, webhook, calendar ID…) instead of going live with holes." },
-  { n: 31, key: "last_profile", section: "H · Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", checklist: ["last_profile"] },
-  { n: 32, key: "last_check", section: "H · Last check", who: "api", label: "Check-Setup grade is green: funnel, Commas, sheet, sync" },
-  { n: 33, key: "first_cycle", section: "H · Last check", who: "api", label: "Move the client to \"First Cycle\" and text you the summary with the last screenshots", checklist: ["fin_master"] },
-  { n: 34, key: "later_hours", section: "H · Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
+  { n: 25, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Create the one-box funnel at book.pmu-care.com/<slug> and set \"CC - Deposit Funnel URL (V3)\"", checklist: ["funnel_onebox"] },
+  { n: 26, key: "funnel_pixel", section: "G · 🧲 Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
+  { n: 27, key: "funnel_ig", section: "G · 🧲 Funnel", who: "ask", label: "Instagram widget in Elfsight (after your approval), only if the IG has 9+ posts and a profile picture", how: "Needs the AI Agent signed in to dash.elfsight.com. The widget link goes into \"CC - IG Widget LINK\"; the funnel picks it up.", checklist: ["funnel_ig_widget"] },
+  { n: 28, key: "funnel_redirect", section: "G · 🧲 Funnel", who: "mini", optional: true, label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect", how: "Only for clients who already ran ads to an old funnel — otherwise mark it \"Not needed\"." },
+  { n: 29, key: "funnel_live", section: "G · 🧲 Funnel", who: "api", label: "Check no client value is empty, then set the version to V3 and go live", how: "Stops red with the list of empty values (prices, deposit, address, product ID, webhook, calendar ID…) instead of going live with holes." },
+  // H · Last check — the funnel test is the AI Agent's LAST step (owner
+  // 10/20/2026); once it passes the team sends the client the logins.
+  { n: 30, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", checklist: ["last_profile"] },
+  { n: 31, key: "last_check", section: "H · ✅ Last check", who: "api", label: "Final check: the dashboard re-reads the live account and funnel (custom values, Commas product, calendar, sync) and lists anything still off", how: "The same report as the \"Verify setup\" button, run by itself at the end." },
+  { n: 32, key: "funnel_test", section: "H · ✅ Last check", who: "mini", label: "Test the funnel as a lead: survey, text arrives, AI replies, deposit page loads; then delete the test contact", how: "The AI Agent's last step. When it passes, the setup is done and the client can get the logins.", checklist: ["fin_test"] },
+  { n: 33, key: "send_client", section: "H · ✅ Last check", who: "team", label: "Send the client the funnel link and GoHighLevel login", how: "Click \"Copy the message\" on this step, paste it in a text or email to the client, then mark it completed." },
+  { n: 34, key: "first_cycle", section: "H · ✅ Last check", who: "api", confirm: true, label: "Move the client's deal to \"First Cycle\" in the PMU Bookings On Demand pipeline", how: "The dashboard moves the deal when you click Approve on this step; then you get the summary text with the last screenshots.", checklist: ["fin_master"] },
+  { n: 35, key: "later_hours", section: "H · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
+  // I · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
+  // then marks each step completed on the card. Loom + docs from the sheet.
+  { n: 36, key: "fb_bm", section: "I · 📣 Facebook", who: "team", label: "Business Manager and ad account ready", checklist: ["fb_bm_name", "fb_bm_adaccount", "fb_bm_payment", "fb_bm_partner"],
+    steps: ["Business Manager name = the client's name in the Master Google Sheet", "Ad account name = the same name", "Payment method connected on the ad account", "Partner access granted to our 3 BMs (see the guide)"],
+    links: [{ label: "Loom", url: "https://www.loom.com/share/672705f2837b4322826f320933ddd376" }, { label: "Partner access guide", url: "https://docs.google.com/document/d/1VpYxHBjgeWT6wmL2FRn1Lb8OHw1RjD6ksLVa7yO6sK0/edit?usp=sharing" }] },
+  { n: 37, key: "fb_campaign", section: "I · 📣 Facebook", who: "team", label: "Campaign built from the template (left paused)", checklist: ["fb_campaign", "fb_c_new", "fb_c_manual", "fb_c_name", "fb_c_budget"],
+    steps: ["New \"Leads\" campaign → Manual Leads Campaign", "Name it like the sheet, e.g. \"Microshading 1 (FU V2)\"", "Daily budget per the client's plan"],
+    links: [{ label: "Loom", url: "https://www.loom.com/share/3920ab07ad0f4a8f9e68ef1411e739e3" }] },
+  { n: 38, key: "fb_adset", section: "I · 📣 Facebook", who: "team", label: "Ad set: website conversion, PMU For All dataset, Lead event, local audience", checklist: ["fb_as_conversion", "fb_as_dataset", "fb_as_event", "fb_as_audience", "fb_as_location", "fb_as_radius", "fb_as_age", "fb_as_gender", "fb_as_interests", "fb_as_languages"],
+    steps: ["Conversion: Website · Dataset: PMU For All · Event: Lead", "Advantage+ audience → switch to original audience options", "Location = the studio address, adjust the radius", "Age 25–60 · Women · no interests · languages per the ad copy"],
+    links: [{ label: "Loom", url: "https://www.loom.com/share/879bc4c7a1d541ec9baf8235f590fd5f" }] },
+  { n: 39, key: "fb_ad", section: "I · 📣 Facebook", who: "team", label: "Ad: FB + IG account, video, copy, headline, funnel link", checklist: ["fb_ad_name", "fb_ad_accounts", "fb_ad_format", "fb_ad_multi", "fb_ad_video", "fb_ad_copy", "fb_ad_headline", "fb_ad_link"],
+    steps: ["Select the client's FB page and IG account", "Single image or video · uncheck Multi-advertiser ads", "Video from the folder (by service) · copy from the doc · headline per the offer", "Paste the one-box funnel link"],
+    links: [{ label: "Loom", url: "https://www.loom.com/share/354328b7939a496ab06ff8b6eec22ecc" }, { label: "Videos folder", url: "https://drive.google.com/drive/folders/1SijOuN58F4upfSIGfVbYUXn6mOQ17wGB?usp=drive_link" }, { label: "Ad copy doc", url: "https://docs.google.com/document/d/11h3ob6JleKekycZuIDvkAyY--lz7F869V5Um6rlBsak/edit?usp=sharing" }, { label: "Headlines doc", url: "https://docs.google.com/document/d/154yZyumlQVKoHwwTk4XtZFzCn_JyUDa0pdycJRRerUo/edit?usp=sharing" }] },
+  { n: 40, key: "fb_publish", section: "I · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
+  { n: 41, key: "client_connect", section: "I · 📣 Facebook", who: "client", label: "Client connects her Facebook page and Instagram to the sub-account", checklist: ["last_connect"] },
 ];
 
 /* Short names, shown bold on the setup card; the label stays as the
    description (owner, 10/17/2026: "include the name of every step"). */
 const STEP_TITLES: Record<string, string> = {
   account_check: "Check & clean the account", account_take: "Take & rename the account", account_info: "Account info, address & time zone", account_cvs: "Custom values",
-  master_row: "Clients Master row", connector: "Dashboard connector",
+  master_row: "Assign team members", connector: "Dashboard connector",
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
   phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_forward: "Call forwarding",
   user_create: "Create the client's login", user_password: "Set the password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
@@ -89,7 +112,8 @@ const STEP_TITLES: Record<string, string> = {
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy & booking rules", cal_id: "Calendar ID",
   funnel_create: "Create the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram widget", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
-  last_profile: "Profile check", last_check: "Check-Setup grade", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
+  last_profile: "Profile check", last_check: "Final check", send_client: "Send the client the logins & funnel", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
+  fb_bm: "Business Manager", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
 };
 for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
 
@@ -119,6 +143,7 @@ export type StepState = {
   at?: string;               // ISO
   note?: string;             // one-liner result; several lines allowed
   proposal_id?: string;      // the agent_proposals card (mini / ask steps)
+  confirmed_by?: string;     // confirm steps: who clicked Approve on the card
   screenshots?: Array<{ name: string; url: string }>;
   error?: string;
 };
