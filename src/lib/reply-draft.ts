@@ -349,7 +349,7 @@ export async function draftReplyFor(opts: {
   const prospect = !!wbRow && !wbRow.outcome && !["current_client", "opted_out"].includes(wbRow.stopped_reason ?? "");
   const ctx = prospect ? winbackContext(wbRow!, thread) : null;
   const winback = ctx?.inFlow ? ctx : undefined;
-  const instructions = wbRow ? [winbackInstructions(wbRow), opts.instructions?.trim()].filter(Boolean).join("\n\n") : opts.instructions;
+  const instructions = wbRow ? [winbackInstructions(wbRow, !!winback), opts.instructions?.trim()].filter(Boolean).join("\n\n") : opts.instructions;
 
   const { draft, model } = await generateDraft({
     thread,

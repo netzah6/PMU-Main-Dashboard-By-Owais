@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSheetsClient, readSheetValues, resolveTabName } from "@/lib/sheets";
 import { GHL_BASE } from "@/lib/ghl-tasks";
-import { fetchWithBackoff, getThread, type PmuAccount, type ThreadMessage } from "@/lib/ghl-conversations";
+import { fetchWithBackoff, getThread, isAutomatedMessage, type PmuAccount, type ThreadMessage } from "@/lib/ghl-conversations";
 
 /* Win-back (owner, 2026-10-10): former clients we are trying to bring back.
    The owner manages the list in the "Follow up To PPS" sheet — "Follow up /
@@ -46,12 +46,13 @@ const OFFER_TEXT: Record<WinbackOffer | "none", string> = {
   none: "No offer is approved for this person yet. Do NOT mention any program, price or fee — keep the conversation warm, ask about their business, and leave the offer for later.",
 };
 
-/** Steering the reply engine gets for a win-back chat (added before any note the user typed). */
-export function winbackInstructions(r: Pick<WinbackRow, "owner_name" | "business" | "last_paid" | "offer">): string {
-  return [
-    `This person is a FORMER client of ours (PMU Care ran their ads and bookings${r.last_paid ? `; last paid ${r.last_paid}` : ""}) — ${r.owner_name}${r.business ? ` of ${r.business}` : ""}. We are reaching out to win them back.`,
-    `Approved offer: ${OFFER_TEXT[r.offer ?? "none"]}`,
-  ].join("\n");
+/** Steering the reply engine gets for a win-back chat (added before any note
+ *  the user typed). `inFlow` = we sent her the opener; otherwise the offer
+ *  text stays out — she wrote to us about something else. */
+export function winbackInstructions(r: Pick<WinbackRow, "owner_name" | "business" | "last_paid" | "offer">, inFlow = true): string {
+  const who = `This person is a FORMER client of ours (PMU Care ran their ads and bookings${r.last_paid ? `; last paid ${r.last_paid}` : ""}) — ${r.owner_name}${r.business ? ` of ${r.business}` : ""}.`;
+  if (!inFlow) return `${who} We have not reached out to win her back yet: answer what she wrote, warmly, and do not pitch any program or price.`;
+  return [`${who} We are reaching out to win them back.`, `Approved offer: ${OFFER_TEXT[r.offer ?? "none"]}`].join("\n");
 }
 
 /* Where the win-back conversation stands, read from the thread, so the
@@ -69,45 +70,68 @@ export type WinbackStage = "opener_answered" | "offer_presented" | "wants_detail
 export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; inFlow: boolean };
 type FlowRow = Pick<WinbackRow, "owner_name" | "offer"> & { batch_started_at?: string | null; step?: number | null };
 const OPENER = /charging for brows/i;
-const OFFER_SHOWN = /per[- ]show|pay[- ]per[- ]appointment|\$50 deposit|\$60\b|shows? up|no monthly fee|only pay|monthly program|go over the numbers|want the details|show you how it works/i;
-// Her LAST text only (a "no" she walks back two texts later must not stick).
+const OFFER_SHOWN = /per[- ]show|pay[- ]per[- ]appointment|\bppa\b|\$50 deposit|\$60\b|shows? up|no monthly (fee|retainer)|only pay|pay after you get paid|try it|monthly program|go over the numbers|want the details|show you how it works/i;
+// Her texts since OUR last message are read as one block (a two-bubble "Not
+// interested" + "Good luck though!" is one answer); a "no" she walks back
+// after we replied is not stuck, because our reply splits the blocks.
 // Explicit refusals count anywhere; short brush-offs ("no", "I'm good",
 // "maybe later") only when they ARE the message — "as long as I get 400-450 a
 // client I'm good" is a price, not a no (Wendy Kaaki, 2026-10-20).
-const DECLINE_ANY = /\b(not interested|no thanks?|no thank you|stop texting|don'?t text me|remove me|unsubscribe|leave me alone|no longer (in business|doing)|closed my)\b/i;
-const DECLINE_SHORT = /^\s*(no|nope|nah|pass|stop|i'?m (all )?good( for now)?|maybe later|not (right )?now)\b[.!,]?(\s*(thanks?|thank you|sorry))?[.!]?\s*$/i;
-const WANTS = /\b(yes|yeah|yep|yup|sure|ok|okay|send|details|tell me more|how does|how it works|interested|sounds good|let'?s do it|i'?m in|go ahead)\b/i;
+const DECLINE_HARD = /\b(not (really |that )?interested|no longer interested|no thanks?|no thank you|stop texting|don'?t (text|contact|message) me|don'?t send me|remove me|unsubscribe|leave me alone|not for me)\b/i;
+const DECLINE_SOFT = /\b(no longer (in business|doing)|closed my (studio|business|shop|salon)|retired|don'?t do (brows|pmu)|not doing (brows|pmu)|stopped doing (brows|pmu))\b/i;
+const DECLINE_SHORT = /^\s*(no|nope|nah|pass|stop|(nah |no )?i'?m (all )?(good|okay|ok|fine)( for now)?|maybe later|not (right )?now)\b[.!,]?(\s*(thanks?|thank you|sorry))?[.!\s\p{Extended_Pictographic}]*$/iu;
+// A yes only when it is the gist: no negation in the text, and either a short
+// text or an unmistakable phrase ("send me the details", "how does it work").
+const NEGATION = /\b(not|no|don'?t|never|no longer|nothing|stop|can'?t|won'?t)\b/i;
+const WANTS_STRONG = /\b(send (me )?(the )?details|tell me more|how does (it|that) work|how it works|i'?m interested|sounds good|let'?s do it|sign me up|i'?m in[.!]*\s*$|go ahead|yes please|sure thing|try it)/i;
+const WANTS_SHORT = /^\s*(yes|yeah|yep|yup|sure|ok|okay|absolutely|definitely|please|of course)\b/i;
+const quotes = (t: string) => t.replace(/[\u2018\u2019\u02bc]/g, "'");
 export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackContext {
   // Only the conversation SINCE our opener counts: her thread holds months of
   // older texts from when she was a client ("your new booking, $50 deposit…")
-  // that read like an offer already made (Wendy Kaaki, 2026-10-20).
-  const openerAt = thread.map((m, i) => (m.direction === "outbound" && OPENER.test(m.body) ? i : -1)).filter((i) => i >= 0).pop();
+  // that read like an offer already made (Wendy Kaaki, 2026-10-20). The
+  // FIRST opener wins — a teammate quoting the question later must not erase
+  // what she already answered.
+  const openerAt = thread.findIndex((m) => m.direction === "outbound" && OPENER.test(m.body));
   // In the flow = we actually sent her the opener (found in the thread, or the
   // sequence says it went out). Everyone else on the sheet — never texted, or
   // writing about something else — keeps the normal no-pitch drafting.
-  const inFlow = openerAt != null || (r.step ?? 0) >= 1;
-  const since = openerAt != null
+  const inFlow = openerAt >= 0 || (r.step ?? 0) >= 1;
+  const since = openerAt >= 0
     ? thread.slice(openerAt + 1)
     : r.batch_started_at ? thread.filter((m) => (m.dateAdded ?? "") >= r.batch_started_at!) : [];
-  const ours = since.filter((m) => m.direction === "outbound").map((m) => m.body);
-  const hers = since.filter((m) => m.direction === "inbound").map((m) => m.body);
+  // Workflow texts are not us talking ("Reminder: your booking needs a $50 deposit").
+  const ours = since.filter((m) => m.direction === "outbound" && !isAutomatedMessage(m)).map((m) => m.body);
   const offerShown = ours.some((b) => OFFER_SHOWN.test(b));
-  const last = hers[hers.length - 1] ?? "";
-  // "not interested in monthly but pay per show sounds good" is not a no.
-  const declined = (DECLINE_ANY.test(last) || DECLINE_SHORT.test(last)) && !/\bbut\b/i.test(last);
-  const wants = offerShown && WANTS.test(last) && !declined;
+  // Her unanswered texts since our last (non-automated) message, as one block.
+  let lastOurs = -1;
+  since.forEach((m, i) => { if (m.direction === "outbound" && !isAutomatedMessage(m)) lastOurs = i; });
+  const block = since.slice(lastOurs + 1).filter((m) => m.direction === "inbound").map((m) => quotes(m.body.trim()));
+  const last = block.join(" ");
+  const hers = since.filter((m) => m.direction === "inbound").map((m) => quotes(m.body));
   // Her brow price: the highest figure she wrote since the opener ("$450 and
   // $225" for first session + touch-up → 450; "raised it to 400, now 450" →
-  // 450). Commas stripped ("$1,200"), phone numbers, years, "Suite 1200",
-  // "15 years" and "1000s of clients" left out.
+  // 450). Commas stripped ("$1,200"), phone numbers, years, street and suite
+  // numbers, "15 years" and "1000s of clients" left out.
   const text = hers.slice(-3).join(" ")
     .replace(/(\d),(\d{3})/g, "$1$2")
     .replace(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, " ")
-    .replace(/\b(suite|ste|unit|apt|#)\s*\d+/gi, " ")
+    .replace(/(^|[^\w$])(suite|ste|unit|apt|#)\s*\d+/gi, " ")
+    .replace(/\b\d{3,5}\s+[A-Za-z]+\s+(st|street|ave|avenue|rd|road|blvd|dr|drive|way|ln|lane|ct|hwy)\b/gi, " ")
     .replace(/\b\d{3,4}\s*(s\b|years?|yrs?|clients?|followers?)/gi, " ");
   const figures = [...text.matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)]
     .map((m) => Number(m[1])).filter((n) => n >= 100 && n <= 2500 && !(n >= 1990 && n <= 2040));
   const price = figures.length ? Math.max(...figures) : null;
+  // "not interested in monthly but pay per show sounds good" is not a no —
+  // only when what follows the "but" is a yes ("but thanks" is still a no).
+  const afterBut = last.split(/\bbut\b/i).slice(1).join(" ");
+  const butYes = !!afterBut && (WANTS_STRONG.test(afterBut) || /\b(interested|maybe|sounds|pay per|per show|try)\b/i.test(afterBut));
+  const blockPrice = [...last.replace(/(\d),(\d{3})/g, "$1$2").matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)].some((m) => { const n = Number(m[1]); return n >= 100 && n <= 2500 && !(n >= 1990 && n <= 2040); });
+  const declined = !butYes && (DECLINE_HARD.test(last) || DECLINE_SHORT.test(last) || (DECLINE_SOFT.test(last) && !blockPrice));
+  // After a "but", the yes lives in the second half ("…but pay per show sounds good").
+  const yesText = butYes ? afterBut : last;
+  const words = yesText.split(/\s+/).filter(Boolean).length;
+  const wants = offerShown && !declined && !NEGATION.test(yesText) && (WANTS_STRONG.test(yesText) || (words <= 8 && WANTS_SHORT.test(yesText)));
   return {
     name: r.owner_name,
     offer: r.offer,
