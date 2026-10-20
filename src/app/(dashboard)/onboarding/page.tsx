@@ -273,21 +273,7 @@ export default function OnboardingPage() {
   useEffect(() => { loadPool(); }, [loadPool, claiming]);
   // A cleaned account just joined the pool — re-count from GoHighLevel.
   const refreshPoolAfterClean = useCallback(() => { void loadPool({ sync: true }); }, [loadPool]);
-  const claim = useCallback(async (o: Onboarding) => {
-    if (!window.confirm(`Claim a "Clean New Account" from the pool and rename it to "${o.form.business_name}"?\n\nThis renames the sub-account in GHL and fills its custom values from the form.`)) return;
-    setClaiming(true);
-    try {
-      const res = await fetch(`/api/onboarding/${o.id}/claim`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Claim failed");
-      setList((l) => l.map((x) => (x.id === o.id ? json.onboarding : x)));
-      toast.success(`Claimed ${json.claim.original_name} → ${json.claim.business_name} 🎉`);
-    } catch (e) {
-      toast.error(`${e}`.replace("Error: ", ""));
-    } finally {
-      setClaiming(false);
-    }
-  }, []);
+  // The old Claim button is gone (owner 10/20/2026) — the setup run takes the account.
   const unclaim = useCallback(async (o: Onboarding) => {
     if (!o.claim) return;
     if (!window.confirm(`Un-claim: rename "${o.claim.business_name}" back to "${o.claim.original_name}"?`)) return;
@@ -335,6 +321,12 @@ export default function OnboardingPage() {
               </button>
             )}
             {open.status === "done" && <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#e6f7ee] text-[#15803d] border border-[#86efac]">✓ Complete</span>}
+            {open.claim && role === "admin" && (
+              <button onClick={() => unclaim(open)} disabled={claiming} title={`Rename "${open.claim.business_name}" back to "${open.claim.original_name}" and return it to the pool`}
+                className="px-2 py-1 text-[11px] font-semibold rounded-lg text-[#e11d48] hover:bg-[#fde8ee] disabled:opacity-50">
+                {claiming ? <Loader2 size={12} className="animate-spin inline" /> : "Un-claim"}
+              </button>
+            )}
             <button onClick={() => remove(open)} title="Delete onboarding"
               className="p-2 rounded-lg text-[#94a3b8] hover:text-[#e11d48] hover:bg-[#fde8ee]"><Trash2 size={15} /></button>
           </div>
@@ -377,71 +369,6 @@ export default function OnboardingPage() {
           );
         })()}
 
-        {/* New Client Setup run — approve first, then the AI Agent does the steps */}
-        <SetupRunPanel onboardingId={open.id} role={role} form={open.form} onChanged={() => void load()} />
-
-        {/* GHL account (pool claim) */}
-        <div className="rounded-xl border border-[#e4ebf2] bg-white p-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="min-w-0">
-              <h2 className="text-sm font-bold text-[#1f3559]">GHL Account</h2>
-              {open.claim ? (
-                <p className="text-xs text-[#697a91] mt-0.5">
-                  <span className="font-semibold text-[#15803d]">✓ Claimed</span> — {open.claim.original_name} → <strong>{open.claim.business_name}</strong>
-                  {" · "}{new Date(open.claim.claimed_at).toLocaleString("en-US")} by {open.claim.claimed_by.split("@")[0]}
-                  {" · "}
-                  <a href={`https://app.gohighlevel.com/location/${open.claim.location_id}`} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">open in GHL ↗</a>
-                </p>
-              ) : (
-                <p className="text-xs text-[#697a91] mt-0.5">Take a pre-approved &quot;Clean New Account&quot; from the pool: rename it + fill custom values from the form. Data access is automatic (app pre-installed).</p>
-              )}
-            </div>
-            {open.claim ? (
-              <button onClick={() => unclaim(open)} disabled={claiming}
-                className="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#f5c2cf] text-[#e11d48] hover:bg-[#fde8ee] disabled:opacity-50">
-                {claiming ? <Loader2 size={13} className="animate-spin inline" /> : "Un-claim (return to pool)"}
-              </button>
-            ) : (
-              <button onClick={() => claim(open)} disabled={claiming}
-                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
-                {claiming ? <Loader2 size={13} className="animate-spin" /> : "🚀"} Claim GHL Account
-              </button>
-            )}
-          </div>
-          {open.claim && open.claim.actions?.length > 0 && (
-            <ul className="mt-2 space-y-1 border-t border-[#f1f5f9] pt-2">
-              {open.claim.actions.map((a, i) => (
-                <li key={i} className="text-xs flex items-start gap-1.5">
-                  <span className={a.ok ? "text-[#15803d]" : "text-[#e11d48]"}>{a.ok ? "✓" : "✗"}</span>
-                  <span className={a.ok ? "text-[#34568a]" : "text-[#e11d48] font-semibold"}>{a.action}{a.detail ? <span className={a.ok ? "text-[#8595a8]" : "text-[#e11d48]"}> — {a.detail}</span> : null}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {open.claim && (() => {
-            const MANUAL: { key: string; label: string }[] = [
-              { key: "ghl_domain", label: "Connect pmu-care.com to the sub-account" },
-              { key: "ghl_pixel", label: "Add the FB pixel to the funnel's Head Tracking Code" },
-              { key: "user_add", label: "Create the employee user (API blocked by GHL plan)" },
-            ];
-            const left = MANUAL.filter((s) => !open.checklist[s.key]?.done);
-            if (!left.length) return null;
-            return (
-              <div className="mt-2 border-t border-[#f1f5f9] pt-2">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-[#e11d48] mb-1">🔴 Still manual — do these in GHL:</p>
-                <ul className="space-y-0.5">
-                  {left.map((s) => (
-                    <li key={s.key} className="text-xs text-[#e11d48] flex items-start gap-1.5">
-                      <span>•</span><span>{s.label}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-[10px] text-[#8595a8] mt-1">Each disappears when its checklist step below is checked off.</p>
-              </div>
-            );
-          })()}
-        </div>
-
         {/* Client details */}
         <details className="rounded-xl border border-[#e4ebf2] bg-white">
           <summary className="px-4 py-2.5 text-sm font-semibold text-[#34568a] cursor-pointer">Client details (from the form)</summary>
@@ -454,6 +381,9 @@ export default function OnboardingPage() {
             ))}
           </div>
         </details>
+
+        {/* New Client Setup run — approve first, then the AI Agent does the steps */}
+        <SetupRunPanel onboardingId={open.id} role={role} form={open.form} onChanged={() => void load()} />
 
         {/* Checklist by section */}
         {SECTION_ORDER.map((section) => {

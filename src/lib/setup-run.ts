@@ -211,9 +211,12 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     case "funnel_pixel": return done(ob, "funnel_create");
     case "route_test": return done(ob, "webhook_url") && done(ob, "product") && !!ob.setup?.hook_url;
     case "user_password": return done(ob, "user_create");
-    case "funnel_live": return done(ob, "funnel_test") && done(ob, "funnel_create");
+    // Go-live comes BEFORE the funnel test now (owner 10/20/2026: the test is
+    // the AI Agent's last step); the redirect decision (done / not needed) first.
+    case "funnel_live": return done(ob, "funnel_create") && done(ob, "funnel_redirect");
     case "last_check": return done(ob, "funnel_live") && done(ob, "last_profile");
-    case "first_cycle": return done(ob, "last_check");
+    // Runs only after a person clicked Approve on the card (confirm step).
+    case "first_cycle": return done(ob, "funnel_test") && !!stepState(ob.setup, "first_cycle").confirmed_by;
     default: return false;
   }
 }
@@ -535,7 +538,7 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   const needs: Record<string, string[]> = {
     webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_forward: ["phone_buy"],
     user_settings: ["user_password"], user_calendar: ["user_password"], wf_survey: ["user_password"], cal_team: ["user_password"], cal_hours: ["user_password"],
-    funnel_ig: ["funnel_create"], funnel_redirect: ["funnel_create"], funnel_test: ["funnel_create", "product"], last_profile: ["funnel_live"],
+    funnel_ig: ["funnel_create"], funnel_redirect: ["funnel_create"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
   };
   for (const k of needs[next.key] ?? []) {
     const st = stepState(setup, k);
@@ -676,6 +679,21 @@ export async function liveCardStatuses(svc: Svc, setup: SetupState | null): Prom
 }
 
 // ── Owner actions on a step ─────────────────────────────────────────────────
+/* A confirm step (Move to First Cycle): a person clicks Approve on the card,
+   then the dashboard runs it like any other API step. */
+export async function confirmStep(svc: Svc, onboardingId: string, key: string, by: string): Promise<SetupState> {
+  const step = stepByKey(key);
+  if (!step?.confirm) throw new Error("this step has no Approve button");
+  await patch(svc, onboardingId, (o) => {
+    if (!o.setup) return;
+    const cur = stepState(o.setup, key);
+    if (cur.status !== "todo") return;
+    setStep(o.setup, key, { ...cur, confirmed_by: by }, `approved by ${by}`);
+    return { setup: o.setup };
+  });
+  return advanceSetup(svc, onboardingId);
+}
+
 export async function retryStep(svc: Svc, onboardingId: string, key: string, by: string): Promise<SetupState> {
   const step = stepByKey(key);
   if (!step) throw new Error("unknown step");
@@ -716,7 +734,7 @@ async function settle(svc: Svc, onboardingId: string): Promise<void> {
   const steps = runSteps();
   const states = steps.map((s) => ({ s, st: stepState(setup, s.key) }));
   const failed = states.filter((x) => x.st.status === "failed");
-  const waiting = states.filter((x) => x.st.status === "waiting_owner");
+  const waiting = states.filter((x) => x.st.status === "waiting_owner" || (x.s.confirm && x.st.status === "todo" && states.filter((y) => y.s.key !== x.s.key).every((y) => isSettled(y.st))));
   const allDone = states.every((x) => isSettled(x.st));
   const nextStatus: SetupState["status"] = failed.length ? "failed" : allDone ? "done" : waiting.length ? "waiting" : "running";
   const changed = nextStatus !== setup.status;
