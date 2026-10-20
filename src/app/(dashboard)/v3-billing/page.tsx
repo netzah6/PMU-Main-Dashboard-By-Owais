@@ -528,7 +528,7 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
 // The client list is a real table: every number lives in a fixed column, so
 // rows align and can be compared down the page. NumCell keeps digits tabular.
 
-const COLS = 14; // for colSpan on the message/drill-down rows
+const COLS = 10; // for colSpan on the message/drill-down rows
 
 function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray" | "red"; title?: string }) {
   const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : tone === "red" ? "text-[#be123c]" : "text-[#1f3559]";
@@ -623,9 +623,6 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           </div>
           <div className="mt-1"><CopyListButton ownerKey={c.ownerKey} /></div>
         </td>
-        <NumCell value={c.showRate == null ? "—" : `${c.showRate}%`}
-          sub={c.showRate == null ? "no reviews" : `${c.showed}/${c.showed + c.noShowMarked}`}
-          tone={c.showRate == null ? "gray" : c.showRate >= 60 ? "green" : "amber"} />
         <NumCell value={c.upcoming} tone="gray" />
         {/* Ready mirrors the payment check's row — the same shows the Charge
             button charges — so count, split, and amount always agree. */}
@@ -637,29 +634,10 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           sub={(c.selfBookedReady ?? 0) > 0 ? `${c.selfBookedReady} to charge` : "their end"}
           tone={(c.selfBookedReady ?? 0) > 0 ? "amber" : "gray"} />
         <NumCell value={c.noAppt} sub={c.noAppt > 0 ? "not booked" : undefined} tone={c.noAppt > 0 ? "amber" : "gray"} />
-        {/* Profitability, right after No appt (user, 2026-09-17): lifetime value
-            (COLLECTED fees + deposits − refunds; owed money is shown in the
-            tooltip but not counted until it lands) and the monthly average
-            since the client's first deposit. */}
-        <NumCell value={money(c.ltv ?? 0)} sub={`${c.monthsActive ?? 1} mo`} tone="teal"
-          title={`${money(c.ltvFees ?? 0)} service fees + ${money(c.ltvDeposits ?? 0)} deposits (${c.deposits}${(c.ltvAssumedDeposits ?? 0) > 0 ? `, ${c.ltvAssumedDeposits} with no amount in the sheet counted at $50` : ""}) − ${money(c.ltvRefunded ?? 0)} refunded (${c.refundedCount ?? 0})${owed > 0 ? ` · (${money(owed)} still owed — counted once collected)` : ""}`} />
-        {/* Deposits in the same rolling 30 days as the Last 30d column, so
-            the two always add up (user request 2026-09-17). */}
-        <NumCell value={c.last30DepositCount ?? 0} sub={money(c.last30Deposits ?? 0)}
-          tone={(c.last30DepositCount ?? 0) > 0 ? "green" : "gray"}
-          title={`Deposits taken in the last 30 days${(c.last30Refunded ?? 0) > 0 ? ` · ${money(c.last30Refunded ?? 0)} refunded in the same window` : ""}`} />
-        {/* Collected (green) + what's ready to charge (orange) = what the
-            client can bring in this month (user request 2026-09-17). */}
-        <td className="px-2 py-1 text-center align-middle"
-          title={`Collected, rolling 30 days: ${money(c.last30Fees ?? 0)} service fees + ${money(c.last30Deposits ?? 0)} deposits (${c.last30DepositCount ?? 0})${(c.last30Refunded ?? 0) > 0 ? ` − ${money(c.last30Refunded ?? 0)} refunded` : ""}${owed > 0 ? `\n+ ${money(owed)} ready to charge (${ready} show${ready === 1 ? "" : "s"} × ${money(c.fee)}) — not collected yet` : ""}`}>
-          <div className="text-[13px] font-bold leading-none tabular-nums whitespace-nowrap">
-            <span className={(c.last30 ?? 0) > 0 ? "text-[#15803d]" : "text-[#8595a8]"}>{money(c.last30 ?? 0)}</span>
-            {owed > 0 && <span className="text-[#ea580c]"> + {money(owed)}</span>}
-          </div>
-          <div className="text-[9px] text-[#8595a8] leading-tight whitespace-nowrap">
-            {owed > 0 ? <>collected <span className="text-[#ea580c]">+ ready</span> = {money((c.last30 ?? 0) + owed)}</> : "collected"}
-          </div>
-        </td>
+        {/* LTV, Dep 30d, Last 30d and Show % columns removed 2026-10-20 (owner):
+            the tab is for the client-success coaches, who only need what is
+            owed and whether the card will go through. Show rate still lives
+            in the opened row. */}
 
         {/* Card · status · actions */}
         <td className="px-2 py-1 align-middle whitespace-nowrap"><CardCell v={v} loading={verifyLoading} onOpen={() => {
@@ -1213,14 +1191,13 @@ function AdminBilling() {
         <div className="py-12 text-center text-[#8595a8]">No clients match.</div>
       ) : (
         <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-x-auto" style={{ boxShadow: "0 1px 3px rgba(31,53,89,0.06)" }}>
-          <table className="w-full text-sm border-collapse min-w-[1320px]">
+          <table className="w-full text-sm border-collapse min-w-[1040px]">
             <thead>
               <tr className="border-b-2 border-[#e4ebf2] bg-[#f8fafc]">
                 {[
-                  ["Client", "left"], ["Fee", "center"], ["Deposits · charged", "center"], ["Show %", "center"],
+                  ["Client", "left"], ["Fee", "center"], ["Deposits · charged", "center"],
                   ["Upcoming", "center"], ["Ready", "center"], ["Self-booked", "center"],
-                  ["No appt", "center"], ["LTV", "center"], ["Dep 30d", "center"], ["Last 30d", "center"],
-                  ["Card", "left"], ["Status", "center"], ["Actions", "right"],
+                  ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
                 ].map(([h, align]) => (
                   <th key={h} className={cn("px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
                     align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
