@@ -136,12 +136,22 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
     return `5. WIN-BACK, DECLINED — ${first} is a former client we texted first and she has said no (or is out of the business). Thank her warmly in one or two lines, leave the door open, and stop. No offer, no price, no call, no link. ${precedence}`;
   }
   if (w.stage === "wants_details") {
-    return `5. WIN-BACK, SHE WANTS THE DETAILS — ${first} is a former client we texted first; we mentioned the offer and she said yes / asked for more. Give her the details now, clearly, in plain words: ${pitch} Then ${nextStep}. Do not ask again whether she wants the details — she just said so. Never promise results or a number of clients. ${precedence}`;
+    return `5. WIN-BACK, SHE WANTS THE DETAILS — ${first} is a former client we texted first; we mentioned the offer and she said yes / asked for more. Give her the details now, clearly, in plain words: ${pitch} Then ${nextStep} (the natural one here is "want me to get you set up?"). Do not ask again whether she wants the details or wants to try it — she just said so. Never promise results or a number of clients. ${precedence}`;
   }
   if (w.stage === "offer_presented") {
     return `5. WIN-BACK, OFFER ON THE TABLE — ${first} is a former client we texted first and we have already described the offer. Answer exactly what she asked or objected to, using only these facts: ${pitch} Then ${nextStep}. If she says she's not interested or fully booked on her own, thank her warmly and stop — never push. Never promise results or a number of clients. ${precedence}`;
   }
-  return `5. WIN-BACK, SHE ANSWERED OUR OPENER — ${first} is a former client we texted first ("what are you charging for brows these days?"). Her reply is the start of a sales conversation, NOT a question to close with "got it". The reply must do three things in order: (a) one short line reacting to what she said — warm, specific, using her number if she gave one; (b) the offer: ${pitch} (c) ${nextStep}. Never promise results or a number of clients. If instead she says she's busy and fully booked, be happy for her and leave the door open in one line; if she says no or not interested, thank her warmly and stop — never push; if she mentions money pressure, acknowledge it first — the no-monthly-fee part is the answer to it, not a new ask. ${precedence}`;
+  // Owner, 2026-10-20: after her price, ONE message — react, ask whether more
+  // clients would help, and mention the program in a line ("no monthly
+  // retainer, you only pay after you get paid") — the $50 / $60 terms wait
+  // for her yes (wants_details). Less back and forth.
+  const teaser = w.offer === "pps"
+    ? `then say we have a pay-per-appointment program now — no monthly retainer, she only pays after she gets paid — that we also follow up with her clients, book them on her calendar and collect a deposit, and close with "want to try it?". Do NOT write the $50 / $60 terms yet; they come when she says yes. Shape it like this, in ${first === "she" ? "the team's" : "Nicolas's"} own words: "Nice, that's a solid price 🙌 How's your calendar looking these days — would a few more new brow clients a month help? We have a pay-per-appointment program now: no monthly retainer, you only pay after you get paid. We also follow up with your clients, book them on your calendar and get a deposit. Want to try it?"`
+    : w.offer === "monthly"
+    ? `then say a lot changed since you worked together (AI that books clients for her 24/7, deposits collected for her) and close with "want me to show you how it works now?". NEVER write a monthly price.`
+    : `and close with that one question — name NO program and NO price.`;
+  const closeOpener = callInvite ? ` If the call switch is on, the closing question is instead ONE short, natural invite to book ${callInvite} (no emoji arrows).` : "";
+  return `5. WIN-BACK, SHE ANSWERED OUR OPENER — ${first} is a former client we texted first ("what are you charging for brows these days?"). Her reply is the start of a sales conversation, NOT a question to close with "got it". Write ONE short message (3–5 lines, under 75 words): (a) react to what she said in a few warm, specific words, using her number if she gave one; (b) ask how her calendar looks — would a few more new brow clients a month help; (c) ${teaser}${closeOpener} Never promise results or a number of clients. If instead she says she's busy and fully booked, be happy for her and leave the door open in one line; if she says no or not interested, thank her warmly and stop — never push; if she mentions money pressure, acknowledge it first${w.offer === "pps" ? ' — "you only pay after you get paid" is the answer to it, not a new ask' : " before anything else"}. ${precedence}`;
 }
 
 function buildSystemPrompt(input: DraftInput): string {
