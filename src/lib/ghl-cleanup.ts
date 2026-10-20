@@ -383,7 +383,12 @@ export type PoolRow = {
   used_as: string | null;
   used_at: string | null;
   first_seen_at: string;
-  a2p: string; // "approved" | "pending" — A2P isn't in any API, so it's tracked by hand
+  a2p: string; // "approved" | "pending" — A2P isn't in any API; the AI Agent reads the Trust Center page (lib/pool-a2p) or it's toggled by hand
+  a2p_updated_at: string | null;
+  a2p_updated_by: string | null;
+  a2p_task_id: string | null;   // open AI Agent A2P check
+  a2p_queued_at: string | null;
+  a2p_note: string | null;      // what the agent saw, with the date
   // Cleanliness, filled in by refreshPoolCleanliness(). null = never checked.
   workflows: number | null; // automations in it (the snapshot brings 18 — expected, not dirt)
   dirty: number | null;     // CLIENT data left: contacts

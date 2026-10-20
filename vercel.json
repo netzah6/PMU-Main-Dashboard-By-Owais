@@ -65,6 +65,10 @@
       "schedule": "0 18 * * 1"
     },
     {
+      "path": "/api/cron/a2p-sweep",
+      "schedule": "0 10 * * 1"
+    },
+    {
       "path": "/api/cron/pps-retry",
       "schedule": "0 17 * * *"
     },
