@@ -582,6 +582,24 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
     return { setup: o.setup, checklist };
   });
 
+  /* Step 22: put the artist's schedule in the sub-account's time zone right
+     away (owner 2026-10-20) — whatever the AI Agent did with the hours, a
+     schedule left in Israel or another US zone shifts every slot. The last
+     check (step 32) still re-checks it. */
+  if (ref.key === "cal_hours") {
+    const loc = (await loadOb(svc, ref.onboardingId)).setup?.location_id;
+    if (loc) {
+      const tz: ClaimAction[] = await syncScheduleTimezones(loc).catch((e) => [{ action: "Schedule time zone", ok: false, detail: errMsg(e) }]);
+      const line = tz.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
+      await patch(svc, ref.onboardingId, (o) => {
+        const cur = o.setup?.steps.cal_hours;
+        if (!o.setup || !cur || (cur.proposal_id && cur.proposal_id !== p.id)) return;
+        setStep(o.setup, "cal_hours", { ...cur, status: cur.status, at: cur.at, note: `${line}\n${cur.note ?? ""}`.slice(0, 1500) }, "schedule time zone synced to the sub-account");
+        return { setup: o.setup };
+      });
+    }
+  }
+
   // Save the hook where the payment router and the funnel read it.
   const ob = await loadOb(svc, ref.onboardingId);
   if (ok && ref.key === "webhook_url" && ob.setup?.hook_url) {
