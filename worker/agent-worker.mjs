@@ -12,10 +12,11 @@
 //
 // Config: ~/.pmu-agent/.env  (DASHBOARD_URL, AGENT_WORKER_SECRET)
 
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HOME = join(homedir(), ".pmu-agent");
 const PROFILE = join(HOME, "chrome-profile");
@@ -56,6 +57,31 @@ async function api(path, body) {
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status} ${j.error ?? ""}`);
   lastOk = Date.now();
   return j;
+}
+
+// ── Self-update (owner, 10/19/2026: "no manual work on the Mini") ───────────
+// Once an hour, while idle, fetch the worker script from the dashboard repo's
+// main branch; if it changed and parses, swap it in and exit — launchd
+// restarts the new one within seconds. Nobody has to touch the Mini again.
+const SELF_URL = env.WORKER_UPDATE_URL || "https://raw.githubusercontent.com/netzah6/PMU-Main-Dashboard-By-Owais/main/worker/agent-worker.mjs";
+const SELF_PATH = fileURLToPath(import.meta.url);
+let lastUpdateCheck = 0;
+async function selfUpdate() {
+  if (Date.now() - lastUpdateCheck < 60 * 60_000) return;
+  lastUpdateCheck = Date.now();
+  try {
+    const r = await fetch(SELF_URL, { signal: AbortSignal.timeout(20_000), headers: { "cache-control": "no-cache" } });
+    if (!r.ok) return;
+    const next = await r.text();
+    const me = readFileSync(SELF_PATH, "utf8");
+    if (next === me || next.length < 4000 || !next.includes("agent-worker") || !next.includes("selfUpdate")) return;
+    const tmp = join(HOME, "agent-worker.next.mjs");
+    writeFileSync(tmp, next);
+    if (spawnSync(process.execPath, ["--check", tmp]).status !== 0) { log("self-update: new script failed syntax check — kept current"); return; }
+    renameSync(tmp, SELF_PATH);
+    log("self-update: new worker installed — restarting");
+    setTimeout(() => process.exit(0), 200); // launchd KeepAlive restarts it
+  } catch (e) { log("self-update: skipped —", e.message); }
 }
 
 function die(reason) {
@@ -184,6 +210,7 @@ async function loop(once) {
   log(`worker on ${hostname()} → ${BASE}`);
   for (;;) {
     try {
+      await selfUpdate(); // idle only: never mid-task
       const { task } = await api("claim", { host: hostname() });
       if (task) await doTask(task);
       else if (once) { log("no task waiting"); return; }
