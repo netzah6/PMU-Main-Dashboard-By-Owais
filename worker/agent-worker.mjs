@@ -6,14 +6,14 @@
 // profile) on the same GoHighLevel screens a teammate uses, screenshots the
 // result, and reports back. The dashboard then texts the owner.
 //
-//   node agent-worker.mjs login   → opens the worker's Chrome to sign in to GHL once
+//   node agent-worker.mjs login   → opens the worker's Chrome to sign in to GHL + Gmail once (then Cmd+Q)
 //   node agent-worker.mjs once    → do at most one task, then exit (testing)
 //   node agent-worker.mjs         → run forever (launchd keeps it alive)
 //
 // Config: ~/.pmu-agent/.env  (DASHBOARD_URL, AGENT_WORKER_SECRET)
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,94 @@ const BASE = (env.DASHBOARD_URL || "https://pmu-main-dashboard-by-owais1.vercel.
 const SECRET = env.AGENT_WORKER_SECRET;
 const CLAUDE = env.CLAUDE_BIN || "claude";
 const log = (...a) => console.log(new Date().toISOString(), ...a);
+
+// ── One Chrome profile, one cookie key (10/20/2026) ──────────────────────────
+// GoHighLevel + Gmail sign-ins vanished "every few days". Root cause: Playwright
+// launches Chrome with --use-mock-keychain (a fixed cookie-encryption key),
+// while `agent-worker.mjs login` and any hand-opened Chrome encrypt with the
+// real macOS Keychain key. On startup Chrome deletes every cookie it cannot
+// decrypt, so each switch between the two wiped the whole jar (reproduced on a
+// scratch profile: real→mock 1→0 cookies, mock→real 1→0, real→real 1→1). Now:
+//  • the worker's Chrome keeps the default (real Keychain) key — see
+//    PW_IGNORE_DEFAULT_ARGS — and the login command launches the very same
+//    binary with the very same flags, so what a human signs in is what the
+//    worker finds;
+//  • a Chrome that someone left open on the profile no longer blocks every task
+//    for hours: a fresh one (login in progress) makes the worker wait, an old
+//    stray one is asked to quit (SIGTERM = Chrome's normal "session ended"
+//    shutdown, never a kill);
+//  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
+//    works), so Chrome's account reconcilor can never log the mailbox out.
+const WORKER_VERSION = 3; // self-update refuses to downgrade below this
+const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const LOGIN_LOCK = join(HOME, "login.lock");
+const CHROME_ARGS = ["--lang=en-US", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--password-store=basic"];
+// Dropped from Playwright's defaults: --use-mock-keychain (the cookie-key
+// mismatch above) and --enable-automation (Google blocks sign-in on browsers
+// that advertise automation; the agent's own sign-in recovery needs it off).
+const PW_IGNORE_DEFAULT_ARGS = ["--use-mock-keychain", "--enable-automation"];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// pid of the Chrome that currently owns the profile (Chrome's SingletonLock is a
+// symlink to "<host>-<pid>"), or 0 when the profile is free.
+function chromePidOnProfile() {
+  try {
+    const pid = Number(readlinkSync(join(PROFILE, "SingletonLock")).split("-").pop());
+    if (!pid) return 0;
+    const cmd = spawnSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).stdout || "";
+    return cmd.includes("Google Chrome") && cmd.includes(PROFILE) ? pid : 0;
+  } catch { return 0; }
+}
+function processAgeMs(pid) {
+  const et = (spawnSync("ps", ["-o", "etime=", "-p", String(pid)], { encoding: "utf8" }).stdout || "").trim(); // [[dd-]hh:]mm:ss
+  if (!et) return 0;
+  const [days, hms] = et.includes("-") ? et.split("-") : ["0", et];
+  const parts = hms.split(":").map(Number); while (parts.length < 3) parts.unshift(0);
+  return (((Number(days) * 24 + parts[0]) * 60 + parts[1]) * 60 + parts[2]) * 1000;
+}
+function alive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+async function waitForExit(pid, ms) {
+  const until = Date.now() + ms;
+  while (alive(pid)) { if (Date.now() > until) return false; await sleep(500); }
+  return true;
+}
+function loginInProgress() {
+  try { return Date.now() - statSync(LOGIN_LOCK).mtimeMs < 2 * 60 * 60_000; } catch { return false; } // a lock older than 2 h is stale
+}
+// True when a task may start. Never claims a task while a human may be signing
+// in; quits a forgotten Chrome instead of failing tasks for hours (10/17 lost a
+// whole day to "Browser is already in use").
+async function profileReady() {
+  const pid = chromePidOnProfile();
+  if (!pid) { hardenProfile(); return true; }
+  if (loginInProgress() || processAgeMs(pid) < 10 * 60_000) {
+    log(`waiting: Chrome pid ${pid} has the worker profile open (sign-in in progress?) — quit it with Cmd+Q when done`);
+    return false;
+  }
+  log(`stray Chrome pid ${pid} holds the worker profile — asking it to quit`);
+  try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ }
+  if (!(await waitForExit(pid, 20_000))) { log(`Chrome pid ${pid} did not quit — tasks wait`); return false; }
+  hardenProfile();
+  return true;
+}
+// Only touched while no Chrome has the profile open. Turns Chrome-level Google
+// sign-in off (signin.allowed_on_next_startup — Chrome copies it into
+// signin.allowed on its next start), clears the "didn't shut down correctly"
+// restore bubble, and keeps the profile folder private (cookies live in it).
+function hardenProfile() {
+  try { chmodSync(PROFILE, 0o700); } catch { /* fine */ }
+  const prefFile = join(PROFILE, "Default", "Preferences");
+  if (!existsSync(prefFile)) return;
+  try {
+    const p = JSON.parse(readFileSync(prefFile, "utf8"));
+    const changes = [];
+    p.signin ??= {};
+    if (p.signin.allowed_on_next_startup !== false) { p.signin.allowed_on_next_startup = false; changes.push("Chrome sign-in off"); }
+    p.profile ??= {};
+    if (p.profile.exit_type && p.profile.exit_type !== "Normal") { changes.push(`exit_type ${p.profile.exit_type} → Normal`); p.profile.exit_type = "Normal"; }
+    if (changes.length) { writeFileSync(prefFile + ".tmp", JSON.stringify(p)); renameSync(prefFile + ".tmp", prefFile); log("profile:", changes.join(", ")); }
+  } catch (e) { log("profile hardening skipped —", e.message); }
+}
 
 // ── Self-healing (10/19/2026) ────────────────────────────────────────────────
 // The worker sat alive-but-stuck for 16 h (no claim, no exit), so launchd's
@@ -66,6 +154,7 @@ async function api(path, body) {
 const SELF_URL = env.WORKER_UPDATE_URL || "https://raw.githubusercontent.com/netzah6/PMU-Main-Dashboard-By-Owais/main/worker/agent-worker.mjs";
 const SELF_PATH = fileURLToPath(import.meta.url);
 let lastUpdateCheck = 0;
+let warnedOldRemote = false;
 async function selfUpdate() {
   if (Date.now() - lastUpdateCheck < 60 * 60_000) return;
   lastUpdateCheck = Date.now();
@@ -75,6 +164,11 @@ async function selfUpdate() {
     const next = await r.text();
     const me = readFileSync(SELF_PATH, "utf8");
     if (next === me || next.length < 4000 || !next.includes("agent-worker") || !next.includes("selfUpdate")) return;
+    const remoteVersion = Number((next.match(/WORKER_VERSION = (\d+)/) || [])[1] || 0);
+    if (remoteVersion < WORKER_VERSION) {
+      if (!warnedOldRemote) log(`self-update: repo copy is v${remoteVersion || "?"}, this Mini runs v${WORKER_VERSION} — keeping local until worker/agent-worker.mjs on main is updated`);
+      warnedOldRemote = true; return;
+    }
     const tmp = join(HOME, "agent-worker.next.mjs");
     writeFileSync(tmp, next);
     if (spawnSync(process.execPath, ["--check", tmp]).status !== 0) { log("self-update: new script failed syntax check — kept current"); return; }
@@ -130,9 +224,10 @@ When finished, reply with ONLY this JSON (no other text):
 
 function runClaude(prompt, dir) {
   // Browser always in English (US): GHL screens came up in Spanish, which
-  // cost the agent turns reading every screen (10/16/2026).
+  // cost the agent turns reading every screen (10/16/2026). Same CHROME_ARGS
+  // as the login command, and the real-Keychain cookie key (see top of file).
   const pwFile = join(dir, "playwright.json");
-  writeFileSync(pwFile, JSON.stringify({ browser: { launchOptions: { args: ["--lang=en-US"] }, contextOptions: { locale: "en-US" } } }));
+  writeFileSync(pwFile, JSON.stringify({ browser: { launchOptions: { args: CHROME_ARGS, ignoreDefaultArgs: PW_IGNORE_DEFAULT_ARGS }, contextOptions: { locale: "en-US" } } }));
   const mcp = { mcpServers: { playwright: { command: "npx", args: ["-y", "@playwright/mcp@0.0.83", "--config", pwFile, "--browser", "chrome", "--user-data-dir", PROFILE, "--output-dir", dir, "--viewport-size", "1440x900"], env: { LANG: "en_US.UTF-8", LANGUAGE: "en_US" } } } };
   const mcpFile = join(dir, "mcp.json");
   writeFileSync(mcpFile, JSON.stringify(mcp));
@@ -147,8 +242,23 @@ function runClaude(prompt, dir) {
       // force it, so "close" always fires and the task is reported.
       setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* gone */ } }, 60_000).unref();
     }, TASK_TIMEOUT_MS);
-    child.on("close", (code) => { clearTimeout(timer); writeFileSync(join(dir, "claude-output.json"), out || err); resolve({ code, out, err }); });
+    child.on("close", async (code) => {
+      clearTimeout(timer); writeFileSync(join(dir, "claude-output.json"), out || err);
+      await chromeGone(); // the MCP leaves Chrome to shut itself down; never start the next task on top of it
+      resolve({ code, out, err });
+    });
   });
+}
+// Wait (≤60 s) for the task's Chrome to leave the profile; nudge it with SIGTERM
+// after 20 s. Chrome commits cookies every 30 s and on a normal quit, so a task
+// that signed in minutes ago has long been saved by now.
+async function chromeGone() {
+  const pid = chromePidOnProfile();
+  if (!pid) return;
+  if (await waitForExit(pid, 20_000)) return;
+  log(`Chrome pid ${pid} still open after the task — asking it to quit`);
+  try { process.kill(pid, "SIGTERM"); } catch { /* gone */ }
+  if (!(await waitForExit(pid, 40_000))) log(`Chrome pid ${pid} did not quit; the next poll will retry`);
 }
 
 function parseReport(out) {
@@ -211,21 +321,42 @@ async function loop(once) {
   for (;;) {
     try {
       await selfUpdate(); // idle only: never mid-task
-      const { task } = await api("claim", { host: hostname() });
-      if (task) await doTask(task);
-      else if (once) { log("no task waiting"); return; }
-      if (once && task) return;
+      if (!(await profileReady())) {
+        await api("ping", { host: hostname() }); // still alive, just waiting for Chrome to be quit
+        if (once) { log("profile busy"); return; }
+      } else {
+        const { task } = await api("claim", { host: hostname() });
+        if (task) await doTask(task);
+        else if (once) { log("no task waiting"); return; }
+        if (once && task) return;
+      }
     } catch (e) { log("error:", e.message); if (once) return; }
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
 }
 
 if (process.argv[2] === "login") {
-  // The same Chrome profile the worker uses — sign in once, tick
-  // "remember this device", then quit Chrome.
+  // The worker's own Chrome: same binary, same profile, same flags (real macOS
+  // Keychain key), so the worker reads exactly the cookies you create here.
+  // login.lock keeps the worker from starting a task under your window.
   mkdirSync(PROFILE, { recursive: true });
-  spawn("open", ["-na", "Google Chrome", "--args", `--user-data-dir=${PROFILE}`, "--lang=en-US", "https://app.gohighlevel.com/"], { stdio: "inherit" });
-  console.log("Sign in to GoHighLevel in the Chrome window that opened, then QUIT that Chrome (Cmd+Q).");
+  const finish = () => { try { unlinkSync(LOGIN_LOCK); } catch { /* gone */ } console.log("Chrome quit — the worker will pick up tasks again within a minute."); };
+  const existing = chromePidOnProfile();
+  if (existing) {
+    writeFileSync(LOGIN_LOCK, String(existing));
+    console.log(`A Chrome window (pid ${existing}) already has the worker's profile open. Sign in THERE, then quit it with Cmd+Q.`);
+    waitForExit(existing, 2 * 60 * 60_000).then(finish);
+  } else {
+    writeFileSync(LOGIN_LOCK, String(process.pid));
+    const chrome = spawn(CHROME_BIN, [`--user-data-dir=${PROFILE}`, ...CHROME_ARGS, "https://app.gohighlevel.com/", "https://mail.google.com/"], { stdio: "ignore" });
+    console.log([
+      "Chrome opened with the worker's profile (two tabs).",
+      "  1. GoHighLevel tab: sign in as the agent; if it asks for a security code, read it from the Gmail tab; tick \"remember/trust this device\" if offered.",
+      "  2. Gmail tab: make sure the agent's mailbox is signed in (the worker reads future security codes there).",
+      "  3. Wait about a minute, then QUIT Chrome with Cmd+Q (not just the red button). Leave this window until it says done.",
+    ].join("\n"));
+    chrome.on("exit", finish);
+  }
 } else {
   loop(process.argv[2] === "once");
 }
