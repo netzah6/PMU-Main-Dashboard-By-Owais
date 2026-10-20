@@ -393,7 +393,8 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
                 return (
                   <li key={s.key} className="px-3 py-1 flex items-start gap-2">
                     <span className="w-6 shrink-0 text-[11px] text-[#8595a8] tabular-nums mt-0.5">{s.n}</span>
-                    {ic && <span className={cn("w-4 shrink-0 text-[13px] leading-5", ic.cls)} title={ic.label}>{ic.icon}</span>}
+                    {/* Who / when lives in the tooltip — owner 2026-10-20 wanted the lines clean. */}
+                    {ic && <span className={cn("w-4 shrink-0 text-[13px] leading-5", ic.cls)} title={[ic.label, settledLine].filter(Boolean).join(" · ")}>{ic.icon}</span>}
                     <div className="min-w-0 flex-1">
                       {/* Line 1: name · who · when · screenshots — the description is a tooltip once settled */}
                       <div className="flex items-center gap-2 flex-wrap">
@@ -407,7 +408,6 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
                         {setup && st.status === "failed" && AGENT.includes(s.who) && (
                           <span className="text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap bg-[#fde8ee] text-[#e11d48]">👤 needs a person</span>
                         )}
-                        {settledLine && <span className="text-[10px] text-[#a6b3c4] whitespace-nowrap">{settledLine}</span>}
                         {shots.length > 0 && <ScreenshotGallery shots={shots} variant="chip" />}
                       </div>
                       {s.title && !["done", "skipped"].includes(st.status) && <p className="text-[10.5px] text-[#8595a8]">{s.label}</p>}
