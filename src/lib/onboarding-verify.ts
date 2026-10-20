@@ -822,8 +822,12 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   let embedCreator: string | null = null;
   let funnelUrls: FunnelUrls | null = null;
   if (!depositUrl) {
+    // No account / no funnel yet (the card was checked before Approve, or
+    // the one-box isn't created). Owner 10/20/2026: domain, paths,
+    // PRODUCT_ID, redirect, map and pixel are all built by the one-box run,
+    // so there is nothing to flag red here — they are checked once it exists.
     for (const k of ["ghl_domain", "funnel_domain", "funnel_path", "funnel_product_id", "funnel_redirect", "funnel_map", "ghl_pixel"])
-      push(k, "fail", locationId ? "No deposit funnel URL set in the sub-account" : "Couldn't resolve the sub-account");
+      push(k, "skip", locationId ? "Checked once the one-box funnel exists (no deposit funnel URL on the sub-account yet)" : "Checked once the account is set up (no sub-account yet)");
   } else {
     // The stored "Deposit Funnel URL" custom value sometimes points at the
     // WRONG page (Brows By Kler's pointed at her survey page). Try it plus
@@ -1074,10 +1078,12 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         /test/i.test(String(c.contactName ?? `${c.firstName ?? ""} ${c.lastName ?? ""}`)));
       if (tc) testContact = String(tc.contactName ?? `${tc.firstName ?? ""} ${tc.lastName ?? ""}`).trim();
     }
-    if (testContact) push("fin_test", "pass", `Test lead "${testContact}" found in the contacts ✓${critFail.length ? ` · heads-up, still failing: ${critFail.join(", ")}` : ""}${slots > 0 ? ` · ${slots} open booking slots` : ""}`);
-    else if (critFail.length) push("fin_test", "fail", `No "test" contact found and still failing: ${critFail.join(", ")}${slots === 0 ? " · no open booking slots" : ""}`);
-    else if (slots === 0) push("fin_test", "fail", "No \"test\" contact found · components ✓ but the calendar has NO open booking slots in the next 14 days");
-    else push("fin_test", "fail", `No contact with "test" in the name — run a test lead through the funnel${checkoutUrl && slots > 0 ? ` (components ✓ · checkout ✓ · ${slots} open slots)` : ""}`);
+    // Owner 10/20/2026: the funnel test is the team's job, not a red problem.
+    if (!depositUrl) push("fin_test", "skip", "Run a test lead once the funnel is live");
+    else if (testContact) push("fin_test", "pass", `Test lead "${testContact}" found in the contacts ✓${critFail.length ? ` · heads-up, still failing: ${critFail.join(", ")}` : ""}${slots > 0 ? ` · ${slots} open booking slots` : ""}`);
+    else if (critFail.length) push("fin_test", "manual", `No "test" contact found and still failing: ${critFail.join(", ")}${slots === 0 ? " · no open booking slots" : ""}`);
+    else if (slots === 0) push("fin_test", "manual", "No \"test\" contact found · components ✓ but the calendar has NO open booking slots in the next 14 days");
+    else push("fin_test", "manual", `No contact with "test" in the name — run a test lead through the funnel${checkoutUrl && slots > 0 ? ` (components ✓ · checkout ✓ · ${slots} open slots)` : ""}`);
   }
 
   // Every remaining checklist step (external tools we can't reach) → manual, so
