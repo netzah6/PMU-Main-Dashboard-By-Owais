@@ -14,7 +14,7 @@ import { answersFromMainContact } from "@/lib/survey-answers";
 import { writeRowToSheet, getSheetEntryForTable } from "@/lib/sheets";
 import { confirmToOwner, dashboardUrl, proposalLink, textOwner } from "@/lib/agent-notify";
 import {
-  RUNBOOK, runSteps, stepByKey, stepState, isSettled, miniPlan, miniContext,
+  RUNBOOK, runSteps, stepByKey, stepState, isSettled, miniPlan, miniContext, missingFields,
   type RunbookStep, type SetupState, type StepState, type SetupFacts,
 } from "@/lib/setup-runbook";
 
@@ -119,10 +119,12 @@ export async function poolChoices(svc: Svc): Promise<{ choices: PoolChoice[]; de
 }
 
 // ── Approve ─────────────────────────────────────────────────────────────────
-export async function approveSetup(svc: Svc, onboardingId: string, poolLocationId: string, by: string): Promise<SetupState> {
+export async function approveSetup(svc: Svc, onboardingId: string, poolLocationId: string, by: string, preapproved: string[] = []): Promise<SetupState> {
   const ob = await loadOb(svc, onboardingId);
   if (ob.setup) throw new Error("This setup was already approved");
-  if (!String(ob.form.business_name ?? "").trim() || !String(ob.form.owner_name ?? "").trim()) throw new Error("Business name and owner name are required on the form");
+  // Pre-flight: nothing starts with a hole in the form (owner 10/20/2026).
+  const missing = missingFields(ob.form);
+  if (missing.length) throw new Error(`Fill these first: ${missing.map((m) => m.label).join(", ")}`);
 
   let poolName = "";
   if (ob.claim?.location_id) {
@@ -142,7 +144,8 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
 
   const setup: SetupState = {
     v: 1, approved_by: by, approved_at: now(), location_id: poolLocationId, pool_name: poolName,
-    status: "running", steps: {}, log: [{ at: now(), key: "run", msg: `Approved by ${by} — taking ${poolName}` }],
+    status: "running", steps: {}, log: [{ at: now(), key: "run", msg: `Approved by ${by} — taking ${poolName}${preapproved.length ? ` · pre-approved: ${preapproved.join(", ")}` : ""}` }],
+    preapproved: preapproved.filter((k) => stepByKey(k)?.who === "ask"),
   };
   // Team / client / owner steps are shown, not run.
   for (const s of RUNBOOK) if (!["api", "mini", "ask"].includes(s.who) || s.later) setup.steps[s.key] = { status: "manual" };
@@ -549,7 +552,8 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   }
   const f = facts(ob);
   const attempt = (setup.log.filter((l) => l.key === next.key && l.msg.startsWith("card")).length) + 1;
-  const isAsk = next.who === "ask";
+  // An "asks you" step approved up front at Approve time runs like any AI Agent step.
+  const isAsk = next.who === "ask" && !(setup.preapproved ?? []).includes(next.key);
   const { data: ins, error } = await svc.from("agent_proposals").insert({
     conversation_id: setupConvId(onboardingId, next.key),
     message_id: `${next.key}#${attempt}`,
