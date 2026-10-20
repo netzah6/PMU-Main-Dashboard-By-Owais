@@ -22,6 +22,7 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   paid_not_synced: { label: "Paid, GHL missed it", icon: "💳", chip: "bg-amber-50 text-amber-800 border-amber-200" },
   paid_not_booked: { label: "Paid but not booked", icon: "📅", chip: "bg-rose-50 text-rose-700 border-rose-200" },
   double_booking: { label: "Double booking", icon: "📆", chip: "bg-amber-50 text-amber-800 border-amber-200" },
+  ig_drop: { label: "Deposit rate dropped", icon: "📉", chip: "bg-pink-50 text-pink-700 border-pink-200" },
 };
 
 function typeMeta(t: string) {
