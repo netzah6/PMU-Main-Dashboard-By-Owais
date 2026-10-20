@@ -717,7 +717,7 @@ export function PaymentDetails({ v, onMsg, onReload }: {
           <CustomerLinkSearch v={v} busy={busy} onLink={setLink} />
         </div>
         <div id={`cards-${v.ownerKey}`} className="scroll-mt-24">
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#697a91] mb-1">Cards on file (newest first) — pick one with “use this card”</h4>
+          <h4 className="text-[10px] font-bold uppercase tracking-wider text-[#697a91] mb-1">Cards on file</h4>
           {v.cards.length === 0
             ? <div className="text-[11px] text-[#be123c]">None — Square has no card for this customer.</div>
             : (
@@ -740,9 +740,6 @@ export function PaymentDetails({ v, onMsg, onReload }: {
                 ))}
               </div>
             )}
-          <div className="text-[10px] text-[#8595a8] mt-1.5">
-            No pick = automatic: the card they last paid with, else the newest. Your pick sticks until you clear it — if that card is ever removed, charging blocks instead of switching silently.
-          </div>
         </div>
       </div>
     </div>
