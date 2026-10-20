@@ -13,7 +13,11 @@ export const fetchCache = "force-no-store";
                       new IG posts stop changing the page.
    Freeze needs extras.igSnapshot (uploaded copies — Instagram CDN links
    expire, so we can't just remember URLs). The 2026-10-01 sweep seeded it
-   for every live funnel; a client without one gets a clear error. */
+   for every live funnel; a client without one gets a clear error.
+   Freeze with body.snapshotId (IG-feed watch, 2026-10-15): copy THAT dated
+   ig_snapshots row — e.g. the posts that were live during the funnel's best
+   run — into extras.igSnapshot first, then freeze. The row must belong to
+   this slug and carry images. Only ever triggered by an explicit click. */
 
 const ACTIONS = ["off", "on", "freeze", "unfreeze"] as const;
 type Action = (typeof ACTIONS)[number];
@@ -25,11 +29,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await req.json().catch(() => null)) as { slug?: string; action?: string } | null;
+  const body = (await req.json().catch(() => null)) as { slug?: string; action?: string; snapshotId?: unknown } | null;
   const slug = body?.slug?.trim();
   const action = body?.action as Action | undefined;
   if (!slug || !action || !ACTIONS.includes(action)) {
     return NextResponse.json({ error: "slug and action (off|on|freeze|unfreeze) required" }, { status: 400 });
+  }
+  const snapshotId = body?.snapshotId;
+  if (snapshotId != null && (typeof snapshotId !== "number" || !Number.isInteger(snapshotId) || snapshotId <= 0)) {
+    return NextResponse.json({ error: "snapshotId must be a whole number" }, { status: 400 });
   }
 
   const sb = createServiceClient();
@@ -43,12 +51,30 @@ export async function POST(req: NextRequest) {
 
   const extras = { ...((row.extras ?? {}) as Record<string, unknown>) };
   if (action === "freeze") {
-    const snap = extras.igSnapshot as { imgs?: string[] } | undefined;
-    if (!snap?.imgs?.length) {
-      return NextResponse.json(
-        { error: "No feed snapshot stored for this client yet — rerun the IG snapshot sweep first." },
-        { status: 409 },
-      );
+    if (typeof snapshotId === "number") {
+      const { data: snap, error: snapErr } = await sb
+        .from("ig_snapshots")
+        .select("id, taken_at, imgs")
+        .eq("id", snapshotId)
+        .eq("slug", slug)
+        .maybeSingle();
+      if (snapErr) return NextResponse.json({ error: snapErr.message }, { status: 500 });
+      if (!snap) {
+        return NextResponse.json({ error: "That saved set of posts doesn't belong to this client." }, { status: 404 });
+      }
+      const imgs = (snap.imgs ?? []) as string[];
+      if (!imgs.length) {
+        return NextResponse.json({ error: "That saved set has no images to show." }, { status: 409 });
+      }
+      extras.igSnapshot = { imgs, at: snap.taken_at as string };
+    } else {
+      const snap = extras.igSnapshot as { imgs?: string[] } | undefined;
+      if (!snap?.imgs?.length) {
+        return NextResponse.json(
+          { error: "No feed snapshot stored for this client yet — rerun the IG snapshot sweep first." },
+          { status: 409 },
+        );
+      }
     }
     extras.igFrozen = true;
   }
@@ -64,5 +90,6 @@ export async function POST(req: NextRequest) {
     slug,
     igWidgetOff: !!extras.igWidgetOff,
     igFrozen: !!extras.igFrozen,
+    activeSnapshotAt: (extras.igSnapshot as { at?: string } | undefined)?.at ?? null,
   });
 }

@@ -53,6 +53,167 @@ type FunnelReview = {
   igState?: { hasWidget: boolean; widgetOff: boolean; frozen: boolean; hasSnapshot: boolean };
 };
 
+// IG-feed watch (owner, 2026-10-15) from /api/onebox/ig-feed: weekly deposit
+// rate next to the client's Instagram posts, with the dated post sets saved
+// by the weekly snapshot sweep. "Show the best-run posts" is an explicit
+// click — nothing here changes a funnel on its own.
+type IgWeek = { week: string; leads: number; picked: number; deposits: number };
+type IgWindow = { from: string; to: string; leads: number; deposits: number; rate: number };
+type IgSnapshot = { id: number; taken_at: string; imgs: string[]; posts_count: number | null; source: string | null };
+type IgFeed = {
+  series: IgWeek[];
+  best: IgWindow | null;
+  current: IgWindow | null;
+  drop: { dropped: boolean; recovered: boolean; bestRate: number | null; currentRate: number | null };
+  snapshots: IgSnapshot[];
+  history: { week_start: string; posts_count: number | null; followers: number | null }[];
+  live: { username: string; postsCount: number; followers: number | null } | null;
+  frozen: boolean;
+  activeSnapshotAt: string | null;
+  hasWidget: boolean;
+  bestSnapshotId: number | null;
+  latestSnapshotId: number | null;
+};
+const IG_MATURE_DAYS = 5; // mirrors MATURE_DAYS in src/lib/ig-feed-watch.ts
+const igDay = (iso: string, year = false) =>
+  new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", ...(year ? { year: "numeric" } : {}) });
+const igPct = (rate: number) => `${(rate * 100).toFixed(1)}%`;
+// Windows are keyed by their Mondays; the last day of a window is its Sunday.
+const igSunday = (monday: string) => new Date(Date.parse(monday) + 6 * 864e5).toISOString().slice(0, 10);
+
+function IgFeedBody({ feed, busy, widgetOff, onFreezeBest, onUnfreeze }: {
+  feed: IgFeed;
+  busy: string | null;
+  widgetOff: boolean;
+  onFreezeBest: (snapshotId: number) => void;
+  onUnfreeze: () => void;
+}) {
+  const { series, best, current, drop, snapshots, live } = feed;
+  const now = Date.now();
+  // Same rule as the server: a week is judged once its Sunday is ≥5 days ago.
+  const settled = (week: string) => Date.parse(week) + 7 * 864e5 <= now - IG_MATURE_DAYS * 864e5;
+  const rates = series.map((p) => (p.leads ? (p.deposits / p.leads) * 100 : 0));
+  const maxRate = Math.max(0, ...rates);
+  const postsByWeek = new Map(feed.history.map((h) => [h.week_start, h.posts_count]));
+  const bestSnap = feed.bestSnapshotId != null ? snapshots.find((s) => s.id === feed.bestSnapshotId) ?? null : null;
+  const latestSnap = feed.latestSnapshotId != null ? snapshots.find((s) => s.id === feed.latestSnapshotId) ?? null : null;
+  const sameSet = !!bestSnap && !!latestSnap && bestSnap.id === latestSnap.id;
+  const showingBest = !!bestSnap && feed.frozen && feed.activeSnapshotAt === bestSnap.taken_at;
+  const thumbs = (s: IgSnapshot) => (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {s.imgs.slice(0, 9).map((src, i) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img key={i} src={src} alt="" loading="lazy" className="h-14 w-14 rounded border border-[#e4ebf2] bg-[#f1f5f9] object-cover" />
+      ))}
+      {!s.imgs.length && <span className="text-[11px] text-[#8595a8]">No images in this saved set.</span>}
+    </div>
+  );
+  return (
+    <>
+      <div className="text-[11px] text-[#34568a] leading-snug">
+        {best ? (
+          <>
+            <span className="font-semibold">Best run:</span> {igDay(best.from)} – {igDay(igSunday(best.to))} · {igPct(best.rate)} ({best.deposits} of {best.leads} leads)
+            {current && <> · <span className="font-semibold">Last 2 full weeks:</span> {igPct(current.rate)} ({current.deposits} of {current.leads})</>}
+            {drop.dropped && (
+              <span className="ml-1.5 inline-flex rounded-full border border-[#fca5a5] bg-[#fef2f2] px-1.5 py-px text-[10px] font-semibold text-[#b91c1c]">dropped</span>
+            )}
+          </>
+        ) : (
+          <><span className="font-semibold">Not enough data yet</span><span className="text-[#8595a8]"> — needs 30+ leads across 4 full weeks.</span></>
+        )}
+      </div>
+      {series.length > 0 && (
+        <div>
+          <div className="flex h-10 items-end gap-[3px]">
+            {series.map((p, i) => {
+              const pct = rates[i];
+              const inBest = !!best && p.week >= best.from && p.week <= best.to;
+              const done = settled(p.week);
+              const h = maxRate > 0 ? Math.max(2, Math.round((pct / maxRate) * 36)) : 2;
+              const posts = postsByWeek.get(p.week);
+              const title = `${igDay(p.week)}: ${p.deposits} of ${p.leads} (${pct.toFixed(1)}%)`
+                + (posts != null ? ` · ${posts.toLocaleString("en-US")} posts` : "")
+                + (done ? "" : " · still settling");
+              return (
+                <div key={p.week} title={title} className="flex h-full flex-1 items-end">
+                  <div
+                    className={cn("w-full rounded-t-sm", inBest ? "bg-[#22c55e]" : "bg-[#94a3b8]", !done && "opacity-50")}
+                    style={{
+                      height: h,
+                      ...(done ? {} : { backgroundImage: "repeating-linear-gradient(135deg, transparent 0 3px, rgba(255,255,255,.7) 3px 5px)" }),
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-0.5 flex justify-between text-[9px] text-[#8595a8]">
+            <span>{igDay(series[0].week)}</span>
+            <span>deposit % per week · green = best run · striped = still settling</span>
+            <span>{igDay(series[series.length - 1].week)}</span>
+          </div>
+        </div>
+      )}
+      {snapshots.length === 0 ? (
+        <div className="text-[11px] text-[#8595a8]">No saved posts for this client yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {bestSnap ? (
+            <div>
+              <div className="text-[11px] font-semibold text-[#1f3559]">
+                Posts during the best run — saved {igDay(bestSnap.taken_at, true)}
+                {sameSet && <span className="font-normal text-[#8595a8]"> · this is also the latest saved set</span>}
+              </div>
+              {thumbs(bestSnap)}
+            </div>
+          ) : best ? (
+            <div className="text-[11px] text-[#8595a8]">No posts saved from the best run (saved sets start Oct 1, 2026)</div>
+          ) : null}
+          {latestSnap && !sameSet && (
+            <div>
+              <div className="text-[11px] font-semibold text-[#1f3559]">Latest saved posts — {igDay(latestSnap.taken_at, true)}</div>
+              {thumbs(latestSnap)}
+            </div>
+          )}
+        </div>
+      )}
+      {live && (
+        <div className="text-[10px] text-[#8595a8]">
+          Live feed now: {live.postsCount.toLocaleString("en-US")} posts
+          {live.followers != null && <> · {live.followers.toLocaleString("en-US")} followers</>}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => bestSnap && onFreezeBest(bestSnap.id)}
+          disabled={!!busy || !bestSnap || showingBest || widgetOff}
+          title={!bestSnap ? "No saved set from the best run to show" : widgetOff ? "Turn the widget back on first" : undefined}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold disabled:opacity-50",
+            showingBest ? "border-[#93c5fd] bg-[#eff6ff] text-[#1d4ed8]" : "border-[#cbd5e1] bg-white text-[#34568a]",
+          )}
+        >
+          {busy === "freeze-snapshot" && <Loader2 size={9} className="animate-spin" />}
+          {showingBest ? "Showing the best-run posts ✓" : "Show the best-run posts on the funnel"}
+        </button>
+        {feed.frozen && (
+          <button
+            type="button"
+            onClick={onUnfreeze}
+            disabled={!!busy}
+            className="inline-flex items-center gap-1 rounded-full border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#34568a] disabled:opacity-50"
+          >
+            {busy === "unfreeze" && <Loader2 size={9} className="animate-spin" />}
+            Back to the live feed
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 type DaySlots = { slots: number; hours: number };
 type AvailInfo = {
   openSlots: number; openHours: number; pctFree: number | null;
@@ -130,7 +291,7 @@ function FunnelViz({ title, stages }: { title: string; stages: FunnelStage[] }) 
 function dayMeta(iso: string) {
   const [y, m, d] = iso.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
 export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
@@ -172,29 +333,61 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   // IG-widget controls (hide the live feed / freeze it to the snapshot).
   // Admin+editor only server-side; the buttons report the server's answer.
   const [igBusy, setIgBusy] = useState<string | null>(null);
-  const igAction = async (action: "off" | "on" | "freeze" | "unfreeze") => {
+  // `snapshotId` (freeze only) = show THAT saved set of posts, e.g. the ones
+  // live during the funnel's best run (IG-feed watch panel below).
+  const igAction = async (action: "off" | "on" | "freeze" | "unfreeze", snapshotId?: number) => {
     if (!funnelReview?.slug || igBusy) return;
     const warn = action === "off"
       ? "Hide the live Instagram widget on this client's funnel?"
       : action === "freeze"
-        ? "Freeze the funnel's Instagram feed to the snapshotted posts? New IG posts will no longer show."
+        ? snapshotId != null
+          ? "Show the saved best-run posts on this client's funnel instead of the live Instagram feed? New IG posts will no longer show."
+          : "Freeze the funnel's Instagram feed to the snapshotted posts? New IG posts will no longer show."
         : null;
     if (warn && !window.confirm(warn)) return;
-    setIgBusy(action);
+    setIgBusy(snapshotId != null ? "freeze-snapshot" : action);
     try {
       const r = await fetch("/api/onebox/ig-widget", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: funnelReview.slug, action }),
+        body: JSON.stringify({ slug: funnelReview.slug, action, ...(snapshotId != null ? { snapshotId } : {}) }),
       });
       const j = await r.json();
       if (!r.ok) { window.alert(j?.error || "Failed"); return; }
       setFunnelReview((f) => f && f.igState
-        ? { ...f, igState: { ...f.igState, widgetOff: j.igWidgetOff, frozen: j.igFrozen } }
+        ? { ...f, igState: { ...f.igState, widgetOff: j.igWidgetOff, frozen: j.igFrozen, hasSnapshot: f.igState.hasSnapshot || !!j.activeSnapshotAt } }
         : f);
+      setIgFeed((f) => f ? { ...f, frozen: !!j.igFrozen, activeSnapshotAt: j.activeSnapshotAt ?? f.activeSnapshotAt } : f);
     } catch { window.alert("Network error — nothing changed."); }
     finally { setIgBusy(null); }
   };
+
+  // "📈 Posts vs deposit rate" panel — collapsed by default, fetched on open
+  // (and again on "Try again"); closed when the account changes.
+  const [igFeedOpen, setIgFeedOpen] = useState(false);
+  const [igFeed, setIgFeed] = useState<IgFeed | null>(null);
+  const [igFeedLoading, setIgFeedLoading] = useState(false);
+  const [igFeedError, setIgFeedError] = useState<string | null>(null);
+  const [igFeedTick, setIgFeedTick] = useState(0);
+  const igSlug = funnelReview?.slug ?? null;
+  useEffect(() => {
+    setIgFeedOpen(false); setIgFeed(null); setIgFeedError(null);
+  }, [locationId]);
+  useEffect(() => {
+    if (!igFeedOpen || !igSlug) return;
+    let cancelled = false;
+    setIgFeedLoading(true); setIgFeedError(null);
+    fetch(`/api/onebox/ig-feed?slug=${encodeURIComponent(igSlug)}`)
+      .then(async (r) => {
+        const j = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(j?.error || "load failed");
+        return j as IgFeed;
+      })
+      .then((j) => { if (!cancelled) setIgFeed(j); })
+      .catch(() => { if (!cancelled) setIgFeedError("Couldn't load the posts and deposit numbers."); })
+      .finally(() => { if (!cancelled) setIgFeedLoading(false); });
+    return () => { cancelled = true; };
+  }, [igFeedOpen, igSlug, igFeedTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -568,6 +761,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                 </div>
               ))}
               {funnelReview.igState?.hasWidget && (
+                <>
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">IG widget:</span>
                   <button
@@ -598,6 +792,43 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                     {funnelReview.igState.frozen ? "Frozen — unfreeze" : "Freeze feed (keep today's posts)"}
                   </button>
                 </div>
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIgFeedOpen((o) => !o)}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#34568a] hover:text-[#1f3559]"
+                  >
+                    <ChevronRight size={12} className={cn("text-[#94a3b8] transition-transform", igFeedOpen && "rotate-90")} />
+                    📈 Posts vs deposit rate
+                  </button>
+                  {igFeedOpen && (
+                    <div className="mt-1.5 space-y-2 rounded-lg border border-[#e4ebf2] bg-white p-2.5">
+                      {igFeedLoading ? (
+                        <div className="flex items-center gap-2 text-[11px] text-[#697a91]"><Loader2 size={12} className="animate-spin" />Loading…</div>
+                      ) : igFeedError ? (
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#b91c1c]">
+                          {igFeedError}
+                          <button
+                            type="button"
+                            onClick={() => setIgFeedTick((t) => t + 1)}
+                            className="rounded-full border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#34568a]"
+                          >
+                            Try again
+                          </button>
+                        </div>
+                      ) : igFeed ? (
+                        <IgFeedBody
+                          feed={igFeed}
+                          busy={igBusy}
+                          widgetOff={!!funnelReview.igState.widgetOff}
+                          onFreezeBest={(id) => igAction("freeze", id)}
+                          onUnfreeze={() => igAction("unfreeze")}
+                        />
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+                </>
               )}
             </div>
           ) : null}
@@ -624,7 +855,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
               <div className="text-[11px] font-bold uppercase tracking-wide text-[#0e8f88] mb-1">📌 Did your actions work?</div>
               <ul className="space-y-1">
                 {actionImpacts.map((a) => {
-                  const d = new Date(a.date + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                  const d = new Date(a.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
                   const verdict = a.delta >= 2
                     ? { t: "✓ working — keep it", c: "text-[#15803d]" }
                     : a.delta <= -2
@@ -685,7 +916,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
           }
           return { at, after };
         };
-        const fmtD = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        const fmtD = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
         return (
           <div className="order-1 rounded-lg border border-[#e4ebf2] bg-white p-2.5">
             <div className="flex items-center gap-2 flex-wrap text-[11px] font-bold uppercase tracking-wide text-[#34568a]">
