@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/useUser";
-import { CardCell, StatusCell, ActionsCell, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
+import { CardCell, ActionsCell, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
 import { CreditsPanel } from "@/components/billing/CreditsPanel";
 import { RecentBilling } from "@/components/billing/RecentBilling";
 import { CoachBilling } from "@/components/billing/CoachBilling";
@@ -528,7 +528,7 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
 // The client list is a real table: every number lives in a fixed column, so
 // rows align and can be compared down the page. NumCell keeps digits tabular.
 
-const COLS = 10; // for colSpan on the message/drill-down rows
+const COLS = 9; // for colSpan on the message/drill-down rows
 
 function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray" | "red"; title?: string }) {
   const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : tone === "red" ? "text-[#be123c]" : "text-[#1f3559]";
@@ -608,6 +608,22 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
                 className="w-14 pl-4 pr-1 py-0.5 text-xs text-right rounded-lg border border-[#fcd9a8] focus:outline-none focus:border-[#15B7AE]" />
             </div>
           )}
+          {/* Deposit-only switch (moved here from the removed Status column). */}
+          <div className="mt-0.5">
+            {c.billingExempt ? (
+              <button onClick={() => saveConfig({ billing_exempt: false })}
+                title="Deposit-only client — no per-show service fee, never charged. Click to make billable again."
+                className="px-1.5 py-0.5 rounded-lg text-[9px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0] hover:border-[#94a3b8]">
+                💤 No fee
+              </button>
+            ) : (
+              <button onClick={() => saveConfig({ billing_exempt: true })}
+                title="Mark as deposit-only: no per-show service fee, excluded from all charging, moved to the bottom section."
+                className="text-[9px] text-[#b6c2d0] hover:text-[#64748b] underline decoration-dotted">
+                no fee?
+              </button>
+            )}
+          </div>
         </td>
 
         {/* Deposits & charged in one cell (user, 2026-09-17): "29 − 4" when
@@ -645,24 +661,8 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
           // Land on the card list in the opened row.
           setTimeout(() => { if (v) document.getElementById(`cards-${v.ownerKey}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 80);
         }} /></td>
-        <td className="px-2 py-1 text-center align-middle">
-          {c.billingExempt ? (
-            <button onClick={() => saveConfig({ billing_exempt: false })}
-              title="Deposit-only client — no per-show service fee, never charged. Click to make billable again."
-              className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0] hover:border-[#94a3b8]">
-              💤 No fee
-            </button>
-          ) : (
-            <div className="flex flex-col items-center gap-0.5">
-              <StatusCell v={v} />
-              <button onClick={() => saveConfig({ billing_exempt: true })}
-                title="Mark as deposit-only: no per-show service fee, excluded from all charging, moved to the bottom section."
-                className="text-[9px] text-[#b6c2d0] hover:text-[#64748b] underline decoration-dotted">
-                no fee?
-              </button>
-            </div>
-          )}
-        </td>
+        {/* Status column removed 2026-10-20 (owner): the card check is already
+            spelled out on the Charge button and inside the opened row. */}
         <td className="pl-2 pr-2 py-1 align-middle whitespace-nowrap"><ActionsCell v={v} onMsg={setPayMsg} onReload={reloadBoth} /></td>
 
       </tr>
@@ -1196,8 +1196,8 @@ function AdminBilling() {
               <tr className="border-b-2 border-[#e4ebf2] bg-[#f8fafc]">
                 {[
                   ["Client", "left"], ["Fee", "center"], ["Deposits · charged", "center"],
-                  ["Upcoming", "center"], ["Ready", "center"], ["Self-booked", "center"],
-                  ["No appt", "center"], ["Card", "left"], ["Status", "center"], ["Actions", "right"],
+                  ["Upcoming", "center"], ["Owed now", "center"], ["Self-booked", "center"],
+                  ["No appt", "center"], ["Card", "left"], ["Actions", "right"],
                 ].map(([h, align]) => (
                   <th key={h} className={cn("px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[#697a91] whitespace-nowrap",
                     align === "left" ? "text-left first:pl-4" : align === "right" ? "text-right pr-4" : "text-center")}>
