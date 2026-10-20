@@ -311,7 +311,7 @@ export default function OnboardingPage() {
     const pr = progress(open);
     const pct = pr.total ? Math.round((pr.done / pr.total) * 100) : 0;
     return (
-      <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
+      <div className="p-4 sm:p-6 space-y-4 max-w-[1600px]">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="min-w-0">
             <button onClick={() => setOpenId(null)} className="flex items-center gap-1 text-xs text-[#0e8f88] hover:underline mb-1">
@@ -375,7 +375,7 @@ export default function OnboardingPage() {
           );
         })()}
 
-        {/* New Client Setup run — approve first, then the dashboard + Mac Mini do the steps */}
+        {/* New Client Setup run — approve first, then the AI Agent does the steps */}
         <SetupRunPanel onboardingId={open.id} role={role} form={open.form} onChanged={() => void load()} />
 
         {/* GHL account (pool claim) */}

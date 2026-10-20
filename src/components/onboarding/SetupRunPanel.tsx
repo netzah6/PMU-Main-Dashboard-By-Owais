@@ -20,8 +20,11 @@ type Pool = { choices: Array<{ id: string; name: string; readiness: string; bloc
 type Setup = Omit<SetupState, "password"> & { has_password: boolean };
 type Data = { setup: Setup | null; cards: Record<string, Card>; pool: Pool | null; claimedLocation: string | null; canApprove: boolean };
 
+// Steps the AI Agent does by itself (the dashboard's API steps count too — to
+// a coach both are "done for you"); the rest are done by hand.
+const AGENT: Who[] = ["api", "mini", "ask"];
 const WHO_STYLE: Record<Who, string> = {
-  api: "bg-[#e4f5e9] text-[#1b7f3a]", mini: "bg-[#e6edfb] text-[#2f5fb8]", ask: "bg-[#fff1df] text-[#b35a00]",
+  api: "bg-[#e6edfb] text-[#2f5fb8]", mini: "bg-[#e6edfb] text-[#2f5fb8]", ask: "bg-[#e6edfb] text-[#2f5fb8]",
   owner: "bg-[#fff1df] text-[#b35a00]", team: "bg-[#ece9fb] text-[#6b5bd1]", client: "bg-[#eceff3] text-[#6b7280]",
 };
 const usWhen = (iso?: string) => (iso ? new Date(iso).toLocaleString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" }) : "");
@@ -346,10 +349,36 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
   onboardingId?: string;
 }) {
   const [cvOpen, setCvOpen] = useState(false);
+  /* Once a run exists: finished steps on the left, what's left on the right,
+     so a coach sees at a glance what the AI Agent did and what is hers
+     (owner 2026-10-20 — the single long list used half the screen). */
+  const isDone = (s: RunbookStep) => ["done", "skipped", "warn"].includes(setup?.steps?.[s.key]?.status ?? "todo");
+  if (setup) {
+    const done = steps.filter(isDone);
+    const todo = steps.filter((s) => !isDone(s));
+    // A step the AI Agent failed is a person's job now.
+    const byAgent = todo.filter((s) => AGENT.includes(s.who) && setup.steps?.[s.key]?.status !== "failed").length;
+    return (
+      <div className="mt-1.5 grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+        <div className="min-w-0">
+          <p className="mb-1.5 text-xs font-bold text-[#15803d]">✅ Done · {done.length}</p>
+          {done.length ? renderSections(done) : <p className="text-xs text-[#8595a8]">Nothing finished yet.</p>}
+        </div>
+        <div className="min-w-0">
+          <p className="mb-1.5 text-xs font-bold text-[#b35a00]">📝 To do · {todo.length}
+            <span className="font-normal text-[#697a91]"> · 🤖 {byAgent} by the AI Agent · 👤 {todo.length - byAgent} by hand</span></p>
+          {todo.length ? renderSections(todo) : <p className="text-xs text-[#15803d]">All steps are done.</p>}
+        </div>
+      </div>
+    );
+  }
+  return renderSections(steps);
+
+  function renderSections(list: RunbookStep[]) {
   return (
     <div className="mt-1.5 space-y-2">
       {RUNBOOK_SECTIONS.map((section) => {
-        const sec = steps.filter((s) => s.section === section);
+        const sec = list.filter((s) => s.section === section);
         if (!sec.length) return null;
         return (
           <div key={section} className="rounded-lg border border-[#eef3f8] bg-white overflow-hidden">
@@ -375,6 +404,9 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
                           <span title={s.label} className={cn("text-[12.5px] font-semibold", st.status === "done" || st.status === "skipped" ? "text-[#475569]" : "text-[#1f3559]")}>{s.title ?? s.label}</span>
                         )}
                         <span className={cn("text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap", WHO_STYLE[s.who])}>{WHO_LABEL[s.who]}</span>
+                        {setup && st.status === "failed" && AGENT.includes(s.who) && (
+                          <span className="text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap bg-[#fde8ee] text-[#e11d48]">👤 needs a person</span>
+                        )}
                         {settledLine && <span className="text-[10px] text-[#a6b3c4] whitespace-nowrap">{settledLine}</span>}
                         {shots.length > 0 && <ScreenshotGallery shots={shots} variant="chip" />}
                       </div>
@@ -394,4 +426,5 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
       })}
     </div>
   );
+  }
 }

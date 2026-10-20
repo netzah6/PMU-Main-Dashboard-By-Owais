@@ -96,7 +96,8 @@ export const RUNBOOK_SECTIONS = Array.from(new Set(RUNBOOK.map((s) => s.section)
 export const stepByKey = (key: string): RunbookStep | undefined => RUNBOOK.find((s) => s.key === key);
 
 export const WHO_LABEL: Record<Who, string> = {
-  api: "API · dashboard", mini: "AI Agent · browser", ask: "Asks you first", owner: "You", team: "Team", client: "Client",
+  // Owner 2026-10-20: a coach only needs to know "done for you" vs "by hand".
+  api: "🤖 AI Agent", mini: "🤖 AI Agent", ask: "🤖 AI Agent · asks you first", owner: "👤 You (owner)", team: "👤 Coach", client: "👤 Client",
 };
 
 // ── Run state, stored in onboardings.setup ─────────────────────────────────
