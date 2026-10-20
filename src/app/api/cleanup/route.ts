@@ -6,6 +6,7 @@ import {
   refreshPoolCleanliness,
 } from "@/lib/ghl-cleanup";
 import { clearSnapshotMark, queueSnapshotLoad } from "@/lib/pool-snapshot";
+import { queueA2pCheck, queueA2pSweep } from "@/lib/pool-a2p";
 import { readSheetValues, writeRowToSheet, rowsToObjects } from "@/lib/sheets";
 
 export const maxDuration = 300;
@@ -95,6 +96,21 @@ export async function POST(req: NextRequest) {
     if (!ids.length) return NextResponse.json({ error: "locationId(s) required" }, { status: 400 });
     for (const id of ids) await setPoolA2p(id, String(body.a2p ?? "pending"), auth.email);
     return NextResponse.json({ updated: ids.length, a2p: body.a2p });
+  }
+
+  // Verify A2P with the AI Agent: one account, or every available one (the
+  // Cleanup tab's button; the weekly cron does the same on its own).
+  if (body.action === "a2pCheck") {
+    const svc = createServiceClient();
+    const by = auth.email ?? "admin";
+    if (body.locationId) {
+      const { data: row } = await svc.from("pool_accounts").select("pool_name, status").eq("location_id", body.locationId).maybeSingle();
+      const pool = row as { pool_name: string; status: string } | null;
+      if (!pool || pool.status !== "available") return NextResponse.json({ error: "Only an unclaimed pool account can be verified." }, { status: 400 });
+      const q = await queueA2pCheck(svc, { locationId: body.locationId, poolName: pool.pool_name, by });
+      return NextResponse.json({ taskId: q.taskId, reused: q.reused, queued: q.reused ? 0 : 1 });
+    }
+    return NextResponse.json(await queueA2pSweep(svc, by));
   }
 
   // Re-check what's actually left in pool accounts. The tab sends them in

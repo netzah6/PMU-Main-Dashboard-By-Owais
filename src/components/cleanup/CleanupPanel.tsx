@@ -19,7 +19,8 @@ type LogRow = { location_id: string; old_name: string; pool_name: string | null;
 type PoolRow = {
   location_id: string; pool_name: string; status: string;
   used_as: string | null; used_at: string | null; a2p: string;
-  a2p_updated_at: string | null;
+  a2p_updated_at: string | null; a2p_updated_by?: string | null;
+  a2p_task_id?: string | null; a2p_queued_at?: string | null; a2p_note?: string | null;
   workflows: number | null; dirty: number | null;
   clean_checked_at: string | null; clean_note: string | null;
   // Snapshot reload (10/15/2026): the wipe empties the account, the Mac Mini
@@ -35,6 +36,14 @@ type Readiness = PoolReadiness;
 // look different. The rule itself lives in lib/pool-readiness (shared with
 // the server, so the Onboarding panel and this tab can never disagree).
 const readinessOf = (p: PoolRow): Readiness => poolReadiness(p);
+
+// Chip colour = A2P (owner 10/20/2026): green when the AI Agent (or a hand
+// toggle) says approved, yellow when not. Readiness still shows as the icon
+// and the line under the chips — the setup picker only lists green ones.
+const A2P_CHIP = {
+  approved: "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd] hover:bg-[#d7efdf]",
+  pending: "bg-[#fef9c3] text-[#854d0e] border-[#fde68a] hover:bg-[#fef3a8]",
+};
 
 const READINESS: Record<Readiness, { label: string; chip: string; text: string }> = {
   ready:    { label: READINESS_LABEL.ready,    chip: "bg-[#e7f6ec] text-[#15803d] border-[#bfe3cd] hover:bg-[#d7efdf]", text: "text-[#15803d]" },
@@ -147,6 +156,25 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
   const partialCount = pool?.available.filter((p) => readinessOf(p) === "partial").length ?? 0;
   const dirtyCount = pool?.available.filter((p) => readinessOf(p) === "dirty").length ?? 0;
   const uncheckedCount = pool?.available.filter((p) => readinessOf(p) === "unknown").length ?? 0;
+  const a2pYesCount = pool?.available.filter((p) => p.a2p === "approved").length ?? 0;
+  const a2pCheckingCount = pool?.available.filter((p) => !!p.a2p_task_id).length ?? 0;
+
+  // Queue the AI Agent's read-only Trust Center check for every pool account.
+  const [a2pVerifying, setA2pVerifying] = useState(false);
+  const verifyA2p = async () => {
+    setA2pVerifying(true);
+    try {
+      const j = await fetch("/api/cleanup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "a2pCheck" }),
+      }).then((r) => r.json());
+      if (j.error) throw new Error(j.error);
+      setPool((prev) => prev && { ...prev, available: prev.available.map((p) => ({ ...p, a2p_task_id: p.a2p_task_id ?? "queued", a2p_queued_at: new Date().toISOString() })) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not queue the A2P checks");
+    }
+    setA2pVerifying(false);
+  };
 
   // Queue (again) the Mac Mini task that loads the Demo snapshot onto a pool
   // account. Finalize queues it on its own; this is for a failed load or an
@@ -457,7 +485,18 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
             {pool && dirtyCount > 0 && <span className="text-[#b91c1c]">{dirtyCount} not clean</span>}
             {pool && uncheckedCount > 0 && <span>{uncheckedCount} not checked</span>}
             <span>{pool?.available.length ?? 0} in pool</span>
+            {pool && <span className="text-[#15803d]">{a2pYesCount} A2P ✓</span>}
+            {pool && (pool.available.length - a2pYesCount) > 0 && <span className="text-[#854d0e]">{pool.available.length - a2pYesCount} A2P not approved</span>}
+            {pool && a2pCheckingCount > 0 && <span className="text-[#1d4ed8]">{a2pCheckingCount} being verified</span>}
             {pool && pool.used.length > 0 && <span>{pool.used.length} used</span>}
+            <button
+              onClick={verifyA2p}
+              disabled={a2pVerifying || !pool?.available.length}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] disabled:opacity-50"
+              title="The AI Agent opens each account's Trust Center page and reads the A2P status (also runs every Monday)"
+            >
+              {a2pVerifying ? <><Loader2 size={11} className="animate-spin" /> queuing…</> : <>Verify A2P</>}
+            </button>
             <button
               onClick={recheckPool}
               disabled={!!recheck || !pool?.available.length}
@@ -481,20 +520,21 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
                     key={p.location_id}
                     onClick={() => toggleA2p(p)}
                     disabled={a2pSaving === p.location_id}
-                    title={`${s.label}${p.clean_note ? ` — ${p.clean_note}` : ""}${
-                      p.a2p === "approved" ? " · A2P approved" : " · A2P not approved"
-                    }${p.clean_checked_at ? ` · checked ${ago(p.clean_checked_at)}` : " · never checked"}\nClick to toggle A2P.`}
+                    title={`${p.a2p === "approved" ? "A2P approved" : "A2P not approved"}${p.a2p_note ? ` — ${p.a2p_note}` : p.a2p_updated_at ? ` (set by ${p.a2p_updated_by ?? "hand"} ${ago(p.a2p_updated_at)})` : " (never verified)"}${
+                      p.a2p_task_id ? " · AI Agent check queued" : ""
+                    }\n${s.label}${p.clean_note ? ` — ${p.clean_note}` : ""}${p.clean_checked_at ? ` · checked ${ago(p.clean_checked_at)}` : " · never checked"}\nClick to toggle A2P by hand.`}
                     className={cn(
                       "px-2 py-1 rounded-md text-[11px] font-medium border transition-colors disabled:opacity-50",
-                      s.chip
+                      p.a2p === "approved" ? A2P_CHIP.approved : A2P_CHIP.pending
                     )}
                   >
                     {p.pool_name}
+                    {p.a2p_task_id ? " · ⏳" : ""}
+                    {state === "ready" ? " · ✓" : ""}
                     {state === "snapshot" ? (p.snapshot_note?.startsWith("✗") ? " · ✗📸" : p.snapshot_task_id ? " · ⏳📸" : " · 📸") : ""}
                     {state === "dirty" ? " · ⚠" : ""}
                     {/* A2P is invisible on red/orange chips otherwise — an
                         approved-but-dirty account is the one worth cleaning first. */}
-                    {state !== "ready" && p.a2p === "approved" ? " · ✓A2P" : ""}
                   </button>
                 );
               })}
@@ -541,11 +581,10 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
               </div>
             )}
             <p className="text-[11px] text-[#9aa8bc] mt-2">
-              🟢 snapshot loaded + no client data + A2P approved — safe to use · 🔵 waiting for the Demo snapshot
-              (the wipe removes custom values and fields; the AI Agent loads them back, the setup refuses an account without them) ·
-              🟠 A2P not approved · 🔴 still has the old client&apos;s contacts · ⚪ not checked yet ·
-              ✓A2P on a coloured chip = A2P already approved.
-              Click a chip to toggle A2P; use Re-check to refresh what&apos;s inside (it also detects a snapshot loaded by hand).
+              🟢 A2P approved · 🟡 A2P not approved (or never verified) · ⏳ AI Agent check queued · ✓ ready for a setup (snapshot loaded, no client data, A2P approved) ·
+              📸 waiting for the Demo snapshot · ⚠ still has the old client&apos;s contacts.
+              Verify A2P sends the AI Agent to read each account&apos;s Trust Center page (it also runs every Monday); click a chip to toggle A2P by hand;
+              Re-check refreshes what&apos;s inside.
             </p>
           </>
         )}

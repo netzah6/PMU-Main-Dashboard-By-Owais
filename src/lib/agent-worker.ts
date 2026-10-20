@@ -4,6 +4,7 @@ import { resolveClientLocation, describeStep, type PlanStep } from "@/lib/agent-
 import { confirmToOwner, textOwner as textOwnerFn } from "@/lib/agent-notify";
 import { onSetupProposalClosed, parseSetupConvId } from "@/lib/setup-run";
 import { onSnapshotProposalClosed, parseSnapshotConvId } from "@/lib/pool-snapshot";
+import { onA2pProposalClosed, parseA2pConvId } from "@/lib/pool-a2p";
 
 // ── AI agent, browser worker (owner, 2026-10-10) ─────────────────────────────
 // Every approved account change is done in a real Chrome on the Mac Mini, on
@@ -66,6 +67,10 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
     // snapshot" with the reason, and the Cleanup tab can queue it again.
     if (!retry && parseSnapshotConvId(r.conversation_id)) {
       try { await onSnapshotProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result }); } catch { /* the pool row keeps its last note */ }
+    }
+    // A pool A2P check that died twice: the flag stays, the note says why.
+    if (!retry && parseA2pConvId(r.conversation_id)) {
+      try { await onA2pProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result }); } catch { /* the pool row keeps its last note */ }
     }
   }
 
@@ -194,6 +199,12 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
   if (parseSnapshotConvId(p.conversation_id)) {
     try { await onSnapshotProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
     catch { /* the next Re-check in the Cleanup tab marks it */ }
+  }
+
+  /* A pool A2P check: the chip colour follows the report's "A2P: …" line. */
+  if (parseA2pConvId(p.conversation_id)) {
+    try { await onA2pProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
+    catch { /* the note keeps its last value; Verify A2P queues it again */ }
   }
 
   /* Keep-alive check: no "done" text (it would be noise 4× a day); a failure
