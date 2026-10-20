@@ -259,18 +259,16 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
 /* The result's first line, with the rest (the Mac Mini's step-by-step
    report) folded behind "details" — warnings and failures stay open. */
+/* One line by default for every step (owner 2026-10-20: the notes were too
+   much text); click it to read the whole note, click again to fold it. */
 function StepNote({ note, status }: { note: string; status: StepState["status"] }) {
-  const [first, ...rest] = note.split("\n");
+  const [open, setOpen] = useState(false);
   const cls = status === "failed" ? "text-[#b91c1c]" : status === "warn" ? "text-[#c2410c]" : "text-[#697a91]";
-  const body = rest.join("\n").trim();
-  if (!body) return <p className={cn("text-[11px] whitespace-pre-wrap", cls)}>{first}</p>;
   return (
-    <details className="group" open={status === "failed" || status === "warn"}>
-      <summary className={cn("text-[11px] cursor-pointer list-none", cls)}>
-        {first} <span className="text-[10px] text-[#0e8f88] group-open:hidden">· details</span><span className="text-[10px] text-[#0e8f88] hidden group-open:inline">· hide</span>
-      </summary>
-      <pre className={cn("whitespace-pre-wrap font-sans text-[11px] mt-0.5", cls)}>{body}</pre>
-    </details>
+    <button type="button" onClick={() => setOpen((v) => !v)} title={open ? "Click to fold" : "Click to read the whole note"}
+      className={cn("block w-full text-left text-[11px]", cls, open ? "whitespace-pre-wrap" : "truncate")}>
+      {open ? note.trim() : note.replace(/\s+/g, " ").trim()}
+    </button>
   );
 }
 
@@ -410,8 +408,8 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
                         )}
                         {shots.length > 0 && <ScreenshotGallery shots={shots} variant="chip" />}
                       </div>
-                      {s.title && !["done", "skipped"].includes(st.status) && <p className="text-[10.5px] text-[#8595a8]">{s.label}</p>}
-                      {!setup && s.how && <p className="text-[10.5px] text-[#8595a8]">{s.how}</p>}
+                      {s.title && !["done", "skipped"].includes(st.status) && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.label}>{s.label}</p>}
+                      {!setup && s.how && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.how}>{s.how}</p>}
                       {ic?.label && !["done", "skipped"].includes(st.status) && <p className={cn("text-[10.5px] font-semibold", ic.cls)}>{ic.label}</p>}
                       {st.note && setup && <StepNote note={st.note} status={st.status} />}
                       {s.key === "account_cvs" && cvOpen && setup?.location_id && onboardingId && <CustomValuesList onboardingId={onboardingId} locationId={setup.location_id} />}
