@@ -50,3 +50,11 @@ After a change to `worker/agent-worker.mjs` lands on main, on the Mini (repo clo
 ```bash
 git -C ~/PMU-Main-Dashboard-By-Owais pull && cp ~/PMU-Main-Dashboard-By-Owais/worker/agent-worker.mjs ~/.pmu-agent/agent-worker.mjs && launchctl kickstart -k gui/$(id -u)/com.pmu.agent-worker
 ```
+
+## Self-update (10/19/2026)
+
+The worker checks GitHub `main` once an hour while idle and installs a changed `worker/agent-worker.mjs` by itself (syntax-checked first; launchd restarts it). After a worker change lands on main, nothing has to be done on the Mini. One-off install of the current file, if ever needed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/netzah6/PMU-Main-Dashboard-By-Owais/main/worker/agent-worker.mjs -o ~/.pmu-agent/agent-worker.mjs && node --check ~/.pmu-agent/agent-worker.mjs && launchctl kickstart -k gui/$(id -u)/com.pmu.agent-worker
+```
