@@ -32,6 +32,10 @@ export type WinbackRow = {
   review_note: string | null;
   review_quote: string | null;
   reviewed_at: string | null;
+  // Sequence fields (supabase/winback.sql, 2026-10-19) — present on rows read with select("*").
+  batch_started_at?: string | null;
+  step?: number | null;
+  stopped_reason?: string | null;
 };
 export type ReviewVerdict = "ok" | "tense" | "bad" | "opted_out" | "no_chat";
 
@@ -61,37 +65,56 @@ export function winbackInstructions(r: Pick<WinbackRow, "owner_name" | "business
      declined        — she said no / not interested → thank her, stop
    `price` is the number she gave (her brow price), when she gave one, so the
    reply can do the "$60 on a $600 appointment" math honestly. */
-export type WinbackStage = "opener_answered" | "offer_presented" | "declined";
-export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null };
-export function winbackContext(r: Pick<WinbackRow, "owner_name" | "offer"> & { batch_started_at?: string | null }, thread: ThreadMessage[]): WinbackContext {
+export type WinbackStage = "opener_answered" | "offer_presented" | "wants_details" | "declined";
+export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; inFlow: boolean };
+type FlowRow = Pick<WinbackRow, "owner_name" | "offer"> & { batch_started_at?: string | null; step?: number | null };
+const OPENER = /charging for brows/i;
+const OFFER_SHOWN = /per[- ]show|pay[- ]per[- ]appointment|\$50 deposit|\$60\b|shows? up|no monthly fee|only pay|monthly program|go over the numbers|want the details|show you how it works/i;
+// Her LAST text only (a "no" she walks back two texts later must not stick).
+// Explicit refusals count anywhere; short brush-offs ("no", "I'm good",
+// "maybe later") only when they ARE the message — "as long as I get 400-450 a
+// client I'm good" is a price, not a no (Wendy Kaaki, 2026-10-20).
+const DECLINE_ANY = /\b(not interested|no thanks?|no thank you|stop texting|don'?t text me|remove me|unsubscribe|leave me alone|no longer (in business|doing)|closed my)\b/i;
+const DECLINE_SHORT = /^\s*(no|nope|nah|pass|stop|i'?m (all )?good( for now)?|maybe later|not (right )?now)\b[.!,]?(\s*(thanks?|thank you|sorry))?[.!]?\s*$/i;
+const WANTS = /\b(yes|yeah|yep|yup|sure|ok|okay|send|details|tell me more|how does|how it works|interested|sounds good|let'?s do it|i'?m in|go ahead)\b/i;
+export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackContext {
   // Only the conversation SINCE our opener counts: her thread holds months of
   // older texts from when she was a client ("your new booking, $50 deposit…")
   // that read like an offer already made (Wendy Kaaki, 2026-10-20).
-  const openerAt = thread.map((m, i) => (m.direction === "outbound" && /charging for brows/i.test(m.body) ? i : -1)).filter((i) => i >= 0).pop();
+  const openerAt = thread.map((m, i) => (m.direction === "outbound" && OPENER.test(m.body) ? i : -1)).filter((i) => i >= 0).pop();
+  // In the flow = we actually sent her the opener (found in the thread, or the
+  // sequence says it went out). Everyone else on the sheet — never texted, or
+  // writing about something else — keeps the normal no-pitch drafting.
+  const inFlow = openerAt != null || (r.step ?? 0) >= 1;
   const since = openerAt != null
     ? thread.slice(openerAt + 1)
-    : r.batch_started_at ? thread.filter((m) => (m.dateAdded ?? "") >= r.batch_started_at!) : thread.slice(-10);
+    : r.batch_started_at ? thread.filter((m) => (m.dateAdded ?? "") >= r.batch_started_at!) : [];
   const ours = since.filter((m) => m.direction === "outbound").map((m) => m.body);
   const hers = since.filter((m) => m.direction === "inbound").map((m) => m.body);
-  const offerShown = ours.some((b) => /per show|pay-per-appointment|pay per appointment|\$50 deposit|monthly program|go over the numbers/i.test(b));
-  const lastHers = hers.slice(-3).join(" ");
-  const declined = /\b(not interested|no thanks|no thank you|stop texting|don'?t text|leave me alone|unsubscribe)\b/i.test(lastHers);
-  // Her brow price: the highest 3–4 digit figure she wrote since the opener
-  // ("$450 and $225" for first session + touch-up → 450; "I raised it to 400,
-  // now 450" → 450). Commas stripped ("$1,200"), years and phone numbers left
-  // out, and nothing above what a brow session costs.
-  const figures = [...lastHers
-    .replace(/(\d),(\d{3})/g, "$1$2")                       // "$1,200" → 1200
-    .replace(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, " ")   // phone numbers out
-    .matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)]
-    .map((m) => Number(m[1])).filter((n) => n >= 100 && n <= 1500 && !(n >= 1990 && n <= 2040));
+  const offerShown = ours.some((b) => OFFER_SHOWN.test(b));
+  const last = hers[hers.length - 1] ?? "";
+  // "not interested in monthly but pay per show sounds good" is not a no.
+  const declined = (DECLINE_ANY.test(last) || DECLINE_SHORT.test(last)) && !/\bbut\b/i.test(last);
+  const wants = offerShown && WANTS.test(last) && !declined;
+  // Her brow price: the highest figure she wrote since the opener ("$450 and
+  // $225" for first session + touch-up → 450; "raised it to 400, now 450" →
+  // 450). Commas stripped ("$1,200"), phone numbers, years, "Suite 1200",
+  // "15 years" and "1000s of clients" left out.
+  const text = hers.slice(-3).join(" ")
+    .replace(/(\d),(\d{3})/g, "$1$2")
+    .replace(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, " ")
+    .replace(/\b(suite|ste|unit|apt|#)\s*\d+/gi, " ")
+    .replace(/\b\d{3,4}\s*(s\b|years?|yrs?|clients?|followers?)/gi, " ");
+  const figures = [...text.matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)]
+    .map((m) => Number(m[1])).filter((n) => n >= 100 && n <= 2500 && !(n >= 1990 && n <= 2040));
   const price = figures.length ? Math.max(...figures) : null;
   return {
     name: r.owner_name,
     offer: r.offer,
     offerText: OFFER_TEXT[r.offer ?? "none"],
-    stage: declined ? "declined" : offerShown ? "offer_presented" : "opener_answered",
+    stage: declined ? "declined" : wants ? "wants_details" : offerShown ? "offer_presented" : "opener_answered",
     price,
+    inFlow,
   };
 }
 
