@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, RefreshCw, Check, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -61,6 +62,9 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
   const [password, setPassword] = useState<string | null>(null);
   const [skipKey, setSkipKey] = useState<string | null>(null);
   const [skipNote, setSkipNote] = useState("");
+  // The page's sub-headline slot for the account line (exists once the page has rendered).
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { setSlot(document.getElementById("setup-meta-slot")); }, [onboardingId]);
 
   // The pool list costs a GHL call — never re-fetch it just because the
   // dropdown changed (poolId is read through a ref, not a dependency).
@@ -187,37 +191,43 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
       : setup.status === "waiting"
         ? { cls: "border-[#fcd9a8] bg-[#fff7ec] text-[#b35a00]", text: "✋ Waiting for you — approve the step in the AI tab" }
         : { cls: "border-[#c9dbfb] bg-[#f7faff] text-[#2f5fb8]", text: "⟳ Running — the dashboard and the AI Agent are working through the steps" };
+  /* Owner 2026-10-20: no headline, no summary text. The account line sits in
+     the page's sub-headline; here only the status, the funnel and the
+     client's login. */
+  const meta = (
+    <span className="text-[#697a91]">
+      {" · "}{setup.pool_name} → <b className="text-[#1f3559]">{form.business_name}</b>
+      {" · "}<a href={`https://app.gohighlevel.com/v2/location/${setup.location_id}/dashboard`} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">open in GHL ↗</a>
+      {setup.funnel_url && <> · <a href={setup.funnel_url} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">funnel ↗</a></>}
+    </span>
+  );
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white p-4 space-y-3">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h2 className="text-sm font-bold text-[#1f3559]">🧩 Setup run</h2>
-          <p className="text-[11px] text-[#697a91] mt-0.5">
-            Approved {usWhen(setup.approved_at)} by {setup.approved_by.split("@")[0]} · {setup.pool_name} → <b className="text-[#1f3559]">{form.business_name}</b>
-            {" · "}<a href={`https://app.gohighlevel.com/v2/location/${setup.location_id}/dashboard`} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">open in GHL ↗</a>
-            {setup.funnel_url && <> · <a href={setup.funnel_url} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">funnel ↗</a></>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {counts && <span className="text-xs font-semibold text-[#34568a]">{counts.done}/{counts.total} run steps</span>}
-          <button onClick={() => void act("refresh", {}, "refresh")} disabled={!!busy} title="Re-check and continue the run" className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88] disabled:opacity-50">
-            <RefreshCw size={13} className={busy === "refresh" ? "animate-spin" : ""} />
-          </button>
-        </div>
+      {slot && createPortal(meta, slot)}
+      <div className="flex items-center gap-2">
+        <div className={cn("flex-1 min-w-0 rounded-lg border px-3 py-1.5 text-xs font-semibold", banner.cls)}>{banner.text}</div>
+        {counts && <span className="text-xs font-semibold text-[#34568a] whitespace-nowrap">{counts.done}/{counts.total} run steps</span>}
+        <button onClick={() => void act("refresh", {}, "refresh")} disabled={!!busy} title="Re-check and continue the run" className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88] disabled:opacity-50">
+          <RefreshCw size={13} className={busy === "refresh" ? "animate-spin" : ""} />
+        </button>
       </div>
-      <div className={cn("rounded-lg border px-3 py-2 text-xs font-semibold", banner.cls)}>{banner.text}</div>
 
-      {setup.final_text && (
-        <pre className="whitespace-pre-wrap font-sans text-[12px] text-[#1f3559] bg-[#f8fafc] rounded-lg px-3 py-2 border border-[#eef3f8]">{setup.final_text}</pre>
-      )}
-
-      {setup.has_password && isAdmin && (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-[#697a91]">Employee login {form.email ? `(${form.email})` : ""}:</span>
-          {password ? <code className="px-2 py-0.5 rounded bg-[#f1f5f9] text-[#1f3559]">{password}</code> : <span className="text-[#8595a8]">••••••••</span>}
-          <button onClick={() => (password ? setPassword(null) : void act("password", {}, "password"))} className="flex items-center gap-1 text-[#0e8f88] hover:underline">
-            {password ? <EyeOff size={12} /> : <Eye size={12} />} {password ? "hide" : "show"}
-          </button>
+      {(setup.funnel_url || (setup.has_password && isAdmin)) && (
+        <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs">
+          {setup.funnel_url && (
+            <span className="min-w-0 truncate"><span className="text-[#697a91]">Funnel: </span>
+              <a href={setup.funnel_url} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">{setup.funnel_url.replace(/^https?:\/\//, "")}</a></span>
+          )}
+          {setup.has_password && isAdmin && (
+            <span className="flex items-center gap-2">
+              <span className="text-[#697a91]">Client login:</span>
+              {form.email && <code className="px-2 py-0.5 rounded bg-[#f1f5f9] text-[#1f3559]">{form.email}</code>}
+              {password ? <code className="px-2 py-0.5 rounded bg-[#f1f5f9] text-[#1f3559]">{password}</code> : <span className="text-[#8595a8]">••••••••</span>}
+              <button onClick={() => (password ? setPassword(null) : void act("password", {}, "password"))} className="flex items-center gap-1 text-[#0e8f88] hover:underline">
+                {busy === "password" ? <Loader2 size={12} className="animate-spin" /> : password ? <EyeOff size={12} /> : <Eye size={12} />} {password ? "hide" : "show"}
+              </button>
+            </span>
+          )}
         </div>
       )}
 

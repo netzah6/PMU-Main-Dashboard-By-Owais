@@ -318,7 +318,9 @@ export default function OnboardingPage() {
               <ChevronLeft size={13} /> All onboardings
             </button>
             <h1 className="text-xl font-bold text-[#1f3559] truncate">{open.form.business_name}</h1>
-            <p className="text-sm text-[#697a91]">{open.form.owner_name} · {open.form.version || "—"} · started {new Date(open.created_at).toLocaleDateString("en-US")}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}</p>
+            <p className="text-sm text-[#697a91]">{open.form.owner_name} · {open.form.version || "—"} · started {new Date(open.created_at).toLocaleDateString("en-US")}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}
+              {/* The setup run puts its account line here (Clean New Account N → business · GHL · funnel). */}
+              <span id="setup-meta-slot" /></p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => runVerify(open.id)} disabled={verifying}
