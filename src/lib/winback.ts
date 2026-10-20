@@ -47,9 +47,52 @@ export function winbackInstructions(r: Pick<WinbackRow, "owner_name" | "business
   return [
     `This person is a FORMER client of ours (PMU Care ran their ads and bookings${r.last_paid ? `; last paid ${r.last_paid}` : ""}) — ${r.owner_name}${r.business ? ` of ${r.business}` : ""}. We are reaching out to win them back.`,
     `Approved offer: ${OFFER_TEXT[r.offer ?? "none"]}`,
-    "How the conversation goes: if they're slow or want more clients, ask how many new brow clients a month would feel great, then present the offer. If they're busy and happy, be happy for them and leave the door open. If they had a bad experience with us, acknowledge it in one short line, say what changed, then the offer. If they're not interested, thank them warmly and stop — never push.",
-    "The goal is a short call to set it up, but only invite them to a call when the call switch is on.",
   ].join("\n");
+}
+
+/* Where the win-back conversation stands, read from the thread, so the
+   reply engine continues the agreed flow instead of just acknowledging
+   (owner, 2026-10-20: "Got it, that's a solid rate 🙏" after Diana answered
+   the price question was wrong — the offer should have followed):
+     opener_answered — our only message is the opener; she just replied →
+                       react to her answer, then present the offer
+     offer_presented — we already described the offer → answer her
+                       question / objection and move to the next step
+     declined        — she said no / not interested → thank her, stop
+   `price` is the number she gave (her brow price), when she gave one, so the
+   reply can do the "$60 on a $600 appointment" math honestly. */
+export type WinbackStage = "opener_answered" | "offer_presented" | "declined";
+export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null };
+export function winbackContext(r: Pick<WinbackRow, "owner_name" | "offer"> & { batch_started_at?: string | null }, thread: ThreadMessage[]): WinbackContext {
+  // Only the conversation SINCE our opener counts: her thread holds months of
+  // older texts from when she was a client ("your new booking, $50 deposit…")
+  // that read like an offer already made (Wendy Kaaki, 2026-10-20).
+  const openerAt = thread.map((m, i) => (m.direction === "outbound" && /charging for brows/i.test(m.body) ? i : -1)).filter((i) => i >= 0).pop();
+  const since = openerAt != null
+    ? thread.slice(openerAt + 1)
+    : r.batch_started_at ? thread.filter((m) => (m.dateAdded ?? "") >= r.batch_started_at!) : thread.slice(-10);
+  const ours = since.filter((m) => m.direction === "outbound").map((m) => m.body);
+  const hers = since.filter((m) => m.direction === "inbound").map((m) => m.body);
+  const offerShown = ours.some((b) => /per show|pay-per-appointment|pay per appointment|\$50 deposit|monthly program|go over the numbers/i.test(b));
+  const lastHers = hers.slice(-3).join(" ");
+  const declined = /\b(not interested|no thanks|no thank you|stop texting|don'?t text|leave me alone|unsubscribe)\b/i.test(lastHers);
+  // Her brow price: the highest 3–4 digit figure she wrote since the opener
+  // ("$450 and $225" for first session + touch-up → 450; "I raised it to 400,
+  // now 450" → 450). Commas stripped ("$1,200"), years and phone numbers left
+  // out, and nothing above what a brow session costs.
+  const figures = [...lastHers
+    .replace(/(\d),(\d{3})/g, "$1$2")                       // "$1,200" → 1200
+    .replace(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, " ")   // phone numbers out
+    .matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)]
+    .map((m) => Number(m[1])).filter((n) => n >= 100 && n <= 1500 && !(n >= 1990 && n <= 2040));
+  const price = figures.length ? Math.max(...figures) : null;
+  return {
+    name: r.owner_name,
+    offer: r.offer,
+    offerText: OFFER_TEXT[r.offer ?? "none"],
+    stage: declined ? "declined" : offerShown ? "offer_presented" : "opener_answered",
+    price,
+  };
 }
 
 export async function getWinbackForContact(contactId: string): Promise<WinbackRow | null> {
