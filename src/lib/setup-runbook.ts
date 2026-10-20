@@ -117,6 +117,38 @@ const STEP_TITLES: Record<string, string> = {
 };
 for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
 
+/* Pre-flight (owner 10/20/2026): everything the run needs must be on the
+   card BEFORE Approve, so no step stops for a missing value. What is
+   required depends on the version. Shared by the Approve panel (inline
+   fill-in) and approveSetup (hard stop). */
+export type RequiredField = { key: string; label: string };
+const REQUIRED_ALL: RequiredField[] = [
+  { key: "business_name", label: "Business name" }, { key: "owner_name", label: "Owner full name" }, { key: "version", label: "Version" },
+  { key: "email", label: "Email (the client's login)" }, { key: "phone", label: "Phone" }, { key: "address", label: "Studio address" },
+  { key: "business_hours", label: "Business hours (calendar)" }, { key: "deposit_amount", label: "Deposit amount" }, { key: "offer", label: "Offer" },
+  { key: "original_price", label: "Original price" }, { key: "discounted_price", label: "Discounted price" }, { key: "services", label: "PMU services" },
+  { key: "assigned", label: "Assigned coach" }, { key: "media_buyer", label: "Media buyer" },
+];
+const REQUIRED_V3: RequiredField[] = [
+  { key: "years_in_business", label: "Years in business" }, { key: "first_touchup", label: "First touch-up timing" },
+];
+export function requiredFields(version: string | undefined): RequiredField[] {
+  return /v3/i.test(String(version ?? "")) ? [...REQUIRED_ALL, ...REQUIRED_V3] : REQUIRED_ALL;
+}
+export function missingFields(form: Record<string, unknown>): RequiredField[] {
+  return requiredFields(String(form.version ?? "")).filter((f) => !String(form[f.key] ?? "").trim());
+}
+// Worth having, never blocking: shown as a hint on the Approve panel.
+export const OPTIONAL_FIELDS: RequiredField[] = [
+  { key: "ig_link", label: "Instagram page (for the widget)" }, { key: "fb_link", label: "Facebook page" }, { key: "gmb_link", label: "Google My Business" },
+  { key: "old_funnel_url", label: "Old funnel URL (pixel + redirect)" }, { key: "meta_pixel_id", label: "Meta pixel ID" }, { key: "logo_url", label: "Logo" },
+  { key: "connect_caller_id", label: "Connect the client's Caller ID? (yes / no)" },
+];
+
+/* "Asks you" steps the owner can approve up front at Approve time, so the
+   run never waits on a card in the AI tab (owner 10/20/2026). */
+export const PREAPPROVABLE = RUNBOOK.filter((s) => s.who === "ask").map((s) => ({ key: s.key, title: s.title ?? s.label, label: s.label }));
+
 export const RUNBOOK_SECTIONS = Array.from(new Set(RUNBOOK.map((s) => s.section)));
 export const stepByKey = (key: string): RunbookStep | undefined => RUNBOOK.find((s) => s.key === key);
 
@@ -156,6 +188,7 @@ export type SetupState = {
   pool_name: string;         // its name before the rename
   status: "running" | "waiting" | "done" | "failed";
   steps: Record<string, StepState>;
+  preapproved?: string[];    // "ask" steps approved up front — they run like AI Agent steps
   busy_at?: string | null;   // the dashboard is running API steps (lock)
   busy_token?: string | null;
   // Facts the later steps need, gathered as the run goes.

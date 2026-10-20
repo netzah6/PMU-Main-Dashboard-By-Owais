@@ -45,14 +45,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const u = await who();
   if (!u) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const body = (await req.json().catch(() => ({}))) as { action?: string; poolLocationId?: string; key?: string; note?: string };
+  const body = (await req.json().catch(() => ({}))) as { action?: string; poolLocationId?: string; key?: string; note?: string; preapproved?: string[] };
   const svc = createServiceClient();
   const admin = u.role === "admin";
   try {
     switch (String(body.action ?? "")) {
       case "approve": {
         if (!admin) return NextResponse.json({ error: "Only an admin can approve a setup" }, { status: 403 });
-        const setup = await approveSetup(svc, params.id, String(body.poolLocationId ?? ""), u.email);
+        const setup = await approveSetup(svc, params.id, String(body.poolLocationId ?? ""), u.email, Array.isArray(body.preapproved) ? body.preapproved.map(String) : []);
         return NextResponse.json({ setup: redact(setup) });
       }
       case "refresh": {

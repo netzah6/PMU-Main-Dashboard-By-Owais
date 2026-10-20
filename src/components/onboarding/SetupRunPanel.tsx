@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { MINI_REFRESH_EVENT } from "@/components/agent/MacMiniTracker";
 import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
-import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
+import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, OPTIONAL_FIELDS, PREAPPROVABLE, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
 /* The New Client Setup run on an Onboarding card.
    Before Approve: which clean account it will take (dropdown), the step-by-step
@@ -59,6 +59,24 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [poolId, setPoolId] = useState<string>("");
   const [showPlan, setShowPlan] = useState(true);
+  // Pre-flight (owner 10/20/2026): missing fields are filled right here, and
+  // the "asks you" steps are approved up front so the run never waits.
+  const [fill, setFill] = useState<Record<string, string>>({});
+  const [savingFill, setSavingFill] = useState(false);
+  const [preapproved, setPreapproved] = useState<string[]>(() => PREAPPROVABLE.map((p) => p.key));
+  const saveFill = async () => {
+    const patch = Object.fromEntries(Object.entries(fill).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v));
+    if (!Object.keys(patch).length) return;
+    setSavingFill(true);
+    try {
+      const r = await fetch(`/api/onboarding/${onboardingId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ form: patch }) });
+      if (!r.ok) throw new Error((await r.json()).error || "Save failed");
+      setFill({});
+      toast.success("Saved to the card");
+      onChanged?.();
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Save failed"); }
+    setSavingFill(false);
+  };
   const [password, setPassword] = useState<string | null>(null);
   const [skipKey, setSkipKey] = useState<string | null>(null);
   const [skipNote, setSkipNote] = useState("");
@@ -162,7 +180,8 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
   if (!setup) {
     const pool = data.pool;
     const pick = pool?.choices.find((c) => c.id === poolId);
-    const needs = ["business_name", "owner_name", "email", "phone", "address", "deposit_amount", "version"].filter((k) => !String(form[k] ?? "").trim());
+    const needs = missingFields(form);
+    const niceToHave = OPTIONAL_FIELDS.filter((f) => !String(form[f.key] ?? "").trim());
     return (
       <div className="rounded-xl border border-[#c9dbfb] bg-[#f7faff] p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -199,9 +218,48 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
           ) : <p className="text-xs text-[#697a91]">Loading the pool…</p>}
         </div>
 
-        {needs.length > 0 && (
-          <p className="text-[11px] text-[#c2410c]">⚠ Missing on the form: {needs.join(", ")}. The run uses what&apos;s there; fill these first for a clean setup.</p>
-        )}
+        {/* Pre-flight: what a {version} setup needs, filled in right here */}
+        <div className={cn("rounded-lg border px-3 py-2.5", needs.length ? "border-[#fcd9a8] bg-[#fff7ec]" : "border-[#bfe3cd] bg-[#f3fbf6]")}>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-[#8595a8]">Before the run starts · {form.version || "version?"} setup</div>
+          {needs.length ? (
+            <>
+              <p className="text-xs font-semibold text-[#b35a00] mt-0.5">⚠ {needs.length} of {requiredFields(form.version).length} required details missing — fill them here, then Approve.</p>
+              <div className="mt-1.5 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
+                {needs.map((f) => (
+                  <label key={f.key} className="text-[11px] text-[#1f3559]">
+                    <span className="block text-[#697a91]">{f.label}</span>
+                    {f.key === "version" ? (
+                      <select value={fill.version ?? ""} onChange={(e) => setFill((v) => ({ ...v, version: e.target.value }))} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs">
+                        <option value="">Pick…</option><option value="V1">V1</option><option value="V2.3">V2.3</option><option value="V3">V3</option>
+                      </select>
+                    ) : (
+                      <input value={fill[f.key] ?? ""} onChange={(e) => setFill((v) => ({ ...v, [f.key]: e.target.value }))} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />
+                    )}
+                  </label>
+                ))}
+              </div>
+              <button onClick={() => void saveFill()} disabled={savingFill || !Object.values(fill).some((v) => v.trim())}
+                className="mt-2 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#15B7AE] hover:bg-[#0e8f88] text-white disabled:opacity-50">
+                {savingFill ? <Loader2 size={11} className="animate-spin inline" /> : "💾"} Save to the card
+              </button>
+            </>
+          ) : (
+            <p className="text-xs font-semibold text-[#15803d] mt-0.5">✓ All {requiredFields(form.version).length} required details are on the card.</p>
+          )}
+          {niceToHave.length > 0 && (
+            <p className="text-[10.5px] text-[#8595a8] mt-1.5">Not required, worth adding on the form: {niceToHave.map((f) => f.label).join(" · ")}</p>
+          )}
+          {/* Approve the "asks you" steps now, so the AI Agent runs straight through */}
+          <div className="mt-2 pt-2 border-t border-[#eadfc7]/60">
+            <p className="text-[10.5px] font-semibold text-[#1f3559]">Approve up front (no card to click later):</p>
+            {PREAPPROVABLE.map((p) => (
+              <label key={p.key} className="flex items-start gap-1.5 text-[11px] text-[#1f3559] mt-0.5" title={p.label}>
+                <input type="checkbox" checked={preapproved.includes(p.key)} onChange={(e) => setPreapproved((v) => (e.target.checked ? [...v, p.key] : v.filter((k) => k !== p.key)))} className="mt-0.5" />
+                <span>{p.title} <span className="text-[#8595a8]">— {p.label}</span></span>
+              </label>
+            ))}
+          </div>
+        </div>
 
         {/* The plan */}
         <div>
@@ -211,8 +269,9 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin ? (
-            <button onClick={() => { if (window.confirm(`Approve: take "${pick?.name ?? data.claimedLocation ?? "the claimed account"}" and set up ${form.business_name}?\n\nThe account steps run now; browser steps go to the AI Agent one by one. You'll be asked again before the phone number is bought and before the user is created.`)) void act("approve", { poolLocationId: poolId }); }}
-              disabled={!!busy || (!data.claimedLocation && !poolId)}
+            <button onClick={() => { if (window.confirm(`Approve: take "${pick?.name ?? data.claimedLocation ?? "the claimed account"}" and set up ${form.business_name}?\n\nThe account steps run now; browser steps go to the AI Agent one by one.${preapproved.length ? ` Approved up front: ${PREAPPROVABLE.filter((p) => preapproved.includes(p.key)).map((p) => p.title).join(", ")}.` : " The AI Agent will ask you before creating the login and the Instagram widget."}`)) void act("approve", { poolLocationId: poolId, preapproved }); }}
+              disabled={!!busy || (!data.claimedLocation && !poolId) || needs.length > 0}
+              title={needs.length ? "Fill the missing details first" : undefined}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold disabled:opacity-50">
               {busy === "approve" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} {busy === "approve" ? "Running the account steps… (1–3 min)" : "Approve & start"}
             </button>
