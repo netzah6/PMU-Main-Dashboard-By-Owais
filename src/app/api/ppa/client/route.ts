@@ -349,9 +349,48 @@ export async function GET(req: NextRequest) {
     .map((d) => ({ amount: Number(d.amount) || 0, applied: Number(d.applied) || 0, reason: d.reason ?? "", approvedAt: d.decided_at }))
     .sort((a, b) => String(a.approvedAt ?? "").localeCompare(String(b.approvedAt ?? "")));
 
+  // ── Activity log (owner, 2026-10-20) ───────────────────────────────────────
+  // "We charged Tara, then gave her a $160 credit, now she has $60 left — but
+  // who were the two clients the credit paid for?" One line per event, oldest
+  // first, with the credit balance AFTER each step: a credit being added, a
+  // card charge (and how much credit came off it), or shows settled by
+  // credit alone. Built from the same groups and credit applications as the
+  // lists above, so the numbers always agree with them.
+  type LedgerEvent = {
+    at: string; kind: "credit" | "card" | "credit_used";
+    amount: number;            // credit: amount added; card: dollars collected; credit_used: credit spent
+    creditUsed: number;        // card: credit that came off this charge
+    names: string[]; reason: string | null; paymentId: string | null; receiptUrl: string | null; chargedBy: string | null;
+    balanceAfter: number;      // unused credit after this event
+  };
+  const events: LedgerEvent[] = [];
+  for (const d of (creditDefs ?? []) as CreditDef[]) {
+    if (!d.decided_at) continue;
+    events.push({ at: d.decided_at, kind: "credit", amount: Number(d.amount) || 0, creditUsed: 0, names: [], reason: d.reason ?? null, paymentId: null, receiptUrl: null, chargedBy: null, balanceAfter: 0 });
+  }
+  for (const g of payGroups.values()) {
+    if (!g.chargedAt) continue;
+    events.push({
+      at: g.chargedAt, kind: g.creditOnly ? "credit_used" : "card",
+      amount: g.creditOnly ? g.credit : g.total, creditUsed: g.credit,
+      names: g.contacts, reason: null, paymentId: g.paymentId,
+      receiptUrl: g.paymentId ? `https://squareup.com/receipt/preview/${g.paymentId}` : null, chargedBy: g.chargedBy, balanceAfter: 0,
+    });
+  }
+  events.sort((a, b) => a.at.localeCompare(b.at));
+  let bal = 0;
+  for (const e of events) {
+    if (e.kind === "credit") bal += e.amount; else bal -= e.creditUsed;
+    e.balanceAfter = Math.round(bal * 100) / 100;
+  }
+  const ledger = events.reverse(); // newest first on screen
+  const creditLeft = Math.round(credits.reduce((n, c) => n + Math.max(0, c.amount - c.applied), 0) * 100) / 100;
+
   return NextResponse.json({
     payments,
     credits,
+    ledger,
+    creditLeft,
     client: {
       ownerKey: client.ownerKey,
       ownerName: client.ownerName,
