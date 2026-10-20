@@ -93,7 +93,10 @@ function IgFeedBody({ feed, busy, widgetOff, onFreezeBest, onUnfreeze }: {
   // Same rule as the server: a week is judged once its Sunday is ≥5 days ago.
   const settled = (week: string) => Date.parse(week) + 7 * 864e5 <= now - IG_MATURE_DAYS * 864e5;
   const rates = series.map((p) => (p.leads ? (p.deposits / p.leads) * 100 : 0));
-  const maxRate = Math.max(0, ...rates);
+  // Scale the bars by settled weeks with real volume — one lead paying in a
+  // 2-lead week would otherwise flatten every normal week to a sliver.
+  const scaleRates = rates.filter((_, i) => settled(series[i].week) && series[i].leads >= 5);
+  const maxRate = Math.max(0, ...(scaleRates.length ? scaleRates : rates));
   const postsByWeek = new Map(feed.history.map((h) => [h.week_start, h.posts_count]));
   const bestSnap = feed.bestSnapshotId != null ? snapshots.find((s) => s.id === feed.bestSnapshotId) ?? null : null;
   const latestSnap = feed.latestSnapshotId != null ? snapshots.find((s) => s.id === feed.latestSnapshotId) ?? null : null;
@@ -114,7 +117,8 @@ function IgFeedBody({ feed, busy, widgetOff, onFreezeBest, onUnfreeze }: {
         {best ? (
           <>
             <span className="font-semibold">Best run:</span> {igDay(best.from)} – {igDay(igSunday(best.to))} · {igPct(best.rate)} ({best.deposits} of {best.leads} leads)
-            {current && <> · <span className="font-semibold">Last 2 full weeks:</span> {igPct(current.rate)} ({current.deposits} of {current.leads})</>}
+            {current && current.leads > 0 && <> · <span className="font-semibold">Last 2 settled weeks ({igDay(current.from)} – {igDay(igSunday(current.to))}):</span> {igPct(current.rate)} ({current.deposits} of {current.leads})</>}
+            {current && current.leads === 0 && <> · <span className="text-[#8595a8]">no leads in the last 2 settled weeks</span></>}
             {drop.dropped && (
               <span className="ml-1.5 inline-flex rounded-full border border-[#fca5a5] bg-[#fef2f2] px-1.5 py-px text-[10px] font-semibold text-[#b91c1c]">dropped</span>
             )}
@@ -130,7 +134,7 @@ function IgFeedBody({ feed, busy, widgetOff, onFreezeBest, onUnfreeze }: {
               const pct = rates[i];
               const inBest = !!best && p.week >= best.from && p.week <= best.to;
               const done = settled(p.week);
-              const h = maxRate > 0 ? Math.max(2, Math.round((pct / maxRate) * 36)) : 2;
+              const h = maxRate > 0 ? Math.min(36, Math.max(2, Math.round((pct / maxRate) * 36))) : 2;
               const posts = postsByWeek.get(p.week);
               const title = `${igDay(p.week)}: ${p.deposits} of ${p.leads} (${pct.toFixed(1)}%)`
                 + (posts != null ? ` · ${posts.toLocaleString("en-US")} posts` : "")

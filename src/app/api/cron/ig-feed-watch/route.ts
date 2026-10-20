@@ -33,7 +33,7 @@ type ClientRow = {
   slug: string;
   client_name: string | null;
   config: { igWidget?: string; elfsightId?: string } | null;
-  extras: { template?: string; igWidgetOff?: boolean } | null;
+  extras: { template?: string; igWidgetOff?: boolean; igFrozen?: boolean } | null;
 };
 
 type HistoryRow = { week_start: string; posts_count: number | null };
@@ -89,7 +89,11 @@ export async function GET(req: NextRequest) {
     let checked = 0, recorded = 0, flagged = 0, filed = 0, resolved = 0;
     const skipped: string[] = [];
     const errors: string[] = [];
-    const recovered: string[] = [];
+    /* Recovery is judged against the best run SAVED ON THE OPEN ALERT, not
+       the best window recomputed today: once the good weeks age out of
+       the rolling series, "best" would sink to the bad period and a still-
+       low rate would read as recovered (review, 2026-10-20). */
+    const currentBySlug = new Map<string, Window>();
 
     const processOne = async (c: (typeof targets)[number]) => {
       const business = c.client_name ?? c.slug;
@@ -113,8 +117,12 @@ export async function GET(req: NextRequest) {
       const best = bestWindow(series);
       const current = currentWindow(series);
       const sig = dropSignal(best, current);
-      if (sig.recovered) recovered.push(c.slug);
+      if (current) currentBySlug.set(c.slug, current);
       if (!sig.dropped || !best || !current) return;
+      /* A frozen funnel already shows a fixed set of posts, so a drop there
+         is not about the live feed changing and "switch to the best-run
+         posts" would suggest a click already made — track it, don't flag. */
+      if (c.extras?.igFrozen) return;
       flagged++;
 
       // 3. Did the post count change since the best run? Only THIS week's
@@ -180,17 +188,30 @@ export async function GET(req: NextRequest) {
       }),
     );
 
-    // 5. Close open drop alerts ONLY where the rate clearly came back.
-    if (recovered.length && !dryRun) {
+    // 5. Close open drop alerts ONLY where the rate clearly came back —
+    //    measured against the best run the alert itself recorded.
+    const { data: openAlerts } = await svc
+      .from("alerts")
+      .select("id, source_key, meta")
+      .eq("type", "ig_drop")
+      .eq("status", "open")
+      .limit(1000);
+    const toClose = (openAlerts ?? []).filter((a) => {
+      const slug = String(a.source_key ?? "").replace(/^ig-drop:/, "");
+      const cur = currentBySlug.get(slug);
+      const savedBest = (a.meta as { best?: { rate?: number } } | null)?.best?.rate;
+      return !!cur && typeof savedBest === "number" && dropSignal({ from: "", to: "", leads: 0, deposits: 0, rate: savedBest }, cur).recovered;
+    }).map((a) => a.id as number);
+    if (toClose.length && !dryRun) {
       const { data: closed, error } = await svc
         .from("alerts")
         .update({ status: "resolved", resolved_by: "system (deposit rate recovered)", resolved_at: new Date().toISOString() })
-        .eq("type", "ig_drop")
-        .eq("status", "open")
-        .in("source_key", recovered.map((s) => `ig-drop:${s}`))
+        .in("id", toClose)
         .select("id");
       if (error) errors.push(`resolve: ${error.message}`);
       resolved = closed?.length ?? 0;
+    } else if (toClose.length) {
+      resolved = toClose.length;
     }
 
     return NextResponse.json({
