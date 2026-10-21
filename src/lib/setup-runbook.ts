@@ -266,6 +266,7 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     case "phone_cnam": return [
       `Open ${ghl(L, "settings/phone_number")} → Trust Center → CNAM (Caller Name) registration. Register the caller name "PermanentMakeup" for the account's new number.`,
       `If the carrier form asks for anything you don't have, stop with status "needs_teammate" and say exactly what it asks. Screenshot the submitted CNAM request.`,
+      `RECYCLED ACCOUNT (Sudbury Med Spa, 10/21/2026): if "Start Registration" is disabled because the business profile already has approved CNAMs under other names, open "View Details" on the CNAM registration and look for an Edit / Update / Delete / Assign-to-number option on the existing entries. If one lets you set the display name to "PermanentMakeup" for the new number, do it and screenshot. If there is no such option, change nothing and report status "done" with the summary "SUPPORT TICKET: CNAM already registered on this profile as <names> — only GoHighLevel support can replace it". This does not stop the setup.`,
     ];
     case "phone_optout": return [
       `Open ${ghl(L, "settings/phone_number")}. Next to the account's number open its settings and UNCHECK "SMS Compliance" / "Opt-Out" (the automatic "Reply STOP to unsubscribe" footer). Save.`,
