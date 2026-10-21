@@ -35,6 +35,7 @@ type AbVariant = {
   /* B2B profit view: booked calls → showed → closed, from the sales pipeline. */
   outcomes?: {
     calls: number; showed: number; demo?: number; closed: number; closedNames: string[];
+    direct?: number;
     people?: { leads: B2BPerson[]; calls: B2BPerson[]; showed: B2BPerson[]; demo?: B2BPerson[]; closed: B2BPerson[] };
   } | null;
 };
@@ -414,7 +415,8 @@ function B2BSplitTable({ rows, ab }: { rows: Funnel[]; ab: Record<string, AbResu
               <tr className="border-t border-[#eef2f6]">
                 <td className="py-1.5 pr-3 font-medium text-[#1c2b3a]">{v.label}</td>
                 <td className="py-1.5 pr-3">{v.visitors}</td>
-                <td className="py-1.5 pr-3">{v.leads != null ? <>{metricBtn(k("leads"), v.leads, P?.leads)}{rate(v.leads, v.visitors)}</> : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}</td>
+                <td className="py-1.5 pr-3">{v.leads != null ? <>{metricBtn(k("leads"), v.leads, P?.leads)}{rate(v.leads, v.visitors)}</> : <span className="text-[10px] text-[#97a5b8]">in GHL</span>}
+                  {O?.direct ? <span className="ml-1 text-[10px] text-[#97a5b8]" title="Came to the one-box without the test link (typed address, bookmark, old message) — real leads, but not counted on either side of the test.">+{O.direct} direct</span> : null}</td>
                 <td className="py-1.5 pr-3">{metricBtn(k("calls"), O?.calls, P?.calls)}{rate(O?.calls, v.leads)}</td>
                 <td className="py-1.5 pr-3">{metricBtn(k("showed"), O?.showed, P?.showed)}{rate(O?.showed, O?.calls)}</td>
                 <td className="py-1.5 pr-3">{metricBtn(k("demo"), O?.demo, P?.demo)}{rate(O?.demo, O?.showed)}</td>

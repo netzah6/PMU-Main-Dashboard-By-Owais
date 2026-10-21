@@ -254,6 +254,8 @@ export async function GET(req: NextRequest) {
   type B2BPerson = { n: string; d?: string; old?: boolean };
   type B2BOutcome = {
     calls: number; showed: number; demo: number; closed: number; closedNames: string[];
+    /** one-box leads that arrived without the test link — on neither side */
+    direct?: number;
     people: { leads: B2BPerson[]; calls: B2BPerson[]; showed: B2BPerson[]; demo: B2BPerson[]; closed: B2BPerson[] };
   };
   let b2bOutcomes: { external: B2BOutcome; onebox: B2BOutcome } | null = null;
@@ -294,7 +296,13 @@ export async function GET(req: NextRequest) {
         }
         externalLeads = extLeads.length;
 
-        const oneboxLeads = (leads ?? []).filter((l) => !isTestName(l.full_name));
+        /* Only leads the splitter attributed to the one-box side — the same
+           set the Leads column counts — so no step can exceed the one
+           before it. Leads that reached the one-box without the test link
+           (plain URL) are reported separately, on neither side. */
+        const oneboxVkey = (variants ?? []).find((v) => v.kind === "onebox")?.vkey ?? "";
+        const oneboxLeads = (leads ?? []).filter((l) => !isTestName(l.full_name) && String(l.variant_key ?? "") === oneboxVkey);
+        const directLeads = (leads ?? []).filter((l) => !isTestName(l.full_name) && !l.variant_key).length;
         const oneboxCallIds = [...new Set(oneboxLeads
           .filter((l) => l.ghl_appointment_id)
           .map((l) => String((l as { ghl_contact_id?: string }).ghl_contact_id ?? ""))
@@ -372,6 +380,7 @@ export async function GET(req: NextRequest) {
           .map((l) => [String((l as { ghl_contact_id?: string }).ghl_contact_id), { id: String((l as { ghl_contact_id?: string }).ghl_contact_id), n: String(l.full_name ?? ""), d: String(l.created_at ?? "").slice(0, 10) }] as const)).values()];
         const [extOut, obOut] = await Promise.all([run(extLeads, extBooked), run(oneboxPeople, new Set(oneboxCallIds))]);
         externalBooked = extOut.calls;
+        obOut.direct = directLeads;
         b2bOutcomes = { external: extOut, onebox: obOut };
       }
     } catch { /* outcomes unavailable — panel shows dashes, never wrong numbers */ }
