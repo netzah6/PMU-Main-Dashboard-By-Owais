@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveClientLocation, describeStep, type PlanStep } from "@/lib/agent-exec";
 import { confirmToOwner, textOwner as textOwnerFn } from "@/lib/agent-notify";
-import { onSetupProposalClosed, parseSetupConvId } from "@/lib/setup-run";
+import { onPoolSnapshotClosedForSetup, onSetupProposalClosed, parseSetupConvId } from "@/lib/setup-run";
 import { onSnapshotProposalClosed, parseSnapshotConvId } from "@/lib/pool-snapshot";
 import { onA2pProposalClosed, parseA2pConvId } from "@/lib/pool-a2p";
 
@@ -67,6 +67,7 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
     // snapshot" with the reason, and the Cleanup tab can queue it again.
     if (!retry && parseSnapshotConvId(r.conversation_id)) {
       try { await onSnapshotProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result }); } catch { /* the pool row keeps its last note */ }
+      try { await onPoolSnapshotClosedForSetup(svc, { id: r.id, status: "failed", result }); } catch { /* the setup card's Refresh re-runs the engine */ }
     }
     // A pool A2P check that died twice: the flag stays, the note says why.
     if (!retry && parseA2pConvId(r.conversation_id)) {
@@ -199,6 +200,9 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
   if (parseSnapshotConvId(p.conversation_id)) {
     try { await onSnapshotProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
     catch { /* the next Re-check in the Cleanup tab marks it */ }
+    // A New Client Setup waiting on this load at step 0 continues by itself.
+    try { await onPoolSnapshotClosedForSetup(svc, { id: p.id, status: input.status, result }); }
+    catch { /* the setup card's Refresh re-runs the engine */ }
   }
 
   /* A pool A2P check: the chip colour follows the report's "A2P: …" line. */

@@ -11,6 +11,7 @@ import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl } from "@/l
 import { buildReplayPayload, isValidHookUrlForLocation, replayToClientHook } from "@/lib/payment-router";
 import { verifyOnboarding } from "@/lib/onboarding-verify";
 import { answersFromMainContact } from "@/lib/survey-answers";
+import { queueSnapshotLoad } from "@/lib/pool-snapshot";
 import { writeRowToSheet, getSheetEntryForTable } from "@/lib/sheets";
 import { confirmToOwner, dashboardUrl, proposalLink, textOwner } from "@/lib/agent-notify";
 import {
@@ -135,10 +136,8 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
     const { choices } = await poolChoices(svc);
     const pick = choices.find((c) => c.id === poolLocationId);
     if (!pick) throw new Error("That clean account is not available anymore — pick another one");
-    // Hard stop, not a per-value "missing" later: the run fills EXISTING
-    // custom values and never creates them, so an account without the Demo
-    // snapshot fails every fill step (Clean New Account 78, 10/15/2026).
-    if (!pick.snapshot) throw new Error(`${pick.name} has no snapshot loaded — load it first (Onboarding → clean-account pool → "Load snapshot"), then Approve`);
+    // No snapshot yet is not a stop (owner 10/21/2026): step 0 cleans the
+    // account and queues the snapshot load to the AI Agent, then the run goes on.
     poolName = pick.name;
   }
 
@@ -226,7 +225,7 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
 
 async function runApiStep(svc: Svc, ob: Ob, step: RunbookStep): Promise<void> {
   await patch(svc, ob.id, (o) => { if (!o.setup) return; setStep(o.setup, step.key, { status: "running", who: DASHBOARD }); return { setup: o.setup }; });
-  let out: { status: StepState["status"]; note: string; facts?: Partial<SetupState>; form?: Record<string, string>; claim?: Ob["claim"] };
+  let out: StepOut;
   try {
     out = await API_STEPS[step.key](svc, ob);
   } catch (e) {
@@ -234,7 +233,7 @@ async function runApiStep(svc: Svc, ob: Ob, step: RunbookStep): Promise<void> {
   }
   await patch(svc, ob.id, (o) => {
     if (!o.setup) return;
-    setStep(o.setup, step.key, { status: out.status, who: DASHBOARD, note: out.note, error: out.status === "failed" ? out.note : undefined }, `${step.n}. ${step.label} → ${out.status}`);
+    setStep(o.setup, step.key, { status: out.status, who: DASHBOARD, note: out.note, proposal_id: out.proposal_id, error: out.status === "failed" ? out.note : undefined }, `${step.n}. ${step.label} → ${out.status}`);
     Object.assign(o.setup, out.facts ?? {});
     const checklist = { ...o.checklist };
     if (out.status === "done" || out.status === "warn") tick(checklist, step.checklist, DASHBOARD);
@@ -269,7 +268,8 @@ async function preLiveGaps(locationId: string): Promise<string[]> {
   }).map((r) => r.label);
 }
 
-type StepFn = (svc: Svc, ob: Ob) => Promise<{ status: StepState["status"]; note: string; facts?: Partial<SetupState>; form?: Record<string, string>; claim?: Ob["claim"] }>;
+type StepOut = { status: StepState["status"]; note: string; facts?: Partial<SetupState>; form?: Record<string, string>; claim?: Ob["claim"]; proposal_id?: string };
+type StepFn = (svc: Svc, ob: Ob) => Promise<StepOut>;
 
 const lines = (acts: ClaimAction[]) => acts.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
 
@@ -280,7 +280,7 @@ const API_STEPS: Record<string, StepFn> = {
      before it is taken: leftover contacts are deleted, the snapshot and A2P
      are confirmed. Only contacts are ever deleted here — the custom values,
      fields, calendars and automations are what the setup needs. */
-  account_check: async (_svc, ob) => {
+  account_check: async (svc, ob) => {
     const loc = ob.setup!.location_id;
     let [row] = await refreshPoolCleanliness([loc]);
     if (!row) throw new Error("this account is not in the clean-account pool");
@@ -292,9 +292,15 @@ const API_STEPS: Record<string, StepFn> = {
       notes.push(`deleted ${r.deleted} of ${r.found} leftover contacts${r.failed ? ` (${r.failed} failed: ${r.error ?? ""})` : ""}`);
       [row] = await refreshPoolCleanliness([loc]);
     }
-    const blocker = poolBlocker(row);
-    if (blocker) return { status: "failed", note: [...notes, `not ready — ${blocker}. Fix it in the Onboarding tab's clean-account pool, then Retry`].join("\n") };
-    return { status: "done", note: [...notes, `✓ ${row.clean_note ?? "clean"} · A2P approved`].join("\n") };
+    if ((row.dirty ?? 0) > 0) return { status: "failed", note: [...notes, `still has data — ${row.clean_note ?? ""}. Clean it in the Onboarding tab's clean-account pool, then Retry`].join("\n") };
+    // No snapshot (custom values, workflows) → the AI Agent loads it now and
+    // this step resumes when its card closes (owner 10/21/2026: no manual work).
+    if (!row.snapshot_loaded_at) {
+      const q = await queueSnapshotLoad(svc, { locationId: loc, poolName: ob.setup!.pool_name, by: `${ob.setup!.approved_by} (setup run)`, reason: `is being taken for ${ob.form.business_name} and has no snapshot` });
+      return { status: "queued", proposal_id: q.taskId, note: [...notes, `⏳ no snapshot on the account — the AI Agent is loading it${q.reused ? " (already queued)" : ""}; the setup continues by itself when it is done`].join("\n") };
+    }
+    if (row.a2p !== "approved") return { status: "failed", note: [...notes, "A2P not confirmed — press Verify A2P in the clean-account pool, then Retry"].join("\n") };
+    return { status: "done", note: [...notes, `✓ ${row.clean_note ?? "clean"} · snapshot loaded · A2P approved`].join("\n") };
   },
   /* 1 + 2 · Take the pool account: rename it and set email/phone. The
      employee user is NOT created here (step 14 asks the owner first), and the
@@ -729,6 +735,27 @@ export async function skipStep(svc: Svc, onboardingId: string, key: string, by: 
     return { setup: o.setup, checklist };
   });
   return advanceSetup(svc, onboardingId);
+}
+
+/* A pool snapshot card closed (lib/pool-snapshot updated the pool row). A
+   setup run waiting on it at step 0 resumes: done → the step runs again and
+   now passes; failed → red with Retry (which queues the load again). */
+export async function onPoolSnapshotClosedForSetup(svc: Svc, p: { id: string; status: string; result: string | null }): Promise<void> {
+  const { data } = await svc.from("onboardings").select("id, setup").contains("setup", { steps: { account_check: { proposal_id: p.id } } });
+  for (const row of (data ?? []) as Array<{ id: string; setup: SetupState | null }>) {
+    const st = stepState(row.setup, "account_check");
+    if (st.status !== "queued" || st.proposal_id !== p.id) continue;
+    const ok = p.status === "done";
+    const first = String(p.result ?? "").split("\n")[0].replace(/^[✓✗👤]\s*/, "").slice(0, 200);
+    await patch(svc, row.id, (o) => {
+      if (!o.setup) return;
+      setStep(o.setup, "account_check", ok
+        ? { status: "todo", note: `✓ snapshot loaded by the AI Agent — checking the account again`, proposal_id: undefined }
+        : { status: "failed", error: "the AI Agent could not load the snapshot", note: `✗ snapshot load failed: ${first} — check the account, then Retry` }, `snapshot card ${p.id} → ${p.status}`);
+      return { setup: o.setup };
+    });
+    if (ok) await advanceSetup(svc, row.id).catch(() => { /* Refresh re-runs the engine */ });
+  }
 }
 
 // ── Overall status + the one text at the end ────────────────────────────────
