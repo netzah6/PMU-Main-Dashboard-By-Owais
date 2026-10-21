@@ -97,9 +97,34 @@ export interface SyncResult {
   /** Rows written this run (the rest were identical to what's stored). */
   rowsWritten?: number;
   rowsUnchanged?: number;
+  /** Health of the sheet's own data source (SyncWith banner in row 1):
+   *  "paused" = the Facebook report stopped updating the sheet. */
+  sourceStatus?: "ok" | "paused";
+  sourceNote?: string;
   status: "ok" | "error";
   error?: string;
   durationMs: number;
+}
+
+/* The Facebook Campaign Stats tabs are filled by SyncWith, which writes a
+   status banner in row 1 above the headers. "Report paused: Unexpected
+   failure — Please edit to resolve the issue" means the numbers below are
+   frozen even though our pull succeeds (owner, 10/21/2026: the 7-day tab
+   showed green while the sheet was red). Read the banner so the badge can
+   tell the truth. */
+export function sourceBanner(rawRows: string[][]): { status: "ok" | "paused"; note: string } | null {
+  // Only the rows ABOVE the header (the header/data rows have 3+ filled cells).
+  const head: string[] = [];
+  for (const r of rawRows.slice(0, 3)) {
+    const cells = (r ?? []).map((c) => String(c ?? "").trim()).filter(Boolean);
+    if (cells.length >= 3) break;
+    if (cells.length) head.push(cells.join(" "));
+  }
+  const text = head.join(" | ").slice(0, 300);
+  if (!text) return null;
+  if (/report paused|unexpected failure|failed|error|please edit/i.test(text)) return { status: "paused", note: text };
+  if (/syncwith|last (refreshed|updated|synced|run)/i.test(text)) return { status: "ok", note: text };
+  return null;
 }
 
 // Circuit breaker for the tail delete. A sheet legitimately shrinks by a
@@ -180,6 +205,7 @@ export async function syncOneSheet(
   try {
     // 1. Read from Google Sheets (auto-resolves tab name if needed)
     const rawRows = await readSheetValues(spreadsheetId, sheetName, fallbackIndex);
+    const banner = sourceBanner(rawRows);
     // Drop rows with no content: fully-blank rows and rows marked VOID in
     // column A. Blank rows are how deleted duplicates were neutralized after
     // the 2026-08-20 lesson — a fully-empty row makes Google's table detection
@@ -317,9 +343,14 @@ export async function syncOneSheet(
     // A run that wrote nothing still ran: the freshness badge reads this
     // (data_freshness view → sheet_sync_runs), not max(synced_at), now that
     // unchanged rows keep their old synced_at.
+    // When the numbers last really changed (a pull that writes nothing keeps
+    // the previous value) — a tab frozen for days is as bad as a paused one.
+    const { data: prevRun } = await supabase.from("sheet_sync_runs").select("data_changed_at").eq("table_name", table).maybeSingle();
+    const dataChangedAt = changed.length > 0 ? now : ((prevRun as { data_changed_at?: string | null } | null)?.data_changed_at ?? now);
     await supabase.from("sheet_sync_runs").upsert({
       table_name: table, ran_at: now, sheet_rows: objects.length,
       rows_written: changed.length, rows_unchanged: unchanged, status: "ok", error: null,
+      source_status: banner?.status ?? null, source_note: banner?.note ?? null, data_changed_at: dataChangedAt,
     }, { onConflict: "table_name" }).then(() => undefined, () => undefined);
 
     return {
@@ -332,6 +363,7 @@ export async function syncOneSheet(
       voidedDeleted,
       rowsWritten: changed.length,
       rowsUnchanged: unchanged,
+      ...(banner ? { sourceStatus: banner.status, sourceNote: banner.note } : {}),
       status: "ok",
       durationMs: Date.now() - start,
     };

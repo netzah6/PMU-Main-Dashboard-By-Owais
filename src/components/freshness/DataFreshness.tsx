@@ -26,14 +26,15 @@ const dateOf = (d: Date) => d.toLocaleDateString("en-US", { timeZone: TZ, month:
 
 export function DataFreshness({ onRefreshed }: { onRefreshed?: () => void } = {}) {
   const { role } = useUser();
-  const [rows, setRows] = useState<Record<string, string | null>>({});
+  type Row = { synced_at: string | null; source_status: string | null; source_note: string | null; data_changed_at: string | null };
+  const [rows, setRows] = useState<Record<string, Row>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const { data } = await createClient().from("data_freshness").select("key, synced_at");
-    const m: Record<string, string | null> = {};
-    for (const r of (data ?? []) as Array<{ key: string; synced_at: string | null }>) m[r.key] = r.synced_at;
+    const { data } = await createClient().from("data_freshness").select("key, synced_at, source_status, source_note, data_changed_at");
+    const m: Record<string, Row> = {};
+    for (const r of (data ?? []) as Array<{ key: string } & Row>) m[r.key] = { synced_at: r.synced_at, source_status: r.source_status, source_note: r.source_note, data_changed_at: r.data_changed_at };
     setRows(m);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -46,7 +47,10 @@ export function DataFreshness({ onRefreshed }: { onRefreshed?: () => void } = {}
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       if (j.skipped || !Array.isArray(j.results)) throw new Error(j.skipped ? String(j.skipped) : "the sync did not run");
       const bad = (j.results ?? []).filter((x: { status?: string }) => x.status !== "ok");
-      setMsg(bad.length ? `⚠ ${bad.length} tab${bad.length === 1 ? "" : "s"} failed to sync` : "All four tabs re-pulled from the sheet.");
+      const paused = (j.results ?? []).filter((x: { sourceStatus?: string }) => x.sourceStatus === "paused").map((x: { sheetName?: string }) => x.sheetName);
+      setMsg(bad.length ? `⚠ ${bad.length} tab${bad.length === 1 ? "" : "s"} failed to sync`
+        : paused.length ? `⚠ Pulled, but the Facebook report is PAUSED in the Google Sheet for ${paused.join(", ")} — open the sheet and press Refresh there.`
+        : "All four tabs re-pulled from the sheet.");
       await load();
       onRefreshed?.();
     } catch (e) { setMsg(`Refresh failed: ${e instanceof Error ? e.message : "unknown"}`); }
@@ -56,8 +60,17 @@ export function DataFreshness({ onRefreshed }: { onRefreshed?: () => void } = {}
   if (!Object.keys(rows).length) return null;
   const today = dayOf(new Date());
   const status = TABS.map((t) => {
-    const at = rows[t.key] ? new Date(rows[t.key]!) : null;
-    return { ...t, at, fresh: !!at && dayOf(at) === today };
+    const r = rows[t.key];
+    const at = r?.synced_at ? new Date(r.synced_at) : null;
+    const changed = r?.data_changed_at ? new Date(r.data_changed_at) : null;
+    const paused = r?.source_status === "paused";
+    // Numbers that have not moved for 2+ days are frozen even if the pull is green.
+    const frozen = !paused && !!changed && Date.now() - changed.getTime() > 2 * 86400_000;
+    const pulledToday = !!at && dayOf(at) === today;
+    const why = paused ? `Facebook report PAUSED in the Google Sheet (${(r?.source_note ?? "").slice(0, 80)}) — open the sheet and press Refresh there`
+      : frozen ? `numbers unchanged since ${dateOf(changed!)} — check the Google Sheet report`
+      : !pulledToday ? "not pulled today" : "";
+    return { ...t, at, fresh: pulledToday && !paused && !frozen, why };
   });
   const stale = status.filter((s) => !s.fresh);
 
@@ -68,13 +81,13 @@ export function DataFreshness({ onRefreshed }: { onRefreshed?: () => void } = {}
       <div className="flex items-center gap-1.5 flex-wrap">
         {stale.length > 0 && (
           <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-bold border bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"
-            title={stale.map((s) => `${s.label}${s.at ? ` — last ${dateOf(s.at)} ${timeOf(s.at)}` : " — never"}`).join(" · ")}>
-            ⚠ Not refreshed today
+            title={stale.map((s) => `${s.label} — ${s.why}${s.at ? ` (last pull ${dateOf(s.at)} ${timeOf(s.at)})` : ""}`).join(" · ")}>
+            ⚠ {stale.some((s) => s.why.startsWith("Facebook report PAUSED")) ? "Sheet report paused — refresh it in Google Sheets" : stale.some((s) => s.why.startsWith("numbers unchanged")) ? "Numbers not updating" : "Not refreshed today"}
           </span>
         )}
         {status.map((s) => (
           <span key={s.key}
-            title={s.at ? `${s.label} — last synced ${dateOf(s.at)} at ${timeOf(s.at)} Pacific` : `${s.label} — never synced`}
+            title={s.why ? `${s.label} — ${s.why}` : s.at ? `${s.label} — last synced ${dateOf(s.at)} at ${timeOf(s.at)} Pacific, numbers up to date` : `${s.label} — never synced`}
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border ${
               s.fresh ? "bg-[#e6f7ee] text-[#15803d] border-[#86efac]" : "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]"}`}>
             <span className={`w-1.5 h-1.5 rounded-full ${s.fresh ? "bg-[#22c55e]" : "bg-[#e11d48]"}`} />
