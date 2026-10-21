@@ -149,8 +149,10 @@ export async function GET(
   const expVars = exp?.onebox_variants ?? [];
   // [].every() is vacuously true — a variantless running row is not a test.
   const testLive = !!exp && expVars.length > 0 && expVars.every((v) => v.kind === "onebox");
-  const uncacheable = testLive;
-  let flip: { expId: number; vkey: string; override: Record<string, string>; cookie: string } | null = null;
+  /* Any running test makes the plain URL per-visitor (a coin flip, or the
+     cookie attribution below), so it must never enter the shared cache. */
+  const uncacheable = !!exp && expVars.length > 0;
+  let flip: { expId: number; vkey: string; override: Record<string, string>; cookie: string; resume?: boolean } | null = null;
   if (testLive && !isBot && exp) {
     const raw = req.cookies.get(`ob_v_${slug}`)?.value ?? "";
     const [cid, cvkey, cexp] = raw.split(":");
@@ -179,6 +181,18 @@ export async function GET(
       ));
     }
     flip = { expId: exp.id, vkey: chosen.vkey, override: chosen.config_override ?? {}, cookie: `${vid}:${chosen.vkey}:${exp.id}` };
+  }
+  /* External-vs-one-box test: a visitor the splitter already put on the
+     one-box side who comes back on the plain URL (history, bookmark, a
+     re-typed address) keeps that attribution — no re-roll, no redirect, no
+     new assignment row — so their lead lands on the side that earned it.
+     Without this the lead row carried no experiment at all (Oct 19: 2 of
+     11 one-box leads, which made "scheduled a call" exceed "leads"). */
+  if (!flip && exp && expVars.length > 0 && !testLive && !isBot) {
+    const raw = req.cookies.get(`ob_v_${slug}`)?.value ?? "";
+    const [cid, cvkey, cexp] = raw.split(":");
+    const v = cid && cexp === String(exp.id) ? expVars.find((x) => x.vkey === cvkey && x.kind === "onebox") : undefined;
+    if (v) flip = { expId: exp.id, vkey: v.vkey, override: v.config_override ?? {}, cookie: raw, resume: true };
   }
 
   /* Resync from GHL when the stored copy is stale — but never on the
@@ -235,7 +249,7 @@ export async function GET(
   const respHeaders = (base: Record<string, string>): Record<string, string> => {
     const h = { ...base };
     if (uncacheable) h["Cache-Control"] = "no-store";
-    if (flip) h["Set-Cookie"] = `ob_v_${slug}=${encodeURIComponent(flip.cookie)}; Max-Age=31536000; Path=/; SameSite=Lax`;
+    if (flip && !flip.resume) h["Set-Cookie"] = `ob_v_${slug}=${encodeURIComponent(flip.cookie)}; Max-Age=31536000; Path=/; SameSite=Lax`;
     return h;
   };
 
