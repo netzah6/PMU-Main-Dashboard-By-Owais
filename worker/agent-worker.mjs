@@ -225,6 +225,9 @@ When finished, reply with ONLY this JSON (no other text):
 function runClaude(prompt, dir) {
   // Browser always in English (US): GHL screens came up in Spanish, which
   // cost the agent turns reading every screen (10/16/2026). Same CHROME_ARGS
+  // 200 turns (was 120): a snapshot load on Clean New Account 79 ran out of
+  // turns while waiting for GHL to apply it (10/21/2026). The 20-min timeout
+  // below is still the hard stop.
   // as the login command, and the real-Keychain cookie key (see top of file).
   const pwFile = join(dir, "playwright.json");
   writeFileSync(pwFile, JSON.stringify({ browser: { launchOptions: { args: CHROME_ARGS, ignoreDefaultArgs: PW_IGNORE_DEFAULT_ARGS }, contextOptions: { locale: "en-US" } } }));
@@ -232,7 +235,7 @@ function runClaude(prompt, dir) {
   const mcpFile = join(dir, "mcp.json");
   writeFileSync(mcpFile, JSON.stringify(mcp));
   return new Promise((resolve) => {
-    const child = spawn(CLAUDE, ["-p", prompt, "--mcp-config", mcpFile, "--strict-mcp-config", "--allowedTools", "mcp__playwright", "--output-format", "json", "--max-turns", "120"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(CLAUDE, ["-p", prompt, "--mcp-config", mcpFile, "--strict-mcp-config", "--allowedTools", "mcp__playwright", "--output-format", "json", "--max-turns", "200"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));

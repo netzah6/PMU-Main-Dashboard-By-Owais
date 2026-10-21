@@ -35,8 +35,7 @@ export function snapshotLoadPlan(locationId: string, poolName: string): string[]
     `Switch to the AGENCY view (top-left account switcher → agency "PMU Bookings On Demand"), then open Sub-Accounts: https://app.gohighlevel.com/agency_dashboard/ → left menu Sub-Accounts.`,
     `Find the sub-account named "${poolName}" (location id ${locationId}). Open its Actions (⋮ or the Manage/Actions menu on the row) and choose "Load Snapshot".`,
     `In the snapshot picker choose the NEWEST snapshot whose name starts with "${SNAPSHOT_NAME_HINT}" (date suffix varies, e.g. 3/7/26). Keep the default options, confirm/Proceed. Screenshot the picker with the chosen snapshot name visible, and the confirmation.`,
-    `Wait ~2 minutes, then open the sub-account Settings → Custom Values: https://app.gohighlevel.com/v2/location/${locationId}/settings/custom_values and confirm entries starting with "CC - " exist (e.g. "CC - Deposit Amount", "CC - Fanbasis Product ID"). Screenshot.`,
-    `Open Automation → Workflows: https://app.gohighlevel.com/v2/location/${locationId}/automation/workflows and confirm "FanBasis to GHL workflow" and "CC- Funnel Survey -> (V1 / V2 / V3)" exist. Screenshot. Do not edit anything.`,
+    `Once GHL says the snapshot is being pushed, you are done with the load. Do NOT keep reloading or polling. Wait 3 minutes ONCE, then open Automation → Workflows: https://app.gohighlevel.com/v2/location/${locationId}/automation/workflows and take ONE screenshot ("after-1.png"). If workflow folders or workflows are listed, report status done. If the list is still empty, report status done anyway with the summary "load triggered, GHL still applying it" — the dashboard verifies the account itself.`,
     `If "Load Snapshot" is not offered to this user or the snapshot name is not found, stop and report exactly what the screen shows (status needs_teammate).`,
   ];
 }
@@ -117,6 +116,16 @@ export async function onSnapshotProposalClosed(svc: Svc, p: { id: string; conver
     try { await refreshPoolCleanliness([ref.locationId]); } catch { /* the next Re-check verifies it */ }
     return;
   }
+  // The worker can run out of turns AFTER the load went through (Clean New
+  // Account 79, 10/21/2026): look at the account before calling it failed.
+  try {
+    const [live] = await refreshPoolCleanliness([ref.locationId]);
+    if (live?.snapshot_loaded_at) {
+      await svc.from("pool_accounts").update({ snapshot_task_id: null, snapshot_note: `loaded (seen by the Re-check after the AI Agent stopped early) ${usDate(now())}` }).eq("location_id", ref.locationId);
+      await svc.from("cleanup_log").update({ snapshot_loaded_at: live.snapshot_loaded_at }).eq("location_id", ref.locationId);
+      return;
+    }
+  } catch { /* fall through to the failure note */ }
   const why = p.status === "needs_teammate" ? "the AI Agent needs a teammate" : "the AI Agent could not finish";
   await svc.from("pool_accounts").update({ snapshot_loaded_at: null, snapshot_note: `✗ ${why}: ${firstLine}`.slice(0, 300) }).eq("location_id", ref.locationId);
 }

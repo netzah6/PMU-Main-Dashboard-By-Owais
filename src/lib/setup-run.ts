@@ -745,7 +745,10 @@ export async function onPoolSnapshotClosedForSetup(svc: Svc, p: { id: string; st
   for (const row of (data ?? []) as Array<{ id: string; setup: SetupState | null }>) {
     const st = stepState(row.setup, "account_check");
     if (st.status !== "queued" || st.proposal_id !== p.id) continue;
-    const ok = p.status === "done";
+    // The pool row is the truth (lib/pool-snapshot re-checked the account):
+    // a worker that stopped early after a successful load still counts as done.
+    const { data: pool } = await svc.from("pool_accounts").select("snapshot_loaded_at").eq("location_id", row.setup!.location_id).maybeSingle();
+    const ok = p.status === "done" || !!(pool as { snapshot_loaded_at?: string | null } | null)?.snapshot_loaded_at;
     const first = String(p.result ?? "").split("\n")[0].replace(/^[✓✗👤]\s*/, "").slice(0, 200);
     await patch(svc, row.id, (o) => {
       if (!o.setup) return;
