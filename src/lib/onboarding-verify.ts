@@ -317,7 +317,7 @@ async function addressFixCard(locationId: string, business: string, current: str
   return (ins as { id: string } | null)?.id ?? null;
 }
 
-export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null; checkoutUrl: string | null; usersInfo: UserInfo[]; version: string }> {
+export async function verifyOnboarding(form: Record<string, unknown>, opts: { locationId?: string | null; purchasedPhone?: string | null } = {}): Promise<{ checks: Check[]; locationId: string | null; depositUrl: string | null; funnelUrls: FunnelUrls | null; productId: string | null; checkoutUrl: string | null; usersInfo: UserInfo[]; version: string }> {
   const business = String(form.business_name ?? "").trim();
   const productId = String(form.product_id ?? "").trim();
   const address = String(form.address ?? "").trim();
@@ -409,9 +409,10 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
   // required for every version (V1 / V2.3 / V3). norm() strips spaces, punctuation
   // and the 🔵/🟢 emoji so the substrings match the live custom-value names.
   if (customValues.length) {
+    // Owner 10/21/2026: the reactivation form is no longer used — only the
+    // values the setup run fills and the funnel renders are required.
     const ALWAYS = [ // non-🔵 — required for all versions
-      "business phone number", "fb business page", "full business address",
-      "funnel logo", "ig business page", "offer",
+      "business phone number", "full business address", "ig business page", "offer",
     ];
     const V3_ONLY = [ // 🔵 — required additionally for V3
       "owners name", "business hours", "deposit amount", "deposit funnel url v3",
@@ -648,7 +649,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       // phone's area code). lcPhone on the user maps locationId → number.
       const purchased = users
         .map((u) => String(((u.lcPhone ?? {}) as Record<string, unknown>)[locationId] ?? ""))
-        .find((v) => v.trim()) ?? "";
+        .find((v) => v.trim()) ?? (opts.purchasedPhone ?? "");
       const bizPhone = customValues.find((v) => /business phone number/i.test(v.name))?.value ?? "";
       const fullAddr = address || (customValues.find((v) => /full business address/i.test(v.name))?.value ?? "");
       if (!purchased) push("user_phone", "fail", `No purchased (LeadConnector) number on the sub-account users${fullAddr ? ` · Address: ${fullAddr}` : ""}`);
@@ -1084,7 +1085,10 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       const slug = depositUrl.replace(/^https?:\/\/book\.pmu-care\.com\//i, "").replace(/[/?#].*$/, "");
       const { data: ob } = await createServiceClient().from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
       const pix = String(((ob?.extras ?? {}) as Record<string, unknown>).metaPixelId ?? "").replace(/\D/g, "");
-      set("ghl_pixel", pix ? "pass" : "fail", pix ? `Meta pixel ${pix} on the one-box funnel` : "No Meta pixel on the one-box funnel — add it in Start Setup (Funnels tab) or re-run step 26");
+      const later = /^(none|no|n\/a|skip|later|not yet|no pixel)/i.test(String(form.meta_pixel_id ?? "").trim());
+      if (pix) set("ghl_pixel", "pass", `Meta pixel ${pix} on the one-box funnel`);
+      else if (later) set("ghl_pixel", "manual", "Pixel marked \"add later\" at Approve — the media buyer adds it in the Funnels tab (Start Setup) before ads start");
+      else set("ghl_pixel", "fail", "No Meta pixel on the one-box funnel — add it in Start Setup (Funnels tab) or re-run step 27");
     } catch { set("ghl_pixel", "manual", "Couldn't read the one-box config — check the pixel in the Funnels tab"); }
   }
 
