@@ -273,14 +273,14 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
           )}
           {/* Approve the "asks you" steps now, so the AI Agent runs straight through */}
           <div className="mt-2 pt-2 border-t border-[#eadfc7]/60">
-            <p className="text-[10.5px] font-semibold text-[#1f3559]">Approve up front (no card to click later):</p>
+            <p className="text-[10.5px] font-semibold text-[#1f3559]">Decide now (nothing stops mid-run): ticked = the AI Agent does it · unticked = skipped</p>
             {PREAPPROVABLE.map((p) => (
               <label key={p.key} className="flex items-start gap-1.5 text-[11px] text-[#1f3559] mt-0.5" title={p.label}>
                 <input type="checkbox" checked={preapproved.includes(p.key)} onChange={(e) => setPreapproved((v) => (e.target.checked ? [...v, p.key] : v.filter((k) => k !== p.key)))} className="mt-0.5" />
                 {p.key === "funnel_ig" ? (
                   <span>{p.title} — {String(form.ig_link ?? "").trim()
                     ? <a href={/^https?:/i.test(form.ig_link) ? form.ig_link : `https://instagram.com/${form.ig_link.replace(/^@/, "")}`} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">{form.ig_link} ↗</a>
-                    : <span className="text-[#b35a00]">no Instagram link on the form — add it, or untick to skip the widget</span>}
+                    : <span className="text-[#b35a00]">no Instagram link on the form — add it, or untick and the widget is skipped</span>}
                     <span className="text-[#8595a8]"> · check the page first (9+ posts, profile picture)</span></span>
                 ) : (
                   <span>{p.title} <span className="text-[#8595a8]">— {p.label}</span></span>
@@ -298,7 +298,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
         <div className="flex items-center gap-2 flex-wrap">
           {isAdmin ? (
-            <button onClick={() => { if (window.confirm(`Approve: take "${pick?.name ?? data.claimedLocation ?? "the claimed account"}" and set up ${form.business_name}?\n\nThe account steps run now; browser steps go to the AI Agent one by one.${preapproved.length ? ` Approved up front: ${PREAPPROVABLE.filter((p) => preapproved.includes(p.key)).map((p) => p.title).join(", ")}.` : " The AI Agent will ask you before creating the login and the Instagram widget."}`)) void act("approve", { poolLocationId: poolId, preapproved }); }}
+            <button onClick={() => { if (window.confirm(`Approve: take "${pick?.name ?? data.claimedLocation ?? "the claimed account"}" and set up ${form.business_name}?\n\nThe account steps run now; browser steps go to the AI Agent one by one.${preapproved.length ? ` Approved up front: ${PREAPPROVABLE.filter((p) => preapproved.includes(p.key)).map((p) => p.title).join(", ")}.` : ""}${PREAPPROVABLE.filter((p) => !preapproved.includes(p.key)).length ? ` Skipped: ${PREAPPROVABLE.filter((p) => !preapproved.includes(p.key)).map((p) => p.title).join(", ")}.` : ""} Nothing will stop to ask you.`)) void act("approve", { poolLocationId: poolId, preapproved }); }}
               disabled={!!busy || (!data.claimedLocation && !poolId) || needs.length > 0}
               title={needs.length ? "Fill the missing details first" : undefined}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold disabled:opacity-50">
