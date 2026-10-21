@@ -322,6 +322,7 @@ async function doTask(t) {
 async function loop(once) {
   if (!SECRET) { console.error(`Missing AGENT_WORKER_SECRET in ${envFile}`); process.exit(1); }
   log(`worker on ${hostname()} → ${BASE}`);
+  let firstClaim = true;
   for (;;) {
     try {
       await selfUpdate(); // idle only: never mid-task
@@ -329,7 +330,10 @@ async function loop(once) {
         await api("ping", { host: hostname() }); // still alive, just waiting for Chrome to be quit
         if (once) { log("profile busy"); return; }
       } else {
-        const { task } = await api("claim", { host: hostname() });
+        // First claim after a (re)start: hand back any task the previous
+        // process left "running" (watchdog / self-update / crash) right away.
+        const { task } = await api("claim", { host: hostname(), ...(firstClaim ? { recover: true } : {}) });
+        firstClaim = false;
         if (task) await doTask(task);
         else if (once) { log("no task waiting"); return; }
         if (once && task) return;
