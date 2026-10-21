@@ -254,8 +254,9 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                         <option value="">Pick…</option><option value="V1">V1</option><option value="V2.3">V2.3</option><option value="V3">V3</option>
                       </select>
                     ) : (
-                      <input value={fill[f.key] ?? ""} onChange={(e) => setFill((v) => ({ ...v, [f.key]: e.target.value }))} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />
+                      <input value={fill[f.key] ?? ""} onChange={(e) => setFill((v) => ({ ...v, [f.key]: e.target.value }))} placeholder={f.key === "meta_pixel_id" ? "e.g. 1234567890123456 — or none" : undefined} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />
                     )}
+                    {f.key === "meta_pixel_id" && <span className="block text-[10px] text-[#8595a8]">The client&apos;s pixel: Meta Events Manager → Data sources. No pixel yet? Type <b>none</b> — the step is skipped and the media buyer adds it later.</span>}
                   </label>
                 ))}
               </div>

@@ -127,7 +127,11 @@ const REQUIRED_ALL: RequiredField[] = [
   { key: "email", label: "Email (the client's login)" }, { key: "phone", label: "Phone" }, { key: "address", label: "Studio address" },
   { key: "business_hours", label: "Business hours (calendar)" }, { key: "deposit_amount", label: "Deposit amount" }, { key: "offer", label: "Offer" },
   { key: "services", label: "PMU services" }, { key: "assigned", label: "Assigned coach" }, { key: "media_buyer", label: "Media buyer" },
+  // Owner 10/21/2026: asked up front (Sudbury Med Spa's run stopped at the
+  // pixel step). "none" is an answer — the media buyer adds it later.
+  { key: "meta_pixel_id", label: "Meta pixel ID (15–16 digits from Events Manager, or type none)" },
 ];
+export const NO_PIXEL_RE = /^(none|no|n\/a|skip|later|not yet|no pixel)/i;
 // V3 only (owner 10/20/2026): the prices are the one-box's V3 fields.
 const REQUIRED_V3: RequiredField[] = [
   { key: "original_price", label: "Original price" }, { key: "discounted_price", label: "Discounted price" },
@@ -142,7 +146,7 @@ export function missingFields(form: Record<string, unknown>): RequiredField[] {
 // Worth having, never blocking: shown as a hint on the Approve panel.
 export const OPTIONAL_FIELDS: RequiredField[] = [
   { key: "ig_link", label: "Instagram page (for the widget)" }, { key: "fb_link", label: "Facebook page" }, { key: "gmb_link", label: "Google My Business" },
-  { key: "old_funnel_url", label: "Old funnel URL (pixel + redirect)" }, { key: "meta_pixel_id", label: "Meta pixel ID" }, { key: "logo_url", label: "Logo" },
+  { key: "old_funnel_url", label: "Old funnel URL (pixel + redirect)" }, { key: "logo_url", label: "Logo" },
   { key: "connect_caller_id", label: "Connect the client's Caller ID? (yes / no)" },
 ];
 

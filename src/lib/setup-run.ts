@@ -15,7 +15,7 @@ import { queueSnapshotLoad } from "@/lib/pool-snapshot";
 import { writeRowToSheet, getSheetEntryForTable } from "@/lib/sheets";
 import { confirmToOwner, dashboardUrl, proposalLink, textOwner } from "@/lib/agent-notify";
 import {
-  RUNBOOK, runSteps, stepByKey, stepState, isSettled, miniPlan, miniContext, missingFields,
+  RUNBOOK, runSteps, stepByKey, stepState, isSettled, miniPlan, miniContext, missingFields, NO_PIXEL_RE,
   type RunbookStep, type SetupState, type StepState, type SetupFacts,
 } from "@/lib/setup-runbook";
 
@@ -462,7 +462,9 @@ const API_STEPS: Record<string, StepFn> = {
     const slug = ob.setup!.slug!;
     const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
     const extras = { ...((row?.extras ?? {}) as Record<string, unknown>) };
-    const fromForm = String(ob.form.meta_pixel_id ?? "").replace(/\D/g, "");
+    const raw = String(ob.form.meta_pixel_id ?? "").trim();
+    if (NO_PIXEL_RE.test(raw)) return { status: "skipped", note: `no pixel yet ("${raw}" on the form) — the media buyer adds it in the Funnels tab (Start Setup) once the ads account has one` };
+    const fromForm = raw.replace(/\D/g, "");
     if (fromForm.length >= 10) {
       extras.metaPixelId = fromForm;
       await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
