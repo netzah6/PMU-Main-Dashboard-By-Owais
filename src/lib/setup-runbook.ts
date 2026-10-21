@@ -52,7 +52,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 9, key: "phone_buy", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
   { n: 10, key: "phone_a2p", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
   { n: 11, key: "phone_cnam", section: "C · 📞 Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"", checklist: ["phone_cnam"] },
-  { n: 12, key: "phone_optout", section: "C · 📞 Phone", who: "mini", label: "Uncheck SMS Compliance Opt-Out, and the same switch under Phone → Advanced Settings", checklist: ["phone_optout", "phone_sms_adv"] },
+  { n: 12, key: "phone_optout", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
   { n: 13, key: "phone_forward", section: "C · 📞 Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
   { n: 14, key: "user_create", section: "D · 👤 GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
@@ -269,9 +269,9 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `RECYCLED ACCOUNT (owner 10/21/2026): if "Start Registration" is disabled because the business profile already has approved CNAMs under other names, open "View Details" and screenshot the names. First look for an Edit / Update / Delete / Assign-to-number option on those entries; if one lets you set "PermanentMakeup" for the new number, do it and screenshot. If not: open the GoHighLevel support chat (the "?" / Help icon → "Contact Support" / "Chat with us"; use the agency view if the sub-account view has none), start a new conversation and send exactly: "Hi! Sub-account ${biz} (location ID ${L}) has CNAM (caller name) registrations approved under names that belong to previous businesses: <the names>. Please remove / deregister those CNAM registrations from this sub-account's business profile so we can register the caller name 'PermanentMakeup' for its number. Start Registration is currently disabled because of them. Thank you!" You MAY send this one message to GoHighLevel support; it is the task. Screenshot the sent message, then report status "done" with the summary "SUPPORT TICKET: asked GoHighLevel support (chat) to remove the CNAMs <names>; register PermanentMakeup once they confirm". This does not stop the setup.`,
     ];
     case "phone_optout": return [
-      `Open ${ghl(L, "settings/phone_number")}. Next to the account's number open its settings and UNCHECK "SMS Compliance" / "Opt-Out" (the automatic "Reply STOP to unsubscribe" footer). Save.`,
-      `Then open the Advanced Settings tab on the same Phone Numbers page and UNCHECK the SMS Compliance switch there too. Save.`,
-      `Reload and confirm both are off. Screenshot both.`,
+      `Open ${ghl(L, "settings/phone_number")} → the "Messaging" tab → "Messaging Compliance" (the switches moved here in 2026; there is NO per-number switch and nothing under Additional Settings). Screenshot ("before-1.png").`,
+      `Make sure these three are UNCHECKED: "Make SMS compliant by adding an opt out message" (Reply STOP to Unsubscribe), "Make SMS compliant by adding a sender information", and "Enable Periodic Opt-Out". If any is checked, uncheck it and Save; reload and confirm. Screenshot ("after-1.png").`,
+      `If all three are ALREADY unchecked (Save stays disabled), that IS the wanted state: change nothing and report status "done" with the summary "opt-out footer already off" — do not stop or ask.`,
     ];
     case "phone_forward": return [
       `Open ${ghl(L, "settings/phone_number")}, open the account's new number → Edit configuration. Set "Forward calls to" = the client's own phone ${clientPhone}. Save.`,
