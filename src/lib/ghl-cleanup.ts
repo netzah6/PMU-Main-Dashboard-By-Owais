@@ -18,6 +18,7 @@ const V_CONVO = "2021-04-15";
 // Same hard blocklist as ghl-claim: the main agency sub-account is never touched.
 const PROTECTED_LOCATIONS = new Set([
   "SfpNMJ5YU9lBkxss47lK", // PMU Bookings On Demand — view-only, always
+  "asaIf2fxizaCNJ71iywk", // Demo sub-account that owns the test number +1 (760) 733-3106 — never changed (owner 10/21/2026)
 ]);
 
 function agencyHeaders(): Record<string, string> {

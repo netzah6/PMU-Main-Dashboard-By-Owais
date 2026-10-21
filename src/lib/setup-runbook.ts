@@ -234,6 +234,12 @@ export type SetupFacts = {
   userEmail?: string;
 };
 
+/* Owner 10/21/2026: the funnel test's lead phone is our own demo number, so
+   the AI Agent can prove the first text really arrived (and that the AI
+   answers a reply). The number lives in this demo sub-account, which the
+   agent must never change. */
+export const TEST_LEAD_PHONE = "+1 (760) 733-3106";
+export const TEST_LEAD_LOCATION = "asaIf2fxizaCNJ71iywk";
 const ghl = (loc: string, path: string) => `https://app.gohighlevel.com/v2/location/${loc}/${path}`;
 
 export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
@@ -343,11 +349,12 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       oldFunnel ? `Open the old URL in a new tab and confirm it lands on ${funnel}. Screenshot the redirect list and the landing.` : ``,
     ].filter(Boolean);
     case "funnel_test": return [
-      `Open ${funnel} in a new tab. Fill the survey as a test lead: name "Setup Test ${new Date().toLocaleDateString("en-US")}", email setup.test.${Date.now()}@pmu-bookings.com, phone +1 (929) 555-01${String(Math.floor(Math.random() * 90) + 10)}. Pick any answers and a time slot; stop at the deposit page (do NOT pay).`,
+      `Open ${funnel} in a new tab. Fill the survey as a test lead: name "Setup Test ${new Date().toLocaleDateString("en-US")}", email setup.test.${Date.now()}@pmu-bookings.com, phone ${TEST_LEAD_PHONE} (our own demo number — a real phone, so delivery can be proven). Pick any answers and a time slot; stop at the deposit page (do NOT pay).`,
       `If the time picker says "Couldn't load available times": open ${ghl(L, "calendars")}, find the "Permanent Makeup Transformation" calendar and switch its Active toggle ON (the snapshot ships it inactive), then reload the funnel and pick a slot.`,
       `Confirm the deposit page loads with the Commas checkout box. Screenshot it.`,
-      `In GHL open ${ghl(L, "contacts")} and find the test contact. Confirm it has the tag "onebox-survey" and that the "CC - Funnel Survey" workflow fired (Conversations shows the first AI text within ~2 minutes). Screenshot the contact.`,
-      `Then DELETE that test contact (and only it). If a contact "Router Test" (router.test.pmu@example.com) exists from the payment-route test, delete that one too. Report what worked and what did not.`,
+      `In GHL open ${ghl(L, "contacts")} and find the test contact. Confirm it has the tag "onebox-survey" and that the "CC - Funnel Survey" workflow fired: Conversations shows the first AI text within ~2 minutes with status sent/delivered (not failed). Screenshot the contact.`,
+      `PROVE DELIVERY: open our demo sub-account's conversations ${ghl(TEST_LEAD_LOCATION, "conversations")} (${TEST_LEAD_PHONE} lives there). Find the new incoming text from the client's number and confirm its wording is the funnel's first AI message. Reply there with one word "Yes", wait up to 3 minutes and confirm the client's AI answers back in the client's conversation. Screenshot both sides. ⚠ Change NOTHING in that demo sub-account — no settings, no deletions, no tags; it is only used to receive and reply to the text.`,
+      `Back in the client's account, DELETE that test contact (and only it). If a contact "Router Test" (router.test.pmu@example.com) exists from the payment-route test, delete that one too. Report what worked and what did not; status "failed" if the text never reached ${TEST_LEAD_PHONE}.`,
     ];
     case "last_profile": return [
       `Open ${ghl(L, "settings/business_info")} (Business Profile). Check: logo/profile image uploaded, business name "${biz}", address "${address}", phone, website/Instagram filled.`,
