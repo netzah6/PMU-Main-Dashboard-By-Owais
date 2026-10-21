@@ -1,19 +1,21 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
-import { Loader2, RefreshCw, Send } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, RefreshCw, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Coach Report — the monthly "Managed Accounts Accountability Report",
 // submitted here instead of the old GHL form. The coach's real book is
 // pre-listed (Clients Master "Assigned"), each client gets one of the three
-// statuses from the form, and the submission lands on the admin's Alerts tab
+// statuses from the form, and the submission is reviewed by the admin right
+// here (owner 2026-10-21: no more Alerts-tab cards — that tab was drowning),
 // with mismatches vs the dashboard already computed.
 
 type Reported = "active" | "paused_resuming" | "churned";
 type RosterRow = { owner: string; biz: string; status: string };
 type Referral = { referred_name: string; referred_by: string; note: string };
-type Submission = { id: number; coach: string; report_month: string; snapshot_date: string | null; entries: { reported: Reported }[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string };
+type Entry = { owner: string; biz: string; reported: Reported };
+type Submission = { id: number; coach: string; report_month: string; snapshot_date: string | null; snapshot_live: number | null; salary: number | null; entries: Entry[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string };
 // Each referral the coach brings in is a $100 bonus (owner, 2026-09-22).
 const REFERRAL_BONUS = 100;
 
@@ -57,6 +59,7 @@ export default function CoachReportPage() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null); // which previous report is expanded
 
   /* Reload the roster + history. Leaves the success banner alone — submit()
      shows it right after its own reload, so wiping it here would flash it
@@ -100,7 +103,7 @@ export default function CoachReportPage() {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setError(j.error ?? "Submit failed"); return; }
       await load(isAdmin ? coach : undefined);
-      setDone(`Report submitted ✓ — Netzah gets it on the Alerts tab${j.mismatchCount ? ` (${j.mismatchCount} thing${j.mismatchCount === 1 ? "" : "s"} flagged for review)` : ""}${j.referrals ? ` · ${j.referrals} referral${j.referrals === 1 ? "" : "s"} claimed = $${j.referralBonus} bonus` : ""}.`);
+      setDone(`Report submitted ✓ — Netzah reviews it on this tab${j.mismatchCount ? ` (${j.mismatchCount} thing${j.mismatchCount === 1 ? "" : "s"} flagged for review)` : ""}${j.referrals ? ` · ${j.referrals} referral${j.referrals === 1 ? "" : "s"} claimed = $${j.referralBonus} bonus` : ""}.`);
       setReferrals([{ referred_name: "", referred_by: "", note: "" }]);
     } catch { setError("Network error — the report may not have been sent; try again"); } finally { setBusy(false); }
   }
@@ -117,7 +120,7 @@ export default function CoachReportPage() {
         </button>
       </div>
       <p className="text-xs text-[#697a91] mb-3">
-        The monthly Managed Accounts Accountability Report. Mark every client in your book, confirm, submit — it lands on the admin&rsquo;s Alerts tab with anything that doesn&rsquo;t match the dashboard already flagged.
+        The monthly Managed Accounts Accountability Report. Mark every client in your book, confirm, submit — the admin reviews it under &ldquo;Previous reports&rdquo; below, with anything that doesn&rsquo;t match the dashboard already flagged.
       </p>
 
       {isAdmin && (
@@ -139,7 +142,7 @@ export default function CoachReportPage() {
         <div className="text-sm text-[#697a91]"><Loader2 className="w-4 h-4 animate-spin inline" /> Loading your clients…</div>
       ) : !coach ? (
         <div className="text-sm text-[#697a91] border border-[#e4ebf2] rounded-xl bg-white p-4">
-          {isAdmin ? "Pick a coach above to file or review their report. Recent reports from every coach are below." : "No client book matches your login — ask an admin to check that your email matches your name in the Clients sheet."}
+          {isAdmin ? "Pick a coach above to file their report. Recent reports from every coach are below — click one to open every client, referral and flagged item." : "No client book matches your login — ask an admin to check that your email matches your name in the Clients sheet."}
         </div>
       ) : (
         <>
@@ -249,20 +252,64 @@ export default function CoachReportPage() {
             <div className="mt-4 border border-[#e4ebf2] rounded-xl bg-white p-4">
               <p className="text-sm font-semibold text-[#1c2b3a] mb-2">Previous reports</p>
               <div className="grid gap-1">
-                {submissions.map((s) => (
-                  <div key={s.id} className="flex flex-wrap items-center gap-2 text-xs border border-[#f0f4f8] rounded-lg px-2.5 py-1.5">
-                    <b className="text-[#1c2b3a]">{new Date(s.report_month + "T12:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })}</b>
+                {submissions.map((s) => {
+                  const open = openId === s.id;
+                  const monthLabel = new Date(s.report_month + "T12:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+                  const n = (k: Reported) => s.entries.filter((e) => e.reported === k).length;
+                  return (
+                  <div key={s.id} className="border border-[#f0f4f8] rounded-lg">
+                  <button type="button" onClick={() => setOpenId(open ? null : s.id)}
+                    className="w-full flex flex-wrap items-center gap-2 text-xs px-2.5 py-1.5 text-left hover:bg-[#f6f9fc] rounded-lg">
+                    {open ? <ChevronDown className="w-3.5 h-3.5 text-[#697a91]" /> : <ChevronRight className="w-3.5 h-3.5 text-[#697a91]" />}
+                    <b className="text-[#1c2b3a]">{monthLabel}</b>
                     {isAdmin && !coach ? <span className="text-[#697a91]">{s.coach}</span> : null}
-                    <span className="text-[#697a91]">{s.entries.filter((e) => e.reported === "active").length} active · {s.entries.filter((e) => e.reported === "paused_resuming").length} resuming · {s.entries.filter((e) => e.reported === "churned").length} churned</span>
+                    <span className="text-[#697a91]">{n("active")} active · {n("paused_resuming")} resuming · {n("churned")} churned</span>
                     {(s.referrals?.length ?? 0) > 0 && (
                       <span className="font-semibold text-[#b45309]">🎁 {s.referrals!.length} referral{s.referrals!.length === 1 ? "" : "s"} (${s.referrals!.length * REFERRAL_BONUS})</span>
                     )}
                     <span className={cn("ml-auto font-semibold", s.mismatches.length ? "text-[#c2410c]" : "text-[#15803d]")}>
                       {s.mismatches.length ? `${s.mismatches.length} flagged` : "all matched ✓"}
                     </span>
-                    <span className="text-[#8595a8]">{new Date(s.created_at).toLocaleDateString()}</span>
+                    <span className="text-[#8595a8]">{new Date(s.created_at).toLocaleDateString("en-US")}</span>
+                  </button>
+                  {open && (
+                    /* The full submission — what used to be the Alerts card, plus
+                       every client's answer. Admin reviews and approves referral
+                       bonuses from here. */
+                    <div className="border-t border-[#f0f4f8] px-3 py-2.5 text-xs grid gap-3">
+                      <p className="text-[#1c2b3a]">
+                        {s.snapshot_date
+                          ? <>Pay check: the {new Date(s.snapshot_date + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC" })} snapshot has <b>{s.snapshot_live}</b> live for {s.coach} → salary <b>${s.salary}</b>. Coach reports {n("active")} active.</>
+                          : <>No {monthLabel} snapshot yet (taken on the 20th) — pay line will use it once taken.</>}
+                      </p>
+                      <div>
+                        <p className="font-semibold text-[#b45309] mb-1">🎁 Referrals{s.referrals?.length ? ` — ${s.referrals.length} × $${REFERRAL_BONUS} = $${s.referrals.length * REFERRAL_BONUS} bonus` : ""}</p>
+                        {s.referrals?.length
+                          ? <ul className="grid gap-0.5 pl-4 list-disc">{s.referrals.map((r, i) => <li key={i}><b>{r.referred_name}</b> — referred by {r.referred_by}{r.note ? <span className="text-[#697a91]"> ({r.note})</span> : null}</li>)}</ul>
+                          : <p className="text-[#697a91]">None claimed this month.</p>}
+                      </div>
+                      <div>
+                        <p className={cn("font-semibold mb-1", s.mismatches.length ? "text-[#c2410c]" : "text-[#15803d]")}>{s.mismatches.length ? `⚠ Flagged (${s.mismatches.length}) — coach vs dashboard` : "Everything matches the dashboard ✓"}</p>
+                        {s.mismatches.length > 0 && <ul className="grid gap-0.5 pl-4 list-disc">{s.mismatches.map((m, i) => <li key={i}>{m}</li>)}</ul>}
+                      </div>
+                      {s.extra ? <p><span className="font-semibold">Coach notes:</span> {s.extra}</p> : null}
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {CHOICES.map((c) => (
+                          <div key={c.k}>
+                            <p className={cn("inline-block border rounded-md px-1.5 py-0.5 font-semibold mb-1", c.on)}>{c.label} · {n(c.k)}</p>
+                            <ul className="grid gap-0.5 text-[#1c2b3a]">
+                              {s.entries.filter((e) => e.reported === c.k).sort((a, b) => a.owner.localeCompare(b.owner)).map((e) => (
+                                <li key={`${e.owner}|${e.biz}`}>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span></li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
       )}
