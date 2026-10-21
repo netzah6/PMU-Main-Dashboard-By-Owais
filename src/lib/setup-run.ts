@@ -610,7 +610,10 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
     if (!o.setup) return;
     const cur = o.setup.steps[ref.key];
     if (cur?.proposal_id && cur.proposal_id !== p.id) return; // an older card for a retried step
-    const status: StepState["status"] = ok ? "done" : "failed";
+    // "SUPPORT TICKET: …" in a done report = finished as far as the AI Agent
+    // can, a person follows up with GHL support (stale CNAM on a recycled
+    // account, 10/21/2026). Shown amber, the run goes on.
+    const status: StepState["status"] = ok ? (/\bSUPPORT TICKET\b/i.test(text) ? "warn" : "done") : "failed";
     setStep(o.setup, ref.key, { status, who: "AI Agent", note: text.slice(0, 1500), screenshots: shots, error: ok ? undefined : (p.status === "needs_teammate" ? "the AI Agent needs a teammate — see its note" : "the AI Agent could not finish") }, `card ${p.id} → ${p.status}`);
     const checklist = { ...o.checklist };
     if (ok) tick(checklist, step.checklist, "AI Agent");
