@@ -21,6 +21,7 @@ type PoolRow = {
   used_as: string | null; used_at: string | null; a2p: string;
   a2p_updated_at: string | null; a2p_updated_by?: string | null;
   a2p_task_id?: string | null; a2p_queued_at?: string | null; a2p_note?: string | null;
+  cnam_status?: string | null; cnam_note?: string | null; cnam_task_id?: string | null;
   workflows: number | null; dirty: number | null;
   clean_checked_at: string | null; clean_note: string | null;
   // Snapshot reload (10/15/2026): the wipe empties the account, the Mac Mini
@@ -522,7 +523,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
                     disabled={a2pSaving === p.location_id}
                     title={`${p.a2p === "approved" ? "A2P approved" : "A2P not approved"}${p.a2p_note ? ` — ${p.a2p_note}` : p.a2p_updated_at ? ` (set by ${p.a2p_updated_by ?? "hand"} ${ago(p.a2p_updated_at)})` : " (never verified)"}${
                       p.a2p_task_id ? " · AI Agent check queued" : ""
-                    }\n${s.label}${p.clean_note ? ` — ${p.clean_note}` : ""}${p.clean_checked_at ? ` · checked ${ago(p.clean_checked_at)}` : " · never checked"}\nClick to toggle A2P by hand.`}
+                    }\n${s.label}${p.clean_note ? ` — ${p.clean_note}` : ""}${p.clean_checked_at ? ` · checked ${ago(p.clean_checked_at)}` : " · never checked"}\nCaller name (CNAM): ${p.cnam_note ?? (p.cnam_task_id ? "AI Agent check queued" : "not checked yet")}\nClick to toggle A2P by hand.`}
                     className={cn(
                       "px-2 py-1 rounded-md text-[11px] font-medium border transition-colors disabled:opacity-50",
                       p.a2p === "approved" ? A2P_CHIP.approved : A2P_CHIP.pending
@@ -533,6 +534,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
                     {state === "ready" ? " · ✓" : ""}
                     {state === "snapshot" ? (p.snapshot_note?.startsWith("✗") ? " · ✗📸" : p.snapshot_task_id ? " · ⏳📸" : " · 📸") : ""}
                     {state === "dirty" ? " · ⚠" : ""}
+                    {p.cnam_status === "requested" ? " · 📛⏳" : p.cnam_status === "stale" ? " · 📛" : ""}
                     {/* A2P is invisible on red/orange chips otherwise — an
                         approved-but-dirty account is the one worth cleaning first. */}
                   </button>
@@ -582,7 +584,7 @@ export function CleanupPanel({ onPoolChanged }: { onPoolChanged?: () => void }) 
             )}
             <p className="text-[11px] text-[#9aa8bc] mt-2">
               🟢 A2P approved · 🟡 A2P not approved (or never verified) · ⏳ AI Agent check queued · ✓ ready for a setup (snapshot loaded, no client data, A2P approved) ·
-              📸 waiting for the Demo snapshot · ⚠ still has the old client&apos;s contacts.
+              📸 waiting for the Demo snapshot · ⚠ still has the old client&apos;s contacts · 📛 old caller names (CNAM) on the Trust Center (⏳ = GHL support asked to remove them; checked again every Monday).
               Verify A2P sends the AI Agent to read each account&apos;s Trust Center page (it also runs every Monday); click a chip to toggle A2P by hand;
               Re-check refreshes what&apos;s inside.
             </p>
