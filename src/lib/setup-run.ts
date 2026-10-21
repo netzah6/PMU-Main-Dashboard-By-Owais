@@ -212,6 +212,7 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     case "account_check": case "master_row": return true;
     case "account_take": return done(ob, "account_check");
     case "account_info": case "account_cvs": case "cal_id": return done(ob, "account_take");
+    case "cal_active": return done(ob, "cal_rules");
     case "connector": case "product": case "funnel_create": return done(ob, "account_take");
     case "funnel_pixel": return done(ob, "funnel_create");
     case "route_test": return done(ob, "webhook_url") && done(ob, "product") && !!ob.setup?.hook_url;
@@ -384,6 +385,13 @@ const API_STEPS: Record<string, StepFn> = {
   },
 
   /* 24 · Transformation calendar ID → its custom value. */
+  /* 24 · The snapshot's calendar arrives switched off (owner 10/21/2026): turn
+     it on here, in section F, and prove GHL returns open slots. */
+  cal_active: async (_svc, ob) => {
+    const cal = await ensureCalendarActive(ob.setup!.location_id);
+    return { status: cal.ok ? "done" : "failed", note: `${cal.ok ? "✓" : "✗"} ${cal.note}` };
+  },
+
   cal_id: async (_svc, ob) => {
     const acts = await fillCalendarId(ob.setup!.location_id);
     const a = acts[0];
@@ -546,7 +554,8 @@ const API_STEPS: Record<string, StepFn> = {
     const fails = r.checks.filter((c) => c.status === "fail");
     const pass = r.checks.filter((c) => c.status === "pass").length;
     if (!fails.length && !tzBad) return { status: "done", note: `all green — ${pass} checks passed\n${tzNote}` };
-    return { status: "warn", note: `${pass} passed, ${fails.length + tzBad} to fix:\n${[...fails.map((f) => `✗ ${f.key}: ${f.detail}`), tzNote].join("\n")}` };
+    // Owner 10/21/2026: anything still off STOPS the run here (red, Retry after fixing).
+    return { status: "failed", note: `STOPPED — ${pass} passed, ${fails.length + tzBad} to fix before the funnel test:\n${[...fails.map((f) => `✗ ${f.key}: ${f.detail}`), tzNote].join("\n")}` };
   },
 
   /* 37 · Move the client's deal to "First Cycle" in the agency pipeline, then
@@ -707,7 +716,7 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
   /* Step 22: put the artist's schedule in the sub-account's time zone right
      away (owner 2026-10-20) — whatever the AI Agent did with the hours, a
      schedule left in Israel or another US zone shifts every slot. The last
-     check (step 32) still re-checks it. */
+     check (step 32, the final check) still re-checks it. */
   if (closedKeys.includes("cal_hours")) {
     const loc = (await loadOb(svc, ref.onboardingId)).setup?.location_id;
     if (loc) {
