@@ -343,6 +343,7 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     ].filter(Boolean);
     case "funnel_test": return [
       `Open ${funnel} in a new tab. Fill the survey as a test lead: name "Setup Test ${new Date().toLocaleDateString("en-US")}", email setup.test.${Date.now()}@pmu-bookings.com, phone +1 (929) 555-01${String(Math.floor(Math.random() * 90) + 10)}. Pick any answers and a time slot; stop at the deposit page (do NOT pay).`,
+      `If the time picker says "Couldn't load available times": open ${ghl(L, "calendars")}, find the "Permanent Makeup Transformation" calendar and switch its Active toggle ON (the snapshot ships it inactive), then reload the funnel and pick a slot.`,
       `Confirm the deposit page loads with the Commas checkout box. Screenshot it.`,
       `In GHL open ${ghl(L, "contacts")} and find the test contact. Confirm it has the tag "onebox-survey" and that the "CC - Funnel Survey" workflow fired (Conversations shows the first AI text within ~2 minutes). Screenshot the contact.`,
       `Then DELETE that test contact (and only it). If a contact "Router Test" (router.test.pmu@example.com) exists from the payment-route test, delete that one too. Report what worked and what did not.`,

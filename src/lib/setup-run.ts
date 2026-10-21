@@ -263,6 +263,41 @@ const PRE_LIVE_VALUES: Array<{ label: string; match: (n: string) => boolean; v3O
   { label: "Calendar ID", match: (n) => n.includes("transformationcalendarid") },
 ];
 
+/* The snapshot's booking calendar arrives INACTIVE (Sudbury Med Spa, 10/21/2026:
+   GHL free-slots answered "Calendar is inactive", the funnel's time picker
+   showed "Couldn't load available times" and the funnel test failed). Switch it
+   on and prove slots load before the funnel goes live. */
+async function ensureCalendarActive(locationId: string): Promise<{ ok: boolean; note: string }> {
+  const cvs = await listLocationCustomValues(locationId);
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const calendarId = String(cvs.find((c) => /calendarid/.test(norm(c.name)) && /transformation|permanentmakeup|booking/.test(norm(c.name)))?.value ?? "").trim();
+  if (!calendarId) return { ok: false, note: "calendar: no calendar ID custom value yet" };
+  const lt = await getAppLocationToken(locationId);
+  if (!lt.token) return { ok: false, note: `calendar: ${lt.error ?? "could not mint location token"}` };
+  const H = { Authorization: `Bearer ${lt.token}`, Version: "2021-04-15", Accept: "application/json", "Content-Type": "application/json" };
+  const read = async () => {
+    const r = await fetch(`${GHL}/calendars/${calendarId}`, { headers: H });
+    if (!r.ok) throw new Error(`calendar read HTTP ${r.status}`);
+    return ((await r.json()) as { calendar?: { name?: string; isActive?: boolean } }).calendar ?? {};
+  };
+  let cal = await read();
+  let flipped = false;
+  if (cal.isActive === false) {
+    const r = await fetch(`${GHL}/calendars/${calendarId}`, { method: "PUT", headers: H, body: JSON.stringify({ isActive: true }) });
+    if (!r.ok) return { ok: false, note: `calendar "${cal.name ?? calendarId}" is INACTIVE and could not be switched on (HTTP ${r.status}) — open GHL → Calendars and toggle it Active` };
+    cal = await read();
+    flipped = true;
+    if (cal.isActive === false) return { ok: false, note: `calendar "${cal.name ?? calendarId}" is still INACTIVE after switching it on — open GHL → Calendars and toggle it Active` };
+  }
+  // Prove the funnel's time picker will work: the same free-slots call it makes.
+  const start = Date.now(), end = start + 14 * 86400_000;
+  const fr = await fetch(`${GHL}/calendars/${calendarId}/free-slots?startDate=${start}&endDate=${end}`, { headers: H });
+  if (!fr.ok) return { ok: false, note: `calendar "${cal.name ?? calendarId}": free slots HTTP ${fr.status} — ${(await fr.text()).slice(0, 120)}` };
+  const j = (await fr.json()) as Record<string, { slots?: string[] }>;
+  const n = Object.values(j).reduce((a, v) => a + (Array.isArray(v?.slots) ? v.slots.length : 0), 0);
+  return { ok: n > 0, note: `calendar "${cal.name ?? calendarId}" ${flipped ? "was INACTIVE → switched on" : "active"} · ${n} open slots in the next 14 days${n ? "" : " — check the staff hours (step 22)"}` };
+}
+
 async function preLiveGaps(locationId: string, version: string): Promise<string[]> {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   const cvs = await listLocationCustomValues(locationId);
@@ -490,17 +525,21 @@ const API_STEPS: Record<string, StepFn> = {
     // Never go live with holes: the AI quotes these values to leads.
     const gaps = await preLiveGaps(ob.setup!.location_id, String(ob.form.version ?? ""));
     if (gaps.length) return { status: "failed", note: `NOT live yet — ${gaps.length} value${gaps.length > 1 ? "s" : ""} empty in the sub-account. Fill them (Clients tab or GHL Custom Values), then Retry:\n${gaps.map((g) => `✗ ${g}`).join("\n")}` };
+    const cal = await ensureCalendarActive(ob.setup!.location_id).catch((e) => ({ ok: false, note: `calendar: ${errMsg(e)}` }));
+    if (!cal.ok) return { status: "failed", note: `NOT live yet — ${cal.note}. Fix it, then Retry` };
     const { error } = await svc.from("onebox_clients").update({ status: "live", updated_at: now() }).eq("slug", slug);
     if (error) throw new Error(error.message);
     const url = `${FUNNEL_ORIGIN}/${slug}`;
     const dep = await setDepositFunnelUrl(ob.setup!.location_id, url);
-    return { status: dep.ok ? "done" : "warn", note: `funnel LIVE at ${url}${dep.ok ? "" : ` · ⚠ deposit URL custom value: ${dep.error}`}` };
+    return { status: dep.ok ? "done" : "warn", note: `funnel LIVE at ${url} · ${cal.note}${dep.ok ? "" : ` · ⚠ deposit URL custom value: ${dep.error}`}` };
   },
 
   /* 36 · The Check-Setup grade on the finished account. */
   last_check: async (_svc, ob) => {
     // Safety net: the artist's schedule must be in the studio's time zone.
     const tz: ClaimAction[] = await syncScheduleTimezones(ob.setup!.location_id).catch((e) => [{ action: "Schedule time zone", ok: false, detail: errMsg(e) }]);
+    const cal = await ensureCalendarActive(ob.setup!.location_id).catch((e) => ({ ok: false, note: `calendar: ${errMsg(e)}` }));
+    tz.push({ action: "Booking calendar", ok: cal.ok, detail: cal.note });
     const tzBad = tz.filter((a) => !a.ok).length;
     const tzNote = tz.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
     const r = await verifyOnboarding({ ...ob.form, product_id: ob.setup!.product_id ?? ob.form.product_id }, { locationId: ob.setup!.location_id });
