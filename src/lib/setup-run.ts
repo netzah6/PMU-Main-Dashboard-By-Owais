@@ -299,6 +299,57 @@ async function ensureCalendarActive(locationId: string): Promise<{ ok: boolean; 
   return { ok: n > 0, note: `calendar "${cal.name ?? calendarId}" ${flipped ? "was INACTIVE → switched on" : "active"} · ${n} open slots in the next 14 days${n ? "" : " — check the staff hours (step 22)"}` };
 }
 
+/* Owner 10/21/2026: the final check FIXES the client-facing contact values
+   instead of flagging them — phone as "(978) 996-9082", address as
+   "street, city, ST zip" with the usual abbreviations and no periods. Both
+   go to the custom values the funnel renders (and the address to the
+   business profile). Returns one line per value it changed. */
+const STATE_ABBR: Record<string, string> = { alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO", connecticut: "CT", delaware: "DE", florida: "FL", georgia: "GA", hawaii: "HI", idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY", louisiana: "LA", maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI", minnesota: "MN", mississippi: "MS", missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV", "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", ohio: "OH", oklahoma: "OK", oregon: "OR", pennsylvania: "PA", "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", tennessee: "TN", texas: "TX", utah: "UT", vermont: "VT", virginia: "VA", washington: "WA", "west virginia": "WV", wisconsin: "WI", wyoming: "WY", "district of columbia": "DC" };
+const STREET_ABBR: Record<string, string> = { street: "St", avenue: "Ave", boulevard: "Blvd", drive: "Dr", road: "Rd", lane: "Ln", court: "Ct", place: "Pl", terrace: "Ter", highway: "Hwy", parkway: "Pkwy", circle: "Cir", trail: "Trl", suite: "Ste", north: "N", south: "S", east: "E", west: "W", northeast: "NE", northwest: "NW", southeast: "SE", southwest: "SW" };
+export function cleanAddress(raw: string): string | null {
+  const words = raw.replace(/\b(united states( of america)?|usa|u\.s\.a?\.?)\s*$/i, "").replace(/[.]/g, "").replace(/\s+/g, " ").trim();
+  const zipM = [...words.matchAll(/\b(\d{5})(?:-\d{4})?\b/g)].pop();
+  if (!zipM || zipM.index === undefined) return null;
+  const zip = zipM[0];
+  let head = (words.slice(0, zipM.index) + words.slice(zipM.index + zip.length)).replace(/\s*,\s*/g, ",").replace(/,+/g, ",").replace(/^,|,$/g, "").trim();
+  // State: a 2-letter code or the full name, right before the zip (or last part).
+  let state = "";
+  const parts = head.split(",").map((x) => x.trim()).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0 && !state; i--) {
+    const pt = parts[i].toLowerCase();
+    if (STATE_ABBR[pt]) { state = STATE_ABBR[pt]; parts.splice(i, 1); }
+    else if (/^[a-z]{2}$/.test(pt) && Object.values(STATE_ABBR).includes(pt.toUpperCase())) { state = pt.toUpperCase(); parts.splice(i, 1); }
+    else { const m = parts[i].match(/^(.*\S)\s+([A-Za-z]{2})$/); if (m && Object.values(STATE_ABBR).includes(m[2].toUpperCase())) { state = m[2].toUpperCase(); parts[i] = m[1]; } }
+  }
+  if (!state || parts.length < 2) return null;
+  const city = parts.pop()!;
+  const cap = (w: string) => (/^\d/.test(w) || /^[A-Z]{1,2}$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+  const street = parts.join(" ").split(" ").map((w) => STREET_ABBR[w.toLowerCase()] ?? cap(w)).join(" ");
+  head = `${street}, ${city.split(" ").map(cap).join(" ")}, ${state} ${zip}`;
+  return head;
+}
+const fmtPhone10 = (p: string) => { const d = p.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : null; };
+async function tidyContactValues(locationId: string): Promise<ClaimAction[]> {
+  const out: ClaimAction[] = [];
+  const cvs = await listLocationCustomValues(locationId);
+  const phoneCv = cvs.find((c) => /business phone number/i.test(c.name));
+  const addrCv = cvs.find((c) => /full business address/i.test(c.name));
+  const phone = String(phoneCv?.value ?? "").trim();
+  const want = phone ? fmtPhone10(phone) : null;
+  if (phoneCv && want && want !== phone) {
+    await setExistingCustomValue(locationId, phoneCv.name, want);
+    out.push({ action: "Phone format", ok: true, detail: `"${phone}" → "${want}"` });
+  }
+  const addr = String(addrCv?.value ?? "").trim();
+  const clean = addr ? cleanAddress(addr) : null;
+  if (addrCv && clean && clean !== addr) {
+    await setExistingCustomValue(locationId, addrCv.name, clean);
+    const prof = await setLocationProfile(locationId, { address: clean, phone: want ?? phone }).catch((e) => ({ action: "Business profile", ok: false, detail: errMsg(e) } as ClaimAction));
+    out.push({ action: "Address format", ok: true, detail: `"${addr}" → "${clean}"${prof.ok ? " (custom value + business profile)" : ` (custom value; profile: ${prof.detail})`}` });
+  }
+  return out;
+}
+
 async function preLiveGaps(locationId: string, version: string): Promise<string[]> {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   const cvs = await listLocationCustomValues(locationId);
@@ -548,9 +599,15 @@ const API_STEPS: Record<string, StepFn> = {
     const tz: ClaimAction[] = await syncScheduleTimezones(ob.setup!.location_id).catch((e) => [{ action: "Schedule time zone", ok: false, detail: errMsg(e) }]);
     const cal = await ensureCalendarActive(ob.setup!.location_id).catch((e) => ({ ok: false, note: `calendar: ${errMsg(e)}` }));
     tz.push({ action: "Booking calendar", ok: cal.ok, detail: cal.note });
+    // Fix the phone / address format ourselves and show it (owner 10/21/2026).
+    tz.push(...await tidyContactValues(ob.setup!.location_id).catch((e) => [{ action: "Contact values", ok: false, detail: errMsg(e) } as ClaimAction]));
+    // The number bought in step 9 lives in the AI Agent's report; the check
+    // accepts it even when GHL never attached it to a user.
+    const bought = (stepState(ob.setup, "phone_buy").note ?? "").match(/\+?1?[\s(-]*(\d{3})[\s)-]*(\d{3})[\s-]*(\d{4})\b/);
+    const purchasedPhone = bought ? `${bought[1]}${bought[2]}${bought[3]}` : undefined;
     const tzBad = tz.filter((a) => !a.ok).length;
     const tzNote = tz.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
-    const r = await verifyOnboarding({ ...ob.form, product_id: ob.setup!.product_id ?? ob.form.product_id }, { locationId: ob.setup!.location_id });
+    const r = await verifyOnboarding({ ...ob.form, product_id: ob.setup!.product_id ?? ob.form.product_id }, { locationId: ob.setup!.location_id, purchasedPhone });
     const fails = r.checks.filter((c) => c.status === "fail");
     const pass = r.checks.filter((c) => c.status === "pass").length;
     if (!fails.length && !tzBad) return { status: "done", note: `all green — ${pass} checks passed\n${tzNote}` };

@@ -253,10 +253,17 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                       <select value={fill.version ?? ""} onChange={(e) => setFill((v) => ({ ...v, version: e.target.value }))} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs">
                         <option value="">Pick…</option><option value="V1">V1</option><option value="V2.3">V2.3</option><option value="V3">V3</option>
                       </select>
+                    ) : f.key === "meta_pixel_id" ? (
+                      <span className="mt-0.5 flex items-center gap-1.5">
+                        <select value={/^(later|none|no|n\/a|skip|not yet|no pixel)/i.test(fill.meta_pixel_id ?? "") ? "later" : "now"} onChange={(e) => setFill((v) => ({ ...v, meta_pixel_id: e.target.value === "later" ? "later" : "" }))} className="px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs">
+                          <option value="now">Add it now</option><option value="later">Add it later (final check reminds us)</option>
+                        </select>
+                        {!/^(later|none|no|n\/a|skip|not yet|no pixel)/i.test(fill.meta_pixel_id ?? "") && <input value={fill.meta_pixel_id ?? ""} onChange={(e) => setFill((v) => ({ ...v, meta_pixel_id: e.target.value }))} placeholder="e.g. 1234567890123456" className="flex-1 px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />}
+                      </span>
                     ) : (
                       <input value={fill[f.key] ?? ""} onChange={(e) => setFill((v) => ({ ...v, [f.key]: e.target.value }))} placeholder={f.key === "meta_pixel_id" ? "e.g. 1234567890123456 — or none" : undefined} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />
                     )}
-                    {f.key === "meta_pixel_id" && <span className="block text-[10px] text-[#8595a8]">The client&apos;s pixel: Meta Events Manager → Data sources. No pixel yet? Type <b>none</b> — the step is skipped and the media buyer adds it later.</span>}
+                    {f.key === "meta_pixel_id" && <span className="block text-[10px] text-[#8595a8]">The client&apos;s pixel: Meta Events Manager → Data sources. &quot;Add it later&quot; skips the pixel step; the final check lists it as a reminder instead of stopping.</span>}
                   </label>
                 ))}
               </div>
