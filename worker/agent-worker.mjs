@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 const HOME = join(homedir(), ".pmu-agent");
 const PROFILE = join(HOME, "chrome-profile");
 const RUNS = join(HOME, "runs");
-const TASK_TIMEOUT_MS = 20 * 60_000; // the dashboard re-queues after 25 min
+const TASK_TIMEOUT_MS = 45 * 60_000; // the dashboard re-queues after 50 min (batched setup cards, 10/21/2026)
 const POLL_MS = 30_000;
 mkdirSync(RUNS, { recursive: true });
 
@@ -236,7 +236,7 @@ function runClaude(prompt, dir) {
   const mcpFile = join(dir, "mcp.json");
   writeFileSync(mcpFile, JSON.stringify(mcp));
   return new Promise((resolve) => {
-    const child = spawn(CLAUDE, ["-p", prompt, "--mcp-config", mcpFile, "--strict-mcp-config", "--allowedTools", "mcp__playwright", "--output-format", "json", "--max-turns", "200"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(CLAUDE, ["-p", prompt, "--mcp-config", mcpFile, "--strict-mcp-config", "--allowedTools", "mcp__playwright", "--output-format", "json", "--max-turns", "400"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
@@ -291,7 +291,7 @@ async function doTask(t) {
   const status = needsSignIn ? "needs_teammate" : ["done", "failed", "needs_teammate"].includes(rep?.status) ? rep.status : "failed";
   const summary = needsSignIn
     ? "The Mac Mini's Claude is signed out — open Claude on the Mini, sign in again, and the task will retry"
-    : rep?.summary || (code === null ? "Timed out after 20 minutes — check the account by hand" : `The browser run did not finish (${(err || out).slice(-200).trim() || `exit ${code}`})`);
+    : rep?.summary || (code === null ? "Timed out after 45 minutes — check the account by hand" : `The browser run did not finish (${(err || out).slice(-200).trim() || `exit ${code}`})`);
 
   // Upload the screenshots it named, else any image it saved.
   const named = Array.isArray(rep?.screenshots) ? rep.screenshots : [];

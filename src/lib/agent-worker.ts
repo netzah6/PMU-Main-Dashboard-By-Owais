@@ -18,7 +18,7 @@ import { onCnamProposalClosed, parseCnamConvId } from "@/lib/pool-cnam";
 
 type Svc = SupabaseClient;
 const BUCKET = "agent-proofs";
-const STALE_MS = 25 * 60_000; // a claim older than this is a worker that died
+const STALE_MS = 50 * 60_000; // a claim older than this is a worker that died (batched setup cards run up to 45 min)
 const MAX_ATTEMPTS = 2;
 export const WORKER_KEY = "agent_worker";
 
@@ -180,7 +180,7 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
     .map((f) => ({ name: String(f.name ?? "").slice(0, 80), url: f.url, bytes: Number(f.bytes) || undefined }));
 
   const icon = input.status === "done" ? "✓" : input.status === "needs_teammate" ? "👤" : "✗";
-  const lines = [`${icon} ${input.summary.slice(0, 400)}`, ...(input.steps ?? []).slice(0, 12).map((l) => `• ${String(l).slice(0, 300)}`)];
+  const lines = [`${icon} ${input.summary.slice(0, 400)}`, ...(input.steps ?? []).slice(0, 24).map((l) => `• ${String(l).slice(0, 300)}`)];
   if (!urls.length) lines.push("⚠ no screenshots came back");
   if (files.length) lines.push(`📎 ${files.length === 1 ? "1 file" : `${files.length} files`} attached below — download and send it yourself (the agent never messages clients)`);
   const result = lines.join("\n");
