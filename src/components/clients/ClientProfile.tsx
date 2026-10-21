@@ -388,6 +388,10 @@ export function ClientProfile({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
       toast.success(json.sheetsUpdated ? `${sheetKey} → ${value || "—"} — Sheet updated ✓` : `${sheetKey} → ${value || "—"}`);
+      if (normKey === "assigned" && json.ghlAssign) {
+        if (json.ghlAssign.ok) toast.success(`GoHighLevel owner → ${json.ghlAssign.userName} ✓`);
+        else if (!json.ghlAssign.skipped) toast.error(`GoHighLevel not updated: ${json.ghlAssign.error}`);
+      }
       onUpdate?.(updated);
     } catch (e) {
       toast.error(`${sheetKey} save failed: ${e}`);
