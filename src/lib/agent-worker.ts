@@ -5,6 +5,7 @@ import { confirmToOwner, textOwner as textOwnerFn } from "@/lib/agent-notify";
 import { onPoolSnapshotClosedForSetup, onSetupProposalClosed, parseSetupConvId } from "@/lib/setup-run";
 import { onSnapshotProposalClosed, parseSnapshotConvId } from "@/lib/pool-snapshot";
 import { onA2pProposalClosed, parseA2pConvId } from "@/lib/pool-a2p";
+import { onCnamProposalClosed, parseCnamConvId } from "@/lib/pool-cnam";
 
 // ── AI agent, browser worker (owner, 2026-10-10) ─────────────────────────────
 // Every approved account change is done in a real Chrome on the Mac Mini, on
@@ -73,6 +74,9 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
     if (!retry && parseA2pConvId(r.conversation_id)) {
       try { await onA2pProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result }); } catch { /* the pool row keeps its last note */ }
     }
+    if (!retry && parseCnamConvId(r.conversation_id)) {
+      try { await onCnamProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result }); } catch { /* the pool row keeps its last note */ }
+    }
   }
 
   const { data: next } = await svc.from("agent_proposals").select("*")
@@ -88,7 +92,7 @@ export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | nu
   let business: string | null = null;
   // Setup-run and pool-snapshot cards carry their location; "Clean New
   // Account N" is not a client and has no Clients Master row to resolve.
-  const setupRef = parseSetupConvId(p.conversation_id) ?? parseSnapshotConvId(p.conversation_id);
+  const setupRef = parseSetupConvId(p.conversation_id) ?? parseSnapshotConvId(p.conversation_id) ?? parseA2pConvId(p.conversation_id) ?? parseCnamConvId(p.conversation_id);
   const loc = setupRef ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
   if (loc) { locationId = locationId || loc.locationId; business = loc.businessName || null; }
   if (!locationId) {
@@ -209,6 +213,12 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
   if (parseA2pConvId(p.conversation_id)) {
     try { await onA2pProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
     catch { /* the note keeps its last value; Verify A2P queues it again */ }
+  }
+
+  /* A pool CNAM reset / check-back: the pool row follows the "CNAM: …" line. */
+  if (parseCnamConvId(p.conversation_id)) {
+    try { await onCnamProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
+    catch { /* the weekly sweep queues it again */ }
   }
 
   /* Keep-alive check: no "done" text (it would be noise 4× a day); a failure

@@ -7,6 +7,7 @@ import {
 } from "@/lib/ghl-cleanup";
 import { clearSnapshotMark, queueSnapshotLoad } from "@/lib/pool-snapshot";
 import { queueA2pCheck, queueA2pSweep } from "@/lib/pool-a2p";
+import { queueCnamCheck } from "@/lib/pool-cnam";
 import { readSheetValues, writeRowToSheet, rowsToObjects } from "@/lib/sheets";
 
 export const maxDuration = 300;
@@ -243,6 +244,15 @@ export async function POST(req: NextRequest) {
         notes.push(q.reused ? "snapshot load already queued for the AI Agent" : "snapshot load queued for the AI Agent — ready to use once it's done");
       } catch (e) {
         notes.push(`✗ snapshot task not queued (${e instanceof Error ? e.message : "error"}) — press "Load snapshot" on the pool chip`);
+      }
+      // Owner 10/21/2026: the old client's caller names (CNAM) stay on the
+      // Trust Center and block the next client's registration. The AI Agent
+      // reads them and asks GHL support to remove any that aren't ours.
+      try {
+        const q = await queueCnamCheck(svc, { locationId, poolName, by: auth.email ?? "admin" });
+        notes.push(q.reused ? "CNAM reset already queued" : "CNAM reset queued for the AI Agent (asks GHL support if old names are there)");
+      } catch (e) {
+        notes.push(`✗ CNAM task not queued (${e instanceof Error ? e.message : "error"})`);
       }
       const ready = false; // never at finalize: the snapshot comes first
       const readyNote = notes.join(" · ");

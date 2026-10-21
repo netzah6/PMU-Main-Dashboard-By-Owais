@@ -56,6 +56,9 @@ export async function GET(req: NextRequest) {
     clean_checked_at: r.clean_checked_at,
     snapshot_loaded_at: r.snapshot_loaded_at,
     snapshot_note: r.snapshot_note,
+    cnam_status: r.cnam_status ?? null,
+    cnam_note: r.cnam_note ?? null,
+    cnam_task_id: r.cnam_task_id ?? null,
     readiness: poolReadiness(r),
     // Why this one isn't offered, in the words the team would use.
     blocker: poolBlocker(r),

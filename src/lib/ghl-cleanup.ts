@@ -400,6 +400,11 @@ export type PoolRow = {
   snapshot_queued_at: string | null;
   snapshot_loaded_at: string | null; // confirmed loaded (AI Agent done, or a Re-check saw the template)
   snapshot_note: string | null;
+  // CNAM reset (supabase/pool-cnam.sql, 10/21/2026) — see lib/pool-cnam.
+  cnam_status?: string | null;
+  cnam_note?: string | null;
+  cnam_task_id?: string | null;
+  cnam_updated_at?: string | null;
 };
 
 // Readiness lives in lib/pool-readiness (pure, shared with the Cleanup tab).
