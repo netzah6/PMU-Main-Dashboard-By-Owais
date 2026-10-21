@@ -16,6 +16,7 @@ const VERSION = "2021-07-28";
 //     or be the claim's own recorded location (un-claiming).
 const PROTECTED_LOCATIONS = new Set([
   "SfpNMJ5YU9lBkxss47lK", // PMU Bookings On Demand — view-only, always
+  "asaIf2fxizaCNJ71iywk", // Demo sub-account that owns the test number +1 (760) 733-3106 — never changed (owner 10/21/2026)
 ]);
 export const POOL_NAME_RE = /^clean new account \d+$/i;
 
