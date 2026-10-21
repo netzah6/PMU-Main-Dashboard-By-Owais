@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { writeRowToSheet, getSheetEntryForTable } from "@/lib/sheets";
+import { syncAssignedToGhl, type AssignSyncResult } from "@/lib/ghl-assign";
 
 export async function GET(
   _req: NextRequest,
@@ -56,6 +57,7 @@ export async function PATCH(
 
   // 1. Update Supabase by stable sheet_row key
   let updateErr;
+  let contactIdForAssign: unknown = cleanData["Contact ID"];
   if (scoped) {
     const { data: existing } = await serviceClient
       .from(params.table)
@@ -65,6 +67,7 @@ export async function PATCH(
     if (existing?.data) {
       const merged: Record<string, unknown> = { ...(existing.data as Record<string, unknown>), row_number: rowNumber };
       for (const c of columns!) merged[c] = cleanData[c];
+      contactIdForAssign = merged["Contact ID"];
       ({ error: updateErr } = await serviceClient
         .from(params.table)
         .update({ data: merged, synced_at: new Date().toISOString() })
@@ -108,5 +111,13 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json({ success: true, sheetsUpdated, sheetsError });
+  // 3. Client owner change → same owner on the client's GHL contact.
+  let ghlAssign: AssignSyncResult | null = null;
+  const assignChanged = params.table === "clients_master" && (scoped ? columns!.includes("Assigned") : false);
+  if (assignChanged) {
+    try { ghlAssign = await syncAssignedToGhl(contactIdForAssign, cleanData["Assigned"]); }
+    catch (e) { ghlAssign = { ok: false, error: String(e) }; }
+  }
+
+  return NextResponse.json({ success: true, sheetsUpdated, sheetsError, ghlAssign });
 }
