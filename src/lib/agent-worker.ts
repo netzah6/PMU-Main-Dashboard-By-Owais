@@ -47,10 +47,14 @@ export async function touchWorker(svc: Svc, host: string, task?: string): Promis
   });
 }
 
-export async function claimNext(svc: Svc, host: string): Promise<WorkerTask | null> {
+/* `recover` = the worker just (re)started (watchdog, self-update, crash):
+   there is ONE worker, so every "running" row is an orphan — hand it back
+   now instead of after STALE_MS (Sudbury step 18 sat "working" 40 min,
+   10/21/2026). */
+export async function claimNext(svc: Svc, host: string, recover = false): Promise<WorkerTask | null> {
   await touchWorker(svc, host);
 
-  const staleBefore = new Date(Date.now() - STALE_MS).toISOString();
+  const staleBefore = new Date(Date.now() - (recover ? 0 : STALE_MS)).toISOString();
   const { data: stale } = await svc.from("agent_proposals").select("id, browser_attempts, result, conversation_id")
     .eq("status", "running").lt("browser_claimed_at", staleBefore);
   for (const r of (stale ?? []) as Array<{ id: string; browser_attempts: number; result: string | null; conversation_id: string }>) {
