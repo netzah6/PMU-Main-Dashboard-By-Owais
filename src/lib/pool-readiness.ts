@@ -37,7 +37,7 @@ export function poolBlocker(r: PoolReadinessInput & { clean_note?: string | null
     case "snapshot":
       return r.snapshot_note?.startsWith("✗")
         ? `snapshot load failed — ${r.snapshot_note.slice(1).trim()}`
-        : r.snapshot_task_id ? "waiting for snapshot (AI Agent)" : "no snapshot loaded — load it first";
+        : r.snapshot_task_id ? "waiting for snapshot (AI Agent)" : "no snapshot loaded — the AI Agent loads it when a setup takes the account (or press Load snapshot)";
     default: return "A2P not confirmed";
   }
 }
