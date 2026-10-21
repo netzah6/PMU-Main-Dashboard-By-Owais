@@ -34,6 +34,7 @@ export type RunbookStep = {
   confirm?: boolean;         // the dashboard can do it, but only after a person clicks Approve on the card
   steps?: string[];          // by-hand breakdown for the team (Facebook), shown on the card
   links?: Array<{ label: string; url: string }>;
+  batch?: string;            // AI Agent steps on the same screens go out as ONE card (owner 10/21/2026: faster)
 };
 
 export const RUNBOOK: RunbookStep[] = [
@@ -49,24 +50,24 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 7, key: "webhook_url", section: "B · 💳 Deposit product & payment route", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The AI Agent reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
   { n: 8, key: "route_test", section: "B · 💳 Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
   // C · Phone
-  { n: 9, key: "phone_buy", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
-  { n: 10, key: "phone_a2p", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
-  { n: 11, key: "phone_cnam", section: "C · 📞 Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"", checklist: ["phone_cnam"] },
-  { n: 12, key: "phone_optout", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
-  { n: 13, key: "phone_forward", section: "C · 📞 Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
+  { n: 9, key: "phone_buy", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
+  { n: 10, key: "phone_a2p", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
+  { n: 11, key: "phone_cnam", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"", checklist: ["phone_cnam"] },
+  { n: 12, key: "phone_optout", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
+  { n: 13, key: "phone_forward", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
-  { n: 14, key: "user_create", section: "D · 👤 GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
-  { n: 15, key: "user_password", section: "D · 👤 GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The AI Agent sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
-  { n: 16, key: "user_settings", section: "D · 👤 GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
-  { n: 17, key: "user_calendar", section: "D · 👤 GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
+  { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
+  { n: 15, key: "user_password", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The AI Agent sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
+  { n: 16, key: "user_settings", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
+  { n: 17, key: "user_calendar", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
   // E · Workflows
-  { n: 18, key: "wf_survey", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
-  { n: 19, key: "wf_notify", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - One-Box Booking → Notify Artist\": artist's number set so she gets booking texts" },
-  { n: 20, key: "wf_callkill", section: "E · ⚙️ Workflows", who: "mini", label: "Outgoing-call workflow: no \"Remove from Funnel Survey\" step that kills the AI" },
+  { n: 18, key: "wf_survey", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
+  { n: 19, key: "wf_notify", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - One-Box Booking → Notify Artist\": artist's number set so she gets booking texts" },
+  { n: 20, key: "wf_callkill", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "Outgoing-call workflow: no \"Remove from Funnel Survey\" step that kills the AI" },
   // F · Calendar
-  { n: 21, key: "cal_team", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
-  { n: 22, key: "cal_hours", section: "F · 📅 Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_availability"] },
-  { n: 23, key: "cal_rules", section: "F · 📅 Calendar", who: "mini", label: "Booking rules: Look Busy 75%, slot length and buffer per the template", checklist: ["cal_lookbusy"] },
+  { n: 21, key: "cal_team", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
+  { n: 22, key: "cal_hours", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_availability"] },
+  { n: 23, key: "cal_rules", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Booking rules: Look Busy 75%, slot length and buffer per the template", checklist: ["cal_lookbusy"] },
   { n: 24, key: "cal_id", section: "F · 📅 Calendar", who: "api", label: "Save the calendar ID to \"CC - Permanent Makeup Transformation Calendar ID\"" },
   // G · Funnel
   { n: 25, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Create the one-box funnel at book.pmu-care.com/<slug> and set \"CC - Deposit Funnel URL (V3)\"", checklist: ["funnel_onebox"] },
@@ -358,10 +359,27 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
 }
 
 // What the AI tab card shows as the "request" for a setup step.
-export function miniContext(step: RunbookStep, f: SetupFacts): string {
+/* One plan for several steps on the same screens (owner 10/21/2026: one
+   Chrome start and sign-in instead of five). The report must carry one
+   "STEP n: done|failed — …" line per step so the card ticks each one. */
+export function batchPlan(group: RunbookStep[], f: SetupFacts): string[] {
+  const out: string[] = [
+    `This card covers ${group.length} steps of the same setup, in order. Do them all in this one session; if one step cannot be done, say so in its STEP line and still do the remaining steps.`,
+  ];
+  for (const g of group) {
+    out.push(`═══ STEP ${g.n} · ${g.title ?? g.label} ═══`);
+    for (const line of miniPlan(g, f)) out.push(`[step ${g.n}] ${line}`);
+  }
+  out.push(`REPORT (required): the FIRST lines of your "steps" array must be one per step, exactly "STEP ${group[0].n}: done — <what you did>" or "STEP ${group[0].n}: failed — <why>" (one line for each of ${group.map((g) => g.n).join(", ")}). Status "done" only if every step is done; otherwise "needs_teammate". Screenshots: at least one per step, named "step${group[0].n}-after.png" etc.`);
+  return out;
+}
+
+export function miniContext(step: RunbookStep, f: SetupFacts, group: RunbookStep[] = [step]): string {
   const form = f.form;
   const lines = [
-    `New client setup for ${form.business_name ?? ""} — step ${step.n} of 38: ${step.label}`,
+    group.length > 1
+      ? `New client setup for ${form.business_name ?? ""} — steps ${group[0].n}–${group[group.length - 1].n} of 38 in one go: ${group.map((g) => g.title ?? g.label).join(" · ")}`
+      : `New client setup for ${form.business_name ?? ""} — step ${step.n} of 38: ${step.label}`,
     `Owner: ${form.owner_name ?? ""} · email ${form.email ?? "—"} · phone ${form.phone ?? "—"}`,
     `Studio: ${form.address ?? "—"} · hours: ${form.business_hours ?? "—"}`,
     `Services: ${form.services ?? "—"} · version ${form.version ?? "—"}`,

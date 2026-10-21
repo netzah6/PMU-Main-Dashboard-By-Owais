@@ -15,7 +15,7 @@ import { queueSnapshotLoad } from "@/lib/pool-snapshot";
 import { writeRowToSheet, getSheetEntryForTable } from "@/lib/sheets";
 import { confirmToOwner, dashboardUrl, proposalLink, textOwner } from "@/lib/agent-notify";
 import {
-  RUNBOOK, runSteps, stepByKey, stepState, isSettled, miniPlan, miniContext, missingFields, NO_PIXEL_RE,
+  RUNBOOK, runSteps, stepByKey, stepState, isSettled, miniPlan, miniContext, batchPlan, missingFields, NO_PIXEL_RE,
   type RunbookStep, type SetupState, type StepState, type SetupFacts,
 } from "@/lib/setup-runbook";
 
@@ -561,19 +561,36 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   const f = facts(ob);
   const attempt = (setup.log.filter((l) => l.key === next.key && l.msg.startsWith("card")).length) + 1;
   // An "asks you" step approved up front at Approve time runs like any AI Agent step.
-  const isAsk = next.who === "ask" && !(setup.preapproved ?? []).includes(next.key);
+  const asks = (s: RunbookStep) => s.who === "ask" && !(setup.preapproved ?? []).includes(s.key);
+  const isAsk = asks(next);
+  // Batch (owner 10/21/2026): the following "todo" steps of the same batch
+  // (same screens) ride on this card, as long as nothing gates them except
+  // steps already settled or in the card itself. An unapproved "asks you"
+  // step ends the batch — it gets its own pending card.
+  const group: RunbookStep[] = [next];
+  if (next.batch && !isAsk) {
+    const idx = browserSteps.indexOf(next);
+    for (const s of browserSteps.slice(idx + 1)) {
+      if (s.batch !== next.batch || stepState(setup, s.key).status !== "todo" || asks(s)) break;
+      const gated = (needs[s.key] ?? []).some((k) => !isSettled(stepState(setup, k)) && !group.some((g) => g.key === k));
+      if (gated) break;
+      group.push(s);
+    }
+  }
+  const batched = group.length > 1;
+  const nums = `${group[0].n}–${group[group.length - 1].n}`;
   const { data: ins, error } = await svc.from("agent_proposals").insert({
     conversation_id: setupConvId(onboardingId, next.key),
-    message_id: `${next.key}#${attempt}`,
+    message_id: `${group.map((g) => g.key).join("+")}#${attempt}`,
     contact_id: null,
     contact_name: ob.form.business_name.trim(),
     channel: null,
-    client_message: miniContext(next, f),
-    summary: `Setup step ${next.n}/${RUNBOOK.length}: ${next.label}`.slice(0, 500),
+    client_message: miniContext(next, f, group),
+    summary: (batched ? `Setup steps ${nums}/${RUNBOOK.length}: ${group.map((g) => g.title ?? g.label).join(" · ")}` : `Setup step ${next.n}/${RUNBOOK.length}: ${next.label}`).slice(0, 500),
     action_type: "account_change",
     proposed_reply: null,
-    action_detail: `${next.label}${next.how ? ` — ${next.how}` : ""}`.slice(0, 1500),
-    action_plan: miniPlan(next, f).map((what) => ({ type: "manual", what })),
+    action_detail: (batched ? group.map((g) => `${g.n}. ${g.label}`).join("\n") : `${next.label}${next.how ? ` — ${next.how}` : ""}`).slice(0, 1500),
+    action_plan: (batched ? batchPlan(group, f) : miniPlan(next, f)).map((what) => ({ type: "manual", what })),
     location_id: setup.location_id,
     ...(isAsk ? {} : { status: "queued_browser", decided_by: `${DASHBOARD} (setup run)`, decided_at: now(), executed_at: now(), result: "⏳ Waiting for the AI Agent (new client setup)" }),
   }).select("id").maybeSingle();
@@ -584,7 +601,9 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   const pid = (ins as { id: string }).id;
   await patch(svc, onboardingId, (o) => {
     if (!o.setup) return;
-    setStep(o.setup, next.key, { status: isAsk ? "waiting_owner" : "queued", who: isAsk ? "You → AI Agent" : "AI Agent", proposal_id: pid, note: isAsk ? "waiting for your Approve in the AI tab" : "queued for the AI Agent" }, `card ${pid} ${isAsk ? "pending (asks you)" : "queued"}`);
+    for (const g of group) {
+      setStep(o.setup, g.key, { status: isAsk ? "waiting_owner" : "queued", who: isAsk ? "You → AI Agent" : "AI Agent", proposal_id: pid, note: isAsk ? "waiting for your Approve in the AI tab" : batched ? `queued for the AI Agent (steps ${nums} on one card)` : "queued for the AI Agent" }, g.key === next.key ? `card ${pid} ${isAsk ? "pending (asks you)" : batched ? `queued with steps ${nums}` : "queued"}` : undefined);
+    }
     return { setup: o.setup };
   });
   if (isAsk) {
@@ -606,19 +625,32 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
   const ok = p.status === "done";
   const text = String(p.result ?? "");
 
+  // A batched card (several steps, one proposal): each step follows its own
+  // "STEP n: done|failed — …" line; a step without a line follows the card.
+  const perStep = new Map<number, { ok: boolean; note: string }>();
+  for (const m of text.matchAll(/STEP\s+(\d+)\s*:\s*(done|failed|skipped)\b\s*[—\-–:]?\s*([^\n]*)/gi)) perStep.set(Number(m[1]), { ok: m[2].toLowerCase() === "done", note: m[3].trim() });
+  const closedKeys: string[] = [];
+
   await patch(svc, ref.onboardingId, (o) => {
     if (!o.setup) return;
     const cur = o.setup.steps[ref.key];
     if (cur?.proposal_id && cur.proposal_id !== p.id) return; // an older card for a retried step
-    // "SUPPORT TICKET: …" in a done report = finished as far as the AI Agent
-    // can, a person follows up with GHL support (stale CNAM on a recycled
-    // account, 10/21/2026). Shown amber, the run goes on.
-    const status: StepState["status"] = ok ? (/\bSUPPORT TICKET\b/i.test(text) ? "warn" : "done") : "failed";
-    setStep(o.setup, ref.key, { status, who: "AI Agent", note: text.slice(0, 1500), screenshots: shots, error: ok ? undefined : (p.status === "needs_teammate" ? "the AI Agent needs a teammate — see its note" : "the AI Agent could not finish") }, `card ${p.id} → ${p.status}`);
+    const members = runSteps().filter((s) => o.setup!.steps[s.key]?.proposal_id === p.id);
+    const group = members.length ? members : [step];
     const checklist = { ...o.checklist };
-    if (ok) tick(checklist, step.checklist, "AI Agent");
-    // Step 15: the password the Mini set by the team rule, kept on the card.
-    if (ok && ref.key === "user_password") o.setup.password = employeePassword(String(o.form.owner_name ?? ""));
+    for (const g of group) {
+      const line = group.length > 1 ? perStep.get(g.n) : undefined;
+      const stepOk = line ? line.ok : ok;
+      const note = line ? `${line.ok ? "✓" : "✗"} ${line.note}`.trim() : text;
+      // "SUPPORT TICKET: …" in a done report = finished as far as the AI Agent
+      // can, a person follows up with GHL support (stale CNAM on a recycled
+      // account, 10/21/2026). Shown amber, the run goes on.
+      const status: StepState["status"] = stepOk ? (/\bSUPPORT TICKET\b/i.test(note) ? "warn" : "done") : "failed";
+      setStep(o.setup, g.key, { status, who: "AI Agent", note: note.slice(0, 1500), screenshots: g.key === ref.key ? shots : undefined, error: stepOk ? undefined : (p.status === "needs_teammate" || line ? "the AI Agent needs a teammate — see its note" : "the AI Agent could not finish") }, `card ${p.id} → ${p.status}${line ? ` (step ${g.n}: ${line.ok ? "done" : "failed"})` : ""}`);
+      if (stepOk) { tick(checklist, g.checklist, "AI Agent"); closedKeys.push(g.key); }
+      // Step 15: the password the Mini set by the team rule, kept on the card.
+      if (stepOk && g.key === "user_password") o.setup.password = employeePassword(String(o.form.owner_name ?? ""));
+    }
     // Step 7: the payment route URL the Mini read off the workflow editor.
     if (ok && ref.key === "webhook_url") {
       const m = text.match(/https:\/\/(?:services|backend)\.leadconnectorhq\.com\/hooks\/[A-Za-z0-9/_-]+/);
@@ -632,7 +664,7 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
      away (owner 2026-10-20) — whatever the AI Agent did with the hours, a
      schedule left in Israel or another US zone shifts every slot. The last
      check (step 32) still re-checks it. */
-  if (ref.key === "cal_hours") {
+  if (closedKeys.includes("cal_hours")) {
     const loc = (await loadOb(svc, ref.onboardingId)).setup?.location_id;
     if (loc) {
       const tz: ClaimAction[] = await syncScheduleTimezones(loc).catch((e) => [{ action: "Schedule time zone", ok: false, detail: errMsg(e) }]);
