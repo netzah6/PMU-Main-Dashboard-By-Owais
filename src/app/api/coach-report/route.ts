@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { getCoachScope } from "@/lib/coach";
-import { fileAlert } from "@/lib/alerts";
 
 export const fetchCache = "force-no-store";
 
@@ -10,8 +9,10 @@ export const fetchCache = "force-no-store";
    coaches used to file through a GHL form, submitted from the dashboard
    instead. The coach classifies every client in THEIR book (Clients Master
    "Assigned"); the server compares the answers against the dashboard's own
-   status per client and files the result as a "coach_tracker" alert for the
-   admin's Alerts tab, mismatches called out. */
+   status per client and stores the result; the admin reviews every
+   submission (per-client answers, referrals, mismatches, pay line) on the
+   Coach Report tab itself. Owner 2026-10-21: it used to also land as a
+   "coach_tracker" card on the Alerts tab, which drowned that tab — no more. */
 
 type Reported = "active" | "paused_resuming" | "churned";
 const REPORTED_LABEL: Record<Reported, string> = {
@@ -81,7 +82,24 @@ export async function GET(req: NextRequest) {
   if (coach) q = q.ilike("coach", coach);
   const { data: subs } = coach || auth.role === "admin" ? await q : { data: [] };
 
-  return NextResponse.json({ coach, coaches: auth.role === "admin" ? coaches : [], roster, submissions: subs ?? [] });
+  /* Pay line per report: live count in that month's 20th snapshot for that
+     coach → $400 + $30 × live. Computed here rather than stored so an older
+     report still shows it, and so a re-taken snapshot is reflected. */
+  const dates = Array.from(new Set((subs ?? []).map((s) => s.snapshot_date).filter((d): d is string => !!d)));
+  const liveBy = new Map<string, number>();
+  if (dates.length) {
+    const { data: snapRows } = await svc.from("coach_snapshots").select("taken_at, coach").in("taken_at", dates).eq("status", "Live");
+    for (const r of snapRows ?? []) {
+      const k = `${r.taken_at}|${String(r.coach).toLowerCase()}`;
+      liveBy.set(k, (liveBy.get(k) ?? 0) + 1);
+    }
+  }
+  const submissions = (subs ?? []).map((s) => {
+    const live = s.snapshot_date ? liveBy.get(`${s.snapshot_date}|${String(s.coach).toLowerCase()}`) ?? 0 : null;
+    return { ...s, snapshot_live: live, salary: live === null ? null : 400 + 30 * live };
+  });
+
+  return NextResponse.json({ coach, coaches: auth.role === "admin" ? coaches : [], roster, submissions });
 }
 
 export async function POST(req: NextRequest) {
@@ -154,7 +172,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  /* The month is paid from its 20th snapshot — pull it for the pay line.
+  /* The month is paid from its 20th snapshot — remember which one applies.
      Range is [1st, 1st-of-next-month): a "-31" upper bound is an invalid
      date in months with 30 days and Postgres rejects the whole query.
      Snapshot statuses are initcap ("Live") — take_coach_snapshot writes
@@ -164,18 +182,6 @@ export async function POST(req: NextRequest) {
   const nextMonth = `${mm === 12 ? my + 1 : my}-${String(mm === 12 ? 1 : mm + 1).padStart(2, "0")}-01`;
   const { data: snapDates } = await svc.from("coach_snapshots").select("taken_at").gte("taken_at", `${month}-01`).lt("taken_at", nextMonth).order("taken_at", { ascending: false }).limit(1);
   const snapshotDate: string | null = snapDates?.[0]?.taken_at ?? null;
-  let snapLive = 0;
-  if (snapshotDate) {
-    const { count } = await svc.from("coach_snapshots").select("id", { count: "exact", head: true })
-      .eq("taken_at", snapshotDate).eq("coach", coach).eq("status", "Live");
-    snapLive = count ?? 0;
-  }
-
-  const counts = {
-    active: entries.filter((e) => e.reported === "active").length,
-    paused_resuming: entries.filter((e) => e.reported === "paused_resuming").length,
-    churned: entries.filter((e) => e.reported === "churned").length,
-  };
   const extra = clean(body.extra).slice(0, 1000);
 
   const { data: inserted, error: insErr } = await svc
@@ -184,37 +190,6 @@ export async function POST(req: NextRequest) {
     .select("id")
     .single();
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
-
-  /* One alert per submission. A resubmission supersedes the older open card
-     for the same coach+month, so the board never shows stale numbers. */
-  const monthLabel = new Date(`${month}-01T12:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
-  const { data: openOld } = await svc.from("alerts").select("id, source_key").eq("type", "coach_tracker").eq("status", "open");
-  const oldIds = (openOld ?? []).filter((a) => String(a.source_key).startsWith(`coach-report:${coach.toLowerCase()}:${month}:`)).map((a) => a.id);
-  if (oldIds.length) {
-    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (superseded by resubmission)", resolved_at: new Date().toISOString() }).in("id", oldIds);
-  }
-  const detailLines = [
-    `${coach} — ${monthLabel}: ${counts.active} active · ${counts.paused_resuming} paused-resuming · ${counts.churned} churned`,
-    snapshotDate ? `Pay check: the ${snapshotDate} snapshot has ${snapLive} live for ${coach} → salary $${400 + 30 * snapLive}. Coach reports ${counts.active} active.` : `No ${monthLabel} snapshot yet (taken on the 20th) — pay line will use it once taken.`,
-    ...(referrals.length
-      ? [`Referrals claimed: ${referrals.length} × $${REFERRAL_BONUS} = $${referrals.length * REFERRAL_BONUS} bonus`,
-         ...referrals.map((r) => `   • ${r.referred_name} — referred by ${r.referred_by}${r.note ? ` (${r.note})` : ""}`)]
-      : []),
-    ...(mismatches.length
-      ? ["", `MISMATCHES (${mismatches.length}):`, ...mismatches.slice(0, 12).map((m) => `• ${m}`),
-         ...(mismatches.length > 12 ? [`…and ${mismatches.length - 12} more — full list on the Coach Report tab`] : [])]
-      : ["", "Everything matches the dashboard ✓"]),
-    ...(extra ? ["", `Coach notes: ${extra}`] : []),
-  ];
-  await fileAlert(svc, {
-    type: "coach_tracker",
-    severity: mismatches.length ? "high" : "medium",
-    title: `Coach report — ${coach} — ${monthLabel}: ${mismatches.length ? `${mismatches.length} mismatch${mismatches.length === 1 ? "" : "es"}` : "all matches ✓"}${referrals.length ? ` · ${referrals.length} referral${referrals.length === 1 ? "" : "s"} ($${referrals.length * REFERRAL_BONUS})` : ""}`,
-    detail: detailLines.join("\n"),
-    source_key: `coach-report:${coach.toLowerCase()}:${month}:${inserted.id}`,
-    meta: { csm: coach, month, counts, snapshot_date: snapshotDate, snapshot_live: snapLive, mismatch_count: mismatches.length, report_id: inserted.id,
-            referrals: referrals.length, referral_bonus: referrals.length * REFERRAL_BONUS },
-  });
 
   return NextResponse.json({ ok: true, id: inserted.id, mismatchCount: mismatches.length, referrals: referrals.length, referralBonus: referrals.length * REFERRAL_BONUS });
 }
