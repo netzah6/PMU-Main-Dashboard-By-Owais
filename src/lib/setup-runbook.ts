@@ -56,7 +56,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 12, key: "phone_optout", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
   { n: 13, key: "phone_forward", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
-  { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "ask", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
+  { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
   { n: 15, key: "user_password", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The AI Agent sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
   { n: 16, key: "user_settings", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
   { n: 17, key: "user_calendar", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
@@ -151,8 +151,9 @@ export const OPTIONAL_FIELDS: RequiredField[] = [
   { key: "connect_caller_id", label: "Connect the client's Caller ID? (yes / no)" },
 ];
 
-/* "Asks you" steps the owner can approve up front at Approve time, so the
-   run never waits on a card in the AI tab (owner 10/20/2026). */
+/* "Asks you" steps are decided up front at Approve time (owner 10/21/2026:
+   "no stops during the onboarding"): ticked → the AI Agent does it like any
+   other step; unticked → the step is skipped. Nothing waits in the AI tab. */
 export const PREAPPROVABLE = RUNBOOK.filter((s) => s.who === "ask").map((s) => ({ key: s.key, title: s.title ?? s.label, label: s.label }));
 
 export const RUNBOOK_SECTIONS = Array.from(new Set(RUNBOOK.map((s) => s.section)));

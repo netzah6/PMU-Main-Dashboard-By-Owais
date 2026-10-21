@@ -148,6 +148,9 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
   };
   // Team / client / owner steps are shown, not run.
   for (const s of RUNBOOK) if (!["api", "mini", "ask"].includes(s.who) || s.later) setup.steps[s.key] = { status: "manual" };
+  // An "asks you" step left unticked at Approve is skipped, not asked again
+  // mid-run (owner 10/21/2026: "if not, just move on — no stops").
+  for (const s of RUNBOOK) if (s.who === "ask" && !(setup.preapproved ?? []).includes(s.key)) setup.steps[s.key] = { status: "skipped", who: by, at: now(), note: "not ticked at Approve — skipped (tick it next time to have the AI Agent do it)" };
   if (ob.claim) {
     for (const k of ["account_check", "account_take", "account_info", "account_cvs", "cal_id"]) setup.steps[k] = { status: "done", who: ob.claim.claimed_by ?? "Claim button", at: ob.claim.claimed_at ?? now(), note: `done earlier by the Claim button (${ob.claim.original_name} → ${ob.claim.business_name})` };
     const pid = String(ob.form.product_id ?? "").trim();
