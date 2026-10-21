@@ -116,14 +116,27 @@ export async function resolveClientLocation(
   const ownerName = String(row["Owner Full Name"] ?? "").trim();
   const businessName = String(row["Business Name"] ?? "").trim();
 
-  const { data: conv } = await svc
-    .from("ghl_conversations")
-    .select("location_id, synced_at")
+  /* Which sub-account is theirs NOW. ghl_sync_status is the ingest's live
+     owner → location map (it drops pooled boxes); conversations come second
+     because a returning client's old chats still sit under the location they
+     had years ago (Ngoc Nguyen, 2026-10-21: 545 old rows pointed the AI Agent
+     at "Clean New Account 93" instead of her new Sally Nails And Spa box). */
+  const { data: st } = await svc
+    .from("ghl_sync_status")
+    .select("location_id")
     .eq("owner_key", ownerName.toLowerCase())
-    .order("synced_at", { ascending: false })
-    .limit(1)
     .maybeSingle();
-  let locationId = (conv as { location_id?: string } | null)?.location_id ?? "";
+  let locationId = (st as { location_id?: string } | null)?.location_id ?? "";
+  if (!locationId) {
+    const { data: conv } = await svc
+      .from("ghl_conversations")
+      .select("location_id, synced_at")
+      .eq("owner_key", ownerName.toLowerCase())
+      .order("synced_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    locationId = (conv as { location_id?: string } | null)?.location_id ?? "";
+  }
   if (!locationId && businessName) {
     const { data: ob } = await svc
       .from("onebox_clients")

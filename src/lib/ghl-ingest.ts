@@ -99,6 +99,15 @@ export async function getV3Accounts(): Promise<V3Account[]> {
     if (!ownerKey || seen.has(ownerKey)) continue;
     const locName = locNameById.get(locationId);
     if (locName) {
+      /* Back in the pool ("Clean New Account N") = wiped and waiting for a
+         new client. A returning client gets a NEW sub-account (owner,
+         2026-10-21: Ngoc Nguyen / Sally Nails And Spa came back on
+         38Z6…, her 2023 box became Clean New Account 93 — the stale row
+         kept her synced to the empty pool box and the AI Agent went there). */
+      if (/clean new account/i.test(locName)) {
+        console.warn(`[ghl-ingest] keys-sheet row for "${name}" points at ${locationId}, now "${locName}" — pooled, skipped`);
+        continue;
+      }
       const nowOwner = matchClient(locName, locName);
       if (nowOwner && nowOwner !== ownerKey) {
         console.warn(`[ghl-ingest] keys-sheet row for "${name}" points at ${locationId}, now "${locName}" (${nowOwner}) — recycled, skipped`);
@@ -154,6 +163,9 @@ export async function getV3Accounts(): Promise<V3Account[]> {
     const ownerKey = String(r.owner_key ?? "").trim().toLowerCase();
     if (!ownerKey || !r.location_id) continue;
     if (seen.has(ownerKey) || !rosterKeys.has(ownerKey)) continue;
+    // Same pool guard as above: a remembered location that is now a
+    // "Clean New Account N" is not this client's any more.
+    if (/clean new account/i.test(locNameById.get(r.location_id) ?? "")) continue;
     seen.add(ownerKey);
     out.push({ ownerKey, locationId: r.location_id, token: "", viaAgency: true });
   }
