@@ -159,9 +159,11 @@ export default function CoachReportPage() {
       {loading ? (
         <div className="text-sm text-[#697a91]"><Loader2 className="w-4 h-4 animate-spin inline" /> Loading your clients…</div>
       ) : !coach ? (
-        <div className="text-sm text-[#697a91] border border-[#e4ebf2] rounded-xl bg-white p-4">
-          {isAdmin ? "Pick a coach above to file their report. Recent reports from every coach are below — click one to open every client, referral and flagged item." : "No client book matches your login — ask an admin to check that your email matches your name in the Clients sheet."}
-        </div>
+        isAdmin ? null : (
+          <div className="text-sm text-[#697a91] border border-[#e4ebf2] rounded-xl bg-white p-4">
+            No client book matches your login — ask an admin to check that your email matches your name in the Clients sheet.
+          </div>
+        )
       ) : (
         <>
           <div className="border border-[#e4ebf2] rounded-xl bg-white p-4">
