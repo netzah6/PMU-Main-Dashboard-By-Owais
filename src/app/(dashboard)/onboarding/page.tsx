@@ -558,10 +558,11 @@ export default function OnboardingPage() {
         </details>
       )}
 
-      <div className={SHOW_ONBOARDING_LIST ? "grid grid-cols-1 lg:grid-cols-[minmax(360px,540px)_minmax(0,1fr)] gap-5 items-start" : "max-w-5xl mx-auto"}>
-      {/* LEFT — onboarding */}
+      {/* Owner 10/22/2026: onboarding on top (a client picker, not every card),
+          the setup check below it — one column, not side by side. */}
+      <div className="max-w-5xl mx-auto space-y-5">
       {SHOW_ONBOARDING_LIST && (
-      <div className="space-y-4 min-w-0">
+      <div className="rounded-xl border border-[#e2e8f0] bg-white p-4 space-y-4 min-w-0">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-[#1f3559]">Client Onboarding</h1>
@@ -649,51 +650,51 @@ export default function OnboardingPage() {
         <div className="py-12 text-center text-[#8595a8]">No onboardings yet — click <strong>New Client</strong> to start one.</div>
       ) : (
         <div className="space-y-2">
-          {list.map((o) => {
-            const pr = progress(o);
-            const pct = pr.pct;
+          {(() => {
+            const label = (o: Onboarding) => {
+              const st = o.status === "done" ? "complete" : o.setup?.status === "failed" ? "setup failed" : o.setup?.status === "waiting" ? "needs you" : o.setup?.status === "done" ? "setup done" : o.setup?.status ? "setup running" : "not started";
+              return `${o.form.business_name}${o.form.owner_name ? ` · ${o.form.owner_name}` : ""} — ${progress(o).pct}% · ${st}`;
+            };
+            const active = list.filter((o) => o.status !== "done" && progress(o).pct < 100);
+            const finished = list.filter((o) => !active.includes(o));
             return (
-              <button key={o.id} onClick={() => setOpenId(o.id)}
-                className="w-full text-left rounded-xl border border-[#e4ebf2] bg-white p-3.5 hover:border-[#15B7AE] transition-colors">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-[#1f3559] truncate">{o.form.business_name}</span>
-                      <span className="text-xs text-[#697a91]">{o.form.owner_name}</span>
-                      {o.form.version && <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold", verBadge(o.form.version))}>{o.form.version}</span>}
-                      {o.status === "done" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#e6f7ee] text-[#15803d]">✓ COMPLETE</span>}
-                      {o.setup?.status && o.status !== "done" && (
-                        <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold",
-                          o.setup.status === "done" ? "bg-[#e6f7ee] text-[#15803d]" : o.setup.status === "failed" ? "bg-[#fde8ee] text-[#e11d48]" : o.setup.status === "waiting" ? "bg-[#fff1df] text-[#b35a00]" : "bg-[#e6edfb] text-[#2f5fb8]")}>
-                          🧩 {o.setup.status === "done" ? "SETUP DONE" : o.setup.status === "failed" ? "SETUP FAILED" : o.setup.status === "waiting" ? "NEEDS YOU" : "SETUP RUNNING"}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-[#8595a8] mt-0.5">Started {new Date(o.created_at).toLocaleDateString("en-US")}{o.created_by ? ` by ${o.created_by.split("@")[0]}` : ""}</p>
+              <>
+                <label className="block text-[11px] font-semibold text-[#697a91]">Open a client&apos;s setup</label>
+                <select value="" onChange={(e) => { if (e.target.value) setOpenId(e.target.value); }}
+                  className="w-full px-3 py-2.5 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] focus:outline-none focus:border-[#15B7AE]">
+                  <option value="">Pick a client… ({active.length} in setup{finished.length ? `, ${finished.length} finished` : ""})</option>
+                  {active.length > 0 && <optgroup label={`🧩 In setup (${active.length})`}>{active.map((o) => <option key={o.id} value={o.id}>{label(o)}</option>)}</optgroup>}
+                  {finished.length > 0 && <optgroup label={`✅ Finished (${finished.length})`}>{finished.map((o) => <option key={o.id} value={o.id}>{label(o)}</option>)}</optgroup>}
+                </select>
+                {active.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {active.map((o) => {
+                      const pct = progress(o).pct;
+                      const bad = o.setup?.status === "failed" || o.setup?.status === "waiting";
+                      return (
+                        <button key={o.id} onClick={() => setOpenId(o.id)} title={label(o)}
+                          className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold transition-colors hover:border-[#15B7AE]",
+                            bad ? "border-[#f5c2cf] bg-[#fff5f7] text-[#be123c]" : "border-[#d7e0ea] bg-[#f8fafc] text-[#1f3559]")}>
+                          {o.form.business_name} <span className="text-[#0e8f88]">{pct}%</span>{bad && <span>⚠</span>}
+                          <ChevronRight size={12} className="text-[#94a3b8]" />
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="shrink-0 flex items-center gap-3">
-                    <div className="w-28 hidden sm:block">
-                      <div className="h-2 rounded-full bg-[#f1f5f9] overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct === 100 ? "#15803d" : "#15B7AE" }} />
-                      </div>
-                    </div>
-                    <span className={cn("text-sm font-bold", pct === 100 ? "text-[#15803d]" : "text-[#0e8f88]")}>{pct}%</span>
-                    <ChevronRight size={16} className="text-[#94a3b8]" />
-                  </div>
-                </div>
-              </button>
+                )}
+              </>
             );
-          })}
+          })()}
         </div>
       )}
       </div>
-      )}{/* /LEFT */}
+      )}{/* /onboarding */}
 
-      {/* RIGHT — Check Setup */}
-      <div className={SHOW_ONBOARDING_LIST ? "lg:sticky lg:top-4" : undefined}>
+      {/* Below — Check Setup */}
+      <div>
         <CheckPanel query={checkQuery} setQuery={setCheckQuery} version={checkVersion} setVersion={setCheckVersion} running={checkRunning} result={checkResult} onRun={runCheck} businesses={list.map((o) => o.form.business_name).filter(Boolean)} />
       </div>
-      </div>{/* /grid */}
+      </div>{/* /stack */}
     </div>
   );
 }
