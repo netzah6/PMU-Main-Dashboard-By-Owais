@@ -143,7 +143,6 @@ export default function CoachReportPage() {
       </div>
       {isAdmin && (
         <label className="grid gap-0.5 mb-3 max-w-xs">
-          <span className="text-[10px] font-medium text-[#697a91]">Coach (admin view)</span>
           <select value={coach} disabled={loading}
             onChange={(e) => { setCoach(e.target.value); setDone(null); void load(e.target.value); }}
             className="border border-[#e4ebf2] rounded-lg px-3 py-2 text-sm bg-white disabled:opacity-60">
