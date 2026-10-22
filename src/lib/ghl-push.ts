@@ -123,6 +123,7 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
             `Current revenue: ${a.rev}`,
             `Desired revenue: ${a.want}`,
             `What sets them apart: ${a.edge}`,
+            ...(!a.program && a.services ? [`Services: ${a.services}`] : []),
             ...(a.program ? [
               `Program: ${a.program}`,
               `Services: ${a.services}`,

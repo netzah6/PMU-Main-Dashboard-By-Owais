@@ -403,9 +403,14 @@
     window.fbq("track", "PageView");
   }
 
-  /* ---------- survey definition (mirrors the original 9-slide survey) ---------- */
+  /* ---------- survey definition (the original survey + a PMU-only screen) ---------- */
+  /* Services screen (owner, 2026-10-22): regular makeup artists were booking
+     discovery calls the setter then disqualified — anyone who offers no
+     permanent makeup at all stops here, before contact details. */
+  var NON_PMU = "Regular makeup, lashes or hair (not permanent makeup)";
   var QS_STD = [
     { key: "area", type: "text", title: "First — what area do you serve?", note: "We partner with one PMU artist per area, so this decides everything.", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
+    { key: "services", type: "multi", title: "Which services do you offer?", note: "We only work with permanent makeup artists.", opts: ["Permanent Makeup Eyebrows", "Lip Blush", "Eyeliner", "Scar Camouflage", "Scalp Micropigmentation", "Tattoo Removal", NON_PMU] },
     { key: "spots", type: "radio", title: "How many spots do you need?", opts: ["I'm a single PMU artist", "2 locations", "3 locations", "4 locations", "5+ locations"] },
     { key: "weekly", type: "radio", title: "How many bookings can you handle every week?", opts: ["10–20 bookings", "20–50 bookings", "50–100 bookings", "100–200 bookings", "200+ bookings"] },
     { key: "start", type: "radio", title: "If accepted, how soon are you ready to start receiving qualified booking opportunities?", opts: ["I'm ready right now", "I'm ready in a few weeks", "I'm ready in a few months"] },
@@ -426,7 +431,7 @@
   function lipPrice(a) { return Number(a.lipprice) || 0; }
   var FLEX_NO = "No — I’d rather keep my current price";
   function disqualifiedReason(a) {
-    if (!PPS) return null;
+    if (!PPS) return a.services && !a.services.some(function (s) { return s !== NON_PMU; }) ? "nonpmu" : null;
     if (a.services && !hasBrows(a) && !hasLip(a)) return "noservice";
     if (a.browflex === FLEX_NO || a.lipflex === FLEX_NO) return "price";
     return null;
@@ -521,6 +526,9 @@
   }
   function sendComplete() {
     var b = leadBase();
+    /* Only the real service names reach GHL — its multi-select field has
+       no option for the non-PMU answer. */
+    if (!PPS) b.services = (S.answers.services || []).filter(function (s) { return s !== NON_PMU; }).join(", ");
     if (PPS) {
       b.services = (S.answers.services || []).join(", ");
       b.browprice = S.answers.browprice || "";
@@ -707,6 +715,14 @@
        is nothing to send to GHL here — the standard-program button below
        is the lead's next step. */
     var h = '<div class="donewrap">';
+    if (why === "nonpmu") {
+      h += '<h2 class="q-title" style="text-align:center">Thanks' + (f ? ", " + esc(f) : "") + " — we only work with permanent makeup artists</h2>";
+      h += '<p class="q-note" style="text-align:center">Our system books clients for <b>permanent makeup treatments</b> — eyebrows, lip blush and eyeliner. Without permanent makeup on your menu we can’t fill your calendar, so we can’t take the spot right now.</p>';
+      h += '<div class="backrow"><button type="button" class="backlink" id="ob-qback">← Change my answers</button></div></div>';
+      render(h, false);
+      $("ob-qback").onclick = function () { S.step = QS.findIndex(function (q) { return q.key === "services"; }); showStep(true); };
+      return;
+    }
     h += '<h2 class="q-title" style="text-align:center">Thanks' + (f ? ", " + esc(f) : "") + " — not a match for pay-per-appointment yet</h2>";
     if (why === "noservice") h += '<p class="q-note" style="text-align:center">Our pay-per-appointment program is built around <b>permanent makeup eyebrows and lip blush</b> — that’s what we book on autopilot. Right now we can’t fill a calendar without at least one of them on the menu.</p>';
     else h += '<p class="q-note" style="text-align:center">Pay-per-appointment only works when the <b>initial treatment (eyebrows or lip blush) is under $400</b> — that’s the price point our booking system converts at. At a higher initial price we can’t guarantee the volume, so we don’t take the spot.</p>';
