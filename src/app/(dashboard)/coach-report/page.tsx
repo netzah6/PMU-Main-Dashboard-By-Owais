@@ -141,10 +141,6 @@ export default function CoachReportPage() {
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
-      <p className="text-xs text-[#697a91] mb-3">
-        The monthly Managed Accounts Accountability Report. Mark every client in your book, confirm, submit — the admin reviews it under &ldquo;Previous reports&rdquo; below, with anything that doesn&rsquo;t match the dashboard already flagged.
-      </p>
-
       {isAdmin && (
         <label className="grid gap-0.5 mb-3 max-w-xs">
           <span className="text-[10px] font-medium text-[#697a91]">Coach (admin view)</span>
