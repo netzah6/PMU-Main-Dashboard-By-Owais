@@ -15,7 +15,8 @@ type Reported = "active" | "paused_resuming" | "churned";
 type RosterRow = { owner: string; biz: string; status: string };
 type Referral = { referred_name: string; referred_by: string; note: string };
 type Entry = { owner: string; biz: string; reported: Reported };
-type Submission = { id: number; coach: string; report_month: string; snapshot_date: string | null; snapshot_live: number | null; salary: number | null; entries: Entry[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string };
+type AdminEdit = { at: string; by: string; changes: string[] };
+type Submission = { id: number; coach: string; report_month: string; snapshot_date: string | null; snapshot_live: number | null; salary: number | null; entries: Entry[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string; admin_edits?: AdminEdit[] };
 // Each referral the coach brings in is a $100 bonus (owner, 2026-09-22).
 const REFERRAL_BONUS = 100;
 
@@ -60,6 +61,27 @@ export default function CoachReportPage() {
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<number | null>(null); // which previous report is expanded
+  /* Admin correction of a submitted report (owner, 10/21/2026): fix a client's
+     status or a forgotten referral right on the report. One draft at a time;
+     Save sends only the changes, the server re-flags mismatches and logs it. */
+  const [editId, setEditId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<{ entries: Entry[]; referrals: Referral[] } | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editMsg, setEditMsg] = useState<string | null>(null);
+  const startEdit = (s: Submission) => { setEditId(s.id); setDraft({ entries: s.entries.map((e) => ({ ...e })), referrals: (s.referrals ?? []).map((r) => ({ ...r })) }); setEditMsg(null); };
+  const saveEdit = async () => {
+    if (!editId || !draft || editBusy) return;
+    setEditBusy(true); setEditMsg(null);
+    try {
+      const r = await fetch("/api/coach-report", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: editId, entries: draft.entries, referrals: draft.referrals }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Save failed");
+      setEditMsg(j.unchanged ? "Nothing changed." : `Saved — ${j.changes.length} change${j.changes.length === 1 ? "" : "s"}${j.mismatchCount ? `, ${j.mismatchCount} still flagged` : ", nothing flagged"}.`);
+      setEditId(null); setDraft(null);
+      await load(coach || undefined);
+    } catch (e) { setEditMsg(`${e}`.replace("Error: ", "")); }
+    finally { setEditBusy(false); }
+  };
 
   /* Reload the roster + history. Leaves the success banner alone — submit()
      shows it right after its own reload, so wiping it here would flash it
@@ -282,29 +304,88 @@ export default function CoachReportPage() {
                           ? <>Pay check: the {new Date(s.snapshot_date + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC" })} snapshot has <b>{s.snapshot_live}</b> live for {s.coach} → salary <b>${s.salary}</b>. Coach reports {n("active")} active.</>
                           : <>No {monthLabel} snapshot yet (taken on the 20th) — pay line will use it once taken.</>}
                       </p>
+                      {isAdmin && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {editId === s.id ? (
+                            <>
+                              <button type="button" onClick={() => void saveEdit()} disabled={editBusy}
+                                className="px-2.5 py-1 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-[11px] font-bold inline-flex items-center gap-1 disabled:opacity-50">
+                                {editBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Save changes
+                              </button>
+                              <button type="button" onClick={() => { setEditId(null); setDraft(null); }} className="px-2 py-1 text-[11px] font-semibold text-[#8595a8] hover:text-[#e11d48]">Cancel</button>
+                              <span className="text-[10px] text-[#697a91]">Change any client&apos;s status below, or add / remove a referral, then Save. Every change is logged.</span>
+                            </>
+                          ) : (
+                            <button type="button" onClick={() => startEdit(s)} className="px-2.5 py-1 rounded-lg border border-[#c9dbfb] bg-white text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] hover:text-[#0e8f88]">✏️ Fix this report</button>
+                          )}
+                          {editMsg && editId !== s.id && <span className="text-[11px] text-[#697a91]">{editMsg}</span>}
+                        </div>
+                      )}
                       <div>
-                        <p className="font-semibold text-[#b45309] mb-1">🎁 Referrals{s.referrals?.length ? ` — ${s.referrals.length} × $${REFERRAL_BONUS} = $${s.referrals.length * REFERRAL_BONUS} bonus` : ""}</p>
-                        {s.referrals?.length
-                          ? <ul className="grid gap-0.5 pl-4 list-disc">{s.referrals.map((r, i) => <li key={i}><b>{r.referred_name}</b> — referred by {r.referred_by}{r.note ? <span className="text-[#697a91]"> ({r.note})</span> : null}</li>)}</ul>
-                          : <p className="text-[#697a91]">None claimed this month.</p>}
+                        {editId === s.id && draft ? (
+                          <>
+                            <p className="font-semibold text-[#b45309] mb-1">🎁 Referrals — {draft.referrals.filter((r) => r.referred_name.trim()).length} × ${REFERRAL_BONUS}</p>
+                            <div className="grid gap-1">
+                              {draft.referrals.map((r, i) => (
+                                <div key={i} className="flex flex-wrap gap-1 items-center">
+                                  <input value={r.referred_name} onChange={(e) => setDraft((d) => d && ({ ...d, referrals: d.referrals.map((x, j) => j === i ? { ...x, referred_name: e.target.value } : x) }))} placeholder="New artist's name" className="px-2 py-1 border border-[#d7e0ea] rounded text-xs w-44" />
+                                  <input value={r.referred_by} onChange={(e) => setDraft((d) => d && ({ ...d, referrals: d.referrals.map((x, j) => j === i ? { ...x, referred_by: e.target.value } : x) }))} placeholder="Referred by (client)" className="px-2 py-1 border border-[#d7e0ea] rounded text-xs w-44" />
+                                  <input value={r.note} onChange={(e) => setDraft((d) => d && ({ ...d, referrals: d.referrals.map((x, j) => j === i ? { ...x, note: e.target.value } : x) }))} placeholder="Note (optional)" className="px-2 py-1 border border-[#d7e0ea] rounded text-xs w-40" />
+                                  <button type="button" onClick={() => setDraft((d) => d && ({ ...d, referrals: d.referrals.filter((_, j) => j !== i) }))} className="px-2 text-[#b45309] text-xs font-bold" title="Remove this referral">×</button>
+                                </div>
+                              ))}
+                              <button type="button" onClick={() => setDraft((d) => d && ({ ...d, referrals: [...d.referrals, { referred_name: "", referred_by: "", note: "" }] }))} className="text-[11px] font-semibold text-[#0e8f88] text-left">+ Add a referral</button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-semibold text-[#b45309] mb-1">🎁 Referrals{s.referrals?.length ? ` — ${s.referrals.length} × $${REFERRAL_BONUS} = $${s.referrals.length * REFERRAL_BONUS} bonus` : ""}</p>
+                            {s.referrals?.length
+                              ? <ul className="grid gap-0.5 pl-4 list-disc">{s.referrals.map((r, i) => <li key={i}><b>{r.referred_name}</b> — referred by {r.referred_by}{r.note ? <span className="text-[#697a91]"> ({r.note})</span> : null}</li>)}</ul>
+                              : <p className="text-[#697a91]">None claimed this month.</p>}
+                          </>
+                        )}
                       </div>
                       <div>
                         <p className={cn("font-semibold mb-1", s.mismatches.length ? "text-[#c2410c]" : "text-[#15803d]")}>{s.mismatches.length ? `⚠ Flagged (${s.mismatches.length}) — coach vs dashboard` : "Everything matches the dashboard ✓"}</p>
                         {s.mismatches.length > 0 && <ul className="grid gap-0.5 pl-4 list-disc">{s.mismatches.map((m, i) => <li key={i}>{m}</li>)}</ul>}
                       </div>
                       {s.extra ? <p><span className="font-semibold">Coach notes:</span> {s.extra}</p> : null}
-                      <div className="grid gap-2 sm:grid-cols-3">
-                        {CHOICES.map((c) => (
-                          <div key={c.k}>
-                            <p className={cn("inline-block border rounded-md px-1.5 py-0.5 font-semibold mb-1", c.on)}>{c.label} · {n(c.k)}</p>
-                            <ul className="grid gap-0.5 text-[#1c2b3a]">
-                              {s.entries.filter((e) => e.reported === c.k).sort((a, b) => a.owner.localeCompare(b.owner)).map((e) => (
-                                <li key={`${e.owner}|${e.biz}`}>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span></li>
-                              ))}
-                            </ul>
+                      {editId === s.id && draft ? (
+                        <div>
+                          <p className="font-semibold text-[#1c2b3a] mb-1">Clients — pick the right status</p>
+                          <div className="grid gap-1 sm:grid-cols-2">
+                            {[...draft.entries].sort((a, b) => a.owner.localeCompare(b.owner)).map((e) => (
+                              <label key={`${e.owner}|${e.biz}`} className="flex items-center gap-2 text-[#1c2b3a]">
+                                <select value={e.reported} onChange={(ev) => setDraft((d) => d && ({ ...d, entries: d.entries.map((x) => x.owner === e.owner && x.biz === e.biz ? { ...x, reported: ev.target.value as Reported } : x) }))}
+                                  className={cn("px-1.5 py-0.5 border rounded-md text-[11px] font-semibold bg-white", CHOICES.find((c) => c.k === e.reported)?.on)}>
+                                  {CHOICES.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
+                                </select>
+                                <span>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span></span>
+                              </label>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {CHOICES.map((c) => (
+                            <div key={c.k}>
+                              <p className={cn("inline-block border rounded-md px-1.5 py-0.5 font-semibold mb-1", c.on)}>{c.label} · {n(c.k)}</p>
+                              <ul className="grid gap-0.5 text-[#1c2b3a]">
+                                {s.entries.filter((e) => e.reported === c.k).sort((a, b) => a.owner.localeCompare(b.owner)).map((e) => (
+                                  <li key={`${e.owner}|${e.biz}`}>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span></li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {(s.admin_edits?.length ?? 0) > 0 && (
+                        <div className="text-[11px] text-[#697a91]">
+                          <p className="font-semibold text-[#34568a]">Corrections</p>
+                          <ul className="pl-4 list-disc">{s.admin_edits!.map((a, i) => <li key={i}>{new Date(a.at).toLocaleDateString("en-US")} · {a.by.split("@")[0]}: {a.changes.join("; ")}</li>)}</ul>
+                        </div>
+                      )}
                     </div>
                   )}
                   </div>

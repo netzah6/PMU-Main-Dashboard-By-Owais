@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
      must see nothing, never everyone (the /api/credits leak class). */
   let q = svc
     .from("coach_reports")
-    .select("id, coach, report_month, snapshot_date, entries, referrals, mismatches, extra, created_at")
+    .select("id, coach, report_month, snapshot_date, entries, referrals, mismatches, extra, created_at, admin_edits")
     .order("created_at", { ascending: false })
     .limit(24);
   if (coach) q = q.ilike("coach", coach);
@@ -100,6 +100,94 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ coach, coaches: auth.role === "admin" ? coaches : [], roster, submissions });
+}
+
+/* Coach vs dashboard. Shared by a fresh submission and an admin correction,
+   so an edited report is re-flagged the same way. */
+function computeMismatches(coach: string, roster: RosterRow[], entries: { owner: string; biz: string; reported: Reported }[], referrals: Referral[]): string[] {
+  const rosterBy = new Map(roster.map((r) => [keyOf(r.owner, r.biz), r]));
+  const entryKeys = new Set(entries.map((e) => keyOf(e.owner, e.biz)));
+  const mismatches: string[] = [];
+  for (const e of entries) {
+    const truth = rosterBy.get(keyOf(e.owner, e.biz));
+    if (!truth) { mismatches.push(`${e.owner} (${e.biz}): reported ${REPORTED_LABEL[e.reported]}, but the dashboard doesn't list them under ${coach} (live/paused)`); continue; }
+    if (e.reported === "active" && truth.status !== "live") mismatches.push(`${e.owner} (${e.biz}): coach says Active, dashboard says ${truth.status}`);
+    if (e.reported !== "active" && truth.status === "live") mismatches.push(`${e.owner} (${e.biz}): coach says ${REPORTED_LABEL[e.reported]}, dashboard says live`);
+  }
+  for (const r of roster) {
+    if (!entryKeys.has(keyOf(r.owner, r.biz))) mismatches.push(`${r.owner} (${r.biz}): in ${coach}'s book (${r.status}) but missing from the report`);
+  }
+  /* The referrer should be a client this coach actually manages — that is the
+     whole basis of the bonus. Flag it rather than reject it: sheet names drift
+     (aliases in brackets), and the admin approves the payout anyway. */
+  const rosterNames = roster.map((r) => `${r.owner} ${r.biz}`.toLowerCase());
+  for (const r of referrals) {
+    const needle = r.referred_by.toLowerCase();
+    if (!rosterNames.some((n) => n.includes(needle) || needle.includes(n.split(" ")[0]))) {
+      mismatches.push(`Referral "${r.referred_name}": referrer "${r.referred_by}" is not a client in ${coach}'s book — check the name before paying the bonus`);
+    }
+  }
+  return mismatches;
+}
+
+/* Admin correction of a submitted report (owner, 10/21/2026: "sometimes the
+   coach gets it wrong"). Only the client statuses and referrals change; the
+   mismatches are recomputed and every edit is logged with who and when. */
+export async function PATCH(req: NextRequest) {
+  const auth = await getAuth();
+  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (auth.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
+  const body = (await req.json().catch(() => null)) as { id?: number; entries?: { owner?: string; biz?: string; reported?: string }[]; referrals?: { referred_name?: string; referred_by?: string; note?: string }[] } | null;
+  const id = Number(body?.id);
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+  const svc = createServiceClient();
+  const { data: row } = await svc.from("coach_reports").select("id, coach, entries, referrals, admin_edits").eq("id", id).maybeSingle();
+  if (!row) return NextResponse.json({ error: "Report not found" }, { status: 404 });
+  const clean = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim();
+  const prevEntries = (row.entries ?? []) as { owner: string; biz: string; reported: Reported }[];
+  const prevRefs = (row.referrals ?? []) as Referral[];
+
+  let entries = prevEntries;
+  if (Array.isArray(body?.entries)) {
+    entries = [];
+    for (const e of body!.entries!) {
+      const reported = String(e.reported ?? "") as Reported;
+      if (!["active", "paused_resuming", "churned"].includes(reported)) return NextResponse.json({ error: `Every client needs a status (missing on ${e.owner ?? "?"})` }, { status: 400 });
+      const owner = clean(e.owner), biz = clean(e.biz);
+      if (!owner || entries.some((x) => keyOf(x.owner, x.biz) === keyOf(owner, biz))) continue;
+      entries.push({ owner, biz, reported });
+    }
+  }
+  let referrals = prevRefs;
+  if (Array.isArray(body?.referrals)) {
+    referrals = [];
+    for (const r of body!.referrals!) {
+      const referred_name = clean(r.referred_name), referred_by = clean(r.referred_by);
+      if (!referred_name && !referred_by) continue;
+      if (!referred_name || !referred_by) return NextResponse.json({ error: `Every referral needs both the new artist's name and who referred them (check "${referred_name || referred_by}")` }, { status: 400 });
+      if (referrals.some((x) => x.referred_name.toLowerCase() === referred_name.toLowerCase())) continue;
+      referrals.push({ referred_name: referred_name.slice(0, 120), referred_by: referred_by.slice(0, 120), note: clean(r.note).slice(0, 200) });
+      if (referrals.length >= 25) break;
+    }
+  }
+
+  // What changed, in words, for the edit log.
+  const changes: string[] = [];
+  const prevBy = new Map(prevEntries.map((e) => [keyOf(e.owner, e.biz), e.reported]));
+  for (const e of entries) { const was = prevBy.get(keyOf(e.owner, e.biz)); if (was && was !== e.reported) changes.push(`${e.owner}: ${REPORTED_LABEL[was]} → ${REPORTED_LABEL[e.reported]}`); }
+  const prevNames = new Set(prevRefs.map((r) => r.referred_name.toLowerCase()));
+  const nowNames = new Set(referrals.map((r) => r.referred_name.toLowerCase()));
+  for (const r of referrals) if (!prevNames.has(r.referred_name.toLowerCase())) changes.push(`referral added: ${r.referred_name} (by ${r.referred_by})`);
+  for (const r of prevRefs) if (!nowNames.has(r.referred_name.toLowerCase())) changes.push(`referral removed: ${r.referred_name}`);
+  for (const r of referrals) { const p = prevRefs.find((x) => x.referred_name.toLowerCase() === r.referred_name.toLowerCase()); if (p && (p.referred_by !== r.referred_by || p.note !== r.note)) changes.push(`referral edited: ${r.referred_name}`); }
+  if (!changes.length) return NextResponse.json({ ok: true, unchanged: true });
+
+  const roster = await rosterFor(svc, String(row.coach));
+  const mismatches = computeMismatches(String(row.coach), roster, entries, referrals);
+  const admin_edits = [...((row.admin_edits ?? []) as unknown[]), { at: new Date().toISOString(), by: auth.email ?? auth.userId, changes }];
+  const { error } = await svc.from("coach_reports").update({ entries, referrals, mismatches, admin_edits }).eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, changes, mismatchCount: mismatches.length });
 }
 
 export async function POST(req: NextRequest) {
@@ -148,29 +236,7 @@ export async function POST(req: NextRequest) {
     referrals.push({ referred_name: referred_name.slice(0, 120), referred_by: referred_by.slice(0, 120), note: clean(r.note).slice(0, 200) });
     if (referrals.length >= 25) break;
   }
-  const rosterBy = new Map(roster.map((r) => [keyOf(r.owner, r.biz), r]));
-  const entryKeys = new Set(entries.map((e) => keyOf(e.owner, e.biz)));
-
-  const mismatches: string[] = [];
-  for (const e of entries) {
-    const truth = rosterBy.get(keyOf(e.owner, e.biz));
-    if (!truth) { mismatches.push(`${e.owner} (${e.biz}): reported ${REPORTED_LABEL[e.reported]}, but the dashboard doesn't list them under ${coach} (live/paused)`); continue; }
-    if (e.reported === "active" && truth.status !== "live") mismatches.push(`${e.owner} (${e.biz}): coach says Active, dashboard says ${truth.status}`);
-    if (e.reported !== "active" && truth.status === "live") mismatches.push(`${e.owner} (${e.biz}): coach says ${REPORTED_LABEL[e.reported]}, dashboard says live`);
-  }
-  for (const r of roster) {
-    if (!entryKeys.has(keyOf(r.owner, r.biz))) mismatches.push(`${r.owner} (${r.biz}): in ${coach}'s book (${r.status}) but missing from the report`);
-  }
-  /* The referrer should be a client this coach actually manages — that is the
-     whole basis of the bonus. Flag it rather than reject it: sheet names drift
-     (aliases in brackets), and the admin approves the payout anyway. */
-  const rosterNames = roster.map((r) => `${r.owner} ${r.biz}`.toLowerCase());
-  for (const r of referrals) {
-    const needle = r.referred_by.toLowerCase();
-    if (!rosterNames.some((n) => n.includes(needle) || needle.includes(n.split(" ")[0]))) {
-      mismatches.push(`Referral "${r.referred_name}": referrer "${r.referred_by}" is not a client in ${coach}'s book — check the name before paying the bonus`);
-    }
-  }
+  const mismatches = computeMismatches(coach, roster, entries, referrals);
 
   /* The month is paid from its 20th snapshot — remember which one applies.
      Range is [1st, 1st-of-next-month): a "-31" upper bound is an invalid
