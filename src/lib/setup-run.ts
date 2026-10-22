@@ -788,8 +788,12 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
       // "SUPPORT TICKET: …" in a done report = finished as far as the AI Agent
       // can, a person follows up with GHL support (stale CNAM on a recycled
       // account, 10/21/2026). Shown amber, the run goes on.
-      const status: StepState["status"] = stepOk ? (/\bSUPPORT TICKET\b/i.test(note) ? "warn" : "done") : "failed";
-      setStep(o.setup, g.key, { status, who: "AI Agent", note: note.slice(0, 1500), screenshots: g.key === ref.key ? shots : undefined, error: stepOk ? undefined : (p.status === "needs_teammate" || line ? "the AI Agent needs a teammate — see its note" : "the AI Agent could not finish") }, `card ${p.id} → ${p.status}${line ? ` (step ${g.n}: ${line.ok ? "done" : "failed"})` : ""}`);
+      // Owner 10/22/2026: a CNAM the carrier REJECTS (caller name only — texts
+      // and A2P are unaffected) never stops the run: amber note, run goes on.
+      const cnamRejected = g.key === "phone_cnam" && !stepOk && /reject/i.test(note || text);
+      const status: StepState["status"] = cnamRejected ? "warn" : stepOk ? (/\bSUPPORT TICKET\b/i.test(note) ? "warn" : "done") : "failed";
+      const shown = cnamRejected ? `⚠ CNAM rejected by the carrier — skipped so the setup goes on (only the caller name on outgoing calls; texts work). Re-submit later or ask GHL support.\n${note}` : note;
+      setStep(o.setup, g.key, { status, who: "AI Agent", note: shown.slice(0, 1500), screenshots: g.key === ref.key ? shots : undefined, error: stepOk || cnamRejected ? undefined : (p.status === "needs_teammate" || line ? "the AI Agent needs a teammate — see its note" : "the AI Agent could not finish") }, `card ${p.id} → ${p.status}${line ? ` (step ${g.n}: ${line.ok ? "done" : "failed"})` : ""}`);
       if (stepOk) { tick(checklist, g.checklist, "AI Agent"); closedKeys.push(g.key); }
       // Step 15: the password the Mini set by the team rule, kept on the card.
       if (stepOk && g.key === "user_password") o.setup.password = employeePassword(String(o.form.owner_name ?? ""));
