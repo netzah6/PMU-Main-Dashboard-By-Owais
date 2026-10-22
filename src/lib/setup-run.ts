@@ -11,7 +11,7 @@ import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl } from "@/l
 import { buildReplayPayload, isValidHookUrlForLocation, replayToClientHook } from "@/lib/payment-router";
 import { verifyOnboarding } from "@/lib/onboarding-verify";
 import { answersFromMainContact } from "@/lib/survey-answers";
-import { queueSnapshotLoad } from "@/lib/pool-snapshot";
+import { queueSnapshotLoad, snapshotConvId } from "@/lib/pool-snapshot";
 import { writeRowToSheet, getSheetEntryForTable } from "@/lib/sheets";
 import { confirmToOwner, dashboardUrl, proposalLink, textOwner } from "@/lib/agent-notify";
 import {
@@ -387,9 +387,17 @@ const API_STEPS: Record<string, StepFn> = {
     if ((row.dirty ?? 0) > 0) return { status: "failed", note: [...notes, `still has data — ${row.clean_note ?? ""}. Clean it in the Onboarding tab's clean-account pool, then Retry`].join("\n") };
     // No snapshot (custom values, workflows) → the AI Agent loads it now and
     // this step resumes when its card closes (owner 10/21/2026: no manual work).
+    // The check is strict (lib/ghl-cleanup snapshotCheck): a half-applied
+    // load counts as no snapshot and is loaded again. Two loads in 3 hours
+    // that still leave it partial stop here instead of looping the AI Agent.
     if (!row.snapshot_loaded_at) {
-      const q = await queueSnapshotLoad(svc, { locationId: loc, poolName: ob.setup!.pool_name, by: `${ob.setup!.approved_by} (setup run)`, reason: `is being taken for ${ob.form.business_name} and has no snapshot` });
-      return { status: "queued", proposal_id: q.taskId, note: [...notes, `⏳ no snapshot on the account — the AI Agent is loading it${q.reused ? " (already queued)" : ""}; the setup continues by itself when it is done`].join("\n") };
+      const what = /partial snapshot — ([^·]+)/.exec(row.clean_note ?? "")?.[1]?.trim();
+      const since = new Date(Date.now() - 3 * 3600_000).toISOString();
+      const { count } = await svc.from("agent_proposals").select("id", { count: "exact", head: true })
+        .eq("conversation_id", snapshotConvId(loc)).gte("created_at", since).in("status", ["done", "failed", "needs_teammate"]);
+      if ((count ?? 0) >= 2) return { status: "failed", note: [...notes, `✗ the AI Agent loaded the snapshot ${count}× and the account still shows only part of it${what ? ` (${what})` : ""} — check the account in GHL, then Retry`].join("\n") };
+      const q = await queueSnapshotLoad(svc, { locationId: loc, poolName: ob.setup!.pool_name, by: `${ob.setup!.approved_by} (setup run)`, reason: `is being taken for ${ob.form.business_name} and has ${what ? `only part of the snapshot (${what})` : "no snapshot"}` });
+      return { status: "queued", proposal_id: q.taskId, note: [...notes, `⏳ ${what ? `only part of the snapshot is on the account (${what})` : "no snapshot on the account"} — the AI Agent is loading it${q.reused ? " (already queued)" : ""}; the setup continues by itself when it is done`].join("\n") };
     }
     if (row.a2p !== "approved") return { status: "failed", note: [...notes, "A2P not confirmed — press Verify A2P in the clean-account pool, then Retry"].join("\n") };
     return { status: "done", note: [...notes, `✓ ${row.clean_note ?? "clean"} · snapshot loaded · A2P approved`].join("\n") };

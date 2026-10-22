@@ -91,7 +91,10 @@ export type SnapshotCheck = {
   ccValues: number;          // custom values whose name starts "CC - "
   fanbasisWorkflow: boolean; // "FanBasis to GHL workflow"
   surveyWorkflow: boolean;   // "CC- Funnel Survey -> (V1 / V2 / V3)"
+  ccFields: number;          // custom fields whose name starts "CC - "
+  calendar: boolean;         // the "Permanent Makeup Transformation" calendar
   present: boolean;
+  missing: string[];         // why it is not the full snapshot (empty when present)
 };
 
 export type InspectResult = {
@@ -103,13 +106,27 @@ export type InspectResult = {
   isPool: boolean;
 };
 
-export function snapshotCheck(cvNames: string[], workflowNames: string[]): SnapshotCheck {
-  const ccValues = cvNames.filter((n) => /^cc\s*-/i.test(n.trim())).length;
+/* Brows by Susan, 10/22/2026: Clean New Account 29 passed as "loaded" with
+   9 CC values and the workflows — a half-applied load with no calendar and
+   1 of the template's custom fields, so the run filled almost nothing. The
+   full Demo (V3) template has ~45 CC values, ~30 CC custom fields and the
+   Transformation calendar; anything short of that is a partial load. */
+export const SNAPSHOT_MIN_CC_VALUES = 40;
+export const SNAPSHOT_MIN_CC_FIELDS = 20;
+export function snapshotCheck(cvNames: string[], workflowNames: string[], calendarNames: string[] = [], fieldNames: string[] = []): SnapshotCheck {
+  const cc = (n: string) => /^cc\s*-/i.test(n.trim());
+  const ccValues = cvNames.filter(cc).length;
+  const ccFields = fieldNames.filter(cc).length;
   const fanbasisWorkflow = workflowNames.some((n) => /fanbasis\s*to\s*ghl/i.test(n));
   const surveyWorkflow = workflowNames.some((n) => /funnel\s*survey/i.test(n));
-  // Lenient on the workflow names (they may be renamed in a future snapshot):
-  // CC values plus at least one of the two template workflows.
-  return { ccValues, fanbasisWorkflow, surveyWorkflow, present: ccValues > 0 && (fanbasisWorkflow || surveyWorkflow) };
+  const calendar = calendarNames.some((n) => /transformation/i.test(n));
+  const missing: string[] = [];
+  if (ccValues < SNAPSHOT_MIN_CC_VALUES) missing.push(`${ccValues} of ~45 CC values`);
+  if (ccFields < SNAPSHOT_MIN_CC_FIELDS) missing.push(`${ccFields} of ~30 CC custom fields`);
+  if (!calendar) missing.push("no Transformation calendar");
+  // Lenient on the workflow names (they may be renamed in a future snapshot).
+  if (!fanbasisWorkflow && !surveyWorkflow) missing.push("no template workflows");
+  return { ccValues, fanbasisWorkflow, surveyWorkflow, ccFields, calendar, present: missing.length === 0, missing };
 }
 
 async function getJson(url: string, headers: Record<string, string>): Promise<Record<string, unknown>> {
@@ -183,6 +200,8 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
     snapshot: snapshotCheck(
       ((cvs.customValues as Array<{ name?: string }>) ?? []).map((c) => String(c.name ?? "")),
       ((workflows.workflows as Array<{ name?: string }>) ?? []).map((w) => String(w.name ?? "")),
+      ((cals.calendars as Array<{ name?: string }>) ?? []).map((c) => String(c.name ?? "")),
+      ((cfs.customFields as Array<{ name?: string }>) ?? []).map((f) => String(f.name ?? "")),
     ),
     protected: isProtectedLocation(locationId),
     isPool: POOL_NAME_RE.test(name),
@@ -438,11 +457,11 @@ export async function refreshPoolCleanliness(locationIds: string[]): Promise<Poo
         const bits: string[] = [];
         if (c.contacts) bits.push(`${c.contacts} contacts left`);
         if (s.present) bits.push(`snapshot ✓ ${s.ccValues} CC values, ${c.workflows} automations`);
-        else if (c.customValues || c.workflows) bits.push(`${c.customValues} custom values, ${c.workflows} automations — not the Demo snapshot`);
+        else if (c.customValues || c.workflows) bits.push(`partial snapshot — ${s.missing.join(", ")}`);
         else bits.push("empty — waiting for snapshot");
         const snapshot: Partial<PoolRow> = s.present
           ? (was?.snapshot_loaded_at ? {} : { snapshot_loaded_at: now, snapshot_note: `snapshot found on Re-check ${new Date(now).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}` })
-          : (was?.snapshot_loaded_at ? { snapshot_loaded_at: null, snapshot_note: `✗ Re-check sees no snapshot (${s.ccValues} CC values, ${c.workflows} automations) — load it again` } : {});
+          : (was?.snapshot_loaded_at ? { snapshot_loaded_at: null, snapshot_note: `✗ Re-check sees only part of the snapshot (${s.missing.join(", ")}) — load it again` } : {});
         return { location_id: id, workflows: c.workflows, dirty, clean_checked_at: now, clean_note: bits.join(" · "), ...snapshot };
       } catch (e) {
         return {
