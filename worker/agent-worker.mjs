@@ -265,12 +265,26 @@ async function chromeGone() {
   if (!(await waitForExit(pid, 40_000))) log(`Chrome pid ${pid} did not quit; the next poll will retry`);
 }
 
+function resultText(out) {
+  try { const j = JSON.parse(out); return String(j.result ?? ""); } catch { return out; }
+}
+// The report is the LAST balanced {...} with a "status" key in Claude's final
+// text. (The old greedy first-{ … last-} match broke whenever the text held any
+// other brace — 10/21/2026, a 12-minute funnel test lost its report that way.)
 function parseReport(out) {
-  let text = out;
-  try { const j = JSON.parse(out); text = String(j.result ?? ""); } catch { /* raw text */ }
-  const m = text.match(/\{[\s\S]*"status"[\s\S]*\}/);
-  if (!m) return null;
-  try { return JSON.parse(m[0]); } catch { return null; }
+  const text = resultText(out).replace(/```(?:json)?/g, "");
+  let best = null;
+  for (let i = text.indexOf("{"); i >= 0; i = text.indexOf("{", i + 1)) {
+    let depth = 0, inStr = false, esc = false;
+    for (let k = i; k < text.length; k++) {
+      const ch = text[k];
+      if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") { depth--; if (depth === 0) { try { const j = JSON.parse(text.slice(i, k + 1)); if (j && typeof j === "object" && "status" in j) best = j; } catch { /* not JSON */ } break; } }
+    }
+  }
+  return best;
 }
 
 async function doTask(t) {
@@ -291,7 +305,7 @@ async function doTask(t) {
   const status = needsSignIn ? "needs_teammate" : ["done", "failed", "needs_teammate"].includes(rep?.status) ? rep.status : "failed";
   const summary = needsSignIn
     ? "The Mac Mini's Claude is signed out — open Claude on the Mini, sign in again, and the task will retry"
-    : rep?.summary || (code === null ? "Timed out after 45 minutes — check the account by hand" : `The browser run did not finish (${(err || out).slice(-200).trim() || `exit ${code}`})`);
+    : rep?.summary || (code === null ? "Timed out after 45 minutes — check the account by hand" : `The browser run ended without a report — last words: ${(resultText(out).trim() || err.trim()).slice(-400).trim() || `exit ${code}`}`);
 
   // Upload the screenshots it named, else any image it saved.
   const named = Array.isArray(rep?.screenshots) ? rep.screenshots : [];

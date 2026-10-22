@@ -41,9 +41,15 @@ function stepsFor(o: Onboarding): OnboardingStep[] {
   const isV3 = String(o.form.version ?? "").toLowerCase().includes("v3") && !String(o.form.version ?? "").toLowerCase().includes("v2.3");
   return ONBOARDING_STEPS.filter((s) => !s.v3Only || isV3);
 }
-function progress(o: Onboarding): { done: number; total: number } {
+/* Owner 10/22/2026: the bar reads 90% when everything up to Facebook is
+   done; the whole Facebook part (BM + campaign) is the last 10%. */
+const isFb = (s: OnboardingStep) => /^facebook/i.test(s.section);
+function progress(o: Onboarding): { done: number; total: number; pct: number } {
   const steps = stepsFor(o).filter((s) => s.section !== "Later");
-  return { done: steps.filter((s) => o.checklist[s.key]?.done).length, total: steps.length };
+  const done = steps.filter((s) => o.checklist[s.key]?.done).length;
+  const part = (list: OnboardingStep[]) => (list.length ? list.filter((s) => o.checklist[s.key]?.done).length / list.length : 1);
+  const pct = Math.round(90 * part(steps.filter((s) => !isFb(s))) + 10 * part(steps.filter(isFb)));
+  return { done, total: steps.length, pct };
 }
 
 // Image field: upload to the dashboard (public URL) or paste a URL — either
@@ -295,7 +301,7 @@ export default function OnboardingPage() {
   if (open) {
     const steps = stepsFor(open);
     const pr = progress(open);
-    const pct = pr.total ? Math.round((pr.done / pr.total) * 100) : 0;
+    const pct = pr.pct;
     return (
       <div className="p-4 sm:p-6 space-y-4 max-w-[1600px]">
         <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -645,7 +651,7 @@ export default function OnboardingPage() {
         <div className="space-y-2">
           {list.map((o) => {
             const pr = progress(o);
-            const pct = pr.total ? Math.round((pr.done / pr.total) * 100) : 0;
+            const pct = pr.pct;
             return (
               <button key={o.id} onClick={() => setOpenId(o.id)}
                 className="w-full text-left rounded-xl border border-[#e4ebf2] bg-white p-3.5 hover:border-[#15B7AE] transition-colors">
