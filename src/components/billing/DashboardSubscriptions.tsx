@@ -78,6 +78,9 @@ export function DashboardSubscriptions() {
   const [showMatches, setShowMatches] = useState(false);
   // Which subscription is having its next-charge date changed inline.
   const [dateEdit, setDateEdit] = useState<{ id: string; value: string } | null>(null);
+  /* Discount panel for the next charge only (owner, 2026-10-22: "50% off, or
+     $200 off, or a set price — only the next charge, then back to the plan"). */
+  const [discount, setDiscount] = useState<{ id: string; kind: "pct" | "off" | "price"; value: string; reason: string } | null>(null);
   // Card picker: which subscription is open, the people paying for that client
   // and the cards Square returned for each, and which card would be used if
   // nothing is chosen. `mustChoose` = two payers, so there is no default.
@@ -221,16 +224,28 @@ export function DashboardSubscriptions() {
   const nextPeriod = (s: Sub) => ((s.retry_attempt ?? 0) > 0 && s.retry_period ? s.retry_period : s.cadence === "monthly" ? s.next_charge_on.slice(0, 7) : s.next_charge_on);
   const periodPrice = (s: Sub) => periodAmounts.find((p) => p.subscription_id === s.id && p.period_key === nextPeriod(s)) ?? null;
   const monthName = (period: string) => new Date(`${period.slice(0, 7)}-15T12:00:00`).toLocaleString(undefined, { month: "long" });
-  const setMonthPrice = async (s: Sub) => {
+  /* What the discount panel would bill, in cents (null = not a usable entry). */
+  const discountCents = (s: Sub, d: { kind: "pct" | "off" | "price"; value: string }): number | null => {
+    const n = Number(d.value.replace(/[$,%\s]/g, ""));
+    if (!d.value.trim() || !Number.isFinite(n) || n <= 0) return null;
+    const cents = d.kind === "pct" ? Math.round(s.amount_cents * (1 - n / 100))
+      : d.kind === "off" ? s.amount_cents - Math.round(n * 100)
+      : Math.round(n * 100);
+    return cents > 0 && cents < s.amount_cents ? cents : null;
+  };
+  const saveDiscount = async (s: Sub) => {
+    if (!discount || discount.id !== s.id) return;
+    const cents = discountCents(s, discount);
+    if (cents == null) { setErr(`Enter a discount that leaves something above $0 and below ${money(s.amount_cents)}`); return; }
     const period = nextPeriod(s);
-    const raw = window.prompt(`${monthName(period)} price for ${s.client_label || s.owner_key}?\n\nOnly ${monthName(period)} changes — the month after bills ${money(s.amount_cents)} again. Type an amount (e.g. ${(s.amount_cents / 200).toFixed(2)} for 50% off) or 50% for a percentage.`);
-    if (!raw?.trim()) return;
-    const pct = raw.trim().match(/^(\d+(?:\.\d+)?)\s*%$/);
-    const amount = pct ? Math.round(s.amount_cents * (1 - Number(pct[1]) / 100)) / 100 : Number(raw.replace(/[$,\s]/g, ""));
-    if (!Number.isFinite(amount) || amount <= 0) { setErr("Enter an amount above zero, or a percentage like 50%"); return; }
-    const reason = pct ? `${pct[1]}% off ${monthName(period)}` : `${monthName(period)} price`;
-    const ok = await act({ action: "period_amount", id: s.id, period: period.slice(0, 7), amount, reason }, `period:${s.id}`);
-    if (ok) setMsg(`${s.client_label || s.owner_key}: ${monthName(period)} bills $${amount.toFixed(2)}; then back to ${money(s.amount_cents)}.`);
+    const n = discount.value.replace(/[$,%\s]/g, "");
+    const what = discount.kind === "pct" ? `${n}% off` : discount.kind === "off" ? `$${n} off` : "special price";
+    const reason = discount.reason.trim() ? `${what} · ${discount.reason.trim()}` : `${what} ${monthName(period)}`;
+    const ok = await act({ action: "period_amount", id: s.id, period: period.slice(0, 7), amount: cents / 100, reason }, `period:${s.id}`);
+    if (ok) {
+      setDiscount(null);
+      setMsg(`${s.client_label || s.owner_key}: the ${monthName(period)} charge is ${money(cents)} (${what}); after that it goes back to ${money(s.amount_cents)}.`);
+    }
   };
 
   /* Change the regular price for every month from now on (owner,
@@ -483,10 +498,11 @@ export function DashboardSubscriptions() {
                       <>
                         <span className="text-[13px] font-bold text-[#0e8f88] tabular-nums">{money(s.amount_cents)}</span>
                         {s.cadence === "monthly" && s.status !== "ended" && (
-                          <button onClick={() => void setMonthPrice(s)} disabled={busy === `period:${s.id}`}
-                            title="Change the price for the next charge's month only — the month after bills the normal amount"
-                            className="text-[10px] text-[#34568a] underline decoration-dotted underline-offset-2 hover:text-[#0e8f88]">
-                            {monthName(nextPeriod(s))} price
+                          <button onClick={() => setDiscount(discount?.id === s.id ? null : { id: s.id, kind: "pct", value: "", reason: "" })} disabled={busy === `period:${s.id}`}
+                            title="Discount the next charge only — the charge after goes back to the normal price"
+                            className={cn("px-1.5 py-0.5 rounded border text-[10px] font-semibold",
+                              discount?.id === s.id ? "bg-[#fff3e0] text-[#c2620a] border-[#f0c48a]" : "bg-white text-[#c2620a] border-[#f3d9b5] hover:border-[#f0a742]")}>
+                            🏷️ Discount {monthName(nextPeriod(s))}
                           </button>
                         )}
                       </>
@@ -592,6 +608,58 @@ export function DashboardSubscriptions() {
                     </button>
                   </div>
                 </div>
+
+                {discount?.id === s.id && (() => {
+                  const cents = discountCents(s, discount);
+                  const period = nextPeriod(s);
+                  const KINDS = [
+                    { k: "pct" as const, label: "% off", ph: "50" },
+                    { k: "off" as const, label: "$ off", ph: "200" },
+                    { k: "price" as const, label: "Set price", ph: (s.amount_cents / 200).toFixed(0) },
+                  ];
+                  return (
+                    <div className="border-t border-[#f6e3c8] bg-[#fffaf2] px-2.5 py-2 space-y-1.5">
+                      <div className="text-[11px] font-bold text-[#c2620a]">
+                        🏷️ Discount for the {monthName(period)} charge ({fmt(s.next_charge_on)}) only — then back to {money(s.amount_cents)}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {KINDS.map((o) => (
+                          <button key={o.k} onClick={() => setDiscount({ ...discount, kind: o.k })}
+                            className={cn("px-2 py-0.5 rounded-md text-[11px] font-semibold border",
+                              discount.kind === o.k ? "bg-[#c2620a] text-white border-[#c2620a]" : "bg-white text-[#c2620a] border-[#f3d9b5]")}>
+                            {o.label}
+                          </button>
+                        ))}
+                        <span className="flex items-center gap-0.5">
+                          {discount.kind !== "pct" && <span className="text-[12px] text-[#697a91]">$</span>}
+                          <input autoFocus inputMode="decimal" value={discount.value}
+                            onChange={(e) => setDiscount({ ...discount, value: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === "Enter") void saveDiscount(s); if (e.key === "Escape") setDiscount(null); }}
+                            placeholder={KINDS.find((o) => o.k === discount.kind)!.ph}
+                            className="w-20 px-1.5 py-0.5 rounded border border-[#f0d9ae] text-[12px] text-[#1f3559] focus:outline-none focus:border-[#f0a742]" />
+                          {discount.kind === "pct" && <span className="text-[12px] text-[#697a91]">%</span>}
+                        </span>
+                        <input value={discount.reason} onChange={(e) => setDiscount({ ...discount, reason: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === "Enter") void saveDiscount(s); }}
+                          placeholder="reason (optional) — e.g. slow month"
+                          className="flex-1 min-w-[140px] px-1.5 py-0.5 rounded border border-[#f0d9ae] text-[12px] text-[#1f3559] focus:outline-none focus:border-[#f0a742]" />
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[12px] text-[#1f3559]">
+                          {cents != null
+                            ? <>Next charge: <s className="text-[#8595a8]">{money(s.amount_cents)}</s> → <b className="text-[#0e8f88]">{money(cents)}</b> <span className="text-[#697a91]">(saves {money(s.amount_cents - cents)})</span></>
+                            : discount.value.trim() ? <span className="text-[#e11d48]">Must leave more than $0 and less than {money(s.amount_cents)}</span>
+                            : <span className="text-[#8595a8]">Enter {discount.kind === "pct" ? "a percentage" : "an amount"}</span>}
+                        </span>
+                        <button onClick={() => void saveDiscount(s)} disabled={cents == null || busy === `period:${s.id}`}
+                          className="ml-auto px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#c2620a] text-white disabled:opacity-40">
+                          {busy === `period:${s.id}` ? <Loader2 size={11} className="inline animate-spin" /> : "Apply to next charge"}
+                        </button>
+                        <button onClick={() => setDiscount(null)} className="text-[11px] text-[#8595a8]">cancel</button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {cardPick?.id === s.id && (
                   <div className="border-t border-[#eef3f8] bg-[#f7fbff] px-2.5 py-2 space-y-1.5">
