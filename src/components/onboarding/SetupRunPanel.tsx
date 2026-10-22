@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { MINI_REFRESH_EVENT } from "@/components/agent/MacMiniTracker";
 import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
-import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, OPTIONAL_FIELDS, PREAPPROVABLE, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
+import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, PREAPPROVABLE, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
 /* The New Client Setup run on an Onboarding card.
    Before Approve: which clean account it will take (dropdown), the step-by-step
@@ -202,13 +202,11 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
     const pool = data.pool;
     const pick = pool?.choices.find((c) => c.id === poolId);
     const needs = missingFields(form);
-    const niceToHave = OPTIONAL_FIELDS.filter((f) => !String(form[f.key] ?? "").trim());
     return (
       <div className="rounded-xl border border-[#c9dbfb] bg-[#f7faff] p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h2 className="text-sm font-bold text-[#1f3559]">🧩 Set up this account</h2>
-            <p className="text-xs text-[#697a91] mt-0.5">The dashboard runs the account steps itself and the AI Agent does the browser steps, with screenshots. <b>Nothing touches GoHighLevel before you approve.</b></p>
           </div>
           <button onClick={() => void load()} className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88]" title="Refresh"><RefreshCw size={13} /></button>
         </div>
@@ -234,7 +232,6 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-[#8595a8] mt-1">Renamed to <b className="text-[#1f3559]">{form.business_name || "the business name"}</b>. Only A2P-approved accounts still named &quot;Clean New Account N&quot; are listed; step 0 checks it live and deletes leftover contacts.{pool.note ? ` · ${pool.note}` : ""}</p>
             </>
           ) : <p className="text-xs text-[#697a91]">Loading the pool…</p>}
         </div>
@@ -263,7 +260,6 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                     ) : (
                       <input value={fill[f.key] ?? ""} onChange={(e) => setFill((v) => ({ ...v, [f.key]: e.target.value }))} placeholder={f.key === "meta_pixel_id" ? "e.g. 1234567890123456 — or none" : undefined} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />
                     )}
-                    {f.key === "meta_pixel_id" && <span className="block text-[10px] text-[#8595a8]">The client&apos;s pixel: Meta Events Manager → Data sources. &quot;Add it later&quot; skips the pixel step; the final check lists it as a reminder instead of stopping.</span>}
                   </label>
                 ))}
               </div>
@@ -275,12 +271,8 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
           ) : (
             <p className="text-xs font-semibold text-[#15803d] mt-0.5">✓ All {requiredFields(form.version).length} required details are on the card.</p>
           )}
-          {niceToHave.length > 0 && (
-            <p className="text-[10.5px] text-[#8595a8] mt-1.5">Not required, worth adding on the form: {niceToHave.map((f) => f.label).join(" · ")}</p>
-          )}
           {/* Approve the "asks you" steps now, so the AI Agent runs straight through */}
           <div className="mt-2 pt-2 border-t border-[#eadfc7]/60">
-            <p className="text-[10.5px] font-semibold text-[#1f3559]">Decide now (nothing stops mid-run): ticked = the AI Agent does it · unticked = skipped</p>
             {PREAPPROVABLE.map((p) => (
               <label key={p.key} className="flex items-start gap-1.5 text-[11px] text-[#1f3559] mt-0.5" title={p.label}>
                 <input type="checkbox" checked={preapproved.includes(p.key)} onChange={(e) => setPreapproved((v) => (e.target.checked ? [...v, p.key] : v.filter((k) => k !== p.key)))} className="mt-0.5" />

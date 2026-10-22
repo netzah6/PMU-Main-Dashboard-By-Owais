@@ -309,10 +309,10 @@ export default function OnboardingPage() {
             <button onClick={() => setOpenId(null)} className="flex items-center gap-1 text-xs text-[#0e8f88] hover:underline mb-1">
               <ChevronLeft size={13} /> All onboardings
             </button>
-            <h1 className="text-xl font-bold text-[#1f3559] truncate">{open.form.business_name}</h1>
-            <p className="text-sm text-[#697a91]">{open.form.owner_name} · {open.form.version || "—"} · started {new Date(open.created_at).toLocaleDateString("en-US")}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}
+            <h1 className="text-xl font-bold text-[#1f3559] flex items-baseline gap-2 flex-wrap"><span>{open.form.business_name}</span>
+            <span className="text-sm font-normal text-[#697a91]">{open.form.owner_name} · {open.form.version || "—"} · started {new Date(open.created_at).toLocaleDateString("en-US")}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}
               {/* The setup run puts its account line here (Clean New Account N → business · GHL · funnel). */}
-              <span id="setup-meta-slot" /></p>
+              <span id="setup-meta-slot" /></span></h1>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => runVerify(open.id)} disabled={verifying}
@@ -376,7 +376,7 @@ export default function OnboardingPage() {
         })()}
 
         {/* Client details */}
-        <details className="rounded-xl border border-[#e4ebf2] bg-white">
+        <details open className="rounded-xl border border-[#e4ebf2] bg-white">
           <summary className="px-4 py-2.5 text-sm font-semibold text-[#34568a] cursor-pointer">Client details (from the form)</summary>
           <div className="px-4 pb-3 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
             {FORM_FIELDS.filter((f) => (open.form[f.key] ?? "").trim()).map((f) => (
@@ -391,6 +391,11 @@ export default function OnboardingPage() {
         {/* New Client Setup run — approve first, then the AI Agent does the steps */}
         <SetupRunPanel onboardingId={open.id} role={role} form={open.form} onChanged={() => void load()} />
 
+        {/* Owner 10/22/2026: the manual checklist (checkboxes + videos) stays folded —
+            open it only to do a step by hand when the Mac Mini is not working. */}
+        <details className="rounded-xl border border-[#e4ebf2] bg-white">
+          <summary className="px-4 py-2.5 text-sm font-semibold text-[#34568a] cursor-pointer">🛠 Manual setup checklist (only if the AI Agent is not working)</summary>
+          <div className="p-3 space-y-4">
         {/* Checklist by section */}
         {SECTION_ORDER.map((section) => {
           const secSteps = steps.filter((s) => s.section === section);
@@ -453,6 +458,8 @@ export default function OnboardingPage() {
             </div>
           );
         })}
+          </div>
+        </details>
       </div>
     );
   }
