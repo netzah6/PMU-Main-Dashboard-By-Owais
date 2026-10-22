@@ -297,7 +297,7 @@ export default function CoachReportPage() {
                     <div className="border-t border-[#f0f4f8] px-3 py-2.5 text-xs grid gap-3">
                       <p className="text-[#1c2b3a]">
                         {s.snapshot_date
-                          ? <>Pay check: the {new Date(s.snapshot_date + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC" })} snapshot has <b>{s.snapshot_live}</b> live for {s.coach} → salary <b>${s.salary}</b>. Coach reports {n("active")} active.</>
+                          ? (() => { const refs = s.referrals?.length ?? 0; const bonus = refs * REFERRAL_BONUS; return <>Pay check: the {new Date(s.snapshot_date + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC" })} snapshot has <b>{s.snapshot_live}</b> live for {s.coach} → salary <b>${s.salary}</b>{refs > 0 ? <> + <b>${bonus}</b> referral bonus ({refs} × ${REFERRAL_BONUS}) = <b>${(s.salary ?? 0) + bonus}</b> to pay</> : null}. Coach reports {n("active")} active.</>; })()
                           : <>No {monthLabel} snapshot yet (taken on the 20th) — pay line will use it once taken.</>}
                       </p>
                       {isAdmin && (
