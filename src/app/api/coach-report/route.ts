@@ -55,6 +55,18 @@ async function rosterFor(svc: ReturnType<typeof createServiceClient>, coach: str
     .sort((a, b) => a.owner.localeCompare(b.owner));
 }
 
+/* Every client assigned to the coach, ANY status (Onboarding included): a
+   referred artist is usually not live yet, and that is exactly when the
+   bonus is claimed (owner, 10/22/2026: Jennifer Tran, Onboarding, Stephanie). */
+async function assignedAll(svc: ReturnType<typeof createServiceClient>, coach: string): Promise<Array<{ owner: string; biz: string; status: string }>> {
+  const norm = (v: string) => v.replace(/[^a-z]/gi, "").toLowerCase();
+  const { data } = await svc.from("clients_master").select("data");
+  return (data ?? [])
+    .map((r) => { const d = (r.data ?? {}) as Record<string, string>; return { owner: String(d["Owner Full Name"] ?? "").trim(), biz: String(d["Business Name"] ?? "").trim(), status: String(d["col_1"] ?? "").trim().toLowerCase() || "no status", coach: String(d["Assigned"] ?? "").trim() }; })
+    .filter((r) => r.owner && norm(r.coach) === norm(coach))
+    .map(({ owner, biz, status }) => ({ owner, biz, status }));
+}
+
 /* Which coach this request acts for. A coach is always their own name; an
    admin may pick any coach via ?coach= / body.coach. */
 async function resolveCoach(svc: ReturnType<typeof createServiceClient>, auth: { role: string | null; email: string | null; userId: string }, requested: string) {
@@ -104,7 +116,7 @@ export async function GET(req: NextRequest) {
 
 /* Coach vs dashboard. Shared by a fresh submission and an admin correction,
    so an edited report is re-flagged the same way. */
-function computeMismatches(coach: string, roster: RosterRow[], entries: { owner: string; biz: string; reported: Reported }[], referrals: Referral[]): string[] {
+function computeMismatches(coach: string, roster: RosterRow[], entries: { owner: string; biz: string; reported: Reported }[], referrals: Referral[], assigned: Array<{ owner: string; biz: string; status: string }> = roster): string[] {
   const rosterBy = new Map(roster.map((r) => [keyOf(r.owner, r.biz), r]));
   const entryKeys = new Set(entries.map((e) => keyOf(e.owner, e.biz)));
   const mismatches: string[] = [];
@@ -117,15 +129,18 @@ function computeMismatches(coach: string, roster: RosterRow[], entries: { owner:
   for (const r of roster) {
     if (!entryKeys.has(keyOf(r.owner, r.biz))) mismatches.push(`${r.owner} (${r.biz}): in ${coach}'s book (${r.status}) but missing from the report`);
   }
-  /* The referrer should be a client this coach actually manages — that is the
-     whole basis of the bonus. Flag it rather than reject it: sheet names drift
-     (aliases in brackets), and the admin approves the payout anyway. */
-  const rosterNames = roster.map((r) => `${r.owner} ${r.biz}`.toLowerCase());
+  /* The bonus is for the NEW artist: she must exist in Clients Master and be
+     assigned to this coach — any status, since a fresh referral is usually
+     still Onboarding (owner, 10/22/2026). The referrer is optional context;
+     when given and unknown it is only noted. Flag rather than reject: sheet
+     names drift (aliases in brackets), and the admin approves the payout. */
+  const loose = (s: string) => s.toLowerCase().replace(/\(.*?\)/g, " ").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const hit = (needle: string) => { const q = loose(needle); return q && assigned.find((a) => { const full = loose(`${a.owner} ${a.biz}`); return full.includes(q) || q.includes(loose(a.owner)) && loose(a.owner).length > 3; }); };
   for (const r of referrals) {
-    const needle = r.referred_by.toLowerCase();
-    if (!rosterNames.some((n) => n.includes(needle) || needle.includes(n.split(" ")[0]))) {
-      mismatches.push(`Referral "${r.referred_name}": referrer "${r.referred_by}" is not a client in ${coach}'s book — check the name before paying the bonus`);
-    }
+    const who = hit(r.referred_name);
+    if (!who) mismatches.push(`Referral "${r.referred_name}": not found in Clients Master under ${coach} — add the client first, then approve the bonus`);
+    const by = r.referred_by && r.referred_by !== "?" ? r.referred_by : "";
+    if (by && !hit(by)) mismatches.push(`Referral "${r.referred_name}": referrer "${by}" is not a client of ${coach} — check the name (bonus still OK if the new artist is real)`);
   }
   return mismatches;
 }
@@ -164,7 +179,7 @@ export async function PATCH(req: NextRequest) {
     for (const r of body!.referrals!) {
       const referred_name = clean(r.referred_name), referred_by = clean(r.referred_by);
       if (!referred_name && !referred_by) continue;
-      if (!referred_name || !referred_by) return NextResponse.json({ error: `Every referral needs both the new artist's name and who referred them (check "${referred_name || referred_by}")` }, { status: 400 });
+      if (!referred_name) return NextResponse.json({ error: `A referral needs the new artist's name (you typed only "${referred_by}")` }, { status: 400 });
       if (referrals.some((x) => x.referred_name.toLowerCase() === referred_name.toLowerCase())) continue;
       referrals.push({ referred_name: referred_name.slice(0, 120), referred_by: referred_by.slice(0, 120), note: clean(r.note).slice(0, 200) });
       if (referrals.length >= 25) break;
@@ -183,7 +198,7 @@ export async function PATCH(req: NextRequest) {
   if (!changes.length) return NextResponse.json({ ok: true, unchanged: true });
 
   const roster = await rosterFor(svc, String(row.coach));
-  const mismatches = computeMismatches(String(row.coach), roster, entries, referrals);
+  const mismatches = computeMismatches(String(row.coach), roster, entries, referrals, await assignedAll(svc, String(row.coach)));
   const admin_edits = [...((row.admin_edits ?? []) as unknown[]), { at: new Date().toISOString(), by: auth.email ?? auth.userId, changes }];
   const { error } = await svc.from("coach_reports").update({ entries, referrals, mismatches, admin_edits }).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -229,14 +244,14 @@ export async function POST(req: NextRequest) {
     const referred_name = clean(r.referred_name);
     const referred_by = clean(r.referred_by);
     if (!referred_name && !referred_by) continue; // blank row from the form
-    if (!referred_name || !referred_by) {
-      return NextResponse.json({ error: `Every referral needs both the new artist's name and who referred them (check "${referred_name || referred_by}")` }, { status: 400 });
+    if (!referred_name) {
+      return NextResponse.json({ error: `A referral needs the new artist's name (you typed only "${referred_by}")` }, { status: 400 });
     }
     if (referrals.some((x) => x.referred_name.toLowerCase() === referred_name.toLowerCase())) continue; // same claim twice
     referrals.push({ referred_name: referred_name.slice(0, 120), referred_by: referred_by.slice(0, 120), note: clean(r.note).slice(0, 200) });
     if (referrals.length >= 25) break;
   }
-  const mismatches = computeMismatches(coach, roster, entries, referrals);
+  const mismatches = computeMismatches(coach, roster, entries, referrals, await assignedAll(svc, coach));
 
   /* The month is paid from its 20th snapshot — remember which one applies.
      Range is [1st, 1st-of-next-month): a "-31" upper bound is an invalid

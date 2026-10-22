@@ -54,7 +54,7 @@ export default function CoachReportPage() {
   const filledReferrals = referrals.filter((r) => r.referred_name.trim() || r.referred_by.trim());
   const setRef = (i: number, patch: Partial<Referral>) =>
     setReferrals((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const incompleteReferral = filledReferrals.some((r) => !r.referred_name.trim() || !r.referred_by.trim());
+  const incompleteReferral = filledReferrals.some((r) => !r.referred_name.trim()); // referrer is optional
   const [confirm, setConfirm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -226,7 +226,7 @@ export default function CoachReportPage() {
                     <input value={r.referred_name} onChange={(e) => setRef(i, { referred_name: e.target.value })}
                       placeholder="New artist's name" className="border border-[#e4ebf2] rounded-lg px-2.5 py-1.5 text-xs bg-white" />
                     <input value={r.referred_by} onChange={(e) => setRef(i, { referred_by: e.target.value })}
-                      list="coach-roster-names" placeholder="Referred by (your client)" className="border border-[#e4ebf2] rounded-lg px-2.5 py-1.5 text-xs bg-white" />
+                      list="coach-roster-names" placeholder="Referred by (optional)" className="border border-[#e4ebf2] rounded-lg px-2.5 py-1.5 text-xs bg-white" />
                     <input value={r.note} onChange={(e) => setRef(i, { note: e.target.value })}
                       placeholder="Note (optional)" className="border border-[#e4ebf2] rounded-lg px-2.5 py-1.5 text-xs bg-white" />
                     <button type="button" onClick={() => setReferrals((rs) => (rs.length === 1 ? [{ referred_name: "", referred_by: "", note: "" }] : rs.filter((_, j) => j !== i)))}
@@ -242,7 +242,7 @@ export default function CoachReportPage() {
                 + Add another referral
               </button>
               {incompleteReferral && (
-                <p className="mt-1 text-[10px] text-[#c2410c]">Each referral needs both names — the new artist and who referred them.</p>
+                <p className="mt-1 text-[10px] text-[#c2410c]">Each referral needs the new artist&apos;s name.</p>
               )}
             </div>
 
@@ -325,7 +325,7 @@ export default function CoachReportPage() {
                               {draft.referrals.map((r, i) => (
                                 <div key={i} className="flex flex-wrap gap-1 items-center">
                                   <input value={r.referred_name} onChange={(e) => setDraft((d) => d && ({ ...d, referrals: d.referrals.map((x, j) => j === i ? { ...x, referred_name: e.target.value } : x) }))} placeholder="New artist's name" className="px-2 py-1 border border-[#d7e0ea] rounded text-xs w-44" />
-                                  <input value={r.referred_by} onChange={(e) => setDraft((d) => d && ({ ...d, referrals: d.referrals.map((x, j) => j === i ? { ...x, referred_by: e.target.value } : x) }))} placeholder="Referred by (client)" className="px-2 py-1 border border-[#d7e0ea] rounded text-xs w-44" />
+                                  <input value={r.referred_by} onChange={(e) => setDraft((d) => d && ({ ...d, referrals: d.referrals.map((x, j) => j === i ? { ...x, referred_by: e.target.value } : x) }))} placeholder="Referred by (optional)" className="px-2 py-1 border border-[#d7e0ea] rounded text-xs w-44" />
                                   <input value={r.note} onChange={(e) => setDraft((d) => d && ({ ...d, referrals: d.referrals.map((x, j) => j === i ? { ...x, note: e.target.value } : x) }))} placeholder="Note (optional)" className="px-2 py-1 border border-[#d7e0ea] rounded text-xs w-40" />
                                   <button type="button" onClick={() => setDraft((d) => d && ({ ...d, referrals: d.referrals.filter((_, j) => j !== i) }))} className="px-2 text-[#b45309] text-xs font-bold" title="Remove this referral">×</button>
                                 </div>
@@ -337,7 +337,7 @@ export default function CoachReportPage() {
                           <>
                             <p className="font-semibold text-[#b45309] mb-1">🎁 Referrals{s.referrals?.length ? ` — ${s.referrals.length} × $${REFERRAL_BONUS} = $${s.referrals.length * REFERRAL_BONUS} bonus` : ""}</p>
                             {s.referrals?.length
-                              ? <ul className="grid gap-0.5 pl-4 list-disc">{s.referrals.map((r, i) => <li key={i}><b>{r.referred_name}</b> — referred by {r.referred_by}{r.note ? <span className="text-[#697a91]"> ({r.note})</span> : null}</li>)}</ul>
+                              ? <ul className="grid gap-0.5 pl-4 list-disc">{s.referrals.map((r, i) => <li key={i}><b>{r.referred_name}</b>{r.referred_by && r.referred_by !== "?" ? <> — referred by {r.referred_by}</> : null}{r.note ? <span className="text-[#697a91]"> ({r.note})</span> : null}</li>)}</ul>
                               : <p className="text-[#697a91]">None claimed this month.</p>}
                           </>
                         )}
