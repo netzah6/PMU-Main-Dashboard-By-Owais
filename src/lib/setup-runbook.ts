@@ -81,25 +81,24 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 31, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", checklist: ["last_profile"] },
   { n: 32, key: "last_check", section: "H · ✅ Last check", who: "api", label: "Final check: the dashboard re-reads the live account and funnel (custom values, Commas product, calendar, sync) and lists anything still off", how: "The same report as the \"Verify setup\" button, run by itself at the end. Anything still off stops the run here (red) until it is fixed and retried — the funnel test only runs on a clean account." },
   { n: 33, key: "funnel_test", section: "H · ✅ Last check", who: "mini", label: "Test the funnel as a lead: survey, text arrives, AI replies, deposit page loads; then delete the test contact", how: "The AI Agent's last step. When it passes, the setup is done and the client can get the logins.", checklist: ["fin_test"] },
-  { n: 34, key: "send_client", section: "H · ✅ Last check", who: "team", label: "Send the client the funnel link and GoHighLevel login", how: "Click \"Copy the message\" on this step, paste it in a text or email to the client, then mark it completed." },
-  { n: 35, key: "first_cycle", section: "H · ✅ Last check", who: "api", confirm: true, label: "Move the client's deal to \"First Cycle\" in the PMU Bookings On Demand pipeline", how: "The dashboard moves the deal when you click Approve on this step; then you get the summary text with the last screenshots.", checklist: ["fin_master"] },
-  { n: 36, key: "later_hours", section: "H · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
+  { n: 34, key: "first_cycle", section: "H · ✅ Last check", who: "api", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
+  { n: 35, key: "later_hours", section: "H · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
   // I · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
   // then marks each step completed on the card. Loom + docs from the sheet.
-  { n: 37, key: "fb_bm", section: "I · 📣 Facebook", who: "team", label: "Business Manager and ad account ready", checklist: ["fb_bm_name", "fb_bm_adaccount", "fb_bm_payment", "fb_bm_partner"],
+  { n: 36, key: "fb_bm", section: "I · 📣 Facebook", who: "team", label: "Business Manager and ad account ready", checklist: ["fb_bm_name", "fb_bm_adaccount", "fb_bm_payment", "fb_bm_partner"],
     steps: ["Business Manager name = the client's name in the Master Google Sheet", "Ad account name = the same name", "Payment method connected on the ad account", "Partner access granted to our 3 BMs (see the guide)"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/672705f2837b4322826f320933ddd376" }, { label: "Partner access guide", url: "https://docs.google.com/document/d/1VpYxHBjgeWT6wmL2FRn1Lb8OHw1RjD6ksLVa7yO6sK0/edit?usp=sharing" }] },
-  { n: 38, key: "fb_campaign", section: "I · 📣 Facebook", who: "team", label: "Campaign built from the template (left paused)", checklist: ["fb_campaign", "fb_c_new", "fb_c_manual", "fb_c_name", "fb_c_budget"],
+  { n: 37, key: "fb_campaign", section: "I · 📣 Facebook", who: "team", label: "Campaign built from the template (left paused)", checklist: ["fb_campaign", "fb_c_new", "fb_c_manual", "fb_c_name", "fb_c_budget"],
     steps: ["New \"Leads\" campaign → Manual Leads Campaign", "Name it like the sheet, e.g. \"Microshading 1 (FU V2)\"", "Daily budget per the client's plan"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/3920ab07ad0f4a8f9e68ef1411e739e3" }] },
-  { n: 39, key: "fb_adset", section: "I · 📣 Facebook", who: "team", label: "Ad set: website conversion, PMU For All dataset, Lead event, local audience", checklist: ["fb_as_conversion", "fb_as_dataset", "fb_as_event", "fb_as_audience", "fb_as_location", "fb_as_radius", "fb_as_age", "fb_as_gender", "fb_as_interests", "fb_as_languages"],
+  { n: 38, key: "fb_adset", section: "I · 📣 Facebook", who: "team", label: "Ad set: website conversion, PMU For All dataset, Lead event, local audience", checklist: ["fb_as_conversion", "fb_as_dataset", "fb_as_event", "fb_as_audience", "fb_as_location", "fb_as_radius", "fb_as_age", "fb_as_gender", "fb_as_interests", "fb_as_languages"],
     steps: ["Conversion: Website · Dataset: PMU For All · Event: Lead", "Advantage+ audience → switch to original audience options", "Location = the studio address, adjust the radius", "Age 25–60 · Women · no interests · languages per the ad copy"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/879bc4c7a1d541ec9baf8235f590fd5f" }] },
-  { n: 40, key: "fb_ad", section: "I · 📣 Facebook", who: "team", label: "Ad: FB + IG account, video, copy, headline, funnel link", checklist: ["fb_ad_name", "fb_ad_accounts", "fb_ad_format", "fb_ad_multi", "fb_ad_video", "fb_ad_copy", "fb_ad_headline", "fb_ad_link"],
+  { n: 39, key: "fb_ad", section: "I · 📣 Facebook", who: "team", label: "Ad: FB + IG account, video, copy, headline, funnel link", checklist: ["fb_ad_name", "fb_ad_accounts", "fb_ad_format", "fb_ad_multi", "fb_ad_video", "fb_ad_copy", "fb_ad_headline", "fb_ad_link"],
     steps: ["Select the client's FB page and IG account", "Single image or video · uncheck Multi-advertiser ads", "Video from the folder (by service) · copy from the doc · headline per the offer", "Paste the one-box funnel link"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/354328b7939a496ab06ff8b6eec22ecc" }, { label: "Videos folder", url: "https://drive.google.com/drive/folders/1SijOuN58F4upfSIGfVbYUXn6mOQ17wGB?usp=drive_link" }, { label: "Ad copy doc", url: "https://docs.google.com/document/d/11h3ob6JleKekycZuIDvkAyY--lz7F869V5Um6rlBsak/edit?usp=sharing" }, { label: "Headlines doc", url: "https://docs.google.com/document/d/154yZyumlQVKoHwwTk4XtZFzCn_JyUDa0pdycJRRerUo/edit?usp=sharing" }] },
-  { n: 41, key: "fb_publish", section: "I · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
-  { n: 42, key: "client_connect", section: "I · 📣 Facebook", who: "client", label: "Client connects her Facebook page and Instagram to the sub-account", checklist: ["last_connect"] },
+  { n: 40, key: "fb_publish", section: "I · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
+  { n: 41, key: "client_connect", section: "I · 📣 Facebook", who: "client", label: "Client connects her Facebook page and Instagram to the sub-account", checklist: ["last_connect"] },
 ];
 
 /* Short names, shown bold on the setup card; the label stays as the
@@ -114,7 +113,7 @@ const STEP_TITLES: Record<string, string> = {
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
   funnel_create: "Create the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram widget", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
-  last_profile: "Profile check", last_check: "Final check", send_client: "Send the client the logins & funnel", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
+  last_profile: "Profile check", last_check: "Final check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
   fb_bm: "Business Manager", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
 };
 for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
