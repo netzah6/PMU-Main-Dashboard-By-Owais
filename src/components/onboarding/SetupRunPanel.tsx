@@ -583,7 +583,7 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
                         ) : (
                           <span title={s.label} className={cn("text-[12.5px] font-semibold", st.status === "done" || st.status === "skipped" ? "text-[#475569]" : "text-[#1f3559]")}>{s.title ?? s.label}</span>
                         )}
-                        <span className={cn("text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap", WHO_STYLE[s.who])}>{WHO_LABEL[s.who]}</span>
+                        <span className={cn("text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap", WHO_STYLE[s.badge ?? s.who])}>{WHO_LABEL[s.badge ?? s.who]}</span>
                         {setup && st.status === "failed" && AGENT.includes(s.who) && (
                           <span className="text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap bg-[#fde8ee] text-[#e11d48]">👤 needs a person</span>
                         )}

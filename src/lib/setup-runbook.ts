@@ -20,6 +20,13 @@ export function employeePassword(ownerName: string): string {
 
 export type Who = "api" | "mini" | "ask" | "owner" | "team" | "client";
 
+/* Owner 10/21/2026: the funnel test's lead phone is our own demo number, so
+   the AI Agent can prove the first text really arrived (and that the AI
+   answers a reply). The number lives in this demo sub-account, which the
+   agent must never change. */
+export const TEST_LEAD_PHONE = "+1 (760) 733-3106";
+export const TEST_LEAD_LOCATION = "asaIf2fxizaCNJ71iywk";
+
 export type RunbookStep = {
   n: number;
   key: string;
@@ -27,6 +34,7 @@ export type RunbookStep = {
   label: string;
   title?: string;            // short step name shown first (filled from STEP_TITLES)
   who: Who;
+  badge?: Who;              // what the card shows when it differs from who runs it (First Cycle: the coach clicks, the dashboard moves the deal)
   how?: string;              // one line of context shown under the label
   checklist?: string[];      // onboarding checklist keys this step ticks
   later?: boolean;           // not part of the run (re-run from the AI tab later)
@@ -80,8 +88,10 @@ export const RUNBOOK: RunbookStep[] = [
   // 10/20/2026); once it passes the team sends the client the logins.
   { n: 31, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", checklist: ["last_profile"] },
   { n: 32, key: "last_check", section: "H · ✅ Last check", who: "api", label: "Final check: the dashboard re-reads the live account and funnel (custom values, Commas product, calendar, sync) and lists anything still off", how: "The same report as the \"Verify setup\" button, run by itself at the end. Anything still off stops the run here (red) until it is fixed and retried — the funnel test only runs on a clean account." },
-  { n: 33, key: "funnel_test", section: "H · ✅ Last check", who: "mini", label: "Test the funnel as a lead: survey, text arrives, AI replies, deposit page loads; then delete the test contact", how: "The AI Agent's last step. When it passes, the setup is done and the client can get the logins.", checklist: ["fin_test"] },
-  { n: 34, key: "first_cycle", section: "H · ✅ Last check", who: "api", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
+  // Owner 10/22/2026: the coach tests the funnel by hand (with our demo number) and marks it completed; First Cycle is the coach's click too.
+  { n: 33, key: "funnel_test", section: "H · ✅ Last check", who: "team", label: "Test the funnel yourself as a lead, then mark it completed", how: "The last check before the client gets the logins.", checklist: ["fin_test"],
+    steps: [`Open the funnel and fill the survey as a lead with our demo number ${TEST_LEAD_PHONE} — pick a time slot, reach the deposit page (do NOT pay)`, `In the client's GHL contacts find the test contact: tag "onebox-survey", first AI text sent within ~2 minutes`, `In the demo sub-account's conversations confirm the text arrived; reply "Yes" and check the client's AI answers`, `Delete the test contact in the client's account, then click "Mark completed"`] },
+  { n: 34, key: "first_cycle", section: "H · ✅ Last check", who: "api", badge: "team", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
   { n: 35, key: "later_hours", section: "H · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
   // I · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
   // then marks each step completed on the card. Loom + docs from the sheet.
@@ -233,12 +243,6 @@ export type SetupFacts = {
   userEmail?: string;
 };
 
-/* Owner 10/21/2026: the funnel test's lead phone is our own demo number, so
-   the AI Agent can prove the first text really arrived (and that the AI
-   answers a reply). The number lives in this demo sub-account, which the
-   agent must never change. */
-export const TEST_LEAD_PHONE = "+1 (760) 733-3106";
-export const TEST_LEAD_LOCATION = "asaIf2fxizaCNJ71iywk";
 const ghl = (loc: string, path: string) => `https://app.gohighlevel.com/v2/location/${loc}/${path}`;
 
 export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
