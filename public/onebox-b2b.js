@@ -403,18 +403,18 @@
     window.fbq("track", "PageView");
   }
 
-  /* ---------- survey definition (the original survey + a PMU-only screen) ---------- */
-  /* Services screen (owner, 2026-10-22): regular makeup artists were booking
-     discovery calls the setter then disqualified — anyone who offers no
-     permanent makeup at all stops here, before contact details. */
-  var NON_PMU = "Regular makeup, lashes or hair (not permanent makeup)";
+  /* ---------- survey definition (mirrors the original GHL survey) ---------- */
+  /* PMU-only screen (owner, 2026-10-23): regular makeup artists were booking
+     discovery calls the setter then disqualified. The experience question's
+     last answer stops them before contact details — no extra step. Values
+     match the GHL "PMU experience" field options exactly. */
+  var NON_PMU = "I'm not a permanent makeup artist";
   var QS_STD = [
     { key: "area", type: "text", title: "First — what area do you serve?", note: "We partner with one PMU artist per area, so this decides everything.", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
-    { key: "services", type: "multi", title: "Which services do you offer?", note: "We only work with permanent makeup artists.", opts: ["Permanent Makeup Eyebrows", "Lip Blush", "Eyeliner", "Scar Camouflage", "Scalp Micropigmentation", "Tattoo Removal", NON_PMU] },
     { key: "spots", type: "radio", title: "How many spots do you need?", opts: ["I'm a single PMU artist", "2 locations", "3 locations", "4 locations", "5+ locations"] },
     { key: "weekly", type: "radio", title: "How many bookings can you handle every week?", opts: ["10–20 bookings", "20–50 bookings", "50–100 bookings", "100–200 bookings", "200+ bookings"] },
     { key: "start", type: "radio", title: "If accepted, how soon are you ready to start receiving qualified booking opportunities?", opts: ["I'm ready right now", "I'm ready in a few weeks", "I'm ready in a few months"] },
-    { key: "exp", type: "radio", title: "How long have you been a permanent makeup artist?", opts: ["I just started", "1 year", "2–3 years", "3–5 years", "5–10 years", "10–15 years", "15+ years"] },
+    { key: "exp", type: "radio", title: "How long have you been a permanent makeup artist?", opts: ["Less than 1 year", "1-2 years", "3-5 years", "More than 5 years", NON_PMU] },
     { key: "rev", type: "radio", title: "What is your current annual revenue?", opts: ["Less than $60k", "$60k–$100k annually", "$100k–$200k annually", "$200k–$500k annually", "$500k–$1m annually", "Over $1m annually"] },
     { key: "want", type: "radio", title: "What is your desired annual revenue?", opts: ["Over $60k annually", "$100–$200k annually", "$200–$500k annually", "$500k–$1m annually", "Over $1m annually"] },
     { key: "edge", type: "textarea", title: "What sets YOU apart from other PMU artists in your area?", frame: "We guarantee bookings or it’s free — if you don’t make money, we don’t either. That’s why we can only work with top artists and accept <b>about 20% of applications</b>.", ph: "Tell us in a sentence or two…" },
@@ -431,7 +431,7 @@
   function lipPrice(a) { return Number(a.lipprice) || 0; }
   var FLEX_NO = "No — I’d rather keep my current price";
   function disqualifiedReason(a) {
-    if (!PPS) return a.services && !a.services.some(function (s) { return s !== NON_PMU; }) ? "nonpmu" : null;
+    if (!PPS) return a.exp === NON_PMU ? "nonpmu" : null;
     if (a.services && !hasBrows(a) && !hasLip(a)) return "noservice";
     if (a.browflex === FLEX_NO || a.lipflex === FLEX_NO) return "price";
     return null;
@@ -526,9 +526,6 @@
   }
   function sendComplete() {
     var b = leadBase();
-    /* Only the real service names reach GHL — its multi-select field has
-       no option for the non-PMU answer. */
-    if (!PPS) b.services = (S.answers.services || []).filter(function (s) { return s !== NON_PMU; }).join(", ");
     if (PPS) {
       b.services = (S.answers.services || []).join(", ");
       b.browprice = S.answers.browprice || "";
@@ -720,7 +717,7 @@
       h += '<p class="q-note" style="text-align:center">Our system books clients for <b>permanent makeup treatments</b> — eyebrows, lip blush and eyeliner. Without permanent makeup on your menu we can’t fill your calendar, so we can’t take the spot right now.</p>';
       h += '<div class="backrow"><button type="button" class="backlink" id="ob-qback">← Change my answers</button></div></div>';
       render(h, false);
-      $("ob-qback").onclick = function () { S.step = QS.findIndex(function (q) { return q.key === "services"; }); showStep(true); };
+      $("ob-qback").onclick = function () { delete S.answers.exp; S.step = QS.findIndex(function (q) { return q.key === "exp"; }); showStep(true); };
       return;
     }
     h += '<h2 class="q-title" style="text-align:center">Thanks' + (f ? ", " + esc(f) : "") + " — not a match for pay-per-appointment yet</h2>";
