@@ -407,10 +407,12 @@
   /* Services screen (owner, 2026-10-22): regular makeup artists were booking
      discovery calls the setter then disqualified — anyone who offers no
      permanent makeup at all stops here, before contact details. */
-  var NON_PMU = "Regular makeup, lashes or hair (not permanent makeup)";
+  var NON_PMU = "I don\u2019t offer permanent makeup";
+  /* Shown wording → the GHL Services field option it maps to. */
+  var SCAR_LABEL = "Scar Camouflage or Stretch Marks";
   var QS_STD = [
     { key: "area", type: "text", title: "First — what area do you serve?", note: "We partner with one PMU artist per area, so this decides everything.", ph: "e.g. Miami, Austin, Detroit…", btn: "Check My Area" },
-    { key: "services", type: "multi", title: "Which services do you offer?", note: "We only work with permanent makeup artists.", opts: ["Permanent Makeup Eyebrows", "Lip Blush", "Eyeliner", "Scar Camouflage", "Scalp Micropigmentation", "Tattoo Removal", NON_PMU] },
+    { key: "services", type: "multi", title: "Which services do you offer?", note: "We only work with permanent makeup artists.", opts: ["Permanent Makeup Eyebrows", "Lip Blush", "Eyeliner", SCAR_LABEL, "Scalp Micropigmentation", "Tattoo Removal", NON_PMU] },
     { key: "spots", type: "radio", title: "How many spots do you need?", opts: ["I'm a single PMU artist", "2 locations", "3 locations", "4 locations", "5+ locations"] },
     { key: "weekly", type: "radio", title: "How many bookings can you handle every week?", opts: ["10–20 bookings", "20–50 bookings", "50–100 bookings", "100–200 bookings", "200+ bookings"] },
     { key: "start", type: "radio", title: "If accepted, how soon are you ready to start receiving qualified booking opportunities?", opts: ["I'm ready right now", "I'm ready in a few weeks", "I'm ready in a few months"] },
@@ -528,7 +530,7 @@
     var b = leadBase();
     /* Only the real service names reach GHL — its multi-select field has
        no option for the non-PMU answer. */
-    if (!PPS) b.services = (S.answers.services || []).filter(function (s) { return s !== NON_PMU; }).join(", ");
+    if (!PPS) b.services = (S.answers.services || []).filter(function (s) { return s !== NON_PMU; }).map(function (s) { return s === SCAR_LABEL ? "Scar Camouflage" : s; }).join(", ");
     if (PPS) {
       b.services = (S.answers.services || []).join(", ");
       b.browprice = S.answers.browprice || "";
