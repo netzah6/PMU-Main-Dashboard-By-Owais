@@ -2296,7 +2296,10 @@ export default function FunnelsPage() {
                   Start Setup {cvFor === f.slug ? "▲" : ""}
                 </button>
                 )}
-                {canEdit && (
+                {/* The info-request form collects B2C setup fields (prices,
+                    calendar, Fanbasis…); the agency's own B2B funnels have
+                    nothing to ask a client for. */}
+                {canEdit && f.template !== "b2b" && (
                 <button onClick={() => void (async () => {
                     setBusy(`intakeLink:${f.slug}`);
                     try {
