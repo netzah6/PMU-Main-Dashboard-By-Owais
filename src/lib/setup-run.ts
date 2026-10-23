@@ -589,6 +589,10 @@ const API_STEPS: Record<string, StepFn> = {
   /* 30 · Go live (the Funnels tab's "Go live", incl. the deposit URL). */
   funnel_live: async (svc, ob) => {
     const slug = ob.setup!.slug!;
+    // Step 7 copied the webhook URL but its custom value can be missing then
+    // (Brows by Susan 10/23/2026: the snapshot was reloaded after step 7) —
+    // write the saved URL now so go-live never stops for a value we have.
+    if (ob.setup!.hook_url) await healHookUrl(svc, ob).catch(() => undefined);
     // Never go live with holes: the AI quotes these values to leads.
     const gaps = await preLiveGaps(ob.setup!.location_id, String(ob.form.version ?? ""));
     if (gaps.length) return { status: "failed", note: `NOT live yet — ${gaps.length} value${gaps.length > 1 ? "s" : ""} empty in the sub-account. Fill them (Clients tab or GHL Custom Values), then Retry:\n${gaps.map((g) => `✗ ${g}`).join("\n")}` };
@@ -836,20 +840,7 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
   // Save the hook where the payment router and the funnel read it.
   const ob = await loadOb(svc, ref.onboardingId);
   if (ok && ref.key === "webhook_url" && ob.setup?.hook_url) {
-    const notes: string[] = [];
-    if (ob.setup.slug) {
-      const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", ob.setup.slug).maybeSingle();
-      const extras = { ...((row?.extras ?? {}) as Record<string, unknown>), fanbasisHookUrl: ob.setup.hook_url, paymentRouter: "yes" };
-      await svc.from("onebox_clients").update({ extras }).eq("slug", ob.setup.slug);
-      notes.push("saved on the funnel (payment routing ON)");
-    }
-    try {
-      const cvs = await listLocationCustomValues(ob.setup.location_id);
-      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const cv = cvs.find((c) => norm(c.name).includes("fanbasiswebhookurl"));
-      if (cv) { await setExistingCustomValue(ob.setup.location_id, cv.name, ob.setup.hook_url); notes.push(`→ "${cv.name}"`); }
-      else notes.push('🔴 custom value "CC - Fanbasis Webhook URL" is missing — create it by hand');
-    } catch (e) { notes.push(`✗ custom value: ${errMsg(e)}`); }
+    const notes = await healHookUrl(svc, ob);
     await patch(svc, ref.onboardingId, (o) => { if (!o.setup) return; const st = o.setup.steps[ref.key]; setStep(o.setup, ref.key, { status: st.status, note: `${st.note ?? ""}\n${notes.join(" · ")}`.trim() }); return { setup: o.setup }; });
   }
   if (ok && (ref.key === "webhook_url" || ref.key === "funnel_ig")) await refreshCard(svc, ref.onboardingId);
@@ -860,6 +851,29 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
    custom values taken when the funnel was created — before steps 3/6/7/24
    filled them, so Sally's card showed Calendar ID, product ID and webhook
    URL empty (10/16/2026). Re-copy after each of those steps. */
+/* The webhook URL from step 7 → the funnel (payment routing) and the
+   "CC - Fanbasis Webhook URL" custom value. Step 7's finish and go-live. */
+async function healHookUrl(svc: Svc, ob: Ob): Promise<string[]> {
+  const setup = ob.setup!;
+  const hook = setup.hook_url!;
+  const notes: string[] = [];
+  if (setup.slug) {
+    const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", setup.slug).maybeSingle();
+    const extras = { ...((row?.extras ?? {}) as Record<string, unknown>), fanbasisHookUrl: hook, paymentRouter: "yes" };
+    await svc.from("onebox_clients").update({ extras }).eq("slug", setup.slug);
+    notes.push("saved on the funnel (payment routing ON)");
+  }
+  try {
+    const cvs = await listLocationCustomValues(setup.location_id);
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const cv = cvs.find((c) => norm(c.name).includes("fanbasiswebhookurl"));
+    if (cv) { await setExistingCustomValue(setup.location_id, cv.name, hook); notes.push(`→ "${cv.name}"`); }
+    else notes.push('🔴 custom value "CC - Fanbasis Webhook URL" is missing — create it by hand');
+  } catch (e) { notes.push(`✗ custom value: ${errMsg(e)}`); }
+  if (setup.slug) await refreshOneboxConfig(svc, setup.slug, setup.location_id).catch(() => undefined);
+  return notes;
+}
+
 async function refreshCard(svc: Svc, onboardingId: string): Promise<void> {
   const ob = await loadOb(svc, onboardingId).catch(() => null);
   const slug = ob?.setup?.slug;
