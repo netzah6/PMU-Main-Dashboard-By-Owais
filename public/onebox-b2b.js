@@ -25,7 +25,8 @@
     res3: P + "r_420/" + A + "6253946b4304fd754e996fc4.jpeg",
     badge: P + "r_300/" + A + "62614338b04d4b0fd51565bd.png",
     founder: P + "r_600/" + A + "61d0b4dc18b96a8317592f73.jpeg",
-    avatar: "https://embed-ssl.wistia.com/deliveries/af2125c514399fa1e7fc6102dbb7eb0f.jpg?image_crop_resized=200x200",
+    /* Owner photo for the booking card (2026-10-23), hosted with the engine. */
+    avatar: "https://book.pmu-care.com/nicolas-avatar.jpg",
   };
   var W = "https://embed-ssl.wistia.com/deliveries/";
   var CROP = ".jpg?image_crop_resized=480x270";
