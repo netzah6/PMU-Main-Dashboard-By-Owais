@@ -713,8 +713,9 @@
        is the lead's next step. */
     var h = '<div class="donewrap">';
     if (why === "nonpmu") {
-      h += '<h2 class="q-title" style="text-align:center">Thanks' + (f ? ", " + esc(f) : "") + " — we only work with permanent makeup artists</h2>";
-      h += '<p class="q-note" style="text-align:center">Our system books clients for <b>permanent makeup treatments</b> — eyebrows, lip blush and eyeliner. Without permanent makeup on your menu we can’t fill your calendar, so we can’t take the spot right now.</p>';
+      /* Owner copy (2026-10-23), word for word the same as the GHL survey's message. */
+      h += '<h2 class="q-title" style="text-align:center">Thanks for your interest!</h2>';
+      h += '<p class="q-note" style="text-align:center">We only work with permanent makeup artists right now, so we can’t take the spot at the moment. If you start offering permanent makeup in the future, reach out to us. We’d love to help you fill your calendar.</p>';
       h += '<div class="backrow"><button type="button" class="backlink" id="ob-qback">← Change my answers</button></div></div>';
       render(h, false);
       $("ob-qback").onclick = function () { delete S.answers.exp; S.step = QS.findIndex(function (q) { return q.key === "exp"; }); showStep(true); };
