@@ -181,7 +181,7 @@ REPLIES (merged from the old AI Replies tab):
   is shown to the user in a special card with copy/open buttons — do NOT
   repeat the draft text in your answer. Reply with ONE short line that fits
   on a phone, e.g. 'Draft ready — copy it below.' Nothing more. NEVER claim the message was sent — the team copies and
-  sends it in GHL. Pass the user's phrasing hints via instructions.
+  sends it in GHL. Copy the user's guidance into instructions word for word.
 
 TEXT BLASTS — our proven copy:
 Coaches ask for these constantly. This is the copy that performs best for us,
@@ -234,7 +234,7 @@ const draftReplyTool: Anthropic.Tool = {
     properties: {
       lead_name: { type: "string" as const, description: "The contact/lead name (or email/phone) to reply to." },
       conversation_id: { type: "string" as const, description: "Exact GHL conversation id, when the user's message includes one (e.g. from clicking a chat in the sidebar). Takes precedence over name search." },
-      instructions: { type: "string" as const, description: "Optional guidance from the user for this reply — only what the user actually said. Never add a call/meeting invite or link." },
+      instructions: { type: "string" as const, description: "The user's guidance for this reply, copied WORD FOR WORD from their message — every point, nothing summarized, nothing added. Never add a call/meeting invite or link." },
       invite_call: { type: "boolean" as const, description: "true ONLY when the user's own message explicitly asks to invite the client to a strategy call. Otherwise omit." },
     },
     required: ["lead_name"],
@@ -446,7 +446,10 @@ export async function askAi(history: AskMessage[], userEmail = "", isAdmin = fal
         queries.push(`[draft reply: ${input.lead_name}]`);
         let content: string; let isError = false;
         try {
-          const r = await runDraftReply(String(input.lead_name ?? ""), input.instructions, userEmail, input.conversation_id || undefined, inviteCall);
+          // The person's own note goes to the drafter word for word — the
+          // chat model's paraphrase dropped points (owner, 10/23 Vui Bybee).
+          const ownNote = lastUser.match(/\bnote:\s*([\s\S]+)/i)?.[1]?.trim();
+          const r = await runDraftReply(String(input.lead_name ?? ""), ownNote || input.instructions, userEmail, input.conversation_id || undefined, inviteCall);
           if (typeof r.draft === "string" && typeof r.conversationUrl === "string") {
             drafts.push({
               contactName: String(r.contactName ?? ""), channel: String(r.channel ?? ""),

@@ -21,7 +21,8 @@ export type DraftInput = {
   contactName: string;
   agentName: string; // the team member the reply should sound like
   voiceSamples: string[]; // that person's real past replies
-  instructions?: string; // optional extra guidance from the user for this reply
+  instructions?: string; // background guidance the system adds (win-back context)
+  note?: string; // the team member's own note for this reply — rule 0, checked after drafting
   standingNotes?: string; // team-wide notes considered on EVERY draft (from the Notes panel)
   nameByUserId?: Map<string, string>; // GHL user id → teammate name, to label who sent what
   inviteCall?: boolean; // the "📞 Invite to a strategy call" switch — OFF unless a person turned it on
@@ -164,6 +165,11 @@ function buildSystemPrompt(input: DraftInput): string {
     `You are a drafting assistant for "PMU Bookings On Demand", an agency that runs ads and booking systems for permanent-makeup (PMU) artists. You write the next text message that ${agentName} will send to one of the agency's artist clients.`,
     "",
     "RULES THAT MATTER MOST:",
+    // Owner, 2026-10-23 (Vui Bybee): the note's points were dropped or
+    // reworded and a "for next month" was invented. The note is the brief.
+    ...(input.note?.trim()
+      ? [`0. THE TEAM'S NOTE IS THE BRIEF — ${agentName} wrote a note saying what this reply must say. Cover EVERY point in it, in its order, and keep ${agentName}'s own key phrases (e.g. "I totally understand", "we can't waive the service fee") instead of swapping them for your own. If the note says to affirm or repeat what the client said, reflect her actual points back to her. Add NO fact, date, time frame, amount or promise that is not in the note or the chat. This rule beats rules 5–7: the reply may be longer than usual and may cover things the client didn't ask about, because the team asked for them.`]
+      : []),
     "1. READ THE WHOLE RECENT EXCHANGE — clients often send several texts in a row, and what they mean is often in an earlier message from today or yesterday. Answer everything in the messages marked NEW, using the last 2 days for context. Never reply to only the very last line.",
     `2. VOICE — sound exactly like ${agentName} in the real replies below: same greeting style, length, punctuation and capitalization. Lines marked "Automated" are workflow texts, NOT ${agentName} — never copy their wording, emojis or calls to action. Lines marked "Agency" were really sent to the client — treat them as already said.`,
     `3. COMPLETE MIRRORING — the reply must match the CLIENT's latest message in vibe and form, measured from what they wrote: ${clientVibe(input.thread, agentName)} This rule beats ${agentName}'s own habits (${emojiRule(agentName, voiceSamples).replace(/^Do not use emojis\.$/, "no emojis by default")}) whenever they differ: an excited client with emojis gets emojis back; a formal "Regards, Sara" gets a formal "Regards, ${agentName.split(" ")[0]}" back; a plain one-liner gets a plain one-liner with no name at the end.`,
@@ -218,10 +224,9 @@ function buildSystemPrompt(input: DraftInput): string {
 }
 
 function buildUserPrompt(input: DraftInput): string {
-  const { thread, contactName, instructions } = input;
-  const extra = instructions?.trim()
-    ? `\n\nExtra instruction for THIS reply (follow it): ${instructions.trim()}`
-    : "";
+  const { thread, contactName, instructions, note } = input;
+  const extra = (instructions?.trim() ? `\n\nExtra instruction for THIS reply (follow it): ${instructions.trim()}` : "")
+    + (note?.trim() ? `\n\n${input.agentName}'s note for THIS reply (rule 0 — every point must be in the reply, nothing added):\n"""\n${note.trim()}\n"""` : "");
   const waiting = firstUnansweredIndex(thread) < thread.length;
   // Notes distilled from earlier chats. They come partly from the client's
   // own texts, so they are background only — never a source of facts.
@@ -282,7 +287,30 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
       if (callViolation(draft, asked)) draft = stripCallInvites(draft, asked) ?? "";
     }
   }
+  if (draft && input.note?.trim()) {
+    const gaps = await noteGaps(client, input.note.trim(), draft).catch(() => null);
+    if (gaps) {
+      const fixed = await ask(`\n\nYour earlier draft was:\n"""\n${draft}\n"""\nIt did not follow the note: ${gaps}\nRewrite it so every point of the note is there and nothing is added. Keep the rest.`);
+      if (fixed && !(!input.inviteCall && callViolation(fixed, clientAskedForCall(input.thread)))) draft = fixed;
+    }
+  }
   return { draft, model: MODEL };
+}
+
+/* Checks a draft against the team's note: lists the points it dropped or
+   watered down and anything it made up. null = the draft follows the note. */
+async function noteGaps(client: Anthropic, note: string, draft: string): Promise<string | null> {
+  const msg = await client.messages.create({
+    model: MODEL,
+    max_tokens: 400,
+    messages: [{
+      role: "user",
+      content: `A team member wrote this note for a text message to a client:\n"""\n${note}\n"""\n\nThe drafted message:\n"""\n${draft}\n"""\n\nList every point of the note the message drops, weakens or changes, and anything the message adds that the note did not say (a date, time frame, amount, promise). Lines in the note that are instructions about style (e.g. "affirm what she says") count as points too. Reply with ONLY JSON: {"problems": ["..."]} — an empty list if the message follows the note.`,
+    }],
+  });
+  const text = msg.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
+  const problems = (JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as { problems?: unknown }).problems;
+  return Array.isArray(problems) && problems.length ? problems.map(String).join("; ") : null;
 }
 
 /* One entry point for every reply the dashboard writes — the AI tab's draft
@@ -349,7 +377,7 @@ export async function draftReplyFor(opts: {
   const prospect = !!wbRow && !wbRow.outcome && !["current_client", "opted_out"].includes(wbRow.stopped_reason ?? "");
   const ctx = prospect ? winbackContext(wbRow!, thread) : null;
   const winback = ctx?.inFlow ? ctx : undefined;
-  const instructions = wbRow ? [winbackInstructions(wbRow), opts.instructions?.trim()].filter(Boolean).join("\n\n") : opts.instructions;
+  const instructions = wbRow ? winbackInstructions(wbRow) : undefined;
 
   const { draft, model } = await generateDraft({
     thread,
@@ -357,6 +385,7 @@ export async function draftReplyFor(opts: {
     agentName,
     voiceSamples,
     instructions,
+    note: opts.instructions?.trim() || undefined,
     winback,
     standingNotes: notesRow.data?.content ?? "",
     nameByUserId,
