@@ -6,6 +6,7 @@ import { onPoolSnapshotClosedForSetup, onSetupProposalClosed, parseSetupConvId }
 import { onSnapshotProposalClosed, parseSnapshotConvId } from "@/lib/pool-snapshot";
 import { onA2pProposalClosed, parseA2pConvId } from "@/lib/pool-a2p";
 import { onCnamProposalClosed, parseCnamConvId } from "@/lib/pool-cnam";
+import { isCloseBotCheck, onCloseBotCheckClosed } from "@/lib/closebot-coverage";
 
 // ── AI agent, browser worker (owner, 2026-10-10) ─────────────────────────────
 // Every approved account change is done in a real Chrome on the Mac Mini, on
@@ -81,6 +82,10 @@ export async function claimNext(svc: Svc, host: string, recover = false): Promis
     if (!retry && parseCnamConvId(r.conversation_id)) {
       try { await onCnamProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result }); } catch { /* the pool row keeps its last note */ }
     }
+    // The weekly CloseBot check died twice: say so on the Alerts tab.
+    if (!retry && isCloseBotCheck(r.conversation_id)) {
+      try { await onCloseBotCheckClosed(svc, { id: r.id, status: "failed", result, reason: "the AI Agent stopped responding twice" }); } catch { /* next week's check runs anyway */ }
+    }
   }
 
   const { data: next } = await svc.from("agent_proposals").select("*")
@@ -97,7 +102,7 @@ export async function claimNext(svc: Svc, host: string, recover = false): Promis
   // Setup-run and pool-snapshot cards carry their location; "Clean New
   // Account N" is not a client and has no Clients Master row to resolve.
   const setupRef = parseSetupConvId(p.conversation_id) ?? parseSnapshotConvId(p.conversation_id) ?? parseA2pConvId(p.conversation_id) ?? parseCnamConvId(p.conversation_id);
-  const loc = setupRef ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
+  const loc = setupRef || isCloseBotCheck(p.conversation_id) ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
   if (loc) { locationId = locationId || loc.locationId; business = loc.businessName || null; }
   if (!locationId) {
     await svc.from("agent_proposals").update({
@@ -223,6 +228,13 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
   if (parseCnamConvId(p.conversation_id)) {
     try { await onCnamProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
     catch { /* the weekly sweep queues it again */ }
+  }
+
+  /* Weekly CloseBot check: the Alerts tab is the report — no owner text. */
+  if (isCloseBotCheck(p.conversation_id)) {
+    try { await onCloseBotCheckClosed(svc, { id: p.id, status: input.status, result, reason: input.summary }); }
+    catch { /* next week's check runs anyway */ }
+    return { ok: true };
   }
 
   /* Keep-alive check: no "done" text (it would be noise 4× a day); a failure

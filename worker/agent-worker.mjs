@@ -52,7 +52,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 //    shutdown, never a kill);
 //  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
 //    works), so Chrome's account reconcilor can never log the mailbox out.
-const WORKER_VERSION = 3; // self-update refuses to downgrade below this
+const WORKER_VERSION = 4; // self-update refuses to downgrade below this
 const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const LOGIN_LOCK = join(HOME, "login.lock");
 const CHROME_ARGS = ["--lang=en-US", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--password-store=basic"];
@@ -189,7 +189,25 @@ setInterval(() => {
 process.on("unhandledRejection", (e) => die(`unhandled rejection: ${e instanceof Error ? e.message : e}`));
 process.on("uncaughtException", (e) => die(`uncaught exception: ${e instanceof Error ? e.message : e}`));
 
+// The weekly CloseBot check (location "closebot") is not a GoHighLevel task:
+// read-only, in CloseBot, and the page itself sends the data (10/24/2026).
+function closebotPrompt(t) {
+  return `You are the PMU Bookings On Demand agency's back-office assistant. The dashboard scheduled the READ-ONLY CloseBot check below. Do it with the browser tools, then report.
+
+THE TASK — do these, in order:
+${t.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+RULES (never break these):
+- Read only: never click Save, Publish, Connect, Disconnect, Delete, Uninstall or any switch in CloseBot, and never send any message.
+- If CloseBot shows a sign-in page: type nothing, status "needs_teammate", summary "Mac Mini is not signed in to CloseBot".
+- If you hit a CAPTCHA: stop, status "needs_teammate", summary "Mac Mini hit a CAPTCHA on CloseBot".
+
+When finished, reply with ONLY this JSON (no other text):
+{"status":"done" | "failed" | "needs_teammate","summary":"<the CLOSEBOT: line the function returned, or why not>","steps":["<short line per thing you did>"],"screenshots":[{"file":"after-1.png","name":"CloseBot Sources"}],"files":[]}`;
+}
+
 function promptFor(t) {
+  if (t.location_id === "closebot") return closebotPrompt(t);
   return `You are the PMU Bookings On Demand agency's back-office assistant. A manager APPROVED the task below. Do it in GoHighLevel using the browser tools, exactly like a careful teammate would, then report.
 
 CLIENT: ${t.contact_name}${t.business_name ? ` (${t.business_name})` : ""}
@@ -370,12 +388,13 @@ if (process.argv[2] === "login") {
     waitForExit(existing, 2 * 60 * 60_000).then(finish);
   } else {
     writeFileSync(LOGIN_LOCK, String(process.pid));
-    const chrome = spawn(CHROME_BIN, [`--user-data-dir=${PROFILE}`, ...CHROME_ARGS, "https://app.gohighlevel.com/", "https://mail.google.com/"], { stdio: "ignore" });
+    const chrome = spawn(CHROME_BIN, [`--user-data-dir=${PROFILE}`, ...CHROME_ARGS, "https://app.gohighlevel.com/", "https://mail.google.com/", "https://app.closebot.com/"], { stdio: "ignore" });
     console.log([
-      "Chrome opened with the worker's profile (two tabs).",
+      "Chrome opened with the worker's profile (three tabs).",
       "  1. GoHighLevel tab: sign in as the agent; if it asks for a security code, read it from the Gmail tab; tick \"remember/trust this device\" if offered.",
       "  2. Gmail tab: make sure the agent's mailbox is signed in (the worker reads future security codes there).",
-      "  3. Wait about a minute, then QUIT Chrome with Cmd+Q (not just the red button). Leave this window until it says done.",
+      "  3. CloseBot tab: sign in to CloseBot (the weekly read-only CloseBot check uses it).",
+      "  4. Wait about a minute, then QUIT Chrome with Cmd+Q (not just the red button). Leave this window until it says done.",
     ].join("\n"));
     chrome.on("exit", finish);
   }
