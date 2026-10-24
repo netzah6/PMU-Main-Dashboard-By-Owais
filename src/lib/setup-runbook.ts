@@ -318,6 +318,10 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Open ${ghl(L, "automation/workflows")} and open the workflow whose name starts "CC - Funnel Survey" (V1 / V2 / V3 variants — the one that is Published).`,
       `Find the "Assign to user" action and set it to ${owner} (${email}). Save and publish.`,
       `Check the triggers: there must be a "Contact Tag" trigger with tag "onebox-survey" (tag added). If it is missing, ADD it (Contact tag added → onebox-survey) and publish. Screenshot the trigger list and the assign step.`,
+      // Owner, 10/24 (Brows by Susan): the Agent saw 2 opportunity errors,
+      // called them out of scope and left the workflow in Draft — leads got nothing.
+      `The workflow MUST end Published with NO errors — fixing any error GHL shows (the red "Resolve errors" panel / orange dots) is part of this step. The usual one is "Create Or Update Opportunity: Opportunity pipeline not found / Stage not found" (the snapshot kept an old pipeline id): open each such step, choose the pipeline "Booking opportunities" and the stage the Demo (V3) template uses in the same step — open Demo (V3)'s copy of this workflow READ-ONLY to see it, never save anything in Demo; if you cannot see it, use "Very Hot-Lead (Filled Survey)🔥". Save each step, then publish.`,
+      `Before you finish, re-open the workflow list and confirm this workflow shows Published and the builder shows 0 errors. If it is still Draft or still has errors, the status is "failed" (never "done") and the summary says which error is left.`,
     ];
     case "wf_notify": return [
       `Workflows live INSIDE FOLDERS — open each folder or use the workflows search box before deciding one is missing.`,
