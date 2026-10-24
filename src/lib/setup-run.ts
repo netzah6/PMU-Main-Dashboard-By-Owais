@@ -622,7 +622,15 @@ const API_STEPS: Record<string, StepFn> = {
     const r = await verifyOnboarding({ ...ob.form, product_id: ob.setup!.product_id ?? ob.form.product_id }, { locationId: ob.setup!.location_id, purchasedPhone });
     const fails = r.checks.filter((c) => c.status === "fail");
     const pass = r.checks.filter((c) => c.status === "pass").length;
-    if (!fails.length && !tzBad) return { status: "done", note: `all green — ${pass} checks passed\n${tzNote}` };
+    if (!fails.length && !tzBad) {
+      // Logins saved early too, so a deal moved by hand in GHL still texts them.
+      const cid = String(ob.form.master_contact_id ?? "").trim();
+      const tok = cid ? await getAppLocationToken(MAIN_LOC).catch(() => null) : null;
+      const saved = tok?.token
+        ? await saveLoginFields(ob, cid, { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" }).then(() => "\nlogins saved on the agency contact").catch(() => "")
+        : "";
+      return { status: "done", note: `all green — ${pass} checks passed\n${tzNote}${saved}` };
+    }
     // Owner 10/21/2026: anything still off STOPS the run here (red, Retry after fixing).
     return { status: "failed", note: `STOPPED — ${pass} passed, ${fails.length + tzBad} to fix before the funnel test:\n${[...fails.map((f) => `✗ ${f.key}: ${f.detail}`), tzNote].join("\n")}` };
   },
@@ -638,8 +646,32 @@ const API_STEPS: Record<string, StepFn> = {
     // Owner 10/22/2026: the "Started stage -> Went live Notification" workflow
     // texts the client the logins (3 texts) once the deal lands in First Cycle,
     // from these contact fields — so they are filled right before the move.
-    const fieldNotes: string[] = [];
+    let fieldNotes: string[];
     try {
+      fieldNotes = await saveLoginFields(ob, contactId, H);
+    } catch (e) {
+      return { status: "failed", note: `logins not saved on the agency contact — ${errMsg(e)}. Fix and Retry (the deal was NOT moved, so the client gets no half-filled texts)` };
+    }
+    const pipes = (await fetch(`${GHL}/opportunities/pipelines?locationId=${MAIN_LOC}`, { headers: H }).then((r) => r.json()).catch(() => ({}))) as { pipelines?: Array<{ id: string; name: string; stages?: Array<{ id: string; name: string }> }> };
+    let target: { pipelineId: string; stageId: string; stageName: string } | null = null;
+    for (const p of pipes.pipelines ?? []) for (const s of p.stages ?? []) if (/first\s*cycle/i.test(s.name) && !target) target = { pipelineId: p.id, stageId: s.id, stageName: s.name };
+    if (!target) return { status: "warn", note: "no pipeline stage named \"First Cycle\" in the agency account — move the deal by hand" };
+    const opps = (await fetch(`${GHL}/opportunities/search?location_id=${MAIN_LOC}&contact_id=${contactId}&limit=20`, { headers: H }).then((r) => r.json()).catch(() => ({}))) as { opportunities?: Array<{ id: string; name?: string; pipelineId: string; pipelineStageId: string }> };
+    const opp = (opps.opportunities ?? []).find((o) => o.pipelineId === target!.pipelineId) ?? (opps.opportunities ?? [])[0];
+    if (!opp) return { status: "warn", note: "the client has no deal in the agency pipeline — move it to First Cycle by hand" };
+    if (opp.pipelineStageId === target.stageId) return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${opp.name ?? ""}" already in ${target.stageName}` };
+    const r = await fetch(`${GHL}/opportunities/${opp.id}`, { method: "PUT", headers: H, body: JSON.stringify({ pipelineId: target.pipelineId, pipelineStageId: target.stageId }) });
+    if (!r.ok) return { status: "failed", note: `could not move the deal: HTTP ${r.status} ${(await r.text()).slice(0, 150)}` };
+    return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${opp.name ?? ""}" → ${target.stageName} — the client gets the 3 welcome texts now` };
+  },
+};
+
+/* The login email, password and funnel URL on the client's agency contact —
+   what the "Went live" workflow texts. Also run when step 34 is approved by
+   hand (owner 10/24: Susan got "Email: / Password:" blank after a manual
+   approve skipped this). */
+export async function saveLoginFields(ob: Ob, contactId: string, H: Record<string, string>): Promise<string[]> {
+    const fieldNotes: string[] = [];
       const cfRes = (await fetch(`${GHL}/locations/${MAIN_LOC}/customFields?model=contact`, { headers: H }).then((r) => r.json())) as { customFields?: Array<{ id: string; name: string; fieldKey?: string }> };
       const fields = cfRes.customFields ?? [];
       const byKey = (k: string) => fields.find((f) => (f.fieldKey ?? "").toLowerCase() === k.toLowerCase());
@@ -665,22 +697,8 @@ const API_STEPS: Record<string, StepFn> = {
       const r = await fetch(`${GHL}/contacts/${contactId}`, { method: "PUT", headers: H, body: JSON.stringify(body) });
       if (!r.ok) throw new Error(`contact update HTTP ${r.status} ${(await r.text()).slice(0, 120)}`);
       fieldNotes.push(`login email${pw ? ", password" : " (no password on the run!)"}${funnel ? ", funnel URL" : " (no funnel URL!)"} saved on the agency contact → the Went-live workflow texts them`);
-    } catch (e) {
-      return { status: "failed", note: `logins not saved on the agency contact — ${errMsg(e)}. Fix and Retry (the deal was NOT moved, so the client gets no half-filled texts)` };
-    }
-    const pipes = (await fetch(`${GHL}/opportunities/pipelines?locationId=${MAIN_LOC}`, { headers: H }).then((r) => r.json()).catch(() => ({}))) as { pipelines?: Array<{ id: string; name: string; stages?: Array<{ id: string; name: string }> }> };
-    let target: { pipelineId: string; stageId: string; stageName: string } | null = null;
-    for (const p of pipes.pipelines ?? []) for (const s of p.stages ?? []) if (/first\s*cycle/i.test(s.name) && !target) target = { pipelineId: p.id, stageId: s.id, stageName: s.name };
-    if (!target) return { status: "warn", note: "no pipeline stage named \"First Cycle\" in the agency account — move the deal by hand" };
-    const opps = (await fetch(`${GHL}/opportunities/search?location_id=${MAIN_LOC}&contact_id=${contactId}&limit=20`, { headers: H }).then((r) => r.json()).catch(() => ({}))) as { opportunities?: Array<{ id: string; name?: string; pipelineId: string; pipelineStageId: string }> };
-    const opp = (opps.opportunities ?? []).find((o) => o.pipelineId === target!.pipelineId) ?? (opps.opportunities ?? [])[0];
-    if (!opp) return { status: "warn", note: "the client has no deal in the agency pipeline — move it to First Cycle by hand" };
-    if (opp.pipelineStageId === target.stageId) return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${opp.name ?? ""}" already in ${target.stageName}` };
-    const r = await fetch(`${GHL}/opportunities/${opp.id}`, { method: "PUT", headers: H, body: JSON.stringify({ pipelineId: target.pipelineId, pipelineStageId: target.stageId }) });
-    if (!r.ok) return { status: "failed", note: `could not move the deal: HTTP ${r.status} ${(await r.text()).slice(0, 150)}` };
-    return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${opp.name ?? ""}" → ${target.stageName} — the client gets the 3 welcome texts now` };
-  },
-};
+    return fieldNotes;
+}
 
 // ── Mac Mini steps: one card at a time, in runbook order ───────────────────
 function facts(ob: Ob): SetupFacts {
@@ -932,9 +950,20 @@ export async function skipStep(svc: Svc, onboardingId: string, key: string, by: 
     await svc.from("agent_proposals").update({ status: "denied", result: `skipped on the Onboarding card by ${by} — approved manually`, decided_by: by, decided_at: now() })
       .eq("id", cur.proposal_id).in("status", ["pending", "queued_browser"]);
   }
+  // Deal moved by hand → the Went-live texts still need the logins saved.
+  let loginNote = "";
+  if (key === "first_cycle") {
+    const ob = await loadOb(svc, onboardingId);
+    const contactId = String(ob.form.master_contact_id ?? "").trim();
+    const tok = contactId ? await getAppLocationToken(MAIN_LOC) : null;
+    if (!contactId) loginNote = "⚠ no Contact ID — logins NOT saved on the agency contact";
+    else if (!tok?.token) loginNote = `⚠ agency token unavailable — logins NOT saved (${tok?.error})`;
+    else loginNote = await saveLoginFields(ob, contactId, { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" })
+      .then((n) => n.join("; ")).catch((e) => `⚠ logins NOT saved: ${errMsg(e)}`);
+  }
   await patch(svc, onboardingId, (o) => {
     if (!o.setup) return;
-    setStep(o.setup, key, { status: "skipped", who: by, note: note?.trim() || "approved manually" }, `skipped by ${by}`);
+    setStep(o.setup, key, { status: "skipped", who: by, note: [note?.trim() || "approved manually", loginNote].filter(Boolean).join("\n") }, `skipped by ${by}`);
     const checklist = { ...o.checklist };
     tick(checklist, step.checklist, by);
     if (o.setup.status !== "running") o.setup.status = "running";
