@@ -23,6 +23,9 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   paid_not_booked: { label: "Paid but not booked", icon: "📅", chip: "bg-rose-50 text-rose-700 border-rose-200" },
   double_booking: { label: "Double booking", icon: "📆", chip: "bg-amber-50 text-amber-800 border-amber-200" },
   ig_drop: { label: "Deposit rate dropped", icon: "📉", chip: "bg-pink-50 text-pink-700 border-pink-200" },
+  closebot_missing: { label: "V3 without CloseBot", icon: "🔌", chip: "bg-rose-50 text-rose-700 border-rose-200" },
+  closebot_not_v3: { label: "CloseBot on, not V3", icon: "🔌", chip: "bg-amber-50 text-amber-800 border-amber-200" },
+  closebot_check: { label: "CloseBot check", icon: "🔌", chip: "bg-slate-50 text-slate-700 border-slate-200" },
 };
 
 function typeMeta(t: string) {

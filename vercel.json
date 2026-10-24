@@ -69,6 +69,10 @@
       "schedule": "0 10 * * 1"
     },
     {
+      "path": "/api/cron/closebot-check",
+      "schedule": "0 11 * * 1"
+    },
+    {
       "path": "/api/cron/pps-retry",
       "schedule": "0 17 * * *"
     },
