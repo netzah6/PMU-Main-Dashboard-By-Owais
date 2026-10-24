@@ -818,19 +818,31 @@ export function wallToIso(local: string, tz: string): string {
   return `${date}T${time}${off >= 0 ? "+" : "-"}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
 }
 
-/* A contact's live, future appointments on one calendar, newest-booked
-   first. The AI books leads on the same calendar the one-box uses, so this
+/* A contact's live (or AI-held), future appointments on one calendar,
+   newest-booked first. The AI books leads on the same calendar the one-box uses, so this
    is how the deposit flow finds "she already has an appointment" instead of
    booking another one (Alma Tejeda / Mood Studios, 2026-09-30: funnel slot
    + two AI bookings = three confirmations). Fails closed: no timezone or no
    response → no appointments, and callers keep their old behaviour. */
-export type ContactAppointment = { id: string; startIso: string; startMs: number; addedMs: number; status: string };
+export type ContactAppointment = { id: string; startIso: string; startMs: number; addedMs: number; updatedMs: number; status: string };
+/* The AI (CloseBot) books a lead in chat as an "invalid" appointment — a hold
+   that is not confirmed until the deposit is paid. Every V3 account runs the
+   workflow "Appointment Status Invalid -> Confirm if Fanbasis tag in 3 days",
+   which flips the hold to confirmed the moment the deposit tag lands. The
+   lookup used to skip "invalid", so the deposit flow never saw the hold,
+   booked a second appointment, and the workflow then confirmed the hold too:
+   two confirmed appointments, every confirmation and reminder twice (Noemi
+   Beltran, Narica Hamilton, Jennifer Souleret, Jawey Saye — Oct 2026; the
+   Oct 19 batch had the same cause). */
+export const AI_HOLD_STATUS = "invalid";
+/* The workflow only waits 3 days for the deposit; a hold older than that
+   never confirms on its own. */
+export const AI_HOLD_LIVE_MS = 4 * 86400_000;
 /* `ok` = the read actually happened (timezone known, GHL answered). A
    caller that books on an empty list must know the difference between "no
-   appointments" and "could not look" — 13 leads got two confirmations in
-   Oct 2026 because one failed read (fail-closed = empty) booked over the
-   AI's appointment at the very same time. Three attempts with a short
-   back-off cover a 429 or a blip. */
+   appointments" and "could not look" — a failed read (fail-closed = empty)
+   would book over the AI's appointment at the very same time. Three
+   attempts with a short back-off cover a 429 or a blip. */
 export async function liveAppointmentsOnCalendar(
   contactId: string, calendarId: string, locationId: string, token: string,
 ): Promise<{ tz: string; appts: ContactAppointment[]; ok: boolean; error?: string }> {
@@ -858,7 +870,8 @@ async function readLiveAppointments(
     const appts = (j.events ?? [])
       .filter((e) => e.id && e.deleted !== true && String(e.calendarId ?? "") === calendarId
         // GHL ships both spellings. "showed" = it already happened.
-        && !["cancelled", "invalid", "noshow", "showed"].includes(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase()))
+        // "invalid" stays IN: it is the AI's unpaid hold (see AI_HOLD_STATUS).
+        && !["cancelled", "noshow", "showed"].includes(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase()))
       .map((e) => {
         const startIso = wallToIso(String(e.startTime ?? ""), tz);
         return {
@@ -866,6 +879,7 @@ async function readLiveAppointments(
           startIso,
           startMs: Date.parse(startIso),
           addedMs: Date.parse(wallToIso(String(e.dateAdded ?? ""), tz)),
+          updatedMs: Date.parse(wallToIso(String(e.dateUpdated ?? ""), tz)),
           status: String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase(),
         };
       })

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
-import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
+import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso, AI_HOLD_STATUS, AI_HOLD_LIVE_MS, type ContactAppointment } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
 import { cleanTz, calendarDurationMin } from "@/lib/ghl-push";
 import { fileDoubleBookingAlert, filePaidNotBookedAlert } from "@/lib/alerts";
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     }),
     svc
       .from("onebox_leads")
-      .select("answers")
+      .select("id, answers")
       .eq("slug", slug)
       .eq("phone", phone)
       .order("created_at", { ascending: false })
@@ -121,11 +121,12 @@ export async function POST(req: NextRequest) {
      and booking again after the deposit meant two or three confirmations and
      reminders for one session (Alma Tejeda / Mood Studios: Oct 3 + Oct 5 +
      Nov 5, 2026-09-30; 19 more contacts across 13 accounts). Reuse an
-     appointment only when it sits at exactly the time she paid for — that
-     is unmistakably this session. Nothing is ever moved: moving can't tell
-     "the AI's booking" from a touch-up or an earlier paid session. Other
-     recent, unpaid appointments left on the calendar get the
-     "onebox-check-appointments" tag so the team cancels the extra. */
+     appointment that sits at exactly the time she paid for — that is
+     unmistakably this session. The only thing ever moved is the AI's fresh
+     hold (below); a confirmed appointment may be a touch-up or an earlier
+     paid session. Other recent, unpaid appointments left on the calendar
+     get the "onebox-check-appointments" tag (and an Alerts card when they
+     will send their own confirmations). */
   // Paid one-box bookings for her, by phone or contact id (two plain
   // filters — a phone like "(505) 870-4376" can't go inside an .or()).
   const [{ tz, appts, ok: lookedUp, error: lookupError }, { data: byPhone }, { data: byContact }] = await Promise.all([
@@ -143,19 +144,52 @@ export async function POST(req: NextRequest) {
     ? new Date(Date.parse(startTime.slice(0, 19) + "Z") + durationMin * 60000).toISOString().slice(0, 19)
     : new Date(Date.parse(startIso) + durationMin * 60000).toISOString();
   const paidIds = new Set((mine as { ghl_appointment_id: string | null }[]).map((r) => r.ghl_appointment_id).filter(Boolean));
+  const recent = Date.now() - 30 * 86400_000;
+  // Same back-off as the lookup: a 429 or a blip must not leave a paying
+  // client on an unconfirmed hold.
+  const putAppointment = async (id: string, patch: Record<string, unknown>) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, attempt === 1 ? 400 : 1200));
+      const ok = await fetch(`https://services.leadconnectorhq.com/calendars/events/appointments/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { ...H, Version: "2021-04-15" },
+        body: JSON.stringify(patch),
+      }).then((r) => r.ok).catch(() => false);
+      if (ok) return true;
+    }
+    return false;
+  };
+  // Includes the AI's unpaid hold ("invalid") — confirming it here is the
+  // whole point: it IS the session she just paid for.
   const same = appts.find((a) => Math.abs(a.startMs - Date.parse(startIso)) < 60_000);
+  /* A hold the workflow can still confirm: booked in the last few days, not
+     paid for, and either still "invalid" or confirmed moments ago — the
+     deposit tag often lands (and the workflow flips the hold) a few seconds
+     BEFORE this read: Jacqueline / Rachel / Hilda, Oct 20–22. */
+  const fresh = Date.now() - AI_HOLD_LIVE_MS;
+  const isFreshHold = (a: ContactAppointment) => !paidIds.has(a.id) && (a.addedMs || 0) >= fresh
+    && (a.status === AI_HOLD_STATUS
+      || (a.status === "confirmed" && (a.updatedMs || 0) >= Date.now() - 15 * 60_000 && (a.updatedMs || 0) - (a.addedMs || 0) > 60_000));
+  /* She paid for a different time than the one the AI is holding — she
+     picked again on the pay page, or went back to the funnel. The account's
+     "Invalid -> Confirm" workflow confirms that hold as soon as the deposit
+     lands, so booking a new appointment leaves her with two, at two times.
+     With exactly one fresh hold, move THAT appointment to the paid time
+     instead. Only fresh holds are ever moved, and two or more can't be told
+     apart, so those book as before and get flagged. */
+  const holds = same ? [] : appts.filter(isFreshHold);
   let reused: { id: string } | null = null;
+  let movedFrom = "";
   let needsReview = false;
   if (same) {
     // Already at the paid time — never book over it, even if confirming fails.
     reused = { id: same.id };
-    if (same.status !== "confirmed") {
-      const ok = await fetch(`https://services.leadconnectorhq.com/calendars/events/appointments/${encodeURIComponent(same.id)}`, {
-        method: "PUT",
-        headers: { ...H, Version: "2021-04-15" },
-        body: JSON.stringify({ appointmentStatus: "confirmed" }),
-      }).then((r) => r.ok).catch(() => false);
-      if (!ok) needsReview = true;
+    if (same.status !== "confirmed" && !(await putAppointment(same.id, { appointmentStatus: "confirmed" }))) needsReview = true;
+  } else if (holds.length === 1) {
+    // A refused move falls through to a new booking; the hold is flagged below.
+    if (await putAppointment(holds[0].id, { startTime: startIso, endTime, appointmentStatus: "confirmed" })) {
+      reused = { id: holds[0].id };
+      movedFrom = holds[0].startIso;
     }
   }
 
@@ -189,6 +223,7 @@ export async function POST(req: NextRequest) {
       .update({ ghl_status: "paid-not-booked", ghl_contact_id: contactId })
       .eq("slug", slug)
       .eq("phone", phone)
+      .is("ghl_appointment_id", null) // a returning client's earlier paid session stays recorded
       .then(() => {});
     // Owner (2026-10-12): any booking glitch must reach the Alerts tab.
     await filePaidNotBookedAlert(svc, { slug, locationId, contactId, name: fullName, slotIso: startIso, error: aj.message ?? `appointment ${ar.status}` }).catch(() => {});
@@ -206,34 +241,48 @@ export async function POST(req: NextRequest) {
   const token = capiToken(ex);
   const eventId = String(body.eventId ?? "");
   const bookedId = aj.id ?? null;
-  const recent = Date.now() - 30 * 86400_000;
+  if (movedFrom) console.info("[onebox/book] moved the AI's hold", bookedId, "from", movedFrom, "to", startIso);
   const extras = appts.filter((a) => a.id !== bookedId && !paidIds.has(a.id) && (a.addedMs || 0) >= recent);
+  /* Appointments from this chat left at OTHER times that will send their own
+     confirmations: fresh holds (the workflow confirms them as the deposit
+     lands, or just did) and anything booked confirmed in the last few days. */
+  const otherHolds = extras.filter((a) => Math.abs(a.startMs - Date.parse(startIso)) >= 60_000
+    && (isFreshHold(a) || ((a.status === "confirmed" || a.status === "new") && (a.addedMs || 0) >= fresh)));
   /* We just POSTed a new appointment: read the calendar again and make
-     sure nothing else sits at the same minute. If the pre-booking lookup
-     had failed (fail-closed = "no appointments"), this is the only place
-     the AI's booking at the same time becomes visible — Cheryl Fredieu /
-     Estrella Fernandez, The Aesthetic Couture, 2026-10-19: two confirmed
-     appointments each, every confirmation and reminder twice. */
+     sure nothing else sits at the same minute (Cheryl Fredieu / Estrella
+     Fernandez, The Aesthetic Couture, 2026-10-19: two confirmed
+     appointments each, every confirmation and reminder twice). */
   let twins: string[] = [];
   let verifyNote = "";
   if (!reused && bookedId) {
     const after = await liveAppointmentsOnCalendar(contactId, calendarId, locationId, tok.token);
     if (after.ok) {
-      const mine = after.appts.find((a) => a.id === bookedId);
-      twins = after.appts.filter((a) => a.id !== bookedId && mine && Math.abs(a.startMs - mine.startMs) < 60_000).map((a) => a.id);
+      // Not listed yet (GHL lag) → compare against the time we just booked.
+      const at = after.appts.find((a) => a.id === bookedId)?.startMs ?? Date.parse(startIso);
+      twins = after.appts.filter((a) => a.id !== bookedId && Math.abs(a.startMs - at) < 60_000).map((a) => a.id);
     } else {
       verifyNote = `could not re-check the calendar after booking (${after.error ?? "no response"})`;
     }
   }
   if (!lookedUp) console.warn("[onebox/book] appointment lookup failed before booking:", contactId, lookupError);
-  if (twins.length || verifyNote || !lookedUp) {
+  if (twins.length || verifyNote || !lookedUp || otherHolds.length || needsReview) {
+    const holdsOnly = !twins.length && otherHolds.length > 0;
     await fileDoubleBookingAlert(svc, {
-      slug, locationId, contactId, name: fullName, startIso, ids: [...(bookedId ? [bookedId] : []), ...twins].sort(),
-      note: twins.length ? "" : `${verifyNote || `the lookup before booking failed (${lookupError ?? "unknown"})`} — check the contact's calendar by hand.`,
+      slug, locationId, contactId, name: fullName, startIso,
+      ids: [...(bookedId ? [bookedId] : []), ...twins, ...(holdsOnly ? otherHolds.map((a) => a.id) : [])].sort(),
+      otherTimes: holdsOnly ? otherHolds.map((a) => a.startIso) : undefined,
+      note: twins.length ? ""
+        : holdsOnly ? `The other one was booked in the chat; it sends its own confirmation and reminders (the account's "Appointment Status Invalid -> Confirm" workflow confirms the AI's hold as soon as the deposit lands). Cancel that one.`
+        : needsReview && lookedUp && !verifyNote ? `Her appointment at the paid time (${bookedId}) is still unconfirmed — GHL refused the confirm. Open it and set it to Confirmed.`
+        : `${verifyNote || `the lookup before booking failed (${lookupError ?? "unknown"})`} — check the contact's calendar by hand.`,
     }).catch(() => {});
-    await svc.from("onebox_leads")
-      .update({ answers: { ...((leadPreRes.data?.answers as Record<string, unknown> | null) ?? {}), book_note: twins.length ? `double booked with ${twins.join(", ")}` : (verifyNote || `lookup failed: ${lookupError ?? "unknown"}`) } })
-      .eq("slug", slug).eq("phone", phone).then(() => {}, () => {});
+    const note = twins.length ? `double booked with ${twins.join(", ")}` : holdsOnly ? `other appointment(s) left at other times: ${otherHolds.map((a) => a.id).join(", ")}` : needsReview && lookedUp && !verifyNote ? `could not confirm ${bookedId}` : (verifyNote || `lookup failed: ${lookupError ?? "unknown"}`);
+    // This journey's row only — the note must not overwrite another row's answers.
+    if (leadPreRes.data?.id) {
+      await svc.from("onebox_leads")
+        .update({ answers: { ...((leadPreRes.data.answers as Record<string, unknown> | null) ?? {}), book_note: note } })
+        .eq("id", leadPreRes.data.id).then(() => {}, () => {});
+    }
   }
   const leftover = needsReview || extras.length > 0 || twins.length > 0;
   if (leftover) console.warn("[onebox/book] other live appointments remain for", contactId, [...extras.map((a) => a.id), ...twins]);
@@ -249,11 +298,15 @@ export async function POST(req: NextRequest) {
         }).then(() => {}).catch(() => {})
       : Promise.resolve()),
     // Reflect the booking on the stored lead row.
+    /* Never over a returning client's earlier paid row: its appointment id
+       is how every later booking (and the double-booking sweep) knows that
+       session was paid for. */
     svc
       .from("onebox_leads")
       .update({ ghl_status: "booked", ghl_contact_id: contactId, ghl_appointment_id: bookedId })
       .eq("slug", slug)
       .eq("phone", phone)
+      .or(bookedId ? `ghl_appointment_id.is.null,ghl_appointment_id.eq.${bookedId}` : "ghl_appointment_id.is.null")
       .then(() => {}),
     /* The template's workflows read the booked slot from the contact's
        "CC - Reserved Appointment Time" field — keep it filled here too.
