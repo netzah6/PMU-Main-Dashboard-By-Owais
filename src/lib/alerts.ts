@@ -968,7 +968,7 @@ export async function resolvePaidNotBookedAlert(svc: Svc, slug: string, contactI
 export async function fileDoubleBookingAlert(
   svc: Svc,
   // otherTimes: the extra appointment(s) sit at a DIFFERENT time than the
-  // paid one (startIso) — an AI hold she didn't pay for.
+  // paid one (startIso) — booked in the chat, not paid for.
   a: { slug?: string | null; business?: string | null; locationId: string; contactId: string; name: string; startIso: string; ids: string[]; note?: string; otherTimes?: string[] },
 ): Promise<"filed" | "appended" | "skipped"> {
   // The studio's wall clock, straight off the ISO text (GHL stores and shows
@@ -984,21 +984,30 @@ export async function fileDoubleBookingAlert(
   const when = `${studioTime(a.startIso)} studio time`;
   const biz = a.business || a.slug || a.locationId;
   const others = (a.otherTimes ?? []).map(studioTime);
+  const meta = { slug: a.slug ?? null, location_id: a.locationId, contact_id: a.contactId, start_iso: a.startIso, other_times: a.otherTimes ?? null, appointment_ids: a.ids, link: ghlContactUrl(a.locationId, a.contactId) };
+  // A box closed while the duplicate is still there comes back after a day.
+  const base = { type: "double_booking" as const, severity: "medium" as const, meta, resurfaceAfterDays: 1 };
   if (others.length) {
     return fileOrAppendAlert(svc, {
-      type: "double_booking", severity: "medium",
+      ...base,
       title: `${a.name} has an extra appointment at ${biz} (paid ${when}; also ${others.join(" + ")})`,
-      detail: `She paid for ${when}, but the AI also booked her for ${others.join(" and ")} on the same calendar — she gets confirmations and reminders for both. Open the contact and cancel the one she did NOT pay for (keep ${when}); the appointment ids are ${a.ids.join(", ")}.${a.note ? ` ${a.note}` : ""}`,
+      detail: `She paid for ${when}, but she also has ${others.join(" and ")} on the same calendar — she gets confirmations and reminders for both. Open the contact and cancel the one she did NOT pay for (keep ${when}); the appointment ids are ${a.ids.join(", ")}.${a.note ? ` ${a.note}` : ""}`,
+      source_key: `double-booking-other:${a.locationId}:${a.contactId}:${a.startIso.slice(0, 16)}`,
+    });
+  }
+  if (a.ids.length < 2) {
+    return fileOrAppendAlert(svc, {
+      ...base,
+      title: `${a.name}'s booking at ${biz} needs a check (${when})`,
+      detail: `${a.note || "Check the contact's calendar by hand."} The appointment id is ${a.ids.join(", ") || "unknown"}.`,
       source_key: `double-booking:${a.locationId}:${a.contactId}:${a.startIso.slice(0, 16)}`,
-      meta: { slug: a.slug ?? null, location_id: a.locationId, contact_id: a.contactId, start_iso: a.startIso, other_times: a.otherTimes, appointment_ids: a.ids, link: ghlContactUrl(a.locationId, a.contactId) },
     });
   }
   return fileOrAppendAlert(svc, {
-    type: "double_booking", severity: "medium",
+    ...base,
     title: `${a.name} has ${a.ids.length} appointments at the same time at ${biz} (${when})`,
-    detail: `${a.ids.length} confirmed appointments on the same calendar at ${when} — the AI's chat booking and the one-box's post-deposit booking. She gets every confirmation and reminder twice. Open the contact and cancel the extra one (keep the earliest / the one the AI named); the appointment ids are ${a.ids.join(", ")}.${a.note ? ` ${a.note}` : ""}`,
+    detail: `${a.ids.length} appointments on the same calendar at ${when} — the AI's chat booking and the one-box's post-deposit booking. She gets every confirmation and reminder twice. Open the contact and cancel the extra one (keep the earliest / the one the AI named); the appointment ids are ${a.ids.join(", ")}.${a.note ? ` ${a.note}` : ""}`,
     source_key: `double-booking:${a.locationId}:${a.contactId}:${a.startIso.slice(0, 16)}`,
-    meta: { slug: a.slug ?? null, location_id: a.locationId, contact_id: a.contactId, start_iso: a.startIso, appointment_ids: a.ids, link: ghlContactUrl(a.locationId, a.contactId) },
   });
 }
 
@@ -1012,20 +1021,33 @@ export async function fileDoubleBookingAlert(
      Appointments booked after the paid one are left alone — that's how a
      touch-up looks.
    Catches what the book route can't see (the AI booking after the deposit,
-   a hold confirmed later). Resolves itself once only one is left. */
-export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; filed: number; resolved: number }> {
+   a hold confirmed later). The sync only covers the pay-per-show roster;
+   every other account relies on the book route's own check. Open boxes
+   close only after a LIVE re-read of the contact's calendar shows one
+   appointment left — never because a sync or a read came back short. */
+export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; filed: number; resolved: number } | { error: string }> {
   // "invalid" = the AI's unpaid hold (AI_HOLD_STATUS in lib/onebox).
-  const { data } = await svc.from("ghl_appointments")
-    .select("id, location_id, contact_id, calendar_id, start_time, status, raw")
+  const { data, error } = await svc.from("ghl_appointments")
+    .select("id, location_id, contact_id, calendar_id, start_time, status, raw, synced_at")
     .in("status", ["confirmed", "new", "invalid"]).gt("start_time", new Date().toISOString()).limit(5000);
-  type Row = { id: string; location_id: string; contact_id: string; calendar_id: string; start_time: string; status: string; raw: Record<string, unknown> | null };
-  const rows = ((data ?? []) as Row[]).filter((r) => r.contact_id && r.calendar_id && r.raw?.deleted !== true);
+  if (error) return { error: `ghl_appointments: ${error.message}` };
+  type Row = { id: string; location_id: string; contact_id: string; calendar_id: string; start_time: string; status: string; raw: Record<string, unknown> | null; synced_at: string };
+  const all = ((data ?? []) as Row[]).filter((r) => r.contact_id && r.calendar_id && r.raw?.deleted !== true);
+  /* The sync upserts what GHL returns and never marks what it stopped
+     returning, so a deleted appointment lingers as "confirmed". Keep only
+     rows from the contact's latest pull, and only pulls from the last
+     36 h (the sync runs every 12 h; an empty answer refreshes nothing). */
+  const lastPull = new Map<string, number>();
+  for (const r of all) lastPull.set(r.contact_id, Math.max(lastPull.get(r.contact_id) ?? 0, Date.parse(r.synced_at)));
+  const rows = all.filter((r) => Date.parse(r.synced_at) >= (lastPull.get(r.contact_id) ?? 0) - 5 * 60_000
+    && Date.parse(r.synced_at) >= Date.now() - 36 * 3600_000);
   // dateAdded is the studio wall clock ("2026-10-20 10:28:06"); only ever compared with itself.
   const addedMs = (r: Row) => Date.parse(String(r.raw?.dateAdded ?? "").replace(" ", "T").slice(0, 19) + "Z");
   const minuteMs = (r: Row) => Date.parse(r.start_time);
   const paid = new Set<string>();
   for (let from = 0; ; from += 1000) {
-    const { data: ob } = await svc.from("onebox_leads").select("ghl_appointment_id").not("ghl_appointment_id", "is", null).range(from, from + 999);
+    const { data: ob, error: obErr } = await svc.from("onebox_leads").select("ghl_appointment_id").not("ghl_appointment_id", "is", null).range(from, from + 999);
+    if (obErr) return { error: `onebox_leads: ${obErr.message}` };
     for (const o of ob ?? []) paid.add(String(o.ghl_appointment_id));
     if ((ob ?? []).length < 1000) break;
   }
@@ -1034,22 +1056,20 @@ export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; f
     const k = `${r.location_id}|${r.contact_id}|${r.calendar_id}`;
     byCal.set(k, [...(byCal.get(k) ?? []), r]);
   }
-  // [the appointment she paid for / the first one, the extras, extras at another time?]
+  // keep = the appointment the box is about (paid / earliest); extra = the ones to cancel.
   const found: Array<{ keep: Row; extra: Row[]; otherTime: boolean }> = [];
   for (const g of byCal.values()) {
     if (g.length < 2) continue;
-    const seen = new Set<string>();
     const byMinute = new Map<string, Row[]>();
     for (const r of g) byMinute.set(r.start_time.slice(0, 16), [...(byMinute.get(r.start_time.slice(0, 16)) ?? []), r]);
-    for (const all of byMinute.values()) {
+    for (const at of byMinute.values()) {
       // A hold the workflow gave up on (3 days, no deposit) never confirms.
-      const m = all.filter((r) => r.status !== "invalid" || addedMs(r) >= Date.now() - 4 * 86400_000);
+      const m = at.filter((r) => r.status !== "invalid" || addedMs(r) >= Date.now() - 4 * 86400_000);
       if (m.length < 2 || !m.some((r) => r.status === "confirmed")) continue;
       found.push({ keep: m[0], extra: m.slice(1), otherTime: false });
-      m.forEach((r) => seen.add(r.id));
     }
-    for (const x of g.filter((r) => paid.has(r.id) && r.status === "confirmed" && !seen.has(r.id))) {
-      const extra = g.filter((r) => r.id !== x.id && !paid.has(r.id) && !seen.has(r.id) && r.status === "confirmed"
+    for (const x of g.filter((r) => paid.has(r.id) && r.status === "confirmed")) {
+      const extra = g.filter((r) => r.id !== x.id && !paid.has(r.id) && r.status === "confirmed"
         && Math.abs(minuteMs(r) - minuteMs(x)) >= 60_000
         && addedMs(r) <= addedMs(x) && addedMs(r) >= addedMs(x) - 30 * 86400_000);
       if (extra.length) found.push({ keep: x, extra, otherTime: true });
@@ -1065,31 +1085,45 @@ export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; f
     for (const o of ob ?? []) bizByLoc.set(String(o.location_id), String(o.client_name ?? ""));
   }
   let filed = 0;
-  const openKeys = new Set<string>();
   // start_time holds the studio wall clock (stored as if UTC) — keep it as text.
   const wall = (r: Row) => new Date(r.start_time).toISOString().slice(0, 16);
   for (const f of found) {
     const r = f.keep;
     const name = (names.get(r.contact_id) || "A lead").replace(/\b\w/g, (c) => c.toUpperCase());
-    const startIso = wall(r);
-    openKeys.add(`double-booking:${r.location_id}:${r.contact_id}:${startIso}`);
     const res = await fileDoubleBookingAlert(svc, {
-      locationId: r.location_id, contactId: r.contact_id, name, startIso, business: bizByLoc.get(r.location_id) ?? null,
+      locationId: r.location_id, contactId: r.contact_id, name, startIso: wall(r), business: bizByLoc.get(r.location_id) ?? null,
       ids: [r, ...f.extra].map((x) => x.id).sort(),
       otherTimes: f.otherTime ? f.extra.map(wall) : undefined,
     });
     if (res === "filed") filed++;
   }
-  // Boxes whose duplicate is gone (one was cancelled) close themselves —
-  // after a day, so a box the book route just filed isn't closed before
-  // the next calendar sync has even seen the new appointment.
-  const { data: open } = await svc.from("alerts").select("id, source_key, created_at").eq("type", "double_booking").eq("status", "open");
+  /* Close a box once a live read of her calendar shows at most one of its
+     appointments still on (cancelled, deleted, or past). Single-appointment
+     "check by hand" boxes wait for a person. A failed read leaves it open. */
+  const { data: open } = await svc.from("alerts").select("id, created_at, meta").eq("type", "double_booking").eq("status", "open");
   let resolved = 0;
   for (const a of open ?? []) {
-    if (openKeys.has(String(a.source_key))) continue;
-    if (Date.now() - Date.parse(String(a.created_at)) < 86400_000) continue;
-    const { error } = await svc.from("alerts").update({ status: "resolved", resolved_by: "system (only one appointment left)", resolved_at: new Date().toISOString() }).eq("id", a.id);
-    if (!error) resolved++;
+    const m = (a.meta ?? {}) as { location_id?: string; contact_id?: string; appointment_ids?: string[] };
+    const ids = m.appointment_ids ?? [];
+    if (!m.location_id || !m.contact_id || ids.length < 2) continue;
+    if (Date.now() - Date.parse(String(a.created_at)) < 10 * 60_000) continue;
+    const tok = await getAppLocationToken(m.location_id);
+    if (!tok.token) continue;
+    const r = await fetch(`https://services.leadconnectorhq.com/contacts/${encodeURIComponent(m.contact_id)}/appointments`, {
+      headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" },
+    }).catch(() => null);
+    if (!r?.ok) continue;
+    const events = (((await r.json().catch(() => null)) as { events?: Array<Record<string, unknown>> } | null)?.events) ?? null;
+    if (!events) continue;
+    const today = new Date().toISOString().slice(0, 10);
+    const stillOn = events.filter((e) => ids.includes(String(e.id)) && e.deleted !== true
+      && String(e.startTime ?? "").slice(0, 10) >= today // wall-clock date; a day of slack is fine here
+      && !["cancelled", "noshow", "showed"].includes(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase())
+      && !(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase() === "invalid"
+        && Date.parse(String(e.dateAdded ?? "").replace(" ", "T").slice(0, 19) + "Z") < Date.now() - 4 * 86400_000));
+    if (stillOn.length > 1) continue;
+    const { error: upErr } = await svc.from("alerts").update({ status: "resolved", resolved_by: "system (only one appointment left)", resolved_at: new Date().toISOString() }).eq("id", a.id);
+    if (!upErr) resolved++;
   }
   return { checked: rows.length, filed, resolved };
 }

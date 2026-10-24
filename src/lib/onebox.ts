@@ -824,7 +824,7 @@ export function wallToIso(local: string, tz: string): string {
    booking another one (Alma Tejeda / Mood Studios, 2026-09-30: funnel slot
    + two AI bookings = three confirmations). Fails closed: no timezone or no
    response → no appointments, and callers keep their old behaviour. */
-export type ContactAppointment = { id: string; startIso: string; startMs: number; addedMs: number; status: string };
+export type ContactAppointment = { id: string; startIso: string; startMs: number; addedMs: number; updatedMs: number; status: string };
 /* The AI (CloseBot) books a lead in chat as an "invalid" appointment — a hold
    that is not confirmed until the deposit is paid. Every V3 account runs the
    workflow "Appointment Status Invalid -> Confirm if Fanbasis tag in 3 days",
@@ -835,6 +835,9 @@ export type ContactAppointment = { id: string; startIso: string; startMs: number
    Beltran, Narica Hamilton, Jennifer Souleret, Jawey Saye — Oct 2026; the
    Oct 19 batch had the same cause). */
 export const AI_HOLD_STATUS = "invalid";
+/* The workflow only waits 3 days for the deposit; a hold older than that
+   never confirms on its own. */
+export const AI_HOLD_LIVE_MS = 4 * 86400_000;
 /* `ok` = the read actually happened (timezone known, GHL answered). A
    caller that books on an empty list must know the difference between "no
    appointments" and "could not look" — a failed read (fail-closed = empty)
@@ -876,6 +879,7 @@ async function readLiveAppointments(
           startIso,
           startMs: Date.parse(startIso),
           addedMs: Date.parse(wallToIso(String(e.dateAdded ?? ""), tz)),
+          updatedMs: Date.parse(wallToIso(String(e.dateUpdated ?? ""), tz)),
           status: String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase(),
         };
       })
