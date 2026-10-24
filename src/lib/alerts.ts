@@ -967,17 +967,32 @@ export async function resolvePaidNotBookedAlert(svc: Svc, slug: string, contactI
 // below catches the ones the AI books AFTER the one-box did.
 export async function fileDoubleBookingAlert(
   svc: Svc,
-  a: { slug?: string | null; business?: string | null; locationId: string; contactId: string; name: string; startIso: string; ids: string[]; note?: string },
+  // otherTimes: the extra appointment(s) sit at a DIFFERENT time than the
+  // paid one (startIso) — an AI hold she didn't pay for.
+  a: { slug?: string | null; business?: string | null; locationId: string; contactId: string; name: string; startIso: string; ids: string[]; note?: string; otherTimes?: string[] },
 ): Promise<"filed" | "appended" | "skipped"> {
   // The studio's wall clock, straight off the ISO text (GHL stores and shows
   // appointments in the location's time; ghl_appointments.start_time holds
   // that wall clock too). Never convert — a viewer in another zone would
   // see a time nobody at the studio recognises.
-  const m = a.startIso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
-  const when = m
-    ? `${new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, ${((+m[4] + 11) % 12) + 1}:${m[5]} ${+m[4] < 12 ? "AM" : "PM"} studio time`
-    : a.startIso;
+  const studioTime = (iso: string) => {
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+    return m
+      ? `${new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, ${((+m[4] + 11) % 12) + 1}:${m[5]} ${+m[4] < 12 ? "AM" : "PM"}`
+      : iso;
+  };
+  const when = `${studioTime(a.startIso)} studio time`;
   const biz = a.business || a.slug || a.locationId;
+  const others = (a.otherTimes ?? []).map(studioTime);
+  if (others.length) {
+    return fileOrAppendAlert(svc, {
+      type: "double_booking", severity: "medium",
+      title: `${a.name} has an extra appointment at ${biz} (paid ${when}; also ${others.join(" + ")})`,
+      detail: `She paid for ${when}, but the AI also booked her for ${others.join(" and ")} on the same calendar — she gets confirmations and reminders for both. Open the contact and cancel the one she did NOT pay for (keep ${when}); the appointment ids are ${a.ids.join(", ")}.${a.note ? ` ${a.note}` : ""}`,
+      source_key: `double-booking:${a.locationId}:${a.contactId}:${a.startIso.slice(0, 16)}`,
+      meta: { slug: a.slug ?? null, location_id: a.locationId, contact_id: a.contactId, start_iso: a.startIso, other_times: a.otherTimes, appointment_ids: a.ids, link: ghlContactUrl(a.locationId, a.contactId) },
+    });
+  }
   return fileOrAppendAlert(svc, {
     type: "double_booking", severity: "medium",
     title: `${a.name} has ${a.ids.length} appointments at the same time at ${biz} (${when})`,
@@ -987,50 +1002,92 @@ export async function fileDoubleBookingAlert(
   });
 }
 
-/* Sweep the synced calendars (ghl_appointments, every 3 h) for a contact
-   with two or more live future appointments at the same minute on one
-   calendar. Catches the order the book route can't: the AI booking AFTER
-   the deposit. Resolves itself once only one is left. */
+/* Sweep the synced calendars (ghl_appointments) for a contact with two
+   appointments that will both send confirmations and reminders:
+   - two or more at the same minute on one calendar, at least one confirmed
+     (an AI hold there gets confirmed by the workflow once she pays);
+   - a paid one-box booking plus another confirmed appointment at a
+     different time that was booked BEFORE it (the AI's hold from the chat,
+     confirmed by the "Invalid -> Confirm" workflow when the deposit landed).
+     Appointments booked after the paid one are left alone — that's how a
+     touch-up looks.
+   Catches what the book route can't see (the AI booking after the deposit,
+   a hold confirmed later). Resolves itself once only one is left. */
 export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; filed: number; resolved: number }> {
+  // "invalid" = the AI's unpaid hold (AI_HOLD_STATUS in lib/onebox).
   const { data } = await svc.from("ghl_appointments")
-    .select("id, location_id, contact_id, calendar_id, start_time, raw")
-    .eq("status", "confirmed").gt("start_time", new Date().toISOString()).limit(5000);
-  const rows = ((data ?? []) as Array<{ id: string; location_id: string; contact_id: string; calendar_id: string; start_time: string; raw: Record<string, unknown> | null }>)
-    .filter((r) => r.contact_id && r.calendar_id && r.raw?.deleted !== true);
-  const groups = new Map<string, typeof rows>();
-  for (const r of rows) {
-    const k = `${r.location_id}|${r.contact_id}|${r.calendar_id}|${r.start_time.slice(0, 16)}`;
-    groups.set(k, [...(groups.get(k) ?? []), r]);
+    .select("id, location_id, contact_id, calendar_id, start_time, status, raw")
+    .in("status", ["confirmed", "new", "invalid"]).gt("start_time", new Date().toISOString()).limit(5000);
+  type Row = { id: string; location_id: string; contact_id: string; calendar_id: string; start_time: string; status: string; raw: Record<string, unknown> | null };
+  const rows = ((data ?? []) as Row[]).filter((r) => r.contact_id && r.calendar_id && r.raw?.deleted !== true);
+  // dateAdded is the studio wall clock ("2026-10-20 10:28:06"); only ever compared with itself.
+  const addedMs = (r: Row) => Date.parse(String(r.raw?.dateAdded ?? "").replace(" ", "T").slice(0, 19) + "Z");
+  const minuteMs = (r: Row) => Date.parse(r.start_time);
+  const paid = new Set<string>();
+  for (let from = 0; ; from += 1000) {
+    const { data: ob } = await svc.from("onebox_leads").select("ghl_appointment_id").not("ghl_appointment_id", "is", null).range(from, from + 999);
+    for (const o of ob ?? []) paid.add(String(o.ghl_appointment_id));
+    if ((ob ?? []).length < 1000) break;
   }
-  const dupes = [...groups.values()].filter((g) => g.length > 1);
+  const byCal = new Map<string, Row[]>();
+  for (const r of rows) {
+    const k = `${r.location_id}|${r.contact_id}|${r.calendar_id}`;
+    byCal.set(k, [...(byCal.get(k) ?? []), r]);
+  }
+  // [the appointment she paid for / the first one, the extras, extras at another time?]
+  const found: Array<{ keep: Row; extra: Row[]; otherTime: boolean }> = [];
+  for (const g of byCal.values()) {
+    if (g.length < 2) continue;
+    const seen = new Set<string>();
+    const byMinute = new Map<string, Row[]>();
+    for (const r of g) byMinute.set(r.start_time.slice(0, 16), [...(byMinute.get(r.start_time.slice(0, 16)) ?? []), r]);
+    for (const all of byMinute.values()) {
+      // A hold the workflow gave up on (3 days, no deposit) never confirms.
+      const m = all.filter((r) => r.status !== "invalid" || addedMs(r) >= Date.now() - 4 * 86400_000);
+      if (m.length < 2 || !m.some((r) => r.status === "confirmed")) continue;
+      found.push({ keep: m[0], extra: m.slice(1), otherTime: false });
+      m.forEach((r) => seen.add(r.id));
+    }
+    for (const x of g.filter((r) => paid.has(r.id) && r.status === "confirmed" && !seen.has(r.id))) {
+      const extra = g.filter((r) => r.id !== x.id && !paid.has(r.id) && !seen.has(r.id) && r.status === "confirmed"
+        && Math.abs(minuteMs(r) - minuteMs(x)) >= 60_000
+        && addedMs(r) <= addedMs(x) && addedMs(r) >= addedMs(x) - 30 * 86400_000);
+      if (extra.length) found.push({ keep: x, extra, otherTime: true });
+    }
+  }
   const names = new Map<string, string>();
   const bizByLoc = new Map<string, string>();
-  if (dupes.length) {
-    const cids = [...new Set(dupes.map((g) => g[0].contact_id))];
+  if (found.length) {
+    const cids = [...new Set(found.map((f) => f.keep.contact_id))];
     const { data: cs } = await svc.from("ghl_contacts").select("id, contact_name").in("id", cids);
     for (const c of cs ?? []) names.set(String(c.id), String(c.contact_name ?? ""));
-    const { data: ob } = await svc.from("onebox_clients").select("location_id, client_name").in("location_id", [...new Set(dupes.map((g) => g[0].location_id))]);
+    const { data: ob } = await svc.from("onebox_clients").select("location_id, client_name").in("location_id", [...new Set(found.map((f) => f.keep.location_id))]);
     for (const o of ob ?? []) bizByLoc.set(String(o.location_id), String(o.client_name ?? ""));
   }
   let filed = 0;
   const openKeys = new Set<string>();
-  for (const g of dupes) {
-    const r = g[0];
+  // start_time holds the studio wall clock (stored as if UTC) — keep it as text.
+  const wall = (r: Row) => new Date(r.start_time).toISOString().slice(0, 16);
+  for (const f of found) {
+    const r = f.keep;
     const name = (names.get(r.contact_id) || "A lead").replace(/\b\w/g, (c) => c.toUpperCase());
-    // start_time holds the studio wall clock (stored as if UTC) — keep it as text.
-    const startIso = new Date(r.start_time).toISOString().slice(0, 16);
+    const startIso = wall(r);
     openKeys.add(`double-booking:${r.location_id}:${r.contact_id}:${startIso}`);
     const res = await fileDoubleBookingAlert(svc, {
       locationId: r.location_id, contactId: r.contact_id, name, startIso, business: bizByLoc.get(r.location_id) ?? null,
-      ids: g.map((x) => x.id).sort(),
+      ids: [r, ...f.extra].map((x) => x.id).sort(),
+      otherTimes: f.otherTime ? f.extra.map(wall) : undefined,
     });
     if (res === "filed") filed++;
   }
-  // Boxes whose duplicate is gone (one was cancelled) close themselves.
-  const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "double_booking").eq("status", "open");
+  // Boxes whose duplicate is gone (one was cancelled) close themselves —
+  // after a day, so a box the book route just filed isn't closed before
+  // the next calendar sync has even seen the new appointment.
+  const { data: open } = await svc.from("alerts").select("id, source_key, created_at").eq("type", "double_booking").eq("status", "open");
   let resolved = 0;
   for (const a of open ?? []) {
     if (openKeys.has(String(a.source_key))) continue;
+    if (Date.now() - Date.parse(String(a.created_at)) < 86400_000) continue;
     const { error } = await svc.from("alerts").update({ status: "resolved", resolved_by: "system (only one appointment left)", resolved_at: new Date().toISOString() }).eq("id", a.id);
     if (!error) resolved++;
   }

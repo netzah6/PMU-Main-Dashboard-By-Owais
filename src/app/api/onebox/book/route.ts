@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
-import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
+import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso, AI_HOLD_STATUS } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
 import { cleanTz, calendarDurationMin } from "@/lib/ghl-push";
 import { fileDoubleBookingAlert, filePaidNotBookedAlert } from "@/lib/alerts";
@@ -143,8 +143,21 @@ export async function POST(req: NextRequest) {
     ? new Date(Date.parse(startTime.slice(0, 19) + "Z") + durationMin * 60000).toISOString().slice(0, 19)
     : new Date(Date.parse(startIso) + durationMin * 60000).toISOString();
   const paidIds = new Set((mine as { ghl_appointment_id: string | null }[]).map((r) => r.ghl_appointment_id).filter(Boolean));
+  const recent = Date.now() - 30 * 86400_000;
+  // Includes the AI's unpaid hold ("invalid") — confirming it here is the
+  // whole point: it IS the session she just paid for.
   const same = appts.find((a) => Math.abs(a.startMs - Date.parse(startIso)) < 60_000);
+  /* She paid for a different time than the one the AI is holding — she
+     picked again on the pay page, or went back to the funnel. The account's
+     "Invalid -> Confirm" workflow confirms that hold as soon as the deposit
+     lands, so booking a new appointment leaves her with two, at two times.
+     With exactly one recent unpaid hold, move THAT appointment to the paid
+     time instead. Only holds are ever moved — a confirmed appointment may be
+     a touch-up or a session someone already paid for — and two or more
+     holds can't be told apart, so those book as before and get flagged. */
+  const holds = same ? [] : appts.filter((a) => a.status === AI_HOLD_STATUS && !paidIds.has(a.id) && (a.addedMs || 0) >= recent);
   let reused: { id: string } | null = null;
+  let movedFrom = "";
   let needsReview = false;
   if (same) {
     // Already at the paid time — never book over it, even if confirming fails.
@@ -156,6 +169,17 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({ appointmentStatus: "confirmed" }),
       }).then((r) => r.ok).catch(() => false);
       if (!ok) needsReview = true;
+    }
+  } else if (holds.length === 1) {
+    const ok = await fetch(`https://services.leadconnectorhq.com/calendars/events/appointments/${encodeURIComponent(holds[0].id)}`, {
+      method: "PUT",
+      headers: { ...H, Version: "2021-04-15" },
+      body: JSON.stringify({ startTime: startIso, endTime, appointmentStatus: "confirmed" }),
+    }).then((r) => r.ok).catch(() => false);
+    // A refused move falls through to a new booking; the hold is flagged below.
+    if (ok) {
+      reused = { id: holds[0].id };
+      movedFrom = holds[0].startIso;
     }
   }
 
@@ -206,33 +230,40 @@ export async function POST(req: NextRequest) {
   const token = capiToken(ex);
   const eventId = String(body.eventId ?? "");
   const bookedId = aj.id ?? null;
-  const recent = Date.now() - 30 * 86400_000;
+  if (movedFrom) console.info("[onebox/book] moved the AI's hold", bookedId, "from", movedFrom, "to", startIso);
   const extras = appts.filter((a) => a.id !== bookedId && !paidIds.has(a.id) && (a.addedMs || 0) >= recent);
+  /* AI holds left at OTHER times: the workflow confirms each one the
+     moment the deposit lands — a second appointment in the making. */
+  const otherHolds = extras.filter((a) => a.status === AI_HOLD_STATUS && Math.abs(a.startMs - Date.parse(startIso)) >= 60_000);
   /* We just POSTed a new appointment: read the calendar again and make
-     sure nothing else sits at the same minute. If the pre-booking lookup
-     had failed (fail-closed = "no appointments"), this is the only place
-     the AI's booking at the same time becomes visible — Cheryl Fredieu /
-     Estrella Fernandez, The Aesthetic Couture, 2026-10-19: two confirmed
-     appointments each, every confirmation and reminder twice. */
+     sure nothing else sits at the same minute (Cheryl Fredieu / Estrella
+     Fernandez, The Aesthetic Couture, 2026-10-19: two confirmed
+     appointments each, every confirmation and reminder twice). */
   let twins: string[] = [];
   let verifyNote = "";
   if (!reused && bookedId) {
     const after = await liveAppointmentsOnCalendar(contactId, calendarId, locationId, tok.token);
     if (after.ok) {
-      const mine = after.appts.find((a) => a.id === bookedId);
-      twins = after.appts.filter((a) => a.id !== bookedId && mine && Math.abs(a.startMs - mine.startMs) < 60_000).map((a) => a.id);
+      // Not listed yet (GHL lag) → compare against the time we just booked.
+      const at = after.appts.find((a) => a.id === bookedId)?.startMs ?? Date.parse(startIso);
+      twins = after.appts.filter((a) => a.id !== bookedId && Math.abs(a.startMs - at) < 60_000).map((a) => a.id);
     } else {
       verifyNote = `could not re-check the calendar after booking (${after.error ?? "no response"})`;
     }
   }
   if (!lookedUp) console.warn("[onebox/book] appointment lookup failed before booking:", contactId, lookupError);
-  if (twins.length || verifyNote || !lookedUp) {
+  if (twins.length || verifyNote || !lookedUp || otherHolds.length) {
+    const holdsOnly = !twins.length && otherHolds.length > 0;
     await fileDoubleBookingAlert(svc, {
-      slug, locationId, contactId, name: fullName, startIso, ids: [...(bookedId ? [bookedId] : []), ...twins].sort(),
-      note: twins.length ? "" : `${verifyNote || `the lookup before booking failed (${lookupError ?? "unknown"})`} — check the contact's calendar by hand.`,
+      slug, locationId, contactId, name: fullName, startIso,
+      ids: [...(bookedId ? [bookedId] : []), ...twins, ...(holdsOnly ? otherHolds.map((a) => a.id) : [])].sort(),
+      otherTimes: holdsOnly ? otherHolds.map((a) => a.startIso) : undefined,
+      note: twins.length ? ""
+        : holdsOnly ? `The AI is still holding the other time for her; the account's "Appointment Status Invalid -> Confirm" workflow confirms it as soon as the deposit lands. Cancel that one.`
+        : `${verifyNote || `the lookup before booking failed (${lookupError ?? "unknown"})`} — check the contact's calendar by hand.`,
     }).catch(() => {});
     await svc.from("onebox_leads")
-      .update({ answers: { ...((leadPreRes.data?.answers as Record<string, unknown> | null) ?? {}), book_note: twins.length ? `double booked with ${twins.join(", ")}` : (verifyNote || `lookup failed: ${lookupError ?? "unknown"}`) } })
+      .update({ answers: { ...((leadPreRes.data?.answers as Record<string, unknown> | null) ?? {}), book_note: twins.length ? `double booked with ${twins.join(", ")}` : holdsOnly ? `AI hold(s) left at other times: ${otherHolds.map((a) => a.id).join(", ")}` : (verifyNote || `lookup failed: ${lookupError ?? "unknown"}`) } })
       .eq("slug", slug).eq("phone", phone).then(() => {}, () => {});
   }
   const leftover = needsReview || extras.length > 0 || twins.length > 0;
