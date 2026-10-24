@@ -60,7 +60,7 @@ export const RUNBOOK: RunbookStep[] = [
   // C · Phone
   { n: 9, key: "phone_buy", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
   { n: 10, key: "phone_a2p", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
-  { n: 11, key: "phone_cnam", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"", checklist: ["phone_cnam"] },
+  { n: 11, key: "phone_cnam", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"" },
   { n: 12, key: "phone_optout", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
   { n: 13, key: "phone_forward", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
@@ -91,13 +91,17 @@ export const RUNBOOK: RunbookStep[] = [
   // Owner 10/22/2026: the coach tests the funnel by hand (with our demo number) and marks it completed; First Cycle is the coach's click too.
   { n: 33, key: "funnel_test", section: "H · ✅ Last check", who: "team", label: "Test the funnel yourself as a lead, then mark it completed", how: "The last check before the client gets the logins.", checklist: ["fin_test"],
     steps: [`Open the funnel and fill the survey as a lead with our demo number ${TEST_LEAD_PHONE} — pick a time slot, reach the deposit page (do NOT pay)`, `In the client's GHL contacts find the test contact: tag "onebox-survey", first AI text sent within ~2 minutes`, `In the demo sub-account's conversations confirm the text arrived; reply "Yes" and check the client's AI answers`, `Delete the test contact in the client's account, then click "Mark completed"`] },
+  // Owner 10/24/2026: CNAM approval takes the carrier days (or gets
+  // rejected), so submitting it (step 11) is not "verified" — the team ticks it.
+  { n: 42, key: "cnam_check", section: "H · ✅ Last check", who: "team", label: "Verify CNAM \"PermanentMakeup\" is approved, then mark it completed", how: "Step 11 only submits it; the carrier approves (or rejects) it days later.", checklist: ["phone_cnam"],
+    steps: ["In the client's GHL: Settings → Phone Numbers → Trust Center → CNAM", "Status Approved with display name \"PermanentMakeup\" → Mark completed", "Rejected → re-submit it (or open a GHL support ticket), mark completed once approved"] },
   { n: 34, key: "first_cycle", section: "H · ✅ Last check", who: "api", badge: "team", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
   { n: 35, key: "later_hours", section: "H · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
   // I · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
   // then marks each step completed on the card. Loom + docs from the sheet.
-  { n: 36, key: "fb_bm", section: "I · 📣 Facebook", who: "team", label: "Business Manager and ad account ready", checklist: ["fb_bm_name", "fb_bm_adaccount", "fb_bm_payment", "fb_bm_partner"],
-    steps: ["Business Manager name = the client's name in the Master Google Sheet", "Ad account name = the same name", "Payment method connected on the ad account", "Partner access granted to our 3 BMs (see the guide)"],
-    links: [{ label: "Loom", url: "https://www.loom.com/share/672705f2837b4322826f320933ddd376" }, { label: "Partner access guide", url: "https://docs.google.com/document/d/1VpYxHBjgeWT6wmL2FRn1Lb8OHw1RjD6ksLVa7yO6sK0/edit?usp=sharing" }] },
+  { n: 36, key: "fb_bm", section: "I · 📣 Facebook", who: "team", label: "Business Manager and ad account ready", checklist: ["fb_bm_name", "fb_bm_adaccount", "fb_bm_payment", "fb_bm_partner", "fb_bm_invite"],
+    steps: ["Business Manager name = the client's name in the Master Google Sheet", "Ad account name = the same name", "Payment method connected on the ad account", "Partner access granted to our 3 BMs (see the guide)", "Team invited to the BM (see the invite guide)"],
+    links: [{ label: "Loom", url: "https://www.loom.com/share/672705f2837b4322826f320933ddd376" }, { label: "Partner access guide", url: "https://docs.google.com/document/d/1VpYxHBjgeWT6wmL2FRn1Lb8OHw1RjD6ksLVa7yO6sK0/edit?usp=sharing" }, { label: "Team invite guide", url: "https://docs.google.com/document/d/12Y7G5mlbNwc-XbN9ctgzSthU-hCpSBjWsU7OuwJLwNI/edit?usp=sharing" }] },
   { n: 37, key: "fb_campaign", section: "I · 📣 Facebook", who: "team", label: "Campaign built from the template (left paused)", checklist: ["fb_campaign", "fb_c_new", "fb_c_manual", "fb_c_name", "fb_c_budget"],
     steps: ["New \"Leads\" campaign → Manual Leads Campaign", "Name it like the sheet, e.g. \"Microshading 1 (FU V2)\"", "Daily budget per the client's plan"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/3920ab07ad0f4a8f9e68ef1411e739e3" }] },
@@ -124,7 +128,7 @@ const STEP_TITLES: Record<string, string> = {
   funnel_create: "Create the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram widget", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
   last_profile: "Profile check", last_check: "Final check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
-  fb_bm: "Business Manager", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
+  fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
 };
 for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
 
