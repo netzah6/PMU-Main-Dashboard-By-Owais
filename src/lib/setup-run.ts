@@ -403,7 +403,10 @@ const API_STEPS: Record<string, StepFn> = {
       // Template on the account: fine only if THIS run loaded it, complete.
       if (loadedThisRun && fresh.snapshot.present) return { status: "done", note: [...notes, `✓ latest snapshot loaded by the AI Agent · A2P approved`].join("\n") };
       if (runLoads.length >= 2) return { status: "failed", note: [...notes, `✗ the AI Agent loaded the snapshot ${runLoads.length}× and the account still shows only part of it (${fresh.snapshot.missing.join(", ")}) — check the account in GHL, then Retry`].join("\n") };
-      if (runLoads.length) {
+      // A half-loaded template from an older load (Brows by Angie 10/25: 7 of
+      // 18 automations, 9 of ~45 values from July) is not "dirty" — the
+      // snapshot is loaded again on top of it, like Susan's.
+      if (runLoads.length || (!fresh.snapshot.present && fresh.counts.conversations === 0)) {
         const q = await queueSnapshotLoad(svc, { locationId: loc, poolName: ob.setup!.pool_name, by: `${ob.setup!.approved_by} (setup run)`, reason: `is being taken for ${ob.form.business_name} and the last load left only part of the snapshot (${fresh.snapshot.missing.join(", ")})` });
         return { status: "queued", proposal_id: q.taskId, note: [...notes, `⏳ only part of the snapshot arrived — the AI Agent is loading it again${q.reused ? " (already queued)" : ""}`].join("\n") };
       }
