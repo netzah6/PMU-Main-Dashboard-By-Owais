@@ -231,20 +231,10 @@ export async function POST(req: NextRequest) {
         notes.push("not a client account — A2P left as is");
       }
 
-      // The wipe took the custom values, fields and calendars with it, and
-      // the API cannot load a snapshot onto an existing location — so the
-      // account is NOT ready yet. One Mac Mini task loads the Demo snapshot
-      // back; the pool offers the account only once that task is done
-      // (Sally Nails And Spa on Clean New Account 78, 10/15/2026: every
-      // custom value "missing" because this step did not exist).
-      let snapshotTaskId: string | null = null;
-      try {
-        const q = await queueSnapshotLoad(svc, { locationId, poolName, by: auth.email ?? "admin" });
-        snapshotTaskId = q.taskId;
-        notes.push(q.reused ? "snapshot load already queued for the AI Agent" : "snapshot load queued for the AI Agent — ready to use once it's done");
-      } catch (e) {
-        notes.push(`✗ snapshot task not queued (${e instanceof Error ? e.message : "error"}) — press "Load snapshot" on the pool chip`);
-      }
+      // Owner 10/25/2026: a clean account stays EMPTY — the snapshot is loaded
+      // by setup step 0 when a new client takes it, so it is always the latest.
+      // (Until then this step queued a snapshot load right after the wipe.)
+      const snapshotTaskId: string | null = null;
       // Owner 10/21/2026: the old client's caller names (CNAM) stay on the
       // Trust Center and block the next client's registration. The AI Agent
       // reads them and asks GHL support to remove any that aren't ours.
@@ -254,7 +244,7 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         notes.push(`✗ CNAM task not queued (${e instanceof Error ? e.message : "error"})`);
       }
-      const ready = false; // never at finalize: the snapshot comes first
+      const ready = false; // the pool row turns Ready on its own once A2P is approved
       const readyNote = notes.join(" · ");
 
       // Sheet status: Paused → Offboarded, written ONLY to the status cell and

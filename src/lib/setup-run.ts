@@ -4,7 +4,7 @@ import {
   claimPoolAccount, fillAccountValues, fillCalendarId, syncScheduleTimezones, setLocationProfile, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
   employeePassword, findLocationUserByEmail, setUserPassword, slugify, type ClaimResult, type ClaimAction,
 } from "@/lib/ghl-claim";
-import { deleteAllContacts, poolBlocker, poolReadiness, refreshPoolCleanliness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
+import { deleteAllContacts, inspectLocation, poolBlocker, poolReadiness, refreshPoolCleanliness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
 import { createDepositProductFromForm } from "@/lib/deposit-product";
 import { addOneboxFunnel, FUNNEL_ORIGIN } from "@/lib/onebox-add";
 import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl } from "@/lib/onebox";
@@ -91,7 +91,7 @@ export type PoolChoice = { id: string; name: string; readiness: PoolReadiness; b
 
 /* Every location still named "Clean New Account N" in GHL, with what the
    pool table knows about it. The default is the lowest-numbered READY one
-   (snapshot loaded, no client data, A2P approved — lib/pool-readiness).
+   (empty + A2P approved — lib/pool-readiness).
    Without a GHL agency token (local dev) the table alone is used. */
 export async function poolChoices(svc: Svc): Promise<{ choices: PoolChoice[]; defaultId: string | null; note?: string }> {
   const { data } = await svc.from("pool_accounts").select("*").eq("status", "available");
@@ -116,7 +116,7 @@ export async function poolChoices(svc: Svc): Promise<{ choices: PoolChoice[]; de
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   const ready = choices.filter((c) => c.readiness === "ready");
   if (hidden) note = [note, `${hidden} more not A2P-approved (hidden)`].filter(Boolean).join(" · ");
-  return { choices, defaultId: (ready[0] ?? choices.find((c) => c.snapshot) ?? choices[0])?.id ?? null, note };
+  return { choices, defaultId: (ready[0] ?? choices[0])?.id ?? null, note };
 }
 
 // ── Approve ─────────────────────────────────────────────────────────────────
@@ -370,41 +370,48 @@ type StepFn = (svc: Svc, ob: Ob) => Promise<StepOut>;
 const lines = (acts: ClaimAction[]) => acts.map((a) => `${a.ok ? "✓" : "✗"} ${a.action}${a.detail ? ` — ${a.detail}` : ""}`).join("\n");
 
 const API_STEPS: Record<string, StepFn> = {
-  /* 0 · Check & clean (owner 10/20/2026): the pool table can be months stale
-     (Clean New Account 4–9 said "still has data" from an August check that
-     counted the template as dirt). So the account is inspected LIVE right
-     before it is taken: leftover contacts are deleted, the snapshot and A2P
-     are confirmed. Only contacts are ever deleted here — the custom values,
-     fields, calendars and automations are what the setup needs. */
+  /* 0 · Check, clean, load (owner 10/20 + 10/25/2026). A pool account is
+     EMPTY + A2P verified; the snapshot keeps changing, so the latest one is
+     loaded here, when the account is taken — never ahead of time. The
+     account is inspected LIVE: leftover contacts are deleted, anything else
+     on it (an old template, funnels…) stops the run, A2P must be approved,
+     then the AI Agent loads the snapshot and this step resumes when its
+     card closes. */
   account_check: async (svc, ob) => {
     const loc = ob.setup!.location_id;
     let [row] = await refreshPoolCleanliness([loc]);
     if (!row) throw new Error("this account is not in the clean-account pool");
     const notes: string[] = [];
-    if ((row.dirty ?? 0) > 0) {
+    // This run's own snapshot load (a card created after the setup was approved).
+    const since = ob.setup!.approved_at ?? new Date(0).toISOString();
+    const { data: loads } = await svc.from("agent_proposals").select("id, status")
+      .eq("conversation_id", snapshotConvId(loc)).gte("created_at", since);
+    const runLoads = (loads ?? []) as Array<{ id: string; status: string }>;
+    const loadedThisRun = runLoads.some((l) => l.status === "done");
+    const insp = await inspectLocation(loc);
+    if (insp.counts.contacts > 0) {
       const lt = await getAppLocationToken(loc);
       if (!lt.token) throw new Error(lt.error ?? "could not mint location token");
       const r = await deleteAllContacts(loc, lt.token);
       notes.push(`deleted ${r.deleted} of ${r.found} leftover contacts${r.failed ? ` (${r.failed} failed: ${r.error ?? ""})` : ""}`);
       [row] = await refreshPoolCleanliness([loc]);
     }
-    if ((row.dirty ?? 0) > 0) return { status: "failed", note: [...notes, `still has data — ${row.clean_note ?? ""}. Clean it in the Onboarding tab's clean-account pool, then Retry`].join("\n") };
-    // No snapshot (custom values, workflows) → the AI Agent loads it now and
-    // this step resumes when its card closes (owner 10/21/2026: no manual work).
-    // The check is strict (lib/ghl-cleanup snapshotCheck): a half-applied
-    // load counts as no snapshot and is loaded again. Two loads in 3 hours
-    // that still leave it partial stop here instead of looping the AI Agent.
-    if (!row.snapshot_loaded_at) {
-      const what = /partial snapshot — ([^·]+)/.exec(row.clean_note ?? "")?.[1]?.trim();
-      const since = new Date(Date.now() - 3 * 3600_000).toISOString();
-      const { count } = await svc.from("agent_proposals").select("id", { count: "exact", head: true })
-        .eq("conversation_id", snapshotConvId(loc)).gte("created_at", since).in("status", ["done", "failed", "needs_teammate"]);
-      if ((count ?? 0) >= 2) return { status: "failed", note: [...notes, `✗ the AI Agent loaded the snapshot ${count}× and the account still shows only part of it${what ? ` (${what})` : ""} — check the account in GHL, then Retry`].join("\n") };
-      const q = await queueSnapshotLoad(svc, { locationId: loc, poolName: ob.setup!.pool_name, by: `${ob.setup!.approved_by} (setup run)`, reason: `is being taken for ${ob.form.business_name} and has ${what ? `only part of the snapshot (${what})` : "no snapshot"}` });
-      return { status: "queued", proposal_id: q.taskId, note: [...notes, `⏳ ${what ? `only part of the snapshot is on the account (${what})` : "no snapshot on the account"} — the AI Agent is loading it${q.reused ? " (already queued)" : ""}; the setup continues by itself when it is done`].join("\n") };
-    }
     if (row.a2p !== "approved") return { status: "failed", note: [...notes, "A2P not confirmed — press Verify A2P in the clean-account pool, then Retry"].join("\n") };
-    return { status: "done", note: [...notes, `✓ ${row.clean_note ?? "clean"} · snapshot loaded · A2P approved`].join("\n") };
+    const fresh = await inspectLocation(loc);
+    if (fresh.counts.contacts > 0) return { status: "failed", note: [...notes, `${fresh.counts.contacts} contacts could not be deleted — clean them in GHL, then Retry`].join("\n") };
+    if ((row.dirty ?? 0) > 0) {
+      // Template on the account: fine only if THIS run loaded it, complete.
+      if (loadedThisRun && fresh.snapshot.present) return { status: "done", note: [...notes, `✓ latest snapshot loaded by the AI Agent · A2P approved`].join("\n") };
+      if (runLoads.length >= 2) return { status: "failed", note: [...notes, `✗ the AI Agent loaded the snapshot ${runLoads.length}× and the account still shows only part of it (${fresh.snapshot.missing.join(", ")}) — check the account in GHL, then Retry`].join("\n") };
+      if (runLoads.length) {
+        const q = await queueSnapshotLoad(svc, { locationId: loc, poolName: ob.setup!.pool_name, by: `${ob.setup!.approved_by} (setup run)`, reason: `is being taken for ${ob.form.business_name} and the last load left only part of the snapshot (${fresh.snapshot.missing.join(", ")})` });
+        return { status: "queued", proposal_id: q.taskId, note: [...notes, `⏳ only part of the snapshot arrived — the AI Agent is loading it again${q.reused ? " (already queued)" : ""}`].join("\n") };
+      }
+      return { status: "failed", note: [...notes, `✗ not a clean account — ${row.clean_note ?? "it still has data"}. A clean account must be empty (no template, calendars, automations, funnels). Pick another account or wipe this one, then Retry`].join("\n") };
+    }
+    // Empty + A2P → load the latest snapshot now.
+    const q = await queueSnapshotLoad(svc, { locationId: loc, poolName: ob.setup!.pool_name, by: `${ob.setup!.approved_by} (setup run)`, reason: `is being taken for ${ob.form.business_name} (empty clean account — loading the latest snapshot)` });
+    return { status: "queued", proposal_id: q.taskId, note: [...notes, `✓ empty · A2P approved`, `⏳ the AI Agent is loading the latest snapshot${q.reused ? " (already queued)" : ""}; the setup continues by itself when it is done`].join("\n") };
   },
   /* 1 + 2 · Take the pool account: rename it and set email/phone. The
      employee user is NOT created here (step 14 asks the owner first), and the

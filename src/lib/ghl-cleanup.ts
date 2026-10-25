@@ -74,6 +74,7 @@ export async function searchLocations(q: string): Promise<LocationHit[]> {
 export type CleanupCounts = {
   contacts: number;
   customValues: number;
+    filledCustomValues: number; // values with something in them (empty placeholders hold no data)
   customFields: number;
   calendars: number;
   users: number;
@@ -189,6 +190,7 @@ export async function inspectLocation(locationId: string): Promise<InspectResult
     counts: {
       contacts: await countLiveContacts(locationId, tok, listedContacts),
       customValues: ((cvs.customValues as unknown[]) ?? []).length,
+      filledCustomValues: ((cvs.customValues as Array<{ value?: unknown }>) ?? []).filter((c) => String(c.value ?? "").trim() !== "").length,
       customFields: ((cfs.customFields as unknown[]) ?? []).length,
       calendars: ((cals.calendars as unknown[]) ?? []).length,
       users: ((users.users as unknown[]) ?? []).length,
@@ -453,15 +455,26 @@ export async function refreshPoolCleanliness(locationIds: string[]): Promise<Poo
         const inspect = await inspectLocation(id);
         const c = inspect.counts;
         const s = inspect.snapshot;
-        const dirty = c.contacts;
+        // Owner 10/25/2026: clean = EMPTY. Everything left counts, the
+        // template included (it is loaded fresh when a setup takes the account).
+        const funnels = c.funnels > 0 ? c.funnels : 0; // -1 = unreadable, not blocking
+        // Empty custom values (the 8 price placeholders pushed to every
+        // sub-account 10/08/2026) and field definitions hold no data — not counted.
+        const parts: Array<[number, string]> = [
+          [c.contacts, "contacts"], [c.filledCustomValues, "filled custom values"],
+          [c.calendars, "calendars"], [c.pipelines, "pipelines"], [c.workflows, "automations"], [funnels, "funnels"],
+        ];
+        const dirty = parts.reduce((n, [k]) => n + k, 0);
+        const left = parts.filter(([k]) => k > 0).map(([k, label]) => `${k} ${label}`).join(", ");
         const bits: string[] = [];
-        if (c.contacts) bits.push(`${c.contacts} contacts left`);
-        if (s.present) bits.push(`snapshot ✓ ${s.ccValues} CC values, ${c.workflows} automations`);
-        else if (c.customValues || c.workflows) bits.push(`partial snapshot — ${s.missing.join(", ")}`);
-        else bits.push("empty — waiting for snapshot");
-        const snapshot: Partial<PoolRow> = s.present
-          ? (was?.snapshot_loaded_at ? {} : { snapshot_loaded_at: now, snapshot_note: `snapshot found on Re-check ${new Date(now).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}` })
-          : (was?.snapshot_loaded_at ? { snapshot_loaded_at: null, snapshot_note: `✗ Re-check sees only part of the snapshot (${s.missing.join(", ")}) — load it again` } : {});
+        if (!dirty) bits.push("empty ✓");
+        else if (s.present) bits.push(`old template loaded (${left})`);
+        else bits.push(`leftovers: ${left}`);
+        // snapshot_loaded_at is set only when the AI Agent's load card closes
+        // (lib/pool-snapshot) — never guessed from a Re-check.
+        const snapshot: Partial<PoolRow> = !s.present && was?.snapshot_loaded_at
+          ? { snapshot_loaded_at: null, snapshot_note: dirty ? `✗ Re-check sees only part of the snapshot (${s.missing.join(", ")})` : "empty — snapshot loads when a setup takes it" }
+          : {};
         return { location_id: id, workflows: c.workflows, dirty, clean_checked_at: now, clean_note: bits.join(" · "), ...snapshot };
       } catch (e) {
         return {
@@ -479,8 +492,8 @@ export async function refreshPoolCleanliness(locationIds: string[]): Promise<Poo
   return (data ?? []) as PoolRow[];
 }
 
-// The accounts a setup may take right now: snapshot loaded, no client data,
-// A2P approved — lowest number first.
+// The accounts a setup may take right now: empty + A2P approved — lowest
+// number first (the snapshot is loaded by setup step 0).
 export async function listReadyPool(): Promise<PoolRow[]> {
   const svc = createServiceClient();
   const { data } = await svc.from("pool_accounts").select("*").eq("status", "available");

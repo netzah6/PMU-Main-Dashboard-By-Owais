@@ -5,15 +5,19 @@
 // automations. That was backwards. The wipe empties the account, but the
 // New Client Setup fills EXISTING custom values and never creates them —
 // so an empty account fails every fill step (Sally Nails And Spa, Clean New
-// Account 78). Ready now means:
-//   • no client data left (contacts)
-//   • the Demo snapshot is loaded (CC custom values + the template workflows)
+// Account 78). Ready then meant "snapshot loaded".
+//
+// Owner 10/25/2026: a clean account is EMPTY — no contacts, calendars,
+// automations, funnels, custom values or fields — and A2P verified. The
+// snapshot keeps changing, so it is loaded only when a setup takes the
+// account (setup step 0), never ahead of time. Ready now means:
+//   • nothing on the account (`dirty` = every leftover, template included)
 //   • A2P approved
 
 export type PoolReadiness = "ready" | "snapshot" | "partial" | "dirty" | "unknown";
 
 export type PoolReadinessInput = {
-  dirty: number | null;              // contacts left (client data)
+  dirty: number | null;              // everything left on the account (contacts, template, funnels…)
   a2p: string;                       // "approved" | "pending"
   clean_checked_at: string | null;   // last Re-check
   snapshot_loaded_at: string | null; // snapshot confirmed on the account
@@ -24,7 +28,6 @@ export type PoolReadinessInput = {
 export function poolReadiness(r: PoolReadinessInput): PoolReadiness {
   if (r.clean_checked_at == null || r.dirty == null) return "unknown";
   if (r.dirty > 0) return "dirty";
-  if (!r.snapshot_loaded_at) return "snapshot";
   return r.a2p === "approved" ? "ready" : "partial";
 }
 
@@ -33,7 +36,7 @@ export function poolBlocker(r: PoolReadinessInput & { clean_note?: string | null
   switch (poolReadiness(r)) {
     case "ready": return null;
     case "unknown": return "not checked yet";
-    case "dirty": return `still has data — ${r.clean_note ?? ""}`.trim();
+    case "dirty": return `not empty — ${r.clean_note ?? ""}`.trim();
     case "snapshot":
       return r.snapshot_note?.startsWith("✗")
         ? `snapshot load failed — ${r.snapshot_note.slice(1).trim()}`
@@ -45,7 +48,7 @@ export function poolBlocker(r: PoolReadinessInput & { clean_note?: string | null
 export const READINESS_LABEL: Record<PoolReadiness, string> = {
   ready: "Ready to use",
   snapshot: "Waiting for snapshot",
-  partial: "Nearly ready",
+  partial: "Needs A2P",
   dirty: "Not clean",
   unknown: "Not checked",
 };
