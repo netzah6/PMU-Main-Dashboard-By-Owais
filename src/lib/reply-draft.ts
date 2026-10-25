@@ -128,11 +128,18 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
   const capRule = overCap
     ? ` PRICE REQUIREMENT — she charges $${w.price} for the initial treatment, and the pay-per-appointment program requires the initial treatment to be $${PPS_MAX_INITIAL} or less. Say this plainly and kindly as part of the program ("one requirement: the initial treatment has to be $${PPS_MAX_INITIAL} or less"), suggest she can charge more for the touch-up instead — e.g. ${capSuggestion}${w.touchUp ? ", so she still makes the same per client" : ""} — and ask if that works for her. Never call her price too high; it's how the program is set up.`
     : "";
+  // At $400 or less (owner, 2026-10-25): never mention a minimum — ask for
+  // her LOWEST first-session price (new-client / promo); lower books more.
+  const underCap = w.offer === "pps" && !!w.price && !overCap;
+  const lowestQ = `"What's the lowest you'd go for the first session, like a new-client or promo price? We'll use that one in the ads — a lower first price gets a lot more people booking, and you make it up on the touch-up."`;
+  const lowRule = underCap
+    ? ` LOWEST PRICE — she charges about $${w.price}. Never mention any minimum or maximum price. If she hasn't already told us her lowest first-session price (a new-client or promo price), ask for it in these words or very close: ${lowestQ}`
+    : "";
   const math = w.price && w.offer === "pps" && !overCap
     ? ` She charges about $${w.price}: say what $60 is next to that (about ${Math.max(1, Math.round((60 / w.price) * 100))}% of one appointment, the rest is hers).`
     : "";
   const pitch = w.offer === "pps"
-    ? `Pay-per-appointment, in plain words: no monthly fee — she only pays after she gets paid; her new clients book with a $50 deposit (that covers us) and she pays $60 only when a client actually shows up for the first session; touch-ups, upsells and referrals stay 100% hers.${math}${capRule}`
+    ? `Pay-per-appointment, in plain words: no monthly fee — she only pays after she gets paid; her new clients book with a $50 deposit (that covers us) and she pays $60 only when a client actually shows up for the first session; touch-ups, upsells and referrals stay 100% hers.${math}${capRule}${lowRule}`
     : w.offer === "monthly"
     ? "The monthly program, upgraded since she left: AI that books clients for her 24/7, deposits collected for her, new funnels. NEVER write a monthly price — say you'll go over the numbers together."
     : "No program is approved for her yet: name NO program and NO price. Ask how many new brow clients a month would feel great right now.";
@@ -159,13 +166,15 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
   // for her yes (wants_details). Less back and forth.
   const teaser = w.offer === "pps" && overCap
     ? `then say we have a pay-per-appointment program now — no monthly retainer, she only pays after she gets paid, and we follow up with her clients, book them on her calendar and collect a deposit — then the price requirement:${capRule} Close with that question ("would that work for you?") instead of "want to try it?". Do NOT write the $50 / $60 terms yet. Shape it like this, in Nicolas's own words: "Nice, $${w.price}${w.touchUp ? ` + $${w.touchUp} for the touch-up` : ""} is solid 🙌 How's your calendar looking — would a few more new brow clients a month help? We have a pay-per-appointment program now: no monthly retainer, you only pay after you get paid, and we book your clients and collect a deposit. One requirement: the initial treatment has to be $${PPS_MAX_INITIAL} or less — you could do ${capSuggestion}. Would that work for you?"`
+    : w.offer === "pps" && underCap
+    ? `then say we have a pay-per-appointment program now — no monthly retainer, she only pays after she gets paid, and we follow up with her clients, book them on her calendar and collect a deposit — and close with the lowest-price question instead of "want to try it?":${lowRule} Never mention a minimum price. Do NOT write the $50 / $60 terms yet. Shape it like this, in Nicolas's own words: "Nice, $${w.price} is a great price 🙌 We have a pay-per-appointment program now: no monthly retainer, you only pay after you get paid, and we book your clients and collect a deposit. What's the lowest you'd go for the first session, like a new-client or promo price? We'd use that one in the ads — a lower first price gets a lot more people booking, and you make it up on the touch-up."`
     : w.offer === "pps"
     ? `then say we have a pay-per-appointment program now — no monthly retainer, she only pays after she gets paid — that we also follow up with her clients, book them on her calendar and collect a deposit, and close with "want to try it?". Do NOT write the $50 / $60 terms yet; they come when she says yes. Shape it like this, in ${first === "she" ? "the team's" : "Nicolas's"} own words: "Nice, that's a solid price 🙌 How's your calendar looking these days — would a few more new brow clients a month help? We have a pay-per-appointment program now: no monthly retainer, you only pay after you get paid. We also follow up with your clients, book them on your calendar and get a deposit. Want to try it?"`
     : w.offer === "monthly"
     ? `then say a lot changed since you worked together (AI that books clients for her 24/7, deposits collected for her) and close with "want me to show you how it works now?". NEVER write a monthly price.`
     : `and close with that one question — name NO program and NO price.`;
   const closeOpener = callInvite ? ` If the call switch is on, the closing question is instead ONE short, natural invite to book ${callInvite} (no emoji arrows).` : "";
-  return `5. WIN-BACK, SHE ANSWERED OUR OPENER — ${first} is a former client we texted first ("what are you charging for brows these days?"). Her reply is the start of a sales conversation, NOT a question to close with "got it". Write ONE short message (3–5 lines, under ${overCap ? 95 : 75} words): (a) react to what she said in a few warm, specific words, using her number if she gave one; (b) ask how her calendar looks — would a few more new brow clients a month help; (c) ${teaser}${closeOpener} Never promise results or a number of clients. If instead she says she's busy and fully booked, be happy for her and leave the door open in one line; if she says no or not interested, thank her warmly and stop — never push; if she mentions money pressure, acknowledge it first${w.offer === "pps" ? ' — "you only pay after you get paid" is the answer to it, not a new ask' : " before anything else"}. ${precedence}`;
+  return `5. WIN-BACK, SHE ANSWERED OUR OPENER — ${first} is a former client we texted first ("what are you charging for brows these days?"). Her reply is the start of a sales conversation, NOT a question to close with "got it". Write ONE short message (3–5 lines, under ${overCap || underCap ? 95 : 75} words): (a) react to what she said in a few warm, specific words, using her number if she gave one; (b) ask how her calendar looks — would a few more new brow clients a month help; (c) ${teaser}${closeOpener} Never promise results or a number of clients. If instead she says she's busy and fully booked, be happy for her and leave the door open in one line; if she says no or not interested, thank her warmly and stop — never push; if she mentions money pressure, acknowledge it first${w.offer === "pps" ? ' — "you only pay after you get paid" is the answer to it, not a new ask' : " before anything else"}. ${precedence}`;
 }
 
 function buildSystemPrompt(input: DraftInput): string {
@@ -197,7 +206,7 @@ function buildSystemPrompt(input: DraftInput): string {
       // short (owner, 2026-10-04: the 9–5 hours vanished on an edit).
       ? "6. LENGTH — this is a REVISION of an earlier draft: keep every point the earlier notes asked for and every sentence the change doesn't touch. It may be longer than usual; still no filler."
       : input.winback && input.winback.stage !== "declined"
-      ? `6. LENGTH — this reply carries the offer: 2–5 short lines, under ${input.winback.offer === "pps" && (input.winback.price ?? 0) > PPS_MAX_INITIAL ? 95 : 70} words, no lists. Still a text message, not an email.`
+      ? `6. LENGTH — this reply carries the offer: 2–5 short lines, under ${input.winback.offer === "pps" && input.winback.price ? 95 : 70} words, no lists. Still a text message, not an email.`
       : `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
     // Owner, 2026-10-08 (Sara's "Hi Nicholas! … Thank you so much, Sara"
     // message got a flat text back): the reply must LOOK like the client's
