@@ -72,6 +72,8 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 18, key: "wf_survey", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
   { n: 19, key: "wf_notify", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - One-Box Booking → Notify Artist\": artist's number set so she gets booking texts" },
   { n: 20, key: "wf_callkill", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "Outgoing-call workflow: no \"Remove from Funnel Survey\" step that kills the AI" },
+  // Numbered 43 so the steps after it keep their numbers (same as cnam_check's 42); it runs here, last in the workflows batch.
+  { n: 43, key: "wf_errors", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "Every published workflow ends with 0 errors: calendar, custom field, pipeline and stage point to THIS account", how: "The template keeps the old account's calendar, field and pipeline IDs. Brows by Susan (10/25/2026) went live with the confirmation, booking and Invalid→Confirm workflows pointing at nothing — no lead got a single text or confirmation." },
   // F · Calendar
   { n: 21, key: "cal_team", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
   { n: 22, key: "cal_hours", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_availability"] },
@@ -123,7 +125,7 @@ const STEP_TITLES: Record<string, string> = {
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
   phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_forward: "Call forwarding",
   user_create: "Create the client's login", user_password: "Set the password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
-  wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow",
+  wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow", wf_errors: "All workflows: 0 errors",
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
   funnel_create: "Create the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram widget", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
@@ -322,10 +324,24 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Open ${ghl(L, "automation/workflows")} and open the workflow whose name starts "CC - Funnel Survey" (V1 / V2 / V3 variants — the one that is Published).`,
       `Find the "Assign to user" action and set it to ${owner} (${email}). Save and publish.`,
       `Check the triggers: there must be a "Contact Tag" trigger with tag "onebox-survey" (tag added). If it is missing, ADD it (Contact tag added → onebox-survey) and publish. Screenshot the trigger list and the assign step.`,
+      // Brows by Susan, 10/25/2026: the tag trigger was there, but its leads fell into "None" and got nothing.
+      `Open the If/Else step "(V1 / V2 / V2)" right after "Assign to user" and the branch "Survey (V3)". Its conditions must be: "Workflow trigger is Survey Submitted - (V3)" OR "Tags includes onebox-survey". If the Tags condition is missing, set the AND/OR switch to OR, add the condition Tags → Includes → onebox-survey, Save action, then rename the branch "Survey (V3) / Onebox-Survey". Without it every one-box lead goes to "None" and gets no text at all. Screenshot the branch conditions.`,
       // Owner, 10/24 (Brows by Susan): the Agent saw 2 opportunity errors,
       // called them out of scope and left the workflow in Draft — leads got nothing.
       `The workflow MUST end Published with NO errors — fixing any error GHL shows (the red "Resolve errors" panel / orange dots) is part of this step. The usual one is "Create Or Update Opportunity: Opportunity pipeline not found / Stage not found" (the snapshot kept an old pipeline id): open each such step, choose the pipeline "Booking opportunities" and the stage the Demo (V3) template uses in the same step — open Demo (V3)'s copy of this workflow READ-ONLY to see it, never save anything in Demo; if you cannot see it, use "Very Hot-Lead (Filled Survey)🔥". Save each step, then publish.`,
       `Before you finish, re-open the workflow list and confirm this workflow shows Published and the builder shows 0 errors. If it is still Draft or still has errors, the status is "failed" (never "done") and the summary says which error is left.`,
+    ];
+    case "wf_errors": return [
+      `Open ${ghl(L, "automation/workflows")}. Workflows live INSIDE FOLDERS — open every folder. Go through EVERY workflow whose status is Published (leave Draft ones alone).`,
+      `In each one, open the builder and click the error icon in the left toolbar (orange "!" — the "Resolve N errors" panel; a green check means 0 errors). Fix each error with "Open step":`,
+      `• "Referenced Calendar does not exist" (a trigger's or step's "In calendar"): choose "Permanent Makeup Transformation" — this account's calendar. Check BOTH triggers when a workflow has two (e.g. "Appointment Status Invalid -> Confirm…": Unconfirmed/New and Invalid).`,
+      `• "Referenced Contact Custom Field does not exist": choose the field with the SAME name in this account (e.g. "CC - Reserved Appointment Time (V3)🔵"); keep the value that is there.`,
+      `• "Referenced Pipeline / Pipeline Stage does not exist": pipeline "Booking opportunities", and the stage named in the step's title (e.g. "Create Opportunity - Deposit Collected😍" → "Deposit Collected😍"). If the title doesn't say, open Demo (V3)'s copy of the workflow READ-ONLY to see it — never save anything in Demo.`,
+      `• "Workflow selection is required" on an "Add to Workflow" step whose target workflow does not exist anywhere in this account (e.g. "Extension - Follow Up Booked (V3)"): delete that ONE step — GHL will not save the workflow otherwise, and every other account skips it.`,
+      `• Any other error: do not guess — leave it and report it.`,
+      `Save each step (Save trigger / Save action), then Save the workflow; it must stay Published and the panel must say 0 errors. Never change message texts, waits, conditions or other steps.`,
+      `Must be checked at least: "CC - Bookings Appointment Confirmation + Reminders", "Customer Booked Appointment - PMU Transformation Calendar (V2 / V3)", "Appointment Status Invalid -> Confirm if \"Fanbasis\" tag in 3 days", "Fanbasis Tag Added - Paid Deposit (V2 / V3)", "FanBasis to GHL workflow", "CC - One-Box Booking -> Notify Artist", "Deposit Follow up Messages 🔔", "CC- Funnel Survey -> (V1 / V2 / V3)".`,
+      `Report one line per workflow you fixed ("<workflow>: <what you fixed>") and list the ones already at 0 errors. Status is "failed" (never "done") if any Published workflow still shows an error — name the workflow and the error.`,
     ];
     case "wf_notify": return [
       `Workflows live INSIDE FOLDERS — open each folder or use the workflows search box before deciding one is missing.`,
