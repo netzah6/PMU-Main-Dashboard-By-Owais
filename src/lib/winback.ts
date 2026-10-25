@@ -74,12 +74,18 @@ export type WinbackContext = { name: string; offer: WinbackOffer | null; offerTe
 export const PPS_MAX_INITIAL = 400;
 /* "Let me think about it" after the offer (owner, 10/25/2026, Angelica
    Kobasic): answer with the early-bird rate — free to join, nothing up front,
-   previous clients first at $60 per show, $80 from the deadline, lock in $60
-   before it. Past the deadline the date line is dropped (owner to set a new
-   one). */
+   previous clients first at $60 per show, $80 after the deadline. The
+   deadline rolls (owner, 10/25/2026): we hold the $60 rate for HER until a
+   few days from her reply, so every client gets a real, near date. */
 export const PPS_RATE_NOW = 60;
 export const PPS_RATE_LATER = 80;
-export const PPS_RATE_DEADLINE = "2026-11-01"; // the rate goes up on this day (Pacific)
+export const PPS_HOLD_DAYS = 4;
+/** "Thursday, 10/29" — the day her $60 hold ends (Pacific). */
+export function rateHoldUntil(now = new Date()): string {
+  const d = new Date(now.getTime() + PPS_HOLD_DAYS * 86_400_000);
+  const tz = "America/Los_Angeles";
+  return `${d.toLocaleDateString("en-US", { weekday: "long", timeZone: tz })}, ${d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", timeZone: tz })}`;
+}
 type FlowRow = Pick<WinbackRow, "owner_name" | "offer"> & { batch_started_at?: string | null; step?: number | null };
 const OPENER = /charging for brows/i;
 const OFFER_SHOWN = /per[- ]show|pay[- ]per[- ]appointment|\$50 deposit|\$60\b|shows? up|no monthly fee|only pay|monthly program|go over the numbers|want the details|show you how it works/i;
