@@ -66,7 +66,7 @@ export function winbackInstructions(r: Pick<WinbackRow, "owner_name" | "business
    `price` is the number she gave (her brow price), when she gave one, so the
    reply can do the "$60 on a $600 appointment" math honestly. */
 export type WinbackStage = "opener_answered" | "offer_presented" | "wants_details" | "declined";
-export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; touchUp: number | null; inFlow: boolean };
+export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; lowPrice: number | null; touchUp: number | null; inFlow: boolean };
 /* PPS requirement (owner, 2026-10-25, Linsey King "$500 + $100 touch-up"):
    the first session must be $400 or less. Above that, the AI explains the
    requirement and proposes moving the difference onto the touch-up
@@ -105,23 +105,46 @@ export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackCont
   // $225" for first session + touch-up → 450; "raised it to 400, now 450" →
   // 450). Commas stripped ("$1,200"), phone numbers, years, "Suite 1200",
   // "15 years" and "1000s of clients" left out.
-  const text = hers.slice(-3).join(" ")
+  // Prices are read per message: a touch-up price is the figure nearest the
+  // words "touch up" (Linsey King, 10/24: "$500 -$550" then "I charge $100 for
+  // the touch up" — the old whole-text read took $500 for the touch-up).
+  const clean = (b: string) => b
     .replace(/(\d),(\d{3})/g, "$1$2")
     .replace(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, " ")
     .replace(/\b(suite|ste|unit|apt|#)\s*\d+/gi, " ")
     .replace(/\b\d{3,4}\s*(s\b|years?|yrs?|clients?|followers?)/gi, " ");
-  const figures = [...text.matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)]
-    .map((m) => Number(m[1])).filter((n) => n >= 100 && n <= 2500 && !(n >= 1990 && n <= 2040));
-  const price = figures.length ? Math.max(...figures) : null;
-  // A touch-up price, when she named one ("$500 and $100 for the touch-up").
-  const rest = figures.filter((n) => n < (price ?? 0));
-  const touchUp = /touch[\s-]?up/i.test(text) && rest.length ? Math.max(...rest) : null;
+  const isPrice = (n: number) => n >= 100 && n <= 2500 && !(n >= 1990 && n <= 2040);
+  const initials: number[][] = []; // per message, in order
+  let touchUp: number | null = null;
+  for (const b of hers.slice(-3)) {
+    const t = clean(b);
+    const found = [...t.matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)].map((m) => ({ n: Number(m[1]), at: m.index ?? 0 })).filter((f) => isPrice(f.n));
+    // "300, no touch up" / "includes the touch up" name no touch-up price.
+    const noTouch = /\b(no|without|incl\w*|free)\s+(a\s+|the\s+)?(free\s+)?touch[\s-]?ups?\b/i.test(t) && !/\d{3,4}\s*(for\s+(the\s+)?)?touch/i.test(t);
+    const touchAt = noTouch ? -1 : t.search(/touch[\s-]?ups?/i);
+    let tu: { n: number; at: number } | null = null;
+    if (touchAt >= 0 && found.length) {
+      tu = found.reduce((a, f) => (Math.abs(f.at - touchAt) < Math.abs(a.at - touchAt) ? f : a));
+      // "$450 + $225 touch-up" — the touch-up is the smaller one of a pair.
+      if (found.length > 1 && found.some((f) => f !== tu && f.n < tu!.n)) tu = found.filter((f) => f !== tu).reduce((a, f) => (f.n < a.n ? f : a));
+      touchUp = tu.n;
+    }
+    const rest = found.filter((f) => f !== tu).map((f) => f.n);
+    if (rest.length) initials.push(rest);
+  }
+  const all = initials.flat();
+  // Her brow price: the highest first-session figure ("raised it to 400, now
+  // 450" → 450). lowPrice: the lowest one in her latest price message
+  // ("$500 -$550" → 500) — the owner wants the program built on her lowest.
+  const price = all.length ? Math.max(...all) : null;
+  const lowPrice = initials.length ? Math.min(...initials[initials.length - 1]) : null;
   return {
     name: r.owner_name,
     offer: r.offer,
     offerText: OFFER_TEXT[r.offer ?? "none"],
     stage: declined ? "declined" : wants ? "wants_details" : offerShown ? "offer_presented" : "opener_answered",
     price,
+    lowPrice,
     touchUp,
     inFlow,
   };
