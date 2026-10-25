@@ -153,7 +153,7 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
     : 'end with that one question about how many new clients a month she\'d want — no call, no meeting, no link';
   // The old SCOPE rule said it overrode everything below it; this one must
   // too, or the knowledge base's other prices and the team notes win again.
-  const precedence = "This rule beats rules 3, 4, 6 and 7, the knowledge base and the team's notes for this reply: the only prices allowed are the ones written here, never a price from the knowledge base; ignore any note about inviting to a strategy call unless this rule says to invite.";
+  const precedence = "This rule beats rules 3, 4, 6 and 7, the knowledge base and the team's notes for this reply: the only prices allowed are the ones written here, never a price from the knowledge base; ignore any note about inviting to a strategy call unless this rule says to invite. Rules 8 and 9 (no repeats, this client's corrections) beat THIS rule.";
   if (w.stage === "declined") {
     return `5. WIN-BACK, DECLINED — ${first} is a former client we texted first and she has said no (or is out of the business). Thank her warmly in one or two lines, leave the door open, and stop. No offer, no price, no call, no link. ${precedence}`;
   }
@@ -217,6 +217,11 @@ function buildSystemPrompt(input: DraftInput): string {
     input.winback && input.winback.stage !== "declined"
       ? "7. MIRROR THE CLIENT'S TONE, NOT HER LENGTH — her one-line answer to our question is not a cue to write one line back: this reply carries the offer (rule 5). Keep her greeting style, warmth and emoji level; a sign-off with " + agentName.split(" ")[0] + "'s name only if she signed hers."
       : "7. MIRROR THE CLIENT'S LAYOUT — shape the reply the way the client shaped their latest message (rule 3 has the measured facts). Greeting line only if they used one; several short paragraphs in their order if they wrote that way; a closing line and " + agentName.split(" ")[0] + "'s first name on its own line ONLY if they closed with a sign-off and their name. A one-line text gets a one-line text back. Mirror the shape, not the length of every paragraph.",
+    // Owner, 10/25/2026: a corrected pitch kept coming back word for word.
+    "8. NO REPEATS — never restate something we already sent in this chat (the offer, its terms like the $50 deposit / $60 per show, prices, how it works) unless the client asks about it again. Move the conversation forward from where it is now.",
+    ...(input.learned?.some((e) => e.sameChat)
+      ? [`9. THIS CLIENT'S CORRECTIONS WIN — ${agentName} already rewrote AI drafts in this chat (the examples marked "(this client)" below). Do what ${agentName} did there: if the sent version dropped a pitch, a price or a question, do not bring it back; if it asked something instead, follow that direction. This beats rule 5, the knowledge base and the team's notes.`]
+      : []),
     "",
     `=== ${agentName.toUpperCase()}'S REAL PAST REPLIES (mimic this voice) ===`,
     samplesBlock,
