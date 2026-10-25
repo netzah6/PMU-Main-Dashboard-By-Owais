@@ -99,14 +99,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     let poolId = String(body.poolLocationId ?? "").trim();
     if (!poolId) {
-      // Default = the lowest-numbered READY account (snapshot loaded, no
-      // client data, A2P approved) — never just the first pool name in GHL,
+      // Default = the lowest-numbered READY account (empty + A2P approved —
+      // owner 10/25/2026) — never just the first pool name in GHL,
       // which since the Cleanup existed was usually a wiped, empty one.
       const ready = await listReadyPool();
       if (!ready.length) {
         const pool = await discoverPool();
         return NextResponse.json({ error: pool.length
-          ? `${pool.length} clean accounts exist but none is ready (no snapshot loaded, or A2P not approved) — see the pool in the Onboarding tab`
+          ? `${pool.length} clean accounts exist but none is ready (not empty, or A2P not approved) — see the pool in the Onboarding tab`
           : "No unclaimed pool accounts available" }, { status: 409 });
       }
       poolId = ready[0].location_id;
