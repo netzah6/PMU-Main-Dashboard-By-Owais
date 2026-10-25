@@ -157,6 +157,13 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
   if (w.stage === "declined") {
     return `5. WIN-BACK, DECLINED — ${first} is a former client we texted first and she has said no (or is out of the business). Thank her warmly in one or two lines, leave the door open, and stop. No offer, no price, no call, no link. ${precedence}`;
   }
+  // Owner, 10/25/2026 (Julie Tran): she said "Sure?" to our day-3 teaser
+  // without ever giving her price, and got the full $50 / $60 terms. Her
+  // price decides the deal (the $400 rule, the lowest-price ask), so it
+  // comes FIRST — the same question Nicolas asked Aleksandra on 10/24.
+  if (w.offer === "pps" && !w.price && (w.stage === "wants_details" || w.stage === "offer_presented")) {
+    return `5. WIN-BACK, ASK HER PRICE FIRST — ${first} is a former client interested in the pay-per-appointment program, but we don't know her brow prices yet, and the program depends on them. Do NOT give the $50 / $60 terms or any other numbers yet. Write a short, warm message (1–3 lines) that answers anything she asked in a few words and asks how much she charges for brows right now — the initial treatment and the touch-up. Shape it like this, in Nicolas's own words: "Awesome! Please tell me, how much do you charge for eyebrows right now? Initial treatment and touch up?" ${precedence}`;
+  }
   if (w.stage === "thinking") {
     if (w.offer !== "pps") return `5. WIN-BACK, SHE'S THINKING IT OVER — ${first} said she needs time to think. Thank her warmly, say there's no rush and you're here for any questions, and stop. No new pitch, no price, no call, no link. ${precedence}`;
     const until = rateHoldUntil();
