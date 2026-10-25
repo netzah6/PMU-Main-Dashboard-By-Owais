@@ -7,7 +7,7 @@ import {
 import { getReplyKb } from "@/lib/reply-kb";
 import { waitUntil } from "@vercel/functions";
 import { callViolation, clientAskedForCall, stripCallInvites } from "@/lib/call-guard";
-import { getWinbackForContact, PPS_MAX_INITIAL, winbackContext, winbackInstructions, type WinbackContext } from "@/lib/winback";
+import { getWinbackForContact, PPS_MAX_INITIAL, PPS_RATE_DEADLINE, PPS_RATE_LATER, PPS_RATE_NOW, winbackContext, winbackInstructions, type WinbackContext } from "@/lib/winback";
 import {
   getClientMemory, getLearnedExamples, matchSentReplies, recordDraft, refreshClientMemory, withoutSecrets,
   type ClientMemory, type LearnedExample,
@@ -156,6 +156,17 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
   const precedence = "This rule beats rules 3, 4, 6 and 7, the knowledge base and the team's notes for this reply: the only prices allowed are the ones written here, never a price from the knowledge base; ignore any note about inviting to a strategy call unless this rule says to invite.";
   if (w.stage === "declined") {
     return `5. WIN-BACK, DECLINED — ${first} is a former client we texted first and she has said no (or is out of the business). Thank her warmly in one or two lines, leave the door open, and stop. No offer, no price, no call, no link. ${precedence}`;
+  }
+  if (w.stage === "thinking") {
+    if (w.offer !== "pps") return `5. WIN-BACK, SHE'S THINKING IT OVER — ${first} said she needs time to think. Thank her warmly, say there's no rush and you're here for any questions, and stop. No new pitch, no price, no call, no link. ${precedence}`;
+    const deadline = new Date(`${PPS_RATE_DEADLINE}T08:00:00Z`);
+    const before = Date.now() < deadline.getTime();
+    const day = deadline.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" });
+    const month = deadline.toLocaleDateString("en-US", { month: "long", timeZone: "America/Los_Angeles" });
+    const urgency = before
+      ? ` Then the early-bird rate: right now we're reaching out to previous clients first with a special rate of $${PPS_RATE_NOW} per client; at the beginning of ${month} it goes up to $${PPS_RATE_LATER}, but everyone who signs up before then locks in $${PPS_RATE_NOW}. Close with: if she wants the special rate, let you know before ${day}.`
+      : ` Then say we're reaching out to previous clients first, and close by asking her to let you know when she's ready. Do NOT name any deadline or rate change.`;
+    return `5. WIN-BACK, SHE'S THINKING IT OVER — ${first} has the offer and said she'll think about it / get back to us. Never push, never repeat the $50 / $60 terms she already has. Write ONE warm message: "You're welcome" (if she thanked you), it's free to join and there's nothing to pay up front, a lot of PMU artists want to sign up for this program.${urgency} Shape it like this, in Nicolas's own words${before ? `: "You're welcome, because it's free to join and there is nothing to pay up front. A lot of PMU artists want to sign up for this program, and right now we're reaching out to previous clients first and offering that special rate of $${PPS_RATE_NOW} per client. At the beginning of ${month} we're going to increase that to $${PPS_RATE_LATER}, but everyone who signs up before then locks in the $${PPS_RATE_NOW} rate. If you want the special rate please let me know before ${day} 😊"` : "."} This rule beats rule 8 for the program's rate only. ${precedence}`;
   }
   if (w.stage === "wants_details") {
     return `5. WIN-BACK, SHE WANTS THE DETAILS — ${first} is a former client we texted first; we mentioned the offer and she said yes / asked for more. Give her the details now, clearly, in plain words: ${pitch} Then ${nextStep} (the natural one here is "want me to get you set up?"). Do not ask again whether she wants the details or wants to try it — she just said so. Never promise results or a number of clients. ${precedence}`;
