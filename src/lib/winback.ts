@@ -66,7 +66,12 @@ export function winbackInstructions(r: Pick<WinbackRow, "owner_name" | "business
    `price` is the number she gave (her brow price), when she gave one, so the
    reply can do the "$60 on a $600 appointment" math honestly. */
 export type WinbackStage = "opener_answered" | "offer_presented" | "wants_details" | "declined";
-export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; inFlow: boolean };
+export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; touchUp: number | null; inFlow: boolean };
+/* PPS requirement (owner, 2026-10-25, Linsey King "$500 + $100 touch-up"):
+   the first session must be $400 or less. Above that, the AI explains the
+   requirement and proposes moving the difference onto the touch-up
+   ($500 + $100 → $400 + $200), then asks if that works. */
+export const PPS_MAX_INITIAL = 400;
 type FlowRow = Pick<WinbackRow, "owner_name" | "offer"> & { batch_started_at?: string | null; step?: number | null };
 const OPENER = /charging for brows/i;
 const OFFER_SHOWN = /per[- ]show|pay[- ]per[- ]appointment|\$50 deposit|\$60\b|shows? up|no monthly fee|only pay|monthly program|go over the numbers|want the details|show you how it works/i;
@@ -108,12 +113,16 @@ export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackCont
   const figures = [...text.matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)]
     .map((m) => Number(m[1])).filter((n) => n >= 100 && n <= 2500 && !(n >= 1990 && n <= 2040));
   const price = figures.length ? Math.max(...figures) : null;
+  // A touch-up price, when she named one ("$500 and $100 for the touch-up").
+  const rest = figures.filter((n) => n < (price ?? 0));
+  const touchUp = /touch[\s-]?up/i.test(text) && rest.length ? Math.max(...rest) : null;
   return {
     name: r.owner_name,
     offer: r.offer,
     offerText: OFFER_TEXT[r.offer ?? "none"],
     stage: declined ? "declined" : wants ? "wants_details" : offerShown ? "offer_presented" : "opener_answered",
     price,
+    touchUp,
     inFlow,
   };
 }
