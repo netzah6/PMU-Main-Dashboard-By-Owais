@@ -224,7 +224,12 @@ export async function getLearnedExamples(
     if (r.invite_call || hasCallInvite(r.draft) || hasCallInvite(r.sent_text)) continue;
     if (hasSecret(r.draft) || hasSecret(r.sent_text)) continue; // never echo a password into a prompt
     const o = overlap(r.draft, r.sent_text);
-    if (o >= 0.9 || o < 0.3) continue;
+    // A full rewrite in THIS chat is the strongest lesson there is (owner,
+    // 10/25/2026: Aleksandra — the $50/$60 pitch replaced by a price question
+    // was dropped as "unrelated", so the pitch kept coming back). Only other
+    // chats' unrelated pairs are skipped.
+    const same = r.conversation_id === conversationId;
+    if (o >= 0.9 || (o < 0.3 && !same)) continue;
     examples.push({ draft: r.draft.slice(0, 600), sent: r.sent_text.slice(0, 600), sameChat: r.conversation_id === conversationId });
     if (examples.length >= max) break;
   }
