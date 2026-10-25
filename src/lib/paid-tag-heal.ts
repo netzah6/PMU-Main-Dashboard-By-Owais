@@ -27,6 +27,37 @@ function depositDay(v: unknown): number {
   return m ? Date.UTC(+m[3], +m[2] - 1, +m[1]) : 0;
 }
 
+const usDate = (v: unknown) => { const m = String(v ?? "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[2].padStart(2, "0")}/${m[1].padStart(2, "0")}/${m[3]}` : String(v ?? ""); };
+const normName = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z]+/g, " ").trim();
+type GContact = { id: string; phone?: string | null; tags?: string[]; firstName?: string; lastName?: string; contactName?: string; dateAdded?: string };
+const isPaid = (c: GContact) => (c.tags ?? []).some((t) => PAID_TAGS.includes(t.toLowerCase()));
+
+/* Which contact the payment belongs to (owner 10/25/2026: Andrea, Yvette,
+   Marita paid with an email that wasn't on their lead — GHL filed each
+   payment on a blank new contact with no phone, the real lead with the
+   appointment never got "paid", so no confirmation or reminders).
+   Only a contact WITH a phone counts as the lead: first by email, else the
+   one recent lead with exactly her name. */
+export async function findPaidTarget(H: Record<string, string>, loc: string, email: string, name: string): Promise<
+  { kind: "ok" | "tag"; contact: GContact; byName: boolean } | { kind: "none" } | { kind: "ambiguous"; candidates: GContact[] }> {
+  const search = async (body: Record<string, unknown>) => {
+    const r = await fetch(`${GHL}/contacts/search`, { method: "POST", headers: H, body: JSON.stringify({ locationId: loc, pageLimit: 20, ...body }) });
+    if (!r.ok) throw new Error(`search HTTP ${r.status}`);
+    return ((await r.json()) as { contacts?: GContact[] }).contacts ?? [];
+  };
+  const byEmail = (await search({ filters: [{ field: "email", operator: "eq", value: email }] })).filter((c) => c.phone);
+  if (byEmail.length) { const paid = byEmail.find(isPaid); return { kind: paid ? "ok" : "tag", contact: paid ?? byEmail[0], byName: false }; }
+  const want = normName(name);
+  if (!want || !want.includes(" ")) return { kind: "none" };
+  const since = Date.now() - 60 * 86_400_000;
+  const same = (await search({ query: name })).filter((c) => c.phone && normName(c.contactName ?? `${c.firstName ?? ""} ${c.lastName ?? ""}`) === want && Date.parse(c.dateAdded ?? "") >= since);
+  if (!same.length) return { kind: "none" };
+  const paid = same.find(isPaid);
+  if (paid) return { kind: "ok", contact: paid, byName: true };
+  if (same.length > 1) return { kind: "ambiguous", candidates: same };
+  return { kind: "tag", contact: same[0], byName: true };
+}
+
 export async function healPaidTags(svc: Svc): Promise<{ checked: number; healed: string[]; notFound: string[]; errors: string[] }> {
   const healed: string[] = [], notFound: string[] = [], errors: string[] = [];
   const since = new Date(Date.now() - 48 * 3600_000).toISOString();
@@ -36,6 +67,7 @@ export async function healPaidTags(svc: Svc): Promise<{ checked: number; healed:
     depositDay(r.data["Date"]) >= recentDay - 86_400_000 // only real new payments, not bulk re-syncs of old rows
     && Date.now() - Date.parse(r.synced_at) >= GRACE_MS
     && !/demo/i.test(String(r.data["Business Name"] ?? ""))
+    && !/^router\.test/i.test(String(r.data["Email"] ?? "")) // the setup run's own test payment
     && String(r.data["Email"] ?? "").includes("@"));
   if (!deps.length) return { checked: 0, healed, notFound, errors };
 
@@ -61,34 +93,33 @@ export async function healPaidTags(svc: Svc): Promise<{ checked: number; healed:
       const tok = await getAppLocationToken(loc);
       if (!tok.token) { errors.push(`${biz}: ${tok.error}`); continue; }
       const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" };
-      const s = await fetch(`${GHL}/contacts/search`, { method: "POST", headers: H, body: JSON.stringify({ locationId: loc, pageLimit: 5, filters: [{ field: "email", operator: "eq", value: email }] }) });
-      if (!s.ok) { errors.push(`${biz}: search HTTP ${s.status}`); continue; }
-      const contacts = ((await s.json()) as { contacts?: Array<{ id: string; tags?: string[] }> }).contacts ?? [];
-      if (!contacts.length) {
+      const t = await findPaidTarget(H, loc, email, name);
+      if (t.kind === "none" || t.kind === "ambiguous") {
         const giveUp = Date.now() - Date.parse(r.synced_at) > NOT_FOUND_GIVE_UP_MS;
         await svc.from("paid_tag_checks").upsert({ key, location_id: loc, result: giveUp ? "not_found_final" : "not_found", attempts: (p?.attempts ?? 0) + 1, checked_at: new Date().toISOString() });
         if (giveUp) {
           notFound.push(`${name} (${biz})`);
           await fileOrAppendAlert(svc, {
             type: "paid_not_synced", severity: "high",
-            title: `${name} paid a deposit to ${biz}, but no GHL contact has that email`,
-            detail: `Payment ${r.data["Amount"] ?? ""} on ${r.data["Date"]} (${email}) never matched a contact in the client's GoHighLevel. Find her by name/phone, add the email and the "fanbasis buyer" tag.`,
+            title: t.kind === "ambiguous" ? `${name} paid a deposit to ${biz}, but ${t.candidates.length} leads share that name` : `${name} paid a deposit to ${biz}, but her lead can't be found in GHL`,
+            detail: `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} (${email}) matched no lead with a phone — not by email, not by name. Her appointment is NOT confirmed: find her by name/phone and add the "fanbasis buyer" tag.`,
             source_key: `paid-notfound:${key}`, meta: { location_id: loc, email },
           });
         }
         continue;
       }
-      const paid = contacts.find((c) => (c.tags ?? []).some((t) => PAID_TAGS.includes(t.toLowerCase())));
-      if (paid) { await svc.from("paid_tag_checks").upsert({ key, location_id: loc, contact_id: paid.id, result: "ok", checked_at: new Date().toISOString() }); continue; }
-      const c = contacts[0];
-      const t = await fetch(`${GHL}/contacts/${c.id}/tags`, { method: "POST", headers: H, body: JSON.stringify({ tags: ["fanbasis buyer"] }) });
-      if (!t.ok) { errors.push(`${biz}: tag HTTP ${t.status}`); continue; }
+      const c = t.contact;
+      if (t.kind === "ok") { await svc.from("paid_tag_checks").upsert({ key, location_id: loc, contact_id: c.id, result: "ok", checked_at: new Date().toISOString() }); continue; }
+      const tg = await fetch(`${GHL}/contacts/${c.id}/tags`, { method: "POST", headers: H, body: JSON.stringify({ tags: ["fanbasis buyer"] }) });
+      if (!tg.ok) { errors.push(`${biz}: tag HTTP ${tg.status}`); continue; }
       await svc.from("paid_tag_checks").upsert({ key, location_id: loc, contact_id: c.id, result: "healed", checked_at: new Date().toISOString() });
       healed.push(`${name} (${biz})`);
       await fileOrAppendAlert(svc, {
         type: "paid_not_synced", severity: "medium",
         title: `${name} paid ${biz} but GHL missed it — fixed automatically`,
-        detail: `Payment ${r.data["Amount"] ?? ""} on ${r.data["Date"]} reached the Deposits sheet but not her GHL contact. The "fanbasis buyer" tag was added, so the paid-deposit workflow now confirms her appointment. Resolve this once checked.`,
+        detail: t.byName
+          ? `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} was made with ${email}, which isn't on her lead, so GHL filed it on a blank new contact. Her real lead (found by name, with her phone) got the "fanbasis buyer" tag, so the paid-deposit workflow now confirms her appointment. Resolve this once checked.`
+          : `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} reached the Deposits sheet but not her GHL contact. The "fanbasis buyer" tag was added, so the paid-deposit workflow now confirms her appointment. Resolve this once checked.`,
         source_key: `paid-healed:${key}`, meta: { location_id: loc, contact_id: c.id, link: ghlContactUrl(loc, c.id) },
       });
     } catch (e) {
