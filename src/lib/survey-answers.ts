@@ -23,7 +23,12 @@ export async function answersFromMainContact(contactId: string, form: Record<str
     const out: Record<string, string> = {};
     for (const k of need) {
       const f = fields.find((x) => x.fieldKey === want[k]) ?? fields.find((x) => String(x.fieldKey ?? "").startsWith(want[k]));
-      const v = f ? vals.find((x) => x.id === f.id)?.value : undefined;
+      let v = f ? vals.find((x) => x.id === f.id)?.value : undefined;
+      // Signup survey answer ("5-10 years") when the CC field is empty.
+      if ((v === undefined || !String(v).trim()) && k === "years_in_business") {
+        const s = fields.find((x) => x.fieldKey === "contact.how_long_have_you_been_a_pmu_artist");
+        v = s ? vals.find((x) => x.id === s.id)?.value : undefined;
+      }
       if (v !== undefined && String(v).trim()) out[k] = String(v).trim();
     }
     return out;

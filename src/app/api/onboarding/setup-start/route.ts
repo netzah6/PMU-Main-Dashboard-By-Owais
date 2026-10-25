@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { resolveClientLocation } from "@/lib/agent-exec";
+import { answersFromMainContact } from "@/lib/survey-answers";
 
 // "Set up account" on the Clients tab (admin only).
 //   GET  ?owner=&business=  → can this client be set up? (no GHL location yet),
@@ -69,6 +70,10 @@ function prefill(row: Record<string, unknown>): Record<string, string> {
     media_buyer: g("Media Buyer"),
     offer: g("Offer"),
     original_price: g("Original Price"),
+    discounted_price: g("Discounted Price"),
+    // Hours live in their own column on newer rows, in Notes on older ones
+    // (owner 10/25: Elena's card asked for hours the Clients tab already had).
+    business_hours: g("Business Hours") || (/\b(am|pm)\b|monday|tuesday|wednesday|thursday|friday|saturday|sunday/i.test(g("Notes")) ? g("Notes") : ""),
     ig_link: g("IG Page link"),
     fb_link: g("FB Page link"),
     gmb_link: g("GMB") || g("GMB_2"),
@@ -104,6 +109,8 @@ export async function POST(req: NextRequest) {
   if (!form.business_name) form.business_name = business;
   if (!form.owner_name) form.owner_name = owner;
   if (!form.business_name || !form.owner_name) return NextResponse.json({ error: "The sheet row has no business or owner name" }, { status: 400 });
+  // What the sheet doesn't have may be on the client's signup contact (hours, years).
+  Object.assign(form, await answersFromMainContact(form.master_contact_id ?? "", form).catch(() => ({})));
   const { data, error } = await svc.from("onboardings").insert({ form, created_by: email }).select("id").single();
   if (error || !data) return NextResponse.json({ error: error?.message ?? "could not create the card" }, { status: 500 });
   return NextResponse.json({ id: (data as { id: string }).id, existing: false });
