@@ -184,7 +184,16 @@ export async function POST(req: NextRequest) {
   if (same) {
     // Already at the paid time — never book over it, even if confirming fails.
     reused = { id: same.id };
-    if (same.status !== "confirmed" && !(await putAppointment(same.id, { appointmentStatus: "confirmed" }))) needsReview = true;
+    /* An AI hold is left to the account's "Invalid -> Confirm" workflow,
+       which confirms it the moment the deposit tag lands. Any API change
+       to an appointment re-fires "Customer Booked Appointment", which turns
+       it back into a hold 10 minutes later — and if the tag is already
+       there, the confirm workflow fires again: a second "your appointment
+       is confirmed" text (all 13 duplicates cancelled by API, 2026-10-25).
+       A hold older than the workflow's 3-day wait is ours to confirm. */
+    const workflowWillConfirm = same.status === AI_HOLD_STATUS && (same.addedMs || 0) >= Date.now() - 3 * 86400_000;
+    if (same.status !== "confirmed" && !workflowWillConfirm
+      && !(await putAppointment(same.id, { appointmentStatus: "confirmed" }))) needsReview = true;
   } else if (holds.length === 1) {
     // A refused move falls through to a new booking; the hold is flagged below.
     if (await putAppointment(holds[0].id, { startTime: startIso, endTime, appointmentStatus: "confirmed" })) {

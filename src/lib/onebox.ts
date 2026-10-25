@@ -825,10 +825,12 @@ export function wallToIso(local: string, tz: string): string {
    + two AI bookings = three confirmations). Fails closed: no timezone or no
    response → no appointments, and callers keep their old behaviour. */
 export type ContactAppointment = { id: string; startIso: string; startMs: number; addedMs: number; updatedMs: number; status: string };
-/* The AI (CloseBot) books a lead in chat as an "invalid" appointment — a hold
-   that is not confirmed until the deposit is paid. Every V3 account runs the
-   workflow "Appointment Status Invalid -> Confirm if Fanbasis tag in 3 days",
-   which flips the hold to confirmed the moment the deposit tag lands. The
+/* Every V3 account turns a booking on the PMU calendar into an "invalid"
+   appointment — a hold — 10 minutes after it's booked (workflow "Customer
+   Booked Appointment - PMU Transformation Calendar", V3 branch), unless the
+   deposit tag lands first. "Appointment Status Invalid -> Confirm if
+   Fanbasis tag in 3 days" flips the hold to confirmed when the tag lands.
+   So the AI's chat booking sits here as a hold until she pays. The
    lookup used to skip "invalid", so the deposit flow never saw the hold,
    booked a second appointment, and the workflow then confirmed the hold too:
    two confirmed appointments, every confirmation and reminder twice (Noemi
