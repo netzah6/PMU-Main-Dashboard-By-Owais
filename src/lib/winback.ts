@@ -65,13 +65,27 @@ export function winbackInstructions(r: Pick<WinbackRow, "owner_name" | "business
      declined        — she said no / not interested → thank her, stop
    `price` is the number she gave (her brow price), when she gave one, so the
    reply can do the "$60 on a $600 appointment" math honestly. */
-export type WinbackStage = "opener_answered" | "offer_presented" | "wants_details" | "declined";
+export type WinbackStage = "opener_answered" | "offer_presented" | "wants_details" | "thinking" | "declined";
 export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; lowPrice: number | null; touchUp: number | null; inFlow: boolean };
 /* PPS requirement (owner, 2026-10-25, Linsey King "$500 + $100 touch-up"):
    the first session must be $400 or less. Above that, the AI explains the
    requirement and proposes moving the difference onto the touch-up
    ($500 + $100 → $400 + $200), then asks if that works. */
 export const PPS_MAX_INITIAL = 400;
+/* "Let me think about it" after the offer (owner, 10/25/2026, Angelica
+   Kobasic): answer with the early-bird rate — free to join, nothing up front,
+   previous clients first at $60 per show, $80 after the deadline. The
+   deadline rolls (owner, 10/25/2026): we hold the $60 rate for HER until a
+   few days from her reply, so every client gets a real, near date. */
+export const PPS_RATE_NOW = 60;
+export const PPS_RATE_LATER = 80;
+export const PPS_HOLD_DAYS = 4;
+/** "Thursday, 10/29" — the day her $60 hold ends (Pacific). */
+export function rateHoldUntil(now = new Date()): string {
+  const d = new Date(now.getTime() + PPS_HOLD_DAYS * 86_400_000);
+  const tz = "America/Los_Angeles";
+  return `${d.toLocaleDateString("en-US", { weekday: "long", timeZone: tz })}, ${d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", timeZone: tz })}`;
+}
 type FlowRow = Pick<WinbackRow, "owner_name" | "offer"> & { batch_started_at?: string | null; step?: number | null };
 const OPENER = /charging for brows/i;
 const OFFER_SHOWN = /per[- ]show|pay[- ]per[- ]appointment|\$50 deposit|\$60\b|shows? up|no monthly fee|only pay|monthly program|go over the numbers|want the details|show you how it works/i;
@@ -81,6 +95,8 @@ const OFFER_SHOWN = /per[- ]show|pay[- ]per[- ]appointment|\$50 deposit|\$60\b|s
 // client I'm good" is a price, not a no (Wendy Kaaki, 2026-10-20).
 const DECLINE_ANY = /\b(not interested|no thanks?|no thank you|stop texting|don'?t text me|remove me|unsubscribe|leave me alone|no longer (in business|doing)|closed my)\b/i;
 const DECLINE_SHORT = /^\s*(no|nope|nah|pass|stop|i'?m (all )?good( for now)?|maybe later|not (right )?now)\b[.!,]?(\s*(thanks?|thank you|sorry))?[.!]?\s*$/i;
+// "Let me think it over and I'll get back to you", "I'll talk to my husband".
+const THINKING = /\b(think(ing)? (about|it over|it through|on it|over)|let me think|sleep on it|get back to you|consider (it|this)|talk (to|with) my (husband|partner|boyfriend|wife|business partner)|give me (some|a little) time|need (some )?time)\b/i;
 const WANTS = /\b(yes|yeah|yep|yup|sure|ok|okay|send|details|tell me more|how does|how it works|interested|sounds good|let'?s do it|i'?m in|go ahead)\b/i;
 export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackContext {
   // Only the conversation SINCE our opener counts: her thread holds months of
@@ -100,7 +116,8 @@ export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackCont
   const last = hers[hers.length - 1] ?? "";
   // "not interested in monthly but pay per show sounds good" is not a no.
   const declined = (DECLINE_ANY.test(last) || DECLINE_SHORT.test(last)) && !/\bbut\b/i.test(last);
-  const wants = offerShown && WANTS.test(last) && !declined;
+  const thinking = offerShown && THINKING.test(last.replace(/\s+/g, " ")) && !declined;
+  const wants = offerShown && WANTS.test(last) && !declined && !thinking;
   // Her brow price: the highest figure she wrote since the opener ("$450 and
   // $225" for first session + touch-up → 450; "raised it to 400, now 450" →
   // 450). Commas stripped ("$1,200"), phone numbers, years, "Suite 1200",
@@ -142,7 +159,7 @@ export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackCont
     name: r.owner_name,
     offer: r.offer,
     offerText: OFFER_TEXT[r.offer ?? "none"],
-    stage: declined ? "declined" : wants ? "wants_details" : offerShown ? "offer_presented" : "opener_answered",
+    stage: declined ? "declined" : thinking ? "thinking" : wants ? "wants_details" : offerShown ? "offer_presented" : "opener_answered",
     price,
     lowPrice,
     touchUp,
