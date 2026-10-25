@@ -156,7 +156,11 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
     const pid = String(ob.form.product_id ?? "").trim();
     if (pid) { setup.steps.product = { status: "done", who: "Claim button", at: now(), note: `product ID ${pid} already on the form` }; setup.product_id = pid; }
   }
-  const { error } = await svc.from("onboardings").update({ setup }).eq("id", onboardingId);
+  // A skipped step is settled — its checklist item counts, so a finished
+  // run reads 100% (owner 10/25: Sudbury Med Spa stuck at 97% on the IG widget).
+  const checklist = { ...ob.checklist };
+  for (const s of RUNBOOK) if (setup.steps[s.key]?.status === "skipped") tick(checklist, s.checklist, by);
+  const { error } = await svc.from("onboardings").update({ setup, checklist }).eq("id", onboardingId);
   if (error) throw new Error(error.message.includes("setup") ? `${error.message} — run supabase/new-client-setup.sql first` : error.message);
   return advanceSetup(svc, onboardingId);
 }
