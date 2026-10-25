@@ -120,13 +120,16 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
   // PPS needs a first session of $400 or less (owner, 2026-10-25). Over it:
   // explain the requirement, offer to move the difference onto the touch-up,
   // and ask if that works — every time, at every stage, until she agrees.
-  const overCap = w.offer === "pps" && !!w.price && w.price > PPS_MAX_INITIAL;
-  const touch = overCap ? (w.touchUp ?? 0) + (w.price! - PPS_MAX_INITIAL) : 0;
+  // Built on her LOWEST first-session price ("$500 -$550" → $500).
+  const low = w.lowPrice ?? w.price;
+  const priceSaid = w.price && low && low !== w.price ? `$${low}–$${w.price}` : `$${w.price}`;
+  const overCap = w.offer === "pps" && !!low && low > PPS_MAX_INITIAL;
+  const touch = overCap ? (w.touchUp ?? 0) + (low! - PPS_MAX_INITIAL) : 0;
   const capSuggestion = overCap
     ? `$${PPS_MAX_INITIAL} for the initial treatment and $${w.touchUp ? touch : Math.max(200, touch)} for the touch-up`
     : "";
   const capRule = overCap
-    ? ` PRICE REQUIREMENT — she charges $${w.price} for the initial treatment, and the pay-per-appointment program requires the initial treatment to be $${PPS_MAX_INITIAL} or less. Say this plainly and kindly as part of the program ("one requirement: the initial treatment has to be $${PPS_MAX_INITIAL} or less"), suggest she can charge more for the touch-up instead — e.g. ${capSuggestion}${w.touchUp ? ", so she still makes the same per client" : ""} — and ask if that works for her. Never call her price too high; it's how the program is set up.`
+    ? ` PRICE REQUIREMENT — she charges ${priceSaid} for the initial treatment${w.touchUp ? ` and $${w.touchUp} for the touch-up` : ""}, and the pay-per-appointment program requires the initial treatment to be $${PPS_MAX_INITIAL} or less. Say this plainly and kindly as part of the program ("one requirement: the initial treatment has to be $${PPS_MAX_INITIAL} or less"), suggest she can charge more for the touch-up instead — use exactly these numbers: ${capSuggestion}${w.touchUp ? `, so she still makes the same per client as at $${low}` : ""} — and ask if that works for her. Never call her price too high; it's how the program is set up.`
     : "";
   // At $400 or less (owner, 2026-10-25): never mention a minimum — ask for
   // her LOWEST first-session price (new-client / promo); lower books more.
@@ -165,7 +168,7 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
   // retainer, you only pay after you get paid") — the $50 / $60 terms wait
   // for her yes (wants_details). Less back and forth.
   const teaser = w.offer === "pps" && overCap
-    ? `then say we have a pay-per-appointment program now — no monthly retainer, she only pays after she gets paid, and we follow up with her clients, book them on her calendar and collect a deposit — then the price requirement:${capRule} Close with that question ("would that work for you?") instead of "want to try it?". Do NOT write the $50 / $60 terms yet. Shape it like this, in Nicolas's own words: "Nice, $${w.price}${w.touchUp ? ` + $${w.touchUp} for the touch-up` : ""} is solid 🙌 How's your calendar looking — would a few more new brow clients a month help? We have a pay-per-appointment program now: no monthly retainer, you only pay after you get paid, and we book your clients and collect a deposit. One requirement: the initial treatment has to be $${PPS_MAX_INITIAL} or less — you could do ${capSuggestion}. Would that work for you?"`
+    ? `then say we have a pay-per-appointment program now — no monthly retainer, she only pays after she gets paid, and we follow up with her clients, book them on her calendar and collect a deposit — then the price requirement:${capRule} Close with that question ("would that work for you?") instead of "want to try it?". Do NOT write the $50 / $60 terms yet. Shape it like this, in Nicolas's own words: "Nice, ${priceSaid}${w.touchUp ? ` + $${w.touchUp} for the touch-up` : ""} is solid 🙌 How's your calendar looking — would a few more new brow clients a month help? We have a pay-per-appointment program now: no monthly retainer, you only pay after you get paid, and we book your clients and collect a deposit. One requirement: the initial treatment has to be $${PPS_MAX_INITIAL} or less — you could do ${capSuggestion}. Would that work for you?"`
     : w.offer === "pps" && underCap
     ? `then say we have a pay-per-appointment program now — no monthly retainer, she only pays after she gets paid, and we follow up with her clients, book them on her calendar and collect a deposit — and close with the lowest-price question instead of "want to try it?":${lowRule} Never mention a minimum price. Do NOT write the $50 / $60 terms yet. Shape it like this, in Nicolas's own words: "Nice, $${w.price} is a great price 🙌 We have a pay-per-appointment program now: no monthly retainer, you only pay after you get paid, and we book your clients and collect a deposit. What's the lowest you'd go for the first session, like a new-client or promo price? We'd use that one in the ads — a lower first price gets a lot more people booking, and you make it up on the touch-up."`
     : w.offer === "pps"
