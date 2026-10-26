@@ -177,19 +177,10 @@
        b = the Grid copy (3 columns × 2 rows on phones: 6 posts at once).
      Sticky per visitor, recorded as answers.igw; judged on paid deposits
      per 100 leads (the widget sits under the calendar, after the lead). */
+  /* A/B #4 ended 10/26/2026 (owner): every visitor gets the in-house grid;
+     Elfsight is no longer loaded for Instagram. The tag stays in the lead
+     payload (empty) so old readers don't break. */
   var IGW_V = "";
-  if (C.igWidget && (C.igFeed || C.igWidgetGrid)) {
-    try {
-      IGW_V = localStorage.getItem("ob_igw") || "";
-      if (IGW_V !== "a" && IGW_V !== "b") {
-        IGW_V = Math.random() < 0.5 ? "a" : "b";
-        localStorage.setItem("ob_igw", IGW_V);
-      }
-    } catch (e) { IGW_V = "a"; }
-  }
-  /* Team preview (?preview=booking): always the in-house grid, and the
-     visitor's own coin is left untouched. */
-  if (/[?&]preview=booking\b/.test(location.search) && C.igFeed) IGW_V = "b";
   var OFFER_URGENCY = "";
   if (OFFER_V === "c") {
     var sun = new Date();
@@ -1404,18 +1395,18 @@
     /* V2 deposit step is pay-only: no photo grid, map or widgets under
        the checkout — one decision on the screen, nothing to wander to. */
     if (V2 && phase === "deposit") { el.innerHTML = ""; return; }
-    var IG = IGW_V === "b" && C.igWidgetGrid ? C.igWidgetGrid : (C.igWidget || C.elfsightId || "");
-    /* In-house feed (owner, 10/26/2026): our own copy of the client's posts
-       + profile, fetched weekly from the username alone, rendered as a
-       3 × 2 grid. Side b of A/B #4 sees it instead of the live widget; a
-       frozen funnel always does (with its frozen image set). */
+    /* Instagram is our own feed only (owner, 10/26/2026): the client's
+       posts + profile, fetched from the username alone and sorted by what
+       each picture shows, rendered as a 3 × 2 grid. The Elfsight Instagram
+       widget is never loaded any more. A frozen funnel shows its frozen set. */
+    var IG = "";
     var FEED = null;
     try { FEED = C.igFeed ? JSON.parse(C.igFeed) : null; } catch (e) { FEED = null; }
     /* Frozen feed: the dashboard snapshotted the posts that were live when
        the funnel converted well, and serves them instead of the live
        widget — new IG posts can't change the page any more. */
     var FROZEN = (C.igFrozenImgs || "").split(",").filter(function (u) { return u.trim(); });
-    var SELF = FROZEN.length ? { imgs: FROZEN, posts: [], profile: FEED && FEED.profile } : (IGW_V === "b" && FEED ? FEED : null);
+    var SELF = FROZEN.length ? { imgs: FROZEN, posts: [], profile: FEED && FEED.profile } : (FEED || null);
     /* Counts the way the Instagram app prints them: 9,999 with a comma,
        10K and up abbreviated (11.2K, 112K, 1.2M). */
     function fmtK(n) {

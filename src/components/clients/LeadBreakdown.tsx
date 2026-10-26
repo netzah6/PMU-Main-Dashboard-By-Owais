@@ -129,7 +129,7 @@ function IgGridBody({ grid, busy, onPick, frozen, widgetOff }: { grid: GridView;
         </div>
       )}
       <div>
-        <div className="text-[10px] font-semibold text-[#56678a]">On the funnel for grid visitors (first row = what a lead sees first) · changes reach the page within ~2 minutes</div>
+        <div className="text-[10px] font-semibold text-[#56678a]">On the funnel now (first row = what a lead sees first) · changes reach the page within ~2 minutes</div>
         <div className="mt-1 flex flex-wrap gap-1.5">{grid.shown.map((p) => tile(p, "shown"))}</div>
       </div>
       {grid.pool.length > 0 && (
