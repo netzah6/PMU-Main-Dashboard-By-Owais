@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { bestWindow, currentWindow, dropSignal, elfsightProfile, weeklySeries } from "@/lib/ig-feed-watch";
+import { gridView, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
 
 export const fetchCache = "force-no-store";
 
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
   if (!client) return NextResponse.json({ error: "Client not found" }, { status: 404 });
 
   const cfg = (client.config ?? {}) as Record<string, unknown>;
-  const extras = (client.extras ?? {}) as { igFrozen?: boolean; igSnapshot?: { imgs?: string[]; at?: string }; elfsightId?: string };
+  const extras = (client.extras ?? {}) as { igFrozen?: boolean; igSnapshot?: { imgs?: string[]; at?: string }; elfsightId?: string; igFeed?: IgFeed; igPicks?: IgPicks };
   // Same lookup order as the funnel engine (src/app/f/[slug]/route.ts).
   const widget = String(cfg.igWidget ?? cfg.elfsightId ?? extras.elfsightId ?? "").trim();
   const hasWidget = !!widget;
@@ -106,5 +107,7 @@ export async function GET(req: NextRequest) {
     hasWidget,
     bestSnapshotId,
     latestSnapshotId,
+    /* The in-house grid the funnel shows (owner, 10/26/2026) + the owner's picks. */
+    grid: extras.igFeed?.posts?.length ? gridView(extras.igFeed, extras.igPicks) : null,
   });
 }

@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { refreshOneboxConfig, parseFaqs, normalizeElfsight, buildFanbasisBlock, SYNC_TTL_MS } from "@/lib/onebox";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { signLogoUrl } from "@/lib/logo-sign";
+import { arrangeFeed, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
 // the hosted engine public/onebox.js owns the DOM; a hydrated page would
@@ -58,7 +59,8 @@ type Row = {
     /* In-house feed (10/26/2026): the latest snapshot of the client's posts
        and profile, written by /api/cron/ig-fetch; the engine renders it as
        a 3 × 2 grid (side b of A/B #4, and every frozen funnel). */
-    igFeed?: { imgs: string[]; posts?: Array<{ img: string; url: string }>; profile?: Record<string, unknown>; at?: string };
+    igFeed?: IgFeed;
+    igPicks?: IgPicks;
   };
 };
 
@@ -277,7 +279,7 @@ export async function GET(
     igWidgetGrid: row.extras.igWidgetOff || row.extras.igFrozen || !row.extras.igGridWidget
       ? ""
       : normalizeElfsight(row.extras.igGridWidget),
-    igFeed: row.extras.igWidgetOff || !row.extras.igFeed?.imgs?.length ? "" : JSON.stringify(row.extras.igFeed),
+    igFeed: row.extras.igWidgetOff || !row.extras.igFeed?.imgs?.length ? "" : JSON.stringify(arrangeFeed(row.extras.igFeed, row.extras.igPicks)),
     igFrozenImgs: !row.extras.igWidgetOff && row.extras.igFrozen && row.extras.igSnapshot?.imgs?.length
       ? row.extras.igSnapshot.imgs.join(",")
       : "",

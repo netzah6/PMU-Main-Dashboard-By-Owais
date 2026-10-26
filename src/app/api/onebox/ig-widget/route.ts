@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
+import { gridView, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
+import { refreshFunnel } from "@/lib/ig-fetch";
 
 export const fetchCache = "force-no-store";
+export const maxDuration = 120;
 
 /* IG-widget controls for the CPD Funnel-setup cards (owner request
    2026-10-02):
@@ -17,9 +20,15 @@ export const fetchCache = "force-no-store";
    Freeze with body.snapshotId (IG-feed watch, 2026-10-15): copy THAT dated
    ig_snapshots row — e.g. the posts that were live during the funnel's best
    run — into extras.igSnapshot first, then freeze. The row must belong to
-   this slug and carry images. Only ever triggered by an explicit click. */
+   this slug and carry images. Only ever triggered by an explicit click.
+   In-house grid picks (owner, 10/26/2026), keyed by the post's Instagram
+   URL so they survive every re-fetch:
+     hide / unhide  — take a picture out of the grid / put it back
+     pin / unpin    — put a picture first / let the ranking place it
+     reset          — forget every pick, back to the automatic order
+     refresh        — fetch + sort this funnel's posts from Instagram now */
 
-const ACTIONS = ["off", "on", "freeze", "unfreeze"] as const;
+const ACTIONS = ["off", "on", "freeze", "unfreeze", "hide", "unhide", "pin", "unpin", "reset", "refresh"] as const;
 type Action = (typeof ACTIONS)[number];
 
 export async function POST(req: NextRequest) {
@@ -29,11 +38,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await req.json().catch(() => null)) as { slug?: string; action?: string; snapshotId?: unknown } | null;
+  const body = (await req.json().catch(() => null)) as { slug?: string; action?: string; snapshotId?: unknown; postUrl?: unknown } | null;
   const slug = body?.slug?.trim();
   const action = body?.action as Action | undefined;
   if (!slug || !action || !ACTIONS.includes(action)) {
-    return NextResponse.json({ error: "slug and action (off|on|freeze|unfreeze) required" }, { status: 400 });
+    return NextResponse.json({ error: `slug and action (${ACTIONS.join("|")}) required` }, { status: 400 });
+  }
+  const postUrl = typeof body?.postUrl === "string" ? body.postUrl.trim() : "";
+  if (["hide", "unhide", "pin", "unpin"].includes(action) && !postUrl) {
+    return NextResponse.json({ error: "postUrl required" }, { status: 400 });
   }
   const snapshotId = body?.snapshotId;
   if (snapshotId != null && (typeof snapshotId !== "number" || !Number.isInteger(snapshotId) || snapshotId <= 0)) {
@@ -49,7 +62,22 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!row) return NextResponse.json({ error: "Client not found" }, { status: 404 });
 
-  const extras = { ...((row.extras ?? {}) as Record<string, unknown>) };
+  let extras = { ...((row.extras ?? {}) as Record<string, unknown>) } as Record<string, unknown> & { igFeed?: IgFeed; igPicks?: IgPicks };
+  if (action === "refresh") {
+    const r = await refreshFunnel(sb, slug);
+    if (!r.ok) return NextResponse.json({ error: `Instagram fetch failed: ${r.why}` }, { status: 502 });
+    const { data: again } = await sb.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+    extras = { ...((again?.extras ?? {}) as Record<string, unknown>) };
+  }
+  if (["hide", "unhide", "pin", "unpin", "reset"].includes(action)) {
+    const picks: IgPicks = { hidden: [...(extras.igPicks?.hidden ?? [])], pinned: [...(extras.igPicks?.pinned ?? [])] };
+    const without = (l: string[]) => l.filter((u) => u !== postUrl);
+    if (action === "hide") { picks.hidden = [...without(picks.hidden!), postUrl]; picks.pinned = without(picks.pinned!); }
+    if (action === "unhide") picks.hidden = without(picks.hidden!);
+    if (action === "pin") { picks.pinned = [postUrl, ...without(picks.pinned!)]; picks.hidden = without(picks.hidden!); }
+    if (action === "unpin") picks.pinned = without(picks.pinned!);
+    if (action === "reset") delete extras.igPicks; else extras.igPicks = picks;
+  }
   if (action === "freeze") {
     if (typeof snapshotId === "number") {
       const { data: snap, error: snapErr } = await sb
@@ -82,8 +110,10 @@ export async function POST(req: NextRequest) {
   if (action === "off") extras.igWidgetOff = true;
   if (action === "on") extras.igWidgetOff = false;
 
-  const { error: upErr } = await sb.from("onebox_clients").update({ extras }).eq("slug", slug);
-  if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+  if (action !== "refresh") {
+    const { error: upErr } = await sb.from("onebox_clients").update({ extras }).eq("slug", slug);
+    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+  }
 
   return NextResponse.json({
     ok: true,
@@ -91,5 +121,6 @@ export async function POST(req: NextRequest) {
     igWidgetOff: !!extras.igWidgetOff,
     igFrozen: !!extras.igFrozen,
     activeSnapshotAt: (extras.igSnapshot as { at?: string } | undefined)?.at ?? null,
+    grid: extras.igFeed?.posts?.length ? gridView(extras.igFeed, extras.igPicks) : null,
   });
 }
