@@ -187,6 +187,9 @@
       }
     } catch (e) { IGW_V = "a"; }
   }
+  /* Team preview (?preview=booking): always the in-house grid, and the
+     visitor's own coin is left untouched. */
+  if (/[?&]preview=booking\b/.test(location.search) && C.igFeed) IGW_V = "b";
   var OFFER_URGENCY = "";
   if (OFFER_V === "c") {
     var sun = new Date();
@@ -1530,7 +1533,8 @@
 
   /* Team preview: ?preview=thankyou jumps straight to the post-payment
      celebration with sample data (&name= to personalize) — no lead is
-     created and no visit is counted. */
+     created and no visit is counted. ?preview=booking opens the booking
+     step (calendar + Instagram grid) the same way. */
   var PREVIEW = new URLSearchParams(location.search).get("preview") || "";
 
   /* Visit beacon: one report per visitor per day (the page itself is
@@ -1628,6 +1632,9 @@
     var pad2 = function (n) { return (n < 10 ? "0" : "") + n; };
     state.slotIso = pvd.getFullYear() + "-" + pad2(pvd.getMonth() + 1) + "-" + pad2(pvd.getDate()) + "T14:00:00";
     show("done");
+  } else if (PREVIEW === "booking" && !FLOW_V1) {
+    state.answers.full_name = new URLSearchParams(location.search).get("name") || "Gorgeous";
+    show("booking");
   } else {
     show("survey");
     /* Payment link: never flash the survey while the lead lookup runs —
