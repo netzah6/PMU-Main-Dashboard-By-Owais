@@ -391,8 +391,7 @@
     "#onebox-root .igstats div{line-height:1.25}#onebox-root .igstats b{display:block;font-size:17px;font-weight:700}#onebox-root .igstats span{font-size:13px}" +
     "#onebox-root .igname{font-weight:600;font-size:14px;padding:0 6px;line-height:1.3}" +
     "#onebox-root .igcat{font-size:13px;color:#737373;padding:0 6px;line-height:1.3}" +
-    "#onebox-root .igbio{font-size:13px;margin:1px 6px 12px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
-    "#onebox-root .igtabs{display:flex;justify-content:center;border-top:1px solid #dbdbdb;margin-bottom:2px}#onebox-root .igtabs span{display:block;padding:9px 0 7px;border-bottom:1px solid #000;width:33%;text-align:center}#onebox-root .igtabs svg{width:22px;height:22px;display:inline-block;vertical-align:middle}" +
+    "#onebox-root .igbio{font-size:13px;margin:1px 6px 10px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
     "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
@@ -1420,6 +1419,13 @@
       return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     }
     var IG_CHECK = '<svg viewBox="0 0 24 24" aria-label="Verified"><path fill="#0095f6" d="M12 1.5l2.6 2.4 3.5-.5 1 3.4 3.1 1.7-1.3 3.3 1.3 3.3-3.1 1.7-1 3.4-3.5-.5L12 22.5l-2.6-2.4-3.5.5-1-3.4L1.8 15.5l1.3-3.3-1.3-3.3 3.1-1.7 1-3.4 3.5.5z"/><path fill="#fff" d="M10.4 16.1l-3.5-3.4 1.4-1.4 2.1 2 5.3-5.4 1.4 1.4z"/></svg>';
+    /* Bio minus its call-to-action / contact lines (owner, 10/26/2026):
+       "Book now 👇", phone numbers, links, "DM us" would pull the visitor
+       off the funnel — the funnel IS the booking. */
+    var BIO_CTA = /\b(book(ing|ings|ed)?\b|appointments?\b|call\b|text (us|me|now)|dm\b|link in bio|click|tap\b|schedule|whatsapp|e-?mail|website|visit us|inquir)|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}|https?:|www\.|\.com\b|@[\w.]+\.\w{2,}|[\u{1F447}\u{2B07}\u{1F446}\u{1F4F2}\u{1F4DE}\u{260E}\u{1F4E7}\u{2709}\u{1F517}]/iu;
+    function bioText(bio) {
+      return String(bio || "").split(/\n/).filter(function (l) { return l.trim() && !BIO_CTA.test(l); }).join("\n").trim();
+    }
     function igSelfHtml(f) {
       var pr = f.profile || {};
       var items = (f.posts && f.posts.length ? f.posts : (f.imgs || []).map(function (u) { return { img: u, url: IGLINK }; })).slice(0, 6);
@@ -1430,8 +1436,7 @@
           '<div class="igstats">' + stat(pr.posts, "posts") + stat(pr.followers, "followers") + stat(pr.following, "following") + "</div></div>" +
           (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") +
           (pr.category ? '<div class="igcat">' + esc(pr.category) + "</div>" : "") +
-          (pr.bio ? '<div class="igbio">' + esc(pr.bio) + "</div>" : "") +
-          '<div class="igtabs"><span><svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg></span></div>'
+          (bioText(pr.bio) ? '<div class="igbio">' + esc(bioText(pr.bio)) + "</div>" : "")
         : "";
       /* No way out of the funnel here (owner, 10/26/2026): no Follow button,
          no "See more", tiles are plain pictures. The thank-you step after
