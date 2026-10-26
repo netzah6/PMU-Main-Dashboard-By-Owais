@@ -46,6 +46,17 @@ export function usernameFromLink(link: string | null | undefined): string {
   return /^(p|reel|reels|explore|accounts|stories)$/i.test(u) ? "" : u;
 }
 
+/* Post count from Elfsight's public Instagram profile endpoint (keyed by
+   username, no widget needed) — the same call ig-feed-watch makes. */
+export async function elfsightPostsCount(username: string): Promise<number | null> {
+  if (!username) return null;
+  try {
+    const r = await fetch(`https://widget-data.service.elfsight.com/api/instagram/profile?username=${encodeURIComponent(username)}`, { signal: AbortSignal.timeout(10_000) });
+    const d = ((await r.json()) as { payload?: { postsCount?: unknown } }).payload;
+    return typeof d?.postsCount === "number" ? d.postsCount : null;
+  } catch { return null; }
+}
+
 /* The scraper sends "None" / "null" as text for empty fields. */
 function cleanText(v: unknown): string {
   const t = typeof v === "string" ? v.trim() : "";
@@ -155,10 +166,12 @@ export async function snapshotFunnel(
   ]);
   const saved = copies.map((img, n) => ({ img, url: posts[n].url || igLink })).filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
-  /* The profile scraper stopped returning the post count (10/2026); the
-     weekly Playwright snapshot still records it, so fall back to the newest
-     one we have. */
-  let postsCount: number | null = typeof prof?.postsCount === "number" ? prof.postsCount : prev?.posts ?? null;
+  /* The scrapers stopped returning the post count (10/2026). Elfsight's
+     public profile endpoint still has it (live), then the previous set,
+     then the newest Playwright snapshot. */
+  let postsCount: number | null = typeof prof?.postsCount === "number" ? prof.postsCount : null;
+  if (postsCount == null) postsCount = await elfsightPostsCount(prof?.username || posts[0].ownerUsername || usernameFromLink(igLink));
+  if (postsCount == null) postsCount = prev?.posts ?? null;
   if (postsCount == null) {
     const { data: snap } = await svc.from("ig_snapshots").select("posts_count").eq("slug", slug).not("posts_count", "is", null).order("taken_at", { ascending: false }).limit(1).maybeSingle();
     if (typeof snap?.posts_count === "number") postsCount = snap.posts_count;
