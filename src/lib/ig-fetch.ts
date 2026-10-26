@@ -96,6 +96,17 @@ export async function fetchProfiles(usernames: string[]): Promise<Map<string, Ap
   return out;
 }
 
+/* Probe: the general Instagram scraper's "details" mode for the same
+   profiles (does it still return postsCount?). Debug only for now. */
+export async function fetchDetails(usernames: string[]): Promise<Map<string, ApifyProfile>> {
+  const out = new Map<string, ApifyProfile>();
+  const items = await runActor<ApifyProfile & { inputUrl?: string }>("apify~instagram-scraper", {
+    directUrls: usernames.map((u) => `https://www.instagram.com/${u}/`), resultsType: "details", resultsLimit: 1, addParentData: false,
+  });
+  for (const it of items) if (it?.username) out.set(it.username.toLowerCase(), it);
+  return out;
+}
+
 /* Latest posts for a batch of usernames → map username(lower) → posts
    (newest first, as the scraper returns them). */
 export async function fetchPosts(usernames: string[]): Promise<Map<string, ApifyPost[]>> {

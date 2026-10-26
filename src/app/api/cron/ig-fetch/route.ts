@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { dueFunnels, fetchPosts, fetchProfiles, markFetch, snapshotFunnel } from "@/lib/ig-fetch";
+import { dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, snapshotFunnel } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
 /* Stop starting new funnels after this; Vercel kills the function at 300 s
@@ -42,9 +42,17 @@ export async function GET(req: NextRequest) {
   ]);
   if (!postsRes.ok) return NextResponse.json({ error: postsRes.error, profileErr: profileErr || undefined, due: due.map((f) => f.slug) }, { status: 502 });
   const posts = postsRes.m;
-  /* ?debug=1: show what the scraper returned (shape only), write nothing. */
+  /* ?debug=1: show what the scraper returned (shape only), write nothing.
+     ?debug=1&details=1 also probes the general scraper's details mode. */
   if (req.nextUrl.searchParams.get("debug")) {
     const shape = (v: unknown): unknown => typeof v === "string" ? v.slice(0, 140) : Array.isArray(v) ? `[${v.length}]` : v && typeof v === "object" ? Object.keys(v as object).slice(0, 40) : v;
+    let details: unknown = undefined;
+    if (req.nextUrl.searchParams.get("details")) {
+      try {
+        const d = await fetchDetails(names);
+        details = names.map((n) => { const p = d.get(n.toLowerCase()) as Record<string, unknown> | undefined; return p ? Object.fromEntries(Object.entries(p).filter(([k]) => !/latestPosts|relatedProfiles|latestIgtv/.test(k)).map(([k, v]) => [k, shape(v)])) : "not returned"; });
+      } catch (e) { details = `error: ${e instanceof Error ? e.message : String(e)}`; }
+    }
     return NextResponse.json({
       due: due.map((f) => f.username),
       raw: due.map((f) => {
@@ -56,6 +64,7 @@ export async function GET(req: NextRequest) {
         };
       }),
       profileErr: profileErr || undefined,
+      details,
     });
   }
   for (const f of due) {
