@@ -8,9 +8,9 @@ export const maxDuration = 300;
 const TIME_BUDGET_MS = 250_000;
 
 /* Hourly: refresh the in-house Instagram feed for up to 6 funnels whose
-   last fetch is older than 6 days (the post scraper takes ~10 s per
+   last fetch is older than two weeks (the post scraper takes ~10 s per
    profile, so 20 at once timed out; 6 an hour turns the fleet over in a
-   day and the 6-day rule spreads it across the week).
+   day and the 13-day rule spreads it across the fortnight).
    Needs APIFY_TOKEN; without it the funnels keep serving their last set.
    Every attempt is marked on the funnel (extras.igFetch), success or not,
    so a profile that keeps failing goes to the back of the line. */
@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
     if (!ps.length) why = p?.private ? "private account" : p?.error ? `scraper: ${p.errorDescription ?? p.error}` : "no posts returned (private, renamed, or blocked)";
     else {
       const r = await snapshotFunnel(svc, f.slug, p, ps, f.igLink);
-      if (r.ok) { results[f.slug] = `ok (${r.imgs} images)`; continue; }
+      if (r.ok) { results[f.slug] = `ok (${r.imgs} images, ${r.results} results posts)`; continue; }
       why = r.why;
     }
     results[f.slug] = why;

@@ -17,8 +17,13 @@ const BUCKET = "onebox-ig";
    the 3 × 2 grid shows. */
 const PROFILE_ACTOR = "apify~instagram-profile-scraper";
 const POST_ACTOR = "apify~instagram-post-scraper";
-const POSTS_PER_PROFILE = 6;
+/* Pull 12, show 6: results posts (before/after, brows, lips, liner…) go
+   first, newest first; the rest fill in behind them. Refreshed every two
+   weeks — that keeps the whole fleet inside Apify's free credit. */
+const POSTS_PER_PROFILE = 12;
 const MAX_POSTS = 12;
+const REFRESH_DAYS = 13;
+const RESULTS_RE = /\b(before|after|brow|brows|eyebrow|lip|lips|liner|eyeliner|lash ?line|heal|healed|healing|microblad|ombre|ombré|powder|nano|hairstroke|hair stroke|combo|permanent makeup|pmu|touch ?up|transformation|result|results|fresh|freshly|done|correction|cover ?up|areola|scalp|smp|beauty mark|freckles)\b/i;
 const DOWNLOAD_TIMEOUT_MS = 20_000;
 /* The Apify run gets 2 minutes; the daily cron has 5 in total and still
    has to copy the images after the run comes back. */
@@ -30,7 +35,19 @@ export type IgProfile = {
   username: string; name: string; pic: string; followers: number | null; posts: number | null;
   following?: number | null; bio?: string; category?: string; verified?: boolean;
 };
-export type IgFeed = { imgs: string[]; posts: Array<{ img: string; url: string }>; profile: IgProfile; at: string };
+export type IgFeed = { imgs: string[]; posts: Array<{ img: string; url: string; result?: boolean }>; profile: IgProfile; at: string };
+
+/* Results posts first (caption says before/after, brows, lips…), then the
+   rest; newest first within each group; a picture beats a video when the
+   caption says nothing. */
+export function isResultPost(p: ApifyPost): boolean {
+  return RESULTS_RE.test(String(p.caption ?? ""));
+}
+export function orderPosts(latest: ApifyPost[]): ApifyPost[] {
+  const ts = (p: ApifyPost) => Date.parse(p.timestamp ?? "") || 0;
+  const rank = (p: ApifyPost) => (isResultPost(p) ? 0 : p.type === "Video" ? 2 : 1);
+  return [...latest].sort((a, b) => rank(a) - rank(b) || ts(b) - ts(a));
+}
 /* Last fetch attempt, success or not — the due list is ordered by it so a
    funnel that keeps failing never blocks the others. */
 export type IgFetchMark = { at: string; ok: boolean; why?: string };
@@ -71,7 +88,7 @@ export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, 
 }
 
 export type ApifyPost = {
-  type?: string; url?: string; displayUrl?: string; thumbnailUrl?: string; images?: string[]; childPosts?: ApifyPost[]; timestamp?: string;
+  type?: string; url?: string; displayUrl?: string; thumbnailUrl?: string; images?: string[]; childPosts?: ApifyPost[]; timestamp?: string; caption?: string;
   ownerUsername?: string; ownerFullName?: string; inputUrl?: string; error?: string; errorDescription?: string;
 };
 
@@ -145,8 +162,8 @@ async function download(url: string): Promise<Buffer | null> {
    mirror into extras. */
 export async function snapshotFunnel(
   svc: SupabaseClient, slug: string, prof: ApifyProfile | undefined, latest: ApifyPost[], igLink: string,
-): Promise<{ ok: true; imgs: number } | { ok: false; why: string }> {
-  const posts = latest.filter((p) => postImage(p)).slice(0, MAX_POSTS);
+): Promise<{ ok: true; imgs: number; results: number } | { ok: false; why: string }> {
+  const posts = orderPosts(latest.filter((p) => postImage(p))).slice(0, MAX_POSTS);
   if (posts.length < 3) return { ok: false, why: `only ${posts.length} posts returned` };
   const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
   const prevExtras = (row?.extras ?? {}) as Record<string, unknown> & { igFeed?: IgFeed };
@@ -164,7 +181,7 @@ export async function snapshotFunnel(
     copy(prof?.profilePicUrlHD || prof?.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
     ...posts.map((p, n) => copy(postImage(p), `${slug}/${today}/${n + 1}.jpg`)),
   ]);
-  const saved = copies.map((img, n) => ({ img, url: posts[n].url || igLink })).filter((p) => p.img);
+  const saved = copies.map((img, n) => ({ img, url: posts[n].url || igLink, result: isResultPost(posts[n]) })).filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
   /* The scrapers stopped returning the post count (10/2026). Elfsight's
      public profile endpoint still has it (live), then the previous set,
@@ -197,14 +214,14 @@ export async function snapshotFunnel(
   const extras = { ...prevExtras, igFeed: feed, igFetch: mark };
   const { error: upErr } = await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
   if (upErr) return { ok: false, why: `extras: ${upErr.message}` };
-  return { ok: true, imgs: saved.length };
+  return { ok: true, imgs: saved.length, results: saved.filter((p) => p.result).length };
 }
 
 /* Funnels due for a fresh set: live, with a real Instagram handle, and not
    tried in the last `minAgeDays` (extras.igFetch, written by this fetcher
    only — the Mac Mini's weekly ig_snapshots rows don't count). Never-tried
    first, then the longest ago. */
-export async function dueFunnels(svc: SupabaseClient, limit: number, minAgeDays = 6): Promise<Array<{ slug: string; igLink: string; username: string }>> {
+export async function dueFunnels(svc: SupabaseClient, limit: number, minAgeDays = REFRESH_DAYS): Promise<Array<{ slug: string; igLink: string; username: string }>> {
   const { data: clients } = await svc.from("onebox_clients").select("slug, config, extras").eq("status", "live");
   const cutoff = new Date(Date.now() - minAgeDays * 86400_000).toISOString();
   return (clients ?? [])
