@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { dueFunnels, fetchProfiles, markFetch, snapshotFunnel } from "@/lib/ig-fetch";
+import { dueFunnels, fetchPosts, fetchProfiles, markFetch, snapshotFunnel } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
 /* Stop starting new funnels after this; Vercel kills the function at 300 s
@@ -28,14 +28,18 @@ export async function GET(req: NextRequest) {
   if (!due.length) return NextResponse.json({ fetched: 0, note: "nothing due" });
   const results: Record<string, string> = {};
   const skipped: string[] = [];
-  let profiles;
-  try {
-    profiles = await fetchProfiles(due.map((f) => f.username));
-  } catch (e) {
-    /* The whole run failed (Apify down, slow, or the token is wrong): no
-       marks, so the same funnels are first in line tomorrow. */
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e), due: due.map((f) => f.slug) }, { status: 502 });
-  }
+  const names = due.map((f) => f.username);
+  let profileErr = "";
+  /* Posts and profile details run side by side. Posts are what the grid
+     needs: if that run fails (Apify down, slow, token wrong, credit gone)
+     nothing is marked, so the same funnels are first in line tomorrow.
+     Profile details are nice-to-have — the previous set's stay if missing. */
+  const [profiles, postsRes] = await Promise.all([
+    fetchProfiles(names).catch((e) => { profileErr = e instanceof Error ? e.message : String(e); return new Map(); }),
+    fetchPosts(names).then((m) => ({ ok: true as const, m })).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) })),
+  ]);
+  if (!postsRes.ok) return NextResponse.json({ error: postsRes.error, profileErr: profileErr || undefined, due: due.map((f) => f.slug) }, { status: 502 });
+  const posts = postsRes.m;
   /* ?debug=1: show what the scraper returned (shape only), write nothing. */
   if (req.nextUrl.searchParams.get("debug")) {
     const shape = (v: unknown): unknown => typeof v === "string" ? v.slice(0, 140) : Array.isArray(v) ? `[${v.length}]` : v && typeof v === "object" ? Object.keys(v as object).slice(0, 40) : v;
@@ -43,20 +47,23 @@ export async function GET(req: NextRequest) {
       due: due.map((f) => f.username),
       raw: due.map((f) => {
         const p = profiles.get(f.username.toLowerCase()) as Record<string, unknown> | undefined;
-        if (!p) return { slug: f.slug, note: "not returned" };
-        const posts = (p.latestPosts as Record<string, unknown>[] | undefined) ?? [];
-        return { slug: f.slug, keys: Object.keys(p), latestPosts: posts.length, firstPost: posts[0] ? Object.fromEntries(Object.entries(posts[0]).map(([k, v]) => [k, shape(v)])) : null, error: p.error, errorDescription: p.errorDescription, followers: p.followersCount, postsCount: p.postsCount, private: p.private, pic: !!p.profilePicUrl };
+        const ps = (posts.get(f.username.toLowerCase()) ?? []) as Record<string, unknown>[];
+        return {
+          slug: f.slug, posts: ps.length, firstPost: ps[0] ? Object.fromEntries(Object.entries(ps[0]).map(([k, v]) => [k, shape(v)])) : null,
+          profile: p ? { keys: Object.keys(p), error: p.error, errorDescription: p.errorDescription, followers: p.followersCount, private: p.private, pic: !!p.profilePicUrl } : "not returned",
+        };
       }),
+      profileErr: profileErr || undefined,
     });
   }
   for (const f of due) {
     if (Date.now() - t0 > TIME_BUDGET_MS) { skipped.push(f.slug); continue; }
     const p = profiles.get(f.username.toLowerCase());
+    const ps = posts.get(f.username.toLowerCase()) ?? [];
     let why = "";
-    if (!p) why = "not returned (private, renamed, or blocked)";
-    else if (p.error) why = `scraper: ${p.errorDescription ?? p.error}`;
+    if (!ps.length) why = p?.private ? "private account" : p?.error ? `scraper: ${p.errorDescription ?? p.error}` : "no posts returned (private, renamed, or blocked)";
     else {
-      const r = await snapshotFunnel(svc, f.slug, p, f.igLink);
+      const r = await snapshotFunnel(svc, f.slug, p, ps, f.igLink);
       if (r.ok) { results[f.slug] = `ok (${r.imgs} images)`; continue; }
       why = r.why;
     }
@@ -68,6 +75,7 @@ export async function GET(req: NextRequest) {
     ok: Object.values(results).filter((v) => v.startsWith("ok")).length,
     skipped: skipped.length ? skipped : undefined,
     seconds: Math.round((Date.now() - t0) / 1000),
+    profileErr: profileErr || undefined,
     results,
   });
 }

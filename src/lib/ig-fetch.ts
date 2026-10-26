@@ -11,7 +11,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
    leaves the previous set in place, so a funnel never goes blank. */
 
 const BUCKET = "onebox-ig";
-const ACTOR = "apify~instagram-profile-scraper";
+/* Two scrapers: the profile one gives name / picture / followers (it stopped
+   returning posts in 10/2026), the post one gives the latest posts. Both are
+   billed per result (~$2.70 / 1,000 on the Free plan), so we take only what
+   the 3 × 2 grid shows. */
+const PROFILE_ACTOR = "apify~instagram-profile-scraper";
+const POST_ACTOR = "apify~instagram-post-scraper";
+const POSTS_PER_PROFILE = 6;
 const MAX_POSTS = 12;
 const DOWNLOAD_TIMEOUT_MS = 20_000;
 /* The Apify run gets 2 minutes; the daily cron has 5 in total and still
@@ -44,32 +50,51 @@ export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, 
   await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
 }
 
-type ApifyPost = { type?: string; url?: string; displayUrl?: string; thumbnailUrl?: string; images?: string[]; childPosts?: ApifyPost[]; timestamp?: string };
+export type ApifyPost = {
+  type?: string; url?: string; displayUrl?: string; thumbnailUrl?: string; images?: string[]; childPosts?: ApifyPost[]; timestamp?: string;
+  ownerUsername?: string; ownerFullName?: string; inputUrl?: string; error?: string; errorDescription?: string;
+};
 
 /* The image to show for a post: its own picture, else the first slide of a
    carousel, else the video thumbnail. */
 export function postImage(p: ApifyPost): string {
   return p.displayUrl || p.images?.[0] || p.thumbnailUrl || p.childPosts?.[0]?.displayUrl || p.childPosts?.[0]?.images?.[0] || "";
 }
-type ApifyProfile = {
-  username?: string; fullName?: string; followersCount?: number; postsCount?: number;
+export type ApifyProfile = {
+  username?: string; fullName?: string; followersCount?: number; postsCount?: number; private?: boolean;
   profilePicUrlHD?: string; profilePicUrl?: string; latestPosts?: ApifyPost[]; error?: string; errorDescription?: string;
 };
 
-/* One Apify run for a batch of usernames (sync; the actor is quick for
-   public profiles). Returns a map username(lower) → profile. */
-export async function fetchProfiles(usernames: string[]): Promise<Map<string, ApifyProfile>> {
+/* One synchronous Apify run; returns the dataset items. */
+async function runActor<T>(actor: string, input: Record<string, unknown>): Promise<T[]> {
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new Error("no APIFY_TOKEN");
-  const r = await fetch(`https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=${APIFY_RUN_TIMEOUT_S}&memory=512&format=json`, {
+  const r = await fetch(`https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=${APIFY_RUN_TIMEOUT_S}&memory=512&format=json`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ usernames, resultsLimit: MAX_POSTS }),
+    body: JSON.stringify(input),
     signal: AbortSignal.timeout((APIFY_RUN_TIMEOUT_S + 20) * 1000),
   });
-  if (!r.ok) throw new Error(`apify ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  const items = (await r.json()) as ApifyProfile[];
+  if (!r.ok) throw new Error(`apify ${actor} ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const items = (await r.json()) as T[];
+  return Array.isArray(items) ? items : [];
+}
+
+/* Profile details for a batch of usernames → map username(lower) → profile. */
+export async function fetchProfiles(usernames: string[]): Promise<Map<string, ApifyProfile>> {
   const out = new Map<string, ApifyProfile>();
-  for (const it of Array.isArray(items) ? items : []) if (it?.username) out.set(it.username.toLowerCase(), it);
+  for (const it of await runActor<ApifyProfile>(PROFILE_ACTOR, { usernames })) if (it?.username) out.set(it.username.toLowerCase(), it);
+  return out;
+}
+
+/* Latest posts for a batch of usernames → map username(lower) → posts
+   (newest first, as the scraper returns them). */
+export async function fetchPosts(usernames: string[]): Promise<Map<string, ApifyPost[]>> {
+  const out = new Map<string, ApifyPost[]>();
+  for (const it of await runActor<ApifyPost>(POST_ACTOR, { username: usernames, resultsLimit: POSTS_PER_PROFILE })) {
+    const u = (it?.ownerUsername ?? usernameFromLink(it?.inputUrl)).toLowerCase();
+    if (!u || !postImage(it)) continue;
+    out.set(u, [...(out.get(u) ?? []), it]);
+  }
   return out;
 }
 
@@ -82,13 +107,18 @@ async function download(url: string): Promise<Buffer | null> {
   } catch { return null; }
 }
 
-/* Snapshot one funnel from an already-fetched profile: copy the images,
-   write the ig_snapshots row for today (replace), mirror into extras. */
+/* Snapshot one funnel from already-fetched posts (+ profile details when
+   the profile scraper returned them; otherwise the previous set's details
+   stay): copy the images, write the ig_snapshots row for today (replace),
+   mirror into extras. */
 export async function snapshotFunnel(
-  svc: SupabaseClient, slug: string, prof: ApifyProfile, igLink: string,
+  svc: SupabaseClient, slug: string, prof: ApifyProfile | undefined, latest: ApifyPost[], igLink: string,
 ): Promise<{ ok: true; imgs: number } | { ok: false; why: string }> {
-  const posts = (prof.latestPosts ?? []).filter((p) => postImage(p)).slice(0, MAX_POSTS);
+  const posts = latest.filter((p) => postImage(p)).slice(0, MAX_POSTS);
   if (posts.length < 3) return { ok: false, why: `only ${posts.length} posts returned` };
+  const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+  const prevExtras = (row?.extras ?? {}) as Record<string, unknown> & { igFeed?: IgFeed };
+  const prev = prevExtras.igFeed?.profile;
   const today = new Date().toISOString().slice(0, 10);
   /* Copy every image at once (≤ 13 small files) — one by one would eat
      the cron's time budget. */
@@ -98,16 +128,18 @@ export async function snapshotFunnel(
     const { error } = await svc.storage.from(BUCKET).upload(path, body, { upsert: true, contentType: "image/jpeg" });
     return error ? "" : svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
   };
-  const [pic, ...copies] = await Promise.all([
-    copy(prof.profilePicUrlHD || prof.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
+  const [newPic, ...copies] = await Promise.all([
+    copy(prof?.profilePicUrlHD || prof?.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
     ...posts.map((p, n) => copy(postImage(p), `${slug}/${today}/${n + 1}.jpg`)),
   ]);
   const saved = copies.map((img, n) => ({ img, url: posts[n].url || igLink })).filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
   const profile: IgProfile = {
-    username: prof.username ?? usernameFromLink(igLink), name: prof.fullName ?? "", pic,
-    followers: typeof prof.followersCount === "number" ? prof.followersCount : null,
-    posts: typeof prof.postsCount === "number" ? prof.postsCount : null,
+    username: prof?.username || posts[0].ownerUsername || usernameFromLink(igLink),
+    name: prof?.fullName || posts[0].ownerFullName || prev?.name || "",
+    pic: newPic || prev?.pic || "",
+    followers: typeof prof?.followersCount === "number" ? prof.followersCount : prev?.followers ?? null,
+    posts: typeof prof?.postsCount === "number" ? prof.postsCount : prev?.posts ?? null,
   };
   const feed: IgFeed = { imgs: saved.map((p) => p.img), posts: saved, profile, at: today };
   await svc.from("ig_snapshots").delete().eq("slug", slug).eq("taken_at", today);
@@ -115,9 +147,8 @@ export async function snapshotFunnel(
     slug, taken_at: today, imgs: feed.imgs, posts_count: profile.posts, followers: profile.followers, source: "apify", profile, posts: saved,
   });
   if (insErr) return { ok: false, why: `insert: ${insErr.message}` };
-  const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
   const mark: IgFetchMark = { at: new Date().toISOString(), ok: true };
-  const extras = { ...((row?.extras ?? {}) as Record<string, unknown>), igFeed: feed, igFetch: mark };
+  const extras = { ...prevExtras, igFeed: feed, igFetch: mark };
   const { error: upErr } = await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
   if (upErr) return { ok: false, why: `extras: ${upErr.message}` };
   return { ok: true, imgs: saved.length };
