@@ -39,6 +39,14 @@ export type WorkerTask = {
   notes: string | null; // the AI's "what to change" note
 };
 
+/* Queue lanes: 0 = a client setup (setup-run steps, pool snapshot loads),
+   1 = approved client account changes, 2 = background pool / CloseBot checks. */
+function queueLane(conversationId: string | null | undefined): 0 | 1 | 2 {
+  if (parseSetupConvId(conversationId) || parseSnapshotConvId(conversationId)) return 0;
+  if (parseA2pConvId(conversationId) || parseCnamConvId(conversationId) || isCloseBotCheck(conversationId)) return 2;
+  return 1;
+}
+
 /* Release dead claims, then claim the oldest queued card. One worker today,
    so a conditional update (status still queued_browser) is enough. */
 /* "I'm alive" — written on every claim and every mid-task ping. */
@@ -88,8 +96,14 @@ export async function claimNext(svc: Svc, host: string, recover = false): Promis
     }
   }
 
-  const { data: next } = await svc.from("agent_proposals").select("*")
-    .eq("status", "queued_browser").order("decided_at", { ascending: true }).limit(1).maybeSingle();
+  // Oldest first within a lane, but a live client's setup never waits behind
+  // the weekly pool checks (owner 10/26/2026: 97 A2P/CNAM checks queued at
+  // 10:00 left Elena's snapshot load 99th in line for half an hour).
+  const { data: queued } = await svc.from("agent_proposals").select("*")
+    .eq("status", "queued_browser").order("decided_at", { ascending: true }).limit(500);
+  const next = ((queued ?? []) as Array<{ conversation_id: string }>)
+    .map((row, i) => ({ row, i, lane: queueLane(row.conversation_id) }))
+    .sort((a, b) => a.lane - b.lane || a.i - b.i)[0]?.row;
   if (!next) return null;
   const p = next as {
     id: string; contact_id: string | null; contact_name: string; summary: string; client_message: string;
