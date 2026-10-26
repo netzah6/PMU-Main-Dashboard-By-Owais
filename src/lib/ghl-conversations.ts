@@ -1,6 +1,7 @@
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { getPmuTasksAccount, GHL_BASE } from "@/lib/ghl-tasks";
 import { AGENCY_TZ } from "@/lib/ceo-capacity";
+import type Anthropic from "@anthropic-ai/sdk";
 
 // Conversations / messages live on the 2021-04-15 version of the LeadConnector API.
 const CONV_VERSION = "2021-04-15";
@@ -192,15 +193,72 @@ export async function getThread(acct: PmuAccount, conversationId: string, opts: 
       source: m.source ? String(m.source) : null,
       attachments: Array.isArray(m.attachments) ? (m.attachments as unknown[]).map(String).filter((u) => /^https?:\/\//.test(u)) : [],
     }))
-    .map((m) => (opts.labelMedia && !m.body && m.attachments?.length ? { ...m, body: mediaLabel(m.attachments) } : m))
+    // A client's text that came with a photo says so too (our own sent
+    // texts stay as written — sent replies are matched to drafts by text).
+    .map((m) => (opts.labelMedia && m.attachments?.length && (!m.body || m.direction === "inbound")
+      ? { ...m, body: m.body ? `${m.body} ${mediaLabel(m.attachments)}` : mediaLabel(m.attachments) }
+      : m))
     .filter((m) => m.body.length > 0 || (!!opts.withAttachments && (m.attachments?.length ?? 0) > 0));
   // GHL returns newest-first; we want chronological for reading + prompting.
   return msgs.reverse();
 }
 
+const IMAGE_URL = /\.(jpe?g|png|gif|webp|heic)(\?|$)/i;
+
+/* The photos/screenshots the client sent, for the AI to actually look at
+   (the text view only says "[photo]"). The newest `max` images the client
+   sent in the last 7 days, each after a dated caption; a photo that can't be
+   read (expired link, HEIC, over 5 MB) is just skipped. */
+export async function clientPhotoBlocks(
+  thread: ThreadMessage[],
+  opts: { contactName: string; max?: number; timeZone?: string },
+): Promise<Anthropic.ContentBlockParam[]> {
+  const since = Date.now() - 7 * 86_400_000;
+  const picks: Array<{ url: string; at: string | null }> = [];
+  for (let i = thread.length - 1; i >= 0 && picks.length < (opts.max ?? 3); i--) {
+    const m = thread[i];
+    if (m.direction !== "inbound" || !m.attachments?.length) continue;
+    if (m.dateAdded && Date.parse(m.dateAdded) < since) break;
+    for (const url of [...m.attachments].reverse()) {
+      if (picks.length >= (opts.max ?? 3)) break;
+      if (!/\.(mp3|m4a|aac|amr|wav|ogg|oga|opus|3gp|pdf|mp4|mov)(\?|$)/i.test(url)) picks.push({ url, at: m.dateAdded });
+    }
+  }
+  if (!picks.length) return [];
+  const tz = opts.timeZone || process.env.AGENCY_TZ || AGENCY_TZ;
+  const read = await Promise.all(picks.reverse().map(async (p) => {
+    try {
+      const r = await fetch(p.url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok || Number(r.headers.get("content-length") ?? 0) > 5 * 1024 * 1024) return null;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (!buf.length || buf.length > 5 * 1024 * 1024) return null;
+      const type = imageType(buf);
+      return type ? { ...p, type, data: buf.toString("base64") } : null;
+    } catch { return null; }
+  }));
+  const blocks: Anthropic.ContentBlockParam[] = [];
+  for (const p of read) {
+    if (!p) continue;
+    const when = p.at ? new Date(p.at).toLocaleString("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "time unknown";
+    blocks.push({ type: "text", text: `Photo/screenshot ${opts.contactName || "the client"} sent (${when}):` });
+    blocks.push({ type: "image", source: { type: "base64", media_type: p.type, data: p.data } });
+  }
+  if (blocks.length) blocks.unshift({ type: "text", text: "The \"[photo]\" messages in the conversation above are shown here — read them as part of what the client said." });
+  return blocks;
+}
+
+// From the file's first bytes — links often lack an extension or lie about it.
+function imageType(b: Buffer): "image/jpeg" | "image/png" | "image/gif" | "image/webp" | null {
+  if (b[0] === 0xff && b[1] === 0xd8) return "image/jpeg";
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.subarray(0, 3).toString("ascii") === "GIF") return "image/gif";
+  if (b.subarray(0, 4).toString("ascii") === "RIFF" && b.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return null;
+}
+
 function mediaLabel(urls: string[]): string {
   if (urls.some((u) => /\.(mp3|m4a|aac|amr|wav|ogg|oga|opus|3gp)(\?|$)/i.test(u))) return "[voice note]";
-  if (urls.some((u) => /\.(jpe?g|png|gif|webp|heic)(\?|$)/i.test(u))) return "[photo]";
+  if (urls.some((u) => IMAGE_URL.test(u))) return "[photo]";
   return "[attachment]";
 }
 

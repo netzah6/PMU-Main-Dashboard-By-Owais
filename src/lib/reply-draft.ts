@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
-  firstUnansweredIndex, formatThreadForPrompt, getRoster, getThread, getVoiceSamples, resolveVoiceUser,
+  clientPhotoBlocks, firstUnansweredIndex, formatThreadForPrompt, getRoster, getThread, getVoiceSamples, resolveVoiceUser,
   type PmuAccount, type ThreadMessage,
 } from "@/lib/ghl-conversations";
 import { getReplyKb } from "@/lib/reply-kb";
@@ -309,12 +309,15 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
   }
   const client = new Anthropic({ apiKey });
   const system = buildSystemPrompt(input);
+  // The client's screenshots/photos, so the draft answers what's in them.
+  const photos = await clientPhotoBlocks(input.thread, { contactName: input.contactName });
   const ask = async (extra = "") => {
+    const text = buildUserPrompt(input) + extra;
     const msg = await client.messages.create({
       model: MODEL,
       max_tokens: 600,
       system,
-      messages: [{ role: "user", content: buildUserPrompt(input) + extra }],
+      messages: [{ role: "user", content: photos.length ? [{ type: "text", text }, ...photos] : text }],
     });
     return msg.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
