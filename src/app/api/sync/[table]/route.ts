@@ -46,6 +46,11 @@ export async function PATCH(
 
   const serviceClient = createServiceClient();
 
+  // The Onboarding card keeps its own copy of the client's form, so a rename on
+  // the Clients tab has to be carried over by hand (owner 10/26: Elena renamed
+  // on Clients, the card still showed the old business name).
+  let previousNames: { business: string; owner: string } | null = null;
+
   // Strip internal meta fields, but keep row_number inside the data blob
   const { _supabase_id: _s, _row_number: _r, ...rest } = rowData;
   void _s; void _r;
@@ -65,7 +70,9 @@ export async function PATCH(
       .eq("sheet_row", rowNumber)
       .maybeSingle();
     if (existing?.data) {
-      const merged: Record<string, unknown> = { ...(existing.data as Record<string, unknown>), row_number: rowNumber };
+      const before = existing.data as Record<string, unknown>;
+      previousNames = { business: String(before["Business Name"] ?? ""), owner: String(before["Owner Full Name"] ?? "") };
+      const merged: Record<string, unknown> = { ...before, row_number: rowNumber };
       for (const c of columns!) merged[c] = cleanData[c];
       contactIdForAssign = merged["Contact ID"];
       ({ error: updateErr } = await serviceClient
@@ -119,5 +126,48 @@ export async function PATCH(
     catch (e) { ghlAssign = { ok: false, error: String(e) }; }
   }
 
-  return NextResponse.json({ success: true, sheetsUpdated, sheetsError, ghlAssign });
+  // 4. Client renamed → same name on its open Onboarding card(s).
+  let onboardingsRenamed = 0;
+  const nameChanged = params.table === "clients_master" && scoped && previousNames
+    && (columns!.includes("Business Name") || columns!.includes("Owner Full Name"));
+  if (nameChanged) {
+    try { onboardingsRenamed = await renameOnboardingCards(serviceClient, previousNames!, cleanData); }
+    catch (e) { console.error(`[PATCH] onboarding rename failed for row ${rowNumber}:`, e); }
+  }
+
+  return NextResponse.json({ success: true, sheetsUpdated, sheetsError, ghlAssign, onboardingsRenamed });
+}
+
+const norm = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+// Carry a Clients-tab rename onto every unfinished Onboarding card that was
+// pre-filled from this row (matched by the OLD business name, or by the old
+// owner name when the business name is blank — same rule as setup-start).
+// Finished cards and the GHL claim (the real location name) are left alone.
+async function renameOnboardingCards(
+  svc: ReturnType<typeof createServiceClient>,
+  before: { business: string; owner: string },
+  row: Record<string, unknown>,
+): Promise<number> {
+  const business = String(row["Business Name"] ?? "").trim();
+  const owner = String(row["Owner Full Name"] ?? "").trim();
+  if (!norm(before.business) && !norm(before.owner)) return 0;
+
+  const { data } = await svc.from("onboardings").select("id, status, form").neq("status", "done");
+  type Card = { id: string; status: string; form: Record<string, string> | null };
+  let n = 0;
+  for (const card of (data ?? []) as Card[]) {
+    const f = card.form ?? {};
+    const hit = norm(before.business)
+      ? norm(f.business_name) === norm(before.business)
+      : norm(f.owner_name) === norm(before.owner);
+    if (!hit) continue;
+    const form = { ...f };
+    if (business) form.business_name = business;
+    if (owner) form.owner_name = owner;
+    if (form.business_name === f.business_name && form.owner_name === f.owner_name) continue;
+    const { error } = await svc.from("onboardings").update({ form }).eq("id", card.id);
+    if (!error) n++;
+  }
+  return n;
 }
