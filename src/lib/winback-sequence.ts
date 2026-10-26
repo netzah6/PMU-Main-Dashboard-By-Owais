@@ -73,7 +73,7 @@ export const TEMPLATES = {
   } satisfies Record<OfferKey, string>,
   step3Subject: "A quick one from Nicolas (PMU Bookings On Demand)",
   step3: {
-    pps: "<p>Hi {first},</p><p>We'd love to work together again. We now have a pay-per-appointment program: no monthly fee — your new clients book with a $50 deposit (that covers us) and you pay $60 only when they show up for the first session. Touch-ups, upsells and referrals are 100% yours.</p><p>Reply to this email or text me back and I'll send you the details.</p><p>Nicolas<br>PMU Bookings On Demand</p>",
+    pps: "<p>Hi {first},</p><p>We'd love to work together again. We now have a pay-per-appointment program: when a new client books, she pays a $50 deposit — that goes to us — and you only pay $60 when she actually shows up for her first treatment. Her second treatment costs you nothing extra, upsells are 100% yours, and your social media ad spend stays as normal. Nothing upfront and no monthly retainer — you only pay when you get paid.</p><p>Reply to this email or text me back and I'll send you the details.</p><p>Nicolas<br>PMU Bookings On Demand</p>",
     monthly: "<p>Hi {first},</p><p>We'd love to work together again. A lot changed since we worked together: AI that books clients for you 24/7, deposits collected for you, and new funnels.</p><p>Let's go over the numbers together — reply to this email or text me back.</p><p>Nicolas<br>PMU Bookings On Demand</p>",
     none: "<p>Hi {first},</p><p>We'd love to work together again. We have new ways to work together now — reply and I'll send you the details.</p><p>Nicolas<br>PMU Bookings On Demand</p>",
   } satisfies Record<OfferKey, string>,

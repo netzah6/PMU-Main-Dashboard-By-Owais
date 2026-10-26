@@ -41,7 +41,7 @@ export type ReviewVerdict = "ok" | "tense" | "bad" | "opted_out" | "no_chat";
 
 // PPS terms agreed 2026-10-10: we keep the $50 booking deposit, $60 per show.
 const OFFER_TEXT: Record<WinbackOffer | "none", string> = {
-  pps: "Pay-per-show program: NO monthly fee. Their new clients put down a $50 deposit to book (that deposit covers us), and they pay $60 only when the client actually shows up for the first session. Touch-ups, upsells and referrals from those clients are 100% theirs.",
+  pps: "Pay-per-appointment program: nothing upfront and NO monthly retainer. Their new clients put down a $50 deposit to book (that deposit goes to us), and they pay $60 only when the client actually shows up for the first treatment. The client's second treatment costs them nothing extra, upsells are 100% theirs, and their social media ad spend stays as normal. (Say \"second treatment\", never \"touch-up\"; never mention referrals.)",
   monthly: "The regular monthly program. Since they left we upgraded a lot (AI that books clients 24/7, new funnels, deposits collected for them). Do NOT quote a monthly price in text — say we'll go over the numbers together.",
   none: "No offer is approved for this person yet. Do NOT mention any program, price or fee — keep the conversation warm, ask about their business, and leave the offer for later.",
 };
