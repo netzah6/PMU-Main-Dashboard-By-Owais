@@ -83,7 +83,7 @@ export const RUNBOOK: RunbookStep[] = [
   // G · Funnel
   { n: 26, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Create the one-box funnel at book.pmu-care.com/<slug> and set \"CC - Deposit Funnel URL (V3)\"", checklist: ["funnel_onebox"] },
   { n: 27, key: "funnel_pixel", section: "G · 🧲 Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
-  { n: 28, key: "funnel_ig", section: "G · 🧲 Funnel", who: "ask", label: "Instagram widget in Elfsight (after your approval), only if the IG has 9+ posts and a profile picture", how: "Needs the AI Agent signed in to dash.elfsight.com. The widget link goes into \"CC - IG Widget LINK\"; the funnel picks it up.", checklist: ["funnel_ig_widget"] },
+  { n: 28, key: "funnel_ig", section: "G · 🧲 Funnel", who: "api", label: "Instagram grid: fetch the client's posts from her Instagram link, sort them (results first) and put them on the funnel — no Elfsight", how: "Needs the Instagram link on the form. A private or restricted account can't be fetched; the funnel then shows no Instagram section until it is fixed (Cost per Deposit → client → 📸 panel → Refresh).", checklist: ["funnel_ig_widget"] },
   { n: 29, key: "funnel_redirect", section: "G · 🧲 Funnel", who: "mini", optional: true, label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect", how: "Only for clients who already ran ads to an old funnel — otherwise mark it \"Not needed\"." },
   { n: 30, key: "funnel_live", section: "G · 🧲 Funnel", who: "api", label: "Check no client value is empty, then go live", how: "Stops red with the list of empty values (deposit, address, product ID, webhook, calendar ID… prices for V3 only) instead of going live with holes." },
   // H · Last check — the funnel test is the AI Agent's LAST step (owner
@@ -260,7 +260,6 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
   const hours = f.form.business_hours?.trim() || "(not on the form — leave the schedule as is and report that)";
   const email = f.userEmail || f.form.email?.trim() || "(no email on the form)";
   const funnel = f.funnelUrl || (f.slug ? `https://book.pmu-care.com/${f.slug}` : "(funnel not created yet)");
-  const ig = f.form.ig_link?.trim() || "";
   const oldFunnel = f.form.old_funnel_url?.trim() || "";
   const callerId = /yes|true|1/i.test(f.form.connect_caller_id ?? "");
   switch (step.key) {
@@ -366,12 +365,6 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     case "cal_rules": return [
       `Open ${ghl(L, "settings/calendars")} → "Permanent Makeup Transformation" → edit → Availability / Advanced: set "Look Busy" to 75%. Keep the slot duration and buffer the template has (do not change them unless they are blank). Save, reload, screenshot.`,
     ];
-    case "funnel_ig": return [
-      ig ? `Open the client's Instagram ${ig}. Count: at least 9 posts AND a profile picture? If NO: change nothing, report "skipped: IG too thin (N posts / no picture)".` : `No Instagram link is on the form — status "done", summary "skipped: no Instagram on the form", no changes.`,
-      ig ? `If YES: open https://dash.elfsight.com/apps/instagram-feed (must be signed in — if you see a login page, stop: status "needs_teammate", "Mac Mini is not signed in to Elfsight"). Search the widgets for "${biz}" first and REUSE an existing one for this business; only if none exists, create a new Instagram Feed widget named "${biz}" for ${ig} with the team's usual layout.` : ``,
-      ig ? `Copy the widget's install/share link (or its ID). Paste it into the sub-account custom value "CC - IG Widget LINK": ${ghl(L, "settings/custom_values")}. Save.` : ``,
-      ig ? `Screenshot the Elfsight widget and the saved custom value. Report the widget link in your summary.` : ``,
-    ].filter(Boolean);
     case "funnel_redirect": return [
       oldFunnel ? `The client's old GHL funnel is ${oldFunnel}. Open ${ghl(L, "funnels-websites/funnels")}, find that funnel's survey page and rename its path by adding "-old" (so the old address stops serving the page).` : `No old funnel is on the form — status "done", summary "skipped: no old funnel", no changes.`,
       oldFunnel ? `Then add a URL Redirect (Sites → URL Redirects) from the OLD path to ${funnel} (301, path only). Save.` : ``,

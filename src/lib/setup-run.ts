@@ -8,6 +8,7 @@ import { deleteAllContacts, inspectLocation, poolBlocker, poolReadiness, refresh
 import { createDepositProductFromForm } from "@/lib/deposit-product";
 import { addOneboxFunnel, FUNNEL_ORIGIN } from "@/lib/onebox-add";
 import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl } from "@/lib/onebox";
+import { refreshFunnel, usernameFromLink } from "@/lib/ig-fetch";
 import { buildReplayPayload, isValidHookUrlForLocation, replayToClientHook } from "@/lib/payment-router";
 import { verifyOnboarding } from "@/lib/onboarding-verify";
 import { answersFromMainContact } from "@/lib/survey-answers";
@@ -218,7 +219,7 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     case "account_info": case "account_cvs": case "cal_id": return done(ob, "account_take");
     case "cal_active": return done(ob, "cal_rules");
     case "connector": case "product": case "funnel_create": return done(ob, "account_take");
-    case "funnel_pixel": return done(ob, "funnel_create");
+    case "funnel_pixel": case "funnel_ig": return done(ob, "funnel_create");
     case "route_test": return done(ob, "webhook_url") && done(ob, "product") && !!ob.setup?.hook_url;
     case "user_password": return done(ob, "user_create");
     // Go-live comes BEFORE the funnel test now (owner 10/20/2026: the test is
@@ -598,6 +599,31 @@ const API_STEPS: Record<string, StepFn> = {
     extras.metaPixelId = h.id;
     await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
     return { status: "done", note: `pixel ${h.id} harvested from ${h.from}` };
+  },
+
+  /* 28 · Instagram grid (owner, 10/26/2026): our own feed, fetched from the
+     client's Instagram link and sorted by what each picture shows. No
+     Elfsight. The hourly job keeps it fresh afterwards. */
+  funnel_ig: async (svc, ob) => {
+    const slug = ob.setup!.slug!;
+    await refreshOneboxConfig(svc, slug, ob.setup!.location_id).catch(() => undefined);
+    const { data: row } = await svc.from("onebox_clients").select("config").eq("slug", slug).maybeSingle();
+    const config = { ...((row?.config ?? {}) as Record<string, unknown>) };
+    const fromForm = String(ob.form.ig_link ?? "").trim();
+    let link = String(config.igLink ?? "").trim();
+    if (!usernameFromLink(link) && usernameFromLink(fromForm)) {
+      link = fromForm;
+      config.igLink = fromForm;
+      await svc.from("onebox_clients").update({ config }).eq("slug", slug);
+    }
+    if (!usernameFromLink(link)) {
+      return { status: "warn", note: link || fromForm
+        ? `"${link || fromForm}" is not an Instagram profile link — fix it in the Funnels tab, then press Refresh in the client's 📸 panel (Cost per Deposit)`
+        : "no Instagram link on the form — add it in the Funnels tab, then press Refresh in the client's 📸 panel (Cost per Deposit)" };
+    }
+    const r = await refreshFunnel(svc, slug);
+    if (!r.ok) return { status: "warn", note: `Instagram fetch failed: ${r.why} — the funnel shows no Instagram section until it works (a private or restricted account can't be fetched)` };
+    return { status: "done", note: `${r.imgs} pictures fetched and sorted (results first) — grid live on the funnel` };
   },
 
   /* 30 · Go live (the Funnels tab's "Go live", incl. the deposit URL). */
