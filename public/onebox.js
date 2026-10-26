@@ -385,14 +385,15 @@
     /* Profile header laid out like the Instagram app: handle on top, photo
        beside the three counts, then the name, category and bio. */
     "#onebox-root .igself,#onebox-root .igself *{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#000}" +
-    "#onebox-root .igtop{display:flex;align-items:center;gap:5px;font-weight:700;font-size:17px;padding:10px 6px 12px;letter-spacing:-.01em}" +
-    "#onebox-root .igtop svg{width:17px;height:17px;flex:none}" +
-    "#onebox-root .igself .ighead{display:flex;align-items:center;gap:26px;padding:0 6px 12px;border-bottom:0}" +
+    "#onebox-root .igtop{display:flex;align-items:center;gap:6px;font-weight:700;font-size:17px;padding:8px 4px 14px;letter-spacing:-.01em}" +
+    "#onebox-root .igtop .igchev,#onebox-root .igtop .igdots{flex:none;color:#262626}#onebox-root .igtop .igchev svg{width:26px;height:26px;display:block}#onebox-root .igtop .igdots{margin-left:auto;font-size:22px;line-height:1;letter-spacing:1px;padding-right:4px}" +
+    "#onebox-root .igtop .igcheck{width:17px;height:17px;flex:none}" +
+    "#onebox-root .igself .ighead{display:flex;align-items:center;gap:22px;padding:0 6px 12px;border-bottom:0}#onebox-root .igright{flex:1;min-width:0;display:grid;gap:10px}" +
     "#onebox-root .igpic{width:88px;height:88px;border-radius:50%;object-fit:cover;flex:none;border:1px solid #dbdbdb;background:#fafafa}" +
     "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:30px}" +
-    "#onebox-root .igstats{display:flex;flex:1;justify-content:space-between;text-align:center;gap:8px;padding:0 8px 0 2px}" +
+    "#onebox-root .igstats{display:flex;justify-content:space-between;text-align:center;gap:8px;padding:0 6px 0 0}" +
     "#onebox-root .igstats div{line-height:1.3;min-width:58px}#onebox-root .igstats b{display:block;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}#onebox-root .igstats span{font-size:14px}" +
-    "#onebox-root .igname{font-weight:600;font-size:14.5px;padding:0 6px;line-height:1.3}" +
+    "#onebox-root .igname{font-weight:600;font-size:15px;line-height:1.3;overflow-wrap:anywhere}" +
     "#onebox-root .igcat{font-size:14.5px;color:#737373;padding:0 6px;line-height:1.3}" +
     "#onebox-root .igbio{font-size:14.5px;margin:1px 6px 10px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
     "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:14px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
@@ -1435,11 +1436,14 @@
       /* A count of 0 is shown like Instagram does ("0 following"); only a
          count we don't have is left out. */
       function stat(n, label) { return n == null || n === "" ? "" : "<div><b>" + fmtK(n) + "</b><span>" + label + "</span></div>"; }
+      /* Laid out like the Instagram app's profile: top bar with the handle,
+         then photo | name + counts, then category and bio. */
       var head = pr.username
-        ? '<div class="igtop">' + esc(pr.username) + (pr.verified ? IG_CHECK : "") + "</div>" +
+        ? '<div class="igtop"><span class="igchev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>' +
+          esc(pr.username) + (pr.verified ? IG_CHECK.replace("<svg ", '<svg class="igcheck" ') : "") + '<span class="igdots">&#8943;</span></div>' +
           '<div class="ighead">' + (pr.pic ? '<img class="igpic" src="' + esc(pr.pic) + '" alt="">' : '<span class="igpic igpic-empty">&#128248;</span>') +
-          '<div class="igstats">' + stat(pr.posts, "posts") + stat(pr.followers, "followers") + stat(pr.following, "following") + "</div></div>" +
-          (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") +
+          '<div class="igright">' + (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") +
+          '<div class="igstats">' + stat(pr.posts, "posts") + stat(pr.followers, "followers") + stat(pr.following, "following") + "</div></div></div>" +
           (pr.category ? '<div class="igcat">' + esc(pr.category) + "</div>" : "") +
           (bioText(pr.bio) ? '<div class="igbio">' + esc(bioText(pr.bio)) + "</div>" : "")
         : "";
