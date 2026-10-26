@@ -30,6 +30,20 @@ type ThreadMsg = { id: string; direction: "inbound" | "outbound"; body: string; 
 const AUDIO_URL = /\.(mp3|m4a|aac|amr|wav|ogg|oga|opus|3gp)(\?|$)/i;
 const IMAGE_URL = /\.(jpe?g|png|gif|webp|heic)(\?|$)/i;
 
+// "Eastern · 2:14 PM" — the zone's short name plus the client's local time now.
+function tzLabel(tz: string): string {
+  try {
+    const now = new Date();
+    const zone = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "long" })
+      .formatToParts(now).find((p) => p.type === "timeZoneName")?.value ?? tz;
+    const short = zone.replace(/ (Standard|Daylight) Time$/, "").replace(/ Time$/, "");
+    const time = now.toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" });
+    return `${short} · ${time} their time`;
+  } catch {
+    return tz;
+  }
+}
+
 function timeAgo(iso: string | null): string {
   if (!iso) return "";
   const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
@@ -267,6 +281,22 @@ export default function AskPage() {
   // Closing the composer (X, Send, Generate draft, 🕵️) closes its agent
   // panel, so coming back to the chat starts with the one button again.
   useEffect(() => { if (!pending) setAgentOpenFor(null); }, [pending]);
+
+  // Owner, 10/26/2026: show the client's time zone (+ their local time) next
+  // to the name in the open chat. Looked up from their own sub-account.
+  const [chatTz, setChatTz] = useState<string | null>(null);
+  const pendingKey = pending ? `${pending.contactId ?? ""}|${pending.contactName}` : "";
+  useEffect(() => {
+    setChatTz(null);
+    if (!pendingKey) return;
+    const [cid, name] = [pendingKey.split("|")[0], pendingKey.slice(pendingKey.indexOf("|") + 1)];
+    let cancelled = false;
+    fetch(`/api/ghl/contact-tz?contactId=${encodeURIComponent(cid)}&name=${encodeURIComponent(name)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.timezone) setChatTz(d.timezone); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [pendingKey]);
 
   // Load the full conversation whenever the composer opens for a chat (and
   // again after a voice note goes out, so it shows up in the thread).
@@ -783,6 +813,7 @@ export default function AskPage() {
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-bold text-[#0e8f88] flex items-center gap-1.5">
               <MessageCircle size={13} /> {pending.contactName}{pending.channel ? ` · ${pending.channel}` : ""}
+              {chatTz && <span className="font-medium text-[#697a91]" title={chatTz}>· 🕐 {tzLabel(chatTz)}</span>}
             </span>
             <span className="flex items-center gap-2">
               {/* Owner, 10/19/2026: turn this chat into a GHL task (Tasks tab) in one click. */}
