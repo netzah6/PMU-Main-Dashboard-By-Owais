@@ -28,11 +28,13 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get("classify")) {
     const slugs = await unclassifiedFunnels(svc, Math.min(40, Number(req.nextUrl.searchParams.get("limit") ?? 10) || 10));
     const done: Record<string, number> = {};
+    const errors: string[] = [];
     for (const s of slugs) {
       if (Date.now() - t0 > TIME_BUDGET_MS) break;
-      done[s] = await classifyStoredFeed(svc, s);
+      done[s] = await classifyStoredFeed(svc, s, errors);
     }
-    return NextResponse.json({ classified: done, left: slugs.length - Object.keys(done).length, seconds: Math.round((Date.now() - t0) / 1000) });
+    const left = (await unclassifiedFunnels(svc, 500)).length;
+    return NextResponse.json({ classified: done, left, errors: errors.length ? [...new Set(errors)].slice(0, 8) : undefined, seconds: Math.round((Date.now() - t0) / 1000) });
   }
   const only = req.nextUrl.searchParams.get("slug");
   const due = only

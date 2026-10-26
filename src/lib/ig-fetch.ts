@@ -276,27 +276,36 @@ export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<
 /* Classify the pictures a funnel already has (no Apify call) and re-rank
    them. Used to backfill the fleet and by the cron's spare time. Returns
    how many pictures were looked at. */
-export async function classifyStoredFeed(svc: SupabaseClient, slug: string): Promise<number> {
+const CLASSIFY_TRIES = 3;
+const needsLook = (p: FeedPost) => !p.kind && (p.tries ?? 0) < CLASSIFY_TRIES;
+
+export async function classifyStoredFeed(svc: SupabaseClient, slug: string, errors: string[] = []): Promise<number> {
   const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
   const extras = (row?.extras ?? {}) as Record<string, unknown> & { igFeed?: IgFeed };
   const feed = extras.igFeed;
   if (!feed?.posts?.length) return 0;
-  const todo = feed.posts.filter((p) => !p.kind);
+  const todo = feed.posts.filter(needsLook);
   if (!todo.length) return 0;
-  const cls = await classifyImages(todo.map((p) => p.img));
-  if (!cls.size) return 0;
-  for (const p of feed.posts) { const c = cls.get(p.img); if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; } }
+  const cls = await classifyImages(todo.map((p) => p.img), errors);
+  for (const p of todo) {
+    const c = cls.get(p.img);
+    if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; delete p.tries; }
+    else p.tries = (p.tries ?? 0) + 1; // a picture that keeps failing stops being retried after CLASSIFY_TRIES
+  }
   const ordered = rankPosts(feed.posts);
   await svc.from("onebox_clients").update({ extras: { ...extras, igFeed: { ...feed, posts: ordered, imgs: ordered.map((p) => p.img) } } }).eq("slug", slug);
   return cls.size;
 }
 
-/* Live funnels whose grid still has unsorted pictures, most-visited first
-   is not known here, so alphabetical. */
+/* Live funnels whose grid still has pictures to look at — the ones with
+   the most unsorted pictures first, so a whole fleet gets its first pass
+   before any funnel gets its stragglers. */
 export async function unclassifiedFunnels(svc: SupabaseClient, limit: number): Promise<string[]> {
-  const { data: clients } = await svc.from("onebox_clients").select("slug, extras").eq("status", "live").order("slug");
+  const { data: clients } = await svc.from("onebox_clients").select("slug, extras").eq("status", "live");
   return (clients ?? [])
-    .filter((c) => { const f = (c.extras as { igFeed?: IgFeed } | null)?.igFeed; return !!f?.posts?.length && f.posts.some((p) => !p.kind); })
+    .map((c) => { const f = (c.extras as { igFeed?: IgFeed } | null)?.igFeed; return { slug: String(c.slug), n: f?.posts?.filter(needsLook).length ?? 0 }; })
+    .filter((c) => c.n > 0)
+    .sort((a, b) => b.n - a.n || a.slug.localeCompare(b.slug))
     .slice(0, limit)
-    .map((c) => String(c.slug));
+    .map((c) => c.slug);
 }

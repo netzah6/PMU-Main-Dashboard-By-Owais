@@ -11,7 +11,7 @@ import type { PostKind } from "@/lib/ig-arrange";
 export type PostClass = { kind: PostKind; pmu: boolean; q: number };
 
 const MODEL = process.env.IG_CLASSIFY_MODEL || "claude-opus-5-5";
-const CONCURRENCY = 4;
+const CONCURRENCY = 3;
 const KINDS: PostKind[] = ["split_ba", "after_closeup", "during", "person", "flyer_text", "other"];
 
 const SYSTEM = `You classify a single Instagram picture from a permanent-makeup (PMU: eyebrows, lip blush, eyeliner) artist. A nervous first-time client sees it on a booking page. Answer with JSON only, no prose:
@@ -31,7 +31,7 @@ export function classifierReady(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
-async function classifyOne(client: Anthropic, url: string): Promise<PostClass | null> {
+async function classifyOne(client: Anthropic, url: string, errors: string[]): Promise<PostClass | null> {
   try {
     const res = await client.messages.create({
       model: MODEL,
@@ -47,27 +47,28 @@ async function classifyOne(client: Anthropic, url: string): Promise<PostClass | 
     });
     const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     const m = text.match(/\{[\s\S]*\}/);
-    if (!m) return null;
+    if (!m) { errors.push(`${res.stop_reason}: ${text.slice(0, 120) || "(no text)"}`); return null; }
     const j = JSON.parse(m[0]) as { kind?: unknown; pmu?: unknown; q?: unknown };
     const kind = KINDS.includes(j.kind as PostKind) ? (j.kind as PostKind) : null;
-    if (!kind) return null;
+    if (!kind) { errors.push(`bad kind: ${m[0].slice(0, 120)}`); return null; }
     const q = Math.min(5, Math.max(1, Math.round(Number(j.q) || 3)));
     return { kind, pmu: !!j.pmu, q };
-  } catch {
+  } catch (e) {
+    errors.push(e instanceof Error ? `${e.name}: ${e.message.slice(0, 160)}` : String(e).slice(0, 160));
     return null;
   }
 }
 
 /* Classify a batch of picture URLs (public copies in our bucket). Pictures
    that fail are simply left out — the caller keeps them unsorted. */
-export async function classifyImages(urls: string[]): Promise<Map<string, PostClass>> {
+export async function classifyImages(urls: string[], errors: string[] = []): Promise<Map<string, PostClass>> {
   const out = new Map<string, PostClass>();
   if (!classifierReady() || !urls.length) return out;
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 60_000 });
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 3, timeout: 60_000 });
   const queue = [...new Set(urls)];
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
     for (let u = queue.shift(); u; u = queue.shift()) {
-      const c = await classifyOne(client, u);
+      const c = await classifyOne(client, u, errors);
       if (c) out.set(u, c);
     }
   }));
