@@ -569,3 +569,31 @@ WHERE a.start_time >= '2026-08-01'
         OR m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
   )
 ORDER BY a.contact_id, a.start_time ASC;
+
+-- ── Unconfirmed calendar bookings never bill (2026-10-26) ───────────────────
+-- Owner: Marisol Martinez (PhiMaker) was "penciled in" pending a deposit she
+-- never paid; the leftover entry (status "new" = never confirmed) billed $45.
+-- A calendar-only booking bills only once it is confirmed or showed.
+CREATE OR REPLACE VIEW ppa_calendar_booked AS
+SELECT DISTINCT ON (a.contact_id)
+  'cal:' || a.id  AS appt_id,
+  a.owner_key,
+  a.contact_id,
+  a.start_time,
+  a.status,
+  a.title,
+  c.contact_name,
+  c.email
+FROM ghl_appointments a
+LEFT JOIN ghl_contacts c ON c.id = a.contact_id
+WHERE a.start_time >= '2026-08-01'
+  AND coalesce(a.status,'') ~* '^(confirmed|showed)$'
+  AND NOT EXISTS (SELECT 1 FROM ppa_deposit_contacts_mv dc WHERE dc.contact_id = a.contact_id)
+  AND NOT EXISTS (
+    SELECT 1 FROM ghl_opportunities o
+    JOIN ghl_stage_map m ON m.location_id = o.location_id AND m.stage_id = o.stage_id
+    WHERE o.contact_id = a.contact_id
+      AND (m.stage_name ~* 'session[[:space:]]*(done|complete)'
+        OR m.stage_name ~* '(5|five)[[:space:]]*star|google[[:space:]]*review')
+  )
+ORDER BY a.contact_id, a.start_time ASC;
