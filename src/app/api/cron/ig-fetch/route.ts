@@ -7,8 +7,10 @@ export const maxDuration = 300;
    and a funnel cut off mid-copy would be paid for on Apify for nothing. */
 const TIME_BUDGET_MS = 250_000;
 
-/* Daily: refresh the in-house Instagram feed for up to 20 funnels whose
-   last fetch is older than 6 days (so the fleet turns over about weekly).
+/* Hourly: refresh the in-house Instagram feed for up to 6 funnels whose
+   last fetch is older than 6 days (the post scraper takes ~10 s per
+   profile, so 20 at once timed out; 6 an hour turns the fleet over in a
+   day and the 6-day rule spreads it across the week).
    Needs APIFY_TOKEN; without it the funnels keep serving their last set.
    Every attempt is marked on the funnel (extras.igFetch), success or not,
    so a profile that keeps failing goes to the back of the line. */
@@ -20,7 +22,7 @@ export async function GET(req: NextRequest) {
   if (!process.env.APIFY_TOKEN) return NextResponse.json({ skipped: "no APIFY_TOKEN — add it in Vercel (Settings → Environment Variables)" });
   const t0 = Date.now();
   const svc = createServiceClient();
-  const limit = Math.min(40, Number(req.nextUrl.searchParams.get("limit") ?? 20) || 20);
+  const limit = Math.min(12, Number(req.nextUrl.searchParams.get("limit") ?? 6) || 6);
   const only = req.nextUrl.searchParams.get("slug");
   const due = only
     ? (await dueFunnels(svc, 500, -1)).filter((f) => f.slug === only)

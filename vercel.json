@@ -114,7 +114,7 @@
     },
     {
       "path": "/api/cron/ig-fetch",
-      "schedule": "0 11 * * *"
+      "schedule": "20 * * * *"
     }
   ],
   "headers": [

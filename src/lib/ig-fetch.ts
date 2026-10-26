@@ -69,7 +69,7 @@ export type ApifyProfile = {
 async function runActor<T>(actor: string, input: Record<string, unknown>): Promise<T[]> {
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new Error("no APIFY_TOKEN");
-  const r = await fetch(`https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=${APIFY_RUN_TIMEOUT_S}&memory=512&format=json`, {
+  const r = await fetch(`https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=${APIFY_RUN_TIMEOUT_S}&memory=1024&format=json`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
     signal: AbortSignal.timeout((APIFY_RUN_TIMEOUT_S + 20) * 1000),
