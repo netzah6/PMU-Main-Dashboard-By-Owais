@@ -388,17 +388,17 @@
     /* Measured off the Instagram app on a 390 pt iPhone: 17 pt bold handle after a
        thin 24 pt chevron; 86 pt photo; name 15.5 pt semibold beside it with the
        three counts (17 pt semibold over 14.5 pt labels) left-aligned under it. */
-    "#onebox-root .igtop{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;padding:6px 2px 18px;letter-spacing:-.01em}" +
+    "#onebox-root .igtop{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18.5px;padding:6px 2px 16px;letter-spacing:-.01em}" +
     "#onebox-root .igtop .igchev,#onebox-root .igtop .igdots{flex:none;color:#262626}#onebox-root .igtop .igchev svg{width:24px;height:24px;display:block}#onebox-root .igtop .igdots{margin-left:auto;font-size:22px;line-height:1;letter-spacing:1px;padding-right:6px}" +
     "#onebox-root .igtop .igcheck{width:18px;height:18px;flex:none;margin-left:-3px}" +
-    "#onebox-root .igself .ighead{display:flex;align-items:center;gap:22px;padding:0 6px 14px 2px;border-bottom:0}#onebox-root .igright{flex:1;min-width:0;display:grid;gap:12px;align-content:center}" +
-    "#onebox-root .igpic{width:86px;height:86px;border-radius:50%;object-fit:cover;flex:none;border:1px solid #dbdbdb;background:#fafafa;box-shadow:0 0 0 2px #fff,0 0 0 3px #e6e6e6}" +
+    "#onebox-root .igself .ighead{display:flex;align-items:center;gap:20px;padding:0 6px 14px 2px;border-bottom:0}#onebox-root .igright{flex:1;min-width:0;display:grid;gap:9px;align-content:center}" +
+    "#onebox-root .igpic{width:82px;height:82px;border-radius:50%;object-fit:cover;flex:none;border:1px solid #dbdbdb;background:#fafafa;box-shadow:0 0 0 2px #fff,0 0 0 3px #e6e6e6;margin:3px}" +
     "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:30px}" +
-    "#onebox-root .igstats{display:flex;justify-content:flex-start;text-align:left;gap:34px;padding:0 12px 0 0}" +
-    "#onebox-root .igstats div{line-height:1.2;min-width:0}#onebox-root .igstats b{display:block;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}#onebox-root .igstats span{display:block;font-size:14.5px;margin-top:2px}" +
-    "#onebox-root .igname{font-weight:600;font-size:15.5px;line-height:1.25;overflow-wrap:anywhere}" +
-    "#onebox-root .igcat{font-size:15px;color:#737373;padding:0 6px 0 2px;line-height:1.3}" +
-    "#onebox-root .igbio{font-size:15px;margin:2px 6px 10px 2px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
+    "#onebox-root .igstats{display:flex;justify-content:flex-start;text-align:left;gap:35px;padding:0 12px 0 0}" +
+    "#onebox-root .igstats div{line-height:1.2;min-width:0}#onebox-root .igstats b{display:block;font-size:16.5px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}#onebox-root .igstats span{display:block;font-size:14px;margin-top:1px}" +
+    "#onebox-root .igname{font-weight:700;font-size:14px;line-height:1.25;overflow-wrap:anywhere}" +
+    "#onebox-root .igcat{font-size:14px;color:#737373;padding:0 6px 0 2px;line-height:1.3}" +
+    "#onebox-root .igbio{font-size:14px;margin:2px 6px 10px 2px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
     "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:14px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
