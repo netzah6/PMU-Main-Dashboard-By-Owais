@@ -1422,7 +1422,7 @@
     /* Bio minus its call-to-action / contact lines (owner, 10/26/2026):
        "Book now 👇", phone numbers, links, "DM us" would pull the visitor
        off the funnel — the funnel IS the booking. */
-    var BIO_CTA = /\b(book(ing|ings|ed)?\b|appointments?\b|call\b|text (us|me|now)|dm\b|link in bio|click|tap\b|schedule|whatsapp|e-?mail|website|visit us|inquir)|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}|https?:|www\.|\.com\b|@[\w.]+\.\w{2,}|[\u{1F447}\u{2B07}\u{1F446}\u{1F4F2}\u{1F4DE}\u{260E}\u{1F4E7}\u{2709}\u{1F517}]/iu;
+    var BIO_CTA = /\b(book(ing|ings|ed)?\b|appointments?\b|call\b|text (us|me|now)|dm\b|link in bio|click|tap\b|schedule|whatsapp|e-?mail|website|visit us|inquir)|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}|https?:|www\.|[\w-]+\.(com|co|me|ee|io|net|org|link|site|page|app|bio|shop|us|uk|ca|info|biz|store|online)(\/|\b)|@[\w.]+\.\w{2,}|[\u{1F447}\u{2B07}\u{1F446}\u{1F4F2}\u{1F4DE}\u{260E}\u{1F4E7}\u{2709}\u{1F517}]/iu;
     function bioText(bio) {
       return String(bio || "").split(/\n/).filter(function (l) { return l.trim() && !BIO_CTA.test(l); }).join("\n").trim();
     }
