@@ -385,16 +385,16 @@
     /* Profile header laid out like the Instagram app: handle on top, photo
        beside the three counts, then the name, category and bio. */
     "#onebox-root .igself,#onebox-root .igself *{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#000}" +
-    "#onebox-root .igtop{display:flex;align-items:center;gap:4px;font-weight:700;font-size:16px;padding:8px 6px 10px}" +
-    "#onebox-root .igtop svg{width:16px;height:16px;flex:none}" +
-    "#onebox-root .igself .ighead{display:flex;align-items:center;gap:22px;padding:0 6px 10px;border-bottom:0}" +
-    "#onebox-root .igpic{width:77px;height:77px;border-radius:50%;object-fit:cover;flex:none;border:1px solid #dbdbdb;background:#fafafa}" +
-    "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:28px}" +
-    "#onebox-root .igstats{display:flex;flex:1;justify-content:space-around;text-align:center;gap:6px}" +
-    "#onebox-root .igstats div{line-height:1.25}#onebox-root .igstats b{display:block;font-size:17px;font-weight:700}#onebox-root .igstats span{font-size:13px}" +
-    "#onebox-root .igname{font-weight:600;font-size:14px;padding:0 6px;line-height:1.3}" +
-    "#onebox-root .igcat{font-size:13px;color:#737373;padding:0 6px;line-height:1.3}" +
-    "#onebox-root .igbio{font-size:13px;margin:1px 6px 10px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
+    "#onebox-root .igtop{display:flex;align-items:center;gap:5px;font-weight:700;font-size:17px;padding:10px 6px 12px;letter-spacing:-.01em}" +
+    "#onebox-root .igtop svg{width:17px;height:17px;flex:none}" +
+    "#onebox-root .igself .ighead{display:flex;align-items:center;gap:26px;padding:0 6px 12px;border-bottom:0}" +
+    "#onebox-root .igpic{width:88px;height:88px;border-radius:50%;object-fit:cover;flex:none;border:1px solid #dbdbdb;background:#fafafa}" +
+    "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:30px}" +
+    "#onebox-root .igstats{display:flex;flex:1;justify-content:space-between;text-align:center;gap:8px;padding:0 8px 0 2px}" +
+    "#onebox-root .igstats div{line-height:1.3;min-width:58px}#onebox-root .igstats b{display:block;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}#onebox-root .igstats span{font-size:14px}" +
+    "#onebox-root .igname{font-weight:600;font-size:14.5px;padding:0 6px;line-height:1.3}" +
+    "#onebox-root .igcat{font-size:14.5px;color:#737373;padding:0 6px;line-height:1.3}" +
+    "#onebox-root .igbio{font-size:14.5px;margin:1px 6px 10px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
     "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:14px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
@@ -1416,9 +1416,9 @@
        10K and up abbreviated (11.2K, 112K, 1.2M). */
     function fmtK(n) {
       n = Number(n) || 0;
-      if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
-      if (n >= 100000) return Math.round(n / 1000) + "K";
-      if (n >= 10000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+      if (n >= 1000000) return String(Math.floor(n / 100000) / 10).replace(/\.0$/, "") + "M";
+      if (n >= 100000) return Math.floor(n / 1000) + "K";
+      if (n >= 10000) return String(Math.floor(n / 100) / 10).replace(/\.0$/, "") + "K";
       return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     }
     var IG_CHECK = '<svg viewBox="0 0 24 24" aria-label="Verified"><path fill="#0095f6" d="M12 1.5l2.6 2.4 3.5-.5 1 3.4 3.1 1.7-1.3 3.3 1.3 3.3-3.1 1.7-1 3.4-3.5-.5L12 22.5l-2.6-2.4-3.5.5-1-3.4L1.8 15.5l1.3-3.3-1.3-3.3 3.1-1.7 1-3.4 3.5.5z"/><path fill="#fff" d="M10.4 16.1l-3.5-3.4 1.4-1.4 2.1 2 5.3-5.4 1.4 1.4z"/></svg>';
