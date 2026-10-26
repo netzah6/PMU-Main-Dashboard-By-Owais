@@ -13,7 +13,13 @@ export type IgProfile = {
   username: string; name: string; pic: string; followers: number | null; posts: number | null;
   following?: number | null; bio?: string; category?: string; verified?: boolean;
 };
-export type IgFeed = { imgs: string[]; posts: FeedPost[]; profile: IgProfile; at: string };
+export type IgFeed = { imgs: string[]; posts?: FeedPost[]; profile: IgProfile; at: string };
+
+/* Seeded sets (10/15) have pictures but no post records: treat each picture
+   as a post with no Instagram URL (so it can't be pinned or hidden). */
+export function feedPosts(feed: IgFeed): FeedPost[] {
+  return feed.posts?.length ? feed.posts : (feed.imgs ?? []).map((img) => ({ img, url: "" }));
+}
 export type IgPicks = { hidden?: string[]; pinned?: string[] };
 
 export const KIND_LABEL: Record<PostKind, string> = {
@@ -45,13 +51,18 @@ export function rankPosts(posts: FeedPost[]): FeedPost[] {
 
 /* What the funnel shows: the owner's pinned posts first (in pin order),
    then the ranked rest, minus hidden ones. */
+export const MIN_GRID = 3;
 export function arrangeFeed(feed: IgFeed, picks?: IgPicks | null): IgFeed {
+  const all = feedPosts(feed);
+  if (!all.length) return feed;
   const hidden = new Set(picks?.hidden ?? []);
   const pinned = picks?.pinned ?? [];
-  const byUrl = new Map(feed.posts.map((p) => [p.url, p]));
+  const byUrl = new Map(all.filter((p) => p.url).map((p) => [p.url, p]));
   const front = pinned.map((u) => byUrl.get(u)).filter((p): p is FeedPost => !!p && !hidden.has(p.url));
-  const rest = rankPosts(feed.posts.filter((p) => !hidden.has(p.url) && !pinned.includes(p.url)));
-  const posts = [...front, ...rest];
+  const rest = rankPosts(all.filter((p) => !hidden.has(p.url) && !pinned.includes(p.url)));
+  let posts = [...front, ...rest];
+  /* Never a blank or near-empty grid: too much hidden → automatic order. */
+  if (posts.length < MIN_GRID) posts = rankPosts(all);
   return { ...feed, posts, imgs: posts.map((p) => p.img) };
 }
 
@@ -60,14 +71,18 @@ export function arrangeFeed(feed: IgFeed, picks?: IgPicks | null): IgFeed {
 export type GridPost = FeedPost & { pinned: boolean };
 export type GridView = { profile: IgProfile; at: string; shown: GridPost[]; pool: GridPost[]; hidden: GridPost[]; picks: IgPicks; classified: boolean };
 export function gridView(feed: IgFeed, picks?: IgPicks | null): GridView {
-  const pinned = new Set(picks?.pinned ?? []);
-  const hiddenSet = new Set(picks?.hidden ?? []);
-  const arranged = arrangeFeed(feed, picks).posts.map((p) => ({ ...p, pinned: pinned.has(p.url) }));
+  const all = feedPosts(feed);
+  const urls = new Set(all.map((p) => p.url).filter(Boolean));
+  /* Picks for posts that have since left the feed don't count. */
+  const livePicks: IgPicks = { hidden: (picks?.hidden ?? []).filter((u) => urls.has(u)), pinned: (picks?.pinned ?? []).filter((u) => urls.has(u)) };
+  const pinned = new Set(livePicks.pinned);
+  const hiddenSet = new Set(livePicks.hidden);
+  const arranged = (arrangeFeed(feed, livePicks).posts ?? []).map((p) => ({ ...p, pinned: pinned.has(p.url) }));
   return {
     profile: feed.profile, at: feed.at,
     shown: arranged.slice(0, 6), pool: arranged.slice(6),
-    hidden: feed.posts.filter((p) => hiddenSet.has(p.url)).map((p) => ({ ...p, pinned: false })),
-    picks: { hidden: picks?.hidden ?? [], pinned: picks?.pinned ?? [] },
-    classified: feed.posts.every((p) => !!p.kind),
+    hidden: all.filter((p) => hiddenSet.has(p.url)).map((p) => ({ ...p, pinned: false })),
+    picks: livePicks,
+    classified: all.every((p) => !!p.kind),
   };
 }

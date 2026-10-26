@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyImages } from "@/lib/ig-classify";
-import { rankPosts, type FeedPost, type IgFeed, type IgProfile } from "@/lib/ig-arrange";
+import { feedPosts, rankPosts, type FeedPost, type IgFeed, type IgProfile } from "@/lib/ig-arrange";
 export type { FeedPost, IgFeed, IgProfile } from "@/lib/ig-arrange";
 
 /* In-house Instagram feed (owner, 10/26/2026): replaces the Elfsight widget
@@ -78,11 +78,18 @@ function cleanText(v: unknown): string {
   return /^(none|null|undefined)$/i.test(t) ? "" : t;
 }
 
-export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, why?: string) {
+/* Write only the keys we own: re-read extras right before the update so a
+   pick the owner saved during a slow fetch/classify is not overwritten. */
+export async function patchExtras(svc: SupabaseClient, slug: string, patch: Record<string, unknown>): Promise<string | null> {
   const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+  const extras = { ...((row?.extras ?? {}) as Record<string, unknown>), ...patch };
+  const { error } = await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
+  return error ? error.message : null;
+}
+
+export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, why?: string) {
   const mark: IgFetchMark = { at: new Date().toISOString(), ok, ...(why ? { why } : {}) };
-  const extras = { ...((row?.extras ?? {}) as Record<string, unknown>), igFetch: mark };
-  await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
+  await patchExtras(svc, slug, { igFetch: mark });
 }
 
 export type ApifyPost = {
@@ -181,14 +188,11 @@ export async function snapshotFunnel(
   ]);
   const saved: FeedPost[] = copies.map((img, n) => ({ img, url: posts[n].url || igLink, result: isResultPost(posts[n]) })).filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
-  /* What does each picture show? Verdicts from the previous set carry over
-     by post URL, so only new posts are looked at. */
-  const known = new Map((prevExtras.igFeed?.posts ?? []).filter((p) => p.kind).map((p) => [p.url, p]));
-  const fresh = await classifyImages(saved.filter((p) => !known.has(p.url)).map((p) => p.img));
-  for (const p of saved) {
-    const c = fresh.get(p.img) ?? known.get(p.url);
-    if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; }
-  }
+  /* Verdicts from the previous set carry over by post URL; the new
+     pictures are looked at AFTER the set is saved (below), so a slow or
+     failed classification never throws the paid fetch away. */
+  const known = new Map((prevExtras.igFeed?.posts ?? []).filter((p) => p.kind && p.url).map((p) => [p.url, p]));
+  for (const p of saved) { const c = known.get(p.url); if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; } }
   const ordered = rankPosts(saved);
   /* The scrapers stopped returning the post count (10/2026). Elfsight's
      public profile endpoint still has it (live), then the previous set,
@@ -218,9 +222,18 @@ export async function snapshotFunnel(
   });
   if (insErr) return { ok: false, why: `insert: ${insErr.message}` };
   const mark: IgFetchMark = { at: new Date().toISOString(), ok: true };
-  const extras = { ...prevExtras, igFeed: feed, igFetch: mark };
-  const { error: upErr } = await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
-  if (upErr) return { ok: false, why: `extras: ${upErr.message}` };
+  const upErr = await patchExtras(svc, slug, { igFeed: feed, igFetch: mark });
+  if (upErr) return { ok: false, why: `extras: ${upErr}` };
+  /* Now look at the new pictures and re-rank (second, separate write). */
+  const todo = ordered.filter((p) => !p.kind);
+  if (todo.length) {
+    const cls = await classifyImages(todo.map((p) => p.img));
+    if (cls.size) {
+      for (const p of ordered) { const c = cls.get(p.img); if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; } }
+      const re = rankPosts(ordered);
+      await patchExtras(svc, slug, { igFeed: { ...feed, posts: re, imgs: re.map((p) => p.img) } });
+    }
+  }
   return { ok: true, imgs: saved.length, results: saved.filter((p) => p.result).length };
 }
 
@@ -292,8 +305,8 @@ export async function classifyStoredFeed(svc: SupabaseClient, slug: string, erro
     if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; delete p.tries; }
     else p.tries = (p.tries ?? 0) + 1; // a picture that keeps failing stops being retried after CLASSIFY_TRIES
   }
-  const ordered = rankPosts(feed.posts);
-  await svc.from("onebox_clients").update({ extras: { ...extras, igFeed: { ...feed, posts: ordered, imgs: ordered.map((p) => p.img) } } }).eq("slug", slug);
+  const ordered = rankPosts(feed.posts!);
+  await patchExtras(svc, slug, { igFeed: { ...feed, posts: ordered, imgs: ordered.map((p) => p.img) } });
   return cls.size;
 }
 
@@ -303,7 +316,7 @@ export async function classifyStoredFeed(svc: SupabaseClient, slug: string, erro
 export async function unclassifiedFunnels(svc: SupabaseClient, limit: number): Promise<string[]> {
   const { data: clients } = await svc.from("onebox_clients").select("slug, extras").eq("status", "live");
   return (clients ?? [])
-    .map((c) => { const f = (c.extras as { igFeed?: IgFeed } | null)?.igFeed; return { slug: String(c.slug), n: f?.posts?.filter(needsLook).length ?? 0 }; })
+    .map((c) => { const f = (c.extras as { igFeed?: IgFeed } | null)?.igFeed; return { slug: String(c.slug), n: f?.posts?.length ? feedPosts(f).filter(needsLook).length : 0 }; })
     .filter((c) => c.n > 0)
     .sort((a, b) => b.n - a.n || a.slug.localeCompare(b.slug))
     .slice(0, limit)

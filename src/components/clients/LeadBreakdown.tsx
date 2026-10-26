@@ -94,7 +94,7 @@ const usDate = (iso: string) => { const [y, m, d] = iso.slice(0, 10).split("-");
    page, the ones waiting behind them, the hidden ones. Every picture is
    labeled by what it shows (looked at by the classifier) and can be put
    first or hidden; picks stick through re-fetches. */
-function IgGridBody({ grid, busy, onPick }: { grid: GridView; busy: string | null; onPick: (action: PickAction, postUrl?: string) => void }) {
+function IgGridBody({ grid, busy, onPick, frozen, widgetOff }: { grid: GridView; busy: string | null; onPick: (action: PickAction, postUrl?: string) => void; frozen: boolean; widgetOff: boolean }) {
   const btn = "rounded-full border border-[#cbd5e1] bg-white px-1.5 py-px text-[9px] font-semibold text-[#34568a] disabled:opacity-50";
   const tile = (p: GridPost, where: "shown" | "pool" | "hidden") => (
     <div key={where + p.url} className="w-[92px]">
@@ -104,11 +104,12 @@ function IgGridBody({ grid, busy, onPick }: { grid: GridView; busy: string | nul
         {p.kind ? KIND_LABEL[p.kind] : "Not sorted yet"}{p.q ? ` · ${p.q}/5` : ""}
       </div>
       <div className="mt-0.5 flex flex-wrap gap-0.5">
-        {where !== "hidden" && (p.pinned
+        {!p.url && <span className="text-[9px] text-[#8595a8]">from the first snapshot — refresh to manage</span>}
+        {p.url && where !== "hidden" && (p.pinned
           ? <button type="button" disabled={!!busy} onClick={() => onPick("unpin", p.url)} className={cn(btn, "border-[#93c5fd] bg-[#eff6ff] text-[#1d4ed8]")}>📌 Unpin</button>
           : <button type="button" disabled={!!busy} onClick={() => onPick("pin", p.url)} className={btn}>Put first</button>)}
-        {where !== "hidden" && <button type="button" disabled={!!busy} onClick={() => onPick("hide", p.url)} className={btn}>Hide</button>}
-        {where === "hidden" && <button type="button" disabled={!!busy} onClick={() => onPick("unhide", p.url)} className={btn}>Restore</button>}
+        {p.url && where !== "hidden" && <button type="button" disabled={!!busy} onClick={() => onPick("hide", p.url)} className={btn}>Hide</button>}
+        {p.url && where === "hidden" && <button type="button" disabled={!!busy} onClick={() => onPick("unhide", p.url)} className={btn}>Restore</button>}
       </div>
     </div>
   );
@@ -122,8 +123,13 @@ function IgGridBody({ grid, busy, onPick }: { grid: GridView; busy: string | nul
         {" · "}{grid.classified ? "sorted by what each picture shows" : "some pictures not sorted yet (sorted within the hour)"}
         {edited > 0 && <span className="ml-1.5 inline-flex rounded-full border border-[#93c5fd] bg-[#eff6ff] px-1.5 py-px text-[10px] font-semibold text-[#1d4ed8]">{edited} manual pick{edited > 1 ? "s" : ""}</span>}
       </div>
+      {(frozen || widgetOff) && (
+        <div className="rounded border border-[#fde68a] bg-[#fffbeb] px-2 py-1 text-[10px] text-[#92400e]">
+          {widgetOff ? "The Instagram widget is turned off on this funnel — this grid shows once it is on." : "The funnel is frozen to a saved set — unfreeze it to use this grid and your picks."}
+        </div>
+      )}
       <div>
-        <div className="text-[10px] font-semibold text-[#56678a]">On the funnel now (first row = what a lead sees first)</div>
+        <div className="text-[10px] font-semibold text-[#56678a]">On the funnel for grid visitors (first row = what a lead sees first) · changes reach the page within ~2 minutes</div>
         <div className="mt-1 flex flex-wrap gap-1.5">{grid.shown.map((p) => tile(p, "shown"))}</div>
       </div>
       {grid.pool.length > 0 && (
@@ -451,7 +457,8 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       });
       const j = await r.json();
       if (!r.ok) { window.alert(j?.error || "Failed"); return; }
-      setIgFeed((f) => f ? { ...f, grid: j.grid ?? f.grid } : f);
+      if (action === "refresh") setIgFeedTick((t) => t + 1);
+      else setIgFeed((f) => f ? { ...f, grid: j.grid ?? f.grid } : f);
     } catch { window.alert("Network error — nothing changed."); }
     finally { setIgBusy(null); }
   };
@@ -460,6 +467,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
   // (and again on "Try again"); closed when the account changes.
   const [igFeedOpen, setIgFeedOpen] = useState(false);
   const [igGridOpen, setIgGridOpen] = useState(false);
+  const igPanelOpen = igFeedOpen || igGridOpen;
   const [igFeed, setIgFeed] = useState<IgFeed | null>(null);
   const [igFeedLoading, setIgFeedLoading] = useState(false);
   const [igFeedError, setIgFeedError] = useState<string | null>(null);
@@ -469,7 +477,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     setIgFeedOpen(false); setIgGridOpen(false); setIgFeed(null); setIgFeedError(null);
   }, [locationId]);
   useEffect(() => {
-    if ((!igFeedOpen && !igGridOpen) || !igSlug) return;
+    if (!igPanelOpen || !igSlug) return;
     let cancelled = false;
     setIgFeedLoading(true); setIgFeedError(null);
     fetch(`/api/onebox/ig-feed?slug=${encodeURIComponent(igSlug)}`)
@@ -482,7 +490,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       .catch(() => { if (!cancelled) setIgFeedError("Couldn't load the posts and deposit numbers."); })
       .finally(() => { if (!cancelled) setIgFeedLoading(false); });
     return () => { cancelled = true; };
-  }, [igFeedOpen, igGridOpen, igSlug, igFeedTick]);
+  }, [igPanelOpen, igSlug, igFeedTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -903,9 +911,15 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                       ) : igFeedError ? (
                         <div className="text-[11px] text-[#b91c1c]">{igFeedError}</div>
                       ) : igFeed?.grid ? (
-                        <IgGridBody grid={igFeed.grid} busy={igBusy} onPick={igPick} />
+                        <IgGridBody grid={igFeed.grid} busy={igBusy} onPick={igPick} frozen={!!funnelReview.igState.frozen} widgetOff={!!funnelReview.igState.widgetOff} />
                       ) : igFeed ? (
-                        <div className="text-[11px] text-[#697a91]">No Instagram pictures fetched for this funnel yet — the hourly fetch fills it in, or press Refresh in the panel once it appears.</div>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#697a91]">
+                          No Instagram pictures fetched for this funnel yet.
+                          <button type="button" disabled={!!igBusy} onClick={() => igPick("refresh")} className="inline-flex items-center gap-1 rounded-full border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#34568a] disabled:opacity-50">
+                            {igBusy === "refresh" && <Loader2 size={9} className="animate-spin" />}
+                            Fetch from Instagram now
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                   )}

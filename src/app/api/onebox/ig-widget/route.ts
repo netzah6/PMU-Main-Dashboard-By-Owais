@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { gridView, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
+import { MIN_GRID, feedPosts, gridView, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
 import { refreshFunnel } from "@/lib/ig-fetch";
 
 export const fetchCache = "force-no-store";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 /* IG-widget controls for the CPD Funnel-setup cards (owner request
    2026-10-02):
@@ -70,9 +70,17 @@ export async function POST(req: NextRequest) {
     extras = { ...((again?.extras ?? {}) as Record<string, unknown>) };
   }
   if (["hide", "unhide", "pin", "unpin", "reset"].includes(action)) {
-    const picks: IgPicks = { hidden: [...(extras.igPicks?.hidden ?? [])], pinned: [...(extras.igPicks?.pinned ?? [])] };
+    const posts = extras.igFeed ? feedPosts(extras.igFeed) : [];
+    const urls = new Set(posts.map((p) => p.url).filter(Boolean));
+    if (postUrl && !urls.has(postUrl)) return NextResponse.json({ error: "That picture is no longer in the feed." }, { status: 404 });
+    if (extras.igFrozen && action !== "reset") return NextResponse.json({ error: "The funnel is frozen to a saved set — unfreeze it first." }, { status: 409 });
+    const picks: IgPicks = { hidden: [...(extras.igPicks?.hidden ?? [])].filter((u) => urls.has(u)), pinned: [...(extras.igPicks?.pinned ?? [])].filter((u) => urls.has(u)) };
     const without = (l: string[]) => l.filter((u) => u !== postUrl);
-    if (action === "hide") { picks.hidden = [...without(picks.hidden!), postUrl]; picks.pinned = without(picks.pinned!); }
+    if (action === "hide") {
+      const left = posts.filter((p) => p.url && !picks.hidden!.includes(p.url) && p.url !== postUrl).length;
+      if (left < MIN_GRID) return NextResponse.json({ error: `Keep at least ${MIN_GRID} pictures on the grid — restore one first.` }, { status: 409 });
+      picks.hidden = [...without(picks.hidden!), postUrl]; picks.pinned = without(picks.pinned!);
+    }
     if (action === "unhide") picks.hidden = without(picks.hidden!);
     if (action === "pin") { picks.pinned = [postUrl, ...without(picks.pinned!)]; picks.hidden = without(picks.hidden!); }
     if (action === "unpin") picks.pinned = without(picks.pinned!);
@@ -111,8 +119,13 @@ export async function POST(req: NextRequest) {
   if (action === "on") extras.igWidgetOff = false;
 
   if (action !== "refresh") {
-    const { error: upErr } = await sb.from("onebox_clients").update({ extras }).eq("slug", slug);
+    /* Re-read right before writing so a fetch that finished meanwhile is kept. */
+    const { data: fresh } = await sb.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+    const merged = { ...((fresh?.extras ?? {}) as Record<string, unknown>) };
+    for (const k of ["igFrozen", "igWidgetOff", "igSnapshot", "igPicks"]) { if (k in extras) merged[k] = extras[k]; else delete merged[k]; }
+    const { error: upErr } = await sb.from("onebox_clients").update({ extras: merged }).eq("slug", slug);
     if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
+    extras = merged as typeof extras;
   }
 
   return NextResponse.json({
@@ -121,6 +134,6 @@ export async function POST(req: NextRequest) {
     igWidgetOff: !!extras.igWidgetOff,
     igFrozen: !!extras.igFrozen,
     activeSnapshotAt: (extras.igSnapshot as { at?: string } | undefined)?.at ?? null,
-    grid: extras.igFeed?.posts?.length ? gridView(extras.igFeed, extras.igPicks) : null,
+    grid: extras.igFeed?.imgs?.length ? gridView(extras.igFeed, extras.igPicks) : null,
   });
 }

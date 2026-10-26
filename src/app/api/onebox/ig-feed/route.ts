@@ -108,6 +108,6 @@ export async function GET(req: NextRequest) {
     bestSnapshotId,
     latestSnapshotId,
     /* The in-house grid the funnel shows (owner, 10/26/2026) + the owner's picks. */
-    grid: extras.igFeed?.posts?.length ? gridView(extras.igFeed, extras.igPicks) : null,
+    grid: extras.igFeed?.imgs?.length ? gridView(extras.igFeed, extras.igPicks) : null,
   });
 }

@@ -279,7 +279,13 @@ export async function GET(
     igWidgetGrid: row.extras.igWidgetOff || row.extras.igFrozen || !row.extras.igGridWidget
       ? ""
       : normalizeElfsight(row.extras.igGridWidget),
-    igFeed: row.extras.igWidgetOff || !row.extras.igFeed?.imgs?.length ? "" : JSON.stringify(arrangeFeed(row.extras.igFeed, row.extras.igPicks)),
+    igFeed: (() => {
+      /* Only what the engine draws: profile, pictures in order. Verdicts and
+         post links stay server-side. */
+      if (row.extras.igWidgetOff || !row.extras.igFeed?.imgs?.length) return "";
+      const a = arrangeFeed(row.extras.igFeed, row.extras.igPicks);
+      return a.imgs.length ? JSON.stringify({ imgs: a.imgs, posts: a.imgs.map((img) => ({ img })), profile: a.profile, at: a.at }) : "";
+    })(),
     igFrozenImgs: !row.extras.igWidgetOff && row.extras.igFrozen && row.extras.igSnapshot?.imgs?.length
       ? row.extras.igSnapshot.imgs.join(",")
       : "",
