@@ -19,6 +19,10 @@ const TEST_START = "2026-10-13T07:00:00Z";
 /* Scarcity locked to "b" on 10/26/2026 (owner): every lead after this moment
    carries scar:"b" by default, so the test's numbers stop here. */
 const SCAR_END = "2026-10-26T02:40:09-07:00";
+/* Instagram grid test (#4): side "b" became the in-house 3 × 2 feed on
+   10/26/2026 (before that it was an Elfsight Grid copy on 11 funnels), so
+   the test counts from this deploy, not from its first tagged lead. */
+const IGW_START = "2026-10-26T13:30:00Z";
 
 const PAID = ["booked", "paid", "paid-not-booked", "paid-followup"];
 
@@ -83,17 +87,9 @@ export async function GET() {
         return (c.extras as { template?: string } | null)?.template !== "b2b" && /^\$?\s*\d[\d,]*\s*OFF(\s+for\s+new\s+clients)?\s*!?$/i.test(String(cfg.offer ?? "").trim()) && !cfg.bookingHead;
       })
       .map((c) => c.slug as string);
-    /* Instagram grid test (#4, 10/26/2026): funnels carrying a Grid copy of
-       their widget (extras.igGridWidget) flip the coin; counted from the
-       first tagged lead. */
-    const { data: firstIgw } = await sb
-      .from("onebox_leads")
-      .select("created_at")
-      .in("answers->>igw", ["a", "b"])
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    const igwSince = (firstIgw?.created_at as string | undefined) ?? null;
+    /* Instagram grid test (#4): funnels with an in-house feed (or a Grid
+       copy) flip the coin; counted from IGW_START, once the deploy is live. */
+    const igwSince = Date.now() >= Date.parse(IGW_START) ? IGW_START : null;
     const igwFunnels = (clients ?? []).filter((c) => {
       const ex = (c.extras as { igGridWidget?: string; igFeed?: { imgs?: string[] }; igFrozen?: boolean; igWidgetOff?: boolean } | null) ?? {};
       const cfg = (c.config ?? {}) as Record<string, string>;

@@ -14,16 +14,34 @@ const BUCKET = "onebox-ig";
 const ACTOR = "apify~instagram-profile-scraper";
 const MAX_POSTS = 12;
 const DOWNLOAD_TIMEOUT_MS = 20_000;
+/* The Apify run gets 2 minutes; the daily cron has 5 in total and still
+   has to copy the images after the run comes back. */
+const APIFY_RUN_TIMEOUT_S = 120;
+/* Agency-owned demo funnels — no client Instagram behind them. */
+const SKIP_SLUGS = new Set(["demo-v3", "pmu-bookings"]);
 
 export type IgProfile = { username: string; name: string; pic: string; followers: number | null; posts: number | null };
 export type IgFeed = { imgs: string[]; posts: Array<{ img: string; url: string }>; profile: IgProfile; at: string };
+/* Last fetch attempt, success or not — the due list is ordered by it so a
+   funnel that keeps failing never blocks the others. */
+export type IgFetchMark = { at: string; ok: boolean; why?: string };
 
+/* "https://www.instagram.com/blossom.pmu/" or "@blossom.pmu" → "blossom.pmu".
+   Anything else (a form link, "Instagram Page Link.", a Facebook URL) → ""
+   so it is never sent to the scraper. */
 export function usernameFromLink(link: string | null | undefined): string {
   const s = String(link ?? "").trim();
   if (!s) return "";
-  const m = s.match(/instagram\.com\/([A-Za-z0-9._]+)/i);
-  const u = (m ? m[1] : s.replace(/^@/, "")).replace(/[^A-Za-z0-9._]/g, "");
-  return /^(p|reel|explore|accounts)$/i.test(u) ? "" : u;
+  const m = s.match(/instagram\.com\/([A-Za-z0-9._]{1,30})(?:[/?#]|$)/i);
+  const u = m ? m[1] : /^@?[A-Za-z0-9._]{1,30}$/.test(s) ? s.replace(/^@/, "") : "";
+  return /^(p|reel|reels|explore|accounts|stories)$/i.test(u) ? "" : u;
+}
+
+export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, why?: string) {
+  const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+  const mark: IgFetchMark = { at: new Date().toISOString(), ok, ...(why ? { why } : {}) };
+  const extras = { ...((row?.extras ?? {}) as Record<string, unknown>), igFetch: mark };
+  await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
 }
 
 type ApifyPost = { type?: string; url?: string; displayUrl?: string; images?: string[]; timestamp?: string };
@@ -37,10 +55,10 @@ type ApifyProfile = {
 export async function fetchProfiles(usernames: string[]): Promise<Map<string, ApifyProfile>> {
   const token = process.env.APIFY_TOKEN;
   if (!token) throw new Error("no APIFY_TOKEN");
-  const r = await fetch(`https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=240&memory=512&format=json`, {
+  const r = await fetch(`https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}&timeout=${APIFY_RUN_TIMEOUT_S}&memory=512&format=json`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ usernames, resultsLimit: MAX_POSTS }),
-    signal: AbortSignal.timeout(280_000),
+    signal: AbortSignal.timeout((APIFY_RUN_TIMEOUT_S + 20) * 1000),
   });
   if (!r.ok) throw new Error(`apify ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const items = (await r.json()) as ApifyProfile[];
@@ -66,24 +84,20 @@ export async function snapshotFunnel(
   const posts = (prof.latestPosts ?? []).filter((p) => p.displayUrl || p.images?.[0]).slice(0, MAX_POSTS);
   if (posts.length < 3) return { ok: false, why: `only ${posts.length} posts returned` };
   const today = new Date().toISOString().slice(0, 10);
-  const saved: Array<{ img: string; url: string }> = [];
-  for (let n = 0; n < posts.length; n++) {
-    const src = posts[n].displayUrl || posts[n].images?.[0] || "";
+  /* Copy every image at once (≤ 13 small files) — one by one would eat
+     the cron's time budget. */
+  const copy = async (src: string, path: string): Promise<string> => {
     const body = await download(src);
-    if (!body) continue;
-    const path = `${slug}/${today}/${saved.length + 1}.jpg`;
+    if (!body) return "";
     const { error } = await svc.storage.from(BUCKET).upload(path, body, { upsert: true, contentType: "image/jpeg" });
-    if (error) continue;
-    saved.push({ img: svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl, url: posts[n].url || igLink });
-  }
+    return error ? "" : svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+  };
+  const [pic, ...copies] = await Promise.all([
+    copy(prof.profilePicUrlHD || prof.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
+    ...posts.map((p, n) => copy(p.displayUrl || p.images?.[0] || "", `${slug}/${today}/${n + 1}.jpg`)),
+  ]);
+  const saved = copies.map((img, n) => ({ img, url: posts[n].url || igLink })).filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
-  let pic = "";
-  const picBody = await download(prof.profilePicUrlHD || prof.profilePicUrl || "");
-  if (picBody) {
-    const path = `${slug}/${today}/profile.jpg`;
-    const { error } = await svc.storage.from(BUCKET).upload(path, picBody, { upsert: true, contentType: "image/jpeg" });
-    if (!error) pic = svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
-  }
   const profile: IgProfile = {
     username: prof.username ?? usernameFromLink(igLink), name: prof.fullName ?? "", pic,
     followers: typeof prof.followersCount === "number" ? prof.followersCount : null,
@@ -96,28 +110,28 @@ export async function snapshotFunnel(
   });
   if (insErr) return { ok: false, why: `insert: ${insErr.message}` };
   const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
-  const extras = { ...((row?.extras ?? {}) as Record<string, unknown>), igFeed: feed };
+  const mark: IgFetchMark = { at: new Date().toISOString(), ok: true };
+  const extras = { ...((row?.extras ?? {}) as Record<string, unknown>), igFeed: feed, igFetch: mark };
   const { error: upErr } = await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
   if (upErr) return { ok: false, why: `extras: ${upErr.message}` };
   return { ok: true, imgs: saved.length };
 }
 
-/* Funnels due for a fresh set: live, with an Instagram link, and no
-   snapshot in the last `minAgeDays`. Oldest first. */
+/* Funnels due for a fresh set: live, with a real Instagram handle, and not
+   tried in the last `minAgeDays` (extras.igFetch, written by this fetcher
+   only — the Mac Mini's weekly ig_snapshots rows don't count). Never-tried
+   first, then the longest ago. */
 export async function dueFunnels(svc: SupabaseClient, limit: number, minAgeDays = 6): Promise<Array<{ slug: string; igLink: string; username: string }>> {
   const { data: clients } = await svc.from("onebox_clients").select("slug, config, extras").eq("status", "live");
-  const { data: snaps } = await svc.from("ig_snapshots").select("slug, taken_at").order("taken_at", { ascending: false }).limit(5000);
-  const latest = new Map<string, string>();
-  for (const s of snaps ?? []) if (!latest.has(String(s.slug))) latest.set(String(s.slug), String(s.taken_at));
-  const cutoff = new Date(Date.now() - minAgeDays * 86400_000).toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() - minAgeDays * 86400_000).toISOString();
   return (clients ?? [])
     .map((c) => {
       const cfg = (c.config ?? {}) as Record<string, string>;
-      const ex = (c.extras ?? {}) as { template?: string; igWidgetOff?: boolean };
+      const ex = (c.extras ?? {}) as { template?: string; igWidgetOff?: boolean; igFetch?: IgFetchMark };
       const igLink = String(cfg.igLink ?? "").trim();
-      return { slug: String(c.slug), igLink, username: usernameFromLink(igLink), b2b: ex.template === "b2b", off: !!ex.igWidgetOff, last: latest.get(String(c.slug)) ?? "" };
+      return { slug: String(c.slug), igLink, username: usernameFromLink(igLink), b2b: ex.template === "b2b", off: !!ex.igWidgetOff, last: ex.igFetch?.at ?? "" };
     })
-    .filter((c) => c.username && !c.b2b && !c.off && c.last < cutoff)
+    .filter((c) => c.username && !c.b2b && !c.off && !SKIP_SLUGS.has(c.slug) && c.last < cutoff)
     .sort((a, b) => a.last.localeCompare(b.last))
     .slice(0, limit)
     .map(({ slug, igLink, username }) => ({ slug, igLink, username }));

@@ -826,7 +826,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
             </tr></thead>
             <tbody>
               {row("A — current widget", "The live Instagram widget as it is (Slider: 2 posts stacked, or Thumbnail Carousel: 1 post per screen)", d.igw.a, URG_COLS)}
-              {row("B — grid 3 × 2", "A Grid copy of the same widget: 3 columns × 2 rows on phones, 6 posts at once", d.igw.b, URG_COLS)}
+              {row("B — grid 3 × 2", "Our own feed: profile header + 3 columns × 2 rows on phones, 6 posts at once (no Elfsight)", d.igw.b, URG_COLS)}
             </tbody>
           </table>
         </div>
