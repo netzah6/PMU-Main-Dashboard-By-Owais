@@ -52,10 +52,13 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 //    shutdown, never a kill);
 //  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
 //    works), so Chrome's account reconcilor can never log the mailbox out.
-const WORKER_VERSION = 4; // self-update refuses to downgrade below this
+const WORKER_VERSION = 5; // self-update refuses to downgrade below this
 const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const LOGIN_LOCK = join(HOME, "login.lock");
-const CHROME_ARGS = ["--lang=en-US", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--password-store=basic"];
+// --profile-directory=Default: without it Chrome may open the "Who's using
+// Chrome?" profile picker instead of a window, and the task sits on that
+// picker until the 45-min kill (Mac Mini, 10/26/2026: every task from 1 PM on).
+const CHROME_ARGS = ["--lang=en-US", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--password-store=basic", "--profile-directory=Default"];
 // Dropped from Playwright's defaults: --use-mock-keychain (the cookie-key
 // mismatch above) and --enable-automation (Google blocks sign-in on browsers
 // that advertise automation; the agent's own sign-in recovery needs it off).
@@ -121,6 +124,18 @@ function hardenProfile() {
     if (p.profile.exit_type && p.profile.exit_type !== "Normal") { changes.push(`exit_type ${p.profile.exit_type} → Normal`); p.profile.exit_type = "Normal"; }
     if (changes.length) { writeFileSync(prefFile + ".tmp", JSON.stringify(p)); renameSync(prefFile + ".tmp", prefFile); log("profile:", changes.join(", ")); }
   } catch (e) { log("profile hardening skipped —", e.message); }
+  // Profile picker off at the Chrome level too (Local State), so a hand-opened
+  // Chrome on the Mini can never switch it back on for the worker's launches.
+  const stateFile = join(PROFILE, "Local State");
+  if (!existsSync(stateFile)) return;
+  try {
+    const st = JSON.parse(readFileSync(stateFile, "utf8"));
+    st.profile ??= {};
+    if (st.profile.show_picker_on_startup !== false || st.profile.picker_availability_on_startup !== 1 || st.profile.last_used !== "Default") {
+      st.profile.show_picker_on_startup = false; st.profile.picker_availability_on_startup = 1; st.profile.last_used = "Default";
+      writeFileSync(stateFile + ".tmp", JSON.stringify(st)); renameSync(stateFile + ".tmp", stateFile); log("profile: picker off, Default profile");
+    }
+  } catch (e) { log("Local State hardening skipped —", e.message); }
 }
 
 // ── Self-healing (10/19/2026) ────────────────────────────────────────────────
@@ -286,6 +301,11 @@ async function chromeGone() {
 function resultText(out) {
   try { const j = JSON.parse(out); return String(j.result ?? ""); } catch { return out; }
 }
+// Why a run ended with no text: Claude's JSON says so (error_max_turns,
+// error_during_execution …) — "exit 0" alone told us nothing (10/26/2026).
+function runEnding(out) {
+  try { const j = JSON.parse(out); return [j.subtype, j.is_error ? "is_error" : "", j.num_turns != null ? `${j.num_turns} turns` : ""].filter(Boolean).join(", "); } catch { return ""; }
+}
 // The report is the LAST balanced {...} with a "status" key in Claude's final
 // text. (The old greedy first-{ … last-} match broke whenever the text held any
 // other brace — 10/21/2026, a 12-minute funnel test lost its report that way.)
@@ -323,7 +343,7 @@ async function doTask(t) {
   const status = needsSignIn ? "needs_teammate" : ["done", "failed", "needs_teammate"].includes(rep?.status) ? rep.status : "failed";
   const summary = needsSignIn
     ? "The Mac Mini's Claude is signed out — open Claude on the Mini, sign in again, and the task will retry"
-    : rep?.summary || (code === null ? "Timed out after 45 minutes — check the account by hand" : `The browser run ended without a report — last words: ${(resultText(out).trim() || err.trim()).slice(-400).trim() || `exit ${code}`}`);
+    : rep?.summary || (code === null ? "Timed out after 45 minutes — check the account by hand" : `The browser run ended without a report — last words: ${(resultText(out).trim() || err.trim()).slice(-400).trim() || runEnding(out) || `exit ${code}`}`);
 
   // Upload the screenshots it named, else any image it saved.
   const named = Array.isArray(rep?.screenshots) ? rep.screenshots : [];
