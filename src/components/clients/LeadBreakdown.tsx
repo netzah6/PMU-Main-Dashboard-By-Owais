@@ -954,6 +954,16 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                 </g>
               ))}
               <text x={X0} y={80} fontSize={7.5} fill="#8595a8">{fmtD(trend.points[0].date)}</text>
+              {/* Mid-way dates every ~2 weeks, so a peak can be placed on the calendar (owner, 10/26/2026). */}
+              {[0.25, 0.5, 0.75].map((f) => {
+                const idx = Math.round(f * (trend.points.length - 1));
+                return (
+                  <g key={f}>
+                    <line x1={px(idx)} x2={px(idx)} y1={Y0 + H} y2={Y0 + H + 2.5} stroke="#c3cdd9" strokeWidth={1} />
+                    <text x={px(idx)} y={80} fontSize={7.5} fill="#8595a8" textAnchor="middle">{fmtD(trend.points[idx].date)}</text>
+                  </g>
+                );
+              })}
               <text x={X0 + W} y={80} fontSize={7.5} fill="#8595a8" textAnchor="end">{fmtD(trend.points[trend.points.length - 1].date)}</text>
             </svg>
             {pinGroups.length > 0 ? (
