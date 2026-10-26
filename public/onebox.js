@@ -178,7 +178,7 @@
      Sticky per visitor, recorded as answers.igw; judged on paid deposits
      per 100 leads (the widget sits under the calendar, after the lead). */
   var IGW_V = "";
-  if (C.igWidgetGrid && C.igWidget) {
+  if (C.igWidget && (C.igFeed || C.igWidgetGrid)) {
     try {
       IGW_V = localStorage.getItem("ob_igw") || "";
       if (IGW_V !== "a" && IGW_V !== "b") {
@@ -378,6 +378,14 @@
     "#onebox-root .studio{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;max-width:640px;margin:10px auto 0}" +
     "#onebox-root .results.solo{max-width:640px;margin:0 auto;border-radius:12px;overflow:hidden}" +
     "#onebox-root .igwrap{margin-top:14px}" +
+    "#onebox-root .igself{max-width:640px;margin:0 auto}" +
+    "#onebox-root .ighead{display:flex;align-items:center;gap:12px;padding:4px 6px 8px}" +
+    "#onebox-root .igpic{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:none;padding:2px;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)}" +
+    "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:24px;background:#f1f3f6}" +
+    "#onebox-root .igwho{min-width:0}#onebox-root .iguser{font-weight:800;font-size:16px;color:#1c2b3a;overflow-wrap:anywhere}#onebox-root .igname{font-size:13px;color:#697a91}" +
+    "#onebox-root .igstats{display:flex;gap:18px;padding:0 6px 10px;font-size:13px;color:#697a91}#onebox-root .igstats b{color:#1c2b3a;font-size:15px}" +
+    "#onebox-root .igfollow{display:block;text-align:center;margin:0 0 10px;padding:11px 16px;border-radius:12px;background:#4f6bff;color:#fff;font-family:var(--form);font-weight:700;font-size:15px;text-decoration:none}" +
+    "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}#onebox-root .iggrid a{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
     "#onebox-root .eapps-instagram-feed-header-inner{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center;justify-content:center;column-gap:12px;row-gap:6px}" +
@@ -1181,7 +1189,7 @@
           (ADDR ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
           "<p>We&rsquo;ll text you shortly to lock in your appointment time. Keep an eye on your phone! &#128241;</p>" +
         "</div>" +
-        ((C.igWidget || C.elfsightId || C.igFrozenImgs) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
+        ((C.igWidget || C.elfsightId || C.igFrozenImgs || C.igFeed) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
           "&#128248; Follow us on Instagram for daily results</a>" : "");
     }
     return confettiHtml() +
@@ -1195,7 +1203,7 @@
         (ADDR && !VIDEO ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
         "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service" + (VIDEO ? "" : " at your visit") + ".</p>" +
       "</div>" +
-      ((C.igWidget || C.elfsightId || C.igFrozenImgs) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
+      ((C.igWidget || C.elfsightId || C.igFrozenImgs || C.igFeed) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
         "&#128248; Follow us on Instagram for daily results</a>" : "") +
       '<p class="donenote">We&rsquo;ll be in touch shortly to prepare everything for your visit. Keep an eye on your phone! &#128241;</p>';
   }
@@ -1383,10 +1391,33 @@
        the checkout — one decision on the screen, nothing to wander to. */
     if (V2 && phase === "deposit") { el.innerHTML = ""; return; }
     var IG = IGW_V === "b" && C.igWidgetGrid ? C.igWidgetGrid : (C.igWidget || C.elfsightId || "");
+    /* In-house feed (owner, 10/26/2026): our own copy of the client's posts
+       + profile, fetched weekly from the username alone, rendered as a
+       3 × 2 grid. Side b of A/B #4 sees it instead of the live widget; a
+       frozen funnel always does (with its frozen image set). */
+    var FEED = null;
+    try { FEED = C.igFeed ? JSON.parse(C.igFeed) : null; } catch (e) { FEED = null; }
     /* Frozen feed: the dashboard snapshotted the posts that were live when
        the funnel converted well, and serves them instead of the live
        widget — new IG posts can't change the page any more. */
     var FROZEN = (C.igFrozenImgs || "").split(",").filter(function (u) { return u.trim(); });
+    var SELF = FROZEN.length ? { imgs: FROZEN, posts: [], profile: FEED && FEED.profile } : (IGW_V === "b" && FEED ? FEED : null);
+    function fmtK(n) { n = Number(n) || 0; return n >= 1000000 ? (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "K" : String(n); }
+    function igSelfHtml(f) {
+      var pr = f.profile || {};
+      var items = (f.posts && f.posts.length ? f.posts : (f.imgs || []).map(function (u) { return { img: u, url: IGLINK }; })).slice(0, 6);
+      var head = pr.username
+        ? '<div class="ighead">' + (pr.pic ? '<img class="igpic" src="' + esc(pr.pic) + '" alt="">' : '<span class="igpic igpic-empty">&#128248;</span>') +
+          '<div class="igwho"><div class="iguser">@' + esc(pr.username) + "</div>" + (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") + "</div></div>" +
+          (pr.posts || pr.followers ? '<div class="igstats">' + (pr.posts ? "<span><b>" + fmtK(pr.posts) + "</b> posts</span>" : "") + (pr.followers ? "<span><b>" + fmtK(pr.followers) + "</b> followers</span>" : "") + "</div>" : "")
+        : "";
+      return '<div class="igself">' + head +
+        (IGLINK ? '<a class="igfollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">&#9711; Follow on Instagram</a>' : "") +
+        '<div class="iggrid">' + items.map(function (p) {
+          return '<a href="' + esc(p.url || IGLINK || "#") + '" target="_blank" rel="noopener"><img src="' + esc(p.img) + '" alt="Instagram post" loading="lazy"></a>';
+        }).join("") + "</div>" +
+        (IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">&#128248; See more on Instagram</a>' : "") + "</div>";
+    }
     var GOOG = C.googleWidget || "";
     function loadElfsight() {
       if (!document.querySelector('script[src*="elfsightcdn"]')) {
@@ -1398,20 +1429,15 @@
     var htmlStr = "";
     /* Template order: the client's own before/after photos (the 9 CV
        slots) first, the live Instagram widget right under them. */
-    if (RESULTS.length || IG || FROZEN.length) {
+    if (RESULTS.length || IG || SELF) {
       htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>';
       if (RESULTS.length) {
         htmlStr += '<div class="results solo">' + RESULTS.map(function (u) {
           return '<img src="' + esc(fastImg(u, 640)) + '" alt="Client result" loading="lazy">';
         }).join("") + "</div>";
       }
-      if (FROZEN.length) {
-        htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") +
-          '<div class="results solo igfrozen">' + FROZEN.map(function (u) {
-            return '<img src="' + esc(u) + '" alt="Instagram post" loading="lazy">';
-          }).join("") + "</div>" +
-          (IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">&#128248; See more on Instagram</a>' : "") +
-          (RESULTS.length ? "</div>" : "");
+      if (SELF) {
+        htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") + igSelfHtml(SELF) + (RESULTS.length ? "</div>" : "");
       } else if (IG) {
         htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") +
           '<div class="elfsight-app-' + esc(IG) + '" data-elfsight-app-lazy></div>' +

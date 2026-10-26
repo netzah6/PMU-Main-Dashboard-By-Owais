@@ -55,6 +55,10 @@ type Row = {
        widget (3 columns × 2 rows on phones). When set, visitors flip a
        coin between the live widget (a) and this one (b). */
     igGridWidget?: string;
+    /* In-house feed (10/26/2026): the latest snapshot of the client's posts
+       and profile, written by /api/cron/ig-fetch; the engine renders it as
+       a 3 × 2 grid (side b of A/B #4, and every frozen funnel). */
+    igFeed?: { imgs: string[]; posts?: Array<{ img: string; url: string }>; profile?: Record<string, unknown>; at?: string };
   };
 };
 
@@ -273,6 +277,7 @@ export async function GET(
     igWidgetGrid: row.extras.igWidgetOff || row.extras.igFrozen || !row.extras.igGridWidget
       ? ""
       : normalizeElfsight(row.extras.igGridWidget),
+    igFeed: row.extras.igWidgetOff || !row.extras.igFeed?.imgs?.length ? "" : JSON.stringify(row.extras.igFeed),
     igFrozenImgs: !row.extras.igWidgetOff && row.extras.igFrozen && row.extras.igSnapshot?.imgs?.length
       ? row.extras.igSnapshot.imgs.join(",")
       : "",
@@ -352,7 +357,7 @@ export async function GET(
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap"></noscript>
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
 ${isPay ? `<script>window.OB_PAYFETCH=(function(){try{var t=new URLSearchParams(location.search).get("t");if(!t){var m=location.pathname.match(/\\/([A-Za-z0-9]{8,40})\\/(confirm|last-step)\\/?$/);if(m)t=m[1];}if(!t)return null;return fetch("/api/onebox/paylead?slug=${row.slug}&t="+encodeURIComponent(t)).then(function(r){return r.ok?r.json():null}).catch(function(){return null});}catch(e){return null}})();</script>` : ""}
-<script src="/onebox.js?v=101" defer></script>
+<script src="/onebox.js?v=102" defer></script>
 </head>
 <body style="margin:0">
 ${isPay ? `<div id="ob-pay-veil" style="position:fixed;inset:0;z-index:9999;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif"><p style="margin:0 0 6px;font-weight:700;font-size:18px">One moment&hellip;</p><p style="margin:0;color:#667">Loading your reservation</p></div>` : ""}
