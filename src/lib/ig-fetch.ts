@@ -26,7 +26,10 @@ const APIFY_RUN_TIMEOUT_S = 120;
 /* Agency-owned demo funnels — no client Instagram behind them. */
 const SKIP_SLUGS = new Set(["demo-v3", "pmu-bookings"]);
 
-export type IgProfile = { username: string; name: string; pic: string; followers: number | null; posts: number | null };
+export type IgProfile = {
+  username: string; name: string; pic: string; followers: number | null; posts: number | null;
+  following?: number | null; bio?: string; category?: string; verified?: boolean;
+};
 export type IgFeed = { imgs: string[]; posts: Array<{ img: string; url: string }>; profile: IgProfile; at: string };
 /* Last fetch attempt, success or not — the due list is ordered by it so a
    funnel that keeps failing never blocks the others. */
@@ -61,7 +64,8 @@ export function postImage(p: ApifyPost): string {
   return p.displayUrl || p.images?.[0] || p.thumbnailUrl || p.childPosts?.[0]?.displayUrl || p.childPosts?.[0]?.images?.[0] || "";
 }
 export type ApifyProfile = {
-  username?: string; fullName?: string; followersCount?: number; postsCount?: number; private?: boolean;
+  username?: string; fullName?: string; followersCount?: number; followsCount?: number; postsCount?: number; private?: boolean;
+  biography?: string; businessCategoryName?: string; verified?: boolean;
   profilePicUrlHD?: string; profilePicUrl?: string; latestPosts?: ApifyPost[]; error?: string; errorDescription?: string;
 };
 
@@ -134,12 +138,24 @@ export async function snapshotFunnel(
   ]);
   const saved = copies.map((img, n) => ({ img, url: posts[n].url || igLink })).filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
+  /* The profile scraper stopped returning the post count (10/2026); the
+     weekly Playwright snapshot still records it, so fall back to the newest
+     one we have. */
+  let postsCount: number | null = typeof prof?.postsCount === "number" ? prof.postsCount : prev?.posts ?? null;
+  if (postsCount == null) {
+    const { data: snap } = await svc.from("ig_snapshots").select("posts_count").eq("slug", slug).not("posts_count", "is", null).order("taken_at", { ascending: false }).limit(1).maybeSingle();
+    if (typeof snap?.posts_count === "number") postsCount = snap.posts_count;
+  }
   const profile: IgProfile = {
     username: prof?.username || posts[0].ownerUsername || usernameFromLink(igLink),
     name: prof?.fullName || posts[0].ownerFullName || prev?.name || "",
     pic: newPic || prev?.pic || "",
     followers: typeof prof?.followersCount === "number" ? prof.followersCount : prev?.followers ?? null,
-    posts: typeof prof?.postsCount === "number" ? prof.postsCount : prev?.posts ?? null,
+    posts: postsCount,
+    following: typeof prof?.followsCount === "number" ? prof.followsCount : prev?.following ?? null,
+    bio: (prof?.biography ?? prev?.bio ?? "").trim().slice(0, 300),
+    category: prof?.businessCategoryName ?? prev?.category ?? "",
+    verified: !!(prof?.verified ?? prev?.verified),
   };
   const feed: IgFeed = { imgs: saved.map((p) => p.img), posts: saved, profile, at: today };
   await svc.from("ig_snapshots").delete().eq("slug", slug).eq("taken_at", today);

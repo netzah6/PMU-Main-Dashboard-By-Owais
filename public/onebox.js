@@ -379,11 +379,19 @@
     "#onebox-root .results.solo{max-width:640px;margin:0 auto;border-radius:12px;overflow:hidden}" +
     "#onebox-root .igwrap{margin-top:14px}" +
     "#onebox-root .igself{max-width:640px;margin:0 auto}" +
-    "#onebox-root .ighead{display:flex;align-items:center;gap:12px;padding:4px 6px 8px}" +
-    "#onebox-root .igpic{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:none;padding:2px;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)}" +
-    "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:24px;background:#f1f3f6}" +
-    "#onebox-root .igwho{min-width:0}#onebox-root .iguser{font-weight:800;font-size:16px;color:#1c2b3a;overflow-wrap:anywhere}#onebox-root .igname{font-size:13px;color:#697a91}" +
-    "#onebox-root .igstats{display:flex;gap:18px;padding:0 6px 10px;font-size:13px;color:#697a91}#onebox-root .igstats b{color:#1c2b3a;font-size:15px}" +
+    /* Profile header laid out like the Instagram app: handle on top, photo
+       beside the three counts, then the name, category and bio. */
+    "#onebox-root .igself,#onebox-root .igself *{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#000}" +
+    "#onebox-root .igtop{display:flex;align-items:center;gap:4px;font-weight:700;font-size:16px;padding:8px 6px 10px}" +
+    "#onebox-root .igtop svg{width:16px;height:16px;flex:none}" +
+    "#onebox-root .igself .ighead{display:flex;align-items:center;gap:22px;padding:0 6px 10px;border-bottom:0}" +
+    "#onebox-root .igpic{width:77px;height:77px;border-radius:50%;object-fit:cover;flex:none;border:1px solid #dbdbdb;background:#fafafa}" +
+    "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:28px}" +
+    "#onebox-root .igstats{display:flex;flex:1;justify-content:space-around;text-align:center;gap:6px}" +
+    "#onebox-root .igstats div{line-height:1.25}#onebox-root .igstats b{display:block;font-size:17px;font-weight:700}#onebox-root .igstats span{font-size:13px}" +
+    "#onebox-root .igname{font-weight:600;font-size:14px;padding:0 6px;line-height:1.3}" +
+    "#onebox-root .igcat{font-size:13px;color:#737373;padding:0 6px;line-height:1.3}" +
+    "#onebox-root .igbio{font-size:13px;padding:1px 6px 12px;line-height:1.35;white-space:pre-line;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}" +
     "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
@@ -1401,14 +1409,27 @@
        widget — new IG posts can't change the page any more. */
     var FROZEN = (C.igFrozenImgs || "").split(",").filter(function (u) { return u.trim(); });
     var SELF = FROZEN.length ? { imgs: FROZEN, posts: [], profile: FEED && FEED.profile } : (IGW_V === "b" && FEED ? FEED : null);
-    function fmtK(n) { n = Number(n) || 0; return n >= 1000000 ? (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "K" : String(n); }
+    /* Counts the way the Instagram app prints them: 9,999 with a comma,
+       10K and up abbreviated (11.2K, 112K, 1.2M). */
+    function fmtK(n) {
+      n = Number(n) || 0;
+      if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+      if (n >= 100000) return Math.round(n / 1000) + "K";
+      if (n >= 10000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+      return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+    var IG_CHECK = '<svg viewBox="0 0 24 24" aria-label="Verified"><path fill="#0095f6" d="M12 1.5l2.6 2.4 3.5-.5 1 3.4 3.1 1.7-1.3 3.3 1.3 3.3-3.1 1.7-1 3.4-3.5-.5L12 22.5l-2.6-2.4-3.5.5-1-3.4L1.8 15.5l1.3-3.3-1.3-3.3 3.1-1.7 1-3.4 3.5.5z"/><path fill="#fff" d="M10.4 16.1l-3.5-3.4 1.4-1.4 2.1 2 5.3-5.4 1.4 1.4z"/></svg>';
     function igSelfHtml(f) {
       var pr = f.profile || {};
       var items = (f.posts && f.posts.length ? f.posts : (f.imgs || []).map(function (u) { return { img: u, url: IGLINK }; })).slice(0, 6);
+      function stat(n, label) { return n ? "<div><b>" + fmtK(n) + "</b><span>" + label + "</span></div>" : ""; }
       var head = pr.username
-        ? '<div class="ighead">' + (pr.pic ? '<img class="igpic" src="' + esc(pr.pic) + '" alt="">' : '<span class="igpic igpic-empty">&#128248;</span>') +
-          '<div class="igwho"><div class="iguser">@' + esc(pr.username) + "</div>" + (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") + "</div></div>" +
-          (pr.posts || pr.followers ? '<div class="igstats">' + (pr.posts ? "<span><b>" + fmtK(pr.posts) + "</b> posts</span>" : "") + (pr.followers ? "<span><b>" + fmtK(pr.followers) + "</b> followers</span>" : "") + "</div>" : "")
+        ? '<div class="igtop">' + esc(pr.username) + (pr.verified ? IG_CHECK : "") + "</div>" +
+          '<div class="ighead">' + (pr.pic ? '<img class="igpic" src="' + esc(pr.pic) + '" alt="">' : '<span class="igpic igpic-empty">&#128248;</span>') +
+          '<div class="igstats">' + stat(pr.posts, "posts") + stat(pr.followers, "followers") + stat(pr.following, "following") + "</div></div>" +
+          (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") +
+          (pr.category ? '<div class="igcat">' + esc(pr.category) + "</div>" : "") +
+          (pr.bio ? '<div class="igbio">' + esc(pr.bio) + "</div>" : "")
         : "";
       /* No way out of the funnel here (owner, 10/26/2026): no Follow button,
          no "See more", tiles are plain pictures. The thank-you step after
