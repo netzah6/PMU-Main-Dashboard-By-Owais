@@ -55,6 +55,10 @@ type Row = {
        widget (3 columns × 2 rows on phones). When set, visitors flip a
        coin between the live widget (a) and this one (b). */
     igGridWidget?: string;
+    /* In-house feed (10/26/2026): the latest snapshot of the client's posts
+       and profile, written by /api/cron/ig-fetch; the engine renders it as
+       a 3 × 2 grid (side b of A/B #4, and every frozen funnel). */
+    igFeed?: { imgs: string[]; posts?: Array<{ img: string; url: string }>; profile?: Record<string, unknown>; at?: string };
   };
 };
 
@@ -273,6 +277,7 @@ export async function GET(
     igWidgetGrid: row.extras.igWidgetOff || row.extras.igFrozen || !row.extras.igGridWidget
       ? ""
       : normalizeElfsight(row.extras.igGridWidget),
+    igFeed: row.extras.igWidgetOff || !row.extras.igFeed?.imgs?.length ? "" : JSON.stringify(row.extras.igFeed),
     igFrozenImgs: !row.extras.igWidgetOff && row.extras.igFrozen && row.extras.igSnapshot?.imgs?.length
       ? row.extras.igSnapshot.imgs.join(",")
       : "",

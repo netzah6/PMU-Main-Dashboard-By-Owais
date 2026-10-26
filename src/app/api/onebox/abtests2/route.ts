@@ -94,7 +94,11 @@ export async function GET() {
       .limit(1)
       .maybeSingle();
     const igwSince = (firstIgw?.created_at as string | undefined) ?? null;
-    const igwFunnels = (clients ?? []).filter((c) => !!(c.extras as { igGridWidget?: string } | null)?.igGridWidget).length;
+    const igwFunnels = (clients ?? []).filter((c) => {
+      const ex = (c.extras as { igGridWidget?: string; igFeed?: { imgs?: string[] }; igFrozen?: boolean; igWidgetOff?: boolean } | null) ?? {};
+      const cfg = (c.config ?? {}) as Record<string, string>;
+      return !!cfg.igWidget && !ex.igFrozen && !ex.igWidgetOff && (!!ex.igGridWidget || !!ex.igFeed?.imgs?.length);
+    }).length;
     const zero = { leads: 0, picked: 0, paid: 0 };
     const [scarA, scarB, shortA, shortB, scarVisitors, shortVisitors, offerA, offerB, offerC] = await Promise.all([
       side("scar", "a", TEST_START, SCAR_END), side("scar", "b", TEST_START, SCAR_END),
