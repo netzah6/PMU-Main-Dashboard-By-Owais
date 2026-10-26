@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { classifyImages } from "@/lib/ig-classify";
+import { rankPosts, type FeedPost, type IgFeed, type IgProfile } from "@/lib/ig-arrange";
+export type { FeedPost, IgFeed, IgProfile } from "@/lib/ig-arrange";
 
 /* In-house Instagram feed (owner, 10/26/2026): replaces the Elfsight widget
    on the funnels. Nothing is asked of the client — from the Instagram
@@ -31,11 +34,6 @@ const APIFY_RUN_TIMEOUT_S = 120;
 /* Agency-owned demo funnels — no client Instagram behind them. */
 const SKIP_SLUGS = new Set(["demo-v3", "pmu-bookings"]);
 
-export type IgProfile = {
-  username: string; name: string; pic: string; followers: number | null; posts: number | null;
-  following?: number | null; bio?: string; category?: string; verified?: boolean;
-};
-export type IgFeed = { imgs: string[]; posts: Array<{ img: string; url: string; result?: boolean }>; profile: IgProfile; at: string };
 
 /* Results posts first (caption says before/after, brows, lips…), then the
    rest; newest first within each group; a picture beats a video when the
@@ -181,8 +179,17 @@ export async function snapshotFunnel(
     copy(prof?.profilePicUrlHD || prof?.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
     ...posts.map((p, n) => copy(postImage(p), `${slug}/${today}/${n + 1}.jpg`)),
   ]);
-  const saved = copies.map((img, n) => ({ img, url: posts[n].url || igLink, result: isResultPost(posts[n]) })).filter((p) => p.img);
+  const saved: FeedPost[] = copies.map((img, n) => ({ img, url: posts[n].url || igLink, result: isResultPost(posts[n]) })).filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
+  /* What does each picture show? Verdicts from the previous set carry over
+     by post URL, so only new posts are looked at. */
+  const known = new Map((prevExtras.igFeed?.posts ?? []).filter((p) => p.kind).map((p) => [p.url, p]));
+  const fresh = await classifyImages(saved.filter((p) => !known.has(p.url)).map((p) => p.img));
+  for (const p of saved) {
+    const c = fresh.get(p.img) ?? known.get(p.url);
+    if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; }
+  }
+  const ordered = rankPosts(saved);
   /* The scrapers stopped returning the post count (10/2026). Elfsight's
      public profile endpoint still has it (live), then the previous set,
      then the newest Playwright snapshot. */
@@ -204,10 +211,10 @@ export async function snapshotFunnel(
     category: cleanText(prof?.businessCategoryName) || prev?.category || "",
     verified: !!(prof?.verified ?? prev?.verified),
   };
-  const feed: IgFeed = { imgs: saved.map((p) => p.img), posts: saved, profile, at: today };
+  const feed: IgFeed = { imgs: ordered.map((p) => p.img), posts: ordered, profile, at: today };
   await svc.from("ig_snapshots").delete().eq("slug", slug).eq("taken_at", today);
   const { error: insErr } = await svc.from("ig_snapshots").insert({
-    slug, taken_at: today, imgs: feed.imgs, posts_count: profile.posts, followers: profile.followers, source: "apify", profile, posts: saved,
+    slug, taken_at: today, imgs: feed.imgs, posts_count: profile.posts, followers: profile.followers, source: "apify", profile, posts: ordered,
   });
   if (insErr) return { ok: false, why: `insert: ${insErr.message}` };
   const mark: IgFetchMark = { at: new Date().toISOString(), ok: true };
@@ -235,4 +242,61 @@ export async function dueFunnels(svc: SupabaseClient, limit: number, minAgeDays 
     .sort((a, b) => a.last.localeCompare(b.last))
     .slice(0, limit)
     .map(({ slug, igLink, username }) => ({ slug, igLink, username }));
+}
+
+/* Fetch + classify one funnel right now (the dashboard's "Refresh from
+   Instagram" button). Marks the attempt like the cron does. */
+export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<{ ok: true; imgs: number; results: number } | { ok: false; why: string }> {
+  const { data: row } = await svc.from("onebox_clients").select("slug, config").eq("slug", slug).maybeSingle();
+  const igLink = String((row?.config as Record<string, string> | null)?.igLink ?? "").trim();
+  const username = usernameFromLink(igLink);
+  if (!username) return { ok: false, why: "no Instagram handle on this funnel" };
+  let prof: ApifyProfile | undefined;
+  let posts: ApifyPost[] = [];
+  try {
+    const [profiles, byUser] = await Promise.all([
+      fetchProfiles([username]).catch(() => new Map<string, ApifyProfile>()),
+      fetchPosts([username]),
+    ]);
+    prof = profiles.get(username.toLowerCase());
+    posts = byUser.get(username.toLowerCase()) ?? [];
+  } catch (e) {
+    return { ok: false, why: e instanceof Error ? e.message : String(e) };
+  }
+  if (!posts.length) {
+    const why = prof?.private ? "private account" : "no posts returned (private, renamed, or blocked)";
+    await markFetch(svc, slug, false, why);
+    return { ok: false, why };
+  }
+  const r = await snapshotFunnel(svc, slug, prof, posts, igLink);
+  if (!r.ok) await markFetch(svc, slug, false, r.why);
+  return r;
+}
+
+/* Classify the pictures a funnel already has (no Apify call) and re-rank
+   them. Used to backfill the fleet and by the cron's spare time. Returns
+   how many pictures were looked at. */
+export async function classifyStoredFeed(svc: SupabaseClient, slug: string): Promise<number> {
+  const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+  const extras = (row?.extras ?? {}) as Record<string, unknown> & { igFeed?: IgFeed };
+  const feed = extras.igFeed;
+  if (!feed?.posts?.length) return 0;
+  const todo = feed.posts.filter((p) => !p.kind);
+  if (!todo.length) return 0;
+  const cls = await classifyImages(todo.map((p) => p.img));
+  if (!cls.size) return 0;
+  for (const p of feed.posts) { const c = cls.get(p.img); if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; } }
+  const ordered = rankPosts(feed.posts);
+  await svc.from("onebox_clients").update({ extras: { ...extras, igFeed: { ...feed, posts: ordered, imgs: ordered.map((p) => p.img) } } }).eq("slug", slug);
+  return cls.size;
+}
+
+/* Live funnels whose grid still has unsorted pictures, most-visited first
+   is not known here, so alphabetical. */
+export async function unclassifiedFunnels(svc: SupabaseClient, limit: number): Promise<string[]> {
+  const { data: clients } = await svc.from("onebox_clients").select("slug, extras").eq("status", "live").order("slug");
+  return (clients ?? [])
+    .filter((c) => { const f = (c.extras as { igFeed?: IgFeed } | null)?.igFeed; return !!f?.posts?.length && f.posts.some((p) => !p.kind); })
+    .slice(0, limit)
+    .map((c) => String(c.slug));
 }

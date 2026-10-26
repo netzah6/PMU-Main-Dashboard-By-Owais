@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, snapshotFunnel } from "@/lib/ig-fetch";
+import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, snapshotFunnel, unclassifiedFunnels } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
 /* Stop starting new funnels after this; Vercel kills the function at 300 s
@@ -23,11 +23,28 @@ export async function GET(req: NextRequest) {
   const t0 = Date.now();
   const svc = createServiceClient();
   const limit = Math.min(12, Number(req.nextUrl.searchParams.get("limit") ?? 6) || 6);
+  /* ?classify=1: look at the pictures the funnels already have (no Apify),
+     up to `limit` funnels — the fleet backfill. */
+  if (req.nextUrl.searchParams.get("classify")) {
+    const slugs = await unclassifiedFunnels(svc, Math.min(40, Number(req.nextUrl.searchParams.get("limit") ?? 10) || 10));
+    const done: Record<string, number> = {};
+    for (const s of slugs) {
+      if (Date.now() - t0 > TIME_BUDGET_MS) break;
+      done[s] = await classifyStoredFeed(svc, s);
+    }
+    return NextResponse.json({ classified: done, left: slugs.length - Object.keys(done).length, seconds: Math.round((Date.now() - t0) / 1000) });
+  }
   const only = req.nextUrl.searchParams.get("slug");
   const due = only
     ? (await dueFunnels(svc, 500, -1)).filter((f) => f.slug === only)
     : await dueFunnels(svc, limit);
-  if (!due.length) return NextResponse.json({ fetched: 0, note: "nothing due" });
+  if (!due.length) {
+    /* Nothing to fetch — use the hour to sort any grid that still has
+       unsorted pictures. */
+    const tail: Record<string, number> = {};
+    for (const s of await unclassifiedFunnels(svc, 8)) { if (Date.now() - t0 > TIME_BUDGET_MS) break; tail[s] = await classifyStoredFeed(svc, s); }
+    return NextResponse.json({ fetched: 0, note: "nothing due", classified: Object.keys(tail).length ? tail : undefined });
+  }
   const results: Record<string, string> = {};
   const skipped: string[] = [];
   const names = due.map((f) => f.username);
