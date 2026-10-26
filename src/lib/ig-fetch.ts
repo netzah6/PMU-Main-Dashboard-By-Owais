@@ -44,7 +44,13 @@ export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, 
   await svc.from("onebox_clients").update({ extras }).eq("slug", slug);
 }
 
-type ApifyPost = { type?: string; url?: string; displayUrl?: string; images?: string[]; timestamp?: string };
+type ApifyPost = { type?: string; url?: string; displayUrl?: string; thumbnailUrl?: string; images?: string[]; childPosts?: ApifyPost[]; timestamp?: string };
+
+/* The image to show for a post: its own picture, else the first slide of a
+   carousel, else the video thumbnail. */
+export function postImage(p: ApifyPost): string {
+  return p.displayUrl || p.images?.[0] || p.thumbnailUrl || p.childPosts?.[0]?.displayUrl || p.childPosts?.[0]?.images?.[0] || "";
+}
 type ApifyProfile = {
   username?: string; fullName?: string; followersCount?: number; postsCount?: number;
   profilePicUrlHD?: string; profilePicUrl?: string; latestPosts?: ApifyPost[]; error?: string; errorDescription?: string;
@@ -81,7 +87,7 @@ async function download(url: string): Promise<Buffer | null> {
 export async function snapshotFunnel(
   svc: SupabaseClient, slug: string, prof: ApifyProfile, igLink: string,
 ): Promise<{ ok: true; imgs: number } | { ok: false; why: string }> {
-  const posts = (prof.latestPosts ?? []).filter((p) => p.displayUrl || p.images?.[0]).slice(0, MAX_POSTS);
+  const posts = (prof.latestPosts ?? []).filter((p) => postImage(p)).slice(0, MAX_POSTS);
   if (posts.length < 3) return { ok: false, why: `only ${posts.length} posts returned` };
   const today = new Date().toISOString().slice(0, 10);
   /* Copy every image at once (≤ 13 small files) — one by one would eat
@@ -94,7 +100,7 @@ export async function snapshotFunnel(
   };
   const [pic, ...copies] = await Promise.all([
     copy(prof.profilePicUrlHD || prof.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
-    ...posts.map((p, n) => copy(p.displayUrl || p.images?.[0] || "", `${slug}/${today}/${n + 1}.jpg`)),
+    ...posts.map((p, n) => copy(postImage(p), `${slug}/${today}/${n + 1}.jpg`)),
   ]);
   const saved = copies.map((img, n) => ({ img, url: posts[n].url || igLink })).filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };

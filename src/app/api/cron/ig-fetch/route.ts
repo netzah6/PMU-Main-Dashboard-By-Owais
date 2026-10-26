@@ -36,6 +36,19 @@ export async function GET(req: NextRequest) {
        marks, so the same funnels are first in line tomorrow. */
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e), due: due.map((f) => f.slug) }, { status: 502 });
   }
+  /* ?debug=1: show what the scraper returned (shape only), write nothing. */
+  if (req.nextUrl.searchParams.get("debug")) {
+    const shape = (v: unknown): unknown => typeof v === "string" ? v.slice(0, 140) : Array.isArray(v) ? `[${v.length}]` : v && typeof v === "object" ? Object.keys(v as object).slice(0, 40) : v;
+    return NextResponse.json({
+      due: due.map((f) => f.username),
+      raw: due.map((f) => {
+        const p = profiles.get(f.username.toLowerCase()) as Record<string, unknown> | undefined;
+        if (!p) return { slug: f.slug, note: "not returned" };
+        const posts = (p.latestPosts as Record<string, unknown>[] | undefined) ?? [];
+        return { slug: f.slug, keys: Object.keys(p), latestPosts: posts.length, firstPost: posts[0] ? Object.fromEntries(Object.entries(posts[0]).map(([k, v]) => [k, shape(v)])) : null, error: p.error, errorDescription: p.errorDescription, followers: p.followersCount, postsCount: p.postsCount, private: p.private, pic: !!p.profilePicUrl };
+      }),
+    });
+  }
   for (const f of due) {
     if (Date.now() - t0 > TIME_BUDGET_MS) { skipped.push(f.slug); continue; }
     const p = profiles.get(f.username.toLowerCase());
