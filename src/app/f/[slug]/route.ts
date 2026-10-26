@@ -51,6 +51,10 @@ type Row = {
     igWidgetOff?: boolean;
     igFrozen?: boolean;
     igSnapshot?: { imgs: string[]; at: string };
+    /* A/B #4 (owner, 10/26/2026): a Grid copy of the client's Elfsight
+       widget (3 columns × 2 rows on phones). When set, visitors flip a
+       coin between the live widget (a) and this one (b). */
+    igGridWidget?: string;
   };
 };
 
@@ -266,6 +270,9 @@ export async function GET(
     igWidget: row.extras.igWidgetOff || row.extras.igFrozen
       ? ""
       : normalizeElfsight(row.config.igWidget || row.config.elfsightId || row.extras.elfsightId || ""),
+    igWidgetGrid: row.extras.igWidgetOff || row.extras.igFrozen || !row.extras.igGridWidget
+      ? ""
+      : normalizeElfsight(row.extras.igGridWidget),
     igFrozenImgs: !row.extras.igWidgetOff && row.extras.igFrozen && row.extras.igSnapshot?.imgs?.length
       ? row.extras.igSnapshot.imgs.join(",")
       : "",

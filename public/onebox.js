@@ -170,6 +170,23 @@
       }
     } catch (e) { OFFER_V = "a"; }
   }
+  /* A/B #4 — Instagram widget layout (owner, 10/26/2026), 50/50 on the
+     funnels that carry a Grid copy of their widget (igWidgetGrid):
+       a = the live widget as it is (Slider / Thumbnail Carousel: 1–2 posts
+           per phone screen),
+       b = the Grid copy (3 columns × 2 rows on phones: 6 posts at once).
+     Sticky per visitor, recorded as answers.igw; judged on paid deposits
+     per 100 leads (the widget sits under the calendar, after the lead). */
+  var IGW_V = "";
+  if (C.igWidgetGrid && C.igWidget) {
+    try {
+      IGW_V = localStorage.getItem("ob_igw") || "";
+      if (IGW_V !== "a" && IGW_V !== "b") {
+        IGW_V = Math.random() < 0.5 ? "a" : "b";
+        localStorage.setItem("ob_igw", IGW_V);
+      }
+    } catch (e) { IGW_V = "a"; }
+  }
   var OFFER_URGENCY = "";
   if (OFFER_V === "c") {
     var sun = new Date();
@@ -497,6 +514,7 @@
       scar: AB2_ON ? SCAR_V : "",
       shortq2: AB2_ON ? SHORTQ_V : "",
       offer3: OFFER_V,
+      igw: IGW_V,
       source: "onebox"
     };
     /* Genuinely new custom-survey questions ride along too — anything in
@@ -1364,7 +1382,7 @@
     /* V2 deposit step is pay-only: no photo grid, map or widgets under
        the checkout — one decision on the screen, nothing to wander to. */
     if (V2 && phase === "deposit") { el.innerHTML = ""; return; }
-    var IG = C.igWidget || C.elfsightId || "";
+    var IG = IGW_V === "b" && C.igWidgetGrid ? C.igWidgetGrid : (C.igWidget || C.elfsightId || "");
     /* Frozen feed: the dashboard snapshotted the posts that were live when
        the funnel converted well, and serves them instead of the live
        widget — new IG posts can't change the page any more. */

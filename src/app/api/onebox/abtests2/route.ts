@@ -27,7 +27,7 @@ export async function GET() {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const sb = createServiceClient();
-  const count = async (tag: "scar" | "shortq2" | "offer3", v: "a" | "b" | "c", since: string, kind: "leads" | "picked" | "paid", until?: string) => {
+  const count = async (tag: "scar" | "shortq2" | "offer3" | "igw", v: "a" | "b" | "c", since: string, kind: "leads" | "picked" | "paid", until?: string) => {
     let q = sb
       .from("onebox_leads")
       .select("id", { count: "exact", head: true })
@@ -50,7 +50,7 @@ export async function GET() {
   try {
     const started = Date.now() >= Date.parse(TEST_START);
     if (!started) return NextResponse.json({ since: TEST_START, started: false });
-    const side = async (tag: "scar" | "shortq2" | "offer3", v: "a" | "b" | "c", since: string, until?: string) => ({
+    const side = async (tag: "scar" | "shortq2" | "offer3" | "igw", v: "a" | "b" | "c", since: string, until?: string) => ({
       leads: await count(tag, v, since, "leads", until),
       picked: await count(tag, v, since, "picked", until),
       paid: await count(tag, v, since, "paid", until),
@@ -83,6 +83,18 @@ export async function GET() {
         return (c.extras as { template?: string } | null)?.template !== "b2b" && /^\$?\s*\d[\d,]*\s*OFF(\s+for\s+new\s+clients)?\s*!?$/i.test(String(cfg.offer ?? "").trim()) && !cfg.bookingHead;
       })
       .map((c) => c.slug as string);
+    /* Instagram grid test (#4, 10/26/2026): funnels carrying a Grid copy of
+       their widget (extras.igGridWidget) flip the coin; counted from the
+       first tagged lead. */
+    const { data: firstIgw } = await sb
+      .from("onebox_leads")
+      .select("created_at")
+      .in("answers->>igw", ["a", "b"])
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const igwSince = (firstIgw?.created_at as string | undefined) ?? null;
+    const igwFunnels = (clients ?? []).filter((c) => !!(c.extras as { igGridWidget?: string } | null)?.igGridWidget).length;
     const zero = { leads: 0, picked: 0, paid: 0 };
     const [scarA, scarB, shortA, shortB, scarVisitors, shortVisitors, offerA, offerB, offerC] = await Promise.all([
       side("scar", "a", TEST_START, SCAR_END), side("scar", "b", TEST_START, SCAR_END),
@@ -91,6 +103,7 @@ export async function GET() {
       offerSince ? side("offer3", "a", offerSince) : zero, offerSince ? side("offer3", "b", offerSince) : zero,
       offerSince ? side("offer3", "c", offerSince) : zero,
     ]);
+    const [igwA, igwB] = await Promise.all([igwSince ? side("igw", "a", igwSince) : zero, igwSince ? side("igw", "b", igwSince) : zero]);
     return NextResponse.json({
       since: TEST_START,
       started: true,
@@ -98,6 +111,7 @@ export async function GET() {
       scar: { a: scarA, b: scarB },
       shortq: { a: shortA, b: shortB, since: shortSince, visitorsPerArm: shortVisitors },
       offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, funnels: offerSlugs.length },
+      igw: { a: igwA, b: igwB, since: igwSince ?? undefined, funnels: igwFunnels },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e).slice(0, 200) }, { status: 500 });
