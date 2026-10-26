@@ -33,9 +33,12 @@ export function classifierReady(): boolean {
 
 async function classifyOne(client: Anthropic, url: string, errors: string[]): Promise<PostClass | null> {
   try {
+    /* The model thinks before it answers and the thinking counts toward
+       max_tokens, so leave room; low effort keeps it short. */
     const res = await client.messages.create({
       model: MODEL,
-      max_tokens: 200,
+      max_tokens: 2000,
+      ...({ output_config: { effort: "low" } } as Record<string, unknown>),
       system: SYSTEM,
       messages: [{
         role: "user",

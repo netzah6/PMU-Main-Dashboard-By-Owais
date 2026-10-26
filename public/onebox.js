@@ -392,7 +392,7 @@
     "#onebox-root .igname{font-weight:600;font-size:14px;padding:0 6px;line-height:1.3}" +
     "#onebox-root .igcat{font-size:13px;color:#737373;padding:0 6px;line-height:1.3}" +
     "#onebox-root .igbio{font-size:13px;margin:1px 6px 10px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
-    "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
+    "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:14px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
     "#onebox-root .eapps-instagram-feed-header-inner{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center;justify-content:center;column-gap:12px;row-gap:6px}" +
