@@ -46,6 +46,12 @@ export function usernameFromLink(link: string | null | undefined): string {
   return /^(p|reel|reels|explore|accounts|stories)$/i.test(u) ? "" : u;
 }
 
+/* The scraper sends "None" / "null" as text for empty fields. */
+function cleanText(v: unknown): string {
+  const t = typeof v === "string" ? v.trim() : "";
+  return /^(none|null|undefined)$/i.test(t) ? "" : t;
+}
+
 export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, why?: string) {
   const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
   const mark: IgFetchMark = { at: new Date().toISOString(), ok, ...(why ? { why } : {}) };
@@ -153,8 +159,8 @@ export async function snapshotFunnel(
     followers: typeof prof?.followersCount === "number" ? prof.followersCount : prev?.followers ?? null,
     posts: postsCount,
     following: typeof prof?.followsCount === "number" ? prof.followsCount : prev?.following ?? null,
-    bio: (prof?.biography ?? prev?.bio ?? "").trim().slice(0, 300),
-    category: prof?.businessCategoryName ?? prev?.category ?? "",
+    bio: (cleanText(prof?.biography) || prev?.bio || "").slice(0, 300),
+    category: cleanText(prof?.businessCategoryName) || prev?.category || "",
     verified: !!(prof?.verified ?? prev?.verified),
   };
   const feed: IgFeed = { imgs: saved.map((p) => p.img), posts: saved, profile, at: today };
