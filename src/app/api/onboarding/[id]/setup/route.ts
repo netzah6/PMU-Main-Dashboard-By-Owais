@@ -28,6 +28,24 @@ async function who(): Promise<{ email: string; role: string } | null> {
 const redact = (s: SetupState | null): (Omit<SetupState, "password"> & { has_password: boolean }) | null =>
   s ? (({ password, ...rest }) => ({ ...rest, has_password: !!password }))(s) : null;
 
+// The Meta pixels the agency reuses across clients (owner 10/26/2026: "a lot
+// of pixels we usually use — make it easy to choose them"). A pixel counts as
+// one of ours when 2+ one-boxes already carry it; one-offs are the client's own.
+type SharedPixel = { id: string; clients: number; sample: string[] };
+async function sharedPixels(svc: ReturnType<typeof createServiceClient>): Promise<SharedPixel[]> {
+  const { data } = await svc.from("onebox_clients").select("slug, extras").order("slug");
+  const by = new Map<string, string[]>();
+  for (const r of (data ?? []) as Array<{ slug: string; extras: Record<string, unknown> | null }>) {
+    const id = String(r.extras?.metaPixelId ?? "").replace(/\D/g, "");
+    if (id.length < 10) continue;
+    by.set(id, [...(by.get(id) ?? []), r.slug]);
+  }
+  return [...by.entries()]
+    .filter(([, slugs]) => slugs.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+    .map(([id, slugs]) => ({ id, clients: slugs.length, sample: slugs.filter((s) => s !== "demo-v3").slice(0, 2) }));
+}
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const u = await who();
   if (!u) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -40,6 +58,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // The pool is only needed before Approve (and the Claim button's account wins).
   const claimLoc = (row.claim as { location_id?: string; original_name?: string } | null)?.location_id ?? null;
   const pool = setup || claimLoc ? null : await poolChoices(svc);
+  // Same window: the pixel picker only shows before Approve.
+  const pixels = setup ? [] : await sharedPixels(svc).catch(() => [] as SharedPixel[]);
   // Before Approve: what the Clients tab already knows (business hours, years
   // in business on the client's main contact) is filled in by itself — owner
   // 10/20/2026: "it has the data, don't make us type it again".
@@ -56,7 +76,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       }
     }
   }
-  return NextResponse.json({ setup: redact(setup), cards, pool, claimedLocation: claimLoc, canApprove: u.role === "admin", autofilled });
+  return NextResponse.json({ setup: redact(setup), cards, pool, pixels, claimedLocation: claimLoc, canApprove: u.role === "admin", autofilled });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {

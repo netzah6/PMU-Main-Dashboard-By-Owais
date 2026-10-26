@@ -19,7 +19,9 @@ import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, PR
 type Card = { status: string; screenshots: Array<{ name: string; url: string }>; result: string | null };
 type Pool = { choices: Array<{ id: string; name: string; readiness: string; blocker: string | null }>; defaultId: string | null; note?: string };
 type Setup = Omit<SetupState, "password"> & { has_password: boolean };
-type Data = { setup: Setup | null; cards: Record<string, Card>; pool: Pool | null; claimedLocation: string | null; canApprove: boolean; autofilled?: string[] };
+type SharedPixel = { id: string; clients: number; sample: string[] };
+type Data = { setup: Setup | null; cards: Record<string, Card>; pool: Pool | null; pixels?: SharedPixel[]; claimedLocation: string | null; canApprove: boolean; autofilled?: string[] };
+const NO_PIXEL_RE = /^(later|none|no|n\/a|skip|not yet|no pixel)/i;
 
 // Steps the AI Agent does by itself (the dashboard's API steps count too — to
 // a coach both are "done for you"); the rest are done by hand.
@@ -251,14 +253,9 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
                         <option value="">Pick…</option><option value="V1">V1</option><option value="V2.3">V2.3</option><option value="V3">V3</option>
                       </select>
                     ) : f.key === "meta_pixel_id" ? (
-                      <span className="mt-0.5 flex items-center gap-1.5">
-                        <select value={/^(later|none|no|n\/a|skip|not yet|no pixel)/i.test(fill.meta_pixel_id ?? "") ? "later" : "now"} onChange={(e) => setFill((v) => ({ ...v, meta_pixel_id: e.target.value === "later" ? "later" : "" }))} className="px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs">
-                          <option value="now">Add it now</option><option value="later">Add it later (final check reminds us)</option>
-                        </select>
-                        {!/^(later|none|no|n\/a|skip|not yet|no pixel)/i.test(fill.meta_pixel_id ?? "") && <input value={fill.meta_pixel_id ?? ""} onChange={(e) => setFill((v) => ({ ...v, meta_pixel_id: e.target.value }))} placeholder="e.g. 1234567890123456" className="flex-1 px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />}
-                      </span>
+                      <PixelPicker value={fill.meta_pixel_id ?? ""} pixels={data?.pixels ?? []} onChange={(meta_pixel_id) => setFill((v) => ({ ...v, meta_pixel_id }))} />
                     ) : (
-                      <input value={fill[f.key] ?? ""} onChange={(e) => setFill((v) => ({ ...v, [f.key]: e.target.value }))} placeholder={f.key === "meta_pixel_id" ? "e.g. 1234567890123456 — or none" : undefined} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />
+                      <input value={fill[f.key] ?? ""} onChange={(e) => setFill((v) => ({ ...v, [f.key]: e.target.value }))} className="mt-0.5 w-full px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />
                     )}
                   </label>
                 ))}
@@ -434,6 +431,40 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
    report) folded behind "details" — warnings and failures stay open. */
 /* One line by default for every step (owner 2026-10-20: the notes were too
    much text); click it to read the whole note, click again to fold it. */
+/* Meta pixel on the pre-flight: pick one of the agency's shared pixels from a
+   dropdown (most-used first), type another, or leave it for later (owner
+   10/26/2026). The picked / typed value lands in form.meta_pixel_id as before. */
+function PixelPicker({ value, pixels, onChange }: { value: string; pixels: SharedPixel[]; onChange: (v: string) => void }) {
+  const digits = value.replace(/\D/g, "");
+  const known = pixels.some((p) => p.id === digits);
+  const [other, setOther] = useState(false);
+  const mode = NO_PIXEL_RE.test(value) ? "later" : known && !other ? digits : other || value ? "other" : "";
+  return (
+    <span className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+      <select
+        value={mode}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === "later") { setOther(false); onChange("later"); }
+          else if (v === "other") { setOther(true); onChange(""); }
+          else { setOther(false); onChange(v); }
+        }}
+        className="px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs max-w-full"
+      >
+        <option value="">Pick a pixel…</option>
+        {pixels.map((p) => (
+          <option key={p.id} value={p.id}>{p.id} · {p.clients} clients{p.sample.length ? ` (${p.sample.join(", ")}…)` : ""}</option>
+        ))}
+        <option value="other">Another pixel (type it)</option>
+        <option value="later">Add it later (final check reminds us)</option>
+      </select>
+      {mode === "other" && (
+        <input autoFocus value={value} onChange={(e) => onChange(e.target.value)} placeholder="e.g. 1234567890123456" className="flex-1 min-w-[12rem] px-2 py-1 rounded-md border border-[#d7e0ea] bg-white text-xs" />
+      )}
+    </span>
+  );
+}
+
 function StepNote({ note, status }: { note: string; status: StepState["status"] }) {
   const [open, setOpen] = useState(false);
   const cls = status === "failed" ? "text-[#b91c1c]" : status === "warn" ? "text-[#c2410c]" : "text-[#697a91]";
