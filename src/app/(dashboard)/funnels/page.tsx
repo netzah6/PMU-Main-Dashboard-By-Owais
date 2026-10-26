@@ -694,7 +694,7 @@ function IntakeReviewCards() {
    share one box, each still expandable for its final numbers. */
 function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: React.ReactNode; ended: React.ReactNode; endedCount: number; clientTests: number }) {
   const [open, setOpen] = useState(false);
-  const fleetActive = 3; // calendar scarcity + shorter survey + calendar urgency
+  const fleetActive = 2; // shorter survey + calendar urgency (scarcity ended 10/26, B locked)
   return (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
@@ -716,7 +716,7 @@ function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: 
   );
 }
 
-function Ab2TestCards() {
+function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   type Side = { leads: number; picked: number; paid: number };
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
   const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { c?: Side; funnels?: number } } | null>(null);
@@ -768,11 +768,12 @@ function Ab2TestCards() {
       {cols.map((c) => <td key={c.h} className={`py-1.5${c.bold ? " font-semibold" : ""}`}>{c.v(s, visitors)}</td>)}
     </tr>
   );
-  const table = (title: string, p: Pair, cols: Col[], aNote: string, bNote: string) => (
-    <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
-      <div className="flex items-center gap-2 mb-1">
+  const table = (title: string, p: Pair, cols: Col[], aNote: string, bNote: string, ended?: { until: string; verdict: string }) => (
+    <div className={ended ? "border-t border-[#f0f4f8] first:border-t-0 px-4 py-2.5" : "mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5"}>
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
         <span className="text-sm font-medium text-[#1c2b3a]">{title}</span>
-        <span className="text-xs text-[#697a91]">since {new Date(p.since ?? d.since).toLocaleDateString("en-US")}</span>
+        <span className="text-xs text-[#697a91]">{ended ? "ENDED · " : "since "}{new Date(p.since ?? d.since).toLocaleDateString("en-US")}{ended && ` – ${new Date(ended.until).toLocaleDateString("en-US")}`}</span>
+        {ended && <span className="text-[11px] font-semibold rounded-full border border-[#bfe3cd] bg-[#e7f6ec] text-[#15803d] px-2 py-0.5">{ended.verdict}</span>}
       </div>
       <table className="w-full text-xs">
         <thead><tr className="text-left text-[#697a91]">
@@ -786,8 +787,14 @@ function Ab2TestCards() {
       </table>
     </div>
   );
+  /* Scarcity ended 10/26/2026: the owner locked B (3 slots a day) on
+     deposits — 74 from 2,069 leads vs 53 from 2,167 — so it lives in the
+     Ended list with its final numbers (leads after 10/26 all carry scar:"b"
+     and no longer count as a test). */
+  if (show === "ended") return (<>
+    {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, SCAR_COLS, "Up to 5 open slots shown per day (the original)", "Up to 3 shown — \u201Conly 3 openings left\u201D", { until: "2026-10-26T12:00:00Z", verdict: "B locked on every funnel (74 vs 53 deposits)" })}
+  </>);
   return (<>
-    {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, SCAR_COLS, "Up to 5 open slots shown per day (current)", "Up to 3 shown — \u201Conly 3 openings left\u201D")}
     {d.offer && (d.offer.since
       ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
           <div className="flex items-center gap-2 mb-1">
@@ -1670,10 +1677,11 @@ export default function FunnelsPage() {
           )}
           </>}
           ended={<>
+            <Ab2TestCards show="ended" />
             <DeprowTestCard bare />
             <TopbarTestCard bare />
           </>}
-          endedCount={2}
+          endedCount={3}
         />
       )}
 
