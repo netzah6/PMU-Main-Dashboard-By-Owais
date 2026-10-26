@@ -694,7 +694,7 @@ function IntakeReviewCards() {
    share one box, each still expandable for its final numbers. */
 function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: React.ReactNode; ended: React.ReactNode; endedCount: number; clientTests: number }) {
   const [open, setOpen] = useState(false);
-  const fleetActive = 3; // shorter survey + calendar urgency + Instagram grid (scarcity ended 10/26, B locked)
+  const fleetActive = 2; // shorter survey + calendar urgency (scarcity ended 10/26 B locked; Instagram grid ended 10/26, ours for everyone)
   return (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
@@ -719,7 +719,7 @@ function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: 
 function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   type Side = { leads: number; picked: number; paid: number };
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { c?: Side; funnels?: number }; igw?: Pair & { funnels?: number } } | null>(null);
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { c?: Side; funnels?: number }; igw?: Pair & { funnels?: number; until?: string } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -793,6 +793,24 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
      and no longer count as a test). */
   if (show === "ended") return (<>
     {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, SCAR_COLS, "Up to 5 open slots shown per day (the original)", "Up to 3 shown — \u201Conly 3 openings left\u201D", { until: "2026-10-26T12:00:00Z", verdict: "B locked on every funnel (74 vs 53 deposits)" })}
+    {d.igw && d.igw.since && (
+      <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Instagram grid — {d.igw.funnels ?? ""} funnels, 50/50</span>
+            <span className="text-xs text-[#697a91]">{new Date(d.igw.since).toLocaleDateString("en-US")} – {d.igw.until ? new Date(d.igw.until).toLocaleDateString("en-US") : ""}</span>
+            <span className="rounded-full bg-[#eef2f7] px-2 py-0.5 text-[10px] font-semibold text-[#56678a]">ENDED · our grid for everyone, Elfsight out (owner, 10/26)</span>
+          </div>
+          <table className="w-full text-xs">
+            <thead><tr className="text-left text-[#697a91]">
+              <th className="py-1 font-medium">Side</th>
+              {URG_COLS.map((c) => <th key={c.h} className="py-1 font-medium">{c.h}</th>)}
+            </tr></thead>
+            <tbody>
+              {row("A — current widget", "The live Instagram widget as it is (Slider: 2 posts stacked, or Thumbnail Carousel: 1 post per screen)", d.igw.a, URG_COLS)}
+              {row("B — grid 3 × 2", "Our own feed: profile header + 3 columns × 2 rows on phones, 6 posts at once (no Elfsight)", d.igw.b, URG_COLS)}
+            </tbody>
+          </table>
+        </div>)}
   </>);
   return (<>
     {d.offer && (d.offer.since
@@ -813,24 +831,6 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
           </table>
         </div>
       : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Calendar urgency</b> (A: &ldquo;to Claim $150 OFF&rdquo; vs C: + &ldquo;for the First 5 Clients — Until Sunday&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
-    {d.igw && (d.igw.since
-      ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Instagram grid — {d.igw.funnels ?? ""} funnels, 50/50</span>
-            <span className="text-xs text-[#697a91]">since {new Date(d.igw.since).toLocaleDateString("en-US")}</span>
-          </div>
-          <table className="w-full text-xs">
-            <thead><tr className="text-left text-[#697a91]">
-              <th className="py-1 font-medium">Side</th>
-              {URG_COLS.map((c) => <th key={c.h} className="py-1 font-medium">{c.h}</th>)}
-            </tr></thead>
-            <tbody>
-              {row("A — current widget", "The live Instagram widget as it is (Slider: 2 posts stacked, or Thumbnail Carousel: 1 post per screen)", d.igw.a, URG_COLS)}
-              {row("B — grid 3 × 2", "Our own feed: profile header + 3 columns × 2 rows on phones, 6 posts at once (no Elfsight)", d.igw.b, URG_COLS)}
-            </tbody>
-          </table>
-        </div>
-      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Instagram grid</b> (A: current widget vs B: 3 × 2 grid) — live on {d.igw.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
     {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, SHORTQ_COLS, "Full survey (current): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps). Not-asked leads are never distance-disqualified; GHL's Commutable field is set Yes so the flow runs.")}
   </>);
 }

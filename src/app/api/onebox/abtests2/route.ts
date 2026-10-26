@@ -23,6 +23,8 @@ const SCAR_END = "2026-10-26T02:40:09-07:00";
    10/26/2026 (before that it was an Elfsight Grid copy on 11 funnels), so
    the test counts from this deploy, not from its first tagged lead. */
 const IGW_START = "2026-10-26T13:30:00Z";
+/* …and ended the same day (owner): our grid for everyone, Elfsight out. */
+const IGW_END = "2026-10-27T06:30:00Z";
 
 const PAID = ["booked", "paid", "paid-not-booked", "paid-followup"];
 
@@ -103,7 +105,7 @@ export async function GET() {
       offerSince ? side("offer3", "a", offerSince) : zero, offerSince ? side("offer3", "b", offerSince) : zero,
       offerSince ? side("offer3", "c", offerSince) : zero,
     ]);
-    const [igwA, igwB] = await Promise.all([igwSince ? side("igw", "a", igwSince) : zero, igwSince ? side("igw", "b", igwSince) : zero]);
+    const [igwA, igwB] = await Promise.all([igwSince ? side("igw", "a", igwSince, IGW_END) : zero, igwSince ? side("igw", "b", igwSince, IGW_END) : zero]);
     return NextResponse.json({
       since: TEST_START,
       started: true,
@@ -111,7 +113,7 @@ export async function GET() {
       scar: { a: scarA, b: scarB },
       shortq: { a: shortA, b: shortB, since: shortSince, visitorsPerArm: shortVisitors },
       offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, funnels: offerSlugs.length },
-      igw: { a: igwA, b: igwB, since: igwSince ?? undefined, funnels: igwFunnels },
+      igw: { a: igwA, b: igwB, since: igwSince ?? undefined, until: IGW_END, funnels: igwFunnels },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e).slice(0, 200) }, { status: 500 });
