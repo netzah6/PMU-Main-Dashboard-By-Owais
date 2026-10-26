@@ -384,8 +384,7 @@
     "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:24px;background:#f1f3f6}" +
     "#onebox-root .igwho{min-width:0}#onebox-root .iguser{font-weight:800;font-size:16px;color:#1c2b3a;overflow-wrap:anywhere}#onebox-root .igname{font-size:13px;color:#697a91}" +
     "#onebox-root .igstats{display:flex;gap:18px;padding:0 6px 10px;font-size:13px;color:#697a91}#onebox-root .igstats b{color:#1c2b3a;font-size:15px}" +
-    "#onebox-root .igfollow{display:block;text-align:center;margin:0 0 10px;padding:11px 16px;border-radius:12px;background:#4f6bff;color:#fff;font-family:var(--form);font-weight:700;font-size:15px;text-decoration:none}" +
-    "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}#onebox-root .iggrid a{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
+    "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
     "#onebox-root .eapps-instagram-feed-header-inner{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:center;justify-content:center;column-gap:12px;row-gap:6px}" +
@@ -1411,12 +1410,13 @@
           '<div class="igwho"><div class="iguser">@' + esc(pr.username) + "</div>" + (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") + "</div></div>" +
           (pr.posts || pr.followers ? '<div class="igstats">' + (pr.posts ? "<span><b>" + fmtK(pr.posts) + "</b> posts</span>" : "") + (pr.followers ? "<span><b>" + fmtK(pr.followers) + "</b> followers</span>" : "") + "</div>" : "")
         : "";
+      /* No way out of the funnel here (owner, 10/26/2026): no Follow button,
+         no "See more", tiles are plain pictures. The thank-you step after
+         the deposit is the only place with a Follow link. */
       return '<div class="igself">' + head +
-        (IGLINK ? '<a class="igfollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">&#9711; Follow on Instagram</a>' : "") +
         '<div class="iggrid">' + items.map(function (p) {
-          return '<a href="' + esc(p.url || IGLINK || "#") + '" target="_blank" rel="noopener"><img src="' + esc(p.img) + '" alt="Instagram post" loading="lazy"></a>';
-        }).join("") + "</div>" +
-        (IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">&#128248; See more on Instagram</a>' : "") + "</div>";
+          return '<span><img src="' + esc(p.img) + '" alt="Instagram post" loading="lazy"></span>';
+        }).join("") + "</div></div>";
     }
     var GOOG = C.googleWidget || "";
     function loadElfsight() {
