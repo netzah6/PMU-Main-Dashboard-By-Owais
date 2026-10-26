@@ -21,7 +21,10 @@ export interface GhlPushInput {
   /** false = contact/fields/note only — used for retries where firing the
       survey workflows (the AI script) would be wrong (paid or stale leads). */
   withTag: boolean;
-  /** partial leads carry no answers yet — skip fields + note. */
+  /** partial = sent the moment the phone is typed. The survey questions come
+   *  BEFORE name/phone, so their answers are already there and are written
+   *  to the contact (owner, 10/26/2026: Kaylee Shattuck's "inquiry for ___"
+   *  text had a blank area). Only the note waits for the full submit. */
   partial: boolean;
   disqualified: boolean;
   /** the visitor's IANA timezone from their browser — set on the GHL
@@ -48,7 +51,7 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
     const tok = await getAppLocationToken(inp.locationId);
     if (!tok.token) throw new Error(tok.error ?? "no location token");
     const [firstName, ...rest] = inp.fullName.split(/\s+/);
-    const fieldMap = inp.partial ? {} : inp.isB2B ? (inp.b2bFieldMap ?? {}) : await getSurveyFieldMap(inp.locationId, tok.token);
+    const fieldMap = inp.isB2B ? (inp.b2bFieldMap ?? {}) : await getSurveyFieldMap(inp.locationId, tok.token);
     const customFields = Object.entries(inp.answers)
       .filter(([k, v]) => v && fieldMap[k])
       .map(([k, v]) => ({ id: fieldMap[k], value: k === "services" ? v.split(/,\s*/) : v }));
