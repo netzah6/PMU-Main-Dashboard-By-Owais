@@ -8,7 +8,7 @@
    image. No SDK imports here: the funnel page uses this too. */
 
 export type PostKind = "split_ba" | "after_closeup" | "during" | "person" | "flyer_text" | "other";
-export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number };
+export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number };
 export type IgProfile = {
   username: string; name: string; pic: string; followers: number | null; posts: number | null;
   following?: number | null; bio?: string; category?: string; verified?: boolean;
