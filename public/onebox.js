@@ -142,7 +142,11 @@
       return v;
     } catch (e) { return "a"; }
   }
-  var SCAR_V = ab2coin("ob_scar");
+  /* Scarcity LOCKED to "b" (owner, 10/26/2026): 10/13–10/26 fleet 50/50,
+     74 deposits from 2,069 leads (3.6%) vs 53 from 2,167 (2.5%) for the
+     5-slot original — judged on deposits, never leads. Leads still carry
+     scar:"b" so the readout stays consistent. */
+  var SCAR_V = "b";
   var SHORTQ_V = ab2coin("ob_shortq2");
   /* A/B #3 — calendar urgency (owner, 10/18/2026), fleet 50/50 on
      funnels whose offer is a plain "$X OFF" (optionally "for new
