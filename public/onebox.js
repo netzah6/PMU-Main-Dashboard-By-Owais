@@ -1432,7 +1432,9 @@
     function igSelfHtml(f) {
       var pr = f.profile || {};
       var items = (f.posts && f.posts.length ? f.posts : (f.imgs || []).map(function (u) { return { img: u, url: IGLINK }; })).slice(0, 6);
-      function stat(n, label) { return n ? "<div><b>" + fmtK(n) + "</b><span>" + label + "</span></div>" : ""; }
+      /* A count of 0 is shown like Instagram does ("0 following"); only a
+         count we don't have is left out. */
+      function stat(n, label) { return n == null || n === "" ? "" : "<div><b>" + fmtK(n) + "</b><span>" + label + "</span></div>"; }
       var head = pr.username
         ? '<div class="igtop">' + esc(pr.username) + (pr.verified ? IG_CHECK : "") + "</div>" +
           '<div class="ighead">' + (pr.pic ? '<img class="igpic" src="' + esc(pr.pic) + '" alt="">' : '<span class="igpic igpic-empty">&#128248;</span>') +
