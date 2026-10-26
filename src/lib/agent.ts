@@ -7,6 +7,7 @@ import {
   getThread,
   getRoster,
   formatThreadForPrompt,
+  clientPhotoBlocks,
   firstUnansweredIndex,
   type PmuAccount,
   type ThreadMessage,
@@ -83,7 +84,7 @@ async function classify(
   client: Anthropic,
   contactName: string,
   convo: string,
-  opts: { force?: boolean; billing?: Billing | null; ownerNote?: string } = {},
+  opts: { force?: boolean; billing?: Billing | null; ownerNote?: string; photos?: Anthropic.ContentBlockParam[] } = {},
 ): Promise<Classification | null> {
   const ownerBlock = opts.ownerNote ? `
 INSTRUCTIONS FROM THE AGENCY OWNER about this conversation (authoritative — they override your own reading of the chat, and may name the client, correct what is being asked, or say exactly what to do):
@@ -132,7 +133,7 @@ Rules:
   const res = await client.messages.create({
     model: MODEL,
     max_tokens: 500,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content: opts.photos?.length ? [{ type: "text", text: prompt }, ...opts.photos] : prompt }],
   });
   const text = res.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
   const m = text.match(/\{[\s\S]*\}/);
@@ -284,7 +285,8 @@ export async function proposeForConversation(opts: {
   const billing = await billingFor(svc, opts.contactName, opts.contactId).catch(() => null);
   const ownerNote = (opts.ownerNote ?? "").trim().slice(0, 1500) || undefined;
   const cls = await classify(anthropic, opts.contactName,
-    formatThreadForPrompt(thread, { contactName: opts.contactName, nameByUserId }), { force: true, billing, ownerNote });
+    formatThreadForPrompt(thread, { contactName: opts.contactName, nameByUserId }),
+    { force: true, billing, ownerNote, photos: await clientPhotoBlocks(thread, { contactName: opts.contactName }) });
   if (!cls || !cls.summary) return { error: "The AI couldn't read this chat — try again" };
 
   const { actionType, plan } = planFor(cls, billing);
@@ -432,7 +434,8 @@ export async function scanForProposals(): Promise<{ scanned: number; filed: numb
       scanned++;
       const nameByUserId = await rosterNames(acct);
       const billing = await billingFor(svc, c.contactName, c.contactId).catch(() => null);
-      const cls = await classify(anthropic, c.contactName, formatThreadForPrompt(thread, { contactName: c.contactName, nameByUserId }), { billing });
+      const cls = await classify(anthropic, c.contactName, formatThreadForPrompt(thread, { contactName: c.contactName, nameByUserId }),
+        { billing, photos: await clientPhotoBlocks(thread, { contactName: c.contactName }) });
       if (!cls) skipped.push({ who: c.contactName, why: "classifier returned nothing" });
       else if (!cls.actionable || !cls.summary) skipped.push({ who: c.contactName, why: `not a request (AI read: ${cls.summary ?? "chatting / already handled"})` });
       // Churn-risk clients hit the Alerts board whether or not there's a
