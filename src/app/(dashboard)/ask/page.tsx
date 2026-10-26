@@ -540,7 +540,7 @@ export default function AskPage() {
       if (!res.ok) throw new Error(json.error || "Failed to update the draft");
       const voice = json.voice?.name ?? d.voice;
       const draft: Draft = { ...d, draft: json.draft, voice, voiceInfo: json.voice ?? d.voiceInfo, notes: [...(d.notes ?? []), change] };
-      setMsgs((m) => [...m, { role: "assistant", content: `Updated draft for ${d.contactName} — your changes are in. Edit again if it still needs work.`, drafts: [draft] }]);
+      setMsgs((m) => [...m, { role: "assistant", content: "", drafts: [draft] }]);
     } catch (e) {
       setError(`${e}`.replace("Error: ", ""));
       setMsgs((m) => m.slice(0, -1));
@@ -1727,7 +1727,7 @@ function DraftCard({ d, busy, onEdit }: { d: Draft; busy?: boolean; onEdit?: (d:
             <Sparkles size={12} /> AI edit
           </button>
         )}
-        <span className="text-[10px] text-[#8595a8]">{canSend ? "nothing sends until you click Send or Schedule" : noSendReason}</span>
+        {!canSend && <span className="text-[10px] text-[#8595a8]">{noSendReason}</span>}
       </div>
       {editOpen && canEdit && (
         <div className="mt-2.5 rounded-lg border border-[#ffd8a8] bg-[#fffaf2] p-2">
