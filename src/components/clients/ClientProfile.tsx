@@ -319,6 +319,38 @@ export function ClientProfile({
     }
   }, [rowNumber, localClient, client, onUpdate]);
 
+  /* ── Move to First Cycle (owner, 10/27/2026) ───────────────────────────────
+     Offered right after the status becomes Live. Ticking the box shows the
+     login email / password / funnel link; "Send" saves them on the agency
+     contact and THEN moves the deal, so the welcome texts are never blank. */
+  const [firstCycle, setFirstCycle] = useState<{ open: boolean; checked: boolean; email: string; password: string; funnelUrl: string; loading: boolean; sending: boolean; fromSetup: boolean } | null>(null);
+  const offerFirstCycle = useCallback(async () => {
+    setFirstCycle({ open: true, checked: false, email: String(localClient["Email"] ?? ""), password: "", funnelUrl: "", loading: true, sending: false, fromSetup: false });
+    try {
+      const q = new URLSearchParams({ contactId: String(localClient["Contact ID"] ?? ""), email: String(localClient["Email"] ?? ""), business: tzBusiness });
+      const r = await fetch(`/api/clients/first-cycle?${q}`);
+      const j = r.ok ? await r.json() : {};
+      setFirstCycle((f) => f ? { ...f, loading: false, email: j.email || f.email, password: j.password ?? "", funnelUrl: j.funnelUrl ?? "", fromSetup: !!j.fromSetup } : f);
+    } catch { setFirstCycle((f) => f ? { ...f, loading: false } : f); }
+  }, [localClient, tzBusiness]);
+  const sendFirstCycle = useCallback(async () => {
+    if (!firstCycle) return;
+    setFirstCycle({ ...firstCycle, sending: true });
+    try {
+      const r = await fetch("/api/clients/first-cycle", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: String(localClient["Contact ID"] ?? ""), email: firstCycle.email, password: firstCycle.password, funnelUrl: firstCycle.funnelUrl, businessName: tzBusiness }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Failed");
+      toast.success(j.already ? `Logins saved — the deal was already in ${j.stage}` : `Moved to ${j.stage} — the welcome texts are going out now`);
+      setFirstCycle(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      setFirstCycle((f) => f ? { ...f, sending: false } : f);
+    }
+  }, [firstCycle, localClient, tzBusiness]);
+
   // ── Quick status change (writes col_1 back to the sheet) ──────────────────
   const [statusSaving, setStatusSaving] = useState(false);
   const saveStatus = useCallback(async (newStatus: string) => {
@@ -337,13 +369,14 @@ export function ClientProfile({
       if (!res.ok) throw new Error(json.error ?? "Save failed");
       toast.success(json.sheetsUpdated ? `Status → ${newStatus} — Sheet updated ✓` : `Status → ${newStatus}`);
       onUpdate?.(updated);
+      if (newStatus === "Live") void offerFirstCycle();
     } catch (e) {
       toast.error(`Status save failed: ${e}`);
       setLocalClient(client);
     } finally {
       setStatusSaving(false);
     }
-  }, [rowNumber, localClient, client, onUpdate]);
+  }, [rowNumber, localClient, client, onUpdate, offerFirstCycle]);
 
   // ── Quick version change (writes "Version" back to the sheet) ─────────────
   const [versionSaving, setVersionSaving] = useState(false);
@@ -509,6 +542,29 @@ export function ClientProfile({
               <Badge variant={statusVariant(String(localClient.status ?? ""))}>
                 Status: <strong className="ml-1">{localClient.status || "—"}</strong>
               </Badge>
+            )}
+            {firstCycle?.open && (
+              <span className="inline-flex items-center gap-1.5 flex-wrap text-xs">
+                <label className="inline-flex items-center gap-1 cursor-pointer text-[#1f3559] font-semibold">
+                  <input type="checkbox" checked={firstCycle.checked} onChange={(e) => setFirstCycle({ ...firstCycle, checked: e.target.checked })} className="accent-[#15B7AE]" />
+                  Move to First Cycle &amp; text the logins
+                </label>
+                {firstCycle.checked && (firstCycle.loading ? <Loader2 size={12} className="animate-spin text-[#0e8f88]" /> : (
+                  <>
+                    <input value={firstCycle.email} onChange={(e) => setFirstCycle({ ...firstCycle, email: e.target.value })} placeholder="login email"
+                      className="px-1.5 py-0.5 rounded border border-[#d7e0ea] text-xs w-44" />
+                    <input value={firstCycle.password} onChange={(e) => setFirstCycle({ ...firstCycle, password: e.target.value })} placeholder="password"
+                      className="px-1.5 py-0.5 rounded border border-[#d7e0ea] text-xs w-32" />
+                    <input value={firstCycle.funnelUrl} onChange={(e) => setFirstCycle({ ...firstCycle, funnelUrl: e.target.value })} placeholder="funnel link (https://…)"
+                      className="px-1.5 py-0.5 rounded border border-[#d7e0ea] text-xs w-56" />
+                    <button onClick={() => void sendFirstCycle()} disabled={firstCycle.sending}
+                      className="px-2 py-1 rounded-md text-xs font-bold bg-[#15B7AE] text-white disabled:opacity-60">
+                      {firstCycle.sending ? "Sending…" : "Save & send"}
+                    </button>
+                  </>
+                ))}
+                <button onClick={() => setFirstCycle(null)} className="text-[#8595a8]">✕</button>
+              </span>
             )}
             {/* One Version control only — the editable one, wearing the same
                 per-version colours the Reports tab uses. */}

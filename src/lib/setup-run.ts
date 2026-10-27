@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { agencyHeaders, moveDealToFirstCycle, saveLoginFieldsRaw } from "@/lib/first-cycle";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import {
   claimPoolAccount, fillAccountValues, fillCalendarId, syncScheduleTimezones, setLocationProfile, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
@@ -713,29 +714,21 @@ const API_STEPS: Record<string, StepFn> = {
   first_cycle: async (_svc, ob) => {
     const contactId = String(ob.form.master_contact_id ?? "").trim();
     if (!contactId) return { status: "warn", note: "no Contact ID on the Clients Master row — move the deal to First Cycle by hand" };
-    const tok = await getAppLocationToken(MAIN_LOC);
-    if (!tok.token) return { status: "warn", note: `agency token unavailable (${tok.error}) — move the deal to First Cycle by hand` };
-    const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" };
+    const a = await agencyHeaders();
+    if ("error" in a) return { status: "warn", note: `${a.error} — move the deal to First Cycle by hand` };
     // Owner 10/22/2026: the "Started stage -> Went live Notification" workflow
     // texts the client the logins (3 texts) once the deal lands in First Cycle,
     // from these contact fields — so they are filled right before the move.
     let fieldNotes: string[];
     try {
-      fieldNotes = await saveLoginFields(ob, contactId, H);
+      fieldNotes = await saveLoginFields(ob, contactId, a.H);
     } catch (e) {
       return { status: "failed", note: `logins not saved on the agency contact — ${errMsg(e)}. Fix and Retry (the deal was NOT moved, so the client gets no half-filled texts)` };
     }
-    const pipes = (await fetch(`${GHL}/opportunities/pipelines?locationId=${MAIN_LOC}`, { headers: H }).then((r) => r.json()).catch(() => ({}))) as { pipelines?: Array<{ id: string; name: string; stages?: Array<{ id: string; name: string }> }> };
-    let target: { pipelineId: string; stageId: string; stageName: string } | null = null;
-    for (const p of pipes.pipelines ?? []) for (const s of p.stages ?? []) if (/first\s*cycle/i.test(s.name) && !target) target = { pipelineId: p.id, stageId: s.id, stageName: s.name };
-    if (!target) return { status: "warn", note: "no pipeline stage named \"First Cycle\" in the agency account — move the deal by hand" };
-    const opps = (await fetch(`${GHL}/opportunities/search?location_id=${MAIN_LOC}&contact_id=${contactId}&limit=20`, { headers: H }).then((r) => r.json()).catch(() => ({}))) as { opportunities?: Array<{ id: string; name?: string; pipelineId: string; pipelineStageId: string }> };
-    const opp = (opps.opportunities ?? []).find((o) => o.pipelineId === target!.pipelineId) ?? (opps.opportunities ?? [])[0];
-    if (!opp) return { status: "warn", note: "the client has no deal in the agency pipeline — move it to First Cycle by hand" };
-    if (opp.pipelineStageId === target.stageId) return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${opp.name ?? ""}" already in ${target.stageName}` };
-    const r = await fetch(`${GHL}/opportunities/${opp.id}`, { method: "PUT", headers: H, body: JSON.stringify({ pipelineId: target.pipelineId, pipelineStageId: target.stageId }) });
-    if (!r.ok) return { status: "failed", note: `could not move the deal: HTTP ${r.status} ${(await r.text()).slice(0, 150)}` };
-    return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${opp.name ?? ""}" → ${target.stageName} — the client gets the 3 welcome texts now` };
+    const mv = await moveDealToFirstCycle(contactId, a.H);
+    if (!mv.ok) return { status: mv.warn ? "warn" : "failed", note: mv.note };
+    if (mv.already) return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${mv.deal}" already in ${mv.stage}` };
+    return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${mv.deal}" → ${mv.stage} — the client gets the 3 welcome texts now` };
   },
 };
 
@@ -744,33 +737,12 @@ const API_STEPS: Record<string, StepFn> = {
    hand (owner 10/24: Susan got "Email: / Password:" blank after a manual
    approve skipped this). */
 export async function saveLoginFields(ob: Ob, contactId: string, H: Record<string, string>): Promise<string[]> {
-    const fieldNotes: string[] = [];
-      const cfRes = (await fetch(`${GHL}/locations/${MAIN_LOC}/customFields?model=contact`, { headers: H }).then((r) => r.json())) as { customFields?: Array<{ id: string; name: string; fieldKey?: string }> };
-      const fields = cfRes.customFields ?? [];
-      const byKey = (k: string) => fields.find((f) => (f.fieldKey ?? "").toLowerCase() === k.toLowerCase());
-      const ensure = async (name: string, key: string) => {
-        const hit = byKey(key);
-        if (hit) return hit.id;
-        const r = await fetch(`${GHL}/locations/${MAIN_LOC}/customFields`, { method: "POST", headers: H, body: JSON.stringify({ name, dataType: "TEXT", model: "contact" }) });
-        if (!r.ok) throw new Error(`could not create field "${name}": HTTP ${r.status} ${(await r.text()).slice(0, 120)}`);
-        const j = (await r.json()) as { customField?: { id: string } };
-        if (!j.customField?.id) throw new Error(`no id back for field "${name}"`);
-        fieldNotes.push(`created contact field "${name}"`);
-        return j.customField.id;
-      };
-      const values: Array<{ id: string; field_value: string }> = [];
-      const pw = String(ob.setup!.password ?? "").trim();
-      const email = String(ob.form.email ?? "").trim();
-      const funnel = String(ob.setup!.funnel_url ?? "").trim();
-      if (email) values.push({ id: await ensure("CC - Login Email", "contact.cc__login_email"), field_value: email });
-      if (pw) values.push({ id: await ensure("CC - Login Password", "contact.cc__login_password"), field_value: pw });
-      if (funnel) values.push({ id: await ensure("CC - Funnel URL", "contact.cc__funnel_url"), field_value: funnel });
-      const body: Record<string, unknown> = { customFields: values };
-      if (ob.form.business_name) body.companyName = ob.form.business_name;
-      const r = await fetch(`${GHL}/contacts/${contactId}`, { method: "PUT", headers: H, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error(`contact update HTTP ${r.status} ${(await r.text()).slice(0, 120)}`);
-      fieldNotes.push(`login email${pw ? ", password" : " (no password on the run!)"}${funnel ? ", funnel URL" : " (no funnel URL!)"} saved on the agency contact → the Went-live workflow texts them`);
-    return fieldNotes;
+  return saveLoginFieldsRaw({
+    email: String(ob.form.email ?? ""),
+    password: String(ob.setup!.password ?? ""),
+    funnelUrl: String(ob.setup!.funnel_url ?? ""),
+    businessName: ob.form.business_name || undefined,
+  }, contactId, H);
 }
 
 // ── Mac Mini steps: one card at a time, in runbook order ───────────────────
