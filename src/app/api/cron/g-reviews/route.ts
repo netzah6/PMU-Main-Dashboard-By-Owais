@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { dueForReviews, placesReady, refreshReviews, resetReviews } from "@/lib/g-reviews";
+import { debugReviews, dueForReviews, placesReady, refreshReviews, resetReviews } from "@/lib/g-reviews";
 
 export const maxDuration = 300;
 const TIME_BUDGET_MS = 250_000;
@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
   /* ?reset=1&slug=: forget Google for that funnel. ?force=1: ignore the
      two-week rule (first rollout, or after fixing the key). */
   if (only && req.nextUrl.searchParams.get("reset")) { await resetReviews(svc, only); return NextResponse.json({ reset: only }); }
+  if (only && req.nextUrl.searchParams.get("debug")) return NextResponse.json(await debugReviews(svc, only));
   const force = !!req.nextUrl.searchParams.get("force");
   const slugs = only ? [only] : await dueForReviews(svc, limit, force ? -1 : undefined);
   if (!slugs.length) return NextResponse.json({ fetched: 0, note: "nothing due" });
