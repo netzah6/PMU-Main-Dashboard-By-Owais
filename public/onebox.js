@@ -396,7 +396,6 @@
     "#onebox-root .iglb img{max-width:100vw;max-height:88vh;object-fit:contain;display:block}" +
     "#onebox-root .iglb .lbx{position:absolute;top:env(safe-area-inset-top,0px);right:0;padding:12px 18px;color:#fff;font-size:30px;line-height:1;background:none;border:0;cursor:pointer}" +
     "#onebox-root .iglb .lbp,#onebox-root .iglb .lbn{position:absolute;top:50%;transform:translateY(-50%);padding:18px 10px;color:#fff;font-size:36px;line-height:1;background:none;border:0;opacity:.8;cursor:pointer}#onebox-root .iglb .lbp{left:0}#onebox-root .iglb .lbn{right:0}" +
-    "#onebox-root .iglb .lbc{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom,0px));left:0;right:0;text-align:center;color:#fff;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;opacity:.85}" +
     "#onebox-root .iggrid span{cursor:pointer}" +
     "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:14px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
@@ -1465,10 +1464,7 @@
     if (!window.__obIgLb) {
       window.__obIgLb = true;
       var lbIdx = 0, lbEl = null, lbX0 = null;
-      var lbShow = function () {
-        lbEl.querySelector("img").src = window.__obIgImgs[lbIdx];
-        lbEl.querySelector(".lbc").textContent = (lbIdx + 1) + " / " + window.__obIgImgs.length;
-      };
+      var lbShow = function () { lbEl.querySelector("img").src = window.__obIgImgs[lbIdx]; };
       var lbClose = function () { if (!lbEl) return; lbEl.parentNode.removeChild(lbEl); lbEl = null; document.body.style.overflow = ""; root.classList.remove("lb-open"); };
       var lbOpen = function (i) {
         if (!window.__obIgImgs.length) return;
@@ -1476,7 +1472,7 @@
         lbEl = document.createElement("div"); lbEl.className = "iglb";
         lbEl.innerHTML = '<button class="lbx" type="button" aria-label="Close">&#215;</button>' +
           (window.__obIgImgs.length > 1 ? '<button class="lbp" type="button" aria-label="Previous">&#8249;</button><button class="lbn" type="button" aria-label="Next">&#8250;</button>' : "") +
-          '<img alt="Instagram post"><div class="lbc"></div>';
+          '<img alt="Instagram post">';
         root.appendChild(lbEl); root.classList.add("lb-open"); document.body.style.overflow = "hidden"; lbShow();
         lbEl.addEventListener("click", function (e) {
           if (e.target.closest(".lbx") || e.target === lbEl) { lbClose(); return; }
