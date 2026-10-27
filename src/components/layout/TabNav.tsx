@@ -47,7 +47,7 @@ const TABS: Tab[] = [
   { label: "🛡️ Chargebacks", href: "/chargebacks", adminOnly: true, collapsed: true }, // Square disputes + evidence prep — admins only
   // Pay-per-show tracking. Admins get the full billing desk; a Client Success
   // Coach gets their own clients and the money already collected (2026-09-08).
-  { label: "🧾 PPS Billing", href: "/v3-billing", adminOnly: true, alsoRoles: ["editor"] },
+  { label: "🧾 PPA Billing", href: "/v3-billing", adminOnly: true, alsoRoles: ["editor"] },
   // Monthly Managed Accounts Accountability Report — replaces the GHL form
   // (user request 2026-09-21). Coaches file it; admin reviews it in Alerts.
   { label: "📋 Coach Report", href: "/coach-report", adminOnly: true, alsoRoles: ["editor"] },

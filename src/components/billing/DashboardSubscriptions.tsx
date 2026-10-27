@@ -763,7 +763,7 @@ export function DashboardSubscriptions() {
                             </span>
                           )}
                           {cardPick.pinnedInPps
-                            ? <span className="ml-2 font-normal text-[#697a91]">(the default is the card pinned on PPS Billing)</span>
+                            ? <span className="ml-2 font-normal text-[#697a91]">(the default is the card pinned on PPA Billing)</span>
                             : cardPick.lastUsed
                               ? <span className="ml-2 font-normal text-[#697a91]">(the default is the card she last paid with)</span>
                               : !cardPick.defaultCardId
