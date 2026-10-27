@@ -101,7 +101,7 @@ async function allRows<T>(q: (from: number, to: number) => PromiseLike<{ data: T
 type OverviewRow = Record<string, unknown> & { owner_name: string | null; version: string | null; client_status: string | null };
 type OneboxRow = { slug: string; location_id: string | null; client_name: string | null; status: string; config: Record<string, string> | null; extras: Record<string, unknown> | null; created_at: string | null };
 type LeadRow = { slug: string; ghl_status: string; picked_time_at: string | null; created_at: string; answers: Record<string, unknown> | null; full_name: string | null };
-type StatusRow = { owner_key: string; status: string; offer_made: boolean | null; ai_off: boolean | null; last_message_direction: string | null; activity_date: string | null };
+type StatusRow = { owner_key: string; location_id: string | null; status: string; offer_made: boolean | null; ai_off: boolean | null; last_message_direction: string | null; activity_date: string | null };
 
 /** Everything the fleet needs, loaded once per run. */
 async function loadFleet(svc: Svc) {
@@ -112,7 +112,7 @@ async function loadFleet(svc: Svc) {
     svc.from("onebox_active_clients").select("owner_name, business_name, slug, onebox_status").then((r) => (r.data ?? []) as { owner_name: string; business_name: string | null; slug: string; onebox_status: string | null }[]),
     svc.from("onebox_clients").select("slug, location_id, client_name, status, config, extras, created_at").then((r) => (r.data ?? []) as OneboxRow[]),
     allRows<LeadRow>((f, t) => svc.from("onebox_leads").select("slug, ghl_status, picked_time_at, created_at, answers, full_name").gte("created_at", since30).range(f, t)),
-    allRows<StatusRow>((f, t) => svc.from("ghl_lead_status").select("owner_key, status, offer_made, ai_off, last_message_direction, activity_date").gte("date_added", since30).range(f, t)),
+    allRows<StatusRow>((f, t) => svc.from("ghl_lead_status").select("owner_key, location_id, status, offer_made, ai_off, last_message_direction, activity_date").gte("date_added", since30).range(f, t)),
     svc.from("call_kill_stats").select("slug, qualified, dead").then((r) => (r.data ?? []) as { slug: string; qualified: number; dead: number }[]),
     svc.from("text_kill_stats").select("slug, qualified, dead").then((r) => (r.data ?? []) as { slug: string; qualified: number; dead: number }[]),
     svc.from("call_kill_fixes").select("owner_key, fixed, fixed_at").then((r) => (r.data ?? []) as { owner_key: string; fixed: boolean; fixed_at: string | null }[]),
@@ -149,7 +149,10 @@ function clientFacts(fl: Fleet, row: OverviewRow, slug: string | null, fleetByVe
   // AI side (GHL lead status, V3 only — V2.3 has no CloseBot).
   let ai: Facts["ai"] = null;
   if (version === "V3") {
-    const st = fl.statuses.filter((s) => s.owner_key === ownerKey);
+    // By sub-account first: owner names in the GHL sync go stale on recycled
+    // sub-accounts (same trap as the Kill columns, PR #1045).
+    const loc = obRow?.location_id ?? null;
+    const st = fl.statuses.filter((s) => (loc ? s.location_id === loc : s.owner_key === ownerKey));
     const engaged = st.filter((s) => s.status !== "v3_only").length;
     const twoH = Date.now() - 2 * 3600_000;
     const hot = st.filter((s) => s.last_message_direction === "inbound" && s.status !== "confirmed" && s.activity_date && new Date(s.activity_date).getTime() < twoH).length;
@@ -220,7 +223,8 @@ function fleetBenchmarks(fl: Fleet, slugOf: Map<string, string>): Map<string, Fl
     if (num(row.l30) > 0 && num(row.spent30) > 0) b.cpl.push(num(row.spent30) / num(row.l30));
     b.dep.push(num(row.d30));
     if (v === "V3") {
-      const st = fl.statuses.filter((s) => s.owner_key === ownerKey);
+      const loc = fl.ob.find((o) => o.slug === slug)?.location_id ?? null;
+      const st = fl.statuses.filter((s) => (loc ? s.location_id === loc : s.owner_key === ownerKey));
       if (st.length >= 20) b.eng.push(st.filter((s) => s.status !== "v3_only").length / st.length);
     }
     by.set(v, b);
@@ -288,7 +292,9 @@ export function findIssues(f: Facts): Issue[] {
   if (ob && !young) {
     if (ob.picked30 >= 25 && ob.payOfPick30 != null && fleet.payOfPick != null && ob.payOfPick30 < fleet.payOfPick * 0.6)
       out.push({ code: "pay_low", severity: "fix", who: "us", title: "Leads pick a time but don't pay", detail: `${ob.payOfPick30}% of the ${ob.picked30} who picked a time paid vs ${fleet.payOfPick}% ${fleet.version} median. The leak is at the payment step: ${f.version === "V3" ? "read 10 booked threads — is the deposit asked, is the price answered — and walk the checkout" : "walk the checkout; without AI the page must close on its own"}.`, gain: `≈ +${Math.max(1, Math.round(ob.picked30 * ((fleet.payOfPick - (ob.payOfPick30 ?? 0)) / 100)))} deposits/mo at fleet rate` });
-    if (ob.leads30 >= 30 && ob.pickRate30 != null && fleet.pickRate != null && ob.pickRate30 < fleet.pickRate * 0.75)
+    if (ob.leads30 >= 30 && ob.pickRate30 != null && ob.pickRate30 < 15)
+      out.push({ code: "pick_none", severity: "fix", who: "us", title: "Almost nobody can pick a time", detail: `Only ${ob.picked30} of ${ob.leads30} leads picked a time (${ob.pickRate30}% vs ${fleet.pickRate ?? 60}% median). Usually the calendar shows no openings (hours/slots/sync) — open the funnel as a lead and check what times it offers.`, gain: "all deposits" });
+    else if (ob.leads30 >= 30 && ob.pickRate30 != null && fleet.pickRate != null && ob.pickRate30 < fleet.pickRate * 0.75)
       out.push({ code: "pick_low", severity: "watch", who: "us", title: "Few leads pick a time", detail: `${ob.pickRate30}% of ${ob.leads30} leads picked a time vs ${fleet.pickRate}% median. Usually the page (missing pieces, Instagram first row) or Thu–Sat hours — check the calendar card.` });
   }
   if (f.ai && f.ai.leads >= 30) {
@@ -345,7 +351,7 @@ Research you may lean on (2026 fleet studies):
 - Under 20 leads/month nothing downstream matters; under 3 weeks old nothing is judgeable.
 
 Rules for the brief:
-- Use ONLY numbers given in FACTS. Never invent data. Say "too few leads to tell" when counts are small (<20 leads, <5 deposits).
+- Use ONLY numbers given in FACTS. Never invent data. If "ai" is null or ai.leads is 0, the AI stats are unavailable — don't mention them. Say "too few leads to tell" when counts are small (<20 leads, <5 deposits).
 - status: "fix" if something is actively losing deposits, "watch" if something should be checked or decided, "good" otherwise.
 - headline: ≤ 12 words, the single most important thing, plain.
 - situation: 1–3 lines, each ≤ 18 words, each with a number and the fleet comparison where useful. First line = money (deposits, $ per deposit vs median).
