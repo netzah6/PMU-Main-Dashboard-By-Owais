@@ -5,6 +5,7 @@ import { useUser } from "@/lib/hooks/useUser";
 import { cn } from "@/lib/utils";
 import { Loader2, ChevronRight, Sparkles, MessageCircle } from "lucide-react";
 import { KIND_LABEL, type GridPost, type GridView } from "@/lib/ig-arrange";
+import { CpdBrief } from "@/components/clients/CpdBrief";
 
 interface Lead {
   id: string;
@@ -764,16 +765,22 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
     return LEGEND_ORDER.filter((s) => c[s]).map((s) => `${STATUS[s].emoji}${c[s]}`).join(" ");
   };
 
-  if (loading) return <div className="flex items-center gap-2 text-xs text-[#697a91] py-4"><Loader2 size={13} className="animate-spin" />Loading…</div>;
-  if (loadError) return (
+  /* The brief comes first (owner, 10/27/2026: "short and direct, then a
+     recommendation"); everything below it is the detail, folded by default
+     and remembered per browser. */
+  const [showDetails, setShowDetails] = useState(false);
+  useEffect(() => { try { setShowDetails(localStorage.getItem("cpd-details") === "1"); } catch { /* private window */ } }, []);
+  const toggleDetails = () => setShowDetails((v) => { try { localStorage.setItem("cpd-details", v ? "0" : "1"); } catch { /* ignore */ } return !v; });
+
+  const details = loading ? <div className="flex items-center gap-2 text-xs text-[#697a91] py-4"><Loader2 size={13} className="animate-spin" />Loading…</div>
+  : loadError ? (
     <div className="text-xs text-[#8595a8] py-3">
       Couldn&apos;t load the leads (connection hiccup — the data is still there).{" "}
       <button onClick={() => setRetryTick((t) => t + 1)} className="text-[#2563eb] underline underline-offset-2">Retry</button>
     </div>
-  );
-  if (!leads.length) return <div className="text-xs text-[#8595a8] py-3">No V3 lead data ingested for this client yet.</div>;
-
-  return (
+  )
+  : !leads.length ? <div className="text-xs text-[#8595a8] py-3">No V3 lead data ingested for this client yet.</div>
+  : (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4 md:items-start">
       {/* Funnel + AI recommendation (right on desktop) */}
       {/* On wide screens the three analysis boxes sit side by side */}
@@ -1216,6 +1223,17 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
         })}
       </ul>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-2">
+      <CpdBrief ownerKey={ownerKey} />
+      <button type="button" onClick={toggleDetails} className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#34568a] hover:text-[#1f3559]">
+        <ChevronRight size={12} className={cn("transition-transform", showDetails && "rotate-90")} />
+        {showDetails ? "Hide the details" : "Show all the details (leads, funnels, calendar, Instagram grid)"}
+      </button>
+      {showDetails && details}
     </div>
   );
 }

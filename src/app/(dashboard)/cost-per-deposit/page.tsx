@@ -147,7 +147,7 @@ export default function CostPerDepositPage() {
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("All");
   const [versionFilter, setVersionFilter] = useState("All");
-  const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst" | "kill-worst" | "killtext-worst">("default");
+  const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst" | "kill-worst" | "killtext-worst" | "brief-worst">("default");
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [dups, setDups] = useState<Dup[]>([]);
   const [dupOpen, setDupOpen] = useState(false);
@@ -158,7 +158,7 @@ export default function CostPerDepositPage() {
   const [schedFlags, setSchedFlags] = useState<Map<string, SchedFlag> | null>(null);
   /* owner (lowercased) → one-box funnel status, from the onebox_active_clients
      view (onebox_clients joined to Clients Master by normalized business name). */
-  const [oneboxMap, setOneboxMap] = useState<Map<string, { status: string; business: string }> | null>(null);
+  const [oneboxMap, setOneboxMap] = useState<Map<string, { status: string; business: string; slug?: string }> | null>(null);
   /* owner (lowercased) -> call-kill stats (daily cron): of the leads the
      artist CALLED, how many lost the AI afterwards — the outgoing-call
      workflow removes them from the AI flow (2026-09-22 finding). */
@@ -171,6 +171,8 @@ export default function CostPerDepositPage() {
      the qualified leads, how many lost the AI after the artist texted them
      herself (CloseBot's auto shutoff), with the takeover messages. */
   const [textKillMap, setTextKillMap] = useState<Map<string, TextKill> | null>(null);
+  // Client briefs (🧭 In short, PR 10/27/2026): status + headline per slug, for the dot by the name and the "Needs attention" sort.
+  const [briefMap, setBriefMap] = useState<Map<string, { status: "fix" | "watch" | "good"; headline: string }> | null>(null);
   const [textKillOpen, setTextKillOpen] = useState<{ name: string; k: TextKill } | null>(null);
   useEffect(() => {
     fetch("/api/call-kill/fixed").then((r) => r.json()).then((j) => { if (j.fixes) setKillFixes(j.fixes); }).catch(() => {});
@@ -227,6 +229,12 @@ export default function CostPerDepositPage() {
         const owners = ownersBySlug.get(slug);
         return owners?.length ? [...new Set(owners.flatMap(ownerKeys))] : ownerKeys(ownerKey);
       };
+      void supabase.from("cpd_briefs").select("slug, status, headline").then(({ data, error: e }) => {
+        if (e || !data) return;
+        const m = new Map<string, { status: "fix" | "watch" | "good"; headline: string }>();
+        for (const b of data as { slug: string; status: "fix" | "watch" | "good"; headline: string }[]) m.set(b.slug, { status: b.status, headline: b.headline });
+        setBriefMap(m);
+      });
       void supabase.from("text_kill_stats").select("slug, owner_key, qualified, texted, dead, ignored, events, computed_at").then(({ data, error: e }) => {
         if (e || !data) return;
         const m = new Map<string, TextKill>();
@@ -249,9 +257,9 @@ export default function CostPerDepositPage() {
         setKillMap(m);
       }
       if (!obRes.error && obRes.data) {
-        const m = new Map<string, { status: string; business: string }>();
-        for (const o of obRes.data as { owner_name: string; business_name: string; onebox_status: string }[]) {
-          m.set(o.owner_name.toLowerCase().trim(), { status: o.onebox_status, business: o.business_name });
+        const m = new Map<string, { status: string; business: string; slug?: string }>();
+        for (const o of obRes.data as { owner_name: string; business_name: string; onebox_status: string; slug?: string }[]) {
+          m.set(o.owner_name.toLowerCase().trim(), { status: o.onebox_status, business: o.business_name, slug: o.slug });
         }
         setOneboxMap(m);
       }
@@ -308,6 +316,20 @@ export default function CostPerDepositPage() {
         return b.d30 - a.d30;
       });
     }
+    if (sortMode === "brief-worst") {
+      const rankBrief = (r: Row) => {
+        const slug = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim())?.slug;
+        const b = slug ? briefMap?.get(slug) : undefined;
+        return b ? { fix: 0, watch: 1, good: 2 }[b.status] : 3;
+      };
+      return list.sort((a, b) => {
+        const pr = rank(a.client_status) - rank(b.client_status);
+        if (pr !== 0) return pr;
+        const d = rankBrief(a) - rankBrief(b);
+        if (d !== 0) return d;
+        return Number(b.spent14 ?? 0) - Number(a.spent14 ?? 0); // biggest spend first inside a group
+      });
+    }
     if (sortMode === "killtext-worst") {
       const killOf = (r: Row) => {
         const k = textKillMap?.get((r.owner_name ?? "").toLowerCase().trim());
@@ -337,7 +359,7 @@ export default function CostPerDepositPage() {
       if (ha !== hb) return dir * (ha - hb);
       return b.d30 - a.d30; // tie-break: more deposits first
     });
-  }, [rows, search, assignee, versionFilter, sortMode, killMap, textKillMap]);
+  }, [rows, search, assignee, versionFilter, sortMode, killMap, textKillMap, briefMap, oneboxMap]);
 
   return (
     <div className="p-3 md:p-4 space-y-3">
@@ -374,6 +396,7 @@ export default function CostPerDepositPage() {
             <option value="fh-worst">Funnel Health: worst → best</option>
             <option value="kill-worst">Kill Call: worst → best</option>
             <option value="killtext-worst">Kill Text: worst → best</option>
+            <option value="brief-worst">🧭 Needs attention first</option>
           </select>
 
           {/* Duplicate-deposit tracker */}
@@ -472,6 +495,13 @@ export default function CostPerDepositPage() {
                           style={{ background: t.bg }}
                           title={h == null ? "Funnel Health: no lead data" : `Funnel Health score: ${h.toFixed(1)} / 3`} />
                       ); })()}
+                      {(() => {
+                        const slug = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim())?.slug;
+                        const b = slug ? briefMap?.get(slug) : undefined;
+                        if (!b) return null;
+                        const bg = b.status === "fix" ? "#ef4444" : b.status === "watch" ? "#f59e0b" : "#22c55e";
+                        return <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-[-1px]" style={{ background: bg }} title={`🧭 ${b.headline}`} />;
+                      })()}
                       {ghl !== "ok" && <span className="mr-1" title={GHL_FLAG[ghl].title}>{GHL_FLAG[ghl].icon}</span>}
                       <span className={cn(ghl !== "ok" && "text-[#ea580c] font-bold")} title={ghl === "ok" ? undefined : GHL_FLAG[ghl].title}>{r.owner_name || "—"}</span>
                       {paused && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">Paused</span>}
