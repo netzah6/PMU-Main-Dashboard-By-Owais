@@ -6,6 +6,7 @@ import { onPoolSnapshotClosedForSetup, onSetupProposalClosed, parseSetupConvId }
 import { onSnapshotProposalClosed, parseSnapshotConvId } from "@/lib/pool-snapshot";
 import { onA2pProposalClosed, parseA2pConvId } from "@/lib/pool-a2p";
 import { onCnamProposalClosed, parseCnamConvId } from "@/lib/pool-cnam";
+import { onIgPostsClosed, parseIgPostsConvId } from "@/lib/ig-posts-check";
 import { isCloseBotCheck, onCloseBotCheckClosed } from "@/lib/closebot-coverage";
 
 // ── AI agent, browser worker (owner, 2026-10-10) ─────────────────────────────
@@ -43,7 +44,7 @@ export type WorkerTask = {
    1 = approved client account changes, 2 = background pool / CloseBot checks. */
 function queueLane(conversationId: string | null | undefined): 0 | 1 | 2 {
   if (parseSetupConvId(conversationId) || parseSnapshotConvId(conversationId)) return 0;
-  if (parseA2pConvId(conversationId) || parseCnamConvId(conversationId) || isCloseBotCheck(conversationId)) return 2;
+  if (parseA2pConvId(conversationId) || parseCnamConvId(conversationId) || isCloseBotCheck(conversationId) || parseIgPostsConvId(conversationId)) return 2;
   return 1;
 }
 
@@ -116,7 +117,7 @@ export async function claimNext(svc: Svc, host: string, recover = false): Promis
   // Setup-run and pool-snapshot cards carry their location; "Clean New
   // Account N" is not a client and has no Clients Master row to resolve.
   const setupRef = parseSetupConvId(p.conversation_id) ?? parseSnapshotConvId(p.conversation_id) ?? parseA2pConvId(p.conversation_id) ?? parseCnamConvId(p.conversation_id);
-  const loc = setupRef || isCloseBotCheck(p.conversation_id) ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
+  const loc = setupRef || isCloseBotCheck(p.conversation_id) || parseIgPostsConvId(p.conversation_id) ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
   if (loc) { locationId = locationId || loc.locationId; business = loc.businessName || null; }
   if (!locationId) {
     await svc.from("agent_proposals").update({
@@ -242,6 +243,12 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
   if (parseCnamConvId(p.conversation_id)) {
     try { await onCnamProposalClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
     catch { /* the weekly sweep queues it again */ }
+  }
+
+  /* Instagram post count: the funnel header follows the "POSTS: N" line. */
+  if (parseIgPostsConvId(p.conversation_id)) {
+    try { await onIgPostsClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
+    catch { /* the next ig-fetch run queues it again */ }
   }
 
   /* Weekly CloseBot check: the Alerts tab is the report — no owner text. */

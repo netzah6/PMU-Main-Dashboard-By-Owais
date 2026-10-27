@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { queueIgPostsCheck } from "@/lib/ig-posts-check";
 import { classifyImages } from "@/lib/ig-classify";
 import { feedPosts, rankPosts, type FeedPost, type IgFeed, type IgProfile } from "@/lib/ig-arrange";
 export type { FeedPost, IgFeed, IgProfile } from "@/lib/ig-arrange";
@@ -223,6 +224,12 @@ export async function snapshotFunnel(
   if (insErr) return { ok: false, why: `insert: ${insErr.message}` };
   const mark: IgFetchMark = { at: new Date().toISOString(), ok: true };
   const upErr = await patchExtras(svc, slug, { igFeed: feed, igFetch: mark });
+  /* Still no post count from any source: the Mac Mini reads it off the
+     public profile page (owner 10/27/2026: a header without "posts" looks
+     fake). One card per funnel; the answer sticks via prev.posts. */
+  if (postsCount == null && profile.username) {
+    try { await queueIgPostsCheck(svc, { slug, username: profile.username, by: "ig-fetch" }); } catch { /* next run tries again */ }
+  }
   if (upErr) return { ok: false, why: `extras: ${upErr}` };
   /* Now look at the new pictures and re-rank (second, separate write). */
   const todo = ordered.filter((p) => !p.kind);
