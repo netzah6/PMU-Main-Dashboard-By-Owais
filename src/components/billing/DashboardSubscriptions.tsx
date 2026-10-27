@@ -571,6 +571,14 @@ export function DashboardSubscriptions() {
                       {s.square_card_id ? (s.square_card_label ?? cardLabels[s.square_card_id] ?? "chosen card") : "default card"}
                     </button>
                   )}
+                  {/* Last charge sits on the same line as the card to save a row (owner, 2026-10-27). */}
+                  {last && (
+                    <span className={cn("text-[10px]", last.status === "succeeded" ? "text-[#8595a8]" : "text-[#be123c]")} title={last.status === "succeeded" ? undefined : last.error ?? undefined}>
+                      {last.status === "succeeded"
+                        ? `${last.charged_by?.startsWith("manual:") ? "marked paid" : "last charged"} ${fmt(last.charged_at)}`
+                        : `last attempt failed ${fmt(last.charged_at)}`}
+                    </span>
+                  )}
 
                   <div className="ml-auto flex items-center gap-1.5">
                     {s.status !== "active" && (
@@ -859,13 +867,8 @@ export function DashboardSubscriptions() {
                   </div>
                 )}
 
-                {(s.note || last) && !open && (
-                  <div className="px-2.5 pb-1.5 text-[10px] text-[#8595a8]">
-                    {s.note}{s.note && last ? " · " : ""}
-                    {last && (last.status === "succeeded"
-                      ? `${last.charged_by?.startsWith("manual:") ? "marked paid" : "last charged"} ${fmt(last.charged_at)}`
-                      : `last attempt failed ${fmt(last.charged_at)} — ${last.error ?? ""}`)}
-                  </div>
+                {s.note && !open && (
+                  <div className="px-2.5 pb-1.5 text-[10px] text-[#8595a8]">{s.note}</div>
                 )}
 
                 {open && (
