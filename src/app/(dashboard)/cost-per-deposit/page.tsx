@@ -208,13 +208,29 @@ export default function CostPerDepositPage() {
         supabase.from("deposit_overview").select("*"),
         supabase.from("booking_stats").select("owner_key, leads_total, contacts_total"),
         supabase.from("funnel_tracking_flags").select("owner_name, schedule_installed_at, lead_status, notes"),
-        supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status"),
-        supabase.from("call_kill_stats").select("owner_key, qualified, called, dead, ignored"),
+        supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status, slug"),
+        supabase.from("call_kill_stats").select("slug, owner_key, qualified, called, dead, ignored"),
       ]);
-      void supabase.from("text_kill_stats").select("owner_key, qualified, texted, dead, ignored, events, computed_at").then(({ data, error: e }) => {
+      /* The kill stats are computed per funnel (slug) and carry the owner
+         name GHL sync has for that sub-account — on recycled sub-accounts
+         that's the PREVIOUS owner, so the
+         row showed "no leads". Index each stat under the Clients Master
+         owner name of its funnel as well (same names as the rows). */
+      const ownersBySlug = new Map<string, string[]>();
+      for (const o of (obRes.data ?? []) as { owner_name: string; slug: string }[]) {
+        if (!o.slug || !o.owner_name) continue;
+        ownersBySlug.set(o.slug, [...(ownersBySlug.get(o.slug) ?? []), o.owner_name]);
+      }
+      /* Clients Master name when the funnel has one; the sync name only as a
+         fallback, so a stale name can't put one client's stats on another. */
+      const keysFor = (slug: string, ownerKey: string) => {
+        const owners = ownersBySlug.get(slug);
+        return owners?.length ? [...new Set(owners.flatMap(ownerKeys))] : ownerKeys(ownerKey);
+      };
+      void supabase.from("text_kill_stats").select("slug, owner_key, qualified, texted, dead, ignored, events, computed_at").then(({ data, error: e }) => {
         if (e || !data) return;
         const m = new Map<string, TextKill>();
-        for (const k of data as (TextKill & { owner_key: string })[]) for (const key of ownerKeys(k.owner_key)) m.set(key, k);
+        for (const k of data as (TextKill & { owner_key: string; slug: string })[]) for (const key of keysFor(k.slug, k.owner_key)) m.set(key, k);
         setTextKillMap(m);
       });
       if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
@@ -226,9 +242,9 @@ export default function CostPerDepositPage() {
       }
       if (!kkRes.error && kkRes.data) {
         const m = new Map<string, { qualified: number; called: number; dead: number; ignored: number }>();
-        for (const k of kkRes.data as { owner_key: string; qualified: number; called: number; dead: number; ignored: number }[]) {
+        for (const k of kkRes.data as { slug: string; owner_key: string; qualified: number; called: number; dead: number; ignored: number }[]) {
           const v = { qualified: k.qualified, called: k.called, dead: k.dead, ignored: k.ignored };
-          for (const key of ownerKeys(k.owner_key)) m.set(key, v);
+          for (const key of keysFor(k.slug, k.owner_key)) m.set(key, v);
         }
         setKillMap(m);
       }
