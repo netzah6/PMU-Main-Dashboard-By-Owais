@@ -623,12 +623,12 @@ const API_STEPS: Record<string, StepFn> = {
     }
     const r = await refreshFunnel(svc, slug);
     if (!r.ok) return { status: "warn", note: `Instagram fetch failed: ${r.why} — the funnel shows no Instagram section until it works (a private or restricted account can't be fetched)` };
-    // Funnel logo (owner 10/27/2026): most clients never send one, so the
-    // one-box header had no picture. The Instagram profile picture (already
-    // copied into our bucket by the fetch above) becomes the logo whenever
-    // "CC - Funnel Logo" is still empty — a logo the client did send wins.
+    // Funnel logo (owner 10/27/2026): the client's Instagram profile picture
+    // (already copied into our bucket by the fetch above) is the funnel logo —
+    // never a Facebook cover or whatever an old account carried in "CC - Funnel
+    // Logo" (Elena Altbaum's 2023 account). Only a logo typed on the form wins.
     let logoNote = "";
-    if (!String(config.logo ?? "").trim()) {
+    if (!String(ob.form.logo_url ?? "").trim()) {
       const { data: fresh } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
       const pic = String((fresh?.extras as { igFeed?: { profile?: { pic?: string } } } | null)?.igFeed?.profile?.pic ?? "").trim();
       if (pic) {
