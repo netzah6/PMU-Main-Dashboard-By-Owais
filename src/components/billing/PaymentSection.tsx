@@ -195,11 +195,12 @@ export function StatusCell({ v }: { v: VRow | undefined }) {
 // the bill" is a subset of the ready shows: every dollar stays tied to the show
 // it paid for, and the shows left out stay in Ready as the remainder. Oldest
 // first, because that is the order a balance gets paid down in.
-function PartialChargePanel({ v, card, busy, onCancel, onConfirm, onConfirmAmount }: {
+function PartialChargePanel({ v, card, busy, onCancel, onConfirm, onConfirmAmount, onLink }: {
   v: VRow; card: VCard; busy: boolean;
   onCancel: () => void;
   onConfirm: (apptIds: string[]) => void;
   onConfirmAmount: (amount: number) => void;
+  onLink: (apptIds: string[]) => void;
 }) {
   /* Two ways to say "part of it" (owner, 2026-09-26: "I'd like to charge any
      amount"). By shows keeps every dollar tied to the appointment it paid for;
@@ -352,6 +353,14 @@ function PartialChargePanel({ v, card, busy, onCancel, onConfirm, onConfirmAmoun
             ? `Settle ${t.shows} show${t.shows === 1 ? "" : "s"} with ${money(t.credit)} credit`
             : `Charge ${money(t.amount)} to ••${card.last4}`}
         </button>
+        {/* Owner 10/27/2026: a Square link for just these shows, for when the
+            card declines — the artist pays it, then the shows are marked
+            charged in the drill-down. */}
+        <button onClick={() => onLink(pickedIds)} disabled={busy || t.shows === 0}
+          title={`Create a Square payment page for the ${t.shows} show${t.shows === 1 ? "" : "s"} ticked above (${money(t.gross)}) and copy the link`}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88] disabled:opacity-50">
+          <Link2 size={11} /> Link {money(t.gross)}
+        </button>
         <button onClick={onCancel} disabled={busy}
           className="px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#697a91] border-[#e4ebf2] hover:border-[#94a3b8]">Cancel</button>
       </div>
@@ -419,19 +428,21 @@ export function ActionsCell({ v, onMsg, onReload }: {
   // Square-hosted checkout for the current ready amount — the decline
   // fallback. Copies the link so it can be texted to the artist; the shows
   // stay in Ready until she pays and the admin marks them charged.
-  const makePaymentLink = async () => {
+  const makePaymentLink = async (apptIds?: string[]) => {
     setBusy(true); onMsg(null);
     try {
       const res = await fetch("/api/ppa/payment-link", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner_key: v.ownerKey }),
+        body: JSON.stringify({ owner_key: v.ownerKey, ...(apptIds ? { appt_ids: apptIds } : {}) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Payment link failed");
       try { await navigator.clipboard.writeText(json.url); } catch { /* copy is best-effort */ }
+      setPartialOpen(false);
+      const who = Array.isArray(json.names) && json.names.length ? `: ${json.names.join(", ")}` : "";
       onMsg({
         ok: true,
-        text: `Payment link for ${money(json.amount)} (${json.shows} shows) copied to clipboard — text it to ${v.ownerName}. When she pays, mark the shows charged in the drill-down.`,
+        text: `Payment link for ${money(json.amount)} (${json.shows} show${json.shows === 1 ? "" : "s"}${who}) copied to clipboard — text it to ${v.ownerName}. When she pays, mark ${apptIds ? "those" : "the"} shows charged in the drill-down.`,
         receiptUrl: json.url,
       });
     } catch (e) {
@@ -508,7 +519,8 @@ export function ActionsCell({ v, onMsg, onReload }: {
                   <PartialChargePanel v={v} card={card!} busy={busy}
                     onCancel={() => setPartialOpen(false)}
                     onConfirm={(ids) => runCharge(ids)}
-                    onConfirmAmount={(amt) => runCharge(undefined, amt)} />
+                    onConfirmAmount={(amt) => runCharge(undefined, amt)}
+                    onLink={(ids) => makePaymentLink(ids)} />
                 )}
               </div>
             )}
@@ -543,7 +555,7 @@ export function ActionsCell({ v, onMsg, onReload }: {
           a Square-hosted checkout link for the exact ready amount — the artist
           pays with any card, no card data touches us. */}
       {v.readyToCharge > 0 && (
-        <button onClick={makePaymentLink} disabled={busy}
+        <button onClick={() => makePaymentLink()} disabled={busy}
           title={`Create a Square payment page for ${money(v.amount)} and copy the link — for when the card on file declines or there is no usable card. Shows stay in Ready until she pays and you mark them charged.`}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]">
           <Link2 size={11} /> Payment link
