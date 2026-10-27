@@ -180,3 +180,29 @@ export async function dueForReviews(svc: SupabaseClient, limit: number, minAgeDa
     .slice(0, limit)
     .map((c) => c.slug);
 }
+
+/* ?debug=1&slug=: what Google says for one funnel — the search hits and
+   the raw review shapes — so a "not found" or "no usable reviews" can be
+   explained without the key leaving Vercel. Writes nothing. */
+export async function debugReviews(svc: SupabaseClient, slug: string): Promise<Record<string, unknown>> {
+  const { data: row } = await svc.from("onebox_clients").select("config, extras").eq("slug", slug).maybeSingle();
+  const cfg = (row?.config ?? {}) as Record<string, string>;
+  const ex = (row?.extras ?? {}) as { gReviews?: GReviews; gLinkFromForm?: string };
+  const link = cleanLink(cfg.gmbLink) || cleanLink(ex.gLinkFromForm);
+  const name = String(cfg.biz ?? "").trim();
+  const out: Record<string, unknown> = { link, name, address: cfg.address ?? "", fromLinkId: placeIdFromLink(link) };
+  try {
+    if (name) {
+      const q = [name, cfg.address].filter(Boolean).join(", ");
+      const res = await places<{ places?: PlaceHit[] }>("places:searchText", { method: "POST", body: JSON.stringify({ textQuery: q, pageSize: 5 }) }, "places.id,places.displayName,places.formattedAddress");
+      out.search = (res.places ?? []).map((p) => ({ id: p.id, name: p.displayName?.text, address: p.formattedAddress, matches: hitMatches(p, name, cfg.address ?? "") }));
+    }
+    const found = await resolvePlaceId(link, name, cfg.address ?? "");
+    out.resolved = found;
+    if (found) {
+      const d = await places<PlaceDetails>(`places/${encodeURIComponent(found.id)}`, { method: "GET" }, "id,displayName,rating,userRatingCount,reviews");
+      out.details = { name: d.displayName?.text, rating: d.rating, count: d.userRatingCount, reviews: (d.reviews ?? []).map((r) => ({ stars: r.rating, textLen: (r.text?.text ?? "").length, origLen: (r.originalText?.text ?? "").length, keys: Object.keys(r) })) };
+    }
+  } catch (e) { out.error = e instanceof Error ? e.message : String(e); }
+  return out;
+}
