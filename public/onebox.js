@@ -805,7 +805,6 @@
     }
     var bookNoun = VIDEO ? "Video Consultation" : "Appointment";
     return (state.bookErr ? '<p class="bookerr">' + state.bookErr + "</p>" : "") +
-      (FREE && calState.booking ? '<p class="bookwait">Confirming your ' + APPT + "&hellip;</p>" : "") +
       '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFER_URGENCY
       ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR.replace(/\s+for\s+new\s+clients\s*!?$/i, "").replace(/!$/, "")) +
         "<br>" + esc(OFFER_URGENCY) + "</span>"
@@ -1062,6 +1061,11 @@
      unconfirmed holds on the calendar were confusing the clients. */
   function bookFree(iso) {
     calState.booking = true; state.bookErr = ""; paintCal();
+    /* "Confirming…" at the top of the calendar while the booking lands. */
+    if (!slideEl.querySelector(".bookwait")) {
+      var w = document.createElement("p"); w.className = "bookwait"; w.innerHTML = "Confirming your " + APPT + "&hellip;";
+      slideEl.insertBefore(w, slideEl.firstChild); w.scrollIntoView({ block: "center" });
+    }
     var fail = function (msg) { calState.booking = false; calState.selIso = ""; state.bookErr = msg; show("booking"); };
     try {
       fetch((C.submitUrl || "").replace(/submit$/, "book"), {
@@ -1338,12 +1342,12 @@
     };
     if (phase === "survey") bindSurvey();
     if (phase === "booking") {
-      fbPreconnect();
       /* With no confirm interstitial the checkout warms here instead:
          session mint + iframe boot run while the visitor browses the
          calendar, so the deposit step still opens (nearly) ready. Name
-         and email are already complete — the quiz precedes booking. */
-      bootFanbasis(fbHost);
+         and email are already complete — the quiz precedes booking.
+         A free-booking funnel has no deposit step: nothing to warm. */
+      if (!FREE) { fbPreconnect(); bootFanbasis(fbHost); }
       bindCal();
       if (!calState.loading && !monthKeyDates().length && !calState.error) loadMonth();
     }
