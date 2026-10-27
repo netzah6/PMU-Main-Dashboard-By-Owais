@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
-import { refreshOneboxConfig, parseFaqs, normalizeElfsight, buildFanbasisBlock, SYNC_TTL_MS } from "@/lib/onebox";
+import { refreshOneboxConfig, parseFaqs, buildFanbasisBlock, SYNC_TTL_MS } from "@/lib/onebox";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { signLogoUrl } from "@/lib/logo-sign";
 import { arrangeFeed, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
+import type { GReviews } from "@/lib/g-reviews";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
 // the hosted engine public/onebox.js owns the DOM; a hydrated page would
@@ -61,6 +62,8 @@ type Row = {
        a 3 × 2 grid (side b of A/B #4, and every frozen funnel). */
     igFeed?: IgFeed;
     igPicks?: IgPicks;
+    gReviews?: GReviews;
+    gWidgetOff?: boolean;
   };
 };
 
@@ -287,7 +290,12 @@ export async function GET(
     igFrozenImgs: !row.extras.igWidgetOff && row.extras.igFrozen && row.extras.igSnapshot?.imgs?.length
       ? row.extras.igSnapshot.imgs.join(",")
       : "",
-    googleWidget: normalizeElfsight(row.config.googleWidget || ""),
+    /* Google reviews, in-house (10/27/2026): the server's copy of the place's
+       rating + best reviews. The Elfsight reviews widget is gone. */
+    gReviews: row.extras.gWidgetOff || !row.extras.gReviews?.reviews?.length ? "" : JSON.stringify({
+      rating: row.extras.gReviews.rating, count: row.extras.gReviews.count,
+      reviews: row.extras.gReviews.reviews.slice(0, 6).map((r) => ({ name: r.name, pic: r.pic, stars: r.stars, text: r.text.slice(0, 700), when: r.when })),
+    }),
     resultImgs: row.config.resultImgs || row.extras.resultImgs || "",
     studioImgs: row.config.studioImgs || "",
     metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),

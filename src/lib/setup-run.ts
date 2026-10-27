@@ -9,6 +9,7 @@ import { createDepositProductFromForm } from "@/lib/deposit-product";
 import { addOneboxFunnel, FUNNEL_ORIGIN } from "@/lib/onebox-add";
 import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl, setOneboxCustomValues } from "@/lib/onebox";
 import { refreshFunnel, usernameFromLink } from "@/lib/ig-fetch";
+import { refreshReviews } from "@/lib/g-reviews";
 import { buildReplayPayload, isValidHookUrlForLocation, replayToClientHook } from "@/lib/payment-router";
 import { verifyOnboarding } from "@/lib/onboarding-verify";
 import { answersFromMainContact } from "@/lib/survey-answers";
@@ -219,7 +220,7 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     case "account_info": case "account_cvs": case "cal_id": return done(ob, "account_take");
     case "cal_active": return done(ob, "cal_rules");
     case "connector": case "product": case "funnel_create": return done(ob, "account_take");
-    case "funnel_pixel": case "funnel_ig": return done(ob, "funnel_create");
+    case "funnel_pixel": case "funnel_ig": case "funnel_reviews": return done(ob, "funnel_create");
     case "route_test": return done(ob, "webhook_url") && done(ob, "product") && !!ob.setup?.hook_url;
     case "user_password": return done(ob, "user_create");
     // Go-live comes BEFORE the funnel test now (owner 10/20/2026: the test is
@@ -640,6 +641,24 @@ const API_STEPS: Record<string, StepFn> = {
     return { status: "done", note: `${r.imgs} pictures fetched and sorted (results first) — grid live on the funnel${logoNote}` };
   },
 
+  /* 44 · Google reviews (owner, 10/27/2026): our own copy of the place's
+     rating + best reviews from Google Places. No Elfsight. */
+  funnel_reviews: async (svc, ob) => {
+    const slug = ob.setup!.slug!;
+    await refreshOneboxConfig(svc, slug, ob.setup!.location_id).catch(() => undefined);
+    const { data: row } = await svc.from("onebox_clients").select("config").eq("slug", slug).maybeSingle();
+    const config = { ...((row?.config ?? {}) as Record<string, unknown>) };
+    const fromForm = String(ob.form.gmb_link ?? "").trim();
+    if (!String(config.gmbLink ?? "").trim() && fromForm) {
+      config.gmbLink = fromForm;
+      await svc.from("onebox_clients").update({ config }).eq("slug", slug);
+    }
+    if (!process.env.GOOGLE_PLACES_API_KEY) return { status: "warn", note: "GOOGLE_PLACES_API_KEY is not set in Vercel yet — reviews will be fetched by the daily job once it is" };
+    const r = await refreshReviews(svc, slug);
+    if (!r.ok) return { status: "warn", note: `Google reviews: ${r.why} — the funnel has no reviews section until this works (add the Google Business link in the Funnels tab)` };
+    return { status: "done", note: `${r.reviews} reviews${r.rating != null ? ` (rating ${r.rating})` : ""} on the funnel` };
+  },
+
   /* 30 · Go live (the Funnels tab's "Go live", incl. the deposit URL). */
   funnel_live: async (svc, ob) => {
     const slug = ob.setup!.slug!;
@@ -776,7 +795,7 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   const needs: Record<string, string[]> = {
     webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_forward: ["phone_buy"],
     user_settings: ["user_password"], user_calendar: ["user_password"], wf_survey: ["user_password"], cal_team: ["user_password"], cal_hours: ["user_password"],
-    funnel_ig: ["funnel_create"], funnel_redirect: ["funnel_create"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
+    funnel_ig: ["funnel_create"], funnel_reviews: ["funnel_create"], funnel_redirect: ["funnel_create"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
   };
   for (const k of needs[next.key] ?? []) {
     const st = stepState(setup, k);
