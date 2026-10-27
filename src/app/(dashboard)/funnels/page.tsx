@@ -2526,8 +2526,6 @@ export default function FunnelsPage() {
                       ["calendarId", "Calendar ID"],
                       ["fanbasisProductId", "Commas product ID"],
                       ["fanbasisHookUrl", "\"FanBasis to GHL workflow\" URL — open that workflow in the sub-account, click the Inbound Webhook box, copy the URL"],
-                      ["igLink", "Instagram page link (we build the widget from it)"],
-                      ["gmbLink", "Google Business link — review link or Maps link (we build the reviews from it)"],
                     ] as [string, string][])
                       .filter(([k]) => setupVer !== "V1" || !["offer", "deposit", "calendarId", "fanbasisProductId", "fanbasisHookUrl"].includes(k))
                       .map(([k, label]) => {
@@ -2608,9 +2606,9 @@ export default function FunnelsPage() {
                       <div className="border border-[#bfe6e2] rounded-xl p-3 bg-[#f7fdfc] grid md:grid-cols-2 gap-2">
                         {H("Owner & links")}
                         {T("ownerName", "Owner's name")}
-                        {T("igLink", "Instagram page link", "https://www.instagram.com/…")}
+                        {T("igLink", "Instagram page link (we build the grid from it)", "https://www.instagram.com/…")}
                         {T("fbLink", "Facebook page link", "https://www.facebook.com/…")}
-                        {T("gmbLink", "Google My Business link", "https://g.page/r/… or maps link")}
+                        {T("gmbLink", "Google Business link (we build the reviews from it)", "review link, g.page or maps link")}
                         {ver === "V3" && (<>
                         {H("Prices", true)}
                         {T("originalPrice", "🆕 Original price — new brows (first time)", "$597")}

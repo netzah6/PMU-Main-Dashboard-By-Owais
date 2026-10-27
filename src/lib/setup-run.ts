@@ -632,12 +632,12 @@ const API_STEPS: Record<string, StepFn> = {
   funnel_reviews: async (svc, ob) => {
     const slug = ob.setup!.slug!;
     await refreshOneboxConfig(svc, slug, ob.setup!.location_id).catch(() => undefined);
-    const { data: row } = await svc.from("onebox_clients").select("config").eq("slug", slug).maybeSingle();
-    const config = { ...((row?.config ?? {}) as Record<string, unknown>) };
     const fromForm = String(ob.form.gmb_link ?? "").trim();
-    if (!String(config.gmbLink ?? "").trim() && fromForm) {
-      config.gmbLink = fromForm;
-      await svc.from("onebox_clients").update({ config }).eq("slug", slug);
+    if (fromForm) {
+      /* extras survives the custom-value resync; config.gmbLink would be
+         overwritten by GHL's (empty) value. The fetcher reads both. */
+      const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+      await svc.from("onebox_clients").update({ extras: { ...((row?.extras ?? {}) as Record<string, unknown>), gLinkFromForm: fromForm } }).eq("slug", slug);
     }
     if (!process.env.GOOGLE_PLACES_API_KEY) return { status: "warn", note: "GOOGLE_PLACES_API_KEY is not set in Vercel yet — reviews will be fetched by the daily job once it is" };
     const r = await refreshReviews(svc, slug);

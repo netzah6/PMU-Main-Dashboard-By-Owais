@@ -357,7 +357,7 @@ export async function GET(
   const boot = (
     `window.OB_CONFIG=${JSON.stringify(cfg)};` +
     `window.OB_FAQS=${JSON.stringify(faqs)};`
-  ).replace(/<\//g, "<\\/");
+  ).replace(/</g, "\\u003c");
 
   const html = `<!doctype html>
 <html lang="en">
@@ -410,7 +410,7 @@ function serveB2B(row: Row, req: NextRequest, variantOverrides: Record<string, s
     experimentId: ab.expId,
     variantKey: ab.expVkey,
   };
-  const boot = `window.OB_CONFIG=${JSON.stringify(cfg)};`.replace(/<\//g, "<\\/");
+  const boot = `window.OB_CONFIG=${JSON.stringify(cfg)};`.replace(/</g, "\\u003c");
   const html = `<!doctype html>
 <html lang="en">
 <head>

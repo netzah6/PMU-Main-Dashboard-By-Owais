@@ -419,7 +419,7 @@
     "#onebox-root .grevrow{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 6px 12px;-webkit-overflow-scrolling:touch;scrollbar-width:none}#onebox-root .grevrow::-webkit-scrollbar{display:none}" +
     "#onebox-root .grevcard{flex:0 0 84%;max-width:360px;scroll-snap-align:start;background:#fff;border:1px solid #e4ebf2;border-radius:14px;padding:14px;box-shadow:0 6px 18px -12px rgba(0,0,0,.25)}" +
     "#onebox-root .grevwho{display:flex;align-items:center;gap:10px}" +
-    "#onebox-root .grevav{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px;overflow:hidden}#onebox-root .grevav img{width:100%;height:100%;object-fit:cover;display:block}" +
+    "#onebox-root .grevav{position:relative;width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px;overflow:hidden}#onebox-root .grevav img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}" +
     "#onebox-root .grevname{font-weight:600;font-size:14px;color:#1c2b3a}#onebox-root .grevwhen{font-size:12px;color:#697a91}" +
     "#onebox-root .grevtxt{font-size:14px;line-height:1.45;margin:6px 0 0;color:#1c2b3a;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}#onebox-root .grevcard.open .grevtxt{display:block;-webkit-line-clamp:unset}" +
     "#onebox-root .grevmore{margin-top:4px;font-size:13px;color:#697a91;background:none;border:0;padding:0;cursor:pointer;font-family:inherit}" +
@@ -1509,19 +1509,34 @@
         m.textContent = card.classList.contains("open") ? "Show less" : "Read more";
       });
     }
+    function grevFit() {
+      var cards = root.querySelectorAll(".grevcard");
+      for (var i = 0; i < cards.length; i++) {
+        var t = cards[i].querySelector(".grevtxt"), b = cards[i].querySelector(".grevmore");
+        if (!t || !b) continue;
+        if (cards[i].classList.contains("open")) { b.hidden = false; continue; }
+        b.hidden = !(t.scrollHeight > t.clientHeight + 1);
+      }
+    }
+    if (!window.__obGrevFit) { window.__obGrevFit = true; window.addEventListener("resize", function () { setTimeout(grevFit, 0); }); }
     function grevHtml(g) {
       var stars = function (n) { var t = ""; for (var i = 0; i < 5; i++) t += i < n ? "&#9733;" : "&#9734;"; return t; };
       var tones = ["#5b7fe6", "#e0745a", "#3fa37a", "#b56cc9", "#e3a23b", "#2a9db8"];
       var cards = (g.reviews || []).map(function (r) {
-        var name = String(r.name || "Google user"); var ini = name.charAt(0).toUpperCase();
+        var name = String(r.name || "Google user"); var ini = (Array.from ? Array.from(name)[0] : name.charAt(0)) || "G";
         var tone = tones[(name.charCodeAt(0) + name.length) % tones.length];
-        var av = r.pic ? '<img src="' + esc(r.pic) + '" alt="" loading="lazy" onerror="this.parentNode.textContent=\'' + esc(ini) + '\'">' : esc(ini);
+        /* The initial is always there; a photo sits on top and simply
+           vanishes if it fails to load. */
+        var av = esc(String(ini).toUpperCase()) + (r.pic ? '<img src="' + esc(r.pic) + '" alt="" loading="lazy">' : "");
         var txt = String(r.text || "").slice(0, 700);
         return '<div class="grevcard"><div class="grevwho"><div class="grevav" style="background:' + tone + '">' + av + '</div>' +
           '<div><div class="grevname">' + esc(name) + '</div><div class="grevwhen">' + esc(r.when || "") + '</div></div></div>' +
           '<div class="grevstars small">' + stars(r.stars || 5) + '</div><p class="grevtxt">' + esc(txt) + "</p>" +
-          (txt.length > 220 ? '<button type="button" class="grevmore">Read more</button>' : "") + "</div>";
+          '<button type="button" class="grevmore" hidden>Read more</button></div>';
       }).join("");
+      /* Show "Read more" only where the text really is clipped (decided
+         after paint, and again on resize). */
+      setTimeout(grevFit, 0);
       var score = g.rating != null ? Number(g.rating).toFixed(1) : "";
       return '<div class="grev"><div class="grevhead">' +
         '<div class="grevg"><span style="color:#4285F4">G</span><span style="color:#EA4335">o</span><span style="color:#FBBC05">o</span><span style="color:#4285F4">g</span><span style="color:#34A853">l</span><span style="color:#EA4335">e</span></div>' +
