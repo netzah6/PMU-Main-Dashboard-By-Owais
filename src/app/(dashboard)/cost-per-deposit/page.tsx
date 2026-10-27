@@ -549,12 +549,12 @@ export default function CostPerDepositPage() {
                         const isV3 = /v3/i.test(r.version ?? "");
                         if (!isV3) return <span className="text-[#c3cdd9] cursor-default" title="Kill Text is tracked for V3 accounts only (AI follow-up)">—</span>;
                         if (!textKillMap) return <span className="text-[#c3cdd9]">…</span>;
-                        if (!k || k.qualified === 0) return <span className="text-[#8595a8] text-[10px] cursor-default" title="V3 account, tracked — no qualified leads in the last 21 days">no leads</span>;
-                        /* Same scale as Kill Call: dead / ALL qualified leads (21 days). */
+                        if (!k || k.qualified === 0) return <span className="text-[#8595a8] text-[10px] cursor-default" title="V3 account, tracked — no qualified leads in the last 30 days">no leads</span>;
+                        /* Same scale as Kill Call: dead / ALL qualified leads (30 days). */
                         const pct = Math.round((k.dead / k.qualified) * 100);
                         const tone = pct >= 15 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 7 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
                         const label = k.qualified < 3 ? `${k.dead}/${k.qualified}` : `${pct}%`;
-                        const why = `${k.dead} of ${k.qualified} qualified leads (21d) lost the AI after the artist texted them herself${k.ignored ? ` — ${k.ignored} replied and got silence` : ""}. Click to see the messages.`;
+                        const why = `${k.dead} of ${k.qualified} qualified leads (30d) lost the AI after the artist texted them herself${k.ignored ? ` — ${k.ignored} replied and got silence` : ""}. Click to see the messages.`;
                         return (
                           <button type="button" onClick={(e) => { e.stopPropagation(); setTextKillOpen({ name: r.owner_name ?? "Client", k }); }}
                             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:ring-2 hover:ring-[#15B7AE]/40"
@@ -653,14 +653,14 @@ function TextKillDialog({ name, k, onClose }: { name: string; k: TextKill; onClo
           <div className="flex-1">
             <div className="text-sm font-bold text-[#1f3559]">✍️ Kill Text — {name}</div>
             <div className="text-[11px] text-[#697a91]">
-              {k.dead} of {k.qualified} qualified leads (last 21 days) lost the AI after the artist texted them herself
+              {k.dead} of {k.qualified} qualified leads (last 30 days) lost the AI after the artist texted them herself
               {k.ignored ? <> · <b className="text-[#b91c1c]">{k.ignored} replied and got silence</b></> : null}
             </div>
           </div>
           <button type="button" onClick={onClose} className="text-[#8595a8] hover:text-[#1f3559]" aria-label="Close"><X size={16} /></button>
         </div>
         <div className="mt-3 space-y-2">
-          {k.events.length === 0 && <div className="text-[12px] text-[#697a91]">No takeovers in the last 21 days.</div>}
+          {k.events.length === 0 && <div className="text-[12px] text-[#697a91]">No takeovers in the last 30 days.</div>}
           {k.events.map((e) => (
             <div key={e.contactId + e.at} className="rounded-lg border border-[#e4ebf2] p-2.5">
               <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-[#697a91]">
