@@ -45,6 +45,10 @@
      and the show-up/address promises change. Off for everyone else. */
   var VIDEO = String(C.consultMode || "") === "video";
   var APPT = VIDEO ? "video consultation" : "appointment";
+  /* Free booking (owner, 10/27/2026, Brows By Kali's video calls): no
+     deposit step — picking a time books and confirms the appointment at
+     once and lands on the thank-you page. Per client (extras.freeBooking). */
+  var FREE = !!C.freeBooking;
   var BIZ = (C.biz || "").trim() || "Our Studio";
   var PHONE = (C.phone || "").trim();
   var ADDR = (C.address || "").trim();
@@ -269,6 +273,8 @@
     "#onebox-root .stickycta b{display:block;font-size:17px;font-weight:800;color:#0d2b33;letter-spacing:-.01em}" +
     "#onebox-root .stickycta span{display:block;font-size:12px;font-weight:600;color:#0d3b40;opacity:.85;margin-top:2px}" +
     "#onebox-root .confyes:hover:not(:disabled){filter:brightness(1.05)}" +
+    "#onebox-root .bookerr{margin:0 0 10px;padding:10px 12px;border-radius:10px;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;font-family:var(--form);font-size:13.5px;text-align:center}" +
+    "#onebox-root .bookwait{margin:0 0 10px;padding:10px 12px;border-radius:10px;background:#ecfeff;border:1px solid #a5f3fc;color:#155e75;font-family:var(--form);font-size:13.5px;text-align:center}" +
     "#onebox-root .confyes:disabled{cursor:not-allowed;filter:saturate(.35);opacity:.75;box-shadow:none}" +
     "#onebox-root .confyes b{display:block;font-family:var(--headline);font-weight:700;font-size:15.5px;color:#083b3b}" +
     "#onebox-root .confyes span{display:block;font-family:var(--form);font-size:11.5px;color:#0b4f4d;margin-top:2px}" +
@@ -798,7 +804,9 @@
       calState.y = n.getFullYear(); calState.m = n.getMonth();
     }
     var bookNoun = VIDEO ? "Video Consultation" : "Appointment";
-    return '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFER_URGENCY
+    return (state.bookErr ? '<p class="bookerr">' + state.bookErr + "</p>" : "") +
+      (FREE && calState.booking ? '<p class="bookwait">Confirming your ' + APPT + "&hellip;</p>" : "") +
+      '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFER_URGENCY
       ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR.replace(/\s+for\s+new\s+clients\s*!?$/i, "").replace(/!$/, "")) +
         "<br>" + esc(OFFER_URGENCY) + "</span>"
       : OFFERR
@@ -1052,6 +1060,30 @@
   /* Choosing a time books nothing yet. The appointment is created once,
      already confirmed, only after the deposit clears (see OB_ONPAID) —
      unconfirmed holds on the calendar were confusing the clients. */
+  function bookFree(iso) {
+    calState.booking = true; state.bookErr = ""; paintCal();
+    var fail = function (msg) { calState.booking = false; calState.selIso = ""; state.bookErr = msg; show("booking"); };
+    try {
+      fetch((C.submitUrl || "").replace(/submit$/, "book"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: C.slug || "",
+          full_name: state.answers.full_name || "",
+          phone: state.answers.phone || "",
+          email: state.answers.email || "",
+          startTime: iso,
+          fbp: cookie("_fbp"),
+          fbc: cookie("_fbc"),
+          pageUrl: location.href,
+        }),
+      }).then(function (r) { return r.json().catch(function () { return {}; }); }).then(function (j) {
+        if (j && j.ok) { calState.booking = false; state.paidSent = true; show("done"); }
+        else fail("We couldn&rsquo;t confirm that time &mdash; please pick another.");
+      }).catch(function () { fail("Connection problem &mdash; please pick the time again."); });
+    } catch (e) { fail("Connection problem &mdash; please pick the time again."); }
+  }
+
   function book(iso) {
     state.slotIso = iso;
     pixelTrack("Schedule");
@@ -1069,6 +1101,7 @@
         }),
       }).catch(function () {});
     } catch (e) {}
+    if (FREE) { bookFree(iso); return; }
     show("deposit");
   }
 
@@ -1234,17 +1267,17 @@
     return confettiHtml() +
       '<div class="doneburst">&#127881;</div>' +
       '<h2 class="phead donehead">' + (first ? esc(first) + ", you" : "You") + "&rsquo;re booked!</h2>" +
-      '<p class="donesub">Get excited &mdash; your transformation is officially on the calendar.</p>' +
+      '<p class="donesub">' + (FREE ? "Get excited &mdash; your " + APPT + " is officially on the calendar." : "Get excited &mdash; your transformation is officially on the calendar.") + "</p>" +
       '<div class="confcard donecard">' +
         "<h3>&#10004; Your " + APPT + " is confirmed</h3>" +
         (state.slotIso ? '<p class="confwhen">' + esc(fmtWhen(state.slotIso)) + "</p>" +
           '<p class="confrel">' + esc(relDay(state.slotIso)) + "</p>" : "") +
         (ADDR && !VIDEO ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
-        "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service" + (VIDEO ? "" : " at your visit") + ".</p>" +
+        (FREE ? "" : "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service" + (VIDEO ? "" : " at your visit") + ".</p>") +
       "</div>" +
       ((C.igWidget || C.elfsightId || C.igFrozenImgs || C.igFeed) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
         "&#128248; Follow us on Instagram for daily results</a>" : "") +
-      '<p class="donenote">We&rsquo;ll be in touch shortly to prepare everything for your visit. Keep an eye on your phone! &#128241;</p>';
+      '<p class="donenote">' + (FREE && VIDEO ? "We&rsquo;ll text you the details for your video consultation before the call. Keep an eye on your phone! &#128241;" : "We&rsquo;ll be in touch shortly to prepare everything for your visit. Keep an eye on your phone! &#128241;") + "</p>";
   }
 
   /* One continuous hold countdown: starts on the confirmation screen and

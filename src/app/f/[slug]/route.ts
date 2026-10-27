@@ -34,6 +34,7 @@ type Row = {
     /* "video" = this client's calendar slot is a video consultation, not an
        in-studio visit — the engine reframes its wording (Brows By Kali). */
     consultMode?: string;
+    freeBooking?: boolean;
     /* "b2b" = the agency's own artist-acquisition funnel: config lives in
        extras.b2b (the CV sync must never overwrite it) and the page runs
        the dedicated onebox-b2b.js engine — no Fanbasis, booking a free
@@ -305,6 +306,7 @@ export async function GET(
     metaPixelId: (row.config.metaPixelId || row.extras.metaPixelId || "").replace(/\D/g, ""),
     surveyRaw: row.config.surveyRaw || "",
     consultMode: row.extras.consultMode || "",
+    freeBooking: row.extras.freeBooking ? "1" : "",
     pay: isPay ? "1" : "",
   };
   /* Program-driven flow: a (V1) client's funnel is survey → thank-you
@@ -375,7 +377,7 @@ export async function GET(
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap"></noscript>
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
 ${isPay ? `<script>window.OB_PAYFETCH=(function(){try{var t=new URLSearchParams(location.search).get("t");if(!t){var m=location.pathname.match(/\\/([A-Za-z0-9]{8,40})\\/(confirm|last-step)\\/?$/);if(m)t=m[1];}if(!t)return null;return fetch("/api/onebox/paylead?slug=${row.slug}&t="+encodeURIComponent(t)).then(function(r){return r.ok?r.json():null}).catch(function(){return null});}catch(e){return null}})();</script>` : ""}
-<script src="/onebox.js?v=119" defer></script>
+<script src="/onebox.js?v=120" defer></script>
 </head>
 <body style="margin:0">
 ${isPay ? `<div id="ob-pay-veil" style="position:fixed;inset:0;z-index:9999;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif"><p style="margin:0 0 6px;font-weight:700;font-size:18px">One moment&hellip;</p><p style="margin:0;color:#667">Loading your reservation</p></div>` : ""}
