@@ -13,12 +13,12 @@ import { getAppLocationToken } from "@/lib/ghl-app";
    bot's style is unmistakable next to an artist's), and count the lead as
    killed when the AI fell silent after the first one.
 
-   Kill Text % = dead / QUALIFIED over the last 30 days (owner, 10/27/2026;
-   Kill Call uses 21), same population as Kill Call. A lead whose first takeover was a CALL
+   Kill Text % = dead / QUALIFIED over the last 14 days (owner, 10/27/2026 —
+   same window as Kill Call), same population as Kill Call. A lead whose first takeover was a CALL
    belongs to Kill % and is skipped here. */
 
 type Svc = ReturnType<typeof createServiceClient>;
-const WINDOW_DAYS = 30;
+const WINDOW_DAYS = 14;
 const CLOSURE = /\bstop\b|not interested|no longer|already (did|done|booked elsewhere)|wrong number/i;
 const AUTOMATED = /workflow|campaign|bulk|drip|automation|trigger/i;
 const TEXT_TYPES = /SMS|FACEBOOK|INSTAGRAM|WHATSAPP|LIVE_CHAT|GMB|WEBCHAT/i;

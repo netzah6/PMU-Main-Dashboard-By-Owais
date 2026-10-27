@@ -22,7 +22,7 @@ import { getAppLocationToken } from "@/lib/ghl-app";
    sheet inside the window. */
 
 type Svc = ReturnType<typeof createServiceClient>;
-const WINDOW_DAYS = 21;
+const WINDOW_DAYS = 14; // owner 10/27/2026: 14 days, same as Kill Text
 const CLOSURE = /\bstop\b|not interested|no longer|already (did|done|booked elsewhere)|wrong number/i;
 
 async function allRows<T>(q: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
