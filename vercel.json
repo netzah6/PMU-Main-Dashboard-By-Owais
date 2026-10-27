@@ -115,6 +115,10 @@
     {
       "path": "/api/cron/ig-fetch",
       "schedule": "20 * * * *"
+    },
+    {
+      "path": "/api/cron/g-reviews",
+      "schedule": "40 10 * * *"
     }
   ],
   "headers": [

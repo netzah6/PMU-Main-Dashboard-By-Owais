@@ -2526,8 +2526,8 @@ export default function FunnelsPage() {
                       ["calendarId", "Calendar ID"],
                       ["fanbasisProductId", "Commas product ID"],
                       ["fanbasisHookUrl", "\"FanBasis to GHL workflow\" URL — open that workflow in the sub-account, click the Inbound Webhook box, copy the URL"],
-                      ["igWidget", "Instagram widget link (elf.site)"],
-                      ["googleWidget", "Google reviews widget link (elf.site)"],
+                      ["igLink", "Instagram page link (we build the widget from it)"],
+                      ["gmbLink", "Google Business link — review link or Maps link (we build the reviews from it)"],
                     ] as [string, string][])
                       .filter(([k]) => setupVer !== "V1" || !["offer", "deposit", "calendarId", "fanbasisProductId", "fanbasisHookUrl"].includes(k))
                       .map(([k, label]) => {

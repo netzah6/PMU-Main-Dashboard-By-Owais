@@ -409,6 +409,21 @@
     "#onebox-root .iglb .lbx{position:absolute;top:env(safe-area-inset-top,0px);right:0;padding:12px 18px;color:#fff;font-size:30px;line-height:1;background:none;border:0;cursor:pointer}" +
     "#onebox-root .iglb .lbp,#onebox-root .iglb .lbn{position:absolute;top:50%;transform:translateY(-50%);padding:18px 10px;color:#fff;font-size:36px;line-height:1;background:none;border:0;opacity:.8;cursor:pointer}#onebox-root .iglb .lbp{left:0}#onebox-root .iglb .lbn{right:0}" +
     "#onebox-root .iggrid span{cursor:pointer}" +
+    /* Google reviews cards */
+    "#onebox-root .grev{max-width:640px;margin:0 auto}" +
+    "#onebox-root .grevhead{display:flex;align-items:center;gap:14px;padding:0 6px 12px}" +
+    "#onebox-root .grevg{font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:24px;letter-spacing:-.5px;line-height:1}" +
+    "#onebox-root .grevscore{font-size:30px;font-weight:700;line-height:1;color:#1c2b3a}" +
+    "#onebox-root .grevstars{color:#fbbc04;font-size:17px;letter-spacing:1px;line-height:1.2}#onebox-root .grevstars.small{font-size:14px;margin-top:8px}" +
+    "#onebox-root .grevcount{font-size:13px;color:#697a91;margin-top:2px}" +
+    "#onebox-root .grevrow{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;padding:2px 6px 12px;-webkit-overflow-scrolling:touch;scrollbar-width:none}#onebox-root .grevrow::-webkit-scrollbar{display:none}" +
+    "#onebox-root .grevcard{flex:0 0 84%;max-width:360px;scroll-snap-align:start;background:#fff;border:1px solid #e4ebf2;border-radius:14px;padding:14px;box-shadow:0 6px 18px -12px rgba(0,0,0,.25)}" +
+    "#onebox-root .grevwho{display:flex;align-items:center;gap:10px}" +
+    "#onebox-root .grevav{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px;overflow:hidden}#onebox-root .grevav img{width:100%;height:100%;object-fit:cover;display:block}" +
+    "#onebox-root .grevname{font-weight:600;font-size:14px;color:#1c2b3a}#onebox-root .grevwhen{font-size:12px;color:#697a91}" +
+    "#onebox-root .grevtxt{font-size:14px;line-height:1.45;margin:6px 0 0;color:#1c2b3a;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}#onebox-root .grevcard.open .grevtxt{display:block;-webkit-line-clamp:unset}" +
+    "#onebox-root .grevmore{margin-top:4px;font-size:13px;color:#697a91;background:none;border:0;padding:0;cursor:pointer;font-family:inherit}" +
+    "@media(min-width:640px){#onebox-root .grevrow{flex-wrap:wrap;overflow:visible}#onebox-root .grevcard{flex:1 1 46%;max-width:none}}" +
     "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:14px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
@@ -1418,7 +1433,6 @@
        posts + profile, fetched from the username alone and sorted by what
        each picture shows, rendered as a 3 × 2 grid. The Elfsight Instagram
        widget is never loaded any more. A frozen funnel shows its frozen set. */
-    var IG = "";
     var FEED = null;
     try { FEED = C.igFeed ? JSON.parse(C.igFeed) : null; } catch (e) { FEED = null; }
     /* Frozen feed: the dashboard snapshotted the posts that were live when
@@ -1481,7 +1495,41 @@
           return '<span data-i="' + i + '" role="button" aria-label="Open picture"><img src="' + esc(p.img) + '" alt="Instagram post" loading="lazy"></span>';
         }).join("") + "</div></div>";
     }
-    var GOOG = C.googleWidget || "";
+    /* Google reviews, in-house (owner, 10/27/2026): rating, count and the
+       best reviews fetched from Google Places by the server; rendered
+       here like Google's own cards. No Elfsight, nothing links out. */
+    var GREV = null;
+    try { GREV = C.gReviews ? JSON.parse(C.gReviews) : null; } catch (e) { GREV = null; }
+    if (!window.__obGrev) {
+      window.__obGrev = true;
+      document.addEventListener("click", function (e) {
+        var m = e.target && e.target.closest ? e.target.closest(".grevmore") : null;
+        if (!m) return;
+        var card = m.closest(".grevcard"); card.classList.toggle("open");
+        m.textContent = card.classList.contains("open") ? "Show less" : "Read more";
+      });
+    }
+    function grevHtml(g) {
+      var stars = function (n) { var t = ""; for (var i = 0; i < 5; i++) t += i < n ? "&#9733;" : "&#9734;"; return t; };
+      var tones = ["#5b7fe6", "#e0745a", "#3fa37a", "#b56cc9", "#e3a23b", "#2a9db8"];
+      var cards = (g.reviews || []).map(function (r) {
+        var name = String(r.name || "Google user"); var ini = name.charAt(0).toUpperCase();
+        var tone = tones[(name.charCodeAt(0) + name.length) % tones.length];
+        var av = r.pic ? '<img src="' + esc(r.pic) + '" alt="" loading="lazy" onerror="this.parentNode.textContent=\'' + esc(ini) + '\'">' : esc(ini);
+        var txt = String(r.text || "").slice(0, 700);
+        return '<div class="grevcard"><div class="grevwho"><div class="grevav" style="background:' + tone + '">' + av + '</div>' +
+          '<div><div class="grevname">' + esc(name) + '</div><div class="grevwhen">' + esc(r.when || "") + '</div></div></div>' +
+          '<div class="grevstars small">' + stars(r.stars || 5) + '</div><p class="grevtxt">' + esc(txt) + "</p>" +
+          (txt.length > 220 ? '<button type="button" class="grevmore">Read more</button>' : "") + "</div>";
+      }).join("");
+      var score = g.rating != null ? Number(g.rating).toFixed(1) : "";
+      return '<div class="grev"><div class="grevhead">' +
+        '<div class="grevg"><span style="color:#4285F4">G</span><span style="color:#EA4335">o</span><span style="color:#FBBC05">o</span><span style="color:#4285F4">g</span><span style="color:#34A853">l</span><span style="color:#EA4335">e</span></div>' +
+        (score ? '<div class="grevscore">' + score + "</div>" : "") +
+        '<div><div class="grevstars">' + stars(Math.round(Number(g.rating) || 5)) + "</div>" +
+        (g.count ? '<div class="grevcount">Based on ' + Number(g.count).toLocaleString("en-US") + " reviews</div>" : "") + "</div></div>" +
+        '<div class="grevrow">' + cards + "</div></div>";
+    }
     if (!window.__obIgLb) {
       window.__obIgLb = true;
       var lbIdx = 0, lbEl = null, lbX0 = null;
@@ -1519,17 +1567,10 @@
         e.preventDefault(); lbOpen(Number(t.getAttribute("data-i")) || 0);
       });
     }
-    function loadElfsight() {
-      if (!document.querySelector('script[src*="elfsightcdn"]')) {
-        var es = document.createElement("script");
-        es.src = "https://elfsightcdn.com/platform.js"; es.async = true;
-        document.head.appendChild(es);
-      }
-    }
     var htmlStr = "";
     /* Template order: the client's own before/after photos (the 9 CV
        slots) first, the live Instagram widget right under them. */
-    if (RESULTS.length || IG || SELF) {
+    if (RESULTS.length || SELF) {
       htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>';
       if (RESULTS.length) {
         htmlStr += '<div class="results solo">' + RESULTS.map(function (u) {
@@ -1538,11 +1579,6 @@
       }
       if (SELF) {
         htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") + igSelfHtml(SELF) + (RESULTS.length ? "</div>" : "");
-      } else if (IG) {
-        htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") +
-          '<div class="elfsight-app-' + esc(IG) + '" data-elfsight-app-lazy></div>' +
-          (RESULTS.length ? "</div>" : "");
-        loadElfsight();
       }
       htmlStr += "</div>";
     }
@@ -1555,10 +1591,8 @@
       (STUDIO.length ? '<div class="studio">' + STUDIO.map(function (u) {
         return '<img src="' + esc(fastImg(u, 640)) + '" alt="Our studio" loading="lazy">';
       }).join("") + "</div>" : "") + "</div>";
-    if (GOOG) {
-      htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say &#11088;</h2>' +
-        '<div class="elfsight-app-' + esc(GOOG) + '" data-elfsight-app-lazy></div></div>';
-      loadElfsight();
+    if (GREV && GREV.reviews && GREV.reviews.length) {
+      htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say &#11088;</h2>' + grevHtml(GREV) + "</div>";
     }
     /* FAQs + education videos sit under the booking page; a V1 funnel has
        no booking page, so its thank-you carries them instead (user,
