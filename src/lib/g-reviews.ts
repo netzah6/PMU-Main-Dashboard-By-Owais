@@ -130,6 +130,14 @@ export async function refreshReviews(svc: SupabaseClient, slug: string): Promise
     let g: GReviews;
     try {
       g = await fetchPlaceReviews(found.id);
+      /* A review link sometimes carries the id of the street address, not
+         the business (Blossom Beauty: "7612 Northington Ct", no reviews).
+         When the place has no rating at all, trust a name-matched search
+         hit instead. */
+      if (g.rating == null && !g.reviews.length && name) {
+        const alt = await resolvePlaceId("", name, cfg.address ?? "");
+        if (alt && alt.id !== found.id) { g = await fetchPlaceReviews(alt.id); found.via = "search-fallback"; }
+      }
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       if (reuse && /places (400|404)/.test(why)) {
