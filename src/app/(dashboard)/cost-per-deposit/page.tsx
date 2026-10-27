@@ -132,7 +132,7 @@ function ExpandText({ value }: { value: string | null }) {
   );
 }
 
-const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Sched", "1-Box", "Kill %", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
+const HEADERS = ["Owner Name", "Ad Account Name", "Daily Budget", "Assigned", "Media Buyer", "Sched", "1-Box", "Kill Call", "Kill Text", "Original $", "Discounted $", "Current Offer", "Deposit $", "D 30", "D 14", "D 7", "D 3", "Conv% 30", "Conv% 14", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "CPD 30", "CPD 14", "CPD 7", "Spent 30", "Spent 14", "Spent 7"];
 
 /* One row per sub-account where the Meta "Schedule" event was installed on
    the funnel's deposit page — written by the rollout, read here so the team
@@ -147,7 +147,7 @@ export default function CostPerDepositPage() {
   const [search, setSearch] = useState("");
   const [assignee, setAssignee] = useState("All");
   const [versionFilter, setVersionFilter] = useState("All");
-  const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst" | "kill-worst">("default");
+  const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst" | "kill-worst" | "killtext-worst">("default");
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [dups, setDups] = useState<Dup[]>([]);
   const [dupOpen, setDupOpen] = useState(false);
@@ -167,6 +167,11 @@ export default function CostPerDepositPage() {
      to mark it, 2026-10-03) — so he knows who's taken care of. */
   const [killFixes, setKillFixes] = useState<Record<string, { fixed_by: string | null; fixed_at: string }>>({});
   const [killSaving, setKillSaving] = useState<string | null>(null);
+  /* owner (lowercased) -> text-kill stats (daily cron, owner 10/27/2026): of
+     the qualified leads, how many lost the AI after the artist texted them
+     herself (CloseBot's auto shutoff), with the takeover messages. */
+  const [textKillMap, setTextKillMap] = useState<Map<string, TextKill> | null>(null);
+  const [textKillOpen, setTextKillOpen] = useState<{ name: string; k: TextKill } | null>(null);
   useEffect(() => {
     fetch("/api/call-kill/fixed").then((r) => r.json()).then((j) => { if (j.fixes) setKillFixes(j.fixes); }).catch(() => {});
   }, []);
@@ -206,6 +211,12 @@ export default function CostPerDepositPage() {
         supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status"),
         supabase.from("call_kill_stats").select("owner_key, qualified, called, dead, ignored"),
       ]);
+      void supabase.from("text_kill_stats").select("owner_key, qualified, texted, dead, ignored, events, computed_at").then(({ data, error: e }) => {
+        if (e || !data) return;
+        const m = new Map<string, TextKill>();
+        for (const k of data as (TextKill & { owner_key: string })[]) for (const key of ownerKeys(k.owner_key)) m.set(key, k);
+        setTextKillMap(m);
+      });
       if (ovRes.error) { setError(ovRes.error.message); setLoading(false); return; }
       setRows(((ovRes.data as Row[]) ?? []));
       if (!sfRes.error && sfRes.data) {
@@ -217,19 +228,7 @@ export default function CostPerDepositPage() {
         const m = new Map<string, { qualified: number; called: number; dead: number; ignored: number }>();
         for (const k of kkRes.data as { owner_key: string; qualified: number; called: number; dead: number; ignored: number }[]) {
           const v = { qualified: k.qualified, called: k.called, dead: k.dead, ignored: k.ignored };
-          const raw = String(k.owner_key ?? "").toLowerCase().trim();
-          if (!raw) continue;
-          /* The sheet writes alias forms ("nyla lamb (nyla sheree)") and
-             middle initials ("maria a blanco") that the deposit view spells
-             differently — index every reasonable spelling of the same name. */
-          const keys = new Set<string>([raw]);
-          const paren = raw.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-          if (paren) { keys.add(paren[1].trim()); keys.add(paren[2].trim()); }
-          for (const base of [...keys]) {
-            const words = base.split(/\s+/).filter(Boolean);
-            if (words.length >= 3) keys.add(`${words[0]} ${words[words.length - 1]}`);
-          }
-          for (const key of keys) if (key) m.set(key, v);
+          for (const key of ownerKeys(k.owner_key)) m.set(key, v);
         }
         setKillMap(m);
       }
@@ -293,6 +292,22 @@ export default function CostPerDepositPage() {
         return b.d30 - a.d30;
       });
     }
+    if (sortMode === "killtext-worst") {
+      const killOf = (r: Row) => {
+        const k = textKillMap?.get((r.owner_name ?? "").toLowerCase().trim());
+        return k && k.qualified > 0 ? k.dead / k.qualified : null;
+      };
+      return list.sort((a, b) => {
+        const pr = rank(a.client_status) - rank(b.client_status);
+        if (pr !== 0) return pr;
+        const ka = killOf(a), kb = killOf(b);
+        if (ka == null && kb == null) return b.d30 - a.d30;
+        if (ka == null) return 1;
+        if (kb == null) return -1;
+        if (ka !== kb) return kb - ka;
+        return b.d30 - a.d30;
+      });
+    }
     // Funnel Health sort: score from Leads/Dep 30+14 and Conv% 30+14.
     // Clients with no lead data (null score) go last in both directions.
     const dir = sortMode === "fh-best" ? -1 : 1;
@@ -306,7 +321,7 @@ export default function CostPerDepositPage() {
       if (ha !== hb) return dir * (ha - hb);
       return b.d30 - a.d30; // tie-break: more deposits first
     });
-  }, [rows, search, assignee, versionFilter, sortMode, killMap]);
+  }, [rows, search, assignee, versionFilter, sortMode, killMap, textKillMap]);
 
   return (
     <div className="p-3 md:p-4 space-y-3">
@@ -341,7 +356,8 @@ export default function CostPerDepositPage() {
             <option value="default">Sort: Deposits</option>
             <option value="fh-best">Funnel Health: best → worst</option>
             <option value="fh-worst">Funnel Health: worst → best</option>
-            <option value="kill-worst">Kill %: worst → best</option>
+            <option value="kill-worst">Kill Call: worst → best</option>
+            <option value="killtext-worst">Kill Text: worst → best</option>
           </select>
 
           {/* Duplicate-deposit tracker */}
@@ -397,7 +413,7 @@ export default function CostPerDepositPage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 11 || idx === 15 || idx === 17 || idx === 21 || idx === 24 || idx === 27; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7 (+1 Sched, +1 1-Box, +1 Kill %)
+                  const divider = idx === 12 || idx === 16 || idx === 18 || idx === 22 || idx === 25 || idx === 28; // after Deposit $, D 3, Conv% 14, L 3, CPL 7, CPD 7 (+1 Sched, +1 1-Box, +2 Kill Call/Text) — was: +1 Kill %)
                   return (
                     <th key={h} className={cn("sticky top-0 px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider whitespace-nowrap text-white",
                       idx === 0 || idx === 1 ? "z-30" : "z-20", divider && "border-r-2 border-[#9fb0c4]")}
@@ -511,6 +527,27 @@ export default function CostPerDepositPage() {
                         );
                       })()}
                     </td>
+                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap">
+                      {(() => {
+                        const k = textKillMap?.get((r.owner_name ?? "").toLowerCase().trim());
+                        const isV3 = /v3/i.test(r.version ?? "");
+                        if (!isV3) return <span className="text-[#c3cdd9] cursor-default" title="Kill Text is tracked for V3 accounts only (AI follow-up)">—</span>;
+                        if (!textKillMap) return <span className="text-[#c3cdd9]">…</span>;
+                        if (!k || k.qualified === 0) return <span className="text-[#8595a8] text-[10px] cursor-default" title="V3 account, tracked — no qualified leads in the last 21 days">no leads</span>;
+                        /* Same scale as Kill Call: dead / ALL qualified leads (21 days). */
+                        const pct = Math.round((k.dead / k.qualified) * 100);
+                        const tone = pct >= 15 ? { bg: "#fde3e3", fg: "#b91c1c" } : pct >= 7 ? { bg: "#fff3e0", fg: "#c2410c" } : { bg: "#e7f6ec", fg: "#15803d" };
+                        const label = k.qualified < 3 ? `${k.dead}/${k.qualified}` : `${pct}%`;
+                        const why = `${k.dead} of ${k.qualified} qualified leads (21d) lost the AI after the artist texted them herself${k.ignored ? ` — ${k.ignored} replied and got silence` : ""}. Click to see the messages.`;
+                        return (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setTextKillOpen({ name: r.owner_name ?? "Client", k }); }}
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:ring-2 hover:ring-[#15B7AE]/40"
+                            style={{ background: tone.bg, color: tone.fg }} title={why}>
+                            {label}
+                          </button>
+                        );
+                      })()}
+                    </td>
                     <td className="px-2 sm:px-3 py-1 whitespace-nowrap text-[#8595a8] line-through">{r.original_price || "—"}</td>
                     <td className="px-2 sm:px-3 py-1 font-semibold text-[#0e8f88]"><ExpandText value={r.discounted_price} /></td>
                     <td className="px-2 sm:px-3 py-1 max-w-[130px] truncate text-[#34568a]" title={r.current_offer ?? ""}>{r.current_offer || <span className="text-[#a6b3c4]">—</span>}</td>
@@ -560,6 +597,67 @@ export default function CostPerDepositPage() {
         <EmojiLegend />
         </>
       )}
+      {textKillOpen && <TextKillDialog name={textKillOpen.name} k={textKillOpen.k} onClose={() => setTextKillOpen(null)} />}
+    </div>
+  );
+}
+
+type TextKillEvent = { contactId: string; name: string; at: string; message: string; ignored: boolean; reply?: string };
+type TextKill = { qualified: number; texted: number; dead: number; ignored: number; events: TextKillEvent[]; computed_at?: string };
+
+/* The sheet writes alias forms ("nyla lamb (nyla sheree)") and middle
+   initials ("maria a blanco") that the deposit view spells differently —
+   index every reasonable spelling of the same name. */
+function ownerKeys(ownerKey: string | null | undefined): string[] {
+  const raw = String(ownerKey ?? "").toLowerCase().trim();
+  if (!raw) return [];
+  const keys = new Set<string>([raw]);
+  const paren = raw.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  if (paren) { keys.add(paren[1].trim()); keys.add(paren[2].trim()); }
+  for (const base of [...keys]) {
+    const words = base.split(/\s+/).filter(Boolean);
+    if (words.length >= 3) keys.add(`${words[0]} ${words[words.length - 1]}`);
+  }
+  return [...keys].filter(Boolean);
+}
+
+/* Kill Text list: the leads the AI stopped on after the artist texted them,
+   newest first, with her exact message and whether the lead then waited. */
+function TextKillDialog({ name, k, onClose }: { name: string; k: TextKill; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  const fmt = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit" });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-3" onClick={onClose}>
+      <div className="w-full max-w-xl max-h-[80vh] overflow-auto rounded-xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-2">
+          <div className="flex-1">
+            <div className="text-sm font-bold text-[#1f3559]">✍️ Kill Text — {name}</div>
+            <div className="text-[11px] text-[#697a91]">
+              {k.dead} of {k.qualified} qualified leads (last 21 days) lost the AI after the artist texted them herself
+              {k.ignored ? <> · <b className="text-[#b91c1c]">{k.ignored} replied and got silence</b></> : null}
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="text-[#8595a8] hover:text-[#1f3559]" aria-label="Close"><X size={16} /></button>
+        </div>
+        <div className="mt-3 space-y-2">
+          {k.events.length === 0 && <div className="text-[12px] text-[#697a91]">No takeovers in the last 21 days.</div>}
+          {k.events.map((e) => (
+            <div key={e.contactId + e.at} className="rounded-lg border border-[#e4ebf2] p-2.5">
+              <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-[#697a91]">
+                <b className="text-[#1f3559]">{e.name}</b>
+                <span>{fmt(e.at)}</span>
+                {e.ignored && <span className="rounded-full bg-[#fde3e3] px-1.5 py-px text-[10px] font-semibold text-[#b91c1c]">lead replied, no answer</span>}
+              </div>
+              <div className="mt-1 text-[12px] text-[#1e2a3a]"><span className="text-[#8595a8]">Artist wrote:</span> “{e.message}”</div>
+              {e.reply && <div className="mt-0.5 text-[12px] text-[#56678a]"><span className="text-[#8595a8]">Lead then said:</span> “{e.reply}”</div>}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

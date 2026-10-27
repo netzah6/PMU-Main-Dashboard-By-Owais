@@ -49,6 +49,10 @@
       "schedule": "45 7 * * *"
     },
     {
+      "path": "/api/cron/text-kill",
+      "schedule": "5 8 * * *"
+    },
+    {
       "path": "/api/cron/ppa-appointments",
       "schedule": "0 */12 * * *"
     },
