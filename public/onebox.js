@@ -379,17 +379,24 @@
     /* Measured off the Instagram app on a 390 pt iPhone: 17 pt bold handle after a
        thin 24 pt chevron; 86 pt photo; name 15.5 pt semibold beside it with the
        three counts (17 pt semibold over 14.5 pt labels) left-aligned under it. */
-    "#onebox-root .igtop{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18.5px;padding:6px 2px 16px;letter-spacing:-.01em}" +
-    "#onebox-root .igtop .igchev,#onebox-root .igtop .igdots{flex:none;color:#262626}#onebox-root .igtop .igchev svg{width:24px;height:24px;display:block}#onebox-root .igtop .igdots{margin-left:auto;font-size:22px;line-height:1;letter-spacing:1px;padding-right:6px}" +
+    "#onebox-root .igtop{display:flex;align-items:center;gap:7px;font-weight:700;font-size:18.5px;padding:6px 2px 16px;letter-spacing:-.01em}" +
     "#onebox-root .igtop .igcheck{width:18px;height:18px;flex:none;margin-left:-3px}" +
     "#onebox-root .igself .ighead{display:flex;align-items:center;gap:20px;padding:0 6px 14px 2px;border-bottom:0}#onebox-root .igright{flex:1;min-width:0;display:grid;gap:9px;align-content:center}" +
     "#onebox-root .igpic{width:82px;height:82px;border-radius:50%;object-fit:cover;flex:none;border:1px solid #dbdbdb;background:#fafafa;box-shadow:0 0 0 2px #fff,0 0 0 3px #e6e6e6;margin:3px}" +
     "#onebox-root .igpic-empty{display:flex;align-items:center;justify-content:center;font-size:30px}" +
     "#onebox-root .igstats{display:flex;justify-content:flex-start;text-align:left;gap:35px;padding:0 12px 0 0}" +
-    "#onebox-root .igstats div{line-height:1.2;min-width:0}#onebox-root .igstats b{display:block;font-size:16.5px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}#onebox-root .igstats span{display:block;font-size:14px;margin-top:1px}" +
+    "#onebox-root .igstats div{line-height:1.2;min-width:0}#onebox-root .igstats b{display:block;font-size:15.5px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}#onebox-root .igstats span{display:block;font-size:14px;margin-top:1px}" +
     "#onebox-root .igname{font-weight:700;font-size:14px;line-height:1.25;overflow-wrap:anywhere}" +
     "#onebox-root .igcat{font-size:14px;color:#737373;padding:0 6px 0 2px;line-height:1.3}" +
     "#onebox-root .igbio{font-size:14px;margin:2px 6px 10px 2px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
+    /* In-funnel picture viewer: tap a tile → full picture, swipe or arrows
+       between all the posts, X / backdrop / Esc to close. No link out. */
+    "#onebox-root .iglb{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;touch-action:pan-y;-webkit-user-select:none;user-select:none}" +
+    "#onebox-root .iglb img{max-width:100vw;max-height:88vh;object-fit:contain;display:block}" +
+    "#onebox-root .iglb .lbx{position:absolute;top:env(safe-area-inset-top,0px);right:0;padding:12px 18px;color:#fff;font-size:30px;line-height:1;background:none;border:0;cursor:pointer}" +
+    "#onebox-root .iglb .lbp,#onebox-root .iglb .lbn{position:absolute;top:50%;transform:translateY(-50%);padding:18px 10px;color:#fff;font-size:36px;line-height:1;background:none;border:0;opacity:.8;cursor:pointer}#onebox-root .iglb .lbp{left:0}#onebox-root .iglb .lbn{right:0}" +
+    "#onebox-root .iglb .lbc{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom,0px));left:0;right:0;text-align:center;color:#fff;font-size:13px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;opacity:.85}" +
+    "#onebox-root .iggrid span{cursor:pointer}" +
     "#onebox-root .iggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:14px}#onebox-root .iggrid>*{display:block;aspect-ratio:1/1;overflow:hidden;background:#f1f3f6}#onebox-root .iggrid img{width:100%;height:100%;object-fit:cover;display:block}" +
     /* Elfsight IG header: put the Follow button beside the stats row
        (their CSS stacks the header as a column) to save a scroll. */
@@ -1407,6 +1414,9 @@
        widget — new IG posts can't change the page any more. */
     var FROZEN = (C.igFrozenImgs || "").split(",").filter(function (u) { return u.trim(); });
     var SELF = FROZEN.length ? { imgs: FROZEN, posts: [], profile: FEED && FEED.profile } : (FEED || null);
+    /* The viewer's pictures live on window: the handlers are registered once,
+       the grid re-renders on every step. */
+    window.__obIgImgs = window.__obIgImgs || [];
     /* Counts the way the Instagram app prints them: 9,999 with a comma,
        10K and up abbreviated (11.2K, 112K, 1.2M). */
     function fmtK(n) {
@@ -1426,15 +1436,16 @@
     }
     function igSelfHtml(f) {
       var pr = f.profile || {};
-      var items = (f.posts && f.posts.length ? f.posts : (f.imgs || []).map(function (u) { return { img: u, url: IGLINK }; })).slice(0, 6);
+      var all = (f.posts && f.posts.length ? f.posts : (f.imgs || []).map(function (u) { return { img: u, url: IGLINK }; }));
+      window.__obIgImgs = all.map(function (p) { return p.img; });
+      var items = all.slice(0, 6);
       /* A count of 0 is shown like Instagram does ("0 following"); only a
          count we don't have is left out. */
       function stat(n, label) { return n == null || n === "" ? "" : "<div><b>" + fmtK(n) + "</b><span>" + label + "</span></div>"; }
       /* Laid out like the Instagram app's profile: top bar with the handle,
          then photo | name + counts, then category and bio. */
       var head = pr.username
-        ? '<div class="igtop"><span class="igchev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span>' +
-          esc(pr.username) + (pr.verified ? IG_CHECK.replace("<svg ", '<svg class="igcheck" ') : "") + '<span class="igdots">&#8943;</span></div>' +
+        ? '<div class="igtop">' + esc(pr.username) + (pr.verified ? IG_CHECK.replace("<svg ", '<svg class="igcheck" ') : "") + "</div>" +
           '<div class="ighead">' + (pr.pic ? '<img class="igpic" src="' + esc(pr.pic) + '" alt="">' : '<span class="igpic igpic-empty">&#128248;</span>') +
           '<div class="igright">' + (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") +
           '<div class="igstats">' + stat(pr.posts, "posts") + stat(pr.followers, "followers") + stat(pr.following, "following") + "</div></div></div>" +
@@ -1445,11 +1456,51 @@
          no "See more", tiles are plain pictures. The thank-you step after
          the deposit is the only place with a Follow link. */
       return '<div class="igself">' + head +
-        '<div class="iggrid">' + items.map(function (p) {
-          return '<span><img src="' + esc(p.img) + '" alt="Instagram post" loading="lazy"></span>';
+        '<div class="iggrid">' + items.map(function (p, i) {
+          return '<span data-i="' + i + '" role="button" aria-label="Open picture"><img src="' + esc(p.img) + '" alt="Instagram post" loading="lazy"></span>';
         }).join("") + "</div></div>";
     }
     var GOOG = C.googleWidget || "";
+    if (!window.__obIgLb) {
+      window.__obIgLb = true;
+      var lbIdx = 0, lbEl = null, lbX0 = null;
+      var lbShow = function () {
+        lbEl.querySelector("img").src = window.__obIgImgs[lbIdx];
+        lbEl.querySelector(".lbc").textContent = (lbIdx + 1) + " / " + window.__obIgImgs.length;
+      };
+      var lbClose = function () { if (!lbEl) return; lbEl.parentNode.removeChild(lbEl); lbEl = null; document.body.style.overflow = ""; };
+      var lbOpen = function (i) {
+        if (!window.__obIgImgs.length) return;
+        lbIdx = Math.max(0, Math.min(window.__obIgImgs.length - 1, i));
+        lbEl = document.createElement("div"); lbEl.className = "iglb";
+        lbEl.innerHTML = '<button class="lbx" type="button" aria-label="Close">&#215;</button>' +
+          (window.__obIgImgs.length > 1 ? '<button class="lbp" type="button" aria-label="Previous">&#8249;</button><button class="lbn" type="button" aria-label="Next">&#8250;</button>' : "") +
+          '<img alt="Instagram post"><div class="lbc"></div>';
+        root.appendChild(lbEl); document.body.style.overflow = "hidden"; lbShow();
+        lbEl.addEventListener("click", function (e) {
+          if (e.target.closest(".lbx") || e.target === lbEl) { lbClose(); return; }
+          if (e.target.closest(".lbp")) { lbIdx = (lbIdx - 1 + window.__obIgImgs.length) % window.__obIgImgs.length; lbShow(); }
+          if (e.target.closest(".lbn")) { lbIdx = (lbIdx + 1) % window.__obIgImgs.length; lbShow(); }
+        });
+        lbEl.addEventListener("touchstart", function (e) { lbX0 = e.touches[0].clientX; }, { passive: true });
+        lbEl.addEventListener("touchend", function (e) {
+          if (lbX0 == null) return; var dx = e.changedTouches[0].clientX - lbX0; lbX0 = null;
+          if (Math.abs(dx) < 40 || window.__obIgImgs.length < 2) return;
+          lbIdx = (lbIdx + (dx < 0 ? 1 : -1) + window.__obIgImgs.length) % window.__obIgImgs.length; lbShow();
+        }, { passive: true });
+      };
+      document.addEventListener("keydown", function (e) {
+        if (!lbEl) return;
+        if (e.key === "Escape") lbClose();
+        if (e.key === "ArrowRight") { lbIdx = (lbIdx + 1) % window.__obIgImgs.length; lbShow(); }
+        if (e.key === "ArrowLeft") { lbIdx = (lbIdx - 1 + window.__obIgImgs.length) % window.__obIgImgs.length; lbShow(); }
+      });
+      document.addEventListener("click", function (e) {
+        var t = e.target && e.target.closest ? e.target.closest(".iggrid span[data-i]") : null;
+        if (!t) return;
+        e.preventDefault(); lbOpen(Number(t.getAttribute("data-i")) || 0);
+      });
+    }
     function loadElfsight() {
       if (!document.querySelector('script[src*="elfsightcdn"]')) {
         var es = document.createElement("script");
