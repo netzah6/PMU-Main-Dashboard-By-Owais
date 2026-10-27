@@ -389,6 +389,18 @@
     "#onebox-root .igname{font-weight:700;font-size:14px;line-height:1.25;overflow-wrap:anywhere}" +
     "#onebox-root .igcat{font-size:14px;color:#737373;padding:0 6px 0 2px;line-height:1.3}" +
     "#onebox-root .igbio{font-size:14px;margin:2px 6px 10px 2px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
+    "#onebox-root .igtop-d,#onebox-root .igcat-d,#onebox-root .igbio-d{display:none}" +
+    /* Desktop = instagram.com's profile header: 150 px photo on the left; to
+       its right the handle (20 px), the name, the three counts on ONE line
+       ("40 posts  329 followers  97 following"), then category and bio.
+       Nothing above or below the photo. */
+    "@media(min-width:768px){#onebox-root .igself>.igtop,#onebox-root .igself>.igcat,#onebox-root .igself>.igbio{display:none}" +
+    "#onebox-root .igtop-d{display:flex;padding:0;font-size:20px;font-weight:600}#onebox-root .igcat-d,#onebox-root .igbio-d{display:block;margin:0;padding:0}" +
+    "#onebox-root .igself .ighead{align-items:flex-start;gap:44px;padding:8px 10px 22px 10px}#onebox-root .igright{gap:12px;align-content:start;padding-top:2px}" +
+    "#onebox-root .igpic{width:150px;height:150px;margin:0;box-shadow:none;border:1px solid #dbdbdb}" +
+    "#onebox-root .igpic-empty{font-size:54px}" +
+    "#onebox-root .igstats{gap:40px;padding:0}#onebox-root .igstats div{display:flex;align-items:baseline;gap:5px;font-size:16px}#onebox-root .igstats b{display:inline;font-size:16px}#onebox-root .igstats span{display:inline;font-size:16px;margin:0}" +
+    "#onebox-root .igname{font-size:14px;font-weight:600}}" +
     /* In-funnel picture viewer: tap a tile → full picture, swipe or arrows
        between all the posts, X / backdrop / Esc to close. No link out. */
     "#onebox-root.lb-open .stickycta{display:none}" +
@@ -1444,13 +1456,22 @@
       function stat(n, label) { return n == null || n === "" ? "" : "<div><b>" + fmtK(n) + "</b><span>" + label + "</span></div>"; }
       /* Laid out like the Instagram app's profile: top bar with the handle,
          then photo | name + counts, then category and bio. */
+      /* Desktop (owner, 10/27/2026: it looked like the phone app on a laptop)
+         is laid out like instagram.com: photo on the left, and everything
+         else — handle, name, counts, category, bio — in one column beside it.
+         The handle/category/bio exist twice (outside the row for the phone
+         layout, inside .igright for desktop); CSS shows one set per width. */
+      var top = '<div class="igtop">' + esc(pr.username) + (pr.verified ? IG_CHECK.replace("<svg ", '<svg class="igcheck" ') : "") + "</div>";
+      var cat = pr.category ? '<div class="igcat">' + esc(pr.category) + "</div>" : "";
+      var bio = bioText(pr.bio) ? '<div class="igbio">' + esc(bioText(pr.bio)) + "</div>" : "";
+      var desk = function (h) { return h.replace(/^<div class="ig(top|cat|bio)"/, '<div class="ig$1 ig$1-d"'); };
       var head = pr.username
-        ? '<div class="igtop">' + esc(pr.username) + (pr.verified ? IG_CHECK.replace("<svg ", '<svg class="igcheck" ') : "") + "</div>" +
+        ? top +
           '<div class="ighead">' + (pr.pic ? '<img class="igpic" src="' + esc(pr.pic) + '" alt="">' : '<span class="igpic igpic-empty">&#128248;</span>') +
-          '<div class="igright">' + (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") +
-          '<div class="igstats">' + stat(pr.posts, "posts") + stat(pr.followers, "followers") + stat(pr.following, "following") + "</div></div></div>" +
-          (pr.category ? '<div class="igcat">' + esc(pr.category) + "</div>" : "") +
-          (bioText(pr.bio) ? '<div class="igbio">' + esc(bioText(pr.bio)) + "</div>" : "")
+          '<div class="igright">' + desk(top) + (pr.name ? '<div class="igname">' + esc(pr.name) + "</div>" : "") +
+          '<div class="igstats">' + stat(pr.posts, "posts") + stat(pr.followers, "followers") + stat(pr.following, "following") + "</div>" +
+          desk(cat) + desk(bio) + "</div></div>" +
+          cat + bio
         : "";
       /* No way out of the funnel here (owner, 10/26/2026): no Follow button,
          no "See more", tiles are plain pictures. The thank-you step after
