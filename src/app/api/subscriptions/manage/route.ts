@@ -132,17 +132,34 @@ export async function POST(req: NextRequest) {
     // Resuming after a card failure starts the retry count fresh.
     const patch: Record<string, unknown> = { status: "active", retry_attempt: 0, retry_period: null, pause_reason: null, updated_at: now };
     if (!sub.activated_at) { patch.activated_by = auth.email; patch.activated_at = now; }
-    // A due date already in the past would charge the moment it is switched on.
     const today = new Date().toISOString().slice(0, 10);
-    if (sub.next_charge_on < today) patch.next_charge_on = advance({ ...sub, next_charge_on: today }, today) ?? today;
+    /* Optional new schedule (owner, 2026-10-27): the Subs row lets an admin
+       pick when the plan starts again and how often it bills — also for a
+       subscription that was ended. Nothing else about the row changes. */
+    const cadence = body.cadence === "once" || body.cadence === "monthly" ? body.cadence : sub.cadence;
+    let start = sub.next_charge_on;
+    if (typeof body.nextChargeOn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.nextChargeOn)) {
+      if (body.nextChargeOn < today) return NextResponse.json({ error: "Pick today or a later date" }, { status: 400 });
+      start = body.nextChargeOn;
+    }
+    if (cadence === "monthly" && Number(start.slice(8, 10)) > 28) {
+      return NextResponse.json({ error: "Pick a day from 1–28 so every month has that date" }, { status: 400 });
+    }
+    patch.cadence = cadence;
+    patch.charge_day = cadence === "monthly" ? Number(start.slice(8, 10)) : null;
+    // A due date already in the past would charge the moment it is switched on.
+    patch.next_charge_on = start < today ? (advance({ ...sub, cadence, charge_day: Number(start.slice(8, 10)), next_charge_on: today }, today) ?? today) : start;
     const { error } = await svc.from("client_subscriptions").update(patch).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true });
   }
 
   if (action === "pause" || action === "end") {
-    const { error } = await svc.from("client_subscriptions")
-      .update({ status: action === "pause" ? "paused" : "ended", updated_at: now }).eq("id", id);
+    // Ending also clears a pending retry so a later "Activate again" starts clean.
+    const patch = action === "pause"
+      ? { status: "paused", updated_at: now }
+      : { status: "ended", retry_attempt: 0, retry_period: null, pause_reason: null, updated_at: now };
+    const { error } = await svc.from("client_subscriptions").update(patch).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true });
   }

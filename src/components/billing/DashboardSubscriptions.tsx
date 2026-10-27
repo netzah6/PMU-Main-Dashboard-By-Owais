@@ -78,6 +78,9 @@ export function DashboardSubscriptions() {
   const [showMatches, setShowMatches] = useState(false);
   // Which subscription is having its next-charge date changed inline.
   const [dateEdit, setDateEdit] = useState<{ id: string; value: string } | null>(null);
+  /* Activate / Resume / Activate again: pick the start date and how often it
+     bills before switching the plan on (owner, 2026-10-27). */
+  const [startEdit, setStartEdit] = useState<{ id: string; date: string; cadence: "monthly" | "once" } | null>(null);
   /* Discount panel for the next charge only (owner, 2026-10-22: "50% off, or
      $200 off, or a set price — only the next charge, then back to the plan"). */
   const [discount, setDiscount] = useState<{ id: string; kind: "pct" | "off" | "price"; value: string; reason: string } | null>(null);
@@ -570,17 +573,32 @@ export function DashboardSubscriptions() {
                   )}
 
                   <div className="ml-auto flex items-center gap-1.5">
-                    {(s.status === "draft" || s.status === "paused") && (
-                      <button onClick={() => act({ action: s.status === "draft" ? "activate" : "resume", id: s.id }, `on:${s.id}`)}
+                    {s.status !== "active" && (
+                      <button onClick={() => {
+                          const today = new Date().toISOString().slice(0, 10);
+                          setStartEdit(startEdit?.id === s.id ? null : { id: s.id, date: s.next_charge_on < today ? today : s.next_charge_on, cadence: s.cadence });
+                        }}
                         disabled={busy === `on:${s.id}`}
+                        title="Choose when it starts and how often it bills, then switch it on"
                         className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]">
-                        <Play size={10} /> {s.status === "draft" ? "Activate" : "Resume"}
+                        <Play size={10} /> {s.status === "draft" ? "Activate" : s.status === "paused" ? "Resume" : "Activate again"}
                       </button>
                     )}
                     {s.status === "active" && (
                       <button onClick={() => act({ action: "pause", id: s.id }, `off:${s.id}`)} disabled={busy === `off:${s.id}`}
                         className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-[#fff7ec] text-[#b45309] border-[#fcd9a8]">
                         <Pause size={10} /> Pause
+                      </button>
+                    )}
+                    {(s.status === "active" || s.status === "paused") && (
+                      <button onClick={() => {
+                          if (!window.confirm(`End ${s.client_label || s.owner_key}'s subscription?\n\nNo more charges. You can activate it again later with a new start date.`)) return;
+                          void act({ action: "end", id: s.id }, `end:${s.id}`);
+                        }}
+                        disabled={busy === `end:${s.id}`}
+                        title="Stop billing for good — can be activated again later"
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border bg-white text-[#be123c] border-[#f5c2cf]">
+                        {busy === `end:${s.id}` ? <Loader2 size={10} className="animate-spin" /> : <X size={10} />} End
                       </button>
                     )}
                     {s.status === "active" && (
@@ -608,6 +626,33 @@ export function DashboardSubscriptions() {
                     </button>
                   </div>
                 </div>
+
+                {startEdit?.id === s.id && (
+                  <div className="flex items-center gap-2 flex-wrap px-2.5 py-2 border-t border-[#e4ebf2] bg-[#f3fbfa]">
+                    <span className="text-[11px] font-semibold text-[#1f3559]">Start on</span>
+                    <input type="date" value={startEdit.date} min={new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setStartEdit({ ...startEdit, date: e.target.value })}
+                      className="px-1.5 py-0.5 rounded border border-[#15B7AE] text-[11px] text-[#1f3559]" />
+                    <span className="text-[11px] font-semibold text-[#1f3559]">and charge</span>
+                    <select value={startEdit.cadence} onChange={(e) => setStartEdit({ ...startEdit, cadence: e.target.value as "monthly" | "once" })}
+                      className="px-1.5 py-0.5 rounded border border-[#d7e0ea] text-[11px] text-[#1f3559] bg-white">
+                      <option value="monthly">every month on that day</option>
+                      <option value="once">one time only</option>
+                    </select>
+                    <span className="text-[11px] text-[#697a91]">{money(s.amount_cents)} · runs at 7 AM Pacific</span>
+                    <button onClick={async () => {
+                        if (!startEdit.date) { setErr("Pick a start date"); return; }
+                        if (startEdit.cadence === "monthly" && Number(startEdit.date.slice(8, 10)) > 28) { setErr("Pick a day from 1–28 so every month has that date"); return; }
+                        const ok = await act({ action: s.status === "draft" ? "activate" : "resume", id: s.id, nextChargeOn: startEdit.date, cadence: startEdit.cadence }, `on:${s.id}`);
+                        if (ok) { setStartEdit(null); setMsg(`${s.client_label || s.owner_key}: on — first charge ${fmt(startEdit.date)}${startEdit.cadence === "monthly" ? `, then the ${Number(startEdit.date.slice(8, 10))}th of every month` : ", one time"}.`); }
+                      }}
+                      disabled={busy === `on:${s.id}`}
+                      className="px-2 py-1 rounded-lg text-[11px] font-bold bg-[#15B7AE] text-white">
+                      {busy === `on:${s.id}` ? "…" : s.status === "paused" ? "Resume" : "Start"}
+                    </button>
+                    <button onClick={() => setStartEdit(null)} className="px-1 text-[11px] text-[#8595a8]">cancel</button>
+                  </div>
+                )}
 
                 {discount?.id === s.id && (() => {
                   const cents = discountCents(s, discount);
