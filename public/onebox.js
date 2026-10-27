@@ -391,7 +391,8 @@
     "#onebox-root .igbio{font-size:14px;margin:2px 6px 10px 2px;line-height:1.35;white-space:pre-line;overflow-wrap:anywhere}" +
     /* In-funnel picture viewer: tap a tile → full picture, swipe or arrows
        between all the posts, X / backdrop / Esc to close. No link out. */
-    "#onebox-root .iglb{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;touch-action:pan-y;-webkit-user-select:none;user-select:none}" +
+    "#onebox-root.lb-open .stickycta{display:none}" +
+    "#onebox-root .iglb{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;touch-action:pan-y;-webkit-user-select:none;user-select:none}" +
     "#onebox-root .iglb img{max-width:100vw;max-height:88vh;object-fit:contain;display:block}" +
     "#onebox-root .iglb .lbx{position:absolute;top:env(safe-area-inset-top,0px);right:0;padding:12px 18px;color:#fff;font-size:30px;line-height:1;background:none;border:0;cursor:pointer}" +
     "#onebox-root .iglb .lbp,#onebox-root .iglb .lbn{position:absolute;top:50%;transform:translateY(-50%);padding:18px 10px;color:#fff;font-size:36px;line-height:1;background:none;border:0;opacity:.8;cursor:pointer}#onebox-root .iglb .lbp{left:0}#onebox-root .iglb .lbn{right:0}" +
@@ -1468,7 +1469,7 @@
         lbEl.querySelector("img").src = window.__obIgImgs[lbIdx];
         lbEl.querySelector(".lbc").textContent = (lbIdx + 1) + " / " + window.__obIgImgs.length;
       };
-      var lbClose = function () { if (!lbEl) return; lbEl.parentNode.removeChild(lbEl); lbEl = null; document.body.style.overflow = ""; };
+      var lbClose = function () { if (!lbEl) return; lbEl.parentNode.removeChild(lbEl); lbEl = null; document.body.style.overflow = ""; root.classList.remove("lb-open"); };
       var lbOpen = function (i) {
         if (!window.__obIgImgs.length) return;
         lbIdx = Math.max(0, Math.min(window.__obIgImgs.length - 1, i));
@@ -1476,7 +1477,7 @@
         lbEl.innerHTML = '<button class="lbx" type="button" aria-label="Close">&#215;</button>' +
           (window.__obIgImgs.length > 1 ? '<button class="lbp" type="button" aria-label="Previous">&#8249;</button><button class="lbn" type="button" aria-label="Next">&#8250;</button>' : "") +
           '<img alt="Instagram post"><div class="lbc"></div>';
-        root.appendChild(lbEl); document.body.style.overflow = "hidden"; lbShow();
+        root.appendChild(lbEl); root.classList.add("lb-open"); document.body.style.overflow = "hidden"; lbShow();
         lbEl.addEventListener("click", function (e) {
           if (e.target.closest(".lbx") || e.target === lbEl) { lbClose(); return; }
           if (e.target.closest(".lbp")) { lbIdx = (lbIdx - 1 + window.__obIgImgs.length) % window.__obIgImgs.length; lbShow(); }
