@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { queueIgPostsSweep } from "@/lib/ig-posts-check";
 import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, snapshotFunnel, unclassifiedFunnels } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
@@ -100,7 +101,12 @@ export async function GET(req: NextRequest) {
     results[f.slug] = why;
     await markFetch(svc, f.slug, false, why);
   }
+  // Funnels whose header still has no post count (any age): one Mac Mini
+  // card each, read off the public profile page. Dedupes while queued.
+  let postsCheck: { queued: number; reused: number } | undefined;
+  try { postsCheck = await queueIgPostsSweep(svc, "ig-fetch cron", 10); } catch { /* next run */ }
   return NextResponse.json({
+    postsCheck,
     fetched: due.length - skipped.length,
     ok: Object.values(results).filter((v) => v.startsWith("ok")).length,
     skipped: skipped.length ? skipped : undefined,
