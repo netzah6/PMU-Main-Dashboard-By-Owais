@@ -292,8 +292,12 @@ export async function GET(
       : "",
     /* Google reviews, in-house (10/27/2026): the server's copy of the place's
        rating + best reviews. The Elfsight reviews widget is gone. */
+    /* Owner (10/27/2026): the count is social proof only from 20 reviews
+       up, and a score under 4.5 is better left unsaid — stars and the
+       written reviews still show. */
     gReviews: row.extras.gWidgetOff || !row.extras.gReviews?.reviews?.length ? "" : JSON.stringify({
-      rating: row.extras.gReviews.rating, count: row.extras.gReviews.count,
+      rating: row.extras.gReviews.rating != null && row.extras.gReviews.rating >= 4.5 ? row.extras.gReviews.rating : null,
+      count: row.extras.gReviews.count != null && row.extras.gReviews.count >= 20 ? row.extras.gReviews.count : null,
       reviews: row.extras.gReviews.reviews.slice(0, 6).map((r) => ({ name: r.name, pic: r.pic, stars: r.stars, text: r.text.slice(0, 700), when: r.when })),
     }),
     resultImgs: row.config.resultImgs || row.extras.resultImgs || "",
