@@ -7,7 +7,7 @@ import {
 import { deleteAllContacts, inspectLocation, poolBlocker, poolReadiness, refreshPoolCleanliness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
 import { createDepositProductFromForm } from "@/lib/deposit-product";
 import { addOneboxFunnel, FUNNEL_ORIGIN } from "@/lib/onebox-add";
-import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl } from "@/lib/onebox";
+import { harvestFirstPixel, refreshOneboxConfig, setDepositFunnelUrl, setOneboxCustomValues } from "@/lib/onebox";
 import { refreshFunnel, usernameFromLink } from "@/lib/ig-fetch";
 import { buildReplayPayload, isValidHookUrlForLocation, replayToClientHook } from "@/lib/payment-router";
 import { verifyOnboarding } from "@/lib/onboarding-verify";
@@ -623,7 +623,21 @@ const API_STEPS: Record<string, StepFn> = {
     }
     const r = await refreshFunnel(svc, slug);
     if (!r.ok) return { status: "warn", note: `Instagram fetch failed: ${r.why} — the funnel shows no Instagram section until it works (a private or restricted account can't be fetched)` };
-    return { status: "done", note: `${r.imgs} pictures fetched and sorted (results first) — grid live on the funnel` };
+    // Funnel logo (owner 10/27/2026): most clients never send one, so the
+    // one-box header had no picture. The Instagram profile picture (already
+    // copied into our bucket by the fetch above) becomes the logo whenever
+    // "CC - Funnel Logo" is still empty — a logo the client did send wins.
+    let logoNote = "";
+    if (!String(config.logo ?? "").trim()) {
+      const { data: fresh } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+      const pic = String((fresh?.extras as { igFeed?: { profile?: { pic?: string } } } | null)?.igFeed?.profile?.pic ?? "").trim();
+      if (pic) {
+        const w = await setOneboxCustomValues(ob.setup!.location_id, [{ name: "CC - Funnel Logo", value: pic }]);
+        if (w.written.length) { await refreshOneboxConfig(svc, slug, ob.setup!.location_id, { logo: pic }).catch(() => undefined); logoNote = " · logo = her Instagram profile picture"; }
+        else logoNote = ` · logo NOT set (${w.error ?? "custom value missing"}) — add it in the Funnels tab`;
+      } else logoNote = " · no profile picture came back, logo left empty";
+    }
+    return { status: "done", note: `${r.imgs} pictures fetched and sorted (results first) — grid live on the funnel${logoNote}` };
   },
 
   /* 30 · Go live (the Funnels tab's "Go live", incl. the deposit URL). */
