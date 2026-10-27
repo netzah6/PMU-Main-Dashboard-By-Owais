@@ -527,18 +527,26 @@ export default function CostPerDepositPage() {
                         const saving = killSaving === ownerKey;
                         const why = `${k.dead} of ${k.qualified} qualified leads (14d) lost the AI after an artist call — the artist called ${k.called} of them${k.ignored ? `, ${k.ignored} replied and got silence` : ""}. Cause: the outgoing-call workflow stops the CC- Funnel Survey flow while it's still active.`;
                         /* Click = "I fixed this client's call workflow" (calling a
-                           lead no longer stops the AI). Saved per client; the %
-                           keeps updating daily, so a fix that didn't take shows. */
+                           lead no longer stops the AI). Saved per client. The %
+                           and its colour are ALWAYS the real last-14-days number
+                           (owner 10/27/2026: a green "fixed" was hiding kills that
+                           kept happening) — the fix shows only as a small mark,
+                           and once the fix is older than the 14-day window any
+                           kill left is a new one: flagged "still happening". */
+                        const fixDate = fix ? new Date(fix.fixed_at) : null;
+                        const fixAgeDays = fixDate ? (Date.now() - fixDate.getTime()) / 864e5 : 0;
+                        const stillHappening = !!fix && fixAgeDays > 14 && k.dead > 0;
+                        const fixLabel = fixDate ? fixDate.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" }) : "";
                         return (
                           <button type="button" onClick={(e) => { e.stopPropagation(); void toggleKillFix(ownerKey, r.owner_name ?? "this client"); }} disabled={saving}
-                            className={cn("inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:ring-2 hover:ring-[#15B7AE]/40 disabled:opacity-60", fix && "ring-1 ring-[#15803d]")}
-                            style={fix ? { background: "#e7f6ec", color: "#15803d" } : { background: tone.bg, color: tone.fg }}
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:ring-2 hover:ring-[#15B7AE]/40 disabled:opacity-60"
+                            style={{ background: tone.bg, color: tone.fg }}
                             title={fix
-                              ? `✓ Fixed — marked by ${fix.fixed_by ?? "an admin"} on ${new Date(fix.fixed_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}. Click to undo.\n\n${why}`
+                              ? `Workflow marked fixed by ${fix.fixed_by ?? "an admin"} on ${fixLabel}. ${stillHappening ? "⚠ Leads are STILL losing the AI after calls — the fix didn't hold." : fixAgeDays <= 14 ? "The % still includes kills from before the fix until 14 days have passed." : "No new kills since the fix."} Click to undo the mark.\n\n${why}`
                               : `Click once the call workflow is fixed for this client (calling a lead won't stop the AI).\n\n${why}`}>
-                            {saving ? <Loader2 size={11} className="animate-spin" /> : fix ? "✓" : null}
+                            {saving && <Loader2 size={11} className="animate-spin" />}
                             {label}
-                            {fix && <span className="text-[9px] font-bold uppercase">fixed</span>}
+                            {fix && <span className={cn("text-[9px] font-bold uppercase", stillHappening ? "text-[#b91c1c]" : "opacity-70")}>{stillHappening ? "⚠ still" : `✓ ${fixLabel}`}</span>}
                           </button>
                         );
                       })()}
