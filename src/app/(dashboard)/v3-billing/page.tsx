@@ -1104,7 +1104,7 @@ function AdminBilling() {
       {/* One line: title, the two counters, then every dropdown chip and
           Refresh — nothing stacks above the client table any more. */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        <h1 className="text-xl font-bold text-[#1f3559] mr-1.5">PPS Billing</h1>
+        <h1 className="text-xl font-bold text-[#1f3559] mr-1.5">PPA Billing</h1>
         <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
         {verify && verify.totals.blocked > 0 && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]" title="Money waiting but something needs your eyes first">{verify.totals.blocked} need review</span>}
         {autoRun && (
@@ -1123,7 +1123,7 @@ function AdminBilling() {
             badge={`${chatToReview} to review`} />
         )}
         {missing.length > 0 && (
-          <PanelChip k="missing" panel={panel} onClick={togglePanel} label="Not in Clients Master" icon="⚠️"
+          <PanelChip k="missing" panel={panel} onClick={togglePanel} label="No GHL account found" icon="⚠️"
             alert badge={String(missing.length)} />
         )}
         <PanelChip k="charge" panel={panel} onClick={togglePanel} label="To charge" icon="🗓️"
@@ -1167,7 +1167,7 @@ function AdminBilling() {
           can't be tracked until they're added to the Master sheet. */}
       {missing.length > 0 && panel === "missing" && (
         <div className="rounded-xl border border-[#f5c2cf] bg-[#fde8ee] px-3 py-2 text-sm text-[#be123c]">
-          <strong>Not in Clients Master:</strong> {missing.join(", ")} — marked PPA in the financing sheet but missing from the Clients Master sheet, so they can&apos;t be tracked here. Add them to the Master sheet to include them.
+          <strong>No GHL account found:</strong> {missing.join(", ")} — marked PPA in the financing sheet, but no Clients Master row links them to a GHL sub-account, so their appointments can&apos;t be read. Add a Clients Master row with the same name (a nickname in parentheses is fine) to include them.
         </div>
       )}
 

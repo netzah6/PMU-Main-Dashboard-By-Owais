@@ -229,7 +229,7 @@ export async function resolveCustomer(svc: Svc, ownerKey: string): Promise<{ cus
     return { error: `${candidates.length} Square customers match (${describe(candidates)}) and none has a card on file` };
   /* Two people really do pay for some businesses (partners), so there is no
      right answer to guess at here — the subscription has to name its card. */
-  return { error: `${withCards.length} Square customers with cards match (${describe(withCards)}) — choose this subscription's card with the card button, or pin one on PPS Billing` };
+  return { error: `${withCards.length} Square customers with cards match (${describe(withCards)}) — choose this subscription's card with the card button, or pin one on PPA Billing` };
 }
 
 export type CustomerCards = { customerId: string; name: string; email: string | null; cards: SquareCard[] };

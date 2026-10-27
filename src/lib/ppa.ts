@@ -88,8 +88,21 @@ export async function getPpaRoster(): Promise<{ clients: V3Client[]; missingFrom
     const d = (r as { data: Record<string, unknown> }).data ?? {};
     const version = String(d["Version"] ?? "");
     const status = String(d["col_1"] ?? "").toLowerCase();
-    const normKey = normalizeOwnerKey(d["Owner Full Name"]);
-    const payRow = normKey ? ppaByKey.get(normKey) : undefined;
+    const rawOwner = String(d["Owner Full Name"] ?? "");
+    const normKey = normalizeOwnerKey(rawOwner);
+    // Clients Master also carries nicknames in parentheses — "Kim Nguyen
+    // (Ngoc)" is "Ngoc Nguyen" on the financing sheet, "Annie Luong (Xuan)" is
+    // "Xuan Luong" (owner, 2026-10-27). Try the nickname with the last name,
+    // and the nickname on its own when it is already a full name.
+    const candidates = [normKey];
+    const last = normKey.split(" ").pop() ?? "";
+    for (const m of rawOwner.matchAll(/\(([^)]+)\)/g)) {
+      const nick = normalizeOwnerKey(m[1]);
+      if (!nick) continue;
+      candidates.push(nick);
+      if (last && !nick.includes(" ")) candidates.push(`${nick} ${last}`);
+    }
+    const payRow = candidates.map((k) => (k ? ppaByKey.get(k) : undefined)).find(Boolean);
     if (!payRow) continue;
     matched.add(payRow.client_name);
     if (status !== "live" && status !== "paused") continue;

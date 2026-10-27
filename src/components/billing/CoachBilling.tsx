@@ -117,7 +117,7 @@ export function CoachBilling() {
   return (
     <div className="p-3 sm:p-4 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <h1 className="text-xl font-bold text-[#1f3559]">PPS Billing</h1>
+        <h1 className="text-xl font-bold text-[#1f3559]">PPA Billing</h1>
         {coach && (
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#eef2ff] text-[#3a5a8c] border border-[#c7d2fe]">
             {coach}&apos;s clients
