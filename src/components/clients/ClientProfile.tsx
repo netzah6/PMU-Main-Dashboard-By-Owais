@@ -177,7 +177,7 @@ export function ClientProfile({
   const setupOwner = String(localClient.owner_name ?? "").trim();
   useEffect(() => {
     setSetupInfo(null);
-    if (role !== "admin" || (!setupOwner && !tzBusiness)) return;
+    if ((role !== "admin" && role !== "editor") || (!setupOwner && !tzBusiness)) return;
     let cancelled = false;
     fetch(`/api/onboarding/setup-start?owner=${encodeURIComponent(setupOwner)}&business=${encodeURIComponent(tzBusiness)}`)
       .then((r) => r.json())
@@ -472,7 +472,7 @@ export function ClientProfile({
                 <MessageSquare size={12} /> Click To Chat
               </a>
             )}
-            {role === "admin" && setupInfo && (setupInfo.eligible || setupInfo.card) && !editMode && (
+            {(role === "admin" || role === "editor") && setupInfo && (setupInfo.eligible || setupInfo.card) && !editMode && (
               <button onClick={() => void startSetup()} disabled={setupBusy}
                 title={setupInfo.card ? "Open this client's Onboarding card and setup run" : "No GoHighLevel account yet — open the Onboarding card, approve, and the dashboard + AI Agent set it up"}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#4f46e5] hover:bg-[#4338ca] text-white transition-colors disabled:opacity-60">

@@ -3,7 +3,8 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { resolveClientLocation } from "@/lib/agent-exec";
 import { answersFromMainContact } from "@/lib/survey-answers";
 
-// "Set up account" on the Clients tab (admin only).
+// "Set up account" on the Clients tab (admins and Client Success Coaches —
+// owner 10/28/2026; approving the run on the card stays admin-only).
 //   GET  ?owner=&business=  → can this client be set up? (no GHL location yet),
 //                             and the Onboarding card that already exists, if any
 //   POST {rowNumber?, owner, business} → open (or create) that client's Onboarding
@@ -17,7 +18,8 @@ async function adminEmail(): Promise<string | null> {
   if (!user) return null;
   const svc = createServiceClient();
   const { data } = await svc.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
-  return (data as { role?: string } | null)?.role === "admin" ? (user.email ?? user.id) : null;
+  const role = (data as { role?: string } | null)?.role;
+  return role === "admin" || role === "editor" ? (user.email ?? user.id) : null;
 }
 
 async function existingCard(svc: ReturnType<typeof createServiceClient>, owner: string, business: string): Promise<{ id: string; status: string; approved: boolean } | null> {
@@ -88,7 +90,7 @@ function prefill(row: Record<string, unknown>): Record<string, string> {
 
 export async function POST(req: NextRequest) {
   const email = await adminEmail();
-  if (!email) return NextResponse.json({ error: "Admin only" }, { status: 403 });
+  if (!email) return NextResponse.json({ error: "Admins and Client Success Coaches only" }, { status: 403 });
   const body = (await req.json().catch(() => ({}))) as { rowNumber?: number; owner?: string; business?: string };
   const owner = String(body.owner ?? "").trim();
   const business = String(body.business ?? "").trim();
