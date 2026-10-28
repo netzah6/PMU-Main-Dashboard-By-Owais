@@ -1641,6 +1641,10 @@ export default function FunnelsPage() {
       <div className="flex items-center justify-between gap-2 mb-3 flex-nowrap">
         <h1 className="text-base sm:text-lg font-semibold text-[#1c2b3a] truncate">🧪 One-Box Funnels</h1>
         <div className="flex gap-2 shrink-0">
+          {/* Every client's booking page without filling the survey (owner, 10/28/2026). */}
+          <a href="/funnels/previews" title="See every client's booking page" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
+            👁 <span className="hidden sm:inline">Booking pages</span>
+          </a>
           <button onClick={() => void load()} title="Refresh" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> <span className="hidden sm:inline">Refresh</span>
           </button>
@@ -2093,6 +2097,11 @@ export default function FunnelsPage() {
                     </button>
                     <a href={f.url} target="_blank" rel="noopener" className="text-xs text-[#0e9c9c] hover:underline inline-flex items-center gap-1">
                       {f.url} <ExternalLink className="w-3 h-3" />
+                    </a>
+                    {/* Read-only preview: no lead, no notification, nothing booked. */}
+                    <a href={`${f.url}?preview=booking`} target="_blank" rel="noopener" title="Open the booking page without filling the survey (no lead is created)"
+                      className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-white text-[#34568a] border-[#cbd5e1] hover:bg-[#f1f5f9]">
+                      👁 Booking page
                     </a>
                     {/* The GHL sub-account behind this funnel, checkable without
                         asking (owner, 2026-09-24) — click copies the ID. */}
