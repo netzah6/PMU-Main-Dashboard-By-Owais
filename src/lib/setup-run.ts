@@ -765,7 +765,7 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   if (!next) return;
   // Gates: a browser step cannot start before the API step it builds on.
   const needs: Record<string, string[]> = {
-    webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_forward: ["phone_buy"],
+    webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_limit: ["phone_buy"], phone_forward: ["phone_buy"],
     user_settings: ["user_password"], user_calendar: ["user_password"], wf_survey: ["user_password"], cal_team: ["user_password"], cal_hours: ["user_password"],
     funnel_ig: ["funnel_create"], funnel_reviews: ["funnel_create"], funnel_redirect: ["funnel_create"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
   };

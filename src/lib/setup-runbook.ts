@@ -62,6 +62,8 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 10, key: "phone_a2p", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
   { n: 11, key: "phone_cnam", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Submit CNAM \"PermanentMakeup\"" },
   { n: 12, key: "phone_optout", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
+  // Numbered 45 so the steps after it keep their numbers (like wf_errors' 43); it runs here, in the phone batch.
+  { n: 45, key: "phone_limit", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging limits: daily SMS limit 400 (already 400 or more = done)", how: "New accounts start at 250 a day; hitting it stops every text — AI, workflows, confirmations — until the next day (Janel Lord, 10/28/2026). Owner set every client to 400." },
   { n: 13, key: "phone_forward", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
   { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
@@ -124,7 +126,7 @@ const STEP_TITLES: Record<string, string> = {
   account_check: "Check & clean the account", account_take: "Take & rename the account", account_info: "Account info, address & time zone", account_cvs: "Custom values",
   master_row: "Assign team members", connector: "Dashboard connector",
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
-  phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_forward: "Call forwarding",
+  phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
   user_create: "Create the client's login", user_password: "Set the password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
   wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow", wf_errors: "All workflows: 0 errors",
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy off & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
@@ -290,6 +292,11 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Open ${ghl(L, "settings/phone_number")} → the "Messaging" tab → "Messaging Compliance" (the switches moved here in 2026; there is NO per-number switch and nothing under Additional Settings). Screenshot ("before-1.png").`,
       `Make sure these three are UNCHECKED: "Make SMS compliant by adding an opt out message" (Reply STOP to Unsubscribe), "Make SMS compliant by adding a sender information", and "Enable Periodic Opt-Out". If any is checked, uncheck it and Save; reload and confirm. Screenshot ("after-1.png").`,
       `If all three are ALREADY unchecked (Save stays disabled), that IS the wanted state: change nothing and report status "done" with the summary "opt-out footer already off" — do not stop or ask.`,
+    ];
+    case "phone_limit": return [
+      `Open ${ghl(L, "settings/phone_system?tab=messaging&childtab=messaging-limits")} (Phone System → "Messaging" tab → "Messaging limits"). Read "Current Limit". Screenshot ("before-1.png").`,
+      `If the Current Limit is 400 or MORE: change nothing (never lower it) and report status "done" with the summary "SMS limit already <number>".`,
+      `Otherwise click "Update Limit", type 400 in "New Messaging Limit" (keep "Messages" per "Day"), tick "I acknowledge this is a valid account…", click "Update Limit". Reload and confirm Current Limit shows 400. Screenshot ("after-1.png").`,
     ];
     case "phone_forward": return [
       `Open ${ghl(L, "settings/phone_number")}, open the account's new number → Edit configuration. Set "Forward calls to" = the client's own phone ${clientPhone}. Save.`,
