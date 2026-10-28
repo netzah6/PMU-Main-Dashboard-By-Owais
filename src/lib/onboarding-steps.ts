@@ -54,7 +54,7 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "cal_team", section: "Calendar", label: "Select team members", loom: "https://www.loom.com/share/7b4f2a1eee3e4bd08cf3b342b3cc0a15", auto: true },
   { key: "cal_location", section: "Calendar", label: "Meeting location: full address", auto: true },
   { key: "cal_availability", section: "Calendar", label: "My Staff → User Availability → choose calendar", auto: true },
-  { key: "cal_lookbusy", section: "Calendar", label: "Booking rules → Look Busy 75%", auto: true },
+  { key: "cal_lookbusy", section: "Calendar", label: "Booking rules → Look Busy OFF", auto: true },
 
   // ── Funnel ──
   { key: "funnel_onebox", section: "Funnel", label: "Create the one-box funnel", loom: "https://www.loom.com/share/73111c2e020a47c3a99e3c5bd763a517" },

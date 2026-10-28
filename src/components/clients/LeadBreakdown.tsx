@@ -630,23 +630,13 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
       });
     }
 
-    // Scarcity rule (2026-08-29 top-11 analysis): accounts showing 10+ open
-    // slots/day convert leads→deposits at ~6.5% vs ~9.7% for tighter calendars
-    // — a wall of open times reads as "not in demand". Fix is Look Busy, which
-    // hides a % of REAL openings without cutting actual capacity.
-    const visPerDay = avail ? avail.openSlots / 14 : 0;
-    const tooAvailable = !!avail && visPerDay >= 10 && avail.lookBusy != null && !avail.lookBusy.on;
-    if (tooAvailable && avail) {
-      out.unshift({
-        emoji: "🗓️",
-        title: "Calendar looks TOO available — turn on Look Busy",
-        body: `Leads see ~${Math.round(visPerDay)} open slots/day — reads as "not in demand" (converts ~6.5% vs ~9.7% for tighter calendars). Turn on Look Busy at 60–70% and log it.`,
-      });
-    }
+    /* The old "turn on Look Busy" card is gone (owner, 10/28/2026): the
+       booking page itself shows at most 3 times a day (A/B-tested, locked
+       10/26), so leads never see a wall of openings, and Look Busy on top
+       only thins the choice further. Look Busy is now OFF fleet-wide. */
 
     // Lots of availability but few people picking a time → it's the funnel, not the calendar.
-    // (Skipped when the Look Busy card already covers the too-available case.)
-    if (avail && avail.pctFree != null && avail.pctFree >= 50 && !tooAvailable) {
+    if (avail && avail.pctFree != null && avail.pctFree >= 50) {
       const bookingish = (c.funnel_drop ?? 0) + (c.ai_booked_pending ?? 0) + (c.confirmed ?? 0);
       if (pct(bookingish) < 15) {
         out.unshift({ emoji: "📅", title: "Calendar is wide open", body: `~${avail.openHours}h free (${avail.pctFree}% of capacity) but few book. The blocker is the funnel/offer, not availability.` });
@@ -838,12 +828,11 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                 </div>
               )}
               <div>📅 <span className="font-semibold">Next 2 weeks:</span> {avail.openSlots} open slots · ~{avail.openHours}h{avail.pctFree != null ? ` · ${avail.pctFree}% free` : ""}</div>
-              {avail.lookBusy && (
-                avail.lookBusy.on ? (
-                  <div className="text-[#d97706]">⚠️ &ldquo;Look Busy&rdquo; is ON ({avail.lookBusy.percentage}%) — leads only see ~{100 - avail.lookBusy.percentage}% of this. Turn it off if availability is tight.</div>
-                ) : (
-                  <div className="text-[#0e8f88]">✅ &ldquo;Look Busy&rdquo; is off — leads see all open times.</div>
-                )
+              {/* Only the ON case gets a line (owner, 10/28/2026): the old
+                  "off — leads see all open times" was wrong, the page shows
+                  at most 3 times a day either way. */}
+              {avail.lookBusy?.on && (
+                <div className="text-[#d97706]">⚠️ &ldquo;Look Busy&rdquo; is ON ({avail.lookBusy.percentage}%) — it hides real openings before the page picks its 3 a day. Turn it off in the GHL calendar (Look Busy is off fleet-wide since 10/28).</div>
               )}
             </div>
           )}

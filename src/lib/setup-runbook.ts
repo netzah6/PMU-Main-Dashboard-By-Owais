@@ -77,7 +77,7 @@ export const RUNBOOK: RunbookStep[] = [
   // F · Calendar
   { n: 21, key: "cal_team", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
   { n: 22, key: "cal_hours", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_availability"] },
-  { n: 23, key: "cal_rules", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Booking rules: Look Busy 75%, slot length and buffer per the template", checklist: ["cal_lookbusy"] },
+  { n: 23, key: "cal_rules", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Booking rules: Look Busy OFF, slot length and buffer per the template", checklist: ["cal_lookbusy"] },
   { n: 24, key: "cal_active", section: "F · 📅 Calendar", who: "api", label: "Switch the calendar on and confirm open time slots load", how: "The snapshot ships the calendar switched off (Sudbury Med Spa, 10/21/2026: the funnel's time picker could not load). The dashboard turns it on via the API and asks GHL for the next 14 days of slots; stops red if none load." },
   { n: 25, key: "cal_id", section: "F · 📅 Calendar", who: "api", label: "Save the calendar ID to \"CC - Permanent Makeup Transformation Calendar ID\"" },
   // G · Funnel
@@ -127,7 +127,7 @@ const STEP_TITLES: Record<string, string> = {
   phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_forward: "Call forwarding",
   user_create: "Create the client's login", user_password: "Set the password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
   wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow", wf_errors: "All workflows: 0 errors",
-  cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
+  cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy off & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
   funnel_create: "Create the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
   last_profile: "Profile check", last_check: "Final check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
@@ -364,7 +364,7 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Reload the page and confirm the exact values are still there (GHL sometimes drops them). Screenshot before and after.`,
     ];
     case "cal_rules": return [
-      `Open ${ghl(L, "settings/calendars")} → "Permanent Makeup Transformation" → edit → Availability / Advanced: set "Look Busy" to 75%. Keep the slot duration and buffer the template has (do not change them unless they are blank). Save, reload, screenshot.`,
+      `Open ${ghl(L, "settings/calendars")} → "Permanent Makeup Transformation" → edit → Availability / Advanced: make sure "Look Busy" is turned OFF (owner, 10/28/2026: the booking page already shows at most 3 times a day; Look Busy only hides more real openings). Keep the slot duration and buffer the template has (do not change them unless they are blank). Save, reload, screenshot.`,
     ];
     case "funnel_redirect": return [
       oldFunnel ? `The client's old GHL funnel is ${oldFunnel}. Open ${ghl(L, "funnels-websites/funnels")}, find that funnel's survey page and rename its path by adding "-old" (so the old address stops serving the page).` : `No old funnel is on the form — status "done", summary "skipped: no old funnel", no changes.`,
