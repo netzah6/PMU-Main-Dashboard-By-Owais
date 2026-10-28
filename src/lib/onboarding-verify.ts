@@ -599,7 +599,9 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
       const lb = (c.lookBusyConfig as Record<string, unknown> | undefined) ?? {};
       const lbOn = !!lb.enabled;
       const lbPct = Number(lb.lookBusyPercentage ?? 0);
-      push("cal_lookbusy", lbOn && lbPct === 75 ? "pass" : lbOn ? "fail" : "fail", lbOn ? `Look Busy on at ${lbPct}%${lbPct === 75 ? "" : " (should be 75%)"}` : "Look Busy is off (should be 75%)");
+      // Owner, 10/28/2026: Look Busy must be OFF — the one-box shows at most
+      // 3 times a day itself; Look Busy only hides more real openings.
+      push("cal_lookbusy", lbOn ? "fail" : "pass", lbOn ? `Look Busy is ON at ${lbPct}% (should be off)` : "Look Busy is off");
 
       // Calendar ↔ user connection: every selected team member must be a real
       // sub-account user (proves the user is wired into the calendar settings).

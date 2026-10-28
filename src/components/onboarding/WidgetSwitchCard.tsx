@@ -104,6 +104,7 @@ export function WidgetSwitchCard() {
               </div>
             ))}
             {d.depositVerdictEta && <p className="text-[11px] text-[#697a91]">Deposit verdict expected around {us(d.depositVerdictEta)}.</p>}
+            <p className="text-[11px] text-[#b45309]">Note: GHL &ldquo;Look Busy&rdquo; was turned off on 90 calendars on 10/28, so the &ldquo;after&rdquo; numbers include that change too.</p>
           </div>
         </div>
       )}
