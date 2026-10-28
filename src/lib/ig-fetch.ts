@@ -221,8 +221,9 @@ export async function snapshotFunnel(
        keeps its place in the judge's queue (attempts + caption). */
     if (c.video) {
       p.video = c.video; p.reel = true;
-      if (c.useful !== undefined) { p.img = c.img; p.frame = c.frame; p.useful = c.useful; delete p.cap; }
-      else { if (c.jt) p.jt = c.jt; p.cap = c.cap ?? p.cap; }
+      if (c.useful !== undefined) { p.img = c.img; p.frame = c.frame; p.useful = c.useful; if (c.jv) p.jv = c.jv; }
+      if (c.jt) p.jt = c.jt;
+      p.cap = c.cap ?? p.cap;
     }
   }
   const ordered = rankPosts(saved);

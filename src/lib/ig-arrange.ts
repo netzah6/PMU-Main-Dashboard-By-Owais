@@ -15,8 +15,8 @@ export type PostKind = "split_ba" | "after_closeup" | "during" | "person" | "fly
    useful:false and sinks behind every picture. Until its frames are judged
    (ig-reels.ts; `useful` not set yet) a reel ranks by its cover's verdict,
    like any picture. `jt` = failed judge attempts, `cap` = the caption the
-   judge reads (dropped once judged). */
-export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number; video?: string; reel?: boolean; frame?: number; useful?: boolean; jt?: number; cap?: string };
+   judge reads, `jv` = the judge version that set the verdict. */
+export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number; video?: string; reel?: boolean; frame?: number; useful?: boolean; jt?: number; cap?: string; jv?: number };
 export type IgProfile = {
   username: string; name: string; pic: string; followers: number | null; posts: number | null;
   following?: number | null; bio?: string; category?: string; verified?: boolean;

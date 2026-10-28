@@ -28,6 +28,11 @@ const FRAMES = 10;
 export const MAX_REEL_BYTES = 40_000_000;
 export const MAX_REEL_SECONDS = 180;
 const JUDGE_TRIES = 3;
+/* Bump when the judge's brief changes: every reel judged under an older
+   version is looked at again by the hourly cron (stored on the post as jv).
+   v2 (10/28/2026): strict labels — after the fleet audit found text cards,
+   talking selfies and procedure frames labeled as finished results. */
+export const JUDGE_VERSION = 1; // → 2 once the strict brief is checked (dry runs)
 const run = promisify(execFile);
 
 /* Instagram post URL → its short code ("…/p/DQ1x2y3/" → "DQ1x2y3"). */
@@ -92,14 +97,22 @@ const KINDS: PostKind[] = ["split_ba", "after_closeup", "during", "person", "fly
 /* The same brief the pilot's reviewers used (10/28/2026). */
 const SYSTEM = `A permanent-makeup (PMU: brows, lips, eyeliner) artist's Instagram shows as a 3x2 grid on the booking page of her lead funnel, right while a lead picks an appointment time. A reel's TILE shows one still picture (we choose which frame); tapping the tile plays the reel.
 Research (853 feed pictures, 97 funnels): the first row matters most; finished work on a real client lifts "picked a time"; a flyer/text card or a selfie in the first row costs about a third of deposits. What should lead: finished work on a real client, no text on the picture, close-ups that show the brows/lips clearly (a close-up of the client's face that shows her new brows IS a result picture), true before/afters. What should not lead: flyers, price cards, memes, talking-to-camera selfies, personal-life content, needles/numbing/very pink fresh skin.
-You get numbered frames taken evenly from inside one reel (you cannot play it) plus its caption. Judge only what is visibly on screen. Answer with JSON only, no prose:
-{"bestFrame": <frame number to use as the tile — finished work, clearest, least text; prefer a split before/after frame if one exists; 0 if no frame shows PMU work>,
- "kind": "<what the CHOSEN frame shows: split_ba | after_closeup | during | person | flyer_text | other>",
+You get numbered frames taken evenly from inside one reel (you cannot play it) plus its caption. Judge only what is visibly on screen.
+TILE RULES — a frame may lead the booking page only if: finished or healed work on a real client is clearly visible; there is no big text block, caption banner, price, phone number or graphic over the picture (a small watermark/handle is fine); no gloves, needle, machine, numbing cream or mapping lines; no very red, swollen or bleeding skin; it is not a talking-to-camera, reaction or selfie shot; it is not a collage that includes a procedure or text panel. Frames of one reel differ a lot — the clean result is often near the end or in a pause between text cards — so look at every frame and prefer a frame that passes every rule over a prettier one that breaks a rule.
+Answer with JSON only, no prose:
+{"bestFrame": <frame number to use as the tile — the frame that best passes the tile rules; prefer a clean split before/after if one exists; 0 if no frame shows PMU work>,
+ "kind": "<what the CHOSEN frame shows, labeled strictly (below)>",
  "pmu": <true if the reel shows permanent-makeup work at all>,
- "q": <1-5, how convincing the chosen frame looks to a woman deciding to book>,
+ "q": <1-5, how convincing the chosen frame looks to a woman deciding to book; text over the picture, redness, blur or odd crops lower it>,
  "useful": <true if this reel would help a lead decide to book (real PMU work clearly shown somewhere in it); false for personal life, pure promos, lash-only/nails-only, or work too unclear to see>,
  "why": "<= 25 words"}
-kind meanings: split_ba = before and after side by side in one picture; after_closeup = finished brows/lips/liner clearly visible (incl. a face close-up showing the result); during = procedure in progress (tools, gloves, mapping, pigment); person = a person/selfie where the work is not the subject; flyer_text = mostly text/graphics; other = anything else.`;
+kind, labeled STRICTLY by what is on the chosen frame:
+- split_ba: a clean before and after of the same client in one picture, without a big text block.
+- after_closeup: a clean finished/healed result (brows, lips, liner), incl. a face close-up showing it — and it passes every tile rule.
+- during: gloves, tools, needle, machine, numbing cream, mapping lines, pigment on skin, fresh very red/swollen/bleeding skin, or a collage that includes any of these.
+- person: a talking-to-camera, reaction, selfie, portrait or team shot — even when brows are visible.
+- flyer_text: a big text block, caption banner, price, phone number, promo graphic or stock image dominates or covers the face — even when brows are visible.
+- other: anything else (no PMU visible, scenery, products, lashes/nails only).`;
 
 async function judgeFrames(client: Anthropic, frames: Frame[], dur: number, caption: string): Promise<ReelVerdict> {
   const content: Anthropic.Messages.ContentBlockParam[] = [{ type: "text", text: `Reel, ${dur.toFixed(1)} s. Caption: ${JSON.stringify(caption.slice(0, 600))}` }];
@@ -155,7 +168,7 @@ export async function judgeReel(
 }
 
 /* A reel waiting for its frame-by-frame look. */
-export const needsJudge = (p: FeedPost) => !!p.video && p.useful === undefined && (p.jt ?? 0) < JUDGE_TRIES;
+export const needsJudge = (p: FeedPost) => !!p.video && (p.useful === undefined || (p.jv ?? 1) < JUDGE_VERSION) && (p.jt ?? 0) < JUDGE_TRIES;
 
 /* Live funnels with reels waiting, most waiting first. */
 export async function pendingReelFunnels(svc: SupabaseClient, limit: number): Promise<Array<{ slug: string; n: number }>> {
@@ -208,10 +221,10 @@ export async function judgeFunnelReels(
     const o = byUrl.get(p.url);
     if (!o || !needsJudge(p)) continue;
     if (o.error || o.useful === undefined) { p.jt = (p.jt ?? 0) + 1; continue; }
-    p.useful = o.useful; p.kind = o.kind; p.pmu = o.pmu; p.q = o.q; p.reel = true;
+    p.useful = o.useful; p.kind = o.kind; p.pmu = o.pmu; p.q = o.q; p.reel = true; p.jv = JUDGE_VERSION;
     p.frame = o.useful ? o.bestFrame : 0;
     if (o.useful && o.tile) p.img = o.tile;
-    delete p.jt; delete p.cap;
+    delete p.jt;
   }
   const ordered = rankPosts(feed.posts);
   const { error } = await svc.from("onebox_clients").update({ extras: { ...extras, igFeed: { ...feed, posts: ordered, imgs: ordered.map((p) => p.img) } } }).eq("slug", slug);
