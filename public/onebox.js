@@ -1460,6 +1460,43 @@
      booking step: results + reviews + studio/map + FAQs with their
      educational videos. The deposit step drops the FAQs so nothing
      competes with the checkout. */
+  /* Widget health (owner, 10/28/2026: "make sure the Instagram widget and
+     Google reviews work"). What this visitor's browser really drew on the
+     booking step, plus any grid/profile picture that failed to load and any
+     error while drawing them, goes to /api/onebox/render — the funnel-health
+     cron turns it into Alerts. Never in ?preview, never more than once per
+     page per kind, and nothing here can break the page. */
+  var ENGINE_V = "122";
+  var obReported = {};
+  function obReport(kind, data, once) {
+    try {
+      if (/[?&]preview=/.test(location.search)) return;
+      if (once && obReported[once]) return;
+      if (once) obReported[once] = 1;
+      var vid = "";
+      try { vid = localStorage.getItem("ob_vid") || ""; } catch (e) {}
+      if (!vid) { vid = window.__obTmpVid = window.__obTmpVid || ("t-" + Date.now() + "-" + Math.floor(Math.random() * 1e9)); }
+      var body = { slug: C.slug || "", visitorId: vid, kind: kind, v: ENGINE_V };
+      for (var k in data) body[k] = data[k];
+      var url = (C.submitUrl || "").replace(/submit$/, "render");
+      if (!url) return;
+      var json = JSON.stringify(body);
+      if (navigator.sendBeacon && navigator.sendBeacon(url, json)) return;
+      fetch(url, { method: "POST", body: json, keepalive: true }).catch(function () {});
+    } catch (e) {}
+  }
+  if (!window.__obImgErr) {
+    window.__obImgErr = true;
+    /* error events don't bubble — listen in the capture phase. */
+    document.addEventListener("error", function (e) {
+      var t = e.target;
+      if (!t || t.tagName !== "IMG" || !t.closest) return;
+      if (!t.closest(".iggrid") && !t.classList.contains("igpic")) return;
+      var src = t.currentSrc || t.src || "";
+      if (/^https:\/\//.test(src)) obReport("imgerr", { url: src }, "img:" + src);
+    }, true);
+  }
+
   function renderExtras() {
     var el = document.getElementById("ob-extras");
     if (phase === "survey") { el.innerHTML = ""; return; }
@@ -1630,7 +1667,9 @@
         }).join("") + "</div>";
       }
       if (SELF) {
-        htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") + igSelfHtml(SELF) + (RESULTS.length ? "</div>" : "");
+        var igH = "";
+        try { igH = igSelfHtml(SELF); } catch (e) { obReport("jserr", { error: "ig: " + String(e && e.message || e) }, "jserr-ig"); }
+        htmlStr += (RESULTS.length ? '<div class="igwrap">' : "") + igH + (RESULTS.length ? "</div>" : "");
       }
       htmlStr += "</div>";
     }
@@ -1644,7 +1683,9 @@
         return '<img src="' + esc(fastImg(u, 640)) + '" alt="Our studio" loading="lazy">';
       }).join("") + "</div>" : "") + "</div>";
     if (GREV && GREV.reviews && GREV.reviews.length) {
-      htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say &#11088;</h2>' + grevHtml(GREV) + "</div>";
+      var grH = "";
+      try { grH = grevHtml(GREV); } catch (e) { obReport("jserr", { error: "reviews: " + String(e && e.message || e) }, "jserr-rev"); }
+      if (grH) htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say &#11088;</h2>' + grH + "</div>";
     }
     /* FAQs + education videos sit under the booking page; a V1 funnel has
        no booking page, so its thank-you carries them instead (user,
@@ -1661,6 +1702,20 @@
         }).join("") + "</div></div>";
     }
     el.innerHTML = htmlStr;
+    if (phase === "booking" || (FLOW_V1 && phase === "done")) {
+      var gridExpected = !!(SELF && ((SELF.posts && SELF.posts.length) || (SELF.imgs && SELF.imgs.length)) >= 3);
+      var revExpected = !!(GREV && GREV.reviews && GREV.reviews.length);
+      setTimeout(function () {
+        try {
+          obReport("render", {
+            gridExpected: gridExpected,
+            gridTiles: el.querySelectorAll(".iggrid span[data-i]").length,
+            revExpected: revExpected,
+            revCards: el.querySelectorAll(".grevcard").length,
+          }, "render");
+        } catch (e) {}
+      }, 1500);
+    }
   }
 
   var cta = document.createElement("div");

@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search, Trash2, Info } from "lucide-react";
 import { SERVICE_OPTIONS } from "@/lib/onboarding-steps";
+import { WidgetSwitchCard } from "@/components/onboarding/WidgetSwitchCard";
 import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
 import type { StatsWindow } from "@/lib/onebox-insights";
@@ -1662,6 +1663,7 @@ export default function FunnelsPage() {
       <IntakeReviewCards />
       {/* Split-test results are the owner's dials — coaches don't see them
           (owner, 2026-10-09). */}
+      {seesFleetTraffic && <WidgetSwitchCard />}
       {seesFleetTraffic && <CapiStatusCard />}
       {isAdmin && (
         <B2cTestsDropdown
