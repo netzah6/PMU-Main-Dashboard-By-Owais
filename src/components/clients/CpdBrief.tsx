@@ -38,13 +38,14 @@ export function CpdBrief({ ownerKey, onBrief }: { ownerKey: string; onBrief?: (b
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [noOnebox, setNoOnebox] = useState(false);
+  const [slug, setSlug] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     setBrief(undefined); setErr(null); setNoOnebox(false);
     fetch(`/api/onebox/cpd-brief?ownerKey=${encodeURIComponent(ownerKey)}`)
       .then((r) => r.json())
-      .then((j: { brief: BriefData | null; slug: string | null }) => { if (!alive) return; setBrief(j.brief); setNoOnebox(!j.slug); onBrief?.(j.brief); })
+      .then((j: { brief: BriefData | null; slug: string | null }) => { if (!alive) return; setBrief(j.brief); setSlug(j.slug); setNoOnebox(!j.slug); onBrief?.(j.brief); })
       .catch(() => { if (alive) { setBrief(null); setErr("Couldn't load the brief."); } });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,8 +75,14 @@ export function CpdBrief({ ownerKey, onBrief }: { ownerKey: string; onBrief?: (b
         <span className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">🧭 In short</span>
         {brief && <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ background: tone!.bg, color: tone!.fg }}>{tone!.label}</span>}
         {brief && <span className="text-[10px] text-[#8595a8]" title={brief.model ? `Written by ${brief.model}` : "Rule-based (model unavailable)"}>updated {when(brief.computed_at)}</span>}
+        {slug && (
+          <a href={`https://book.pmu-care.com/f/${slug}?preview=booking`} target="_blank" rel="noopener" title="Open this client's booking page — preview only, no lead is created"
+            className="ml-auto inline-flex items-center gap-1 rounded-full border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#34568a] hover:bg-[#f1f5f9]">
+            👁 Booking page
+          </a>
+        )}
         <button type="button" onClick={() => void refresh()} disabled={busy}
-          className="ml-auto inline-flex items-center gap-1 rounded-full border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#34568a] hover:bg-[#f1f5f9] disabled:opacity-50">
+          className={cn(slug ? "" : "ml-auto", "inline-flex items-center gap-1 rounded-full border border-[#cbd5e1] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#34568a] hover:bg-[#f1f5f9] disabled:opacity-50")}>
           {busy ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}{busy ? "Thinking…" : "Refresh"}
         </button>
       </div>

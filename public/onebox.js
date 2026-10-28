@@ -39,6 +39,11 @@
      The server sets flow:"v1" from the client's Clients Master program;
      ?obflow=v1 is the team's preview override. */
   var FLOW_V1 = String(C.flow || "") === "v1" || /[?&]obflow=v1/.test(location.search);
+  /* Team preview (?preview=booking / ?preview=thankyou, owner 10/28/2026:
+     "see every client's booking page in one click"): strictly read-only —
+     no Meta pixel, no lead / slot / booking calls, no real checkout session.
+     The calendar still shows the client's real open times. */
+  var PREVIEW_MODE = /[?&]preview=/.test(location.search);
   /* Per-client framing: consultMode:"video" (set in the client's dashboard
      extras — e.g. Brows By Kali) presents the calendar slot as a VIDEO
      CONSULTATION: same flow, same calendar, same deposit — only the wording
@@ -85,7 +90,7 @@
   /* Meta pixel: the client's own pixel id (harvested from their existing
      funnel or set via the "OB - Meta Pixel ID" custom value). Fires
      PageView here, Lead on survey completion, Schedule on booking. */
-  var PIXEL = (C.metaPixelId || "").replace(/\D/g, "");
+  var PIXEL = PREVIEW_MODE ? "" : (C.metaPixelId || "").replace(/\D/g, "");
   if (PIXEL) {
     (function (f, b, e, v, n, t, s) {
       if (f.fbq) return; n = f.fbq = function () { n.callMethod ? n.callMethod.apply(n, arguments) : n.queue.push(arguments); };
@@ -542,6 +547,7 @@
      during the Ivan pilot (captured from the live survey's own submit);
      until then failures are logged, never shown to the lead.            */
   function sendLead(stage) {
+    if (PREVIEW_MODE) return;
     var a = state.answers;
     var payload = {
       stage: stage,
@@ -1090,6 +1096,7 @@
 
   function book(iso) {
     state.slotIso = iso;
+    if (PREVIEW_MODE) { show(FREE ? "done" : "deposit"); return; }
     pixelTrack("Schedule");
     try {
       fetch(C.submitUrl || "", {
@@ -1116,6 +1123,13 @@
      the deposit step opens — same lifecycle as on a GHL page. */
   function bootFanbasis(slot) {
     if (!slot || state.fbBooted) return;
+    if (PREVIEW_MODE) {
+      state.fbBooted = true;
+      slot.innerHTML = '<div style="text-align:center;padding:28px 16px;font-family:sans-serif;border:2px dashed #cbd5e1;border-radius:12px;color:#475569">' +
+        '<p style="margin:0 0 6px;font-weight:700">Preview — the secure $' + esc(String(C.deposit || "50").replace(/[^0-9.]/g, "") || "50") + ' checkout shows here for real visitors.</p>' +
+        '<p style="margin:0;font-size:13px">Nothing is booked or charged in preview.</p></div>';
+      return;
+    }
     var tpl = document.getElementById("onebox-fanbasis-holder");
     if (!tpl || !tpl.content) {
       /* No checkout is configured for this funnel (no product id and no
@@ -1466,7 +1480,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "122";
+  var ENGINE_V = "123";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
