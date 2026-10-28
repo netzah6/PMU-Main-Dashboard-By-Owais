@@ -30,10 +30,12 @@ export const MAX_REEL_SECONDS = 180;
 const JUDGE_TRIES = 3;
 /* Bump when the judge's brief changes: every reel judged under an older
    version is looked at again by the hourly cron (stored on the post as jv).
-   v2 (10/28/2026): strict labels — after the fleet audit found text cards,
-   talking selfies and procedure frames labeled as finished results. */
-export const JUDGE_VERSION = 1; // → 2 once the strict brief is checked (dry runs)
-/* v2 also judges the tile on the visible center square (see extractFrames). */
+   10/28/2026: a stricter brief (strict labels + judging the visible center
+   square) was tried and measured — first rows as leads see them were no
+   better (43 vs 42 of 75 lead-worthy on the 25 funnels with flagged tiles;
+   bad first rows come from feeds with little clean work, not from the
+   judge), and it demoted some good tiles — so the pilot brief stays. */
+export const JUDGE_VERSION = 1;
 const run = promisify(execFile);
 
 /* Instagram post URL → its short code ("…/p/DQ1x2y3/" → "DQ1x2y3"). */
@@ -68,10 +70,7 @@ async function ffmpegPath(): Promise<string> {
 type Frame = { n: number; t: number; tile: string; judge: string };
 
 /* 10 frames from inside the video: a 720-wide copy for the tile and a
-   360-wide copy for the judge (keeps the call small). The grid shows each
-   tile as a CENTER SQUARE (object-fit: cover), so the judge's copy dims
-   everything outside that square — text at the top or bottom of a reel
-   frame never reaches the booking page, text in the middle does. */
+   360-wide copy for the judge (keeps the call small). */
 async function extractFrames(ff: string, video: string, dir: string): Promise<{ dur: number; frames: Frame[] }> {
   /* `ffmpeg -i file` with no output exits non-zero but prints the duration. */
   const info = await run(ff, ["-hide_banner", "-i", video], { timeout: 20_000 }).then((r) => r.stderr, (e: { stderr?: string }) => e.stderr ?? "");
@@ -84,7 +83,7 @@ async function extractFrames(ff: string, video: string, dir: string): Promise<{ 
     const tile = path.join(dir, `t${i + 1}.jpg`), judge = path.join(dir, `j${i + 1}.jpg`);
     try {
       await run(ff, ["-v", "error", "-y", "-ss", t.toFixed(2), "-i", video,
-        "-filter_complex", "[0:v]split=3[a][b][c];[a]scale='min(720,iw)':-2[t];[b]eq=brightness=-0.32:saturation=0.5[d];[c]crop='min(iw,ih)':'min(iw,ih)'[s];[d][s]overlay=(W-w)/2:(H-h)/2,scale=360:-2[j]",
+        "-filter_complex", "[0:v]split=2[a][b];[a]scale='min(720,iw)':-2[t];[b]scale=360:-2[j]",
         "-map", "[t]", "-frames:v", "1", "-q:v", "3", tile,
         "-map", "[j]", "-frames:v", "1", "-q:v", "5", judge], { timeout: 20_000 });
       await fs.access(tile); await fs.access(judge);
@@ -101,23 +100,14 @@ const KINDS: PostKind[] = ["split_ba", "after_closeup", "during", "person", "fly
 /* The same brief the pilot's reviewers used (10/28/2026). */
 const SYSTEM = `A permanent-makeup (PMU: brows, lips, eyeliner) artist's Instagram shows as a 3x2 grid on the booking page of her lead funnel, right while a lead picks an appointment time. A reel's TILE shows one still picture (we choose which frame); tapping the tile plays the reel.
 Research (853 feed pictures, 97 funnels): the first row matters most; finished work on a real client lifts "picked a time"; a flyer/text card or a selfie in the first row costs about a third of deposits. What should lead: finished work on a real client, no text on the picture, close-ups that show the brows/lips clearly (a close-up of the client's face that shows her new brows IS a result picture), true before/afters. What should not lead: flyers, price cards, memes, talking-to-camera selfies, personal-life content, needles/numbing/very pink fresh skin.
-You get numbered frames taken evenly from inside one reel (you cannot play it) plus its caption. Judge only what is visibly on screen.
-Each frame image shows the whole video picture, but the booking-page TILE shows only its BRIGHT MIDDLE SQUARE — the dimmed bands (above and below, or at the sides) are cut off on the tile. Apply the tile rules, kind and q to the bright square only (text or a procedure that sits only in a dimmed band does not count against the tile); judge "useful" from the whole reel.
-TILE RULES — a frame may lead the booking page only if: finished or healed work on a real client is clearly visible; there is no big text block, caption banner, price, phone number or graphic over the picture (a small watermark/handle is fine); no gloves, needle, machine, numbing cream or mapping lines; no very red, swollen or bleeding skin; it is not a talking-to-camera, reaction or selfie shot; it is not a collage that includes a procedure or text panel. Frames of one reel differ a lot — the clean result is often near the end or in a pause between text cards — so look at every frame and prefer a frame that passes every rule over a prettier one that breaks a rule.
-Answer with JSON only, no prose:
-{"bestFrame": <frame number to use as the tile — the frame that best passes the tile rules; prefer a clean split before/after if one exists; 0 if no frame shows PMU work>,
- "kind": "<what the CHOSEN frame shows, labeled strictly (below)>",
+You get numbered frames taken evenly from inside one reel (you cannot play it) plus its caption. Judge only what is visibly on screen. Answer with JSON only, no prose:
+{"bestFrame": <frame number to use as the tile — finished work, clearest, least text; prefer a split before/after frame if one exists; 0 if no frame shows PMU work>,
+ "kind": "<what the CHOSEN frame shows: split_ba | after_closeup | during | person | flyer_text | other>",
  "pmu": <true if the reel shows permanent-makeup work at all>,
- "q": <1-5, how convincing the chosen frame looks to a woman deciding to book; text over the picture, redness, blur or odd crops lower it>,
+ "q": <1-5, how convincing the chosen frame looks to a woman deciding to book>,
  "useful": <true if this reel would help a lead decide to book (real PMU work clearly shown somewhere in it); false for personal life, pure promos, lash-only/nails-only, or work too unclear to see>,
  "why": "<= 25 words"}
-kind, labeled STRICTLY by what is on the chosen frame:
-- split_ba: a clean before and after of the same client in one picture, without a big text block.
-- after_closeup: a clean finished/healed result (brows, lips, liner), incl. a face close-up showing it — and it passes every tile rule.
-- during: gloves, tools, needle, machine, numbing cream, mapping lines, pigment on skin, fresh very red/swollen/bleeding skin, or a collage that includes any of these.
-- person: a talking-to-camera, reaction, selfie, portrait or team shot — even when brows are visible.
-- flyer_text: a big text block, caption banner, price, phone number, promo graphic or stock image dominates or covers the face — even when brows are visible.
-- other: anything else (no PMU visible, scenery, products, lashes/nails only).`;
+kind meanings: split_ba = before and after side by side in one picture; after_closeup = finished brows/lips/liner clearly visible (incl. a face close-up showing the result); during = procedure in progress (tools, gloves, mapping, pigment); person = a person/selfie where the work is not the subject; flyer_text = mostly text/graphics; other = anything else.`;
 
 async function judgeFrames(client: Anthropic, frames: Frame[], dur: number, caption: string): Promise<ReelVerdict> {
   const content: Anthropic.Messages.ContentBlockParam[] = [{ type: "text", text: `Reel, ${dur.toFixed(1)} s. Caption: ${JSON.stringify(caption.slice(0, 600))}` }];
