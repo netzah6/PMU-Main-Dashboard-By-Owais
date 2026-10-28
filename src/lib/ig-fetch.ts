@@ -80,6 +80,13 @@ function cleanText(v: unknown): string {
   return /^(none|null|undefined)$/i.test(t) ? "" : t;
 }
 
+/* Cut text to n characters without splitting an emoji: a half emoji left at
+   the cut makes the database reject the whole save ("Empty or invalid json"). */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+function clip(s: string, n: number): string {
+  return s.slice(0, n).replace(LONE_SURROGATE, "");
+}
+
 /* Write only the keys we own: re-read extras right before the update so a
    pick the owner saved during a slow fetch/classify is not overwritten. */
 export async function patchExtras(svc: SupabaseClient, slug: string, patch: Record<string, unknown>): Promise<string | null> {
@@ -206,7 +213,7 @@ export async function snapshotFunnel(
   const saved: FeedPost[] = copies
     .map((img, n): FeedPost => ({
       img, url: posts[n].url || igLink, result: isResultPost(posts[n]),
-      ...(videos[n] ? { video: videos[n], reel: true, cap: String(posts[n].caption ?? "").slice(0, 400) } : {}),
+      ...(videos[n] ? { video: videos[n], reel: true, cap: clip(String(posts[n].caption ?? ""), 400) } : {}),
     }))
     .filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
@@ -244,7 +251,7 @@ export async function snapshotFunnel(
     followers: typeof prof?.followersCount === "number" ? prof.followersCount : prev?.followers ?? null,
     posts: postsCount,
     following: typeof prof?.followsCount === "number" ? prof.followsCount : prev?.following ?? null,
-    bio: (cleanText(prof?.biography) || prev?.bio || "").slice(0, 300),
+    bio: clip(cleanText(prof?.biography) || prev?.bio || "", 300),
     category: cleanText(prof?.businessCategoryName) || prev?.category || "",
     verified: !!(prof?.verified ?? prev?.verified),
   };
