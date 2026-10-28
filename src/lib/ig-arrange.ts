@@ -8,7 +8,12 @@
    image. No SDK imports here: the funnel page uses this too. */
 
 export type PostKind = "split_ba" | "after_closeup" | "during" | "person" | "flyer_text" | "other";
-export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number };
+/* Reels (owner, 10/28/2026): `video` = our stored copy of the reel (plays when
+   tapped), `img` = the best frame from INSIDE the reel (judged frame by
+   frame — covers are usually text cards or selfies), `kind/pmu/q` judge
+   that frame. A reel whose frames show no brows/lips/liner work is marked
+   useful:false and sinks behind every picture. */
+export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number; video?: string; reel?: boolean; frame?: number; useful?: boolean };
 export type IgProfile = {
   username: string; name: string; pic: string; followers: number | null; posts: number | null;
   following?: number | null; bio?: string; category?: string; verified?: boolean;
@@ -34,18 +39,21 @@ export function kindRank(p: FeedPost): number {
     case "split_ba": return 0;
     case "after_closeup": return 1;
     case "during": return 2;
-    case "other": return p.pmu ? 3 : 5;
+    case "other": return p.pmu && p.useful !== false ? 3 : 5;
     case "person": return 4;
     case "flyer_text": return 6;
     default: return p.result ? 2.5 : 3.5;
   }
 }
 
-/* Stable: same rank → better quality first → the scraper's (newest-first) order. */
+/* Stable: same rank → a playable reel before a still picture (owner: video
+   performs better) → better quality → the scraper's (newest-first) order.
+   A reel judged not useful ranks behind everything but flyers. */
+const reelRank = (p: FeedPost) => (p.video && p.useful === false ? 5.5 : kindRank(p));
 export function rankPosts(posts: FeedPost[]): FeedPost[] {
   return posts
     .map((p, i) => ({ p, i }))
-    .sort((a, b) => kindRank(a.p) - kindRank(b.p) || (b.p.q ?? 3) - (a.p.q ?? 3) || a.i - b.i)
+    .sort((a, b) => reelRank(a.p) - reelRank(b.p) || Number(!!b.p.video) - Number(!!a.p.video) || (b.p.q ?? 3) - (a.p.q ?? 3) || a.i - b.i)
     .map((x) => x.p);
 }
 

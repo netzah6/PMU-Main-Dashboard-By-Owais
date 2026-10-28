@@ -286,7 +286,7 @@ export async function GET(
          post links stay server-side. */
       if (row.extras.igWidgetOff || !row.extras.igFeed?.imgs?.length) return "";
       const a = arrangeFeed(row.extras.igFeed, row.extras.igPicks);
-      return a.imgs.length ? JSON.stringify({ imgs: a.imgs, posts: a.imgs.map((img) => ({ img })), profile: a.profile, at: a.at }) : "";
+      return a.imgs.length ? JSON.stringify({ imgs: a.imgs, posts: ((a.posts ?? a.imgs.map((img) => ({ img }))) as { img: string; video?: string }[]).map((p) => (p.video ? { img: p.img, video: p.video } : { img: p.img })), profile: a.profile, at: a.at }) : "";
     })(),
     igFrozenImgs: !row.extras.igWidgetOff && row.extras.igFrozen && row.extras.igSnapshot?.imgs?.length
       ? row.extras.igSnapshot.imgs.join(",")
@@ -377,7 +377,7 @@ export async function GET(
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap"></noscript>
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
 ${isPay ? `<script>window.OB_PAYFETCH=(function(){try{var t=new URLSearchParams(location.search).get("t");if(!t){var m=location.pathname.match(/\\/([A-Za-z0-9]{8,40})\\/(confirm|last-step)\\/?$/);if(m)t=m[1];}if(!t)return null;return fetch("/api/onebox/paylead?slug=${row.slug}&t="+encodeURIComponent(t)).then(function(r){return r.ok?r.json():null}).catch(function(){return null});}catch(e){return null}})();</script>` : ""}
-<script src="/onebox.js?v=123" defer></script>
+<script src="/onebox.js?v=124" defer></script>
 </head>
 <body style="margin:0">
 ${isPay ? `<div id="ob-pay-veil" style="position:fixed;inset:0;z-index:9999;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif"><p style="margin:0 0 6px;font-weight:700;font-size:18px">One moment&hellip;</p><p style="margin:0;color:#667">Loading your reservation</p></div>` : ""}

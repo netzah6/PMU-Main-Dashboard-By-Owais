@@ -21,9 +21,14 @@ export default function BookingPreviewsPage() {
   const [supabase] = useState(() => createClient());
   const [rows, setRows] = useState<Row[] | null>(null);
   const [q, setQ] = useState("");
-  const [ver, setVer] = useState<"all" | "V3" | "V2.3">("all");
+  const [ver, setVer] = useState<"all" | "V3" | "V2.3" | "reels">("all");
+  const [reelSlugs, setReelSlugs] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(PAGE);
   const [stamp] = useState(() => Date.now()); // fresh page per visit, past the CDN copy
+
+  useEffect(() => {
+    fetch("/api/onebox/reel-funnels").then((r) => r.json()).then((j: { slugs?: string[] }) => setReelSlugs(new Set(j.slugs ?? []))).catch(() => {});
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -51,8 +56,8 @@ export default function BookingPreviewsPage() {
 
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return (rows ?? []).filter((r) => (ver === "all" || r.version === ver) && (!s || `${r.business} ${r.owner} ${r.slug}`.toLowerCase().includes(s)));
-  }, [rows, q, ver]);
+    return (rows ?? []).filter((r) => (ver === "all" || (ver === "reels" ? reelSlugs.has(r.slug) : r.version === ver)) && (!s || `${r.business} ${r.owner} ${r.slug}`.toLowerCase().includes(s)));
+  }, [rows, q, ver, reelSlugs]);
   useEffect(() => setShown(PAGE), [q, ver]);
 
   return (
@@ -68,10 +73,10 @@ export default function BookingPreviewsPage() {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a client…"
             className="w-full pl-9 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm focus:outline-none focus:border-[#15B7AE]" />
         </div>
-        {(["all", "V3", "V2.3"] as const).map((v) => (
+        {(["all", "V3", "V2.3", ...(reelSlugs.size ? ["reels" as const] : [])] as const).map((v) => (
           <button key={v} type="button" onClick={() => setVer(v)}
             className={cn("text-xs font-semibold rounded-full border px-3 py-1", ver === v ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "bg-white text-[#34568a] border-[#cbd5e1] hover:bg-[#f1f5f9]")}>
-            {v === "all" ? "All" : v}
+            {v === "all" ? "All" : v === "reels" ? `🎬 With reels (${reelSlugs.size})` : v}
           </button>
         ))}
         <span className="text-xs text-[#697a91]">{rows ? `${list.length} live funnels` : ""}</span>

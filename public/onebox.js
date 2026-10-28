@@ -420,6 +420,8 @@
     "#onebox-root .iglb .lbx{position:absolute;top:env(safe-area-inset-top,0px);right:0;padding:12px 18px;color:#fff;font-size:30px;line-height:1;background:none;border:0;cursor:pointer}" +
     "#onebox-root .iglb .lbp,#onebox-root .iglb .lbn{position:absolute;top:50%;transform:translateY(-50%);padding:18px 10px;color:#fff;font-size:36px;line-height:1;background:none;border:0;opacity:.8;cursor:pointer}#onebox-root .iglb .lbp{left:0}#onebox-root .iglb .lbn{right:0}" +
     "#onebox-root .iggrid span{cursor:pointer}" +
+    "#onebox-root .iggrid>span{position:relative}#onebox-root .iggrid .igreel{position:absolute;top:6px;right:6px;width:19px;height:19px;pointer-events:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.55))}" +
+    "#onebox-root .iglb .lbmedia{display:flex;align-items:center;justify-content:center;max-width:100vw}#onebox-root .iglb video{max-width:100vw;max-height:88vh;display:block;background:#000}" +
     /* Google reviews cards */
     "#onebox-root .grev{max-width:640px;margin:0 auto}" +
     "#onebox-root .grevhead{display:flex;align-items:center;gap:14px;padding:0 6px 12px}" +
@@ -1480,7 +1482,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "123";
+  var ENGINE_V = "124";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
@@ -1540,6 +1542,7 @@
       if (n >= 10000) return String(Math.floor(n / 100) / 10).replace(/\.0$/, "") + "K";
       return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     }
+    var IG_REEL = '<svg class="igreel" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M8 5.6v12.8c0 .8.9 1.3 1.5.8l10.2-6.4c.6-.4.6-1.3 0-1.7L9.5 4.8C8.9 4.3 8 4.8 8 5.6z"/></svg>';
     var IG_CHECK = '<svg viewBox="0 0 24 24" aria-label="Verified"><path fill="#0095f6" d="M12 1.5l2.6 2.4 3.5-.5 1 3.4 3.1 1.7-1.3 3.3 1.3 3.3-3.1 1.7-1 3.4-3.5-.5L12 22.5l-2.6-2.4-3.5.5-1-3.4L1.8 15.5l1.3-3.3-1.3-3.3 3.1-1.7 1-3.4 3.5.5z"/><path fill="#fff" d="M10.4 16.1l-3.5-3.4 1.4-1.4 2.1 2 5.3-5.4 1.4 1.4z"/></svg>';
     /* Bio minus its call-to-action / contact lines (owner, 10/26/2026):
        "Book now 👇", phone numbers, links, "DM us" would pull the visitor
@@ -1552,6 +1555,9 @@
       var pr = f.profile || {};
       var all = (f.posts && f.posts.length ? f.posts : (f.imgs || []).map(function (u) { return { img: u, url: IGLINK }; }));
       window.__obIgImgs = all.map(function (p) { return p.img; });
+      /* Reels (owner, 10/28/2026): the tile shows the best frame from inside
+         the reel; the video itself loads only when the visitor taps it. */
+      window.__obIgVids = all.map(function (p) { return p.video || ""; });
       var items = all.slice(0, 6);
       /* A count of 0 is shown like Instagram does ("0 following"); only a
          count we don't have is left out. */
@@ -1580,7 +1586,8 @@
          the deposit is the only place with a Follow link. */
       return '<div class="igself">' + head +
         '<div class="iggrid">' + items.map(function (p, i) {
-          return '<span data-i="' + i + '" role="button" aria-label="Open picture"><img src="' + esc(p.img) + '" alt="Instagram post" loading="lazy"></span>';
+          return '<span data-i="' + i + '" role="button" aria-label="' + (p.video ? "Play video" : "Open picture") + '"><img src="' + esc(p.img) + '" alt="Instagram post" loading="lazy">' +
+            (p.video ? IG_REEL : "") + "</span>";
         }).join("") + "</div></div>";
     }
     /* Google reviews, in-house (owner, 10/27/2026): rating, count and the
@@ -1636,7 +1643,21 @@
     if (!window.__obIgLb) {
       window.__obIgLb = true;
       var lbIdx = 0, lbEl = null, lbX0 = null;
-      var lbShow = function () { lbEl.querySelector("img").src = window.__obIgImgs[lbIdx]; };
+      /* A reel plays (sound on — the tap that opened the viewer allows it;
+         muted if the browser refuses); a picture shows as before. Moving to
+         another item drops the previous video, which stops it. */
+      var lbShow = function () {
+        var box = lbEl.querySelector(".lbmedia");
+        var vid = (window.__obIgVids || [])[lbIdx] || "";
+        var img = window.__obIgImgs[lbIdx];
+        if (vid) {
+          box.innerHTML = '<video playsinline controls preload="auto"></video>';
+          var v = box.firstChild; v.poster = img; v.src = vid;
+          try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () { v.muted = true; v.play().catch(function () {}); }); } catch (e) {}
+        } else {
+          box.innerHTML = '<img alt="Instagram post">'; box.firstChild.src = img;
+        }
+      };
       var lbClose = function () { if (!lbEl) return; lbEl.parentNode.removeChild(lbEl); lbEl = null; document.body.style.overflow = ""; root.classList.remove("lb-open"); };
       var lbOpen = function (i) {
         if (!window.__obIgImgs.length) return;
@@ -1644,7 +1665,7 @@
         lbEl = document.createElement("div"); lbEl.className = "iglb";
         lbEl.innerHTML = '<button class="lbx" type="button" aria-label="Close">&#215;</button>' +
           (window.__obIgImgs.length > 1 ? '<button class="lbp" type="button" aria-label="Previous">&#8249;</button><button class="lbn" type="button" aria-label="Next">&#8250;</button>' : "") +
-          '<img alt="Instagram post">';
+          '<div class="lbmedia"></div>';
         root.appendChild(lbEl); root.classList.add("lb-open"); document.body.style.overflow = "hidden"; lbShow();
         lbEl.addEventListener("click", function (e) {
           if (e.target.closest(".lbx") || e.target === lbEl) { lbClose(); return; }

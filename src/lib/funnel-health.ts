@@ -85,6 +85,16 @@ async function imageOk(url: string): Promise<boolean> {
   return false;
 }
 
+async function videoOk(url: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await timedFetch(url, { method: "GET", headers: { Range: "bytes=0-1023" } }, 10_000);
+    const ok = !!r && (r.status === 200 || r.status === 206) && /^video\//i.test(r.headers.get("content-type") ?? "");
+    try { await r?.body?.cancel(); } catch { /* ignore */ }
+    if (ok) return true;
+  }
+  return false;
+}
+
 const daysSince = (iso: string | null | undefined) => (iso ? (Date.now() - Date.parse(iso)) / 86400_000 : Infinity);
 
 function igGap(row: Row): string | null {
@@ -160,13 +170,15 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
       if (!pg.r || !pg.r.ok || !pg.cfg) { await new Promise((res) => setTimeout(res, 4000)); pg = await getPage(true); }
       const page = pg.r, html = pg.text, cfg = pg.cfg;
       let servedImgs: string[] = [];
+      let servedVideos: string[] = [];
       let servedPic = "";
       let servedReviews = 0;
       if (!page || !page.ok || !cfg || !/\/onebox\.js\?v=/.test(html)) {
         issues.push({ code: "page_down", severity: "high", text: `The funnel page didn't load properly (${page ? `HTTP ${page.status}` : "no response"}${page?.ok && !cfg ? ", no page config" : ""}).`, fix: "Open the funnel link yourself; if it's down, tell Netzah/dev right away — every lead is lost while it's down." });
       } else {
         try {
-          const f = cfg.igFeed ? (JSON.parse(cfg.igFeed) as { imgs?: string[]; profile?: { pic?: string } }) : null;
+          const f = cfg.igFeed ? (JSON.parse(cfg.igFeed) as { imgs?: string[]; posts?: { video?: string }[]; profile?: { pic?: string } }) : null;
+          servedVideos = (f?.posts ?? []).slice(0, 6).map((p) => p.video ?? "").filter(Boolean);
           servedImgs = String(cfg.igFrozenImgs ?? "").split(",").map((u) => u.trim()).filter(Boolean);
           if (!servedImgs.length) servedImgs = f?.imgs ?? [];
           servedPic = f?.profile?.pic ?? "";
@@ -182,6 +194,13 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
         const oks = await Promise.all(urls.map((u) => imageOk(u)));
         const bad = urls.filter((_, i) => !oks[i]);
         if (bad.length) issues.push({ code: "ig_imgs_broken", severity: "high", text: `${bad.length} of ${urls.length} Instagram pictures on the page don't load — visitors see empty squares.`, fix: "Press Refresh from Instagram now in the CPD Instagram grid panel (re-saves the pictures)." });
+      }
+
+      // 2b. Reels on the first six tiles must actually play (a video file, not a 404).
+      if (servedVideos.length) {
+        const vok = await Promise.all(servedVideos.map((u) => videoOk(u)));
+        const vbad = servedVideos.filter((_, i) => !vok[i]);
+        if (vbad.length) issues.push({ code: "ig_videos_broken", severity: "high", text: `${vbad.length} of ${servedVideos.length} reels on the page don't play — tapping them shows a black box.`, fix: "Tell dev: the stored reel file is missing; re-run the reel step for this client." });
       }
 
       // 3. What real visitors' browsers drew in the last 24 h.

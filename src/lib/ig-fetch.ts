@@ -193,7 +193,14 @@ export async function snapshotFunnel(
      pictures are looked at AFTER the set is saved (below), so a slow or
      failed classification never throws the paid fetch away. */
   const known = new Map((prevExtras.igFeed?.posts ?? []).filter((p) => p.kind && p.url).map((p) => [p.url, p]));
-  for (const p of saved) { const c = known.get(p.url); if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; } }
+  for (const p of saved) {
+    const c = known.get(p.url);
+    if (!c) continue;
+    p.kind = c.kind; p.pmu = c.pmu; p.q = c.q;
+    /* A judged reel keeps its stored video and the frame chosen from inside
+       it — the fresh copy is only its cover, which the verdict isn't about. */
+    if (c.video) { p.video = c.video; p.reel = true; p.img = c.img; p.frame = c.frame; p.useful = c.useful; }
+  }
   const ordered = rankPosts(saved);
   /* The scrapers stopped returning the post count (10/2026). Elfsight's
      public profile endpoint still has it (live), then the previous set,
