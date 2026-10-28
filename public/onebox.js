@@ -500,7 +500,7 @@
      the disqualify gate silently broke). */
   var CANON = [
     [/which area/i, "area"],
-    [/permanent makeup before/i, "had_pmu"],
+    [/(permanent makeup|pmu|smp|micropigmentation) before/i, "had_pmu"],  // SMP by Rosell asks "had SMP before" (10/28/2026)
     [/age group/i, "age"],
     [/commutable/i, "commute"],
     [/how serious/i, "serious"],
