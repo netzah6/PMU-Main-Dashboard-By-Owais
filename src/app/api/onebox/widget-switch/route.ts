@@ -27,6 +27,13 @@ export const maxDuration = 60;
    Deposits = paid on the funnel (booked / paid / paid-not-booked), leads 7+
    days old on both sides. Picked a time = leads 2 h+ old.
 
+   Deposit-ask test (10/28/2026): pickers with an odd last phone digit get
+   the "confirm your time + reservation link" AI path, which can lift
+   deposits by itself — so the AFTER side of the deposit comparison keeps
+   only even-phone people (the digit has nothing to do with the grid, so
+   the half left is still a fair sample). Picked a time is untouched: that
+   test only starts after the pick.
+
    The verdict is taken ONCE, at a fixed point — the first N people after
    the switch — so reloading the card daily can't fish for a false alarm.
    Before that it only says "worse" on an overwhelming drop (z ≤ −3). */
@@ -42,7 +49,7 @@ const PICK_AGE = 2 * 3600_000;
 const DEP_AGE = 7 * 86400_000;
 
 type Lead = { slug: string; created_at: string; ghl_status: string; picked_time_at: string | null; answers: Record<string, unknown> | null; full_name: string | null; phone: string | null };
-type Journey = { slug: string; first: number; picked: boolean; paid: boolean; inBefore: boolean; inAfter: boolean; preWindow: boolean };
+type Journey = { slug: string; first: number; picked: boolean; paid: boolean; inBefore: boolean; inAfter: boolean; preWindow: boolean; oddPhone: boolean };
 type Rate = { n: number; k: number; pct: number | null };
 type Metric = { before: Rate; after: Rate; liftPct: number | null; z: number | null; verdict: "too_early" | "worse" | "better" | "same"; needN: number; decided: boolean };
 
@@ -128,7 +135,9 @@ export async function GET() {
     const ms = t(l.created_at);
     const keys = personKeys(l.full_name ?? "", String((l.answers ?? {}).email ?? ""), l.phone ?? "").map((k) => `${l.slug}|${k}`);
     let j = keys.map((k) => index.get(k)).find((x) => x && ms - x.first < PERSON_DEDUPE_MS);
-    if (!j) { j = { slug: l.slug, first: ms, picked: false, paid: false, inBefore: false, inAfter: false, preWindow: ms < bFrom }; journeys.push(j); }
+    if (!j) { j = { slug: l.slug, first: ms, picked: false, paid: false, inBefore: false, inAfter: false, preWindow: ms < bFrom, oddPhone: false }; journeys.push(j); }
+    // Same split as the onebox submit route: last phone digit odd = dep-ask-b.
+    if (Number((l.phone ?? "").replace(/\D/g, "").slice(-1)) % 2 === 1) j.oddPhone = true;
     if (ms >= bFrom && ms < bTo) j.inBefore = true;
     if (ms >= aFrom) j.inAfter = true;
     if (l.picked_time_at || PAID.has(l.ghl_status)) j.picked = true;
@@ -150,7 +159,7 @@ export async function GET() {
     const bDep = b.filter((j) => now - j.first >= DEP_AGE);
     // The decision sample: the first N people after the switch (fixed once reached).
     const aPickAll = after.filter((j) => inV(j) && now - j.first >= PICK_AGE);
-    const aDepAll = after.filter((j) => inV(j) && now - j.first >= DEP_AGE);
+    const aDepAll = after.filter((j) => inV(j) && !j.oddPhone && now - j.first >= DEP_AGE);
     const aPick = aPickAll.slice(0, pickN), aDep = aDepAll.slice(0, depN);
     return {
       funnels: [...new Set(after.filter(inV).map((j) => j.slug))].filter((sl) => b.some((j) => j.slug === sl)).length,
@@ -162,10 +171,11 @@ export async function GET() {
 
   // When the deposit verdict is due: people still to collect, then 7 days for the last of them to pay.
   const daysAfter = Math.max(0.5, (now - aFrom) / 86400_000);
-  const perDay = after.length / daysAfter;
+  const depAfter = after.filter((j) => !j.oddPhone).length;
+  const perDay = depAfter / daysAfter;
   const eta = all.deposits.decided || perDay <= 0
     ? null
-    : new Date(now + (Math.max(0, (DEP_N - after.length) / perDay) + DEP_AGE / 86400_000) * 86400_000).toISOString();
+    : new Date(now + (Math.max(0, (DEP_N - depAfter) / perDay) + DEP_AGE / 86400_000) * 86400_000).toISOString();
 
   return NextResponse.json({
     windows: { beforeFrom: BEFORE_FROM, beforeTo: BEFORE_TO, afterFrom: AFTER_FROM },

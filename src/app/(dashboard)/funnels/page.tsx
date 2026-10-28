@@ -695,7 +695,7 @@ function IntakeReviewCards() {
    share one box, each still expandable for its final numbers. */
 function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: React.ReactNode; ended: React.ReactNode; endedCount: number; clientTests: number }) {
   const [open, setOpen] = useState(false);
-  const fleetActive = 2; // shorter survey + calendar urgency (scarcity ended 10/26 B locked; Instagram grid ended 10/26, ours for everyone)
+  const fleetActive = 3; // deposit ask (AI) + shorter survey + calendar urgency (scarcity ended 10/26 B locked; Instagram grid ended 10/26, ours for everyone)
   return (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
@@ -720,7 +720,7 @@ function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: 
 function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   type Side = { leads: number; picked: number; paid: number };
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { c?: Side; funnels?: number }; igw?: Pair & { funnels?: number; until?: string } } | null>(null);
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { c?: Side; funnels?: number }; igw?: Pair & { funnels?: number; until?: string }; dep?: Pair & { funnels?: number } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -813,7 +813,33 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
           </table>
         </div>)}
   </>);
+  /* Deposit ask (owner, 10/28/2026): the test acts after the pick, so the
+     card starts there — picked a time → paid, per side. */
+  const DEP_COLS: Col[] = [
+    { h: "Picked a time", v: (s) => s.picked },
+    { h: "Paid", v: (s) => s.paid },
+    { h: "Paid ÷ picked", v: (s) => pct(payPct(s)), bold: true },
+  ];
   return (<>
+    {d.dep && (d.dep.since
+      ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Deposit ask (AI) — {d.dep.funnels ?? "all"} funnels on the slay flow, 50/50 by phone</span>
+            <span className="text-xs text-[#697a91]">since {new Date(d.dep.since).toLocaleDateString("en-US")}</span>
+          </div>
+          <table className="w-full text-xs">
+            <thead><tr className="text-left text-[#697a91]">
+              <th className="py-1 font-medium">Side</th>
+              {DEP_COLS.map((c) => <th key={c.h} className="py-1 font-medium">{c.h}</th>)}
+            </tr></thead>
+            <tbody>
+              {row("A — control", "Today's AI conversation (asks about past PMU, the look, photos, then offers times)", d.dep.a, DEP_COLS)}
+              {row("B — confirm + link", "The AI confirms the time they picked on the page and sends the reservation link in its first reply", d.dep.b, DEP_COLS)}
+            </tbody>
+          </table>
+          <div className="text-[11px] text-[#8595a8] mt-1">Every lead who picked a time on the page, on its side. The first text is the same for both sides; B starts at the lead&rsquo;s first reply. Fair read after 3–4 weeks.</div>
+        </div>
+      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Deposit ask (AI)</b> (A: today&rsquo;s conversation vs B: confirm the picked time + reservation link) — starts reporting with the first picker.</div>)}
     {d.offer && (d.offer.since
       ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
           <div className="flex items-center gap-2 mb-1">

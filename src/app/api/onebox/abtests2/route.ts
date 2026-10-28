@@ -27,19 +27,28 @@ const IGW_START = "2026-10-26T13:30:00Z";
 const IGW_END = "2026-10-27T06:30:00Z";
 
 const PAID = ["booked", "paid", "paid-not-booked", "paid-followup"];
+/* Deposit-ask test (owner, 10/28/2026): pickers are tagged dep-ask-a/b in
+   GHL at the slot step (odd last phone digit = b, stored as
+   answers.depAsk), and the slay CloseBot flow sends b straight to "confirm
+   your picked time + reservation link". Only funnels on the slay flow can
+   move, so the readout counts those — the slug list in app_settings
+   "dep_ask_slugs", read off CloseBot's sources at launch. */
+const DEP_KEY = "dep_ask_slugs";
 
 export async function GET() {
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const sb = createServiceClient();
-  const count = async (tag: "scar" | "shortq2" | "offer3" | "igw", v: "a" | "b" | "c", since: string, kind: "leads" | "picked" | "paid", until?: string) => {
+  type Tag = "scar" | "shortq2" | "offer3" | "igw" | "depAsk";
+  const count = async (tag: Tag, v: "a" | "b" | "c", since: string, kind: "leads" | "picked" | "paid", until?: string, slugs?: string[]) => {
     let q = sb
       .from("onebox_leads")
       .select("id", { count: "exact", head: true })
       .gte("created_at", since)
       .eq(`answers->>${tag}`, v);
     if (until) q = q.lt("created_at", until);
+    if (slugs) q = q.in("slug", slugs.length ? slugs : ["-"]);
     if (kind === "picked") q = q.or(`picked_time_at.not.is.null,ghl_status.in.(${PAID.join(",")})`);
     if (kind === "paid") q = q.in("ghl_status", PAID);
     const { count: n, error } = await q;
@@ -56,10 +65,10 @@ export async function GET() {
   try {
     const started = Date.now() >= Date.parse(TEST_START);
     if (!started) return NextResponse.json({ since: TEST_START, started: false });
-    const side = async (tag: "scar" | "shortq2" | "offer3" | "igw", v: "a" | "b" | "c", since: string, until?: string) => ({
-      leads: await count(tag, v, since, "leads", until),
-      picked: await count(tag, v, since, "picked", until),
-      paid: await count(tag, v, since, "paid", until),
+    const side = async (tag: Tag, v: "a" | "b" | "c", since: string, until?: string, slugs?: string[]) => ({
+      leads: await count(tag, v, since, "leads", until, slugs),
+      picked: await count(tag, v, since, "picked", until, slugs),
+      paid: await count(tag, v, since, "paid", until, slugs),
     });
     const { data: firstShort } = await sb
       .from("onebox_leads")
@@ -106,6 +115,17 @@ export async function GET() {
       offerSince ? side("offer3", "c", offerSince) : zero,
     ]);
     const [igwA, igwB] = await Promise.all([igwSince ? side("igw", "a", igwSince, IGW_END) : zero, igwSince ? side("igw", "b", igwSince, IGW_END) : zero]);
+    const [{ data: firstDep }, { data: depCfg }] = await Promise.all([
+      sb.from("onebox_leads").select("created_at").not("answers->>depAsk", "is", null)
+        .order("created_at", { ascending: true }).limit(1).maybeSingle(),
+      sb.from("app_settings").select("value").eq("key", DEP_KEY).maybeSingle(),
+    ]);
+    const depSince = (firstDep?.created_at as string | undefined) ?? null;
+    const depSlugs = (depCfg?.value as { slugs?: string[] } | null)?.slugs;
+    const [depA, depB] = await Promise.all([
+      depSince ? side("depAsk", "a", depSince, undefined, depSlugs) : zero,
+      depSince ? side("depAsk", "b", depSince, undefined, depSlugs) : zero,
+    ]);
     return NextResponse.json({
       since: TEST_START,
       started: true,
@@ -114,6 +134,7 @@ export async function GET() {
       shortq: { a: shortA, b: shortB, since: shortSince, visitorsPerArm: shortVisitors },
       offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, funnels: offerSlugs.length },
       igw: { a: igwA, b: igwB, since: igwSince ?? undefined, until: IGW_END, funnels: igwFunnels },
+      dep: { a: depA, b: depB, since: depSince ?? undefined, funnels: depSlugs?.length },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e).slice(0, 200) }, { status: 500 });
