@@ -42,6 +42,7 @@ type Svc = ReturnType<typeof createServiceClient>;
 const MODEL = "claude-opus-5-5";
 const PAID = new Set(["booked", "paid", "paid-not-booked", "paid-followup"]);
 export const STALE_HOURS = 20;
+const CLOSURE = /\bstop\b|not interested|no longer|already (did|done|booked)|wrong number|no thanks|unsubscribe/i;
 
 export type Who = "us" | "client" | "owner";
 export type BriefAction = { title: string; why: string; gain: string; who: Who; code: string };
@@ -101,7 +102,7 @@ async function allRows<T>(q: (from: number, to: number) => PromiseLike<{ data: T
 type OverviewRow = Record<string, unknown> & { owner_name: string | null; version: string | null; client_status: string | null };
 type OneboxRow = { slug: string; location_id: string | null; client_name: string | null; status: string; config: Record<string, string> | null; extras: Record<string, unknown> | null; created_at: string | null };
 type LeadRow = { slug: string; ghl_status: string; picked_time_at: string | null; created_at: string; answers: Record<string, unknown> | null; full_name: string | null };
-type StatusRow = { owner_key: string; location_id: string | null; status: string; offer_made: boolean | null; ai_off: boolean | null; last_message_direction: string | null; activity_date: string | null };
+type StatusRow = { owner_key: string; location_id: string | null; status: string; offer_made: boolean | null; ai_off: boolean | null; last_message_direction: string | null; last_message_body: string | null; activity_date: string | null };
 
 /** Everything the fleet needs, loaded once per run. */
 async function loadFleet(svc: Svc) {
@@ -112,7 +113,7 @@ async function loadFleet(svc: Svc) {
     svc.from("onebox_active_clients").select("owner_name, business_name, slug, onebox_status").then((r) => (r.data ?? []) as { owner_name: string; business_name: string | null; slug: string; onebox_status: string | null }[]),
     svc.from("onebox_clients").select("slug, location_id, client_name, status, config, extras, created_at").then((r) => (r.data ?? []) as OneboxRow[]),
     allRows<LeadRow>((f, t) => svc.from("onebox_leads").select("slug, ghl_status, picked_time_at, created_at, answers, full_name").gte("created_at", since30).range(f, t)),
-    allRows<StatusRow>((f, t) => svc.from("ghl_lead_status").select("owner_key, location_id, status, offer_made, ai_off, last_message_direction, activity_date").gte("date_added", since30).range(f, t)),
+    allRows<StatusRow>((f, t) => svc.from("ghl_lead_status").select("owner_key, location_id, status, offer_made, ai_off, last_message_direction, last_message_body, activity_date").gte("date_added", since30).range(f, t)),
     svc.from("call_kill_stats").select("slug, qualified, dead").then((r) => (r.data ?? []) as { slug: string; qualified: number; dead: number }[]),
     svc.from("text_kill_stats").select("slug, qualified, dead").then((r) => (r.data ?? []) as { slug: string; qualified: number; dead: number }[]),
     svc.from("call_kill_fixes").select("owner_key, fixed, fixed_at").then((r) => (r.data ?? []) as { owner_key: string; fixed: boolean; fixed_at: string | null }[]),
@@ -154,8 +155,15 @@ function clientFacts(fl: Fleet, row: OverviewRow, slug: string | null, fleetByVe
     const loc = obRow?.location_id ?? null;
     const st = fl.statuses.filter((s) => (loc ? s.location_id === loc : s.owner_key === ownerKey));
     const engaged = st.filter((s) => s.status !== "v3_only").length;
-    const twoH = Date.now() - 2 * 3600_000;
-    const hot = st.filter((s) => s.last_message_direction === "inbound" && s.status !== "confirmed" && s.activity_date && new Date(s.activity_date).getTime() < twoH).length;
+    // Waiting = the lead wrote last, 2h–7d ago, nobody answered, and it
+    // wasn't a goodbye (STOP / not interested). Older than a week it's a
+    // lost lead, not a "reply today" item.
+    const twoH = Date.now() - 2 * 3600_000, week = Date.now() - 7 * 86400_000;
+    const hot = st.filter((s) => {
+      if (s.last_message_direction !== "inbound" || s.status === "confirmed" || !s.activity_date) return false;
+      const t = new Date(s.activity_date).getTime();
+      return t < twoH && t >= week && !CLOSURE.test(String(s.last_message_body ?? ""));
+    }).length;
     ai = {
       leads: st.length,
       engagedPct: pct(engaged, st.length),
@@ -269,7 +277,7 @@ export function findIssues(f: Facts): Issue[] {
   if (f.kills.callPct != null && f.kills.callPct >= 7 && f.kills.callDead >= 2) out.push({ code: "call_kill", severity: "fix", who: "us", title: `Artist calls switch the AI off (${f.kills.callPct}% of leads)`, detail: `${f.kills.callDead} of ${f.kills.callQualified} leads lost all follow-ups after a call in 14 days${f.kills.callFixedAt ? " — marked fixed on " + f.kills.callFixedAt.slice(5, 10).replace("-", "/") + " but still happening: check the 'Stop follow ups' workflow is Draft" : ": fix the call workflow (remove the un-enroll step)"}.`, gain: perMonth(f.kills.callDead) });
   if (f.kills.textPct != null && f.kills.textPct >= 7 && f.kills.textDead >= 2) out.push({ code: "text_kill", severity: "fix", who: "client", title: `She texts leads herself and kills the AI (${f.kills.textPct}% of leads)`, detail: `${f.kills.textDead} of ${f.kills.textQualified} leads lost the AI after her own text in 14 days. Send the "Please let the AI work" snippet with her numbers.`, gain: perMonth(f.kills.textDead) });
 
-  if (f.ai && f.ai.hotWaiting >= 3) out.push({ code: "hot_waiting", severity: "fix", who: "us", title: `${f.ai.hotWaiting} leads are waiting for a reply`, detail: "Their last message is unanswered for 2h+. Answer them today — these are the warmest leads in the account.", gain: "same-week deposits" });
+  if (f.ai && f.ai.hotWaiting >= 3) out.push({ code: "hot_waiting", severity: "fix", who: "us", title: `${f.ai.hotWaiting} leads are waiting for a reply`, detail: "They wrote last within the past week and nobody answered (2h+). Answer them today — these are the warmest leads in the account.", gain: "same-week deposits" });
 
   for (const c of f.setup.checks) {
     if (c.code === "cant_charge" || c.code === "young_funnel" || c.code === "setup_ok") continue;

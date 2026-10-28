@@ -143,18 +143,20 @@ export function reviewFunnelConfig(opts: {
     });
   }
 
+  /* Only what the one-box page actually renders counts (checked against
+     public/onebox.js 10/27/2026): result/studio photos and the Instagram
+     feed. The services menu and business hours were GHL-funnel assets —
+     the one-box has neither, so they no longer make a funnel "bare". */
   const missing: string[] = [];
-  if (servicesCount < 4) missing.push(`services menu (${servicesCount} listed, want 4–5)`);
   if (!hasIg) missing.push("Instagram feed (no Instagram link)");
   if (photoCount < 3) missing.push(`photos (${photoCount} set, want 3+)`);
-  if (!hasHours) missing.push("business hours");
   if (missing.length) {
     checks.push({
       code: "bare_funnel",
       emoji: "🧰",
       severity: missing.length >= 2 ? "fix" : "watch",
       title: `Bare funnel — missing: ${missing.join(", ")}`,
-      body: "Dressed funnels (services menu, Instagram feed, photos, hours) get 65% of leads to pick a time vs 52% for bare ones. The services menu is the strongest single asset.",
+      body: "Dressed funnels (Instagram feed + real photos) get 65% of leads to pick a time vs 52% for bare ones.",
     });
   }
 
