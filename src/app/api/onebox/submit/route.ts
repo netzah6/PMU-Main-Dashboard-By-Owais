@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
       svcSlot.from("onebox_clients").select("location_id, status, extras").eq("slug", slug).single(),
       svcSlot
         .from("onebox_leads")
-        .select("ghl_contact_id, full_name, answers")
+        .select("id, ghl_contact_id, full_name, answers")
         .eq("slug", slug)
         .eq("phone", phone)
         .order("created_at", { ascending: false })
@@ -90,11 +90,23 @@ export async function POST(req: NextRequest) {
         }
         if (contactId) {
           const fieldMap = await getSurveyFieldMap(loc, tok.token);
+          /* Deposit-ask test (owner, 10/28/2026): "dep-ask-b" pickers go
+             straight to "confirm your time + reservation link" in the slay
+             CloseBot flow; "dep-ask-a" keeps today's conversation. Split on
+             the phone's last digit so a re-pick stays on the same side. */
+          const depArm = Number(phone.replace(/\D/g, "").slice(-1)) % 2 === 1 ? "b" : "a";
           await Promise.all([
             // Additive endpoint — tags in a PUT body replace the whole list.
             fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
-              method: "POST", headers: H, body: JSON.stringify({ tags: ["onebox-picked-time"] }),
+              method: "POST", headers: H, body: JSON.stringify({ tags: ["onebox-picked-time", `dep-ask-${depArm}`] }),
             }),
+            slotLead?.id
+              ? svcSlot
+                  .from("onebox_leads")
+                  .update({ answers: { ...((slotLead.answers as Record<string, unknown> | null) ?? {}), depAsk: depArm } })
+                  .eq("id", slotLead.id)
+                  .then((r) => r)
+              : Promise.resolve(),
             fieldMap.reserved_time
               ? fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, {
                   method: "PUT", headers: H,
