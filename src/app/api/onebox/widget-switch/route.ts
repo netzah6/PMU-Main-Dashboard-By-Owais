@@ -20,10 +20,9 @@ export const maxDuration = 60;
    that belong to the window of their first visit; a journey that spans both
    windows is dropped. Qualified leads only; no B2B, no free-booking funnel.
 
-   Same funnels on both sides, compared funnel by funnel: each funnel's after
-   rate is weighted by its before volume (so a funnel pausing or scaling its
-   ads can't move the result), and the test is a stratified (Cochran–Mantel–
-   Haenszel) z across funnels.
+   Same funnels on both sides, compared funnel by funnel (Mantel–Haenszel
+   weights), so a funnel pausing or scaling its ads can't move the result;
+   the test is a stratified (Cochran–Mantel–Haenszel) z across funnels.
 
    Deposits = paid on the funnel (booked / paid / paid-not-booked), leads 7+
    days old on both sides. Picked a time = leads 2 h+ old.
@@ -54,29 +53,39 @@ const disqualified = (a: Record<string, unknown> | null) => {
 };
 const pct1 = (x: number) => Math.round(x * 1000) / 10;
 
-/** Funnel-by-funnel comparison. `after` must already be cut to the decision sample. */
+/** Funnel-by-funnel comparison. `after` must already be cut to the decision sample.
+    The after rate shown is the before rate plus the Mantel–Haenszel risk
+    difference — the same funnel weights as the CMH z, so the % and the
+    verdict always point the same way. */
 function stratified(before: Journey[], after: Journey[], hit: (j: Journey) => boolean, needN: number, decided: boolean): Metric {
   const slugs = [...new Set(after.map((j) => j.slug))].filter((s) => before.some((j) => j.slug === s));
-  let n1 = 0, k1 = 0, n2 = 0, k2 = 0, wSum = 0, wRate = 0, num = 0, varSum = 0;
+  if (!slugs.length) {
+    // Nothing comparable yet — still show where "before" stood.
+    const k = before.filter(hit).length;
+    return { before: { n: before.length, k, pct: before.length ? pct1(k / before.length) : null }, after: { n: 0, k: 0, pct: null }, liftPct: null, z: null, verdict: "too_early", needN, decided: false };
+  }
+  let n1 = 0, k1 = 0, n2 = 0, k2 = 0, num = 0, den = 0, varSum = 0;
   for (const s of slugs) {
     const b = before.filter((j) => j.slug === s), a = after.filter((j) => j.slug === s);
     const bk = b.filter(hit).length, ak = a.filter(hit).length;
     n1 += b.length; k1 += bk; n2 += a.length; k2 += ak;
-    wSum += b.length; wRate += b.length * (ak / a.length);
     const N = b.length + a.length, K = bk + ak;
-    if (N > 1) { num += ak - (a.length * K) / N; varSum += (b.length * a.length * K * (N - K)) / (N * N * (N - 1)); }
+    num += (ak * b.length - bk * a.length) / N;
+    den += (b.length * a.length) / N;
+    if (N > 1) varSum += (b.length * a.length * K * (N - K)) / (N * N * (N - 1));
   }
   const beforePct = n1 ? k1 / n1 : null;
-  const afterStd = wSum ? wRate / wSum : null; // after rate on the before mix
+  const rd = den > 0 ? num / den : 0; // after − before, funnel-weighted
+  const afterPct = beforePct == null ? null : Math.max(0, Math.min(1, beforePct + rd));
   const z = varSum > 0 ? Math.round((num / Math.sqrt(varSum)) * 100) / 100 : null;
-  const liftPct = beforePct && afterStd != null ? Math.round(((afterStd - beforePct) / beforePct) * 100) : null;
+  const liftPct = beforePct ? Math.round((rd / beforePct) * 100) : null;
   const verdict: Metric["verdict"] = !decided
     ? (z != null && z <= -3 && n2 >= 200 ? "worse" : "too_early")
     : z == null ? "same" : z <= -2 ? "worse" : z >= 2 ? "better" : "same";
   return {
     before: { n: n1, k: k1, pct: beforePct == null ? null : pct1(beforePct) },
-    after: { n: n2, k: k2, pct: afterStd == null ? null : pct1(afterStd) },
-    liftPct, z, verdict, needN: needN, decided,
+    after: { n: n2, k: k2, pct: afterPct == null ? null : pct1(afterPct) },
+    liftPct, z, verdict, needN, decided,
   };
 }
 
