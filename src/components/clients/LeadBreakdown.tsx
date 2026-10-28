@@ -99,8 +99,14 @@ function IgGridBody({ grid, busy, onPick, frozen, widgetOff }: { grid: GridView;
   const btn = "rounded-full border border-[#cbd5e1] bg-white px-1.5 py-px text-[9px] font-semibold text-[#34568a] disabled:opacity-50";
   const tile = (p: GridPost, where: "shown" | "pool" | "hidden") => (
     <div key={where + p.url} className="w-[92px]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={p.img} alt="" loading="lazy" className={cn("h-[92px] w-[92px] rounded border border-[#e4ebf2] bg-[#f1f5f9] object-cover", where === "hidden" && "opacity-50")} />
+      <div className="relative">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={p.img} alt="" loading="lazy" className={cn("h-[92px] w-[92px] rounded border border-[#e4ebf2] bg-[#f1f5f9] object-cover", where === "hidden" && "opacity-50")} />
+        {p.video && (
+          <a href={p.video} target="_blank" rel="noopener" title={p.useful === false ? "Reel — no brows/lips work in it, kept behind the pictures" : "Reel — plays when a lead taps it (click to watch)"}
+            className="absolute right-1 top-1 rounded-full bg-black/60 px-1.5 py-px text-[9px] font-bold text-white">▶ reel</a>
+        )}
+      </div>
       <div className={cn("mt-0.5 truncate rounded px-1 text-[9px] font-semibold", KIND_TONE[p.kind ?? ""] ?? "bg-[#eef2f7] text-[#8595a8]")} title={p.kind ? KIND_LABEL[p.kind] : "Not sorted yet"}>
         {p.kind ? KIND_LABEL[p.kind] : "Not sorted yet"}{p.q ? ` · ${p.q}/5` : ""}
       </div>
