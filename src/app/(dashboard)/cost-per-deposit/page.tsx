@@ -533,9 +533,21 @@ export default function CostPerDepositPage() {
                         if (!ob) return <span className="text-[#c3cdd9]">—</span>;
                         const live = ob.status === "live";
                         return (
-                          <span className={cn("font-bold text-[13px] cursor-default", live ? "text-[#0e9c9c]" : "text-[#8595a8]")}
-                            title={live ? `One-box funnel LIVE (${ob.business}) — traffic runs on the one-box` : `One-box funnel exists but is paused (${ob.business})`}>
-                            {live ? "✓" : "⏸"}
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className={cn("font-bold text-[13px] cursor-default", live ? "text-[#0e9c9c]" : "text-[#8595a8]")}
+                              title={live ? `One-box funnel LIVE (${ob.business}) — traffic runs on the one-box` : `One-box funnel exists but is paused (${ob.business})`}>
+                              {live ? "✓" : "⏸"}
+                            </span>
+                            {/* One click to the client's booking page (owner, 10/28/2026) —
+                                read-only preview: no lead, no notification. */}
+                            {ob.slug && (
+                              <a href={`https://book.pmu-care.com/f/${ob.slug}?preview=booking`} target="_blank" rel="noopener"
+                                onClick={(e) => e.stopPropagation()}
+                                title={`See ${ob.business}'s booking page (preview — no lead is created)`}
+                                className="inline-flex items-center justify-center rounded-full border border-[#cbd5e1] bg-white px-1.5 py-px text-[12px] leading-none hover:bg-[#e2f6f4] hover:border-[#0e9c9c]">
+                                👁
+                              </a>
+                            )}
                           </span>
                         );
                       })()}
