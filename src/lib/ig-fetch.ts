@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { queueIgPostsCheck } from "@/lib/ig-posts-check";
 import { classifyImages } from "@/lib/ig-classify";
 import { feedPosts, rankPosts, type FeedPost, type IgFeed, type IgProfile } from "@/lib/ig-arrange";
+import { MAX_REEL_SECONDS, postCode, storeReelVideo } from "@/lib/ig-reels";
 export type { FeedPost, IgFeed, IgProfile } from "@/lib/ig-arrange";
 
 /* In-house Instagram feed (owner, 10/26/2026): replaces the Elfsight widget
@@ -95,6 +96,7 @@ export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, 
 
 export type ApifyPost = {
   type?: string; url?: string; displayUrl?: string; thumbnailUrl?: string; images?: string[]; childPosts?: ApifyPost[]; timestamp?: string; caption?: string;
+  videoUrl?: string; videoDuration?: number;
   ownerUsername?: string; ownerFullName?: string; inputUrl?: string; error?: string; errorDescription?: string;
 };
 
@@ -175,6 +177,9 @@ export async function snapshotFunnel(
   const prevExtras = (row?.extras ?? {}) as Record<string, unknown> & { igFeed?: IgFeed };
   const prev = prevExtras.igFeed?.profile;
   const today = new Date().toISOString().slice(0, 10);
+  /* Verdicts from the previous set carry over by post URL (below); a reel
+     already copied keeps its stored video, so it isn't downloaded again. */
+  const known = new Map((prevExtras.igFeed?.posts ?? []).filter((p) => (p.kind || p.video) && p.url).map((p) => [p.url, p]));
   /* Copy every image at once (≤ 13 small files) — one by one would eat
      the cron's time budget. */
   const copy = async (src: string, path: string): Promise<string> => {
@@ -183,23 +188,42 @@ export async function snapshotFunnel(
     const { error } = await svc.storage.from(BUCKET).upload(path, body, { upsert: true, contentType: "image/jpeg" });
     return error ? "" : svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
   };
-  const [newPic, ...copies] = await Promise.all([
-    copy(prof?.profilePicUrlHD || prof?.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
-    ...posts.map((p, n) => copy(postImage(p), `${slug}/${today}/${n + 1}.jpg`)),
+  /* Reels (owner 10/28/2026): the video is copied now — Instagram's video
+     links expire — and judged frame by frame later (ig-reels.ts, its own
+     cron); until then the reel shows its cover like any picture. */
+  const reelCopy = (p: ApifyPost): Promise<string> => {
+    const code = postCode(p.url);
+    if (!p.videoUrl || !code || known.get(p.url ?? "")?.video || (p.videoDuration ?? 0) > MAX_REEL_SECONDS) return Promise.resolve("");
+    return storeReelVideo(svc, slug, code, p.videoUrl);
+  };
+  const [[newPic, ...copies], videos] = await Promise.all([
+    Promise.all([
+      copy(prof?.profilePicUrlHD || prof?.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
+      ...posts.map((p, n) => copy(postImage(p), `${slug}/${today}/${n + 1}.jpg`)),
+    ]),
+    Promise.all(posts.map(reelCopy)),
   ]);
-  const saved: FeedPost[] = copies.map((img, n) => ({ img, url: posts[n].url || igLink, result: isResultPost(posts[n]) })).filter((p) => p.img);
+  const saved: FeedPost[] = copies
+    .map((img, n): FeedPost => ({
+      img, url: posts[n].url || igLink, result: isResultPost(posts[n]),
+      ...(videos[n] ? { video: videos[n], reel: true, cap: String(posts[n].caption ?? "").slice(0, 400) } : {}),
+    }))
+    .filter((p) => p.img);
   if (saved.length < 3) return { ok: false, why: `only ${saved.length} images downloaded` };
-  /* Verdicts from the previous set carry over by post URL; the new
-     pictures are looked at AFTER the set is saved (below), so a slow or
-     failed classification never throws the paid fetch away. */
-  const known = new Map((prevExtras.igFeed?.posts ?? []).filter((p) => p.kind && p.url).map((p) => [p.url, p]));
+  /* The new pictures are looked at AFTER the set is saved (below), so a
+     slow or failed classification never throws the paid fetch away. */
   for (const p of saved) {
     const c = known.get(p.url);
     if (!c) continue;
-    p.kind = c.kind; p.pmu = c.pmu; p.q = c.q;
-    /* A judged reel keeps its stored video and the frame chosen from inside
-       it — the fresh copy is only its cover, which the verdict isn't about. */
-    if (c.video) { p.video = c.video; p.reel = true; p.img = c.img; p.frame = c.frame; p.useful = c.useful; }
+    if (c.kind) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; }
+    /* A reel keeps its stored video and, once judged, the frame chosen from
+       inside it — the fresh copy is only its cover. Not judged yet: it
+       keeps its place in the judge's queue (attempts + caption). */
+    if (c.video) {
+      p.video = c.video; p.reel = true;
+      if (c.useful !== undefined) { p.img = c.img; p.frame = c.frame; p.useful = c.useful; delete p.cap; }
+      else { if (c.jt) p.jt = c.jt; p.cap = c.cap ?? p.cap; }
+    }
   }
   const ordered = rankPosts(saved);
   /* The scrapers stopped returning the post count (10/2026). Elfsight's

@@ -121,6 +121,10 @@
       "schedule": "20 * * * *"
     },
     {
+      "path": "/api/cron/ig-reels",
+      "schedule": "40 * * * *"
+    },
+    {
       "path": "/api/cron/g-reviews",
       "schedule": "40 10 * * *"
     },

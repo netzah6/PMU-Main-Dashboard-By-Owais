@@ -57,9 +57,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ classified: done, left, errors: errors.length ? [...new Set(errors)].slice(0, 8) : undefined, seconds: Math.round((Date.now() - t0) / 1000) });
   }
   const only = req.nextUrl.searchParams.get("slug");
+  /* ?minAge=N: refresh funnels last fetched more than N days ago (default
+     13) — used once to pull every funnel's reels after the 10/28 rollout. */
+  const minAge = Number(req.nextUrl.searchParams.get("minAge"));
   const due = only
     ? (await dueFunnels(svc, 500, -1)).filter((f) => f.slug === only)
-    : await dueFunnels(svc, limit);
+    : await dueFunnels(svc, limit, Number.isFinite(minAge) && req.nextUrl.searchParams.has("minAge") ? Math.max(0, minAge) : undefined);
   if (!due.length) {
     /* Nothing to fetch — use the hour to sort any grid that still has
        unsorted pictures. */
