@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { queueIgPostsSweep } from "@/lib/ig-posts-check";
-import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, snapshotFunnel, unclassifiedFunnels } from "@/lib/ig-fetch";
+import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, snapshotFunnel, unclassifiedFunnels, usernameFromLink, type ApifyPost } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
 /* Stop starting new funnels after this; Vercel kills the function at 300 s
@@ -23,6 +23,25 @@ export async function GET(req: NextRequest) {
   if (!process.env.APIFY_TOKEN) return NextResponse.json({ skipped: "no APIFY_TOKEN — add it in Vercel (Settings → Environment Variables)" });
   const t0 = Date.now();
   const svc = createServiceClient();
+
+  /* ?reels=1&slugs=a,b (owner, 10/28/2026 — reel test before building
+     playable reels): READ-ONLY. Runs the post scraper for those funnels and
+     returns their VIDEO posts with the full video / cover URLs, caption and
+     duration. Writes nothing. */
+  if (req.nextUrl.searchParams.get("reels")) {
+    const slugs = (req.nextUrl.searchParams.get("slugs") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 8);
+    const { data: rows } = await svc.from("onebox_clients").select("slug, config").in("slug", slugs);
+    const bySlugUser = (rows ?? []).map((r) => ({ slug: String(r.slug), username: usernameFromLink(String((r.config as Record<string, string> | null)?.igLink ?? "")) })).filter((x) => x.username);
+    try {
+      const posts = await fetchPosts(bySlugUser.map((x) => x.username));
+      const out = bySlugUser.flatMap((x) => ((posts.get(x.username.toLowerCase()) ?? []) as (ApifyPost & Record<string, unknown>)[])
+        .filter((p) => p.type === "Video" || !!p.videoUrl)
+        .map((p) => ({ slug: x.slug, username: x.username, url: p.url, type: p.type, productType: p.productType, videoUrl: p.videoUrl, cover: p.displayUrl, caption: String(p.caption ?? "").slice(0, 600), duration: p.videoDuration, views: p.videoViewCount ?? p.videoPlayCount, likes: p.likesCount, at: p.timestamp })));
+      return NextResponse.json({ asked: bySlugUser, total: [...posts.values()].reduce((a, v) => a + v.length, 0), reels: out });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
+    }
+  }
   const limit = Math.min(12, Number(req.nextUrl.searchParams.get("limit") ?? 6) || 6);
   /* ?classify=1: look at the pictures the funnels already have (no Apify),
      up to `limit` funnels — the fleet backfill. */
