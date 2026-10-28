@@ -1,5 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  experimental: {
+    /* The reel judge runs ffmpeg (static binary from ffmpeg-static) to take
+       frames from inside each reel — ship the binary with that function. */
+    outputFileTracingIncludes: {
+      "/api/cron/ig-reels": ["./node_modules/ffmpeg-static/ffmpeg"],
+    },
+  },
   async headers() {
     return [
       {

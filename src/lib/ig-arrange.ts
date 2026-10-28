@@ -12,8 +12,11 @@ export type PostKind = "split_ba" | "after_closeup" | "during" | "person" | "fly
    tapped), `img` = the best frame from INSIDE the reel (judged frame by
    frame — covers are usually text cards or selfies), `kind/pmu/q` judge
    that frame. A reel whose frames show no brows/lips/liner work is marked
-   useful:false and sinks behind every picture. */
-export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number; video?: string; reel?: boolean; frame?: number; useful?: boolean };
+   useful:false and sinks behind every picture. Until its frames are judged
+   (ig-reels.ts; `useful` not set yet) a reel ranks by its cover's verdict,
+   like any picture. `jt` = failed judge attempts, `cap` = the caption the
+   judge reads (dropped once judged). */
+export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number; video?: string; reel?: boolean; frame?: number; useful?: boolean; jt?: number; cap?: string };
 export type IgProfile = {
   username: string; name: string; pic: string; followers: number | null; posts: number | null;
   following?: number | null; bio?: string; category?: string; verified?: boolean;
