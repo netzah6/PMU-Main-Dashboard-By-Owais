@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
+import { PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 60;
@@ -13,45 +14,71 @@ export const maxDuration = 60;
    visitor (Google reviews replaced Elfsight 10/27 12:35 UTC). The day in
    between was mixed and is left out.
 
-   Same funnels on both sides (live now, had leads before, not B2B, not the
-   free-booking funnel whose "booked" counts as paid). Qualified leads only.
-   Picked-a-time counts leads 2 h+ old; deposits count only leads 3+ days
-   old, because 87% of deposits land within a day and ~96% by day 5 — a
-   younger lead hasn't had its chance to pay yet.
+   Counted per PERSON, not per form row: a returning lead updates every one
+   of their rows when they pick or pay, so rows are grouped into journeys
+   (same phone / email / name within 21 days, the dedupe the insights use)
+   that belong to the window of their first visit; a journey that spans both
+   windows is dropped. Qualified leads only; no B2B, no free-booking funnel.
 
-   This is a before/after, not a controlled test: the other changes of those
-   weeks (running A/B tests, offer edits, new ads) move the same numbers, so
-   only a clear, statistically solid drop is called "worse". */
+   Same funnels on both sides, compared funnel by funnel: each funnel's after
+   rate is weighted by its before volume (so a funnel pausing or scaling its
+   ads can't move the result), and the test is a stratified (Cochran–Mantel–
+   Haenszel) z across funnels.
+
+   Deposits = paid on the funnel (booked / paid / paid-not-booked), leads 7+
+   days old on both sides. Picked a time = leads 2 h+ old.
+
+   The verdict is taken ONCE, at a fixed point — the first N people after
+   the switch — so reloading the card daily can't fish for a false alarm.
+   Before that it only says "worse" on an overwhelming drop (z ≤ −3). */
 
 const BEFORE_FROM = "2026-10-05T13:30:00Z";
 const BEFORE_TO = "2026-10-26T13:30:00Z";
 const AFTER_FROM = "2026-10-27T12:35:00Z";
-const PAID = new Set(["booked", "paid", "paid-not-booked", "paid-followup"]);
-const MIN_PICK_N = 600; // leads after the switch before the picked-a-time verdict
-const MIN_DEP_N = 2000; // matured leads after the switch before the deposit verdict
+const LOOKBACK_FROM = "2026-09-14T13:30:00Z"; // to spot journeys that started before the window
+const PAID = new Set(["booked", "paid", "paid-not-booked"]);
+const PICK_N = 600; // people after the switch at the picked-a-time decision point
+const DEP_N = 2000; // matured people after the switch at the deposit decision point
+const PICK_AGE = 2 * 3600_000;
+const DEP_AGE = 7 * 86400_000;
 
-type Lead = { slug: string; created_at: string; ghl_status: string; picked_time_at: string | null; answers: Record<string, unknown> | null; full_name: string | null };
+type Lead = { slug: string; created_at: string; ghl_status: string; picked_time_at: string | null; answers: Record<string, unknown> | null; full_name: string | null; phone: string | null };
+type Journey = { slug: string; first: number; picked: boolean; paid: boolean; inBefore: boolean; inAfter: boolean; preWindow: boolean };
 type Rate = { n: number; k: number; pct: number | null };
-type Metric = { before: Rate; after: Rate; liftPct: number | null; z: number | null; verdict: "too_early" | "worse" | "better" | "same"; needN: number };
+type Metric = { before: Rate; after: Rate; liftPct: number | null; z: number | null; verdict: "too_early" | "worse" | "better" | "same"; needN: number; decided: boolean };
 
-const rate = (k: number, n: number): Rate => ({ n, k, pct: n ? Math.round((k / n) * 1000) / 10 : null });
-function compare(before: Rate, after: Rate, minN: number): Metric {
-  const liftPct = before.pct && after.pct != null ? Math.round(((after.pct - before.pct) / before.pct) * 100) : null;
-  let z: number | null = null;
-  if (before.n && after.n) {
-    const p = (before.k + after.k) / (before.n + after.n);
-    const se = Math.sqrt(p * (1 - p) * (1 / before.n + 1 / after.n));
-    z = se > 0 ? Math.round(((after.k / after.n - before.k / before.n) / se) * 100) / 100 : 0;
-  }
-  // A clear drop is reported as soon as it's clear; "better"/"same" wait for enough data.
-  const verdict: Metric["verdict"] = z != null && z <= -2.5 && after.n >= 200 ? "worse" : after.n < minN ? "too_early" : z != null && z <= -2 ? "worse" : z != null && z >= 2 ? "better" : "same";
-  return { before, after, liftPct, z, verdict, needN: minN };
-}
 const normVersion = (v: unknown) => (String(v ?? "").toUpperCase().includes("V3") ? "V3" : String(v ?? "").toUpperCase().includes("V2") ? "V2.3" : "other");
 const disqualified = (a: Record<string, unknown> | null) => {
   const x = a ?? {};
   return x.disqualified === true || /^0-2/.test(String(x.seriousness ?? "")) || String(x.commutable ?? "").trim().toLowerCase() === "no";
 };
+const pct1 = (x: number) => Math.round(x * 1000) / 10;
+
+/** Funnel-by-funnel comparison. `after` must already be cut to the decision sample. */
+function stratified(before: Journey[], after: Journey[], hit: (j: Journey) => boolean, needN: number, decided: boolean): Metric {
+  const slugs = [...new Set(after.map((j) => j.slug))].filter((s) => before.some((j) => j.slug === s));
+  let n1 = 0, k1 = 0, n2 = 0, k2 = 0, wSum = 0, wRate = 0, num = 0, varSum = 0;
+  for (const s of slugs) {
+    const b = before.filter((j) => j.slug === s), a = after.filter((j) => j.slug === s);
+    const bk = b.filter(hit).length, ak = a.filter(hit).length;
+    n1 += b.length; k1 += bk; n2 += a.length; k2 += ak;
+    wSum += b.length; wRate += b.length * (ak / a.length);
+    const N = b.length + a.length, K = bk + ak;
+    if (N > 1) { num += ak - (a.length * K) / N; varSum += (b.length * a.length * K * (N - K)) / (N * N * (N - 1)); }
+  }
+  const beforePct = n1 ? k1 / n1 : null;
+  const afterStd = wSum ? wRate / wSum : null; // after rate on the before mix
+  const z = varSum > 0 ? Math.round((num / Math.sqrt(varSum)) * 100) / 100 : null;
+  const liftPct = beforePct && afterStd != null ? Math.round(((afterStd - beforePct) / beforePct) * 100) : null;
+  const verdict: Metric["verdict"] = !decided
+    ? (z != null && z <= -3 && n2 >= 200 ? "worse" : "too_early")
+    : z == null ? "same" : z <= -2 ? "worse" : z >= 2 ? "better" : "same";
+  return {
+    before: { n: n1, k: k1, pct: beforePct == null ? null : pct1(beforePct) },
+    after: { n: n2, k: k2, pct: afterStd == null ? null : pct1(afterStd) },
+    liftPct, z, verdict, needN: needN, decided,
+  };
+}
 
 export async function GET() {
   const auth = await getAuth();
@@ -60,7 +87,7 @@ export async function GET() {
 
   const leads: Lead[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await svc.from("onebox_leads").select("slug, created_at, ghl_status, picked_time_at, answers, full_name").gte("created_at", BEFORE_FROM).order("id").range(from, from + 999);
+    const { data, error } = await svc.from("onebox_leads").select("slug, created_at, ghl_status, picked_time_at, answers, full_name, phone").gte("created_at", LOOKBACK_FROM).order("id").range(from, from + 999);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     leads.push(...((data ?? []) as Lead[]));
     if (!data || data.length < 1000) break;
@@ -81,39 +108,59 @@ export async function GET() {
       .map((c) => String(c.slug)),
   );
 
-  const qual = leads.filter((l) => eligible.has(l.slug) && !disqualified(l.answers) && !/test/i.test(l.full_name ?? ""));
+  // Rows → journeys (per funnel, per person).
   const t = (iso: string) => Date.parse(iso);
-  const before = qual.filter((l) => t(l.created_at) < t(BEFORE_TO));
-  const beforeSlugs = new Set(before.map((l) => l.slug));
+  const bFrom = t(BEFORE_FROM), bTo = t(BEFORE_TO), aFrom = t(AFTER_FROM);
+  const qual = leads.filter((l) => eligible.has(l.slug) && !disqualified(l.answers) && !/test/i.test(l.full_name ?? ""))
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const index = new Map<string, Journey>();
+  const journeys: Journey[] = [];
+  for (const l of qual) {
+    const ms = t(l.created_at);
+    const keys = personKeys(l.full_name ?? "", String((l.answers ?? {}).email ?? ""), l.phone ?? "").map((k) => `${l.slug}|${k}`);
+    let j = keys.map((k) => index.get(k)).find((x) => x && ms - x.first < PERSON_DEDUPE_MS);
+    if (!j) { j = { slug: l.slug, first: ms, picked: false, paid: false, inBefore: false, inAfter: false, preWindow: ms < bFrom }; journeys.push(j); }
+    if (ms >= bFrom && ms < bTo) j.inBefore = true;
+    if (ms >= aFrom) j.inAfter = true;
+    if (l.picked_time_at || PAID.has(l.ghl_status)) j.picked = true;
+    if (PAID.has(l.ghl_status)) j.paid = true;
+    for (const k of keys) index.set(k, j);
+  }
   const now = Date.now();
-  const after = qual.filter((l) => t(l.created_at) >= t(AFTER_FROM) && beforeSlugs.has(l.slug));
-  const picked = (l: Lead) => !!l.picked_time_at || PAID.has(l.ghl_status);
-  const paid = (l: Lead) => PAID.has(l.ghl_status);
+  const clean = journeys.filter((j) => !j.preWindow && !(j.inBefore && j.inAfter));
+  const before = clean.filter((j) => j.first >= bFrom && j.first < bTo);
+  const after = clean.filter((j) => j.first >= aFrom);
+  const picked = (j: Journey) => j.picked;
+  const paid = (j: Journey) => j.paid;
 
   const group = (ver: "all" | "V3" | "V2.3") => {
-    const inV = (l: Lead) => ver === "all" || verBySlug.get(l.slug) === ver;
+    const inV = (j: Journey) => ver === "all" || verBySlug.get(j.slug) === ver;
+    const pickN = ver === "all" ? PICK_N : Math.round(PICK_N / 2);
+    const depN = ver === "all" ? DEP_N : Math.round(DEP_N * 0.6);
     const b = before.filter(inV);
-    const aPick = after.filter((l) => inV(l) && now - t(l.created_at) >= 2 * 3600_000);
-    const aDep = after.filter((l) => inV(l) && now - t(l.created_at) >= 3 * 86400_000);
+    const bDep = b.filter((j) => now - j.first >= DEP_AGE);
+    // The decision sample: the first N people after the switch (fixed once reached).
+    const aPickAll = after.filter((j) => inV(j) && now - j.first >= PICK_AGE);
+    const aDepAll = after.filter((j) => inV(j) && now - j.first >= DEP_AGE);
+    const aPick = aPickAll.slice(0, pickN), aDep = aDepAll.slice(0, depN);
     return {
-      funnels: new Set(b.map((l) => l.slug)).size,
-      picked: compare(rate(b.filter(picked).length, b.length), rate(aPick.filter(picked).length, aPick.length), ver === "all" ? MIN_PICK_N : Math.round(MIN_PICK_N / 2)),
-      deposits: compare(rate(b.filter(paid).length, b.length), rate(aDep.filter(paid).length, aDep.length), ver === "all" ? MIN_DEP_N : Math.round(MIN_DEP_N * 0.7)),
+      funnels: [...new Set(after.filter(inV).map((j) => j.slug))].filter((sl) => b.some((j) => j.slug === sl)).length,
+      picked: stratified(b, aPick, picked, pickN, aPickAll.length >= pickN),
+      deposits: stratified(bDep, aDep, paid, depN, aDepAll.length >= depN),
     };
   };
+  const all = group("all");
 
-  // When the deposit verdict should be readable: leads/day since the switch + the 3-day maturity lag.
-  const daysAfter = Math.max(0.5, (now - t(AFTER_FROM)) / 86400_000);
+  // When the deposit verdict is due: people still to collect, then 7 days for the last of them to pay.
+  const daysAfter = Math.max(0.5, (now - aFrom) / 86400_000);
   const perDay = after.length / daysAfter;
-  const allDep = group("all").deposits;
-  // Leads still to collect, then 3 days for the last of them to have had their chance to pay.
-  const eta = allDep.after.n >= MIN_DEP_N || perDay <= 0
+  const eta = all.deposits.decided || perDay <= 0
     ? null
-    : new Date(now + (Math.max(0, (MIN_DEP_N - after.length) / perDay) + 3) * 86400_000).toISOString();
+    : new Date(now + (Math.max(0, (DEP_N - after.length) / perDay) + DEP_AGE / 86400_000) * 86400_000).toISOString();
 
   return NextResponse.json({
     windows: { beforeFrom: BEFORE_FROM, beforeTo: BEFORE_TO, afterFrom: AFTER_FROM },
-    all: group("all"),
+    all,
     v3: group("V3"),
     v23: group("V2.3"),
     depositVerdictEta: eta,

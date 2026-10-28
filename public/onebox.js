@@ -1702,19 +1702,18 @@
         }).join("") + "</div></div>";
     }
     el.innerHTML = htmlStr;
+    /* Counted right away: innerHTML is synchronous, and a timer could fire
+       after the visitor already moved on (the deposit step empties this
+       box), which would report a grid that was in fact shown. */
     if (phase === "booking" || (FLOW_V1 && phase === "done")) {
-      var gridExpected = !!(SELF && ((SELF.posts && SELF.posts.length) || (SELF.imgs && SELF.imgs.length)) >= 3);
-      var revExpected = !!(GREV && GREV.reviews && GREV.reviews.length);
-      setTimeout(function () {
-        try {
-          obReport("render", {
-            gridExpected: gridExpected,
-            gridTiles: el.querySelectorAll(".iggrid span[data-i]").length,
-            revExpected: revExpected,
-            revCards: el.querySelectorAll(".grevcard").length,
-          }, "render");
-        } catch (e) {}
-      }, 1500);
+      try {
+        obReport("render", {
+          gridExpected: !!(SELF && ((SELF.posts && SELF.posts.length) || (SELF.imgs && SELF.imgs.length)) >= 3),
+          gridTiles: el.querySelectorAll(".iggrid span[data-i]").length,
+          revExpected: !!(GREV && GREV.reviews && GREV.reviews.length),
+          revCards: el.querySelectorAll(".grevcard").length,
+        }, "render");
+      } catch (e) {}
     }
   }
 

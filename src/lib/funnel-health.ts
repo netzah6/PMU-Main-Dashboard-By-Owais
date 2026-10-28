@@ -148,10 +148,17 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
       if (!igExpected) { const g = igGap(c); if (g) gaps.push({ slug: c.slug, name, what: "instagram", why: g }); }
       if (!revExpected) { const g = reviewsGap(c); if (g) gaps.push({ slug: c.slug, name, what: "reviews", why: g }); }
 
-      // 1. The page as visitors get it.
-      const page = await timedFetch(`${BASE}/f/${c.slug}`, { headers: { "User-Agent": "PMU-funnel-health/1.0" } });
-      const html = page && page.ok ? await page.text().catch(() => "") : "";
-      const cfg = html ? servedConfig(html) : null;
+      // 1. The page as visitors get it. "ob-warm" is in the funnel route's
+      //    bot list, so this visit never mints an A/B assignment row (it
+      //    would count as a fake visitor in running page tests).
+      const getPage = async (bust: boolean) => {
+        const r = await timedFetch(`${BASE}/f/${c.slug}${bust ? `?hc=${Date.now()}` : ""}`, { headers: { "User-Agent": "ob-warm/1 (funnel-health)" } });
+        const text = r && r.ok ? await r.text().catch(() => "") : "";
+        return { r, text, cfg: text ? servedConfig(text) : null };
+      };
+      let pg = await getPage(false);
+      if (!pg.r || !pg.r.ok || !pg.cfg) { await new Promise((res) => setTimeout(res, 4000)); pg = await getPage(true); }
+      const page = pg.r, html = pg.text, cfg = pg.cfg;
       let servedImgs: string[] = [];
       let servedPic = "";
       let servedReviews = 0;
@@ -187,8 +194,16 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
       const revRenders = renders.filter((r) => r.rev_expected);
       const revFails = revRenders.filter((r) => (r.rev_cards ?? 0) === 0);
       if (revRenders.length >= 3 && revFails.length * 2 >= revRenders.length) issues.push({ code: "visitors_no_reviews", severity: "high", text: `${revFails.length} of ${revRenders.length} visitors in the last 24 h did NOT see the Google reviews.`, fix: "Engine problem — tell dev." });
-      const imgErrVisitors = new Set(reps.filter((r) => r.kind === "imgerr").map((r) => r.visitor_id));
-      if (imgErrVisitors.size >= 2 && imgErrVisitors.size * 4 >= Math.max(visitors, 1)) issues.push({ code: "visitors_img_errors", severity: "high", text: `Instagram pictures failed to load for ${imgErrVisitors.size} visitor${imgErrVisitors.size === 1 ? "" : "s"} in the last 24 h.`, fix: "Press Refresh from Instagram now in the CPD Instagram grid panel." });
+      // A phone on a bad connection drops a picture now and then — only the
+      // SAME picture the page still serves failing for 2+ visitors counts.
+      const served = new Set(urls);
+      const errBy = new Map<string, Set<string>>();
+      for (const r of reps) if (r.kind === "imgerr" && r.url && served.has(r.url)) errBy.set(r.url, (errBy.get(r.url) ?? new Set()).add(r.visitor_id));
+      const badForVisitors = [...errBy.values()].filter((v) => v.size >= 2);
+      if (badForVisitors.length && !issues.some((i) => i.code === "ig_imgs_broken")) {
+        const who = new Set(badForVisitors.flatMap((v) => [...v])).size;
+        issues.push({ code: "visitors_img_errors", severity: "high", text: `${badForVisitors.length} Instagram picture${badForVisitors.length === 1 ? "" : "s"} failed to load for ${who} visitors in the last 24 h.`, fix: "Press Refresh from Instagram now in the CPD Instagram grid panel." });
+      }
       const jsErr = reps.filter((r) => r.kind === "jserr");
       const jsVisitors = new Set(jsErr.map((r) => r.visitor_id)).size;
       if (jsVisitors >= 1) issues.push({ code: "visitors_js_error", severity: jsVisitors >= 2 ? "high" : "medium", text: `Drawing the ${/reviews/.test(jsErr[0]?.error ?? "") ? "Google reviews" : "Instagram grid"} crashed for ${jsVisitors} visitor${jsVisitors === 1 ? "" : "s"}: “${String(jsErr[0]?.error ?? "").slice(0, 120)}”.`, fix: "Code problem — tell dev. The booking step itself keeps working (the widget is skipped)." });
@@ -210,10 +225,41 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
 
   let filed = 0, updated = 0, resolved = 0;
   const checked = results.filter((r) => r.checked);
+  /* Fleet guard: if lots of pages fail at once it's one outage (deploy,
+     Supabase, Vercel), not 40 separate client problems — one alert. */
+  const downSlugs = checked.filter((r) => r.issues.some((i) => i.code === "page_down"));
+  const fleetDown = !opts.slug && checked.length >= 10 && downSlugs.length / checked.length > 0.2;
+  if (fleetDown) for (const r of downSlugs) r.issues = r.issues.filter((i) => i.code !== "page_down");
+  /* The engine stopped reporting entirely (e.g. a broken engine build):
+     reports existed before, leads keep coming, but none in 24 h. */
+  let engineSilent = false;
+  if (!opts.slug && reports.length === 0) {
+    const { count: everReported } = await svc.from("onebox_render_reports").select("id", { count: "exact", head: true });
+    const { count: leads24 } = await svc.from("onebox_leads").select("id", { count: "exact", head: true }).gte("created_at", since);
+    engineSilent = (everReported ?? 0) > 0 && (leads24 ?? 0) >= 50;
+  }
   if (!opts.dry) {
+    for (const [on, key, title, detail] of [
+      [fleetDown, "widgets:fleet-down", `${downSlugs.length} of ${checked.length} funnel pages failed to load`, `The health check couldn't load ${downSlugs.length} funnel pages (e.g. ${downSlugs.slice(0, 5).map((r) => r.name).join(", ")}). That's an outage, not a client problem — check Vercel / Supabase now; every lead is lost while it lasts.`],
+      [engineSilent, "widgets:engine-silent", "Funnels stopped reporting what visitors see", "Leads keep coming in, but no funnel has reported what its booking step drew for 24 hours. The funnel engine may be failing in browsers — tell dev now."],
+    ] as const) {
+      const { data: openFleet } = await svc.from("alerts").select("id").eq("type", "funnel_widgets").eq("source_key", key).eq("status", "open").maybeSingle();
+      if (on && !openFleet) { await svc.from("alerts").insert({ type: "funnel_widgets", severity: "high", title, detail, source_key: key, meta: { fleet: true } }); filed++; }
+      if (!on && openFleet && !opts.slug) { await svc.from("alerts").update({ status: "resolved", resolved_by: "system (fleet back to normal)", resolved_at: new Date().toISOString() }).eq("id", openFleet.id); resolved++; }
+    }
+    // Funnels that are no longer live (paused, offboarded, B2B) can't be checked — close their alerts.
+    if (!opts.slug) {
+      const liveKeys = new Set(clients.map((c) => `widgets:${c.slug}`));
+      const { data: openAll } = await svc.from("alerts").select("id, source_key").eq("type", "funnel_widgets").eq("status", "open");
+      const gone = (openAll ?? []).filter((a) => !String(a.source_key).startsWith("widgets:fleet") && !String(a.source_key).startsWith("widgets:engine") && !liveKeys.has(String(a.source_key))).map((a) => a.id);
+      if (gone.length) { await svc.from("alerts").update({ status: "resolved", resolved_by: "system (funnel no longer live)", resolved_at: new Date().toISOString() }).in("id", gone); resolved += gone.length; }
+    }
     const { data: open } = await svc.from("alerts").select("id, source_key, detail").eq("type", "funnel_widgets").eq("status", "open");
     const openByKey = new Map((open ?? []).map((o) => [String(o.source_key), o as { id: string; detail: string | null }]));
+    const downSet = new Set(downSlugs.map((r) => r.slug));
     for (const r of checked) {
+      // During a fleet outage the per-funnel picture is meaningless — leave those alerts as they are.
+      if (fleetDown && downSet.has(r.slug)) continue;
       const key = `widgets:${r.slug}`;
       if (!r.issues.length) {
         const o = openByKey.get(key);
@@ -235,11 +281,14 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
         }
         continue;
       }
-      // Re-open fresh (a resolved twin from earlier never suppresses a new breakage for long).
-      const { data: twin } = await svc.from("alerts").select("id, muted, resolved_at, resolved_by").eq("type", "funnel_widgets").eq("source_key", key).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (twin?.muted) continue; // "don't show again"
-      // Someone closed it by hand in the last day — give their fix a day before nagging again.
-      if (twin && !/^system/i.test(String(twin.resolved_by ?? "")) && daysSince(twin.resolved_at) < 1) continue;
+      // A muted alert ("don't show again") or one closed by hand in the last
+      // day stays quiet — but only for the SAME problems. Anything new
+      // (e.g. the page going down) files a fresh alert regardless.
+      const { data: twin } = await svc.from("alerts").select("id, muted, resolved_at, resolved_by, meta").eq("type", "funnel_widgets").eq("source_key", key).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const prevCodes = new Set(((twin?.meta as { codes?: string[] } | null)?.codes ?? []));
+      const nothingNew = r.issues.every((i) => prevCodes.has(i.code));
+      if (twin?.muted && nothingNew) continue;
+      if (twin && nothingNew && !/^system/i.test(String(twin.resolved_by ?? "")) && daysSince(twin.resolved_at) < 1) continue;
       const { error: insErr } = await svc.from("alerts").insert({ type: "funnel_widgets", severity: sev, title: title.slice(0, 300), detail: detail.slice(0, 2000), source_key: key, meta });
       if (!insErr) filed++;
     }
@@ -260,5 +309,5 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
   if (!opts.dry && !opts.slug) {
     await svc.from("funnel_health_runs").insert({ checked: summary.checked, grid_ok: summary.gridOk, reviews_ok: summary.reviewsOk, problems: summary.problems, details });
   }
-  return { ...summary, filed, updated, resolved, details };
+  return { ...summary, fleetDown, engineSilent, filed, updated, resolved, details };
 }

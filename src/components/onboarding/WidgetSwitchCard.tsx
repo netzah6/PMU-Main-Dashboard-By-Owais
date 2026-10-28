@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
       the 3 weeks before vs since the switch, V3 and V2.3, with a verdict. */
 
 type Rate = { n: number; k: number; pct: number | null };
-type Metric = { before: Rate; after: Rate; liftPct: number | null; z: number | null; verdict: "too_early" | "worse" | "better" | "same"; needN: number };
+type Metric = { before: Rate; after: Rate; liftPct: number | null; z: number | null; verdict: "too_early" | "worse" | "better" | "same"; needN: number; decided: boolean };
 type Group = { funnels: number; picked: Metric; deposits: Metric };
 type Gap = { slug: string; name: string; what: "instagram" | "reviews"; why: string };
 type Data = {
@@ -42,7 +42,7 @@ function MetricRow({ label, m }: { label: string; m: Metric }) {
         {m.liftPct != null && m.after.n > 0 && <span className={cn("ml-1", m.liftPct < 0 ? "text-[#b91c1c]" : "text-[#15803d]")}>({m.liftPct > 0 ? "+" : ""}{m.liftPct}%)</span>}
       </span>
       <span className={cn("rounded-full border px-1.5 py-px text-[10px] font-semibold", v.cls)}>{v.label}</span>
-      <span className="text-[10px] text-[#8595a8]">{m.after.n.toLocaleString("en-US")} leads after{m.verdict === "too_early" ? ` (need ${m.needN.toLocaleString("en-US")})` : ""} · {m.before.n.toLocaleString("en-US")} before</span>
+      <span className="text-[10px] text-[#8595a8]">{m.after.n.toLocaleString("en-US")} people after{!m.decided ? ` (verdict at ${m.needN.toLocaleString("en-US")})` : ""} · {m.before.n.toLocaleString("en-US")} before</span>
     </div>
   );
 }
@@ -95,7 +95,7 @@ export function WidgetSwitchCard() {
           </div>
           <div className="space-y-1.5">
             <div className="text-[11px] font-bold uppercase tracking-wide text-[#34568a]">2 · Before vs after the switch</div>
-            <p className="text-[11px] text-[#697a91]">Same {d.all.funnels} funnels. Before = {us(d.windows.beforeFrom)}–{us(d.windows.beforeTo)} (old Elfsight widgets). After = since {us(d.windows.afterFrom)} (our grid + our reviews). Deposits count only leads 3+ days old. Not a controlled test — other changes of these weeks move the same numbers, so only a clear drop is called worse.</p>
+            <p className="text-[11px] text-[#697a91]">The same {d.all.funnels} funnels, compared one by one and counted per person. Before = {us(d.windows.beforeFrom)}–{us(d.windows.beforeTo)} (old Elfsight widgets). After = since {us(d.windows.afterFrom)} (our grid + our reviews). Deposits count only people 7+ days old, so everyone had time to pay. The verdict is taken once, at a fixed number of people, and only a clear drop is called worse — other changes of these weeks move the same numbers.</p>
             {([["All funnels", d.all], ["V3", d.v3], ["V2.3", d.v23]] as const).map(([label, g]) => (
               <div key={label} className="space-y-0.5">
                 <div className="text-[11px] font-semibold text-[#1c2b3a]">{label} <span className="font-normal text-[#8595a8]">· {g.funnels} funnels</span></div>
