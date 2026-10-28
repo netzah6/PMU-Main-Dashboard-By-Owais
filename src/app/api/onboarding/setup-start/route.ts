@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { resolveClientLocation } from "@/lib/agent-exec";
 import { answersFromMainContact } from "@/lib/survey-answers";
+import { normVersion } from "@/lib/setup-runbook";
 
 // "Set up account" on the Clients tab (admins and Client Success Coaches —
 // owner 10/28/2026; approving the run on the card stays admin-only).
@@ -56,10 +57,7 @@ export async function GET(req: NextRequest) {
 // typed on the card before Approve.
 function prefill(row: Record<string, unknown>): Record<string, string> {
   const g = (k: string) => String(row[k] ?? "").trim();
-  const version = (() => {
-    const v = g("Version").toLowerCase().replace(/[()\s]/g, "");
-    return v.startsWith("v3") ? "(V3)" : v.startsWith("v2") ? "(V2.3)" : v.startsWith("v1") ? "(V1)" : "(V3)";
-  })();
+  const version = normVersion(g("Version"));
   const form: Record<string, string> = {
     business_name: g("Business Name"),
     owner_name: g("Owner Full Name"),

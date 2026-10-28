@@ -145,7 +145,7 @@ export type RequiredField = { key: string; label: string };
 const REQUIRED_ALL: RequiredField[] = [
   { key: "business_name", label: "Business name" }, { key: "owner_name", label: "Owner full name" }, { key: "version", label: "Version" },
   { key: "email", label: "Email (the client's login)" }, { key: "phone", label: "Phone" }, { key: "address", label: "Studio address" },
-  { key: "business_hours", label: "Business hours (calendar)" }, { key: "deposit_amount", label: "Deposit amount" }, { key: "offer", label: "Offer" },
+  { key: "deposit_amount", label: "Deposit amount" }, { key: "offer", label: "Offer" },
   { key: "services", label: "PMU services" }, { key: "assigned", label: "Assigned coach" }, { key: "media_buyer", label: "Media buyer" },
   // Owner 10/21/2026: asked up front (Sudbury Med Spa's run stopped at the
   // pixel step). "none" is an answer — the media buyer adds it later.
@@ -153,12 +153,21 @@ const REQUIRED_ALL: RequiredField[] = [
 ];
 export const NO_PIXEL_RE = /^(none|no|n\/a|skip|later|not yet|no pixel)/i;
 // V3 only (owner 10/20/2026): the prices are the one-box's V3 fields.
+// Business hours too (owner 10/28/2026: V1 has no one-box calendar to fill).
 const REQUIRED_V3: RequiredField[] = [
+  { key: "business_hours", label: "Business hours (calendar)" },
   { key: "original_price", label: "Original price" }, { key: "discounted_price", label: "Discounted price" },
   { key: "years_in_business", label: "Years in business" }, { key: "first_touchup", label: "First touch-up timing" },
 ];
 export function requiredFields(version: string | undefined): RequiredField[] {
   return /v3/i.test(String(version ?? "")) ? [...REQUIRED_ALL, ...REQUIRED_V3] : REQUIRED_ALL;
+}
+/* The Clients tab's Version column → the card's version label. Blank stays
+   blank (the card asks) instead of guessing V3 (owner 10/28/2026: Maika was
+   V1 on the Clients tab but the card said V3). */
+export function normVersion(raw: unknown): string {
+  const v = String(raw ?? "").toLowerCase().replace(/[()\s]/g, "");
+  return v.startsWith("v3") ? "(V3)" : v.startsWith("v2") ? "(V2.3)" : v.startsWith("v1") ? "(V1)" : "";
 }
 export function missingFields(form: Record<string, unknown>): RequiredField[] {
   return requiredFields(String(form.version ?? "")).filter((f) => !String(form[f.key] ?? "").trim());

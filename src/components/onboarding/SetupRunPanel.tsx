@@ -293,14 +293,14 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {isAdmin ? (
+          {data.canApprove ? (
             <button onClick={() => { if (window.confirm(`Approve: take "${pick?.name ?? data.claimedLocation ?? "the claimed account"}" and set up ${form.business_name}?\n\nThe account steps run now; browser steps go to the AI Agent one by one.${preapproved.length ? ` Approved up front: ${PREAPPROVABLE.filter((p) => preapproved.includes(p.key)).map((p) => p.title).join(", ")}.` : ""}${PREAPPROVABLE.filter((p) => !preapproved.includes(p.key)).length ? ` Skipped: ${PREAPPROVABLE.filter((p) => !preapproved.includes(p.key)).map((p) => p.title).join(", ")}.` : ""} Nothing will stop to ask you.`)) void act("approve", { poolLocationId: poolId, preapproved }); }}
               disabled={!!busy || (!data.claimedLocation && !poolId) || needs.length > 0}
               title={needs.length ? "Fill the missing details first" : undefined}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#15803d] hover:bg-[#166534] text-white text-xs font-semibold disabled:opacity-50">
               {busy === "approve" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} {busy === "approve" ? "Running the account steps… (1–3 min)" : "Approve & start"}
             </button>
-          ) : <span className="text-xs text-[#8595a8]">Only an admin can approve the setup.</span>}
+          ) : <span className="text-xs text-[#8595a8]">Only an admin or a Client Success Coach can start the setup.</span>}
         </div>
       </div>
     );

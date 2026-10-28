@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { advanceSetup, approveSetup, confirmStep, liveCardStatuses, poolChoices, retryStep, skipStep } from "@/lib/setup-run";
-import { missingFields, type SetupState } from "@/lib/setup-runbook";
+import { missingFields, normVersion, type SetupState } from "@/lib/setup-runbook";
 import { answersFromMainContact } from "@/lib/survey-answers";
 
 // The claim + the funnel creation + the Commas product run inside Approve.
@@ -9,7 +9,7 @@ export const maxDuration = 300;
 
 // New Client Setup run for one Onboarding card.
 //   GET  → the run state, live card statuses, and the clean accounts to pick from
-//   POST {action:"approve", poolLocationId}   admin — nothing touches GHL before this
+//   POST {action:"approve", poolLocationId}   admin/coach — nothing touches GHL before this
 //   POST {action:"refresh"}                    re-run the engine (after a fix in GHL)
 //   POST {action:"retry", key}                 admin — run a failed step again
 //   POST {action:"skip", key, note?}           admin/coach — mark a step done by hand
@@ -63,20 +63,33 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // Before Approve: what the Clients tab already knows (business hours, years
   // in business on the client's main contact) is filled in by itself — owner
   // 10/20/2026: "it has the data, don't make us type it again".
-  let autofilled: string[] = [];
+  const autofilled: string[] = [];
   if (!setup) {
-    const form = (row.form ?? {}) as Record<string, string>;
+    let form = (row.form ?? {}) as Record<string, string>;
+    // Before Approve the Clients tab owns the version (owner 10/28/2026: a
+    // card opened as V3 must follow the client when she is changed to V1).
+    if (form.master_row) {
+      const { data: cm } = await svc.from("clients_master").select("data").eq("sheet_row", Number(form.master_row)).maybeSingle();
+      const d = ((cm as { data?: Record<string, unknown> } | null)?.data ?? {});
+      const sameClient = !form.business_name || String(d["Business Name"] ?? "").trim().toLowerCase() === form.business_name.trim().toLowerCase();
+      const v = sameClient ? normVersion(d["Version"]) : "";
+      if (v && v !== form.version) {
+        form = { ...form, version: v };
+        await svc.from("onboardings").update({ form }).eq("id", params.id);
+        autofilled.push("version");
+      }
+    }
     const missing = missingFields(form).map((f) => f.key);
     if (missing.includes("business_hours") || missing.includes("years_in_business")) {
       const extra = await answersFromMainContact(String(form.master_contact_id ?? ""), form).catch(() => ({}));
       const add = Object.fromEntries(Object.entries(extra).filter(([k]) => missing.includes(k)));
       if (Object.keys(add).length) {
         await svc.from("onboardings").update({ form: { ...form, ...add } }).eq("id", params.id);
-        autofilled = Object.keys(add);
+        autofilled.push(...Object.keys(add));
       }
     }
   }
-  return NextResponse.json({ setup: redact(setup), cards, pool, pixels, claimedLocation: claimLoc, canApprove: u.role === "admin", autofilled });
+  return NextResponse.json({ setup: redact(setup), cards, pool, pixels, claimedLocation: claimLoc, canApprove: u.role === "admin" || u.role === "editor", autofilled });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -88,7 +101,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     switch (String(body.action ?? "")) {
       case "approve": {
-        if (!admin) return NextResponse.json({ error: "Only an admin can approve a setup" }, { status: 403 });
+        // Client Success Coaches start their own clients' setups too (owner 10/28/2026).
+        if (!(admin || u.role === "editor")) return NextResponse.json({ error: "Only an admin or a Client Success Coach can start a setup" }, { status: 403 });
         const setup = await approveSetup(svc, params.id, String(body.poolLocationId ?? ""), u.email, Array.isArray(body.preapproved) ? body.preapproved.map(String) : []);
         return NextResponse.json({ setup: redact(setup) });
       }
