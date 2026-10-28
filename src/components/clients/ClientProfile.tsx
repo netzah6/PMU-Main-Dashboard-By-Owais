@@ -84,6 +84,15 @@ export function ClientProfile({
     fetch("/api/users/team?kind=media_buyer").then((r) => r.json()).then((j) => { if (Array.isArray(j.names)) setMediaBuyers(j.names); }).catch(() => undefined);
   }, []);
   const mediaBuyerOptions = mediaBuyers ?? TEAM_OPTIONS;
+  /* Client Success Coaches = admins + editors with a team name on Settings
+     (owner, 10/28/2026: Mayela was invited but missing from Assigned — the
+     list was hard-coded). Older names stay so existing assignments still
+     show and can be picked. */
+  const [coaches, setCoaches] = useState<string[] | null>(null);
+  useEffect(() => {
+    fetch("/api/users/team?kind=coach").then((r) => r.json()).then((j) => { if (Array.isArray(j.names)) setCoaches(j.names); }).catch(() => undefined);
+  }, []);
+  const assignedOptions = [...new Set([...(coaches ?? []), ...TEAM_OPTIONS])];
   const [editMode, setEditMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const editOriginalRef = useRef<Record<string, string>>({});
@@ -610,8 +619,8 @@ export function ClientProfile({
                     className="px-2 py-1 rounded-md text-xs font-bold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#15B7AE]/30 disabled:opacity-60"
                   >
                     <option value="">—</option>
-                    {localClient.assigned && !TEAM_OPTIONS.includes(String(localClient.assigned)) && <option value={String(localClient.assigned)}>{String(localClient.assigned)}</option>}
-                    {TEAM_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    {localClient.assigned && !assignedOptions.includes(String(localClient.assigned)) && <option value={String(localClient.assigned)}>{String(localClient.assigned)}</option>}
+                    {assignedOptions.map((u) => <option key={u} value={u}>{u}</option>)}
                   </select>
                   {assignSaving === "Assigned" && <Loader2 size={12} className="animate-spin text-[#0e8f88]" />}
                 </span>

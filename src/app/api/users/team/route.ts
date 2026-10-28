@@ -13,6 +13,8 @@ export async function GET(req: NextRequest) {
   const roles = kind === "media_buyer" ? ["admin", "media_buyer"] : ["admin", "editor"];
   const svc = createServiceClient();
   const { data } = await svc.from("user_roles").select("team_name, role").in("role", roles).not("team_name", "is", null);
-  const names = [...new Set(((data ?? []) as Array<{ team_name: string | null }>).map((r) => String(r.team_name ?? "").trim()).filter(Boolean))].sort();
+  // The AI Agent account is an admin with a team name but never anyone's
+  // coach or media buyer.
+  const names = [...new Set(((data ?? []) as Array<{ team_name: string | null }>).map((r) => String(r.team_name ?? "").trim()).filter((n) => n && !/^ai agent$/i.test(n)))].sort();
   return NextResponse.json({ names });
 }
