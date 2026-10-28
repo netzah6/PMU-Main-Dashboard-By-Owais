@@ -283,10 +283,13 @@ export async function GET(
     igWidgetGrid: "",
     igFeed: (() => {
       /* Only what the engine draws: profile, pictures in order. Verdicts and
-         post links stay server-side. */
+         post links stay server-side. The fetch keeps 24 to choose from; the
+         page gets the best 12 (6 tiles + the tap-through), as before. */
       if (row.extras.igWidgetOff || !row.extras.igFeed?.imgs?.length) return "";
       const a = arrangeFeed(row.extras.igFeed, row.extras.igPicks);
-      return a.imgs.length ? JSON.stringify({ imgs: a.imgs, posts: ((a.posts ?? a.imgs.map((img) => ({ img }))) as { img: string; video?: string }[]).map((p) => (p.video ? { img: p.img, video: p.video } : { img: p.img })), profile: a.profile, at: a.at }) : "";
+      const imgs = a.imgs.slice(0, 12);
+      const posts = ((a.posts ?? a.imgs.map((img) => ({ img }))) as { img: string; video?: string }[]).slice(0, 12);
+      return imgs.length ? JSON.stringify({ imgs, posts: posts.map((p) => (p.video ? { img: p.img, video: p.video } : { img: p.img })), profile: a.profile, at: a.at }) : "";
     })(),
     igFrozenImgs: !row.extras.igWidgetOff && row.extras.igFrozen && row.extras.igSnapshot?.imgs?.length
       ? row.extras.igSnapshot.imgs.join(",")

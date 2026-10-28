@@ -22,11 +22,11 @@ const BUCKET = "onebox-ig";
    the 3 × 2 grid shows. */
 const PROFILE_ACTOR = "apify~instagram-profile-scraper";
 const POST_ACTOR = "apify~instagram-post-scraper";
-/* Pull 12, show 6: results posts (before/after, brows, lips, liner…) go
-   first, newest first; the rest fill in behind them. Refreshed every two
-   weeks — that keeps the whole fleet inside Apify's free credit. */
-const POSTS_PER_PROFILE = 12;
-const MAX_POSTS = 12;
+/* Pull 24, show 6: the sorter picks the 6 best of the latest 24 (owner,
+   10/28/2026 — 12 left weak feeds nothing good to choose from). Refreshed
+   every two weeks — ~$16/month, inside the Apify Starter credit ($19). */
+const POSTS_PER_PROFILE = 24;
+const MAX_POSTS = 24;
 const REFRESH_DAYS = 13;
 const RESULTS_RE = /\b(before|after|brow|brows|eyebrow|lip|lips|liner|eyeliner|lash ?line|heal|healed|healing|microblad|ombre|ombré|powder|nano|hairstroke|hair stroke|combo|permanent makeup|pmu|touch ?up|transformation|result|results|fresh|freshly|done|correction|cover ?up|areola|scalp|smp|beauty mark|freckles)\b/i;
 const DOWNLOAD_TIMEOUT_MS = 20_000;
@@ -180,7 +180,7 @@ export async function snapshotFunnel(
   /* Verdicts from the previous set carry over by post URL (below); a reel
      already copied keeps its stored video, so it isn't downloaded again. */
   const known = new Map((prevExtras.igFeed?.posts ?? []).filter((p) => (p.kind || p.video) && p.url).map((p) => [p.url, p]));
-  /* Copy every image at once (≤ 13 small files) — one by one would eat
+  /* Copy every image at once (≤ 25 small files) — one by one would eat
      the cron's time budget. */
   const copy = async (src: string, path: string): Promise<string> => {
     const body = await download(src);
