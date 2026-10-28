@@ -42,7 +42,15 @@ type Svc = ReturnType<typeof createServiceClient>;
 const MODEL = "claude-opus-5-5";
 const PAID = new Set(["booked", "paid", "paid-not-booked", "paid-followup"]);
 export const STALE_HOURS = 20;
-const CLOSURE = /\bstop\b|not interested|no longer|already (did|done|booked)|wrong number|no thanks|unsubscribe/i;
+const CLOSURE = /\bstop\b|not interested|no longer|already (did|done|booked)|wrong number|no thanks|unsubscribe|going to pass/i;
+// A lead's last text that actually needs an answer: a question or buying
+// intent — not an "Ok thank you", an iMessage reaction ("Loved “…”") or a
+// goodbye. Sampled 10/27/2026: 459 unanswered last-inbound texts fleet-wide,
+// ~¾ were acks/reactions; ~100 were real questions (price, when, where).
+const REACTION = /^\s*(loved|liked|laughed at|emphasized|questioned|disliked|le encantó|le gustó)\s+[“"]/i;
+const ACK = /^\s*(ok(ay)?|k|yes|yeah|yep|sure|thanks?( you)?( so much)?|ty|perfect|great|sounds good|got it|will do|awesome|alright|you too|no problem|np|i will|same to you|bye)[\s!.,👍🏾🏻🏼🏽🏿❤️🙏😊🥰👌😁🙂]*$/i;
+const INTENT = /\?|price|cost|how much|charge|\$|when|what time|where|address|book|appointment|availab|deposit|schedule|call me|interested|how (do|long|soon)|can i|do you/i;
+const needsReply = (b: string) => !!b && !REACTION.test(b) && !ACK.test(b) && !CLOSURE.test(b) && INTENT.test(b);
 
 export type Who = "us" | "client" | "owner";
 export type BriefAction = { title: string; why: string; gain: string; who: Who; code: string };
@@ -162,7 +170,7 @@ function clientFacts(fl: Fleet, row: OverviewRow, slug: string | null, fleetByVe
     const hot = st.filter((s) => {
       if (s.last_message_direction !== "inbound" || s.status === "confirmed" || !s.activity_date) return false;
       const t = new Date(s.activity_date).getTime();
-      return t < twoH && t >= week && !CLOSURE.test(String(s.last_message_body ?? ""));
+      return t < twoH && t >= week && needsReply(String(s.last_message_body ?? ""));
     }).length;
     ai = {
       leads: st.length,
@@ -277,7 +285,7 @@ export function findIssues(f: Facts): Issue[] {
   if (f.kills.callPct != null && f.kills.callPct >= 7 && f.kills.callDead >= 2) out.push({ code: "call_kill", severity: "fix", who: "us", title: `Artist calls switch the AI off (${f.kills.callPct}% of leads)`, detail: `${f.kills.callDead} of ${f.kills.callQualified} leads lost all follow-ups after a call in 14 days${f.kills.callFixedAt ? " — marked fixed on " + f.kills.callFixedAt.slice(5, 10).replace("-", "/") + " but still happening: check the 'Stop follow ups' workflow is Draft" : ": fix the call workflow (remove the un-enroll step)"}.`, gain: perMonth(f.kills.callDead) });
   if (f.kills.textPct != null && f.kills.textPct >= 7 && f.kills.textDead >= 2) out.push({ code: "text_kill", severity: "fix", who: "client", title: `She texts leads herself and kills the AI (${f.kills.textPct}% of leads)`, detail: `${f.kills.textDead} of ${f.kills.textQualified} leads lost the AI after her own text in 14 days. Send the "Please let the AI work" snippet with her numbers.`, gain: perMonth(f.kills.textDead) });
 
-  if (f.ai && f.ai.hotWaiting >= 3) out.push({ code: "hot_waiting", severity: "fix", who: "us", title: `${f.ai.hotWaiting} leads are waiting for a reply`, detail: "They wrote last within the past week and nobody answered (2h+). Answer them today — these are the warmest leads in the account.", gain: "same-week deposits" });
+  if (f.ai && f.ai.hotWaiting >= 2) out.push({ code: "hot_waiting", severity: "fix", who: "us", title: `${f.ai.hotWaiting} leads asked something and got no answer`, detail: "They asked a question (price, when, where…) within the past week and nobody replied for 2h+. Answer them today — the warmest leads in the account.", gain: "same-week deposits" });
 
   for (const c of f.setup.checks) {
     if (c.code === "cant_charge" || c.code === "young_funnel" || c.code === "setup_ok") continue;
