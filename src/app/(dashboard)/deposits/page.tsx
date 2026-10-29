@@ -313,7 +313,7 @@ export default function DepositsPage() {
                     </td>
                     <td className="px-2 sm:px-3 py-0.5 font-semibold text-[#0e8f88] whitespace-nowrap">{money(r["Amount"])}</td>
                     <td className="hidden sm:table-cell px-3 py-0.5 text-[#697a91] whitespace-nowrap">{fmtDate(dateStr(r))}</td>
-                    <td className="hidden sm:table-cell px-3 py-0.5 text-[#697a91]">{String(r["Source"] ?? "—")}</td>
+                    <td className="hidden sm:table-cell px-3 py-0.5 text-[#697a91]">{String(r["Source"] ?? "—").replace(/fanbasis/i, "Commas")}</td>
                     <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap">
                       {rf ? (
                         <div className="flex items-center gap-1.5">
