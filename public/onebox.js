@@ -588,6 +588,10 @@
       var url = C.submitUrl || "";
       if (!url) { console.warn("[onebox] no submitUrl configured; lead:", payload); return; }
       payload.email = a.email || "";
+      /* The visitor id the page beacons use (visit, render, Instagram
+         slider), so slider use can be matched to who picked a time / paid
+         (owner, 10/29/2026). */
+      try { payload.visitorId = localStorage.getItem("ob_vid") || ""; } catch (e) {}
       fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1482,7 +1486,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "125";
+  var ENGINE_V = "126";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
