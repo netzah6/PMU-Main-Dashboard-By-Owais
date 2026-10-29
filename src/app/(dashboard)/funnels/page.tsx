@@ -816,13 +816,12 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   </>);
   /* Deposit ask (owner, 10/29/2026): the AI only speaks once a lead texts
      back, so the test is judged on leads who texted back BEFORE paying —
-     paying right on the page is shown but not counted for either side. */
+     paying right on the page isn't shown (owner, 10/29: not counted, so not needed). */
   const depPct = (s: DepSide) => (s.reached > 0 ? Math.round((s.paid / s.reached) * 1000) / 10 : null);
   const depRow = (name: string, note: string, s: DepSide) => (
     <tr className="border-t border-[#f0f4f8]">
       <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{name}</b><div className="text-[#8595a8] max-w-[380px]">{note}</div></td>
       <td className="py-1.5">{s.picked}</td>
-      <td className="py-1.5 text-[#8595a8]">{s.pagePaid}</td>
       <td className="py-1.5">{s.reached}</td>
       <td className="py-1.5">{s.paid}</td>
       <td className="py-1.5 font-semibold">{pct(depPct(s))}</td>
@@ -839,7 +838,6 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
             <thead><tr className="text-left text-[#697a91]">
               <th className="py-1 font-medium">Side</th>
               <th className="py-1 font-medium">Picked a time</th>
-              <th className="py-1 font-medium">Paid on the page (not counted)</th>
               <th className="py-1 font-medium">Texted back before paying</th>
               <th className="py-1 font-medium">Paid after</th>
               <th className="py-1 font-medium">Paid ÷ texted back</th>
@@ -849,7 +847,6 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
               {depRow("B — confirm + link", "The AI confirms the time they picked on the page and sends the reservation link in its first reply", d.dep.b)}
             </tbody>
           </table>
-          <div className="text-[11px] text-[#8595a8] mt-1">The AI only answers once a lead texts back, so the test counts leads who texted back before paying, and a deposit only if it came after. Paying right on the page never meets the AI, so it isn&rsquo;t counted. Updated hourly. Fair read after 3–4 weeks.</div>
         </div>
       : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Deposit ask (AI)</b> (A: today&rsquo;s conversation vs B: confirm the picked time + reservation link) — starts reporting with the first picker.</div>)}
     {d.offer && (d.offer.since
