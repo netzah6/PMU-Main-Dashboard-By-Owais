@@ -198,30 +198,25 @@ export default function AlertsPage() {
         )}>
           {open.length ? `${open.length} open` : "all clear"}
         </span>
+        {/* Filter rides on the headline row (owner 10/29/2026: save scrolling). */}
+        {types.length > 1 && (
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="text-sm border border-[#d7e0ea] rounded-lg px-3 py-1 bg-white text-[#34568a] font-semibold"
+          >
+            <option value="all">All alerts ({open.length})</option>
+            {types.map((t) => (
+              <option key={t} value={t}>
+                {typeMeta(t).icon} {typeMeta(t).label} ({open.filter((a) => a.type === t).length})
+              </option>
+            ))}
+          </select>
+        )}
         <button onClick={() => load()} title="Refresh" className="ml-auto p-1.5 rounded-lg border border-[#d7e0ea] text-[#34568a] hover:border-[#15B7AE]">
           <RefreshCw size={14} className={cn(loading && "animate-spin")} />
         </button>
       </div>
-      {/* Explainer stays off phones — it ate a whole line of scroll space. */}
-      <p className="mt-1 text-xs text-[#8595a8] hidden sm:block">
-        Auto-checks every few minutes: bot-looking &quot;Reply STOP&quot; texts to leads, clients who sound like they want to leave, and Make.com automations that stopped running.
-      </p>
-
-      {/* One compact dropdown instead of a row of filter chips. */}
-      {types.length > 1 && (
-        <select
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="mt-2 sm:mt-3 w-full sm:w-auto text-sm border border-[#d7e0ea] rounded-lg px-3 py-1.5 bg-white text-[#34568a] font-semibold"
-        >
-          <option value="all">All alerts ({open.length})</option>
-          {types.map((t) => (
-            <option key={t} value={t}>
-              {typeMeta(t).icon} {typeMeta(t).label} ({open.filter((a) => a.type === t).length})
-            </option>
-          ))}
-        </select>
-      )}
 
       <div className="mt-3 space-y-2">
         {loading && !open.length ? (
