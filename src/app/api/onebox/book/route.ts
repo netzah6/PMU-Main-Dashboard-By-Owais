@@ -234,6 +234,7 @@ export async function POST(req: NextRequest) {
       .eq("phone", phone)
       .is("ghl_appointment_id", null) // a returning client's earlier paid session stays recorded
       .then(() => {});
+    await stampPaid(svc, slug, phone, null);
     // Owner (2026-10-12): any booking glitch must reach the Alerts tab.
     await filePaidNotBookedAlert(svc, { slug, locationId, contactId, name: fullName, slotIso: startIso, error: aj.message ?? `appointment ${ar.status}` }).catch(() => {});
     return NextResponse.json(
@@ -316,7 +317,7 @@ export async function POST(req: NextRequest) {
       .eq("slug", slug)
       .eq("phone", phone)
       .or(bookedId ? `ghl_appointment_id.is.null,ghl_appointment_id.eq.${bookedId}` : "ghl_appointment_id.is.null")
-      .then(() => {}),
+      .then(() => stampPaid(svc, slug, phone, bookedId)),
     /* The template's workflows read the booked slot from the contact's
        "CC - Reserved Appointment Time" field — keep it filled here too.
        (B2C only: the agency's B2B workflows read the appointment itself.)
@@ -394,4 +395,18 @@ export async function POST(req: NextRequest) {
   ]);
 
   return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
+}
+
+/* When the deposit was paid (owner, 10/29/2026: the deposit-ask test must
+   tell a lead who paid right on the page from one who paid after texting
+   the AI). First payment only — a retry of the same booking keeps it. */
+async function stampPaid(svc: ReturnType<typeof createServiceClient>, slug: string, phone: string, bookedId: string | null) {
+  await svc
+    .from("onebox_leads")
+    .update({ paid_at: new Date().toISOString() })
+    .eq("slug", slug)
+    .eq("phone", phone)
+    .is("paid_at", null)
+    .or(bookedId ? `ghl_appointment_id.is.null,ghl_appointment_id.eq.${bookedId}` : "ghl_appointment_id.is.null")
+    .then(() => {}, () => {});
 }

@@ -103,7 +103,8 @@ export async function POST(req: NextRequest) {
             slotLead?.id
               ? svcSlot
                   .from("onebox_leads")
-                  .update({ answers: { ...((slotLead.answers as Record<string, unknown> | null) ?? {}), depAsk: depArm } })
+                  // depAskAt = the first pick (the start of the AI's window for the readout).
+                  .update({ answers: { ...((slotLead.answers as Record<string, unknown> | null) ?? {}), depAsk: depArm, depAskAt: String((slotLead.answers as Record<string, unknown> | null)?.depAskAt ?? "") || new Date().toISOString() } })
                   .eq("id", slotLead.id)
                   .then((r) => r)
               : Promise.resolve(),
