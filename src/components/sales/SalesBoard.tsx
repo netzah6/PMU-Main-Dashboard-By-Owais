@@ -249,27 +249,11 @@ export function SalesBoardView() {
         <button onClick={refreshFollowUps} disabled={syncing || loading} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#9fe0dc] bg-[#e9f9f8] text-[#0e8f88] hover:bg-[#d8f3f1] disabled:opacity-60" title="Re-read the GHL call/text log for every lead on the lists (also runs every hour)">
           {syncing ? <Loader2 size={11} className="animate-spin" /> : <span>📞</span>} {syncing ? "Reading the call log…" : "Refresh follow-ups"}
         </button>
+        {syncMsg && <span className="text-[11px] font-semibold text-[#0e8f88]">{syncMsg}</span>}
         <button onClick={load} disabled={loading} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#d7e0ea] bg-white text-[#34568a] hover:bg-[#f6f9fc] disabled:opacity-60" title="The sheets sync every 15 minutes; this re-reads what's synced">
           <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> Reload
         </button>
       </div>
-      <div className="text-[11px] text-[#697a91]">
-        Follow-ups come from the GHL call log: <b>a call over 30 seconds</b>, or <b>2 call attempts + a text</b> = 1 follow-up.
-        {b.followUpsSyncedAt ? ` Last read ${new Date(b.followUpsSyncedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : " Not read yet — press Refresh follow-ups."}
-        {syncMsg && <span className="ml-1 font-semibold text-[#0e8f88]">{syncMsg}</span>}
-      </div>
-      {seat !== "team" && (() => {
-        const former = seat === "setter" ? b.formerSetters : b.formerClosers;
-        const names = Object.entries(former).sort((a, c) => c[1] - a[1]);
-        if (!names.length) return null;
-        return (
-          <div className="rounded-lg border border-[#fcd9a8] bg-[#fff7ec] px-3 py-2 text-[11px] text-[#9a5b00]">
-            ⚠ <b>{names.reduce((t, [, n]) => t + n, 0)} {seat === "setter" ? "leads" : "demos"} in the last 90 days</b> are marked in the sheet with someone who is not on the team any more
-            ({names.map(([n, c]) => `${n} ${c}`).join(", ")}). Either the rep left, or a returning lead was written into their old row, which still carries the old rep&apos;s name (in GHL those leads are assigned to the current setter).
-            They are pooled under <b>Former reps</b> and counted in Everyone; fix the name in the Sales Calls Stats sheet and they move to the right person.
-          </div>
-        );
-      })()}
       {scope?.previewNames && seat === "closer" && (
         <div className="flex items-center gap-2 rounded-lg border border-[#fcd9a8] bg-[#fff7ec] px-3 py-2 text-sm text-[#9a5b00]">
           👁 Previewing the Sales tab exactly as this closer sees it:
@@ -288,6 +272,23 @@ export function SalesBoardView() {
       )}
       {seat === "closer" && <CloserView b={b} who={who} win={win} />}
       {seat === "team" && <TeamTable b={b} win={win} />}
+      {/* Notes at the bottom (owner 10/29/2026: keep the numbers up top). */}
+      <div className="text-[11px] text-[#697a91]">
+        Follow-ups come from the GHL call log: <b>a call over 30 seconds</b>, or <b>2 call attempts + a text</b> = 1 follow-up.
+        {b.followUpsSyncedAt ? ` Last read ${new Date(b.followUpsSyncedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : " Not read yet — press Refresh follow-ups."}
+      </div>
+      {seat !== "team" && (() => {
+        const former = seat === "setter" ? b.formerSetters : b.formerClosers;
+        const names = Object.entries(former).sort((a, c) => c[1] - a[1]);
+        if (!names.length) return null;
+        return (
+          <div className="rounded-lg border border-[#fcd9a8] bg-[#fff7ec] px-3 py-2 text-[11px] text-[#9a5b00]">
+            ⚠ <b>{names.reduce((t, [, n]) => t + n, 0)} {seat === "setter" ? "leads" : "demos"} in the last 90 days</b> are marked in the sheet with someone who is not on the team any more
+            ({names.map(([n, c]) => `${n} ${c}`).join(", ")}). Either the rep left, or a returning lead was written into their old row, which still carries the old rep&apos;s name (in GHL those leads are assigned to the current setter).
+            They are pooled under <b>Former reps</b> and counted in Everyone; fix the name in the Sales Calls Stats sheet and they move to the right person.
+          </div>
+        );
+      })()}
     </div>
   );
 }
