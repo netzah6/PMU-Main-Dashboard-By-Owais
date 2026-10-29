@@ -46,56 +46,56 @@ function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, 
   const open = a.status === "open";
   return (
     <div className={cn("rounded-xl border bg-white p-3 sm:p-4", open ? "border-[#e4ebf2]" : "border-[#eef2f6] opacity-70")}>
-      <div className="flex items-start gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap", m.chip)}>
           {m.icon} {m.label}
         </span>
         {a.severity === "high" && open && (
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-red-50 text-red-700 border-red-200">HIGH</span>
         )}
+        {/* Who takes care of this client + one-click jump to the contact in GHL. */}
+        {(() => {
+          const csm = typeof a.meta?.csm === "string" ? a.meta.csm : "";
+          const buyer = typeof a.meta?.media_buyer === "string" ? a.meta.media_buyer : "";
+          // Older alerts stored one combined "Assigned · Media buyer" string.
+          const legacy = typeof a.meta?.team === "string" ? a.meta.team : "";
+          const people: Array<{ name: string; role: string }> = csm || buyer
+            ? [
+                ...(csm ? [{ name: csm, role: "Client Success Coach" }] : []),
+                ...(buyer ? [{ name: buyer, role: "Media buyer" }] : []),
+              ]
+            : legacy.split("·").map((n) => ({ name: n.trim(), role: "Looks after this client" })).filter((p) => p.name);
+          const link = typeof a.meta?.link === "string" ? a.meta.link : "";
+          const contact = typeof a.meta?.contact_name === "string" ? a.meta.contact_name : "";
+          if (!people.length && !link) return null;
+          return (
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Same name colours as the Performance and Clients tabs. */}
+              {people.map((p) => {
+                const c = userColor(p.name);
+                return (
+                  <span key={p.role + p.name} title={p.role}
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap"
+                    style={c ? { background: c.bg, color: c.text, borderColor: c.border }
+                             : { background: "#f1f5f9", color: "#64748b", borderColor: "#d7e0ea" }}>
+                    {p.name}
+                  </span>
+                );
+              })}
+              {link && (
+                <a href={link} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d5f0ee]">
+                  {contact ? `Open ${contact} in GHL` : "Open contact in GHL"} ↗
+                </a>
+              )}
+            </div>
+          );
+        })()}
         <span className="text-[11px] text-[#8595a8] ml-auto whitespace-nowrap">
           {open ? ago(a.created_at) : `${a.muted ? "muted" : "resolved"} ${a.resolved_at ? ago(a.resolved_at) : ""}${a.resolved_by ? ` by ${a.resolved_by.split("@")[0]}` : ""}`}
         </span>
       </div>
       <div className="mt-2 text-sm font-semibold text-[#1c2f4a]">{a.title}</div>
-      {/* Who takes care of this client + one-click jump to the contact in GHL. */}
-      {(() => {
-        const csm = typeof a.meta?.csm === "string" ? a.meta.csm : "";
-        const buyer = typeof a.meta?.media_buyer === "string" ? a.meta.media_buyer : "";
-        // Older alerts stored one combined "Assigned · Media buyer" string.
-        const legacy = typeof a.meta?.team === "string" ? a.meta.team : "";
-        const people: Array<{ name: string; role: string }> = csm || buyer
-          ? [
-              ...(csm ? [{ name: csm, role: "Client Success Coach" }] : []),
-              ...(buyer ? [{ name: buyer, role: "Media buyer" }] : []),
-            ]
-          : legacy.split("·").map((n) => ({ name: n.trim(), role: "Looks after this client" })).filter((p) => p.name);
-        const link = typeof a.meta?.link === "string" ? a.meta.link : "";
-        const contact = typeof a.meta?.contact_name === "string" ? a.meta.contact_name : "";
-        if (!people.length && !link) return null;
-        return (
-          <div className="mt-1 flex items-center gap-2 flex-wrap">
-            {/* Same name colours as the Performance and Clients tabs. */}
-            {people.map((p) => {
-              const c = userColor(p.name);
-              return (
-                <span key={p.role + p.name} title={p.role}
-                  className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap"
-                  style={c ? { background: c.bg, color: c.text, borderColor: c.border }
-                           : { background: "#f1f5f9", color: "#64748b", borderColor: "#d7e0ea" }}>
-                  {p.name}
-                </span>
-              );
-            })}
-            {link && (
-              <a href={link} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d5f0ee]">
-                {contact ? `Open ${contact} in GHL` : "Open contact in GHL"} ↗
-              </a>
-            )}
-          </div>
-        );
-      })()}
       {a.detail && (
         <div className={cn("mt-1 text-[13px] text-[#5a6b82] whitespace-pre-wrap", !expanded && "line-clamp-3")}>
           {a.detail}
