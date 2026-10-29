@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { MINI_REFRESH_EVENT } from "@/components/agent/MacMiniTracker";
 import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
+import { StepVideos, useStepVideos } from "@/components/onboarding/StepVideos";
 import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, PREAPPROVABLE, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
 /* The New Client Setup run on an Onboarding card.
@@ -289,7 +290,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         {/* The plan */}
         <div>
           <button onClick={() => setShowPlan((v) => !v)} className="text-[11px] text-[#0e8f88] hover:underline">{showPlan ? "hide" : "show"} the {RUNBOOK.length}-step plan</button>
-          {showPlan && <PlanList steps={steps} setup={null} cards={{}} />}
+          {showPlan && <PlanList steps={steps} setup={null} cards={{}} isAdmin={isAdmin} />}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -369,7 +370,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         </div>
       )}
 
-      <PlanList steps={steps} setup={setup} cards={data.cards} onboardingId={onboardingId}
+      <PlanList steps={steps} setup={setup} cards={data.cards} onboardingId={onboardingId} isAdmin={isAdmin}
         actions={(s, st) => {
           const card = st.proposal_id ? data.cards[st.proposal_id] : undefined;
           const failed = st.status === "failed" || card?.status === "denied";
@@ -545,12 +546,13 @@ function CustomValuesList({ onboardingId, locationId }: { onboardingId: string; 
   );
 }
 
-function PlanList({ steps, setup, cards, actions, onboardingId }: {
+function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false }: {
   steps: RunbookStep[]; setup: Setup | null; cards: Record<string, Card>;
   actions?: (s: RunbookStep, st: StepState) => React.ReactNode;
-  onboardingId?: string;
+  onboardingId?: string; isAdmin?: boolean;
 }) {
   const [cvOpen, setCvOpen] = useState(false);
+  const videos = useStepVideos();
   /* Once a run exists: finished steps on the left, what's left on the right,
      so a coach sees at a glance what the AI Agent did and what is hers
      (owner 2026-10-20 — the single long list used half the screen). */
@@ -621,6 +623,8 @@ function PlanList({ steps, setup, cards, actions, onboardingId }: {
                         </div>
                       )}
                       {!setup && s.how && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.how}>{s.how}</p>}
+                      {/* How-to clips for doing this step by hand (owner 10/29/2026). */}
+                      <StepVideos stepKey={s.key} stepLabel={`${s.n}. ${s.title ?? s.label}`} videos={videos.byStep[s.key] ?? []} isAdmin={isAdmin} onChanged={videos.reload} />
                       {ic?.label && !["done", "skipped"].includes(st.status) && <p className={cn("text-[10.5px] font-semibold", ic.cls)}>{ic.label}</p>}
                       {st.note && setup && <StepNote note={st.note} status={st.status} />}
                       {s.key === "account_cvs" && cvOpen && setup?.location_id && onboardingId && <CustomValuesList onboardingId={onboardingId} locationId={setup.location_id} />}
