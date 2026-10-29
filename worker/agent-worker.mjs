@@ -52,7 +52,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 //    shutdown, never a kill);
 //  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
 //    works), so Chrome's account reconcilor can never log the mailbox out.
-const WORKER_VERSION = 5; // self-update refuses to downgrade below this
+const WORKER_VERSION = 6; // self-update refuses to downgrade below this
 const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const LOGIN_LOCK = join(HOME, "login.lock");
 // --profile-directory=Default: without it Chrome may open the "Who's using
@@ -298,6 +298,9 @@ async function chromeGone() {
   if (!(await waitForExit(pid, 40_000))) log(`Chrome pid ${pid} did not quit; the next poll will retry`);
 }
 
+// Errors that are Anthropic's side being busy, not the task failing.
+const TRANSIENT_RE = /overloaded_error|overloaded|rate_limit_error|"type":"api_error"|\b529\b|internal server error|temporarily unavailable/i;
+
 function resultText(out) {
   try { const j = JSON.parse(out); return String(j.result ?? ""); } catch { return out; }
 }
@@ -334,9 +337,27 @@ async function doTask(t) {
   // mid-task (the claim ping only happens between tasks).
   const ping = setInterval(() => { api("ping", { host: hostname(), task: t.id }).catch(() => {}); }, 60_000);
   let code, out, err;
-  try { ({ code, out, err } = await runClaude(promptFor(t), dir)); }
+  let rep = null;
+  try {
+    /* Anthropic's API sometimes answers "Overloaded" / 529 / 500 for a few
+       minutes (Maika Nails And Spa, 10/29/2026: steps 21–23 failed on it and
+       the whole setup stopped). Such a run died before doing anything, so
+       wait and run the task again — 2, then 5, then 10 minutes — instead of
+       failing it. Only for runs that ended early, so the retries stay well
+       inside the dashboard's 50-minute stale limit. */
+    const WAITS = [2, 5, 10];
+    for (let attempt = 0; ; attempt++) {
+      const startedAt = Date.now();
+      ({ code, out, err } = await runClaude(promptFor(t), dir));
+      rep = parseReport(out);
+      const ranMin = (Date.now() - startedAt) / 60_000;
+      const totalMin = (Date.now() - taskStartedAt) / 60_000;
+      if (rep || attempt >= WAITS.length || !TRANSIENT_RE.test(`${resultText(out)}\n${err}`) || ranMin > 10 || totalMin + WAITS[attempt] > 30) break;
+      log(`task ${t.id}: Anthropic API busy (${(resultText(out) || err).match(TRANSIENT_RE)?.[0]}) — trying again in ${WAITS[attempt]} min`);
+      await new Promise((r) => setTimeout(r, WAITS[attempt] * 60_000));
+    }
+  }
   finally { clearInterval(ping); taskStartedAt = 0; }
-  const rep = parseReport(out);
   // Claude Code signed out / lost its session on the Mini: the owner must
   // re-sign in by hand, so say that instead of a vague "did not finish".
   const needsSignIn = !rep && /not logged in|please run \/login|authentication|invalid api key|unauthorized|oauth token/i.test(err || out);
