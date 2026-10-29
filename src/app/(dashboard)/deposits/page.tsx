@@ -186,6 +186,50 @@ export default function DepositsPage() {
             {syncing ? "updating" : "live"}
           </span>
         </div>
+        {/* Search + month + duplicates ride on the headline row (owner 10/29/2026: save scrolling). */}
+        <div className="flex flex-wrap gap-2 items-center flex-1 min-w-0">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
+            <input type="text" placeholder="Search client, name, or email…" value={search} onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE]" />
+          </div>
+          <select value={month} onChange={(e) => setMonth(e.target.value)}
+            className="px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
+            <option value="All">All months</option>
+            {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+          </select>
+  
+          <div className="relative">
+            <button onClick={() => setDupOpen((o) => !o)}
+              className={cn("flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors",
+                dups.length ? "bg-[#fff4ed] border-[#fbcfae] text-[#c2410c] hover:bg-[#ffe9da]" : "bg-white border-[#e4ebf2] text-[#697a91] hover:border-[#cbd5e1]")}>
+              <Copy size={14} /> Duplicates
+              {dups.length > 0 && <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#ea580c] text-white">{dups.length}</span>}
+            </button>
+            {dupOpen && (
+              <div className="absolute left-0 mt-1.5 z-40 w-[calc(100vw-3rem)] sm:w-[440px] max-h-[440px] overflow-auto rounded-xl border border-[#e4ebf2] bg-white p-3 space-y-2" style={{ boxShadow: "0 10px 30px -8px rgba(0,0,0,0.25)" }}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-[#1f3559]">Duplicate deposits ({dups.length})</h3>
+                  <button onClick={() => setDupOpen(false)} className="text-[#94a3b8] hover:text-[#1e2a3a]"><X size={15} /></button>
+                </div>
+                {dups.length === 0 ? <p className="text-xs text-[#8595a8] py-3 text-center">No duplicate deposits 🎉</p> : (
+                  <ul className="space-y-1.5">
+                    {dups.map((d, i) => (
+                      <li key={i} className="rounded-lg border border-[#eef3f8] bg-[#fafcfe] px-2.5 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium text-[#1f3559] truncate">{d.name || d.email || "—"}</span>
+                          <span className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-[#fde8d6] text-[#c2410c]">{d.dates.length}×</span>
+                        </div>
+                        <div className="text-[11px] text-[#697a91] truncate">{d.business}{d.email ? ` · ${d.email}` : ""}</div>
+                        <div className="text-[10px] text-[#8595a8] mt-0.5">{d.dates.map(fmtDate).join(" · ")}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <button onClick={loadRefunds} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]"><RefreshCw size={12} /> Refunds</button>
           {role === "admin" && (
@@ -231,50 +275,6 @@ export default function DepositsPage() {
           </div>
         </div>
       )}
-
-      <div className="flex flex-wrap gap-2 items-center">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#697a91]" />
-          <input type="text" placeholder="Search client, name, or email…" value={search} onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE]" />
-        </div>
-        <select value={month} onChange={(e) => setMonth(e.target.value)}
-          className="px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#34568a] focus:outline-none focus:border-[#15B7AE]">
-          <option value="All">All months</option>
-          {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
-        </select>
-
-        <div className="relative">
-          <button onClick={() => setDupOpen((o) => !o)}
-            className={cn("flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors",
-              dups.length ? "bg-[#fff4ed] border-[#fbcfae] text-[#c2410c] hover:bg-[#ffe9da]" : "bg-white border-[#e4ebf2] text-[#697a91] hover:border-[#cbd5e1]")}>
-            <Copy size={14} /> Duplicates
-            {dups.length > 0 && <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#ea580c] text-white">{dups.length}</span>}
-          </button>
-          {dupOpen && (
-            <div className="absolute left-0 mt-1.5 z-40 w-[calc(100vw-3rem)] sm:w-[440px] max-h-[440px] overflow-auto rounded-xl border border-[#e4ebf2] bg-white p-3 space-y-2" style={{ boxShadow: "0 10px 30px -8px rgba(0,0,0,0.25)" }}>
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[#1f3559]">Duplicate deposits ({dups.length})</h3>
-                <button onClick={() => setDupOpen(false)} className="text-[#94a3b8] hover:text-[#1e2a3a]"><X size={15} /></button>
-              </div>
-              {dups.length === 0 ? <p className="text-xs text-[#8595a8] py-3 text-center">No duplicate deposits 🎉</p> : (
-                <ul className="space-y-1.5">
-                  {dups.map((d, i) => (
-                    <li key={i} className="rounded-lg border border-[#eef3f8] bg-[#fafcfe] px-2.5 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium text-[#1f3559] truncate">{d.name || d.email || "—"}</span>
-                        <span className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-[#fde8d6] text-[#c2410c]">{d.dates.length}×</span>
-                      </div>
-                      <div className="text-[11px] text-[#697a91] truncate">{d.business}{d.email ? ` · ${d.email}` : ""}</div>
-                      <div className="text-[10px] text-[#8595a8] mt-0.5">{d.dates.map(fmtDate).join(" · ")}</div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Deposits table with a Refund column */}
       <div className="rounded-xl border border-[#e4ebf2] bg-white overflow-x-auto sm:overflow-auto">
