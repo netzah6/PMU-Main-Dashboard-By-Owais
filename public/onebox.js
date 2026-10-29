@@ -1653,10 +1653,11 @@
       var igv = null, igvDirty = false;
       try { igv = JSON.parse(localStorage.getItem(igvKey) || "null"); } catch (e) {}
       if (!igv || typeof igv !== "object" || !igv.s || !igv.r) igv = { o: 0, f: 0, s: [], w: 0, r: [] };
-      var igvSave = function () { igvDirty = true; try { localStorage.setItem(igvKey, JSON.stringify(igv)); } catch (e) {} };
+      var igvOff = function () { return /[?&]preview=/.test(location.search); };
+      var igvSave = function () { if (igvOff()) return; igvDirty = true; try { localStorage.setItem(igvKey, JSON.stringify(igv)); } catch (e) {} };
       var igvSend = function () {
         try {
-          if (!igvDirty || !igv.o || /[?&]preview=/.test(location.search)) return;
+          if (!igvDirty || !igv.o || igvOff()) return;
           igvDirty = false;
           var vid = "";
           try { vid = localStorage.getItem("ob_vid") || ""; } catch (e) {}
