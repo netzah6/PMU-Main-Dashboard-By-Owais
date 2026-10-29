@@ -1482,7 +1482,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "124";
+  var ENGINE_V = "125";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
@@ -1643,6 +1643,37 @@
     if (!window.__obIgLb) {
       window.__obIgLb = true;
       var lbIdx = 0, lbEl = null, lbX0 = null;
+      /* Slider usage (owner, 10/29/2026: do visitors tap a post and keep
+         swiping past the 6 tiles?). The day's running totals live in
+         localStorage and go to /api/onebox/igview when the slider closes or
+         the page is left — one tiny beacon, nothing loaded up front. Never
+         in ?preview; nothing here can break the page. */
+      var igvDay = new Date().toISOString().slice(0, 10);
+      var igvKey = "ob_igv_" + (C.slug || "") + "_" + igvDay;
+      var igv = null, igvDirty = false;
+      try { igv = JSON.parse(localStorage.getItem(igvKey) || "null"); } catch (e) {}
+      if (!igv || typeof igv !== "object" || !igv.s || !igv.r) igv = { o: 0, f: 0, s: [], w: 0, r: [] };
+      var igvOff = function () { return /[?&]preview=/.test(location.search); };
+      var igvSave = function () { if (igvOff()) return; igvDirty = true; try { localStorage.setItem(igvKey, JSON.stringify(igv)); } catch (e) {} };
+      var igvSend = function () {
+        try {
+          if (!igvDirty || !igv.o || igvOff()) return;
+          igvDirty = false;
+          var vid = "";
+          try { vid = localStorage.getItem("ob_vid") || ""; } catch (e) {}
+          if (!vid) vid = window.__obTmpVid = window.__obTmpVid || ("t-" + Date.now() + "-" + Math.floor(Math.random() * 1e9));
+          var deep = 0, past = 0;
+          for (var k = 0; k < igv.s.length; k++) { deep = Math.max(deep, igv.s[k] + 1); if (igv.s[k] >= 6) past++; }
+          var url = (C.submitUrl || "").replace(/submit$/, "igview");
+          if (!url) return;
+          var json = JSON.stringify({ slug: C.slug || "", visitorId: vid, day: igvDay, v: ENGINE_V, opens: igv.o, firstTile: igv.f,
+            seen: igv.s.length, deepest: deep, past6: past, avail: window.__obIgImgs.length, swipes: igv.w, reels: igv.r.length });
+          if (navigator.sendBeacon && navigator.sendBeacon(url, json)) return;
+          fetch(url, { method: "POST", body: json, keepalive: true }).catch(function () {});
+        } catch (e) {}
+      };
+      document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") igvSend(); });
+      window.addEventListener("pagehide", igvSend);
       /* A reel plays (sound on — the tap that opened the viewer allows it;
          muted if the browser refuses); a picture shows as before. Moving to
          another item drops the previous video, which stops it. */
@@ -1650,6 +1681,9 @@
         var box = lbEl.querySelector(".lbmedia");
         var vid = (window.__obIgVids || [])[lbIdx] || "";
         var img = window.__obIgImgs[lbIdx];
+        if (igv.s.indexOf(lbIdx) < 0) igv.s.push(lbIdx);
+        if (vid && igv.r.indexOf(lbIdx) < 0) igv.r.push(lbIdx);
+        igvSave();
         if (vid) {
           box.innerHTML = '<video playsinline controls preload="auto"></video>';
           var v = box.firstChild; v.poster = img; v.src = vid;
@@ -1658,10 +1692,12 @@
           box.innerHTML = '<img alt="Instagram post">'; box.firstChild.src = img;
         }
       };
-      var lbClose = function () { if (!lbEl) return; lbEl.parentNode.removeChild(lbEl); lbEl = null; document.body.style.overflow = ""; root.classList.remove("lb-open"); };
+      var lbClose = function () { if (!lbEl) return; lbEl.parentNode.removeChild(lbEl); lbEl = null; document.body.style.overflow = ""; root.classList.remove("lb-open"); igvSend(); };
+      var lbGo = function (d) { var n = window.__obIgImgs.length; lbIdx = (lbIdx + d + n) % n; igv.w++; lbShow(); };
       var lbOpen = function (i) {
         if (!window.__obIgImgs.length) return;
         lbIdx = Math.max(0, Math.min(window.__obIgImgs.length - 1, i));
+        igv.o++; if (!igv.f) igv.f = lbIdx + 1;
         lbEl = document.createElement("div"); lbEl.className = "iglb";
         lbEl.innerHTML = '<button class="lbx" type="button" aria-label="Close">&#215;</button>' +
           (window.__obIgImgs.length > 1 ? '<button class="lbp" type="button" aria-label="Previous">&#8249;</button><button class="lbn" type="button" aria-label="Next">&#8250;</button>' : "") +
@@ -1669,21 +1705,21 @@
         root.appendChild(lbEl); root.classList.add("lb-open"); document.body.style.overflow = "hidden"; lbShow();
         lbEl.addEventListener("click", function (e) {
           if (e.target.closest(".lbx") || e.target === lbEl) { lbClose(); return; }
-          if (e.target.closest(".lbp")) { lbIdx = (lbIdx - 1 + window.__obIgImgs.length) % window.__obIgImgs.length; lbShow(); }
-          if (e.target.closest(".lbn")) { lbIdx = (lbIdx + 1) % window.__obIgImgs.length; lbShow(); }
+          if (e.target.closest(".lbp")) lbGo(-1);
+          if (e.target.closest(".lbn")) lbGo(1);
         });
         lbEl.addEventListener("touchstart", function (e) { lbX0 = e.touches[0].clientX; }, { passive: true });
         lbEl.addEventListener("touchend", function (e) {
           if (lbX0 == null) return; var dx = e.changedTouches[0].clientX - lbX0; lbX0 = null;
           if (Math.abs(dx) < 40 || window.__obIgImgs.length < 2) return;
-          lbIdx = (lbIdx + (dx < 0 ? 1 : -1) + window.__obIgImgs.length) % window.__obIgImgs.length; lbShow();
+          lbGo(dx < 0 ? 1 : -1);
         }, { passive: true });
       };
       document.addEventListener("keydown", function (e) {
         if (!lbEl) return;
         if (e.key === "Escape") lbClose();
-        if (e.key === "ArrowRight") { lbIdx = (lbIdx + 1) % window.__obIgImgs.length; lbShow(); }
-        if (e.key === "ArrowLeft") { lbIdx = (lbIdx - 1 + window.__obIgImgs.length) % window.__obIgImgs.length; lbShow(); }
+        if (e.key === "ArrowRight") lbGo(1);
+        if (e.key === "ArrowLeft") lbGo(-1);
       });
       document.addEventListener("click", function (e) {
         var t = e.target && e.target.closest ? e.target.closest(".iggrid span[data-i]") : null;
