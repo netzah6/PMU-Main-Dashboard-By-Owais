@@ -53,6 +53,10 @@
       "schedule": "5 8 * * *"
     },
     {
+      "path": "/api/cron/dep-ask",
+      "schedule": "25 * * * *"
+    },
+    {
       "path": "/api/cron/ppa-appointments",
       "schedule": "0 */12 * * *"
     },
