@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -98,6 +98,11 @@ export default function BlastPage() {
       .finally(() => setStagesLoading(false));
   }, [clients]);
 
+  /* Phones: the owner's taps on a stage chip only showed the hover outline
+     and never selected it (10/30/2026, iPhone). Toggle on the finger's
+     pointer-up and skip the click the browser may synthesize afterwards;
+     mouse and keyboard still go through onClick. */
+  const touchToggledAt = useRef(0);
   const toggleStage = (id: string) => {
     setPreview(null);
     setSelStages((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -308,15 +313,24 @@ export default function BlastPage() {
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {stages.map((s) => (
-                <button key={s.stage_id} onClick={() => toggleStage(s.stage_id)}
-                  className={cn("px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors",
+                <button key={s.stage_id} type="button" aria-pressed={selStages.has(s.stage_id)}
+                  onPointerUp={(e) => { if (e.pointerType === "touch") { touchToggledAt.current = Date.now(); toggleStage(s.stage_id); } }}
+                  onClick={() => { if (Date.now() - touchToggledAt.current < 800) return; toggleStage(s.stage_id); }}
+                  className={cn("px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors touch-manipulation select-none",
                     selStages.has(s.stage_id)
                       ? "bg-[#15B7AE] border-[#15B7AE] text-white"
-                      : "bg-white border-[#d7e0ea] text-[#34568a] hover:border-[#15B7AE]")}>
-                  {s.stage_name}
+                      : "bg-white border-[#d7e0ea] text-[#34568a] [@media(hover:hover)]:hover:border-[#15B7AE]")}>
+                  {selStages.has(s.stage_id) ? "✓ " : ""}{s.stage_name}
                 </button>
               ))}
             </div>
+          )}
+          {!stagesLoading && stages.length > 0 && (
+            <p className={cn("text-[11px] font-semibold", selStages.size ? "text-[#0e8f88]" : "text-[#8595a8]")}>
+              {selStages.size
+                ? `Selected: ${stages.filter((x) => selStages.has(x.stage_id)).map((x) => x.stage_name).join(", ")}`
+                : "Tap one or more stages above to choose who gets the text."}
+            </p>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
