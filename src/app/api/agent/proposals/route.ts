@@ -19,7 +19,7 @@ export async function GET() {
     .limit(access.isAdmin ? 60 : 200);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const proposals = (data ?? []).filter((p) => !String((p as { conversation_id?: string }).conversation_id ?? "").startsWith("keepalive:")).filter((p) => canSee(access, p as { contact_name?: string | null; action_detail?: string | null; action_type?: string | null; client_message?: string | null })).slice(0, 60);
+  const proposals = (data ?? []).filter((p) => !String((p as { conversation_id?: string }).conversation_id ?? "").startsWith("keepalive:")).filter((p) => !String((p as { conversation_id?: string }).conversation_id ?? "").startsWith("igengage:")).filter((p) => canSee(access, p as { contact_name?: string | null; action_detail?: string | null; action_type?: string | null; client_message?: string | null })).slice(0, 60);
   // What the last scan did (and why it skipped what it skipped).
   const { data: lastScan } = await svc.from("app_settings").select("value").eq("key", "agent_scan_last").maybeSingle();
   // When the Mac Mini last asked for work — shows online / offline.

@@ -8,6 +8,7 @@ import { onA2pProposalClosed, parseA2pConvId } from "@/lib/pool-a2p";
 import { onCnamProposalClosed, parseCnamConvId } from "@/lib/pool-cnam";
 import { onIgPostsClosed, parseIgPostsConvId } from "@/lib/ig-posts-check";
 import { isCloseBotCheck, onCloseBotCheckClosed } from "@/lib/closebot-coverage";
+import { isIgEngageTask, onIgEngageClosed } from "@/lib/ig-engage";
 
 // ── AI agent, browser worker (owner, 2026-10-10) ─────────────────────────────
 // Every approved account change is done in a real Chrome on the Mac Mini, on
@@ -44,7 +45,7 @@ export type WorkerTask = {
    1 = approved client account changes, 2 = background pool / CloseBot checks. */
 function queueLane(conversationId: string | null | undefined): 0 | 1 | 2 {
   if (parseSetupConvId(conversationId) || parseSnapshotConvId(conversationId)) return 0;
-  if (parseA2pConvId(conversationId) || parseCnamConvId(conversationId) || isCloseBotCheck(conversationId) || parseIgPostsConvId(conversationId)) return 2;
+  if (parseA2pConvId(conversationId) || parseCnamConvId(conversationId) || isCloseBotCheck(conversationId) || parseIgPostsConvId(conversationId) || isIgEngageTask(conversationId)) return 2;
   return 1;
 }
 
@@ -117,7 +118,7 @@ export async function claimNext(svc: Svc, host: string, recover = false): Promis
   // Setup-run and pool-snapshot cards carry their location; "Clean New
   // Account N" is not a client and has no Clients Master row to resolve.
   const setupRef = parseSetupConvId(p.conversation_id) ?? parseSnapshotConvId(p.conversation_id) ?? parseA2pConvId(p.conversation_id) ?? parseCnamConvId(p.conversation_id);
-  const loc = setupRef || isCloseBotCheck(p.conversation_id) || parseIgPostsConvId(p.conversation_id) ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
+  const loc = setupRef || isCloseBotCheck(p.conversation_id) || parseIgPostsConvId(p.conversation_id) || isIgEngageTask(p.conversation_id) ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
   if (loc) { locationId = locationId || loc.locationId; business = loc.businessName || null; }
   if (!locationId) {
     await svc.from("agent_proposals").update({
@@ -149,6 +150,7 @@ export type FinishInput = {
   steps?: string[];
   screenshots?: Array<{ name: string; url: string }>; // from uploadProof
   files?: Array<{ name: string; url: string; bytes?: number }>; // from uploadFile (Excel, CSV, PDF…)
+  data?: unknown; // structured report for tasks that need one (Instagram engagement)
 };
 
 /* A file the task PRODUCED (owner, 2026-10-12: the Excel of a client's
@@ -249,6 +251,14 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
   if (parseIgPostsConvId(p.conversation_id)) {
     try { await onIgPostsClosed(svc, { id: p.id, conversation_id: p.conversation_id, status: input.status, result }); }
     catch { /* the next ig-fetch run queues it again */ }
+  }
+
+  /* Instagram engagement: the Instagram tab is the report — no daily owner
+     text (a warning from Instagram texts the owner from inside the hook). */
+  if (isIgEngageTask(p.conversation_id)) {
+    try { await onIgEngageClosed(svc, { id: p.id, status: input.status, summary: input.summary, data: input.data }); }
+    catch { /* the card keeps the summary; tomorrow's run picks up the rest */ }
+    return { ok: true };
   }
 
   /* Weekly CloseBot check: the Alerts tab is the report — no owner text. */
