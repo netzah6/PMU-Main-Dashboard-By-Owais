@@ -15,6 +15,8 @@ type Job = {
   id: string; client_label: string | null; status: string; total: number; sent: number; failed: number;
   send_at: string; created_at: string; stage_names: string[]; message_template: string; timezone?: string | null;
   error?: string | null; fail_reasons?: Array<{ reason: string; n: number }>;
+  replies_total?: number; replies_positive?: number;
+  positive_replies?: Array<{ name: string | null; text: string | null; at: string | null }>;
 };
 
 /* Blast times are the CLIENT's time (owner, 10/19/2026). A datetime-local
@@ -156,6 +158,7 @@ export default function BlastPage() {
 
   // Reschedule flow: pick date+time, then confirm — nothing sends until then.
   const [reschedId, setReschedId] = useState<string | null>(null);
+  const [openReplies, setOpenReplies] = useState<string | null>(null);
   const [reschedAt, setReschedAt] = useState("");
   // The message is editable here so the team can fix a typo (a broken tag)
   // and resend on their own — the Violet Zherka blast, 2026-10-12.
@@ -201,7 +204,6 @@ export default function BlastPage() {
     <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-4">
       <div>
         <h1 className="text-xl font-bold text-[#1f3559] flex items-center gap-2"><Megaphone size={18} className="text-[#15B7AE]" /> Text Blast</h1>
-        <p className="text-sm text-[#697a91]">Pick a client → pick stages → preview the exact list → you press send. Nothing goes out without the confirm step.</p>
       </div>
 
       {/* 1. Client + message */}
@@ -413,8 +415,31 @@ export default function BlastPage() {
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-[#1f3559] truncate">{j.client_label ?? j.id}</p>
                   <p className="text-[10px] text-[#8595a8]">
-                    {(j.stage_names ?? []).join(", ")} · {fmtInTz(j.send_at, j.timezone)} {j.timezone ? `${tzCity(j.timezone)} time` : "your time"} · {j.sent}/{j.total} sent{j.failed > 0 ? ` · ${j.failed} failed` : ""}
+                    {(j.stage_names ?? []).join(", ")} · {fmtInTz(j.send_at, j.timezone)} {j.timezone ? `${tzCity(j.timezone)} time` : "your time"}
                   </p>
+                  {/* Results (owner 10/30/2026): delivered / failed / positive replies. */}
+                  {(j.sent > 0 || j.failed > 0) && (
+                    <p className="text-[11px] mt-0.5 flex flex-wrap gap-x-3">
+                      <span className="font-semibold text-[#0e8f88]">✅ {j.sent} got it</span>
+                      {j.failed > 0 && <span className="font-semibold text-[#be123c]">❌ {j.failed} failed</span>}
+                      <span className="font-semibold text-[#4f46e5]" title="Interested replies only (want to book, ask price or times). STOP / not interested don't count. Checked every 30 min for 7 days.">
+                        💬 {j.replies_positive ?? 0} positive {(j.replies_positive ?? 0) === 1 ? "reply" : "replies"}
+                        {j.sent > 0 ? ` (${(((j.replies_positive ?? 0) / j.sent) * 100).toFixed(1)}%)` : ""}
+                      </span>
+                      {(j.positive_replies?.length ?? 0) > 0 && (
+                        <button onClick={() => setOpenReplies((o) => (o === j.id ? null : j.id))} className="text-[#4f46e5] underline">
+                          {openReplies === j.id ? "hide" : "see who"}
+                        </button>
+                      )}
+                    </p>
+                  )}
+                  {openReplies === j.id && (
+                    <ul className="mt-1 space-y-0.5">
+                      {(j.positive_replies ?? []).map((r, i) => (
+                        <li key={i} className="text-[11px] text-[#34568a]"><b>{r.name || "—"}</b>: {r.text}</li>
+                      ))}
+                    </ul>
+                  )}
                   {/* Why it failed, in words — so the fix is obvious without asking. */}
                   {(j.fail_reasons?.length || j.error) && (
                     <p className="text-[10px] font-semibold text-[#be123c] mt-0.5">

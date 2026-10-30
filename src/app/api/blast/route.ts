@@ -44,9 +44,17 @@ export async function GET(req: NextRequest) {
         reasons.set(r.job_id, m);
       }
     }
+    // Positive replies per blast (owner 10/30/2026) — names + what they wrote.
+    const positives = new Map<string, Array<{ name: string | null; text: string | null; at: string | null }>>();
+    const { data: ps } = await svc.from("blast_recipients").select("job_id, name, reply_text, reply_at")
+      .in("job_id", jobs.map((j) => j.id)).eq("reply_kind", "positive").order("reply_at").limit(1000);
+    for (const r of (ps ?? []) as Array<{ job_id: string; name: string | null; reply_text: string | null; reply_at: string | null }>) {
+      positives.set(r.job_id, [...(positives.get(r.job_id) ?? []), { name: r.name, text: r.reply_text, at: r.reply_at }]);
+    }
     return NextResponse.json({
       jobs: jobs.map((j) => ({
         ...j,
+        positive_replies: positives.get(j.id) ?? [],
         fail_reasons: [...(reasons.get(j.id) ?? new Map<string, number>())].map(([reason, n]) => ({ reason, n })).sort((a, b) => b.n - a.n),
       })),
     });
