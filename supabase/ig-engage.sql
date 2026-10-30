@@ -41,3 +41,31 @@ create index if not exists ig_engage_actions_status_idx on public.ig_engage_acti
 alter table public.ig_engage_clients enable row level security;
 alter table public.ig_engage_actions enable row level security;
 -- No policies: only the service role (admin-gated API routes, crons) reads or writes.
+
+-- 10/30/2026 follow-up: VIP removed (owner), owner's full name, current vs former
+-- clients (win-back list, good terms only), lifetime value + when they left,
+-- last post date (quiet accounts → monthly), engagement start (former clients
+-- go monthly after 8 weeks, stop after 5 months with no follow-back), and
+-- Instagram lookups for former clients with no known handle.
+update public.ig_engage_clients set status = 'engage' where status = 'vip';
+alter table public.ig_engage_clients drop constraint if exists ig_engage_clients_status_check;
+alter table public.ig_engage_clients add constraint ig_engage_clients_status_check check (status in ('engage', 'paused', 'blocked'));
+alter table public.ig_engage_clients add column if not exists owner_name text;
+alter table public.ig_engage_clients add column if not exists segment text not null default 'current' check (segment in ('current', 'former'));
+alter table public.ig_engage_clients add column if not exists ltv numeric;
+alter table public.ig_engage_clients add column if not exists left_at date;
+alter table public.ig_engage_clients add column if not exists last_post_at timestamptz;
+alter table public.ig_engage_clients add column if not exists engage_started_at timestamptz;
+create table if not exists public.ig_engage_lookups (
+  owner_name text primary key,
+  business text,
+  city text,
+  ltv numeric,
+  left_at date,
+  candidate text,
+  candidate_note text,
+  status text not null default 'todo' check (status in ('todo', 'found', 'confirmed', 'rejected', 'not_found')),
+  task_id uuid,
+  updated_at timestamptz not null default now()
+);
+alter table public.ig_engage_lookups enable row level security;

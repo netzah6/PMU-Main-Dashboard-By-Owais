@@ -52,7 +52,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 //    shutdown, never a kill);
 //  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
 //    works), so Chrome's account reconcilor can never log the mailbox out.
-const WORKER_VERSION = 7; // self-update refuses to downgrade below this
+const WORKER_VERSION = 8; // self-update refuses to downgrade below this
 const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const LOGIN_LOCK = join(HOME, "login.lock");
 // --profile-directory=Default: without it Chrome may open the "Who's using
@@ -241,6 +241,7 @@ HOW TO ACT (Instagram must never think this is a bot — losing this account is 
 ${meta.approveComments === false ? "- Comments: POST your comment on the newest post (type it in the comment box, press Enter once)." : "- Comments: do NOT post your own comment idea — only report it (it goes to the owner for approval). Post ONLY the exact comments the run above marks as APPROVED, exactly as written, on the post it names."}
 - Never send a direct message, never reply to a story with text, never unfollow, never like more than one post per client, never touch comments that are already there, never change any setting.
 - Private account you don't follow: just request to follow (if the plan says follow) and move on. Profile not found: note it and move on.
+- FIND lines (looking up a former client's account): search, open at most 3 profiles, never follow / like / message them. Report each under "finds".
 
 STOP RULES:
 - If Instagram shows a login page: type nothing, stop, status "needs_teammate", summary "Mac Mini is not signed in to Instagram".
@@ -249,7 +250,7 @@ STOP RULES:
 PROOF: take ONE screenshot after following/liking for the first client (after-1.png) and one of the home feed at the end (after-2.png).
 
 When finished, reply with ONLY this JSON (no other text):
-{"status":"done" | "failed" | "needs_teammate","summary":"<one plain sentence>","steps":["@username: followed · watched 3 stories · liked https://… · comment idea …"],"screenshots":[{"file":"after-1.png","name":"Instagram: <what it shows>"}],"files":[],"ig":{"blocked":false,"clients":[{"username":"<handle>","followed":true,"follows_us":true|false|null,"story_viewed":true,"story_liked":true,"liked_url":"https://www.instagram.com/p/…/ or null","posted":["<approved action ids you posted>"],"comment_posted":null,"draft":{"post_url":"https://www.instagram.com/p/…/","context":"<what the post shows, 10 words>","text":"<your comment idea>"},"error":null}]}}
+{"status":"done" | "failed" | "needs_teammate","summary":"<one plain sentence>","steps":["@username: followed · watched 3 stories · liked https://… · comment idea …"],"screenshots":[{"file":"after-1.png","name":"Instagram: <what it shows>"}],"files":[],"ig":{"blocked":false,"clients":[{"username":"<handle>","followed":true,"follows_us":true|false|null,"story_viewed":true,"story_liked":true,"liked_url":"https://www.instagram.com/p/…/ or null","posted":["<approved action ids you posted>"],"comment_posted":null,"draft":{"post_url":"https://www.instagram.com/p/…/","context":"<what the post shows, 10 words>","text":"<your comment idea>"},"last_post_days":3,"error":null}],"finds":[{"owner_name":"<exactly as in the FIND line>","handle":"<handle or null>","why":"<why it matches, or what you searched>"}]}}
 ("followed" = we follow them at the end of the visit, also when we already did. "comment_posted" = {"post_url","text"} only when you posted your own comment.)`;
 }
 
