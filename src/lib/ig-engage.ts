@@ -259,6 +259,8 @@ export async function onIgEngageClosed(svc: Svc, p: { id: string; status: string
     if (c.story_viewed) actions.push({ username, kind: "story_view", status: "done", task_id: p.id, done_at: t, note: c.story_liked ? "liked a story" : null });
     if (c.liked_url) actions.push({ username, kind: "like", post_url: String(c.liked_url).slice(0, 300), status: "done", task_id: p.id, done_at: t });
     if (c.comment_posted?.text) actions.push({ username, kind: "comment", text: String(c.comment_posted.text).slice(0, 500), post_url: c.comment_posted.post_url ?? null, status: "done", task_id: p.id, done_at: t });
+    // A fresh comment idea replaces the client's older one nobody decided on.
+    if (c.draft?.text && !blocked) await svc.from("ig_engage_actions").update({ status: "skipped", note: "replaced by a newer idea", decided_at: t }).eq("username", username).eq("status", "draft");
     if (c.draft?.text && !blocked) actions.push({ username, kind: "comment", text: String(c.draft.text).slice(0, 500), post_url: c.draft.post_url ?? null, context: c.draft.context ? String(c.draft.context).slice(0, 300) : null, status: "draft", task_id: p.id });
     for (const id of c.posted ?? []) {
       await svc.from("ig_engage_actions").update({ status: "done", done_at: t, task_id: p.id }).eq("id", id).eq("status", "approved");
