@@ -583,6 +583,13 @@ export async function setLocationProfile(locationId: string, form: Record<string
   return { action: `Business profile → ${profile.summary}`, ok: profile.ok, detail: profile.ok ? undefined : profile.summary };
 }
 
+/* GHL derives a new custom value's key from its name: lower-case, spaces
+   become "_", everything else that isn't a letter/digit is dropped
+   ("CC - Owner's Name (V3)🔵" → "cc__owners_name_v3"). */
+export function cvKeyFromName(name: string): string {
+  return name.toLowerCase().replace(/ /g, "_").replace(/[^a-z0-9_]/g, "");
+}
+
 /* Duplicate "CC -" custom values (same name twice: the funnel step created
    values on an account whose template wasn't loaded yet, then the snapshot
    brought the originals — Sally, 10/17/2026). Keep the template's original
@@ -603,7 +610,17 @@ export async function dedupeCustomValues(locationId: string, dryRun: boolean, on
   for (const [name, list] of groups) {
     if (list.length < 2 || (only && name !== only)) continue;
     const key = (c: (typeof all)[number]) => String(c.fieldKey ?? "").replace(/[{}\s]/g, "");
-    const keep = [...list].sort((a, b) => key(a).length - key(b).length)[0];
+    /* The twin is the value created fresh from the CURRENT name, so its key
+       is exactly that name's key; the template's original kept an older key
+       (cc__owners_name vs cc__owners_name_v3). "Shortest key" got this wrong
+       when the original's key is the longer one — Beauty By Size 10/30/2026:
+       cc__services_that_the_pmu_artist_offer (original, read by the AI) vs
+       cc__permanent_makeup_services_v3_only (twin). Shortest stays the
+       fallback when neither or both match the name. */
+    const fresh = `custom_values.${cvKeyFromName(name)}`;
+    const originals = list.filter((c) => key(c) !== fresh);
+    const pool = originals.length && originals.length < list.length ? originals : list;
+    const keep = [...pool].sort((a, b) => key(a).length - key(b).length)[0];
     const others = list.filter((c) => c.id !== keep.id);
     const vals = [...new Set(list.map((c) => String(c.value ?? "").trim()).filter(Boolean))];
     const row: (typeof out)[number] = { name, keep: keep.id, keepKey: key(keep), remove: others.map((c) => ({ id: c.id, key: key(c), value: String(c.value ?? "") })) };
