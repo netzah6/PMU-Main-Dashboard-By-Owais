@@ -261,7 +261,10 @@ export async function GET(req: NextRequest) {
       url: funnelUrl(req, r.slug),
       hasCalendar: b2b ? !!b2b.calendarId : !!config.calendarId,
       hasFanbasis: !!(config.fanbasisProductId || config.fanbasisCode || extras.fanbasisHtml),
-      hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs),
+      // Our own Instagram feed counts too (owner 10/30/2026: Elfsight is gone,
+      // so funnels on the in-house feed showed a false ✗).
+      hasWidget: !!(config.igWidget || config.googleWidget || config.elfsightId || extras.elfsightId || config.resultImgs || extras.resultImgs
+        || ((extras.igFeed as { imgs?: unknown[] } | undefined)?.imgs?.length ?? 0) > 0),
       hasPixel: b2b ? b2b.pixelIds.length > 0 : !!((config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, "")),
       pixelId: b2b ? b2b.pixelIds.join(",") : (config.metaPixelId || extras.metaPixelId || "").replace(/\D/g, ""),
       b2b,
