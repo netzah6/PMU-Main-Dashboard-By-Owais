@@ -114,12 +114,12 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
   /* The message the team pastes to the client once the funnel test passed
      (owner 10/20/2026): funnel link + GoHighLevel login. The password is
-     fetched for admins; everyone else gets the message without it. */
+     fetched for admins and Client Success Coaches (owner 10/30/2026). */
   const copyClientMessage = async () => {
     setBusy("copy");
     try {
       let pw: string | null = null;
-      if (role === "admin") {
+      if (role === "admin" || role === "editor") {
         const r = await fetch(`/api/onboarding/${onboardingId}/setup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "password" }) });
         const j = await r.json().catch(() => ({}));
         pw = j.password ?? null;
@@ -134,7 +134,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         "Here are your logins for the booking system:",
         "Login page: https://app.pmu-bookings.com/",
         form.email ? `Email: ${form.email}` : "",
-        pw ? `Password: ${pw}` : role === "admin" ? "Password: (not set yet)" : "Password: (ask the admin)",
+        pw ? `Password: ${pw}` : role === "admin" || role === "editor" ? "Password: (not set yet)" : "Password: (ask the admin)",
         "",
         "On your phone, download the \"Lead Connector\" app (see the picture) and log in with the same email and password:",
         "iPhone: https://apps.apple.com/us/app/lead-connector/id1564302502",
@@ -338,13 +338,13 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
         </button>
       </div>
 
-      {(setup.funnel_url || (setup.has_password && isAdmin)) && (
+      {(setup.funnel_url || (setup.has_password && (isAdmin || role === "editor"))) && (
         <div className="flex items-center gap-x-4 gap-y-1 flex-wrap text-xs">
           {setup.funnel_url && (
             <span className="min-w-0 truncate"><span className="text-[#697a91]">Funnel: </span>
               <a href={setup.funnel_url} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">{setup.funnel_url.replace(/^https?:\/\//, "")}</a></span>
           )}
-          {setup.has_password && isAdmin && (
+          {setup.has_password && (isAdmin || role === "editor") && (
             <span className="flex items-center gap-2">
               <span className="text-[#697a91]">Client login:</span>
               {form.email && <code className="px-2 py-0.5 rounded bg-[#f1f5f9] text-[#1f3559]">{form.email}</code>}
