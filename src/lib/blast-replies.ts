@@ -47,7 +47,7 @@ async function repliesAfter(locationId: string, token: string, contactId: string
 const NEGATIVE_RE = /^\s*(stop|stopall|unsubscribe|cancel|end|quit|remove me|wrong number|not interested|no thanks?|no thank you)\b/i;
 
 /** positive | negative | neutral for each reply (index-aligned). */
-export async function classifyReplies(texts: string[]): Promise<Array<"positive" | "negative" | "neutral">> {
+export async function classifyReplies(texts: string[]): Promise<Array<"positive" | "negative" | "neutral" | null>> {
   const out = texts.map((t) => (NEGATIVE_RE.test(t) ? "negative" : null)) as Array<"positive" | "negative" | "neutral" | null>;
   const todo = out.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0);
   if (todo.length && process.env.ANTHROPIC_API_KEY) {
@@ -66,9 +66,9 @@ export async function classifyReplies(texts: string[]): Promise<Array<"positive"
       const txt = res.content.map((c) => (c.type === "text" ? c.text : "")).join("");
       const arr = JSON.parse(txt.slice(txt.indexOf("["), txt.lastIndexOf("]") + 1)) as string[];
       todo.forEach((i, k) => { const v = arr[k]; out[i] = v === "positive" || v === "negative" ? v : "neutral"; });
-    } catch { /* leave unclassified → neutral below */ }
+    } catch { /* left null — retried on the next run */ }
   }
-  return out.map((v) => v ?? "neutral");
+  return out;
 }
 
 export async function scanBlastReplies(svc: Svc, windowDays = WINDOW_DAYS): Promise<{ checked: number; replied: number; positive: number }> {
@@ -81,7 +81,17 @@ export async function scanBlastReplies(svc: Svc, windowDays = WINDOW_DAYS): Prom
     .order("reply_checked_at", { ascending: true, nullsFirst: true })
     .limit(PER_RUN);
   const recs = (data ?? []) as Rec[];
-  if (!recs.length) return { checked: 0, replied: 0, positive: 0 };
+
+  // Replies that couldn't be sorted last time (AI unavailable) get another try.
+  const { data: unsorted } = await svc.from("blast_recipients").select("id, job_id, reply_text")
+    .not("reply_text", "is", null).is("reply_kind", null).limit(200);
+  const touched = new Set<string>();
+  const un = (unsorted ?? []) as Array<{ id: string; job_id: string; reply_text: string }>;
+  if (un.length) {
+    const k = await classifyReplies(un.map((u) => u.reply_text));
+    for (let i = 0; i < un.length; i++) if (k[i]) { await svc.from("blast_recipients").update({ reply_kind: k[i] }).eq("id", un[i].id); touched.add(un[i].job_id); }
+  }
+  if (!recs.length) { await refreshCounters(svc, touched); return { checked: 0, replied: 0, positive: 0 }; }
 
   const jobIds = [...new Set(recs.map((r) => r.job_id))];
   const { data: jobs } = await svc.from("blast_jobs").select("id, location_id").in("id", jobIds);
@@ -107,11 +117,16 @@ export async function scanBlastReplies(svc: Svc, windowDays = WINDOW_DAYS): Prom
   for (let i = 0; i < found.length; i++) {
     await svc.from("blast_recipients").update({ reply_at: found[i].at, reply_text: found[i].text, reply_kind: kinds[i] }).eq("id", found[i].rec.id);
   }
-  // Refresh the per-blast counters for every blast touched this run.
-  for (const jobId of new Set(found.map((f) => f.rec.job_id))) {
+  for (const f of found) touched.add(f.rec.job_id);
+  await refreshCounters(svc, touched);
+  return { checked: recs.length, replied: found.length, positive: kinds.filter((k) => k === "positive").length };
+}
+
+// Per-blast counters for every blast touched this run.
+async function refreshCounters(svc: Svc, jobIds: Set<string>): Promise<void> {
+  for (const jobId of jobIds) {
     const { count: total } = await svc.from("blast_recipients").select("*", { count: "exact", head: true }).eq("job_id", jobId).not("reply_at", "is", null);
     const { count: pos } = await svc.from("blast_recipients").select("*", { count: "exact", head: true }).eq("job_id", jobId).eq("reply_kind", "positive");
     await svc.from("blast_jobs").update({ replies_total: total ?? 0, replies_positive: pos ?? 0 }).eq("id", jobId);
   }
-  return { checked: recs.length, replied: found.length, positive: kinds.filter((k) => k === "positive").length };
 }
