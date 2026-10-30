@@ -143,6 +143,10 @@
     {
       "path": "/api/cron/ig-engage",
       "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/blast-replies",
+      "schedule": "5,35 * * * *"
     }
   ],
   "headers": [
