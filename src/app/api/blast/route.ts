@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { livePipelineIds, blastClients, fetchAudience, renderTemplate, locationTimezone, DEFAULT_TEMPLATE } from "@/lib/blast";
+import { livePipelineIds, blastClients, fetchAudience, renderTemplate, locationTimezone, DEFAULT_TEMPLATE, blastContactCap } from "@/lib/blast";
 import { templateProblem, blastErrorReason, isPermanentBlastError } from "@/lib/blast-template";
 
 export const maxDuration = 300;
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
 
   const locationId = sp.get("locationId");
   if (!locationId) {
-    return NextResponse.json({ clients: await blastClients(), defaultTemplate: DEFAULT_TEMPLATE });
+    return NextResponse.json({ clients: await blastClients(), defaultTemplate: DEFAULT_TEMPLATE, maxContactsAllowed: blastContactCap(auth.role) });
   }
 
   const { data: stageRows } = await svc
@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
   if (!pipelineId) return NextResponse.json({ error: "unknown stages" }, { status: 400 });
   const excludeDays = Math.max(0, Number(sp.get("excludeDays") ?? 10) || 0);
   const maxContacts = Number(sp.get("maxContacts") ?? 250) || 250;
-  const audience = await fetchAudience(locationId, pipelineId, stageIds, excludeDays, maxContacts);
+  const audience = await fetchAudience(locationId, pipelineId, stageIds, excludeDays, maxContacts, blastContactCap(auth.role));
   return NextResponse.json(audience);
 }
 
@@ -177,7 +177,7 @@ export async function POST(req: NextRequest) {
     .filter((s) => !liveAtSchedule || liveAtSchedule.has(String(s.pipeline_id)))
     .find((s) => stageIds.includes(s.stage_id))?.pipeline_id;
   if (!pipelineId) return NextResponse.json({ error: "unknown stages" }, { status: 400 });
-  const audience = await fetchAudience(locationId, pipelineId, stageIds, Math.max(0, Number(excludeDays ?? 10) || 0), Number(maxContacts ?? 250) || 250);
+  const audience = await fetchAudience(locationId, pipelineId, stageIds, Math.max(0, Number(excludeDays ?? 10) || 0), Number(maxContacts ?? 250) || 250, blastContactCap(auth.role));
   if (audience.error) return NextResponse.json({ error: `audience fetch failed: ${audience.error}` }, { status: 502 });
   if (audience.recipients.length !== expectedCount) {
     return NextResponse.json({
