@@ -229,6 +229,14 @@ export async function syncOneSheet(
       }
       return true;
     });
+    // Names are join keys everywhere (leads, deposits, CPD). A stray line
+    // break typed into the sheet cell ("Leila Beauty - Ad Account⏎",
+    // owner 10/30/2026) silently hid that client's leads — trim them here.
+    if (table === "clients_master") {
+      for (const o of objects) for (const k of ["Business Name", "Owner Full Name", "Ad account Name", "Ad Account Name"]) {
+        if (typeof o[k] === "string") o[k] = (o[k] as string).trim();
+      }
+    }
 
     if (objects.length === 0) {
       return {
