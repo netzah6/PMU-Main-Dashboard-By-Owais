@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import {
-  dailyQuota, getSettings, IGE_PREFIX, nextRunText, queueRun, saveSettings, syncClients, usernameFromLink, warmupWeek,
+  confirmLookup, dailyQuota, getSettings, IGE_PREFIX, nextRunText, queueRun, saveSettings, syncClients, usernameFromLink, warmupWeek,
   type EngageStatus,
 } from "@/lib/ig-engage";
 
@@ -21,20 +21,24 @@ export async function GET() {
   if (!(await admin())) return NextResponse.json({ error: "Admins only" }, { status: 403 });
   const svc = createServiceClient();
   await syncClients(svc).catch(() => null);
-  const [settings, { data: clients }, { data: drafts }, { data: recent }, { data: runs }] = await Promise.all([
+  const [settings, { data: clients }, { data: drafts }, { data: recent }, { data: runs }, { data: lookups }] = await Promise.all([
     getSettings(svc),
     svc.from("ig_engage_clients").select("*").order("client_name", { ascending: true }),
     svc.from("ig_engage_actions").select("*").in("status", ["draft", "approved"]).order("created_at", { ascending: false }).limit(100),
     svc.from("ig_engage_actions").select("*").in("status", ["done", "failed"]).order("done_at", { ascending: false }).limit(80),
     svc.from("agent_proposals").select("id, status, result, created_at, executed_at, screenshots").like("conversation_id", `${IGE_PREFIX}%`).order("created_at", { ascending: false }).limit(10),
+    svc.from("ig_engage_lookups").select("owner_name, business, city, candidate, candidate_note, status, ltv, left_at"),
   ]);
+  const lk = (lookups ?? []) as Array<{ status: string }>;
   return NextResponse.json({
     settings, week: warmupWeek(settings.startedAt), quota: dailyQuota(settings.startedAt), nextRun: nextRunText(settings),
     clients: clients ?? [], drafts: drafts ?? [], recent: recent ?? [], runs: runs ?? [],
+    found: lk.filter((l) => l.status === "found"),
+    lookupCounts: { todo: lk.filter((l) => l.status === "todo").length, notFound: lk.filter((l) => l.status === "not_found").length },
   });
 }
 
-const STATUSES: EngageStatus[] = ["engage", "vip", "paused", "blocked"];
+const STATUSES: EngageStatus[] = ["engage", "paused", "blocked"];
 
 export async function POST(req: NextRequest) {
   const auth = await admin();
@@ -90,6 +94,10 @@ export async function POST(req: NextRequest) {
         const { error } = await svc.from("ig_engage_actions").update(patch).in("id", ids).in("status", ["draft", "approved"]);
         if (error) throw new Error(error.message);
         return NextResponse.json({ ok: true });
+      }
+      case "lookup": {
+        const r = await confirmLookup(svc, String(b.owner ?? ""), b.decision === "accept", typeof b.handle === "string" ? b.handle : null, by);
+        return r.error ? NextResponse.json({ error: r.error }, { status: 400 }) : NextResponse.json({ ok: true, username: r.username });
       }
       case "runNow": {
         const r = await queueRun(svc, by);

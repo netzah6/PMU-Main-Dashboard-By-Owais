@@ -7,12 +7,13 @@ import { useUser } from "@/lib/hooks/useUser";
 
 // Instagram (owner 2026-10-30): our account follows every client and keeps
 // engaging with them through the Mac Mini — slowly, like a person. This page
-// decides who gets visited (Engage / VIP / Paused / Do not engage + why),
+// decides who gets visited (current vs former clients, Engage / Paused / Do not engage + why),
 // holds the comment ideas waiting for a yes, and shows what was done.
 
-type Status = "engage" | "vip" | "paused" | "blocked";
+type Status = "engage" | "paused" | "blocked";
 type Client = {
-  username: string; slug: string | null; client_name: string | null; status: Status; note: string | null;
+  username: string; slug: string | null; client_name: string | null; owner_name: string | null; status: Status; note: string | null;
+  segment: "current" | "former"; ltv: number | null; left_at: string | null; last_post_at: string | null; engage_started_at: string | null;
   followed_at: string | null; follows_us: boolean | null; last_engaged_at: string | null; last_action: string | null; last_error: string | null;
 };
 type Action = {
@@ -24,26 +25,31 @@ type Payload = {
   settings: { enabled: boolean; startedAt: string | null; approveComments: boolean; pausedReason?: string | null };
   week: number; quota: number; nextRun: string;
   clients: Client[]; drafts: Action[]; recent: Action[]; runs: Run[];
+  found: Lookup[]; lookupCounts: { todo: number; notFound: number };
 };
+type Lookup = { owner_name: string; business: string | null; city: string | null; candidate: string | null; candidate_note: string | null; ltv: number | null; left_at: string | null };
 
 const STATUS: Record<Status, { label: string; cls: string }> = {
   engage: { label: "Engage", cls: "bg-[#e6f7f5] text-[#0e8f88]" },
-  vip: { label: "⭐ VIP", cls: "bg-[#fff4d6] text-[#a16207]" },
   paused: { label: "Paused", cls: "bg-[#eef2f7] text-[#64748b]" },
   blocked: { label: "Do not engage", cls: "bg-[#fde8ee] text-[#e11d48]" },
 };
-type Filter = "all" | Status | "notfollowed";
+type Filter = "all" | "current" | "former" | Status | "notfollowed";
 const FILTERS: Array<{ key: Filter; label: string; test: (c: Client) => boolean }> = [
   { key: "all", label: "All", test: () => true },
+  { key: "current", label: "Current clients", test: (c) => c.segment !== "former" },
+  { key: "former", label: "Former clients", test: (c) => c.segment === "former" },
   { key: "engage", label: "Engage", test: (c) => c.status === "engage" },
-  { key: "vip", label: "⭐ VIP", test: (c) => c.status === "vip" },
   { key: "paused", label: "Paused", test: (c) => c.status === "paused" },
   { key: "blocked", label: "Do not engage", test: (c) => c.status === "blocked" },
-  { key: "notfollowed", label: "Not followed yet", test: (c) => !c.followed_at && (c.status === "engage" || c.status === "vip") },
+  { key: "notfollowed", label: "Not followed yet", test: (c) => !c.followed_at && c.status === "engage" },
 ];
 const KIND: Record<Action["kind"], string> = { follow: "Followed", story_view: "Watched stories", like: "Liked a post", comment: "Commented", story_reply: "Replied to a story" };
 const usDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "—");
 const ig = (u: string) => `https://www.instagram.com/${u}/`;
+const money = (n: number | null) => (n == null ? "" : `$${Math.round(n).toLocaleString("en-US")}`);
+const monthYear = (d: string | null) => (d ? new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }) : "");
+const daysAgo = (iso: string | null) => (iso ? Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 86_400_000)) : null);
 
 export default function InstagramPage() {
   const router = useRouter();
@@ -89,9 +95,10 @@ export default function InstagramPage() {
   const shown = useMemo(() => {
     const f = FILTERS.find((x) => x.key === filter)!;
     const s = q.trim().toLowerCase();
-    return (data?.clients ?? []).filter(f.test).filter((c) => !s || c.username.includes(s) || (c.client_name ?? "").toLowerCase().includes(s));
+    return (data?.clients ?? []).filter(f.test).filter((c) => !s || c.username.includes(s) || (c.client_name ?? "").toLowerCase().includes(s) || (c.owner_name ?? "").toLowerCase().includes(s));
   }, [data, filter, q]);
-  const nameOf = useMemo(() => new Map((data?.clients ?? []).map((c) => [c.username, c.client_name ?? c.username])), [data]);
+  const nameOf = useMemo(() => new Map((data?.clients ?? []).map((c) => [c.username, [c.owner_name, c.client_name].filter(Boolean).join(" · ") || c.username])), [data]);
+  const [handles, setHandles] = useState<Record<string, string>>({});
   const drafts = (data?.drafts ?? []).filter((d) => d.status === "draft");
   const approved = (data?.drafts ?? []).filter((d) => d.status === "approved");
   const followed = (data?.clients ?? []).filter((c) => c.followed_at).length;
@@ -177,6 +184,40 @@ export default function InstagramPage() {
         </section>
       )}
 
+      {data && (data.found.length > 0 || data.lookupCounts.todo > 0) && (
+        <section className="space-y-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold text-[#1f3559]">Former clients&apos; Instagram — is this them? <span className="text-[#64748b] font-normal">({data.found.length})</span></h2>
+            <span className="text-xs text-[#64748b]">· {data.lookupCounts.todo} still to look up (3 per run){data.lookupCounts.notFound ? ` · ${data.lookupCounts.notFound} not found` : ""}</span>
+          </div>
+          {data.found.length > 0 && (
+            <div className="grid gap-2 md:grid-cols-2">
+              {data.found.map((l) => (
+                <div key={l.owner_name} className="rounded-xl border border-[#d7e0ea] bg-white p-3 space-y-2">
+                  <div className="text-sm"><b className="text-[#1f3559]">{l.owner_name}</b>{l.business ? <span className="text-[#64748b]"> · {l.business}</span> : null}{l.city ? <span className="text-xs text-[#a6b3c4]"> · {l.city}</span> : null}</div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <a href={ig(handles[l.owner_name] || l.candidate || "")} target="_blank" rel="noreferrer" className="text-[#0e8f88] inline-flex items-center gap-0.5">Open <ExternalLink className="w-3 h-3" /></a>
+                    <input id={`ige-lk-${l.owner_name}`} value={handles[l.owner_name] ?? l.candidate ?? ""} onChange={(e) => setHandles((x) => ({ ...x, [l.owner_name]: e.target.value }))}
+                      className="h-7 flex-1 rounded-lg border border-[#d7e0ea] px-2 text-xs" />
+                  </div>
+                  {l.candidate_note && <div className="text-xs text-[#64748b]">{l.candidate_note}</div>}
+                  <div className="flex gap-2">
+                    <button onClick={() => post({ action: "lookup", owner: l.owner_name, decision: "accept", handle: handles[l.owner_name] ?? l.candidate }, `lk:${l.owner_name}`)} disabled={!!busy}
+                      className="h-7 inline-flex items-center gap-1 rounded-full bg-[#0e8f88] px-3 text-xs font-semibold text-white disabled:opacity-60">
+                      {busy === `lk:${l.owner_name}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Yes, that&apos;s them
+                    </button>
+                    <button onClick={() => post({ action: "lookup", owner: l.owner_name, decision: "reject" }, `lkx:${l.owner_name}`)} disabled={!!busy}
+                      className="h-7 inline-flex items-center gap-1 rounded-full border border-[#d7e0ea] bg-white px-3 text-xs font-semibold text-[#64748b] disabled:opacity-60">
+                      {busy === `lkx:${l.owner_name}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Not them
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {data && (
         <section className="space-y-2">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -212,14 +253,16 @@ export default function InstagramPage() {
             <table className="w-full text-sm">
               <thead className="bg-[#f6f8fb] text-left text-xs text-[#64748b]">
                 <tr>
-                  <th className="px-3 py-2">Client</th><th className="px-3 py-2">Instagram</th><th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Client</th><th className="px-3 py-2">Business</th><th className="px-3 py-2">Instagram</th><th className="px-3 py-2">Status</th>
                   <th className="px-3 py-2">Why / note</th><th className="px-3 py-2">We follow</th><th className="px-3 py-2">Follows us</th><th className="px-3 py-2">Last engaged</th>
                 </tr>
               </thead>
               <tbody>
                 {shown.map((c) => (
                   <tr key={c.username} className={cn("border-t border-[#eef2f7]", (c.status === "paused" || c.status === "blocked") && "opacity-70")}>
-                    <td className="px-3 py-1.5 font-semibold text-[#1f3559]">{c.client_name ?? "—"}</td>
+                    <td className="px-3 py-1.5 font-semibold text-[#1f3559]">{c.owner_name ?? "—"}
+                      {c.segment === "former" && <div className="text-[11px] font-normal text-[#a16207]">former{c.left_at ? ` · left ${monthYear(c.left_at)}` : ""}{c.ltv != null ? ` · ${money(c.ltv)} lifetime` : ""}</div>}</td>
+                    <td className="px-3 py-1.5 text-[#1f3559]">{c.client_name ?? "—"}</td>
                     <td className="px-3 py-1.5"><a href={ig(c.username)} target="_blank" rel="noreferrer" className="text-[#0e8f88]">@{c.username}</a>
                       {c.last_error && <div className="text-xs text-[#e11d48]">{c.last_error}</div>}</td>
                     <td className="px-3 py-1.5">
@@ -243,10 +286,11 @@ export default function InstagramPage() {
                     </td>
                     <td className="px-3 py-1.5 text-xs">{c.followed_at ? <span className="text-[#15803d]">✓ {usDate(c.followed_at)}</span> : <span className="text-[#a6b3c4]">not yet</span>}</td>
                     <td className="px-3 py-1.5 text-xs">{c.follows_us == null ? <span className="text-[#a6b3c4]">—</span> : c.follows_us ? <span className="text-[#15803d]">✓ yes</span> : <span className="text-[#64748b]">no</span>}</td>
-                    <td className="px-3 py-1.5 text-xs text-[#64748b]">{c.last_engaged_at ? `${usDate(c.last_engaged_at)} · ${c.last_action ?? ""}` : "—"}</td>
+                    <td className="px-3 py-1.5 text-xs text-[#64748b]">{c.last_engaged_at ? `${usDate(c.last_engaged_at)} · ${c.last_action ?? ""}` : "—"}
+                      {(daysAgo(c.last_post_at) ?? 0) > 30 && <div className="text-[11px] text-[#a6b3c4]">no post in {daysAgo(c.last_post_at)} days · monthly visits</div>}</td>
                   </tr>
                 ))}
-                {!shown.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-sm text-[#a6b3c4]">No clients here</td></tr>}
+                {!shown.length && <tr><td colSpan={8} className="px-3 py-6 text-center text-sm text-[#a6b3c4]">No clients here</td></tr>}
               </tbody>
             </table>
           </div>
