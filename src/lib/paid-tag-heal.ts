@@ -49,9 +49,14 @@ export async function findPaidTarget(H: Record<string, string>, loc: string, ema
   if (byEmail.length) { const paid = byEmail.find(isPaid); return { kind: paid ? "ok" : "tag", contact: paid ?? byEmail[0], byName: false }; }
   const want = normName(name);
   if (!want || !want.includes(" ")) return { kind: "none" };
-  const since = Date.now() - 60 * 86_400_000;
-  const same = (await search({ query: name })).filter((c) => c.phone && normName(c.contactName ?? `${c.firstName ?? ""} ${c.lastName ?? ""}`) === want && Date.parse(c.dateAdded ?? "") >= since);
-  if (!same.length) return { kind: "none" };
+  const named = (await search({ query: name })).filter((c) => c.phone && normName(c.contactName ?? `${c.firstName ?? ""} ${c.lastName ?? ""}`) === want);
+  // Recent leads first (60 days). An older lead counts only when she is the
+  // ONE lead with that name in the last year (owner 10/30/2026: Jennifer
+  // Winstanley, a 07/28 lead, paid in October with a different email).
+  const recent = named.filter((c) => Date.parse(c.dateAdded ?? "") >= Date.now() - 60 * 86_400_000);
+  const yearOld = named.filter((c) => Date.parse(c.dateAdded ?? "") >= Date.now() - 365 * 86_400_000);
+  const same = recent.length ? recent : yearOld.length === 1 ? yearOld : [];
+  if (!same.length) return { kind: yearOld.length > 1 ? "ambiguous" : "none", ...(yearOld.length > 1 ? { candidates: yearOld } : {}) } as { kind: "none" } | { kind: "ambiguous"; candidates: GContact[] };
   const paid = same.find(isPaid);
   if (paid) return { kind: "ok", contact: paid, byName: true };
   if (same.length > 1) return { kind: "ambiguous", candidates: same };
