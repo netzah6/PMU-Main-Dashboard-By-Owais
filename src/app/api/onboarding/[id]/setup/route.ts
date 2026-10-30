@@ -13,7 +13,7 @@ export const maxDuration = 300;
 //   POST {action:"refresh"}                    re-run the engine (after a fix in GHL)
 //   POST {action:"retry", key}                 admin — run a failed step again
 //   POST {action:"skip", key, note?}           admin/coach — mark a step done by hand
-//   POST {action:"password"}                   admin — the employee password (card only)
+//   POST {action:"password"}                   admin/coach — the employee password (card only)
 
 async function who(): Promise<{ email: string; role: string } | null> {
   const supabase = createClient();
@@ -126,7 +126,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         return NextResponse.json({ setup: redact(setup) });
       }
       case "password": {
-        if (!admin) return NextResponse.json({ error: "Only an admin can see the password" }, { status: 403 });
+        // Coaches send the welcome message too (owner 10/30/2026).
+        if (!(admin || u.role === "editor")) return NextResponse.json({ error: "Only an admin or a Client Success Coach can see the password" }, { status: 403 });
         const { data } = await svc.from("onboardings").select("setup").eq("id", params.id).maybeSingle();
         const pw = ((data?.setup as SetupState | null) ?? null)?.password ?? null;
         return NextResponse.json({ password: pw });
