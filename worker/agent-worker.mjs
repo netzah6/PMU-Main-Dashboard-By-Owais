@@ -52,7 +52,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 //    shutdown, never a kill);
 //  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
 //    works), so Chrome's account reconcilor can never log the mailbox out.
-const WORKER_VERSION = 6; // self-update refuses to downgrade below this
+const WORKER_VERSION = 7; // self-update refuses to downgrade below this
 const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const LOGIN_LOCK = join(HOME, "login.lock");
 // --profile-directory=Default: without it Chrome may open the "Who's using
@@ -221,8 +221,41 @@ When finished, reply with ONLY this JSON (no other text):
 {"status":"done" | "failed" | "needs_teammate","summary":"<the CLOSEBOT: line the function returned, or why not>","steps":["<short line per thing you did>"],"screenshots":[{"file":"after-1.png","name":"CloseBot Sources"}],"files":[]}`;
 }
 
+// Daily Instagram engagement (location "instagram", 10/30/2026): the agency's
+// own account visits a few clients like a person would. The dashboard reads
+// the "ig" object of the report.
+function instagramPrompt(t) {
+  let meta = {};
+  try { meta = JSON.parse(t.notes?.match(/\{.*\}/s)?.[0] ?? "{}"); } catch { /* plain notes */ }
+  return `You are the social media assistant of PMU Bookings On Demand. You are using Instagram in this Chrome, signed in as our agency account @pmubookings.ondemand. Today you visit a few of our CLIENTS (permanent-makeup artists) to engage with their content, like a real person scrolling the app would.
+
+TODAY'S RUN — in order:
+${t.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
+
+HOW TO ACT (Instagram must never think this is a bot — losing this account is the worst outcome):
+- Go slowly. Between every action (open profile, open story, like, follow, open post, comment) wait a random 4–12 seconds (browser_wait_for with a time). Let stories and reels play a few seconds before doing anything.
+- Visit each client by opening https://www.instagram.com/<username>/ . To watch stories, click their profile picture when it has a colored ring. To like a post, open the newest post or reel (first tile in the grid; skip a pinned post if there is a newer unpinned one) and click the heart ONCE — if the heart is already red, leave it.
+- Follow: if the profile button says "Follow" or "Follow Back", click it once. If it says "Following" or "Requested", we already follow — never click it (that would unfollow).
+- Note whether they follow us: the profile shows "Follows you" next to the name, or the button says "Follow Back".
+- Comment ideas: read the post's caption and look at the photo. Write ONE short, warm, specific comment in the voice of a PMU marketing agency that is a fan of the artist — 4 to 14 words, at most one emoji, about THIS post (the brows, the healed result, the before/after, the client's glow…). Never mention our company, bookings, leads, ads or any sales pitch. Never use hashtags. Never repeat the same comment for two clients.
+${meta.approveComments === false ? "- Comments: POST your comment on the newest post (type it in the comment box, press Enter once)." : "- Comments: do NOT post your own comment idea — only report it (it goes to the owner for approval). Post ONLY the exact comments the run above marks as APPROVED, exactly as written, on the post it names."}
+- Never send a direct message, never reply to a story with text, never unfollow, never like more than one post per client, never touch comments that are already there, never change any setting.
+- Private account you don't follow: just request to follow (if the plan says follow) and move on. Profile not found: note it and move on.
+
+STOP RULES:
+- If Instagram shows a login page: type nothing, stop, status "needs_teammate", summary "Mac Mini is not signed in to Instagram".
+- If Instagram shows "Try Again Later", "Action Blocked", "We restrict certain activity", "suspicious activity", a CAPTCHA, a phone/email confirmation or ANY warning: stop immediately, do nothing more, status "needs_teammate", summary starting with "IG_BLOCKED:" and what it said, and set "blocked": true.
+
+PROOF: take ONE screenshot after following/liking for the first client (after-1.png) and one of the home feed at the end (after-2.png).
+
+When finished, reply with ONLY this JSON (no other text):
+{"status":"done" | "failed" | "needs_teammate","summary":"<one plain sentence>","steps":["@username: followed · watched 3 stories · liked https://… · comment idea …"],"screenshots":[{"file":"after-1.png","name":"Instagram: <what it shows>"}],"files":[],"ig":{"blocked":false,"clients":[{"username":"<handle>","followed":true,"follows_us":true|false|null,"story_viewed":true,"story_liked":true,"liked_url":"https://www.instagram.com/p/…/ or null","posted":["<approved action ids you posted>"],"comment_posted":null,"draft":{"post_url":"https://www.instagram.com/p/…/","context":"<what the post shows, 10 words>","text":"<your comment idea>"},"error":null}]}}
+("followed" = we follow them at the end of the visit, also when we already did. "comment_posted" = {"post_url","text"} only when you posted your own comment.)`;
+}
+
 function promptFor(t) {
   if (t.location_id === "closebot") return closebotPrompt(t);
+  if (t.location_id === "instagram") return instagramPrompt(t);
   return `You are the PMU Bookings On Demand agency's back-office assistant. A manager APPROVED the task below. Do it in GoHighLevel using the browser tools, exactly like a careful teammate would, then report.
 
 CLIENT: ${t.contact_name}${t.business_name ? ` (${t.business_name})` : ""}
@@ -388,7 +421,7 @@ async function doTask(t) {
       files.push({ name: f.name || f.file, url, bytes });
     } catch (e) { log("file upload failed", f.file, e.message); }
   }
-  await api("finish", { id: t.id, status, summary, steps: Array.isArray(rep?.steps) ? rep.steps : [], screenshots, files });
+  await api("finish", { id: t.id, status, summary, steps: Array.isArray(rep?.steps) ? rep.steps : [], screenshots, files, ...(rep?.ig && typeof rep.ig === "object" ? { data: rep.ig } : {}) });
   log(`task ${t.id} → ${status} (${screenshots.length} screenshots, ${files.length} files)`);
 }
 
@@ -429,13 +462,14 @@ if (process.argv[2] === "login") {
     waitForExit(existing, 2 * 60 * 60_000).then(finish);
   } else {
     writeFileSync(LOGIN_LOCK, String(process.pid));
-    const chrome = spawn(CHROME_BIN, [`--user-data-dir=${PROFILE}`, ...CHROME_ARGS, "https://app.gohighlevel.com/", "https://mail.google.com/", "https://app.closebot.com/"], { stdio: "ignore" });
+    const chrome = spawn(CHROME_BIN, [`--user-data-dir=${PROFILE}`, ...CHROME_ARGS, "https://app.gohighlevel.com/", "https://mail.google.com/", "https://app.closebot.com/", "https://www.instagram.com/"], { stdio: "ignore" });
     console.log([
-      "Chrome opened with the worker's profile (three tabs).",
+      "Chrome opened with the worker's profile (four tabs).",
       "  1. GoHighLevel tab: sign in as the agent; if it asks for a security code, read it from the Gmail tab; tick \"remember/trust this device\" if offered.",
       "  2. Gmail tab: make sure the agent's mailbox is signed in (the worker reads future security codes there).",
       "  3. CloseBot tab: sign in to CloseBot (the weekly read-only CloseBot check uses it).",
-      "  4. Wait about a minute, then QUIT Chrome with Cmd+Q (not just the red button). Leave this window until it says done.",
+      "  4. Instagram tab: sign in as @pmubookings.ondemand, tick \"Save login info\" (the daily Instagram engagement uses it).",
+      "  5. Wait about a minute, then QUIT Chrome with Cmd+Q (not just the red button). Leave this window until it says done.",
     ].join("\n"));
     chrome.on("exit", finish);
   }

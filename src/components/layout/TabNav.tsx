@@ -23,8 +23,7 @@ const TABS: Tab[] = [
   // Sales + Subs sit right after AI, always visible (user request 2026-09-16).
   { label: "💼 Sales", href: "/sales", adminOnly: true }, // sales board (setter + closer KPIs & to-dos), demo checker, coach tracker
   { label: "🔄 Subs", href: "/subscriptions", adminOnly: true }, // Square + dashboard billing — admins only
-  // Financing sheet vs. real Square/dashboard charges, owner confirms each month (2026-10-18).
-  { label: "🧮 Payment Check", href: "/payment-check", adminOnly: true },
+  // Hidden from the menu (page still exists at /payment-check) — owner request 2026-10-30.
   { label: "✅ Tasks", href: "/tasks" },
   { label: "📈 Performance", href: "/performance" },
   // Hidden from the menu (page still exists at /client-health) — owner request 2026-10-08.
@@ -53,6 +52,8 @@ const TABS: Tab[] = [
   { label: "📋 Coach Report", href: "/coach-report", adminOnly: true, alsoRoles: ["editor"] },
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true, alsoRoles: ["editor"] }, // one-box funnels — coaches see the client funnels read-only (user request 2026-09-14)
+  // Our Instagram follows + engages with every client via the Mac Mini (owner 2026-10-30).
+  { label: "📸 Instagram", href: "/instagram", adminOnly: true },
   // Removed 2026-09-26 (user request "we don't need it anymore on the dashboard"):
   // Pixel Checking — the tab, the /pixel-checking page and the /api/pixel-check
   // route are all gone. The pixel_checks table still holds the audit rows.
