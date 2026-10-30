@@ -28,6 +28,10 @@ export function renderTemplate(tpl: string, vars: { firstName: string; senderNam
 export interface BlastRecipient { contactId: string; name: string; firstName: string; phone: string }
 
 export const MAX_BLAST_CONTACTS = 250;
+/* Admins may go up to 500 per blast; coaches stay at 250 and 250 is still
+   the default everyone starts from (owner 10/30/2026). */
+export const MAX_BLAST_CONTACTS_ADMIN = 500;
+export const blastContactCap = (role: string | null | undefined) => (role === "admin" ? MAX_BLAST_CONTACTS_ADMIN : MAX_BLAST_CONTACTS);
 
 /** Map contactId -> last conversation activity (ms epoch), from the live
  * conversations list (any direction — "we engaged" includes their replies). */
@@ -65,8 +69,9 @@ export async function fetchAudience(
   stageIds: string[],
   excludeDays = 10,
   maxContacts = MAX_BLAST_CONTACTS,
+  hardCap = MAX_BLAST_CONTACTS,
 ): Promise<{ recipients: BlastRecipient[]; noPhone: number; eligible: number; excludedRecent: number; error?: string }> {
-  const cap = Math.max(1, Math.min(MAX_BLAST_CONTACTS, Math.floor(maxContacts) || MAX_BLAST_CONTACTS));
+  const cap = Math.max(1, Math.min(hardCap, Math.floor(maxContacts) || MAX_BLAST_CONTACTS));
   const tok = await getAppLocationToken(locationId);
   if (!tok.token) return { recipients: [], noPhone: 0, eligible: 0, excludedRecent: 0, error: tok.error ?? "no token" };
   const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" };

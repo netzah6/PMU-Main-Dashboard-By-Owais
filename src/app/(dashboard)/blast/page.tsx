@@ -57,6 +57,7 @@ export default function BlastPage() {
   const [preview, setPreview] = useState<{ recipients: Recipient[]; noPhone: number; eligible: number; excludedRecent: number } | null>(null);
   const [excludeDays, setExcludeDays] = useState(10);
   const [maxContacts, setMaxContacts] = useState(250);
+  const [maxAllowed, setMaxAllowed] = useState(250); // 500 for admins (server decides)
   const [previewLoading, setPreviewLoading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -73,6 +74,7 @@ export default function BlastPage() {
       setClients(j.clients ?? []);
       setDefaultTemplate(j.defaultTemplate ?? "");
       setTemplate(j.defaultTemplate ?? "");
+      if (Number(j.maxContactsAllowed) > 0) setMaxAllowed(Number(j.maxContactsAllowed));
     }).catch(() => {});
     loadJobs();
   }, []);
@@ -325,9 +327,9 @@ export default function BlastPage() {
               <p className="text-[10px] text-[#8595a8] mt-0.5">Any message in the conversation (theirs or ours) counts as engagement.</p>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#34568a] mb-1">Max contacts (up to 250)</label>
-              <input type="number" min={1} max={250} value={maxContacts}
-                onChange={(e) => { setMaxContacts(Math.max(1, Math.min(250, Number(e.target.value) || 1))); setPreview(null); }}
+              <label className="block text-xs font-bold text-[#34568a] mb-1">Max contacts (up to {maxAllowed})</label>
+              <input type="number" min={1} max={maxAllowed} value={maxContacts}
+                onChange={(e) => { setMaxContacts(Math.max(1, Math.min(maxAllowed, Number(e.target.value) || 1))); setPreview(null); }}
                 className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 text-[#1f3559]" />
               <p className="text-[10px] text-[#8595a8] mt-0.5">If more are eligible, the most recently engaged (outside the skip window) are kept.</p>
             </div>
