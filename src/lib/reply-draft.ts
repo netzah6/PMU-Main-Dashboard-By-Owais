@@ -327,6 +327,17 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
   };
 
   let draft = await ask();
+  if (input.inviteCall && draft) {
+    /* The switch is ON: the booking link must be in the text (owner,
+       10/31/2026 — Angelica Kobasic's draft said "Tuesday works" and left
+       the link out). Ask once more, then add the line ourselves. */
+    const link = ownCallLink(input.agentName) ?? CALL_LINKS.nicolas;
+    const hasLink = (t: string) => t.toLowerCase().includes(link.toLowerCase().replace(/^www\./, ""));
+    if (!hasLink(draft)) {
+      const again = await ask(`\n\nIMPORTANT: the team switched ON "invite to a strategy call" — the reply MUST end with a short invite that includes this exact link: ${link}`);
+      draft = again && hasLink(again) ? again : `${draft.trim()}\n\nYou can grab a time for our strategy call here: ${link}`;
+    }
+  }
   if (!input.inviteCall) {
     // The switch is off: no call link ever; no invite unless the client
     // asked for a call themselves (then a plain acknowledgement is fine).
