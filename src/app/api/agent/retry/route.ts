@@ -4,6 +4,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { agentAccess, canAct } from "@/lib/agent-access";
 import { isLiveClaim, proposeForConversation, type Proposal } from "@/lib/agent";
 import { resolveClientByHint, resolveClientLocation } from "@/lib/agent-exec";
+import { addLesson } from "@/lib/agent-lessons";
 
 export const maxDuration = 60; // re-reads the chat and plans again
 
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
   const access = await agentAccess(svc, user);
   if (!access) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = (await req.json().catch(() => ({}))) as { id?: string; note?: string };
+  const body = (await req.json().catch(() => ({}))) as { id?: string; note?: string; remember?: boolean };
   const id = String(body.id ?? "").trim();
   const note = String(body.note ?? "").replace(/\s+\n/g, "\n").trim().slice(0, 1500);
   if (!id || note.length < 3) return NextResponse.json({ error: "Write the AI a note first" }, { status: 400 });
@@ -35,6 +36,8 @@ export async function POST(req: NextRequest) {
   if (p.status === "queued_browser" || p.status === "running") return NextResponse.json({ error: "The AI Agent is on this one — wait for it to finish" }, { status: 409 });
   if (p.status === "pending" && isLiveClaim(p)) return NextResponse.json({ error: "Already being approved — refresh in a moment" }, { status: 409 });
   const by = user.email ?? user.id;
+  // "Remember this for next time" — owner only: it steers every future plan.
+  if (body.remember && access.isAdmin) await addLesson(svc, note, by).catch(() => {});
 
   try {
     // Typed team tasks and setup steps have no chat to re-read: the note

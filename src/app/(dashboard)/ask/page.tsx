@@ -1222,12 +1222,13 @@ function NewTaskBox({ onCreated, coach = false }: { onCreated: () => void; coach
 function CorrectBox({ p, onRetried, onClose }: { p: AgentProposal; onRetried?: (np: AgentProposal) => void; onClose: () => void }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [remember, setRemember] = useState(false);
   const noClient = /no Clients Master match|Could not find/i.test(p.result ?? "");
   const retry = async () => {
     if (busy || note.trim().length < 3) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/agent/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, note: note.trim() }) });
+      const res = await fetch("/api/agent/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: p.id, note: note.trim(), remember }) });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.proposal) throw new Error(json.error || "The AI couldn't re-plan this one");
       toast.success("New plan ready — review it and Approve");
@@ -1243,6 +1244,12 @@ function CorrectBox({ p, onRetried, onClose }: { p: AgentProposal; onRetried?: (
       <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} disabled={busy} autoFocus
         placeholder={noClient ? "e.g. This is Theresa Butler (Microblading Pro Studio) — her new number. Do it in her account." : "e.g. She means the reactivation workflow, not the funnel. Set the texts to 1, 3 and 6 months after sign-up."}
         className="mt-1 w-full rounded-lg border border-[#d7e0ea] px-2.5 py-1.5 text-[12px] text-[#1f3559] focus:outline-none focus:border-[#15B7AE] disabled:opacity-60" />
+      {/* Owner, 10/31: "how can it learn to have the right task next time?" —
+          a remembered note becomes a house rule for every future plan. */}
+      <label className="mt-1 flex items-center gap-1.5 text-[11px] text-[#34568a]" title="Saved as a rule the AI follows on every future task — write it as a general rule, not about this one client">
+        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} disabled={busy} />
+        🧠 Remember this for next time
+      </label>
       <div className="mt-1.5 flex items-center gap-2">
         <button onClick={retry} disabled={busy || note.trim().length < 3}
           className="px-3 py-1.5 rounded-lg bg-[#1f3559] hover:bg-[#2b4a7a] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
@@ -1362,7 +1369,7 @@ function ProposalCard({ p, onPhase, onRetried, focused, reply: keptReply, amount
   if (sensitive) willDo.push(`👤 Money is never automatic — a teammate makes this change by hand${change ? `: ${change}` : ""}`);
   else if (p.action_type === "account_change") {
     const steps = plan.filter((s) => s.type !== "payment_links");
-    willDo.push(`The AI Agent opens ${p.contact_name}'s GoHighLevel account and:`);
+    willDo.push(`The AI Agent opens ${p.contact_name}'s ${/closebot/i.test(change) && !/gohighlevel/i.test(change) ? "CloseBot" : "GoHighLevel account"} and:`);
     if (steps.length) willDo.push(...steps.map((s) => `   ${stepText(s)}`));
     else if (change) willDo.push(`   ${change}`);
     willDo.push("Screenshot the result and text it to you");

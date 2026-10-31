@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getLessons, lessonsBlock } from "@/lib/agent-lessons";
 import { createServiceClient } from "@/lib/supabase/server";
 import { fileOrAppendAlert, ghlContactUrl, loadTeamLookup } from "@/lib/alerts";
 import {
@@ -92,8 +93,9 @@ INSTRUCTIONS FROM THE AGENCY OWNER about this conversation (authoritative — th
 ${opts.ownerNote}
 """
 ` : "";
+  const rules = lessonsBlock(await getLessons(createServiceClient()).catch(() => []));
   const prompt = `You triage messages for a PMU (permanent-makeup) marketing agency. The people writing in are the agency's CLIENTS (artists whose ads/funnels/booking systems the agency runs).
-${ownerBlock}
+${ownerBlock}${rules}
 Conversation (each line has its day and time; lines marked NEW are not answered yet; "Automated" lines are workflow texts):
 """
 ${convo}
