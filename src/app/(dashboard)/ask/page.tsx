@@ -1094,18 +1094,32 @@ const STATUS_LABEL: Record<string, string> = { done: "done", denied: "denied", f
 // SMS settings, what the last scan did and why it skipped chats, a short
 // list of what's waiting, and the decided history. Opened from 🕵️ in the
 // chats header; the data comes from the page so there is one list to refresh.
-function AgentActivity({ admin, proposals, lastScan, worker, loading, err, onRefresh, onOpen, onClose }: {
+function AgentActivity({ admin, proposals, worker, loading, err, onRefresh, onOpen, onClose }: {
   admin: boolean; proposals: AgentProposal[]; lastScan: ScanLog | null; worker: WorkerBeat; loading: boolean; err: string | null;
   onRefresh: () => void; onOpen: (p: AgentProposal) => void; onClose: () => void;
 }) {
-  const [showSkipped, setShowSkipped] = useState(false);
   const waiting = proposals.filter((p) => p.status === "pending");
   const history = proposals.filter((p) => p.status !== "pending");
 
   return (
     <div className="flex-1 overflow-y-auto space-y-3 pb-4">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-bold text-[#1f3559]">🕵️ Agent activity &amp; settings</span>
+      {/* Owner 10/31/2026: one header line — the AI Agent status sits beside the
+          title; the how-it-works text, the texting box and the last-scan line
+          are gone to save space. */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <span className="text-xs font-bold text-[#1f3559]">🕵️ Agent activity &amp; settings</span>
+          {(() => {
+            const online = !!worker && Date.now() - Date.parse(worker.at) < 3 * 60_000;
+            const queued = proposals.filter((p) => p.status === "queued_browser" || p.status === "running").length;
+            return (
+              <span className={cn("rounded-full border px-2 py-0.5 text-[11px]", online ? "border-[#bfe3cd] bg-[#f3fbf6] text-[#15803d]" : "border-[#f5c2cf] bg-[#fffafb] text-[#b91c1c]")}>
+                🤖 {online ? `AI Agent online (checked in ${timeAgo(worker!.at)} ago)` : worker ? `AI Agent OFFLINE — last seen ${timeAgo(worker.at)} ago` : "AI Agent not connected yet"}
+                {queued > 0 && <span className="text-[#697a91]"> · {queued} task{queued === 1 ? "" : "s"} in its queue</span>}
+              </span>
+            );
+          })()}
+        </div>
         <div className="flex items-center gap-1">
           <button onClick={onRefresh} disabled={loading} title="Refresh" className="p-1.5 rounded text-[#8595a8] hover:text-[#0e8f88] disabled:opacity-60">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
@@ -1113,36 +1127,7 @@ function AgentActivity({ admin, proposals, lastScan, worker, loading, err, onRef
           <button onClick={onClose} title="Back to chat" className="p-1.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={14} /></button>
         </div>
       </div>
-      <p className="text-xs text-[#697a91]">Client requests are checked every 10 minutes — or open a chat and press 🪄 Let AI handle it. Chats with a plan show 🕵️. <b>Nothing runs without your Approve, and the agent never texts clients.</b> Approved changes are done by the AI Agent in GoHighLevel, with screenshots.</p>
-      {(() => {
-        const online = !!worker && Date.now() - Date.parse(worker.at) < 3 * 60_000;
-        const queued = proposals.filter((p) => p.status === "queued_browser" || p.status === "running").length;
-        return (
-          <div className={cn("rounded-lg border px-3 py-2 text-xs", online ? "border-[#bfe3cd] bg-[#f3fbf6] text-[#15803d]" : "border-[#f5c2cf] bg-[#fffafb] text-[#b91c1c]")}>
-            🤖 {online ? `AI Agent online (checked in ${timeAgo(worker!.at)} ago)` : worker ? `AI Agent OFFLINE — last seen ${timeAgo(worker.at)} ago` : "AI Agent not connected yet"}
-            {queued > 0 && <span className="text-[#697a91]"> · {queued} task{queued === 1 ? "" : "s"} in its queue</span>}
-          </div>
-        );
-      })()}
       <NewTaskBox onCreated={onRefresh} coach={!admin} />
-      {admin && <NotifySettingsBox />}
-      {admin && lastScan && (
-        <div className="text-[11px] text-[#8595a8] flex items-center gap-2 flex-wrap">
-          <span>Last scan {timeAgo(lastScan.at)} ago · {lastScan.unread} unread chats · {lastScan.scanned} new checked · <b className="text-[#1f3559]">{lastScan.filed} filed</b>{lastScan.closed ? ` · ${lastScan.closed} closed (answered in chat)` : ""}{lastScan.notify?.sent ? " · you were texted" : ""}</span>
-          {lastScan.skipped?.length > 0 && (
-            <button onClick={() => setShowSkipped((s) => !s)} className="text-[#0e8f88] hover:underline">
-              {showSkipped ? "hide" : "why skipped"} ({lastScan.skipped.length})
-            </button>
-          )}
-          {lastScan.errors?.length > 0 && <span className="text-[#c2620a]">{lastScan.errors.length} error{lastScan.errors.length === 1 ? "" : "s"}</span>}
-        </div>
-      )}
-      {showSkipped && lastScan && (
-        <div className="rounded-lg border border-[#eef3f8] bg-white px-3 py-2 text-[11px] text-[#697a91] space-y-0.5">
-          {lastScan.skipped.map((s, i) => <div key={i}><b className="text-[#1f3559]">{s.who}</b> — {s.why}</div>)}
-          {lastScan.errors.map((e, i) => <div key={`e${i}`} className="text-[#c2620a]">⚠ {e}</div>)}
-        </div>
-      )}
       {err && <div className="px-3 py-2 rounded-lg border border-[#f5c2cf] bg-[#fde8ee] text-[#e11d48] text-xs">{err}</div>}
       {loading && proposals.length === 0 ? (
         <p className="text-xs text-[#8595a8] flex items-center gap-1.5 py-8 justify-center"><Loader2 size={13} className="animate-spin" /> Loading agent activity…</p>
@@ -1227,73 +1212,6 @@ function NewTaskBox({ onCreated, coach = false }: { onCreated: () => void; coach
         <span className="ml-auto text-[10px] text-[#8595a8]">Nothing runs until it&apos;s approved</span>
       </div>
     </form>
-  );
-}
-
-// "Text me when a request comes in" — the owner's number, saved once. The
-// text goes out through the main account, so the owner becomes a contact
-// there; the API does that and stores the contact id.
-function NotifySettingsBox() {
-  const [settings, setSettings] = useState<{ enabled: boolean; phone: string; newCards?: boolean } | null | undefined>(undefined);
-  const [phone, setPhone] = useState("");
-  const [busy, setBusy] = useState<"save" | "test" | "toggle" | "cards" | null>(null);
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    fetch("/api/agent/notify").then((r) => r.json()).then((j) => setSettings(j.settings ?? null)).catch(() => setSettings(null));
-  }, []);
-  const post = async (body: Record<string, unknown>, kind: "save" | "test" | "toggle" | "cards", okMsg: string) => {
-    setBusy(kind);
-    try {
-      const r = await fetch("/api/agent/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Failed");
-      if (j.settings) setSettings(j.settings);
-      toast.success(okMsg);
-      if (kind === "save") { setPhone(""); setOpen(false); }
-    } catch (e) {
-      toast.error(`${e}`.replace("Error: ", ""));
-    } finally { setBusy(null); }
-  };
-  if (settings === undefined) return null;
-  return (
-    <div className={cn("rounded-lg border px-3 py-2 text-xs", settings?.enabled ? "border-[#bfe3cd] bg-[#f3fbf6]" : "border-[#fcd9a8] bg-[#fff7ec]")}>
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <span className={settings?.enabled ? "text-[#15803d]" : "text-[#9a5b00]"}>
-          {settings ? (settings.enabled ? `📱 Texting you at ${settings.phone} after each fix${settings.newCards ? " and when a request comes in" : ""}` : `⏸ Texts paused (${settings.phone})`) : "⚠ Add your mobile number to get a confirmation text after each fix"}
-        </span>
-        <div className="flex items-center gap-1.5">
-          {settings && (
-            <>
-              <label className="flex items-center gap-1 text-[#34568a] cursor-pointer">
-                <input type="checkbox" checked={!!settings.newCards} disabled={!!busy}
-                  onChange={(e) => post({ newCards: e.target.checked }, "cards", e.target.checked ? "You'll also be texted about new requests" : "Confirmations only")} />
-                {busy === "cards" && <Loader2 size={11} className="animate-spin" />}new requests too
-              </label>
-              <button onClick={() => post({ enabled: !settings.enabled }, "toggle", settings.enabled ? "Texts paused" : "Texts resumed")} disabled={!!busy}
-                className="px-2 py-1 rounded border border-[#d7e0ea] bg-white text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50 flex items-center gap-1">
-                {busy === "toggle" && <Loader2 size={11} className="animate-spin" />}{settings.enabled ? "Pause" : "Resume"}
-              </button>
-              <button onClick={() => post({ test: true }, "test", "Test text sent")} disabled={!!busy}
-                className="px-2 py-1 rounded border border-[#d7e0ea] bg-white text-[#34568a] hover:border-[#15B7AE] disabled:opacity-50 flex items-center gap-1">
-                {busy === "test" && <Loader2 size={11} className="animate-spin" />}Send test
-              </button>
-            </>
-          )}
-          <button onClick={() => setOpen((o) => !o)} className="px-2 py-1 rounded bg-[#15B7AE] text-white hover:bg-[#0e8f88]">
-            {settings ? "Change number" : "Add my number"}
-          </button>
-        </div>
-      </div>
-      {open && (
-        <form className="mt-2 flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void post({ phone }, "save", "Saved — you'll get a text after the next fix"); }}>
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Your mobile, e.g. 213-555-0100" inputMode="tel" autoFocus
-            className="flex-1 px-2 py-1.5 bg-white border border-[#d7e0ea] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
-          <button type="submit" disabled={!!busy || !phone.trim()} className="px-3 py-1.5 rounded bg-[#15803d] text-white disabled:opacity-50 flex items-center gap-1">
-            {busy === "save" ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Save
-          </button>
-        </form>
-      )}
-    </div>
   );
 }
 
