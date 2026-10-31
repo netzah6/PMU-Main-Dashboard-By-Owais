@@ -142,14 +142,17 @@ export function Navbar({ userEmail, syncing, sticky = true }: NavbarProps) {
           // (owner request 2026-09-28). Keyed on the REAL role so it stays
           // put while previewing — it is the way back.
           <label
-            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2] cursor-pointer"
+            className={cn("relative flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg hover:bg-[#e6f7f5] border cursor-pointer",
+              viewAs ? "bg-[#fff7e6] border-[#fcd9a8] text-[#b35a00]" : "bg-[#f1f5f9] border-[#e4ebf2] text-[#34568a]")}
             title="Preview the dashboard as another role — tabs and pages switch to what that role sees"
           >
+            {/* Phone: icon only, same size as Sync/Settings (owner 10/31/2026);
+                the picker sits invisibly on top of the eye. Amber = previewing. */}
             <Eye size={12} className="flex-shrink-0" />
             <select
               value={viewAs ?? ""}
               onChange={(e) => setViewAs((e.target.value || null) as UserRole | null)}
-              className="bg-transparent focus:outline-none cursor-pointer max-w-[7.5rem] sm:max-w-none"
+              className="absolute inset-0 w-full opacity-0 sm:static sm:w-auto sm:opacity-100 bg-transparent focus:outline-none cursor-pointer"
               aria-label="View dashboard as"
             >
               <option value="">View as: me (Admin)</option>
