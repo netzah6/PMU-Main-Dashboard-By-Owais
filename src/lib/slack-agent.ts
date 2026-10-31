@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createServiceClient } from "@/lib/supabase/server";
 import { clientNameList, createTaskCard, findTaskClient } from "@/lib/agent-task";
 import { proposalLink } from "@/lib/agent-notify";
+import { getLessons, lessonsBlock } from "@/lib/agent-lessons";
 
 /* "Send to AI Agent" — a Slack message shortcut (owner, 10/31/2026: team
    members ask me for things in Slack DMs; let the Mac Mini take care of
@@ -116,10 +117,10 @@ async function readImages(msgs: SlackMsg[]): Promise<Img[]> {
 
 type Plan = { client: string; task: string; summary: string };
 
-async function planTask(convo: string, imgs: Img[], note: string, clientHint: string, clients: string[]): Promise<Plan | null> {
+async function planTask(convo: string, imgs: Img[], note: string, clientHint: string, clients: string[], rules: string): Promise<Plan | null> {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const prompt = `You turn a request that came in on Slack into a task for the AI Agent, which works by hand inside ONE client's GoHighLevel sub-account (a PMU artist the agency serves). The people on Slack are the agency's team (coaches, media buyers) and the owner, Netzah.
-${note ? `\nNETZAH'S NOTE (authoritative — it overrides your own reading):\n"""\n${note}\n"""\n` : ""}${clientHint ? `\nNetzah says the client is: ${clientHint}\n` : ""}
+  const prompt = `You turn a request that came in on Slack into a task for the AI Agent, which works by hand in a browser for ONE client (a PMU artist the agency serves): in their GoHighLevel sub-account, or in CloseBot (app.closebot.com) — the AI that texts their leads. What the AI texts leads (its wording, replies to photos, scripts, follow-ups) lives in CloseBot, not GoHighLevel. The people on Slack are the agency's team (coaches, media buyers) and the owner, Netzah.
+${rules}${note ? `\nNETZAH'S NOTE (authoritative — it overrides your own reading):\n"""\n${note}\n"""\n` : ""}${clientHint ? `\nNetzah says the client is: ${clientHint}\n` : ""}
 Slack conversation, oldest first (the message Netzah clicked is marked <- THIS ONE):
 """
 ${convo}
@@ -129,7 +130,7 @@ Client list (owner name, then business):
 ${clients.join("\n")}
 
 Reply with ONLY JSON:
-{"client": "<the owner name exactly as in the list, before the bracket; \\"\\" if you can't tell>", "summary": "<at most 12 words: the ask itself>", "task": "<numbered steps for the agent: what to open in GoHighLevel and exactly what to change, with the values from the messages/screenshots; end with what to check so it's done>"}`;
+{"client": "<the owner name exactly as in the list, before the bracket; \\"\\" if you can't tell>", "summary": "<at most 12 words: the ask itself>", "task": "<first line: 'In GoHighLevel:' or 'In CloseBot (app.closebot.com):'; then numbered steps, one per line: what to open and exactly what to change, with the values from the messages/screenshots; end with what to check so it's done>"}`;
   const content: Anthropic.ContentBlockParam[] = [{ type: "text", text: prompt }];
   for (const i of imgs) content.push({ type: "image", source: { type: "base64", media_type: i.media, data: i.data.toString("base64") } });
   const res = await anthropic.messages.create({ model: MODEL, max_tokens: 900, messages: [{ role: "user", content }] });
@@ -153,8 +154,8 @@ export async function handleSubmission(meta: ModalMeta, clientHint: string, note
       lines.push(`[${when}] ${who}: ${(m.text ?? "").trim()}${files}${m.ts === meta.ts ? "   <- THIS ONE" : ""}`);
     }
     const convo = lines.join("\n") || "(no readable messages)";
-    const [imgs, clients] = await Promise.all([readImages(msgs), clientNameList(svc)]);
-    const plan = await planTask(convo, imgs, note, clientHint, clients);
+    const [imgs, clients, lessons] = await Promise.all([readImages(msgs), clientNameList(svc), getLessons(svc)]);
+    const plan = await planTask(convo, imgs, note, clientHint, clients, lessonsBlock(lessons));
     if (!plan?.task) { await tellOwner(meta.ru, "🤖 The AI couldn't make a task from that message — try again with a note."); return; }
     const found = await findTaskClient(svc, clientHint || plan.client || "");
     if (!found.client) {
