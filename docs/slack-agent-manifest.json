@@ -1,0 +1,32 @@
+{
+  "display_information": {
+    "name": "PMU AI Agent",
+    "description": "Turn a Slack message into a task for the AI Agent (owner only)."
+  },
+  "features": {
+    "bot_user": { "display_name": "PMU AI Agent", "always_online": false },
+    "shortcuts": [
+      {
+        "name": "Send to AI Agent",
+        "type": "message",
+        "callback_id": "send_to_ai_agent",
+        "description": "Make a task card for the AI Agent from this message"
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": ["commands"],
+      "user": ["im:history", "mpim:history", "channels:history", "groups:history", "files:read", "users:read"]
+    }
+  },
+  "settings": {
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://pmu-main-dashboard-by-owais1.vercel.app/api/slack/actions"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
