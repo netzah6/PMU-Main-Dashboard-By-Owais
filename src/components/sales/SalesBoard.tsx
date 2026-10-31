@@ -26,6 +26,9 @@ const KIND: Record<Todo["kind"], { label: string; icon: string; cls: string; hin
   closed:       { label: "Closed",             icon: "✅", cls: "bg-emerald-50 text-emerald-700 border-emerald-200", hint: "Won — upfront collected as logged in the sheet." },
 };
 
+// Short seat names so the whole filter row fits one line.
+const SEAT_SHORT: Record<string, string> = { setter: "📞 Setter", closer: "🤝 Closer", team: "👥 Team" };
+
 const fmtWhen = (iso: string | null) => iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—";
 const grade = (v: number | null, target: number) => v == null ? "gray" : v >= target ? "green" : v >= target * 0.8 ? "yellow" : "red";
 const TONE: Record<string, string> = {
@@ -35,10 +38,10 @@ const TONE: Record<string, string> = {
 
 function Kpi({ label, value, sub, tone = "gray", hint }: { label: string; value: string; sub?: string; tone?: string; hint?: string }) {
   return (
-    <div className={cn("rounded-xl border px-3 py-2 min-w-[120px]", TONE[tone])} title={hint}>
-      <div className="text-[10px] font-bold uppercase tracking-wide opacity-80">{label}</div>
-      <div className="text-xl font-extrabold leading-tight">{value}</div>
-      {sub && <div className="text-[10px] opacity-80">{sub}</div>}
+    <div className={cn("rounded-lg border px-2 py-1.5 min-w-0", TONE[tone])} title={hint ? `${hint}${sub ? `\n${sub}` : ""}` : sub}>
+      <div className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wide opacity-80 truncate">{label}</div>
+      <div className="text-base sm:text-lg font-extrabold leading-tight">{value}</div>
+      {sub && <div className="text-[9px] sm:text-[10px] opacity-80 leading-tight line-clamp-2">{sub}</div>}
     </div>
   );
 }
@@ -67,10 +70,10 @@ function TodoList({ todos, who, kinds, win }: { todos: Todo[]; who: string; kind
   const counts = Object.fromEntries(kinds.map((k) => [k, mine.filter((t) => t.kind === k).length]));
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white">
-      <div className="px-3 py-2 border-b border-[#eef3f8] flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-bold text-[#1f3559]">Last {win} days</span>
-        <span className="text-[11px] text-[#697a91]">{mine.filter((t) => t.urgent).length} need attention now</span>
-        <div className="ml-auto flex gap-1 flex-wrap">
+      <div className="px-3 py-2 border-b border-[#eef3f8] flex items-center gap-2 flex-nowrap overflow-x-auto [&>*]:shrink-0 [&_button]:whitespace-nowrap">
+        <span className="text-sm font-bold text-[#1f3559] whitespace-nowrap">Last {win} days</span>
+        <span className="text-[11px] text-[#697a91] whitespace-nowrap">{mine.filter((t) => t.urgent).length} need attention</span>
+        <div className="ml-auto flex gap-1 flex-nowrap">
           <button onClick={() => setKind("all")} className={cn("px-2 py-0.5 rounded text-[11px] font-semibold border", kind === "all" ? "bg-[#1f3559] text-white border-[#1f3559]" : "bg-white text-[#34568a] border-[#d7e0ea]")}>All ({mine.length})</button>
           {kinds.map((k) => (
             <button key={k} onClick={() => setKind(k)} className={cn("px-2 py-0.5 rounded text-[11px] font-semibold border", kind === k ? "bg-[#1f3559] text-white border-[#1f3559]" : KIND[k].cls)}>
@@ -126,7 +129,7 @@ function SetterView({ b, who, win }: { b: Board; who: string; win: Win }) {
   const p = (v: number | null) => v == null ? "—" : `${v}%`;
   return (
     <div className="space-y-3">
-      <div className="flex gap-2 flex-wrap">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
         <Kpi label="Discoveries" value={String(s.total)} sub={`${s.noStatus} without a status`} tone={s.noStatus > 0 ? "yellow" : "gray"} hint="Leads assigned in the window (by sign-up date)" />
         <Kpi label="Show-up rate" value={p(s.showUp)} sub={`target ${TARGETS.discShowUp}% · ${s.noShow} no-show · ${s.cancelled} cancelled`} tone={grade(s.showUp, TARGETS.discShowUp)} hint="(discoveries − no-shows − cancelled) ÷ discoveries" />
         <Kpi label="Demos booked" value={String(s.demoScheduled)} sub={`${s.didntBook} didn't book · ${s.disqualified} disqualified`} tone="gray" />
@@ -144,7 +147,7 @@ function CloserView({ b, who, win }: { b: Board; who: string; win: Win }) {
   const p = (v: number | null) => v == null ? "—" : `${v}%`;
   return (
     <div className="space-y-3">
-      <div className="flex gap-2 flex-wrap">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
         <Kpi label="Demos" value={String(s.total)} sub={`${s.noStatus} without a status`} tone={s.noStatus > 0 ? "yellow" : "gray"} hint="Demos in the window (by demo date)" />
         <Kpi label="Demo show-up" value={p(s.showUp)} sub={`target ${TARGETS.demoShowUp}% · ${s.noShow} no-show`} tone={grade(s.showUp, TARGETS.demoShowUp)} hint="(demos − no-shows − cancelled) ÷ demos" />
         <Kpi label="Closed" value={String(s.closed)} sub={`${s.didntClose} didn't close`} tone="gray" />
@@ -231,23 +234,24 @@ export function SalesBoardView() {
   if (!b) return <div className="mt-6 flex items-center gap-2 text-sm text-[#697a91]"><Loader2 size={14} className="animate-spin" /> Loading the sales numbers…</div>;
 
   return (
-    <div className="mt-3 space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex gap-1 rounded-lg bg-[#eef2f7] p-1">
+    <div className="mt-2 sm:mt-3 space-y-2 sm:space-y-3">
+      {/* Every filter on ONE line, scrolls sideways on a phone (owner 10/31/2026). */}
+      <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto pb-0.5 [&>*]:shrink-0 [&_button]:whitespace-nowrap">
+        <div className="flex gap-0.5 rounded-lg bg-[#eef2f7] p-0.5">
           {seats.map(([k, l]) => (
-            <button key={k} onClick={() => setSeat(k)} className={cn("px-3 py-1.5 rounded-md text-sm font-semibold", seat === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]")}>{l}</button>
+            <button key={k} onClick={() => setSeat(k)} className={cn("px-2 py-1 rounded-md text-xs font-semibold", seat === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]")}>{SEAT_SHORT[k] ?? l}</button>
           ))}
         </div>
-        <div className="flex gap-1 rounded-lg bg-[#eef2f7] p-1">
-          {WINDOWS.map((w) => <button key={w} onClick={() => setWin(w)} className={cn("px-2.5 py-1 rounded-md text-xs font-semibold", win === w ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]")}>{w}d</button>)}
+        <div className="flex gap-0.5 rounded-lg bg-[#eef2f7] p-0.5">
+          {WINDOWS.map((w) => <button key={w} onClick={() => setWin(w)} className={cn("px-2 py-1 rounded-md text-xs font-semibold", win === w ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]")}>{w}d</button>)}
         </div>
         {seat !== "team" && (
-          <div className="flex gap-1 flex-wrap">
-            {[...(scope && people.length <= 1 ? [] : ["ALL"]), ...people].map((n) => <button key={n} onClick={() => setWho(n)} title={n === FORMER ? "Leads whose sheet row still names a rep who left — see the note below" : undefined} className={cn("px-2.5 py-1 rounded-lg text-xs font-semibold border", who === n ? "bg-[#1f3559] text-white border-[#1f3559]" : n === FORMER ? "bg-white text-[#8595a8] border-dashed border-[#c3cdd9]" : "bg-white text-[#34568a] border-[#d7e0ea] hover:bg-[#f6f9fc]")}>{n === "ALL" ? "Everyone" : n === FORMER ? "⚠ Former reps" : n}</button>)}
+          <div className="flex gap-1 flex-nowrap">
+            {[...(scope && people.length <= 1 ? [] : ["ALL"]), ...people].map((n) => <button key={n} onClick={() => setWho(n)} title={n === FORMER ? "Leads whose sheet row still names a rep who left — see the note below" : undefined} className={cn("px-2 py-1 rounded-lg text-xs font-semibold border", who === n ? "bg-[#1f3559] text-white border-[#1f3559]" : n === FORMER ? "bg-white text-[#8595a8] border-dashed border-[#c3cdd9]" : "bg-white text-[#34568a] border-[#d7e0ea] hover:bg-[#f6f9fc]")}>{n === "ALL" ? "Everyone" : n === FORMER ? "⚠ Former" : n}</button>)}
           </div>
         )}
         <button onClick={refreshFollowUps} disabled={syncing || loading} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#9fe0dc] bg-[#e9f9f8] text-[#0e8f88] hover:bg-[#d8f3f1] disabled:opacity-60" title="Re-read the GHL call/text log for every lead on the lists (also runs every hour)">
-          {syncing ? <Loader2 size={11} className="animate-spin" /> : <span>📞</span>} {syncing ? "Reading the call log…" : "Refresh follow-ups"}
+          {syncing ? <Loader2 size={11} className="animate-spin" /> : <span>📞</span>} {syncing ? "Reading…" : "Follow-ups"}
         </button>
         {syncMsg && <span className="text-[11px] font-semibold text-[#0e8f88]">{syncMsg}</span>}
         <button onClick={load} disabled={loading} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#d7e0ea] bg-white text-[#34568a] hover:bg-[#f6f9fc] disabled:opacity-60" title="The sheets sync every 15 minutes; this re-reads what's synced">

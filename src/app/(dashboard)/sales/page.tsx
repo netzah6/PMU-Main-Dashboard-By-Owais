@@ -331,14 +331,14 @@ export default function SalesPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Title and the three views on ONE line (owner, 2026-10-12: save space). */}
-      <div className="flex items-center gap-4 flex-wrap">
-      <h1 className="text-2xl font-bold text-[#1f3559] tracking-tight">💼 Sales</h1>
-      {isAdmin && <div className="flex gap-1 rounded-lg bg-[#eef2f7] p-1 w-fit flex-wrap">
+    <div className="p-3 sm:p-6 max-w-6xl mx-auto">
+      {/* Title and the three views on ONE line (owner, 2026-10-12 / 10-31: save space). */}
+      <div className="flex items-center gap-2 sm:gap-4 flex-nowrap overflow-x-auto">
+      <h1 className="text-lg sm:text-2xl font-bold text-[#1f3559] tracking-tight whitespace-nowrap shrink-0">💼 Sales</h1>
+      {isAdmin && <div className="flex gap-0.5 rounded-lg bg-[#eef2f7] p-0.5 w-fit flex-nowrap shrink-0">
         {([["board", "Sales board"], ["demos", "Demo Checker"], ["coaches", "Coach Tracker"]] as const).map(([k, label]) => (
           <button key={k} onClick={() => setView(k)}
-            className={`px-4 py-1.5 rounded-md text-sm font-semibold ${view === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]"}`}>
+            className={`px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-md text-xs sm:text-sm font-semibold whitespace-nowrap ${view === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]"}`}>
             {label}
           </button>
         ))}
