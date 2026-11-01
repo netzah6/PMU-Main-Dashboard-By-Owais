@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     }
     let sent = 0, failed = 0;
     for (const r of queued ?? []) {
-      const res = await sendSms(tok.token, r.contact_id, r.rendered_message);
+      const res = await sendSms(tok.token, r.contact_id, r.rendered_message, job.attachment_url);
       await svc.from("blast_recipients").update({
         status: res.ok ? "sent" : "failed",
         error: res.ok ? null : res.error,
