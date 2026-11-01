@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle, Trash2, Wrench } from "lucide-react";
+import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle, Trash2, Wrench, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { templateProblem, autoFixTemplate } from "@/lib/blast-template";
@@ -14,6 +14,7 @@ type Recipient = { contactId: string; name: string; firstName: string; phone: st
 type Job = {
   id: string; client_label: string | null; status: string; total: number; sent: number; failed: number;
   send_at: string; created_at: string; stage_names: string[]; message_template: string; timezone?: string | null;
+  attachment_url?: string | null;
   error?: string | null; fail_reasons?: Array<{ reason: string; n: number }>;
   replies_total?: number; replies_positive?: number;
   positive_replies?: Array<{ name: string | null; text: string | null; at: string | null }>;
@@ -43,6 +44,27 @@ function fmtInTz(iso: string, tz: string | null | undefined): string {
 }
 const tzCity = (tz: string | null | undefined) => tz ? tz.split("/").pop()!.replace(/_/g, " ") : "your computer's time";
 
+/* 📷 Shrink a picked photo to a JPEG a carrier will deliver as MMS (longest
+   side 1200 px, ~150–400 KB). Any image the browser can open works — WEBP,
+   HEIC on Safari, a huge PNG — and what's uploaded is always a JPEG. */
+async function shrinkPhoto(file: File): Promise<Blob> {
+  const img = await createImageBitmap(file);
+  const scale = Math.min(1, 1200 / Math.max(img.width, img.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Couldn't read that photo");
+  ctx.fillStyle = "#fff"; // transparent PNGs turn white, not black
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  for (const q of [0.82, 0.7, 0.55]) {
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", q));
+    if (blob && blob.size <= 850_000) return blob;
+  }
+  throw new Error("That photo is too big for a text — try a smaller one");
+}
+
 export default function BlastPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [defaultTemplate, setDefaultTemplate] = useState("");
@@ -54,6 +76,26 @@ export default function BlastPage() {
   const [senderName, setSenderName] = useState("");
   const [serviceWord, setServiceWord] = useState("");
   const [template, setTemplate] = useState("");
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const addPhoto = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", await shrinkPhoto(file), "photo.jpg");
+      const r = await fetch("/api/blast/photo", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Upload failed");
+      setPhotoUrl(j.url);
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally {
+      setPhotoBusy(false);
+      if (photoInput.current) photoInput.current.value = "";
+    }
+  }, []);
   const [preview, setPreview] = useState<{ recipients: Recipient[]; noPhone: number; eligible: number; excludedRecent: number } | null>(null);
   const [excludeDays, setExcludeDays] = useState(10);
   const [maxContacts, setMaxContacts] = useState(250);
@@ -149,19 +191,20 @@ export default function BlastPage() {
           timezone: clientTz ?? undefined,
           expectedCount: preview.recipients.length,
           excludeDays, maxContacts,
+          attachmentUrl: photoUrl ?? undefined,
         }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Failed to schedule");
       toast.success(when === "now" ? `Blast queued — sending to ${j.total} people` : `Blast scheduled for ${sendAt.replace("T", " ")} ${tzCity(clientTz)} time`);
-      setConfirmOpen(false); setChecked(false); setPreview(null); setSelStages(new Set());
+      setConfirmOpen(false); setChecked(false); setPreview(null); setSelStages(new Set()); setPhotoUrl(null);
       loadJobs();
     } catch (e) {
       toast.error(`${e}`.replace("Error: ", ""));
     } finally {
       setScheduling(false);
     }
-  }, [client, preview, senderName, serviceWord, template, when, sendAt, stages, selStages, excludeDays, maxContacts, clientTz]);
+  }, [client, preview, senderName, serviceWord, template, when, sendAt, stages, selStages, excludeDays, maxContacts, clientTz, photoUrl]);
 
   // Reschedule flow: pick date+time, then confirm — nothing sends until then.
   const [reschedId, setReschedId] = useState<string | null>(null);
@@ -295,6 +338,23 @@ export default function BlastPage() {
                   </button>
                 </div>
               )}
+              {/* 📷 One photo goes with every text (MMS). */}
+              <div className="mt-2 flex items-center gap-2">
+                <input ref={photoInput} type="file" accept="image/*" className="hidden" onChange={(e) => addPhoto(e.target.files?.[0])} />
+                {photoUrl ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-[#e4ebf2] bg-[#f7fafc] p-1.5 pr-2.5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photoUrl} alt="Blast photo" className="h-14 w-14 rounded-md object-cover" />
+                    <span className="text-[11px] text-[#34568a]">📷 This photo goes with every text</span>
+                    <button onClick={() => setPhotoUrl(null)} title="Remove photo" className="p-0.5 rounded text-[#8595a8] hover:text-[#e11d48]"><X size={13} /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => photoInput.current?.click()} disabled={photoBusy}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#d7e0ea] bg-white text-[11px] font-semibold text-[#34568a] hover:border-[#15B7AE] disabled:opacity-60">
+                    {photoBusy ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />} {photoBusy ? "Adding photo…" : "Add photo (optional)"}
+                  </button>
+                )}
+              </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-[10px] text-[#8595a8]">Placeholders: {"{{contact.first_name}}"} · {"{{user.first_name}}"} · {"{{service}}"}</p>
                 <button onClick={() => setTemplate(defaultTemplate)} className="text-[10px] font-semibold text-[#0e8f88] hover:underline">Reset to default</button>
@@ -368,6 +428,8 @@ export default function BlastPage() {
               <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5">
                 <p className="text-[10px] font-bold uppercase text-[#8595a8] mb-1">Message preview (first recipient)</p>
                 <p className="text-sm text-[#1f3559] whitespace-pre-wrap">{sampleMessage}</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {photoUrl && <img src={photoUrl} alt="Blast photo" className="mt-2 max-h-40 rounded-md border border-[#e4ebf2]" />}
               </div>
               <div className="flex items-center gap-3 pt-1">
                 <label className="flex items-center gap-1.5 text-xs text-[#34568a]">
@@ -400,7 +462,7 @@ export default function BlastPage() {
           <div className="w-full max-w-md rounded-xl bg-white p-5 space-y-3">
             <p className="text-sm font-bold text-[#1f3559] flex items-center gap-1.5"><AlertTriangle size={15} className="text-[#f0a742]" /> Confirm blast</p>
             <p className="text-sm text-[#34568a]">
-              Send this text to <b>{preview.recipients.length} real clients</b> of <b>{client.label}</b>
+              Send this text{photoUrl ? <b> with the photo</b> : null} to <b>{preview.recipients.length} real clients</b> of <b>{client.label}</b>
               {when === "later" && sendAt ? <> at <b>{sendAt.replace("T", " ")} {tzCity(clientTz)} time</b>{clientTz ? <span className="text-[#697a91]"> ({fmtInTz(zonedToIso(sendAt, clientTz), undefined)} on your clock)</span> : null}</> : " right now"}?
             </p>
             <label className="flex items-start gap-2 text-xs text-[#34568a]">
@@ -429,7 +491,7 @@ export default function BlastPage() {
             {jobs.map((j) => (
               <div key={j.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#eef3f8] px-3 py-2">
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-[#1f3559] truncate">{j.client_label ?? j.id}</p>
+                  <p className="text-xs font-semibold text-[#1f3559] truncate">{j.client_label ?? j.id}{j.attachment_url ? <a href={j.attachment_url} target="_blank" rel="noreferrer" title="Sent with a photo" className="ml-1.5 font-normal no-underline">📷</a> : null}</p>
                   <p className="text-[10px] text-[#8595a8]">
                     {(j.stage_names ?? []).join(", ")} · {fmtInTz(j.send_at, j.timezone)} {j.timezone ? `${tzCity(j.timezone)} time` : "your time"}
                   </p>

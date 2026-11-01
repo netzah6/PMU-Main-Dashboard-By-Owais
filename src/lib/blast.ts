@@ -127,17 +127,27 @@ export async function fetchAudience(
   return { recipients, noPhone, eligible: out.length, excludedRecent };
 }
 
-/** Send one SMS through the conversations API. Needs the
+// 📷 Blast photos live in the public "onboarding" bucket under blast/; a
+// schedule only accepts a photo URL from there (never a link typed in).
+export const BLAST_PHOTO_BUCKET = "onboarding";
+export const BLAST_PHOTO_PREFIX = "blast/";
+export function isBlastPhotoUrl(u: unknown): u is string {
+  const base = `${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""}/storage/v1/object/public/${BLAST_PHOTO_BUCKET}/${BLAST_PHOTO_PREFIX}`;
+  return typeof u === "string" && !!process.env.NEXT_PUBLIC_SUPABASE_URL && u.startsWith(base) && !/[\s"'<>]/.test(u);
+}
+
+/** Send one SMS through the conversations API (with the photo as MMS when given). Needs the
  * conversations/message.write scope on the marketplace app. */
 export async function sendSms(
   token: string,
   contactId: string,
   message: string,
+  attachmentUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`${GHL}/conversations/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Version: "2021-04-15", "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ type: "SMS", contactId, message }),
+    body: JSON.stringify({ type: "SMS", contactId, message, ...(attachmentUrl ? { attachments: [attachmentUrl] } : {}) }),
   });
   if (res.ok) return { ok: true };
   const text = await res.text().catch(() => "");

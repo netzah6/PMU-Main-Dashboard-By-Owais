@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { livePipelineIds, blastClients, fetchAudience, renderTemplate, locationTimezone, DEFAULT_TEMPLATE, blastContactCap } from "@/lib/blast";
+import { livePipelineIds, blastClients, fetchAudience, renderTemplate, locationTimezone, DEFAULT_TEMPLATE, blastContactCap, isBlastPhotoUrl } from "@/lib/blast";
 import { templateProblem, blastErrorReason, isPermanentBlastError } from "@/lib/blast-template";
 
 export const maxDuration = 300;
@@ -157,11 +157,12 @@ export async function POST(req: NextRequest) {
 
   if (body.action !== "schedule") return NextResponse.json({ error: "unknown action" }, { status: 400 });
 
-  const { locationId, ownerKey, clientLabel, senderName, serviceWord, stageIds, stageNames, template, sendAt, expectedCount, excludeDays, maxContacts, timezone } = body as {
+  const { locationId, ownerKey, clientLabel, senderName, serviceWord, stageIds, stageNames, template, sendAt, expectedCount, excludeDays, maxContacts, timezone, attachmentUrl } = body as {
     locationId: string; ownerKey: string; clientLabel: string; senderName: string; serviceWord: string;
     stageIds: string[]; stageNames: string[]; template: string; sendAt?: string; expectedCount: number;
-    excludeDays?: number; maxContacts?: number; timezone?: string;
+    excludeDays?: number; maxContacts?: number; timezone?: string; attachmentUrl?: string;
   };
+  if (attachmentUrl && !isBlastPhotoUrl(attachmentUrl)) return NextResponse.json({ error: "That photo didn't upload properly — add it again" }, { status: 400 });
   if (!locationId || !senderName?.trim() || !template?.trim() || !stageIds?.length) {
     return NextResponse.json({ error: "missing fields" }, { status: 400 });
   }
@@ -194,6 +195,7 @@ export async function POST(req: NextRequest) {
     // page already converted sendAt to UTC with it).
     timezone: typeof timezone === "string" && timezone.trim() ? timezone.trim().slice(0, 64) : null,
     status: "scheduled", total: audience.recipients.length, created_by: auth.email ?? auth.userId,
+    attachment_url: attachmentUrl || null,
   }).select("id").single();
   if (jerr || !job) return NextResponse.json({ error: jerr?.message ?? "insert failed" }, { status: 500 });
 
