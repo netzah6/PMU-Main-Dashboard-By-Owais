@@ -63,7 +63,7 @@ function ago(iso: string | null, now: number): string {
   return `${h} h ${m % 60} min`;
 }
 
-const FINISHED_LABEL: Record<string, string> = { done: "✅ Done", failed: "❌ Failed", needs_teammate: "👤 Needs a teammate" };
+const FINISHED_LABEL: Record<string, string> = { done: "✅ Done", failed: "❌ Failed", needs_teammate: "⚠️ Needs a teammate" };
 
 // Full loads on purpose: both tabs read their ?p= / ?open= once when they
 // mount, so a client-side push while already there would not open the card.
@@ -100,8 +100,16 @@ export function MacMiniTracker({ scope }: { scope: TrackerScope }) {
   const alertFinished = useCallback((r: Row) => {
     const head = FINISHED_LABEL[r.status] ?? r.status;
     const text = `${r.contact_name}: ${r.summary}`;
-    const show = r.status === "done" ? toast.success : toast.error;
-    show(`AI Agent — ${head}`, { description: text, duration: 30_000, action: { label: "Open", onClick: () => openCard(r) } });
+    /* Owner 11/01/2026: the pop-ups covered the menu tabs. Small, at the
+       bottom-right, with an ✕, the status emoji in the title instead of
+       sonner's black icon, and gone after 12 s. */
+    toast(`${head} · AI Agent`, {
+      description: text.length > 90 ? `${text.slice(0, 88)}…` : text,
+      duration: 12_000, position: "bottom-right", closeButton: true,
+      className: "!py-2 !px-3 !text-[11px] !w-[300px] !gap-1",
+      descriptionClassName: "!text-[10.5px] !leading-snug",
+      action: { label: "Open", onClick: () => openCard(r) },
+    });
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         const n = new Notification(`AI Agent — ${head}`, { body: text, tag: `mini-${r.id}` });
