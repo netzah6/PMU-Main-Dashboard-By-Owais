@@ -227,7 +227,7 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     // Go-live comes BEFORE the funnel test now (owner 10/20/2026: the test is
     // the AI Agent's last step); the redirect decision (done / not needed) first.
     case "funnel_live": return done(ob, "funnel_create") && done(ob, "funnel_redirect");
-    case "last_check": return done(ob, "funnel_live") && done(ob, "last_profile");
+    case "last_check": return done(ob, "funnel_live") && done(ob, "last_profile") && done(ob, "user_settings");
     // Runs only after a person clicked Approve on the card (confirm step).
     case "first_cycle": return done(ob, "funnel_test") && !!stepState(ob.setup, "first_cycle").confirmed_by;
     default: return false;
@@ -680,7 +680,7 @@ const API_STEPS: Record<string, StepFn> = {
   },
 
   /* 36 · The Check-Setup grade on the finished account. */
-  last_check: async (_svc, ob) => {
+  last_check: async (svc, ob) => {
     // Safety net: the artist's schedule must be in the studio's time zone.
     const tz: ClaimAction[] = await syncScheduleTimezones(ob.setup!.location_id).catch((e) => [{ action: "Schedule time zone", ok: false, detail: errMsg(e) }]);
     const cal = await ensureCalendarActive(ob.setup!.location_id).catch((e) => ({ ok: false, note: `calendar: ${errMsg(e)}` }));
@@ -704,6 +704,21 @@ const API_STEPS: Record<string, StepFn> = {
         ? await saveLoginFields(ob, cid, { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" }).then(() => "\nlogins saved on the agency contact").catch(() => "")
         : "";
       return { status: "done", note: `all green — ${pass} checks passed\n${tzNote}${saved}` };
+    }
+    /* Owner 11/01/2026: wrong login permissions are something the AI Agent
+       fixes itself — send step 16 back to it and check again once it's done,
+       instead of stopping the run. Once per run, so a login the AI Agent
+       can't change (an Admin, another person's user) still stops here. */
+    const permFail = fails.find((f) => f.key === "user_permissions");
+    const triedFix = (ob.setup!.log ?? []).some((l) => l.key === "user_settings" && l.msg.startsWith("auto-fix"));
+    if (permFail && !triedFix) {
+      await patch(svc, ob.id, (o) => {
+        if (!o.setup) return;
+        setStep(o.setup, "user_settings", { status: "todo", who: "AI Agent", note: `re-queued by the final check — ${permFail.detail}`.slice(0, 400), proposal_id: undefined, error: undefined }, "auto-fix: final check found the login permissions off — step 16 re-queued");
+        return { setup: o.setup };
+      });
+      const others = fails.length - 1 + tzBad;
+      return { status: "todo", note: `the AI Agent is fixing the login permissions (step 16), then this check runs again${others ? ` · ${others} other item${others === 1 ? "" : "s"} to fix:\n${[...fails.filter((f) => f !== permFail).map((f) => `✗ ${f.key}: ${f.detail}`), tzNote].join("\n")}` : ""}` };
     }
     // Owner 10/21/2026: anything still off STOPS the run here (red, Retry after fixing).
     return { status: "failed", note: `STOPPED — ${pass} passed, ${fails.length + tzBad} to fix before the funnel test:\n${[...fails.map((f) => `✗ ${f.key}: ${f.detail}`), tzNote].join("\n")}` };
