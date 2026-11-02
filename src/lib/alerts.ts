@@ -37,7 +37,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking" | "ig_drop" | "closebot_missing" | "closebot_not_v3" | "closebot_check" | "funnel_widgets";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking" | "ig_drop" | "closebot_missing" | "closebot_not_v3" | "closebot_check" | "funnel_widgets" | "pay_date";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -743,6 +743,98 @@ export async function scanAgreementMissing(svc: Svc): Promise<{ seeded: number; 
     if (ok) filed++;
   }
   return { seeded: 0, newlyLive, filed, resolved };
+}
+
+
+/* Live client with no expected payment date on the Financing sheet's latest
+   month tab (owner, 11/02): no DAY OF PAYMENT, or no row at all. PPS/PPA
+   clients pay per show, so they never need one. One alert per client; it
+   clears itself once a date is filled in or the client stops being Live.
+   Names differ between the two sheets ("Ah Ra Cho (Estee Cho)", "Erin
+   Heidecke 30%", "Martin Aba / Alise Herrera"), so every alias on either
+   side is tried before a client counts as missing. */
+function nameAliases(raw: string): string[] {
+  const s = String(raw ?? "");
+  const parts = [s.replace(/\([^)]*\)/g, " "), ...Array.from(s.matchAll(/\(([^)]*)\)/g), (m) => m[1])]
+    .flatMap((x) => x.split("/"));
+  return [...new Set(parts.map((x) => normalizeOwnerKey(x.replace(/\d+\s*%/g, " "))).filter(Boolean))];
+}
+// A real expected date: a day of month (1–31), a sheet date serial, or a month name.
+// "0", "HOLD", "Didn't start yet" and blanks are not.
+function hasPayDate(v: string | null): boolean {
+  const t = String(v ?? "").trim().toLowerCase();
+  if (!t) return false;
+  if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/.test(t)) return true;
+  return /\b([1-9]|[12]\d|3[01])(st|nd|rd|th)?\b/.test(t) || /\b4\d{4}\b/.test(t);
+}
+export async function scanLiveNoPayDate(svc: Svc): Promise<{ live: number; filed: number; resolved: number; error?: string }> {
+  const [{ data: cm, error: e1 }, { data: pay, error: e2 }] = await Promise.all([
+    svc.from("clients_master").select("data"),
+    svc.from("client_payments").select("client_name, payment_status, billing_status, pay_day, month"),
+  ]);
+  if (e1 || e2) return { live: 0, filed: 0, resolved: 0, error: (e1 ?? e2)!.message };
+  // An empty read means the sync failed, not that nobody has a date.
+  if (!cm?.length || !pay?.length) return { live: 0, filed: 0, resolved: 0, error: "clients or financing rows empty — skipped" };
+
+  type Fin = { client_name: string; payment_status: string | null; billing_status: string | null; pay_day: string | null; month: string | null; aliases: string[] };
+  const fins: Fin[] = (pay as Omit<Fin, "aliases">[]).map((f) => ({ ...f, aliases: nameAliases(f.client_name) }));
+  const tok = (k: string) => k.split(" ").filter((t) => t.length >= 2);
+  const findRow = (owner: string, business: string): Fin | null => {
+    const mine = nameAliases(owner);
+    const exact = fins.find((f) => f.aliases.some((a) => mine.includes(a)));
+    if (exact) return exact;
+    // Two shared words with one alias, or every word of a sheet alias found
+    // among all the owner's names ("Xuan Luong" ↔ "Annie Luong (Xuan)").
+    const ownerWords = new Set(mine.flatMap(tok));
+    const two = fins.filter((f) => f.aliases.some((a) => {
+      const at = tok(a);
+      if (at.length >= 2 && at.every((t) => ownerWords.has(t))) return true;
+      return mine.some((m) => { const mt = tok(m); return Math.min(at.length, mt.length) >= 2 && at.filter((t) => mt.includes(t)).length >= 2; });
+    }));
+    if (two.length === 1) return two[0];
+    // One-word sheet names ("Lei") match the owner's or business's words, if unambiguous.
+    const words = new Set([...ownerWords, ...tok(normalizeOwnerKey(business))]);
+    const one = fins.filter((f) => f.aliases.some((a) => tok(a).length === 1 && words.has(a)));
+    return one.length === 1 ? one[0] : null;
+  };
+
+  const live = (cm as Array<{ data: Record<string, unknown> }>)
+    .map((r) => ({
+      owner: String(r.data?.["Owner Full Name"] ?? "").trim(),
+      business: String(r.data?.["Business Name"] ?? "").trim(),
+      status: String(r.data?.["col_1"] ?? "").trim().toLowerCase(),
+      assigned: String(r.data?.["Assigned"] ?? "").trim(),
+    }))
+    .filter((c) => c.owner && c.status === "live");
+
+  const flagged = new Set<string>();
+  let filed = 0;
+  for (const c of live) {
+    const row = findRow(c.owner, c.business);
+    if (row && /pps|ppa/i.test(String(row.payment_status ?? ""))) continue;
+    if (row && hasPayDate(row.pay_day)) continue;
+    const key = `pay-date:${normalizeOwnerKey(c.owner)}`;
+    flagged.add(key);
+    const ok = await fileAlert(svc, {
+      type: "pay_date",
+      severity: "high",
+      title: `${c.owner}${c.business ? ` — ${c.business}` : ""}: LIVE with no expected payment date`,
+      detail: row
+        ? `The Financing sheet (${row.month ?? "latest month"}) has the row as “${row.client_name}” but DAY OF PAYMENT is ${String(row.pay_day ?? "").trim() ? `“${String(row.pay_day).trim()}”` : "empty"} (Payment Status: ${row.payment_status || "blank"}, Billing: ${row.billing_status || "blank"}). Fill in the payment day — this clears itself once it's there.`
+        : `No row for this client on the Financing sheet's latest month tab. Add the client with the payment day — this clears itself once it's there.`,
+      source_key: key,
+      meta: { owner: c.owner, business: c.business, sheet_name: row?.client_name ?? null, pay_day: row?.pay_day ?? null, csm: c.assigned || null },
+      resurfaceAfterDays: 3,
+    });
+    if (ok) filed++;
+  }
+
+  const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "pay_date").eq("status", "open");
+  const toClose = (open ?? []).filter((o) => !flagged.has(o.source_key)).map((o) => o.id);
+  if (toClose.length) {
+    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (payment date filled / not Live)", resolved_at: new Date().toISOString() }).in("id", toClose);
+  }
+  return { live: live.length, filed, resolved: toClose.length };
 }
 
 
