@@ -352,11 +352,36 @@ export function DashboardSubscriptions() {
 
   return (
     <div className="rounded-xl border border-[#cfe3f7] bg-[#f7fbff] p-3 space-y-2">
+      {/* One row: title, monthly total, the auto-charge switch, the last action's
+          message and New subscription — keeps the list in view (owner, 11/02). */}
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="text-sm font-bold text-[#1d4ed8]">Dashboard subscriptions</h2>
         {activeTotal > 0 && (
           <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#e6f7ee] text-[#15803d] border border-[#c7edd4]">
             {money(activeTotal)}/mo active
+          </span>
+        )}
+        {/* Master switch. Off means the daily run reports what is due and charges nothing. */}
+        <span
+          title={autocharge ? undefined : "Nothing is charged automatically. Active subscriptions still show what is due, and “Charge now” still works."}
+          className={cn("flex items-center gap-1 pl-2 pr-0.5 py-0.5 rounded-full border text-[11px] font-bold",
+            autocharge ? "border-[#c7edd4] bg-[#f4fbf7] text-[#15803d]" : "border-[#fcd9a8] bg-[#fffdf7] text-[#b45309]")}>
+          {autocharge ? <Check size={12} className="shrink-0" /> : <AlertTriangle size={12} className="shrink-0" />}
+          {autocharge ? "Auto-charge ON" : "Auto-charge OFF"}
+          <button
+            onClick={() => {
+              if (!autocharge && !window.confirm("Turn ON automatic charging?\n\nFrom now on the daily run will charge every ACTIVE subscription on its due date, without asking.")) return;
+              act({ action: "autocharge", enabled: !autocharge }, "switch");
+            }}
+            disabled={busy === "switch"}
+            className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold border",
+              autocharge ? "bg-white text-[#b45309] border-[#fcd9a8]" : "bg-[#15B7AE] text-white border-[#15B7AE]")}>
+            {busy === "switch" ? "…" : autocharge ? "Turn off" : "Turn on"}
+          </button>
+        </span>
+        {msg && (
+          <span title={msg} className="min-w-0 flex-1 truncate text-[11px] text-[#15803d] bg-[#e6f7ee] border border-[#c7edd4] rounded-full px-2 py-0.5">
+            {msg}
           </span>
         )}
         <button onClick={() => setAdding((a) => !a)}
@@ -365,34 +390,7 @@ export function DashboardSubscriptions() {
         </button>
       </div>
 
-      {/* Master switch. Off means the daily run reports what is due and charges nothing. */}
-      <div className={cn("rounded-lg border px-2.5 py-1.5 flex items-center gap-2 flex-wrap",
-        autocharge ? "border-[#c7edd4] bg-[#f4fbf7]" : "border-[#fcd9a8] bg-[#fffdf7]")}>
-        {autocharge
-          ? <Check size={13} className="text-[#15803d] shrink-0" />
-          : <AlertTriangle size={13} className="text-[#b45309] shrink-0" />}
-        <span className={cn("text-[11px] font-bold", autocharge ? "text-[#15803d]" : "text-[#b45309]")}>
-          {autocharge ? "Automatic charging is ON" : "Automatic charging is OFF"}
-        </span>
-        {!autocharge && (
-          <span className="text-[11px] text-[#697a91]">
-            Nothing is charged automatically. Active subscriptions still show what is due, and “Charge now” still works.
-          </span>
-        )}
-        <button
-          onClick={() => {
-            if (!autocharge && !window.confirm("Turn ON automatic charging?\n\nFrom now on the daily run will charge every ACTIVE subscription on its due date, without asking.")) return;
-            act({ action: "autocharge", enabled: !autocharge }, "switch");
-          }}
-          disabled={busy === "switch"}
-          className={cn("ml-auto px-2.5 py-1 rounded-lg text-[11px] font-bold border",
-            autocharge ? "bg-white text-[#b45309] border-[#fcd9a8]" : "bg-[#15B7AE] text-white border-[#15B7AE]")}>
-          {busy === "switch" ? "…" : autocharge ? "Turn off" : "Turn on"}
-        </button>
-      </div>
-
       {err && <p className="text-[11px] text-[#e11d48] bg-[#fde8ee] border border-[#f5c2cf] rounded-lg px-2 py-1">{err}</p>}
-      {msg && <p className="text-[11px] text-[#15803d] bg-[#e6f7ee] border border-[#c7edd4] rounded-lg px-2 py-1">{msg}</p>}
 
       {adding && (
         <div className="rounded-lg border border-[#e4ebf2] bg-white p-2.5 space-y-2">

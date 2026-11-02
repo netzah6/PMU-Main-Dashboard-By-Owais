@@ -33,6 +33,9 @@ export function BillingActivity() {
   // (user, 2026-09-14), so the subscriptions themselves stay in view.
   const [open, setOpen] = useState(false);
   const [onlyProblems, setOnlyProblems] = useState(false);
+  // Clicking the red chip opens the list showing only clients whose LATEST
+  // charge failed and nothing paid since — the ones still to charge (owner, 11/02).
+  const [onlyUnpaid, setOnlyUnpaid] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -44,7 +47,17 @@ export function BillingActivity() {
   useEffect(() => { load(); }, [load]);
 
   const failed = (feed ?? []).filter((r) => r.kind === "charge_failed" || r.kind === "square_failed").length;
-  const shown = (feed ?? []).filter((r) => !onlyProblems || r.kind === "charge_failed" || r.kind === "square_failed");
+  const unpaid = (() => {
+    const seen = new Set<string>(); const out: Row[] = [];
+    for (const r of feed ?? []) { // newest first
+      if ((r.kind !== "charge_paid" && r.kind !== "charge_failed") || seen.has(r.who)) continue;
+      seen.add(r.who);
+      if (r.kind === "charge_failed") out.push(r);
+    }
+    return out;
+  })();
+  const shown = onlyUnpaid ? unpaid
+    : (feed ?? []).filter((r) => !onlyProblems || r.kind === "charge_failed" || r.kind === "square_failed");
 
   return (
     <div className="rounded-xl border border-[#e4ebf2] bg-white">
@@ -54,7 +67,16 @@ export function BillingActivity() {
         <span className="text-[11px] text-[#697a91]">
           {feed === null ? "loading…" : feed.length ? `${feed.length} charge${feed.length === 1 ? "" : "s"} / Square action${feed.length === 1 ? "" : "s"}` : "every charge and Square pause/resume from here"}
         </span>
-        {failed > 0 && (
+        {unpaid.length > 0 && (
+          <span role="button" tabIndex={0}
+            title={`${failed} failed in total — click to see the ${unpaid.length} still unpaid`}
+            onClick={(e) => { e.stopPropagation(); const on = !(open && onlyUnpaid); setOnlyUnpaid(on); setOpen(on || open); }}
+            className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer hover:brightness-95",
+              onlyUnpaid && open ? "bg-[#be123c] text-white border-[#be123c]" : "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]")}>
+            {unpaid.length} to charge
+          </span>
+        )}
+        {failed > 0 && unpaid.length === 0 && (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]">
             {failed} failed
           </span>
@@ -64,7 +86,11 @@ export function BillingActivity() {
 
       {open && (
         <div className="px-3 pb-3 space-y-1.5">
-          {failed > 0 && (
+          {onlyUnpaid ? (
+            <button onClick={() => setOnlyUnpaid(false)} className="text-[11px] font-semibold text-[#be123c] hover:underline">
+              Showing {unpaid.length} still to charge (latest charge failed) · show everything
+            </button>
+          ) : failed > 0 && (
             <label className="flex items-center gap-1.5 text-[11px] text-[#34568a]">
               <input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} />
               Only show failures
