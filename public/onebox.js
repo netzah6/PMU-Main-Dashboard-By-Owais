@@ -143,20 +143,17 @@
      generic extras (answers.scar / answers.shortq2); before the start date
      both read "a" and nothing is recorded. */
   var AB2_ON = Date.now() >= Date.parse("2026-10-13T07:00:00Z");
-  function ab2coin(key) {
-    if (!AB2_ON) return "a";
-    try {
-      var v = localStorage.getItem(key);
-      if (v !== "a" && v !== "b") { v = Math.random() < 0.5 ? "a" : "b"; localStorage.setItem(key, v); }
-      return v;
-    } catch (e) { return "a"; }
-  }
   /* Scarcity LOCKED to "b" (owner, 10/26/2026): 10/13–10/26 fleet 50/50,
      74 deposits from 2,069 leads (3.6%) vs 53 from 2,167 (2.5%) for the
      5-slot original — judged on deposits, never leads. Leads still carry
      scar:"b" so the readout stays consistent. */
   var SCAR_V = "b";
-  var SHORTQ_V = ab2coin("ob_shortq2");
+  /* Survey length LOCKED to "a", the full survey (owner, 11/02/2026):
+     10/13–11/02 fleet 50/50 was a tie on deposits (3.4 vs 3.6 paid per
+     100 leads), and the commutable question keeps leads who can't come
+     to the studio out of the artists' calendars. Leads still carry
+     shortq2:"a"; the readout stops at the lock. */
+  var SHORTQ_V = "a";
   /* A/B #3 — calendar urgency (owner, 10/18/2026), fleet 50/50 on
      funnels whose offer is a plain "$X OFF" (optionally "for new
      clients"), with no custom booking headline. Only the calendar step:
@@ -169,16 +166,10 @@
      Same offer, same price. Recorded on every lead as answers.offer3;
      judged on paid deposits per 100 leads (the step comes after the lead). */
   var OFFER_M = String(OFFERR).match(/^\$?\s*(\d[\d,]*)\s*OFF(\s+for\s+new\s+clients)?\s*!?$/i);
-  var OFFER_V = "";
-  if (OFFER_M && !C.bookingHead && AB2_ON) {
-    try {
-      OFFER_V = localStorage.getItem("ob_urg3") || "";
-      if (OFFER_V !== "a" && OFFER_V !== "c") {
-        OFFER_V = Math.random() < 0.5 ? "a" : "c";
-        localStorage.setItem("ob_urg3", OFFER_V);
-      }
-    } catch (e) { OFFER_V = "a"; }
-  }
+  /* ENDED 11/02/2026 (owner): a tie (3.9 vs 3.9 paid per 100 leads) —
+     A kept, the "First 5 Clients — Until Sunday" line is retired. Eligible
+     funnels' leads still carry offer3:"a"; the readout stops at the lock. */
+  var OFFER_V = OFFER_M && !C.bookingHead && AB2_ON ? "a" : "";
   /* A/B #4 — Instagram widget layout (owner, 10/26/2026), 50/50 on the
      funnels that carry a Grid copy of their widget (igWidgetGrid):
        a = the live widget as it is (Slider / Thumbnail Carousel: 1–2 posts
@@ -190,13 +181,13 @@
      Elfsight is no longer loaded for Instagram. The tag stays in the lead
      payload (empty) so old readers don't break. */
   var IGW_V = "";
-  var OFFER_URGENCY = "";
-  if (OFFER_V === "c") {
-    var sun = new Date();
-    sun.setDate(sun.getDate() + ((7 - sun.getDay()) % 7));
-    OFFER_URGENCY = "for the First 5 " + (OFFER_M[2] ? "New " : "") + "Clients — Until Sunday, " +
-      ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][sun.getMonth()] + " " + sun.getDate();
-  }
+  /* Next test, PREVIEW ONLY (owner, 11/02/2026: "show me first how it
+     should look before we apply it to the clients"): a "First time?
+     Here's what happens" box on the deposit step for visitors who never
+     had PMU (69% of leads; they pay for 6.2% of picked times vs 10.5% for
+     returning clients). Only team ?preview= links with &whn=b show it —
+     real visitors never see it until the owner approves the 50/50. */
+  var WHN_V = PREVIEW_MODE && /[?&]whn=b/.test(location.search) ? "b" : "";
 
   /* Fonts: real Google Fonts on GHL (no CSP here). */
   var fl = document.createElement("link");
@@ -343,6 +334,11 @@
     "#onebox-root h2.phead.v2dephead{margin-bottom:8px;font-size:clamp(19px,5.6vw,26px);line-height:1.25;overflow-wrap:break-word;white-space:normal}" +
     "#onebox-root .v2deprow{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 10px;padding:9px 12px;border:1px solid #cdeae4;border-radius:10px;background:#f2fbf8;font-size:13px;color:#116b52;font-weight:600;text-align:center}" +
     "#onebox-root .v2deprow.depb{border-color:#9ed9b5;background:#e2f6e9;color:#0d6b3f;box-shadow:0 1px 2px rgba(13,107,63,.08)}" +
+    "#onebox-root .whnbox{margin:0 0 10px;padding:9px 12px 7px;border:1px solid var(--line);border-radius:10px;background:#fafcfd;font-family:var(--content);text-align:left}" +
+    "#onebox-root .whnhead{margin:0 0 4px;font-size:13.5px;font-weight:700;color:var(--ink)}" +
+    "#onebox-root .whnbox ol{margin:0;padding:0 0 0 18px;font-size:12.5px;line-height:1.45;color:var(--ink-soft)}" +
+    "#onebox-root .whnbox li{margin:0 0 3px}" +
+    "#onebox-root .whnbox b{color:var(--ink)}" +
         "#onebox-root .obcal-note{text-align:center;font-size:12px;color:var(--muted);margin:10px 0 0;font-family:var(--form);min-height:1.2em}" +
     "#onebox-root .depmeta{border:1.5px solid var(--teal);background:#f2fbfb;border-radius:7px;padding:6px 10px;text-align:center;margin:0 0 7px;font-family:var(--content)}" +
     "#onebox-root .depwhen{margin:0;font-size:14.5px;font-weight:700;color:var(--teal-deep);line-height:1.35}" +
@@ -817,10 +813,7 @@
     }
     var bookNoun = VIDEO ? "Video Consultation" : "Appointment";
     return (state.bookErr ? '<p class="bookerr">' + state.bookErr + "</p>" : "") +
-      '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFER_URGENCY
-      ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR.replace(/\s+for\s+new\s+clients\s*!?$/i, "").replace(/!$/, "")) +
-        "<br>" + esc(OFFER_URGENCY) + "</span>"
-      : OFFERR
+      '<h2 class="phead">' + (C.bookingHead ? esc(C.bookingHead) : OFFERR
       ? "Book Your " + bookNoun + ' NOW<br><span class="pheadoffer">to Claim ' + esc(OFFERR) + "</span>"
       : "Book Your " + bookNoun + " NOW!") + "</h2>" +
       '<div id="ob-calbox">' + calHTML() + "</div>" +
@@ -1227,6 +1220,24 @@
      missed them entirely. We can't restyle inside their iframe, so the
      page itself says what's available, leading with the visitor's own
      wallet. Shown on narrow screens only — desktop shows all tiles. */
+  /* "First time? Here's what happens" (WHN_V, preview only for now):
+     three plain steps for visitors who never had PMU — returning clients
+     know the drill and see nothing new. Every line restates the agency's
+     deposit policy (refundable; free consultation first, then the fee is
+     applied or refunded — the deposit step's own guarantee); the comfort
+     line only where this funnel's own FAQ already promises numbing cream
+     (the agency template's FAQ does). */
+  function whnBox() {
+    if (WHN_V !== "b" || /^yes/i.test(String(state.answers.had_pmu || ""))) return "";
+    var numb = false;
+    try { numb = /numbing (cream|gel)/i.test(JSON.stringify(window.OB_FAQS || [])); } catch (e) {}
+    return '<div class="whnbox"><p class="whnhead">First time? Here&rsquo;s what happens &#128071;</p><ol>' +
+      "<li><b>Today:</b> your " + esc(DEPOSIT) + " holds your time &mdash; 100% refundable.</li>" +
+      "<li><b>At your " + (VIDEO ? "video consultation" : "visit") + ":</b> a free consultation first &mdash; your artist designs the shape and color with you.</li>" +
+      "<li><b>You decide:</b> love it? You begin" + (numb && !VIDEO ? " &mdash; numbing cream keeps it comfortable" : "") +
+        ". Not sure? Your " + esc(DEPOSIT) + " is refunded in full.</li>" +
+      "</ol></div>";
+  }
   function slideDeposit() {
     /* V2: everything above the checkout compresses into two short rows —
        the payment box lands (nearly) above the fold, the countdown moves
@@ -1245,7 +1256,7 @@
                 ? "<b>&#63743;&nbsp;Pay</b> &amp; <b>Cash&nbsp;App</b>"
                 : "<b>G&nbsp;Pay</b> &amp; <b>Cash&nbsp;App</b>") +
               " accepted &mdash; tap &ldquo;More&rdquo;") + "</span>" +
-        "</div>";
+        "</div>" + whnBox();
     }
     return '<h2 class="phead dephead">' + (C.depositHead ? esc(C.depositHead)
       : esc(DEPOSIT) + " Refundable Reservation Fee") + "</h2>" +
@@ -1254,7 +1265,7 @@
       '<div class="depsafe">' +
         '<strong>&#10004; 100% Guaranteed &mdash; Fully Refundable</strong>' +
         "<p>After your free consultation, we&rsquo;ll apply your fee to your service &mdash; or refund it in full. Either way, you&rsquo;re 100% covered.</p>" +
-      "</div>" +
+      "</div>" + whnBox() +
       '<p class="vlabel">&#9203; Your spot is held for:</p>' +
       '<div class="chips" id="ob-clock"></div>';
   }
@@ -1486,7 +1497,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "126";
+  var ENGINE_V = "127";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
@@ -1910,12 +1921,25 @@
     if (v0 && v0.parentNode) v0.parentNode.removeChild(v0);
   }
 
-  if (PREVIEW === "thankyou") {
-    state.answers.full_name = new URLSearchParams(location.search).get("name") || "Gorgeous";
+  /* Sample time for the previews: 2 PM, two days out. */
+  var previewSlot = function () {
     var pvd = new Date(Date.now() + 2 * 86400000);
     var pad2 = function (n) { return (n < 10 ? "0" : "") + n; };
-    state.slotIso = pvd.getFullYear() + "-" + pad2(pvd.getMonth() + 1) + "-" + pad2(pvd.getDate()) + "T14:00:00";
+    return pvd.getFullYear() + "-" + pad2(pvd.getMonth() + 1) + "-" + pad2(pvd.getDate()) + "T14:00:00";
+  };
+  if (PREVIEW === "thankyou") {
+    state.answers.full_name = new URLSearchParams(location.search).get("name") || "Gorgeous";
+    state.slotIso = previewSlot();
     show("done");
+  } else if (PREVIEW === "deposit" && !FLOW_V1 && !FREE) {
+    /* ?preview=deposit opens the deposit step with the sample time, as a
+       first-timer (&had_pmu=Yes previews a returning client). Read-only
+       like every preview: placeholder checkout, nothing held or charged. */
+    var pq = new URLSearchParams(location.search);
+    state.answers.full_name = pq.get("name") || "Gorgeous";
+    state.answers.had_pmu = pq.get("had_pmu") || "No";
+    state.slotIso = previewSlot();
+    show("deposit");
   } else if (PREVIEW === "booking" && !FLOW_V1) {
     state.answers.full_name = new URLSearchParams(location.search).get("name") || "Gorgeous";
     show("booking");
