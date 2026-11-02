@@ -76,6 +76,8 @@ export function DashboardSubscriptions() {
   // Type-to-find replaces the 200-row dropdown: the query is what the admin
   // typed, and the pick is the client they clicked from the matches.
   const [clientQuery, setClientQuery] = useState("");
+  // Search line above the list: narrows the rows to one client (owner, 11/02).
+  const [listQ, setListQ] = useState("");
   const [showMatches, setShowMatches] = useState(false);
   // Which subscription is having its next-charge date changed inline.
   const [dateEdit, setDateEdit] = useState<{ id: string; value: string } | null>(null);
@@ -348,15 +350,22 @@ export function DashboardSubscriptions() {
     return m;
   }, [charges]);
 
+  const shownSubs = useMemo(() => {
+    const q = listQ.trim().toLowerCase();
+    if (!q) return subs;
+    return subs.filter((s) => `${s.client_label ?? ""} ${s.owner_key} ${s.note ?? ""}`.toLowerCase().includes(q));
+  }, [subs, listQ]);
+
   const activeTotal = subs.filter((s) => s.status === "active" && s.cadence === "monthly")
     .reduce((t, s) => t + s.amount_cents, 0);
 
   return (
     <div className="rounded-xl border border-[#cfe3f7] bg-[#f7fbff] p-3 space-y-2">
       {/* One row: title, monthly total, the auto-charge switch, the last action's
-          message and New subscription — keeps the list in view (owner, 11/02). */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <h2 className="text-sm font-bold text-[#1d4ed8]">Dashboard subscriptions</h2>
+          message and New subscription — keeps the list in view (owner, 11/02).
+          On phones the labels shrink so it all fits on one line. */}
+      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+        <h2 className="hidden sm:block text-sm font-bold text-[#1d4ed8]">Dashboard subscriptions</h2>
         {activeTotal > 0 && (
           <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#e6f7ee] text-[#15803d] border border-[#c7edd4]">
             {money(activeTotal)}/mo active
@@ -368,7 +377,8 @@ export function DashboardSubscriptions() {
           className={cn("flex items-center gap-1 pl-2 pr-0.5 py-0.5 rounded-full border text-[11px] font-bold",
             autocharge ? "border-[#c7edd4] bg-[#f4fbf7] text-[#15803d]" : "border-[#fcd9a8] bg-[#fffdf7] text-[#b45309]")}>
           {autocharge ? <Check size={12} className="shrink-0" /> : <AlertTriangle size={12} className="shrink-0" />}
-          {autocharge ? "Auto-charge ON" : "Auto-charge OFF"}
+          <span className="sm:hidden">{autocharge ? "Auto ON" : "Auto OFF"}</span>
+          <span className="hidden sm:inline">{autocharge ? "Auto-charge ON" : "Auto-charge OFF"}</span>
           <button
             onClick={() => {
               if (!autocharge && !window.confirm("Turn ON automatic charging?\n\nFrom now on the daily run will charge every ACTIVE subscription on its due date, without asking.")) return;
@@ -377,7 +387,7 @@ export function DashboardSubscriptions() {
             disabled={busy === "switch"}
             className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold border",
               autocharge ? "bg-white text-[#b45309] border-[#fcd9a8]" : "bg-[#15B7AE] text-white border-[#15B7AE]")}>
-            {busy === "switch" ? "…" : autocharge ? "Turn off" : "Turn on"}
+            {busy === "switch" ? "…" : <>{autocharge ? "Off" : "On"}<span className="hidden sm:inline"> {autocharge ? "· turn off" : "· turn on"}</span></>}
           </button>
         </span>
         <BillingActivity inline />
@@ -388,9 +398,24 @@ export function DashboardSubscriptions() {
         )}
         <button onClick={() => setAdding((a) => !a)}
           className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border border-[#bfdbfe] bg-white text-[#1d4ed8] hover:bg-[#eff6ff]">
-          {adding ? <X size={12} /> : <Plus size={12} />} {adding ? "Cancel" : "New subscription"}
+          {adding ? <X size={12} /> : <Plus size={12} />} {adding ? "Cancel" : <>New<span className="hidden sm:inline"> subscription</span></>}
         </button>
       </div>
+
+      {subs.length > 0 && (
+        <div className="relative">
+          <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-[#8595a8]" />
+          <input value={listQ} onChange={(e) => setListQ(e.target.value)}
+            placeholder="Search a client…" autoComplete="off"
+            className="w-full pl-7 pr-7 py-1.5 bg-white border border-[#d7e0ea] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8]" />
+          {listQ && (
+            <button onClick={() => setListQ("")} title="Clear search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-[#8595a8] hover:text-[#1f3559]">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
 
       {err && <p className="text-[11px] text-[#e11d48] bg-[#fde8ee] border border-[#f5c2cf] rounded-lg px-2 py-1">{err}</p>}
 
@@ -459,7 +484,10 @@ export function DashboardSubscriptions() {
         <ul className="space-y-1">
           {/* Same calendar reading as the Square list below: a divider each
               time the next-charge month changes, this month first. */}
-          {[...subs].sort((a, b) => (a.status === "ended") === (b.status === "ended") ? a.next_charge_on.localeCompare(b.next_charge_on) : a.status === "ended" ? 1 : -1).map((s, i, arr) => {
+          {shownSubs.length === 0 && (
+            <li className="text-xs text-[#8595a8] py-2 px-1">No subscription matches “{listQ}”.</li>
+          )}
+          {[...shownSubs].sort((a, b) => (a.status === "ended") === (b.status === "ended") ? a.next_charge_on.localeCompare(b.next_charge_on) : a.status === "ended" ? 1 : -1).map((s, i, arr) => {
             const hist = byId.get(s.id) ?? [];
             const monthOf = (x: Sub) => x.status === "ended" ? "ended" : x.next_charge_on.slice(0, 7);
             const showDivider = i === 0 || monthOf(arr[i - 1]) !== monthOf(s);
