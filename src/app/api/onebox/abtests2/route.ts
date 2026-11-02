@@ -26,6 +26,12 @@ const SCAR_END = "2026-10-26T02:40:09-07:00";
 const IGW_START = "2026-10-26T13:30:00Z";
 /* …and ended the same day (owner): our grid for everyone, Elfsight out. */
 const IGW_END = "2026-10-27T06:30:00Z";
+/* Shorter survey and calendar urgency both ended 11/02/2026 (owner): ties
+   on deposits — the full survey (A) and the plain offer line (A) stay for
+   everyone. Leads after the lock carry "a" by default, so both readouts
+   stop at engine v127's deploy. */
+const SHORTQ_END = "2026-11-02T12:00:00Z";
+const OFFER_END = "2026-11-02T12:00:00Z";
 
 const PAID = ["booked", "paid", "paid-not-booked", "paid-followup"];
 
@@ -47,8 +53,9 @@ export async function GET() {
     if (error) throw new Error(error.message);
     return n ?? 0;
   };
-  const hitsSince = async (since: string, slugs?: string[]) => {
+  const hitsSince = async (since: string, slugs?: string[], until?: string) => {
     let q = sb.from("onebox_hits").select("id", { count: "exact", head: true }).gte("created_at", since);
+    if (until) q = q.lt("created_at", until);
     if (slugs) q = q.in("slug", slugs.length ? slugs : ["-"]);
     const { count: n } = await q;
     return Math.round((n ?? 0) / 2);
@@ -101,10 +108,10 @@ export async function GET() {
     const zero = { leads: 0, picked: 0, paid: 0 };
     const [scarA, scarB, shortA, shortB, scarVisitors, shortVisitors, offerA, offerB, offerC] = await Promise.all([
       side("scar", "a", TEST_START, SCAR_END), side("scar", "b", TEST_START, SCAR_END),
-      side("shortq2", "a", shortSince), side("shortq2", "b", shortSince),
-      hitsSince(TEST_START), hitsSince(shortSince),
-      offerSince ? side("offer3", "a", offerSince) : zero, offerSince ? side("offer3", "b", offerSince) : zero,
-      offerSince ? side("offer3", "c", offerSince) : zero,
+      side("shortq2", "a", shortSince, SHORTQ_END), side("shortq2", "b", shortSince, SHORTQ_END),
+      hitsSince(TEST_START), hitsSince(shortSince, undefined, SHORTQ_END),
+      offerSince ? side("offer3", "a", offerSince, OFFER_END) : zero, offerSince ? side("offer3", "b", offerSince, OFFER_END) : zero,
+      offerSince ? side("offer3", "c", offerSince, OFFER_END) : zero,
     ]);
     const [igwA, igwB] = await Promise.all([igwSince ? side("igw", "a", igwSince, IGW_END) : zero, igwSince ? side("igw", "b", igwSince, IGW_END) : zero]);
     /* Deposit-ask test (owner, 10/28/2026): only leads who texted the AI
@@ -133,8 +140,8 @@ export async function GET() {
       started: true,
       visitorsPerArm: scarVisitors,
       scar: { a: scarA, b: scarB },
-      shortq: { a: shortA, b: shortB, since: shortSince, visitorsPerArm: shortVisitors },
-      offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, funnels: offerSlugs.length },
+      shortq: { a: shortA, b: shortB, since: shortSince, until: SHORTQ_END, visitorsPerArm: shortVisitors },
+      offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, until: OFFER_END, funnels: offerSlugs.length },
       igw: { a: igwA, b: igwB, since: igwSince ?? undefined, until: IGW_END, funnels: igwFunnels },
       dep: { a: depSide("a"), b: depSide("b"), since: DEP_ASK_START, funnels: depSlugs?.length },
     });

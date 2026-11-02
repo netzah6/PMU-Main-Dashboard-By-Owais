@@ -696,7 +696,7 @@ function IntakeReviewCards() {
    share one box, each still expandable for its final numbers. */
 function B2cTestsDropdown({ active, ended, endedCount, clientTests }: { active: React.ReactNode; ended: React.ReactNode; endedCount: number; clientTests: number }) {
   const [open, setOpen] = useState(false);
-  const fleetActive = 3; // deposit ask (AI) + shorter survey + calendar urgency (scarcity ended 10/26 B locked; Instagram grid ended 10/26, ours for everyone)
+  const fleetActive = 1; // deposit ask (AI) — scarcity ended 10/26 (B locked), Instagram grid ended 10/26 (ours for everyone), shorter survey + calendar urgency ended 11/02 (A kept)
   return (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left">
@@ -722,7 +722,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   type Side = { leads: number; picked: number; paid: number };
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
   type DepSide = { picked: number; pagePaid: number; reached: number; paid: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair; offer?: Pair & { c?: Side; funnels?: number }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number } } | null>(null);
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -795,6 +795,25 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
      Ended list with its final numbers (leads after 10/26 all carry scar:"b"
      and no longer count as a test). */
   if (show === "ended") return (<>
+    {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, SHORTQ_COLS, "Full survey (kept): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps)", { until: d.shortq.until ?? "2026-11-02T12:00:00Z", verdict: `A kept on every funnel — tie on deposits (A ${d.shortq.a.paid} · B ${d.shortq.b.paid}); commutable keeps far-away leads out` })}
+    {d.offer && d.offer.since && (
+      <div className="border-t border-[#f0f4f8] px-4 py-2.5">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Calendar urgency — {d.offer.funnels ?? ""} funnels with a &ldquo;$ OFF&rdquo; offer, A vs C 50/50</span>
+            <span className="text-xs text-[#697a91]">ENDED · {new Date(d.offer.since).toLocaleDateString("en-US")} – {new Date(d.offer.until ?? "2026-11-02T12:00:00Z").toLocaleDateString("en-US")}</span>
+            <span className="text-[11px] font-semibold rounded-full border border-[#bfe3cd] bg-[#e7f6ec] text-[#15803d] px-2 py-0.5">A kept — tie on deposits (A {d.offer.a.paid} · C {d.offer.c?.paid ?? 0}); &ldquo;Until Sunday&rdquo; retired</span>
+          </div>
+          <table className="w-full text-xs">
+            <thead><tr className="text-left text-[#697a91]">
+              <th className="py-1 font-medium">Side</th>
+              {URG_COLS.map((c) => <th key={c.h} className="py-1 font-medium">{c.h}</th>)}
+            </tr></thead>
+            <tbody>
+              {row("A — control", "Calendar page: \u201CBook Your Appointment NOW \u2014 to Claim $150 OFF\u201D (kept)", d.offer.a, URG_COLS)}
+              {d.offer.c && row("C — first 5 + Until Sunday", "Same + \u201Cfor the First 5 Clients \u2014 Until Sunday\u201D (the coming Sunday, reset weekly)", d.offer.c, URG_COLS)}
+            </tbody>
+          </table>
+        </div>)}
     {d.scar && table("🧪 Calendar scarcity — all funnels, 50/50", d.scar, SCAR_COLS, "Up to 5 open slots shown per day (the original)", "Up to 3 shown — \u201Conly 3 openings left\u201D", { until: "2026-10-26T12:00:00Z", verdict: "B locked on every funnel (74 vs 53 deposits)" })}
     {d.igw && d.igw.since && (
       <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
@@ -850,25 +869,6 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
           </table>
         </div>
       : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Deposit ask (AI)</b> (A: today&rsquo;s conversation vs B: confirm the picked time + reservation link) — starts reporting with the first picker.</div>)}
-    {d.offer && (d.offer.since
-      ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Calendar urgency — {d.offer.funnels ?? ""} funnels with a &ldquo;$ OFF&rdquo; offer, A vs C 50/50</span>
-            <span className="text-xs text-[#697a91]">since {new Date(d.offer.since).toLocaleDateString("en-US")}</span>
-          </div>
-          <table className="w-full text-xs">
-            <thead><tr className="text-left text-[#697a91]">
-              <th className="py-1 font-medium">Side</th>
-              {URG_COLS.map((c) => <th key={c.h} className="py-1 font-medium">{c.h}</th>)}
-            </tr></thead>
-            <tbody>
-              {row("A — control", "Calendar page: \u201CBook Your Appointment NOW \u2014 to Claim $150 OFF\u201D (current)", d.offer.a, URG_COLS)}
-              {d.offer.c && row("C — first 5 + Until Sunday", "Same + \u201Cfor the First 5 Clients \u2014 Until Sunday, Oct 25\u201D (the coming Sunday, resets weekly)", d.offer.c, URG_COLS)}
-            </tbody>
-          </table>
-        </div>
-      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Calendar urgency</b> (A: &ldquo;to Claim $150 OFF&rdquo; vs C: + &ldquo;for the First 5 Clients — Until Sunday&rdquo;) — live on {d.offer.funnels ?? 0} funnels, starts reporting with the first lead.</div>)}
-    {d.shortq && table("🧪 Shorter survey — all funnels, 50/50", d.shortq, SHORTQ_COLS, "Full survey (current): area · had PMU · age · commutable · seriousness · aftercare kit", "Same survey minus the commutable + aftercare-kit questions (2 fewer taps). Not-asked leads are never distance-disqualified; GHL's Commutable field is set Yes so the flow runs.")}
   </>);
 }
 
@@ -1742,7 +1742,7 @@ export default function FunnelsPage() {
             <DeprowTestCard bare />
             <TopbarTestCard bare />
           </>}
-          endedCount={3}
+          endedCount={6}
         />
       )}
 
