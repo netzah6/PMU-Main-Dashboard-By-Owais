@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Search, RefreshCw, CreditCard, Pause, Play, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DashboardSubscriptions } from "@/components/billing/DashboardSubscriptions";
-import { BillingActivity } from "@/components/billing/BillingActivity";
 
 interface Sub {
   id: string;
@@ -245,7 +244,6 @@ export default function SubscriptionsPage() {
 
   return (
     <div className="p-3 sm:p-4 space-y-3">
-      <BillingActivity />
       <DashboardSubscriptions />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Loader2, Plus, X, Play, Pause, Check, Trash2, ExternalLink, AlertTriangle, CreditCard, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { nextAfterPaid, owedPeriod } from "@/lib/subscription-dates";
+import { BillingActivity } from "@/components/billing/BillingActivity";
 
 // Subscriptions billed from here instead of Square, so pausing one never sends
 // the client Square's "your subscription is paused" email. Square subscriptions
@@ -379,6 +380,7 @@ export function DashboardSubscriptions() {
             {busy === "switch" ? "…" : autocharge ? "Turn off" : "Turn on"}
           </button>
         </span>
+        <BillingActivity inline />
         {msg && (
           <span title={msg} className="min-w-0 flex-1 truncate text-[11px] text-[#15803d] bg-[#e6f7ee] border border-[#c7edd4] rounded-full px-2 py-0.5">
             {msg}

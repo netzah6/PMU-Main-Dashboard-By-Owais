@@ -27,7 +27,9 @@ const LABEL: Record<string, { text: string; cls: string }> = {
   square_failed:       { text: "Square refused", cls: "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]" },
 };
 
-export function BillingActivity() {
+// `inline`: a compact pill that sits in the Dashboard subscriptions header row;
+// the list drops down over the page instead of pushing it (owner, 11/02).
+export function BillingActivity({ inline = false }: { inline?: boolean } = {}) {
   const [feed, setFeed] = useState<Row[] | null>(null);
   // Sits at the very top of the Subs tab as a dropdown — closed until asked
   // (user, 2026-09-14), so the subscriptions themselves stay in view.
@@ -60,11 +62,14 @@ export function BillingActivity() {
     : (feed ?? []).filter((r) => !onlyProblems || r.kind === "charge_failed" || r.kind === "square_failed");
 
   return (
-    <div className="rounded-xl border border-[#e4ebf2] bg-white">
-      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
-        <Activity size={14} className="text-[#34568a] shrink-0" />
-        <h2 className="text-sm font-bold text-[#1f3559]">Recent activity</h2>
-        <span className="text-[11px] text-[#697a91]">
+    <div className={inline ? "relative" : "rounded-xl border border-[#e4ebf2] bg-white"}>
+      <button onClick={() => setOpen((o) => !o)}
+        className={inline
+          ? "flex items-center gap-1.5 pl-2 pr-1 py-0.5 rounded-full border border-[#e4ebf2] bg-white text-left hover:border-[#cfe3f7]"
+          : "w-full flex items-center gap-2 px-3 py-2 text-left"}>
+        <Activity size={inline ? 12 : 14} className="text-[#34568a] shrink-0" />
+        <h2 className={inline ? "text-[11px] font-bold text-[#1f3559]" : "text-sm font-bold text-[#1f3559]"}>Recent activity</h2>
+        <span className={cn("text-[11px] text-[#697a91]", inline && "hidden sm:inline")}>
           {feed === null ? "loading…" : feed.length ? `${feed.length} charge${feed.length === 1 ? "" : "s"} / Square action${feed.length === 1 ? "" : "s"}` : "every charge and Square pause/resume from here"}
         </span>
         {unpaid.length > 0 && (
@@ -81,11 +86,13 @@ export function BillingActivity() {
             {failed} failed
           </span>
         )}
-        <span className="ml-auto text-[#8595a8] text-xs">{open ? "▲" : "▼"}</span>
+        <span className={cn("text-[#8595a8]", inline ? "text-[9px]" : "ml-auto text-xs")}>{open ? "▲" : "▼"}</span>
       </button>
 
       {open && (
-        <div className="px-3 pb-3 space-y-1.5">
+        <div className={inline
+          ? "absolute left-0 top-full mt-1 z-30 w-[min(860px,calc(100vw-2rem))] rounded-xl border border-[#e4ebf2] bg-white shadow-lg p-3 space-y-1.5"
+          : "px-3 pb-3 space-y-1.5"}>
           {onlyUnpaid ? (
             <button onClick={() => setOnlyUnpaid(false)} className="text-[11px] font-semibold text-[#be123c] hover:underline">
               Showing {unpaid.length} still to charge (latest charge failed) · show everything
