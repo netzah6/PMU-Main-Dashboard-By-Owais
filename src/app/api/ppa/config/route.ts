@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
 
   const body = (await req.json().catch(() => ({}))) as {
     owner_key?: string; is_ppa?: boolean; fee?: number; note?: string; auto_charge?: boolean; billing_exempt?: boolean;
+    pps_start?: string | null;
   };
   const ownerKey = String(body.owner_key ?? "").trim().toLowerCase();
   if (!ownerKey) return NextResponse.json({ error: "owner_key required" }, { status: 400 });
@@ -25,6 +26,10 @@ export async function POST(req: NextRequest) {
     note: body.note !== undefined ? body.note : (existing?.note ?? null),
     auto_charge: body.auto_charge !== undefined ? !!body.auto_charge : (existing?.auto_charge ?? false),
     billing_exempt: body.billing_exempt !== undefined ? !!body.billing_exempt : (existing?.billing_exempt ?? false),
+    // PPS start: only appointments from this moment bill. null = all time.
+    pps_start: body.pps_start !== undefined
+      ? (body.pps_start && !isNaN(Date.parse(body.pps_start)) ? new Date(body.pps_start).toISOString() : null)
+      : (existing?.pps_start ?? null),
     updated_at: new Date().toISOString(),
     updated_by: auth.email,
   };

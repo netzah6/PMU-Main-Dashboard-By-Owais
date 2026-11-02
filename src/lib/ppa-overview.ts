@@ -221,6 +221,8 @@ export async function buildPpaClients(roster: V3Client[]) {
       chargedAmount: chgAmtBy.get(c.ownerKey) ?? 0,
       readyOwed: readyToCharge * fee,
       billingExempt: cfg.billing_exempt,
+      // Billing counts appointments from this moment only (null = all time).
+      ppsStart: (cfg as { pps_start?: string | null }).pps_start ?? null,
       // Show rate = showed / (showed + marked no-show), from our review decisions.
       showed,
       noShowMarked,
