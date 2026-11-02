@@ -260,6 +260,7 @@ export async function GET(req: NextRequest) {
   };
   let b2bOutcomes: { external: B2BOutcome; onebox: B2BOutcome } | null = null;
   const isTestName = (n: unknown) => /\btest\b/i.test(String(n ?? ""));
+  const ONEBOX_TAGS = new Set(["b2b-onebox-survey", "b2b-pps-survey"]);
   const extrasAll = (client?.extras ?? {}) as { template?: string; b2b?: { calendarId?: string } };
   if (extrasAll.template === "b2b" && client?.location_id) {
     try {
@@ -271,7 +272,11 @@ export async function GET(req: NextRequest) {
         const startMs = new Date(exp.created_at as string).getTime();
 
         // Original-side leads: the B2B survey's contacts arrive with source
-        // "Facebook Ads"; one-box contacts carry "One-Box Funnel".
+        // "Facebook Ads"; one-box contacts carry "One-Box Funnel". The GHL
+        // "1.1 New Hot Leads" follow-up also stamps "Facebook Ads" on the
+        // one-box leads it picks up (non-bookers, 11/02/2026), so anyone
+        // carrying a one-box survey tag is left out here — they're counted
+        // on the one-box side already.
         const extLeads: { id: string; n: string; d?: string }[] = [];
         for (let page = 1; page <= 5; page++) {
           const lr = await fetch("https://services.leadconnectorhq.com/contacts/search", {
@@ -287,9 +292,10 @@ export async function GET(req: NextRequest) {
             signal: AbortSignal.timeout(15000),
           });
           if (!lr.ok) break;
-          const lj = (await lr.json()) as { contacts?: { id?: string; contactName?: string; firstNameLowerCase?: string; lastNameLowerCase?: string; dateAdded?: string }[] };
+          const lj = (await lr.json()) as { contacts?: { id?: string; contactName?: string; firstNameLowerCase?: string; lastNameLowerCase?: string; dateAdded?: string; tags?: string[] }[] };
           for (const c of lj.contacts ?? []) {
             const n = String(c.contactName || `${c.firstNameLowerCase ?? ""} ${c.lastNameLowerCase ?? ""}`).trim();
+            if ((c.tags ?? []).some((t) => ONEBOX_TAGS.has(String(t).toLowerCase()))) continue;
             if (c.id && !isTestName(n)) extLeads.push({ id: c.id, n, d: c.dateAdded ? String(c.dateAdded).slice(0, 10) : undefined });
           }
           if ((lj.contacts ?? []).length < 100) break;
