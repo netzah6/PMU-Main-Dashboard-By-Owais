@@ -1124,6 +1124,7 @@
     if (!slot || state.fbBooted) return;
     if (PREVIEW_MODE) {
       state.fbBooted = true;
+      slot.classList.add("ready"); // no "Loading secure checkout" spinner under the placeholder
       slot.innerHTML = '<div style="text-align:center;padding:28px 16px;font-family:sans-serif;border:2px dashed #cbd5e1;border-radius:12px;color:#475569">' +
         '<p style="margin:0 0 6px;font-weight:700">Preview — the secure $' + esc(String(C.deposit || "50").replace(/[^0-9.]/g, "") || "50") + ' checkout shows here for real visitors.</p>' +
         '<p style="margin:0;font-size:13px">Nothing is booked or charged in preview.</p></div>';
@@ -1232,10 +1233,10 @@
     var numb = false;
     try { numb = /numbing (cream|gel)/i.test(JSON.stringify(window.OB_FAQS || [])); } catch (e) {}
     return '<div class="whnbox"><p class="whnhead">First time? Here&rsquo;s what happens &#128071;</p><ol>' +
-      "<li><b>Today:</b> your " + esc(DEPOSIT) + " holds your time &mdash; 100% refundable.</li>" +
-      "<li><b>At your " + (VIDEO ? "video consultation" : "visit") + ":</b> a free consultation first &mdash; your artist designs the shape and color with you.</li>" +
-      "<li><b>You decide:</b> love it? You begin" + (numb && !VIDEO ? " &mdash; numbing cream keeps it comfortable" : "") +
-        ". Not sure? Your " + esc(DEPOSIT) + " is refunded in full.</li>" +
+      "<li><b>Today:</b> " + esc(DEPOSIT) + " holds your time &mdash; 100% refundable.</li>" +
+      "<li><b>At your " + (VIDEO ? "video consultation" : "visit") + ":</b> a free consultation &mdash; you and your artist design the shape and color together.</li>" +
+      "<li><b>Love it?</b> You begin" + (numb && !VIDEO ? ", with numbing cream for comfort" : "") +
+        ". <b>Not sure?</b> Full " + esc(DEPOSIT) + " refund.</li>" +
       "</ol></div>";
   }
   function slideDeposit() {
@@ -1497,7 +1498,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "127";
+  var ENGINE_V = "128";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
