@@ -27,6 +27,7 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   closebot_not_v3: { label: "CloseBot on, not V3", icon: "🔌", chip: "bg-amber-50 text-amber-800 border-amber-200" },
   closebot_check: { label: "CloseBot check", icon: "🔌", chip: "bg-slate-50 text-slate-700 border-slate-200" },
   funnel_widgets: { label: "Instagram / reviews broken", icon: "🧩", chip: "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200" },
+  pay_date: { label: "Live, no pay date", icon: "🗓️", chip: "bg-red-50 text-red-700 border-red-200" },
 };
 
 function typeMeta(t: string) {
