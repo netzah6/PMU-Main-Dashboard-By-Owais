@@ -118,9 +118,9 @@ export async function buildPpaClients(roster: V3Client[]) {
   for (const r of (depRes.data ?? []) as Array<{ biz_norm: string; deposits: number; deposit_total: number }>)
     depBy.set(r.biz_norm, { deposits: Number(r.deposits) || 0, deposit_total: Number(r.deposit_total) || 0 });
 
-  const cfgBy = new Map<string, { is_ppa: boolean; fee_per_appt: number; note: string | null; billing_exempt: boolean }>();
-  for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; is_ppa: boolean; fee_per_appt: number; note: string | null; billing_exempt?: boolean }>)
-    cfgBy.set(r.owner_key, { is_ppa: !!r.is_ppa, fee_per_appt: Number(r.fee_per_appt), note: r.note, billing_exempt: !!r.billing_exempt });
+  const cfgBy = new Map<string, { is_ppa: boolean; fee_per_appt: number; note: string | null; billing_exempt: boolean; pps_start: string | null }>();
+  for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; is_ppa: boolean; fee_per_appt: number; note: string | null; billing_exempt?: boolean; pps_start?: string | null }>)
+    cfgBy.set(r.owner_key, { is_ppa: !!r.is_ppa, fee_per_appt: Number(r.fee_per_appt), note: r.note, billing_exempt: !!r.billing_exempt, pps_start: r.pps_start ?? null });
 
   type ChgRow = { owner_key: string; appt_id: string; charged: boolean; excluded: boolean | null; amount: number | null; square_payment_id: string | null; charged_at: string | null };
   const chgAmtBy = new Map<string, number>();
@@ -171,7 +171,7 @@ export async function buildPpaClients(roster: V3Client[]) {
   const clients = roster.map((c) => {
     const s = sumBy.get(c.ownerKey);
     const dep = depBy.get(c.bizNorm) ?? { deposits: 0, deposit_total: 0 };
-    const cfg = cfgBy.get(c.ownerKey) ?? { is_ppa: false, fee_per_appt: 30, note: null, billing_exempt: false };
+    const cfg = cfgBy.get(c.ownerKey) ?? { is_ppa: false, fee_per_appt: 30, note: null, billing_exempt: false, pps_start: null };
     // The financing sheet's latest month is the source of truth for the fee;
     // the dashboard-entered fee only fills in when the notes don't state one.
     const fee = c.sheetFee ?? cfg.fee_per_appt;
@@ -222,7 +222,7 @@ export async function buildPpaClients(roster: V3Client[]) {
       readyOwed: readyToCharge * fee,
       billingExempt: cfg.billing_exempt,
       // Billing counts appointments from this moment only (null = all time).
-      ppsStart: (cfg as { pps_start?: string | null }).pps_start ?? null,
+      ppsStart: cfg.pps_start,
       // Show rate = showed / (showed + marked no-show), from our review decisions.
       showed,
       noShowMarked,
