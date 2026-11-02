@@ -48,6 +48,7 @@ export type EngageSettings = {
   enabled: boolean;
   startedAt: string | null;       // first switched on — the warm-up counts from here
   approveComments: boolean;       // comments wait for a human yes (default on)
+  autoAcceptFinds?: boolean;      // a former client's account the Mini found joins the list without a yes (owner 11/01/2026)
   pausedReason?: string | null;   // set when Instagram pushed back and the dashboard switched it off
   lastQueuedDay?: string | null;  // YYYY-MM-DD (Pacific) of the last daily run
 };
@@ -420,7 +421,9 @@ export async function onIgEngageClosed(svc: Svc, p: { id: string; status: string
   }
   if (actions.length) await svc.from("ig_engage_actions").insert(actions);
 
-  // Account lookups: a found handle waits on the tab for a yes.
+  // Account lookups: a found handle waits on the tab for a yes — or joins the
+  // list straight away when the owner said so (autoAcceptFinds).
+  const autoAccept = !!(await getSettings(svc)).autoAcceptFinds;
   for (const f of rep.finds ?? []) {
     if (!f?.owner_name) continue;
     const handle = usernameFromLink(f.handle);
@@ -428,6 +431,7 @@ export async function onIgEngageClosed(svc: Svc, p: { id: string; status: string
       ? { status: "found", candidate: handle, candidate_note: f.why ? String(f.why).slice(0, 200) : null, updated_at: t }
       : { status: "not_found", candidate_note: f.why ? String(f.why).slice(0, 200) : "not found", updated_at: t },
     ).eq("owner_name", f.owner_name).eq("status", "todo");
+    if (handle && autoAccept) await confirmLookup(svc, f.owner_name, true, handle, "auto (owner's standing yes)");
   }
 }
 
