@@ -68,7 +68,8 @@ export function BillingActivity({ inline = false }: { inline?: boolean } = {}) {
           ? "flex items-center gap-1.5 pl-2 pr-1 py-0.5 rounded-full border border-[#e4ebf2] bg-white text-left hover:border-[#cfe3f7]"
           : "w-full flex items-center gap-2 px-3 py-2 text-left"}>
         <Activity size={inline ? 12 : 14} className="text-[#34568a] shrink-0" />
-        <h2 className={inline ? "text-[11px] font-bold text-[#1f3559]" : "text-sm font-bold text-[#1f3559]"}>Recent activity</h2>
+        {/* Inline on phones: icon only, so the header row fits on one line. */}
+        <h2 className={inline ? "hidden sm:block text-[11px] font-bold text-[#1f3559]" : "text-sm font-bold text-[#1f3559]"}>Recent activity</h2>
         <span className={cn("text-[11px] text-[#697a91]", inline && "hidden sm:inline")}>
           {feed === null ? "loading…" : feed.length ? `${feed.length} charge${feed.length === 1 ? "" : "s"} / Square action${feed.length === 1 ? "" : "s"}` : "every charge and Square pause/resume from here"}
         </span>
