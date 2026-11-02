@@ -15,7 +15,7 @@ interface ClientRow {
   isPpa: boolean; fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null; note: string | null;
   deposits: number; depositTotal: number;
   served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; selfBookedReady?: number;
-  readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number; billingExempt?: boolean;
+  readyToCharge: number; chargedCount: number; chargedAmount: number; readyOwed: number; billingExempt?: boolean; ppsStart?: string | null;
   showed: number; noShowMarked: number; excludedCount: number; refundedCount?: number; showRate: number | null;
   depositsThisMonth?: number; depositsThisMonthUsd?: number;
   ltv?: number; ltvFees?: number; ltvDeposits?: number; ltvRefunded?: number;
@@ -83,6 +83,8 @@ const CS: Record<string, { label: string; cls: string }> = {
   calendar_booked: { label: "Calendar", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
   // Billed from the Booked-in-chat panel; collected by the next charge run.
   chat_booked: { label: "Chat", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
+  // Before the client's PPS start date — retainer era, never billed.
+  before_start: { label: "Before PPS", cls: "bg-[#f1f5f9] text-[#94a3b8] border-[#e2e8f0]" },
 };
 const isReady = (a: Appt) => !a.charged && !a.excluded && !a.refunded &&
   (a.chargeStatus === "served" || a.chargeStatus === "past_due" || a.chargeStatus === "self_booked" || a.chargeStatus === "calendar_booked" || a.chargeStatus === "chat_booked");
@@ -563,7 +565,7 @@ function Pill({ label, value, tone }: { label: string; value: number | string; t
 // The client list is a real table: every number lives in a fixed column, so
 // rows align and can be compared down the page. NumCell keeps digits tabular.
 
-const COLS = 9; // for colSpan on the message/drill-down rows
+const COLS = 10; // for colSpan on the message/drill-down rows
 
 function NumCell({ value, sub, tone, title }: { value: string | number; sub?: string; tone?: "green" | "amber" | "teal" | "gray" | "red"; title?: string }) {
   const color = tone === "green" ? "text-[#15803d]" : tone === "amber" ? "text-[#d97706]" : tone === "teal" ? "text-[#0e8f88]" : tone === "red" ? "text-[#be123c]" : "text-[#1f3559]";
@@ -572,6 +574,45 @@ function NumCell({ value, sub, tone, title }: { value: string | number; sub?: st
       <div className={cn("text-[13px] font-bold leading-none tabular-nums", color)}>{value}</div>
       {sub && <div className="text-[9px] text-[#8595a8] leading-tight whitespace-nowrap">{sub}</div>}
     </td>
+  );
+}
+
+// Local "YYYY-MM-DDTHH:mm" for a datetime-local input.
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+function PpsStartCell({ value, onSave }: { value: string | null; onSave: (iso: string | null) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(toLocalInput(value));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setDraft(toLocalInput(value)); }, [value]);
+  const save = async (iso: string | null) => { setSaving(true); await onSave(iso); setSaving(false); setEditing(false); };
+  if (saving) return <Loader2 size={13} className="animate-spin text-[#8595a8] inline" />;
+  if (editing) return (
+    <div className="flex flex-col items-center gap-0.5">
+      <input type="datetime-local" value={draft} autoFocus onChange={(e) => setDraft(e.target.value)}
+        className="w-[150px] px-1 py-0.5 text-[11px] rounded-lg border border-[#a7e3df] focus:outline-none focus:border-[#15B7AE]" />
+      <div className="flex gap-1">
+        <button onClick={() => save(draft ? new Date(draft).toISOString() : null)}
+          className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#15B7AE] text-white">Save</button>
+        {value && <button onClick={() => save(null)} className="px-1.5 py-0.5 rounded text-[9px] font-bold border border-[#e2e8f0] text-[#64748b]">All time</button>}
+        <button onClick={() => { setDraft(toLocalInput(value)); setEditing(false); }} className="px-1 text-[9px] text-[#8595a8]">✕</button>
+      </div>
+    </div>
+  );
+  return (
+    <button onClick={() => setEditing(true)}
+      title={value ? "Only appointments from this date and time are billed. Click to change." : "Billing counts all appointments. Click to set the date this client switched to pay-per-show."}
+      className={cn("px-1.5 py-0.5 rounded-lg text-[10px] font-semibold whitespace-nowrap border",
+        value ? "bg-[#eef4ff] text-[#3b6fd4] border-[#c9dbfb]" : "text-[#94a3b8] border-transparent hover:border-[#e2e8f0]")}>
+      {value
+        ? new Date(value).toLocaleString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" })
+        : "All time"}
+    </button>
   );
 }
 
@@ -591,7 +632,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
   const owed = v ? v.amount : c.readyOwed;
   const split = v ? showSplit(v) : null;
 
-  const saveConfig = async (patch: { fee?: number; billing_exempt?: boolean }) => {
+  const saveConfig = async (patch: { fee?: number; billing_exempt?: boolean; pps_start?: string | null }) => {
     try {
       await fetch("/api/ppa/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_key: c.ownerKey, ...patch }) });
       onChange();
@@ -659,6 +700,12 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
               </button>
             )}
           </div>
+        </td>
+
+        {/* PPS since (owner, 11/02/2026): blank = bill all time; a date/time =
+            only appointments from then on count (retainer era before it). */}
+        <td className="px-2 py-1 text-center align-middle">
+          <PpsStartCell value={c.ppsStart ?? null} onSave={(iso) => saveConfig({ pps_start: iso })} />
         </td>
 
         {/* Deposits & charged in one cell (user, 2026-09-17): "29 − 4" when
@@ -1230,7 +1277,7 @@ function AdminBilling() {
             <thead>
               <tr className="border-b-2 border-[#e4ebf2] bg-[#f8fafc]">
                 {[
-                  ["Client", "left"], ["Fee", "center"], ["Deposits · charged", "center"],
+                  ["Client", "left"], ["Fee", "center"], ["PPS since", "center"], ["Deposits · charged", "center"],
                   ["Upcoming", "center"], ["Owed now", "center"], ["Self-booked", "center"],
                   ["No appt", "center"], ["Card", "left"], ["Actions", "right"],
                 ].map(([h, align]) => (
