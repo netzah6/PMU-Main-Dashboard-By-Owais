@@ -164,6 +164,7 @@ export default function ReportsPage() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"az" | "leads" | "growth">("az");
   const [selected, setSelected] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   // Mobile-only: whether the user has tapped into a report (list → detail flow).
   const [mobilePicked, setMobilePicked] = useState(false);
   // local optimistic overrides for the editable Action column, keyed by sheet row
@@ -695,6 +696,10 @@ export default function ReportsPage() {
                       return <span className="px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>Version: {ver}</span>;
                     })()}
                     <span className="text-xs text-[#697a91]">{current.count} reports · {reps[0].label} – {current.last.label}</span>
+                    <button onClick={() => setAdding((a) => !a)}
+                      className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#15B7AE] text-white hover:bg-[#0e8f88]">
+                      {adding ? "Close" : "＋ Add report"}
+                    </button>
                     {String(r["Last Strategy?"] ?? "").trim() && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fff7ec] text-[#d97706] border border-[#fcd9a8]">
                         Last Strategy Call: {strategyLabel(dateIndex, String(r["Last Strategy?"]))}
@@ -704,6 +709,11 @@ export default function ReportsPage() {
                 );
               })()}
             </div>
+
+            {adding && current && (
+              <AddReportPanel key={current.name} last={current.last} name={current.name} live={liveNow} deposits={depositsNow}
+                onDone={() => { setAdding(false); refetch(); }} />
+            )}
 
             {/* AI suggestions — collapsed by default: this block used to push the
                 charts and the section table below the fold. */}
@@ -926,5 +936,86 @@ function ActionCell({ report, edits, onSave }: {
         {saving && <Loader2 size={11} className="animate-spin text-[#94a3b8]" />}
       </div>
     </td>
+  );
+}
+
+// ── Add a report (writes the next row of "Add Data - Tracking") ─────────────
+const YES_NOT = ["YES", "NOT", "NO RECORD"];
+const REPORT_BEHAVIOURS = BEHAVIOURS.filter((b) => b.key !== "Happy?" && b.key !== "Deposits?");
+const todayUs = () => new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+
+function AddReportPanel({ name, last, live, deposits, onDone }: {
+  name: string; last: Report; live: { leads: number; sessions: number } | null; deposits: number; onDone: () => void;
+}) {
+  const lr = last.raw;
+  const str = (k: string) => String(lr[k] ?? "").trim();
+  // Prefilled from the live numbers and the last report — the coach only fixes what changed.
+  const [v, setV] = useState<Record<string, string>>(() => ({
+    "Name": name,
+    "Date": todayUs(),
+    "Call or Chat?": str("Call or Chat?") || "Chat",
+    "Happy?": str("Happy?") || "Yes",
+    "Last Strategy?": str("Last Strategy?"),
+    "Deposits?": deposits > 0 ? "YES" : str("Deposits?") || "NO",
+    "Total Leads": String(live?.leads ?? last.leads ?? ""),
+    "Sessions Done?": String(live?.sessions ?? last.sessions ?? ""),
+    "Total Declining": str("Total Declining"),
+    ...Object.fromEntries(REPORT_BEHAVIOURS.map((b) => [b.key, str(b.key) || "NOT"])),
+    "Action": "",
+    "Notes": "",
+  }));
+  const [saving, setSaving] = useState(false);
+  const set = (k: string) => (e: { target: { value: string } }) => setV((o) => ({ ...o, [k]: e.target.value }));
+  const leads = Number(v["Total Leads"]), sessions = Number(v["Sessions Done?"]);
+  const booking = leads > 0 && Number.isFinite(sessions) ? `${((sessions / leads) * 100).toFixed(2)}%` : "–";
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/reports/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values: v }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.success) throw new Error(j.error || "save failed");
+      toast.success(`Report added to the sheet (row ${j.rowNumber})`);
+      onDone();
+    } catch (e) {
+      toast.error(`Couldn't add the report: ${(e as Error).message}`);
+    } finally { setSaving(false); }
+  };
+
+  const box = "w-full rounded-lg border border-[#d7e0ea] px-2 py-1 text-sm bg-white";
+  const field = (label: string, el: React.ReactNode) => (
+    <label className="flex flex-col gap-0.5 text-[11px] font-semibold text-[#34568a]">{label}{el}</label>
+  );
+  const pick = (k: string, opts: string[]) => (
+    <select className={box} value={v[k]} onChange={set(k)}>
+      {(v[k] && !opts.includes(v[k]) ? [v[k], ...opts] : opts).map((o) => <option key={o} value={o}>{o || "—"}</option>)}
+    </select>
+  );
+  return (
+    <div className="rounded-2xl border border-[#bfe9e5] bg-[#f6fdfc] p-3 space-y-2">
+      <p className="text-sm font-bold text-[#1f3559]">New report for {name}</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-2">
+        {field("Name (as on the sheet)", <input className={box} value={v["Name"]} onChange={set("Name")} />)}
+        {field("Date (MM/DD/YYYY)", <input className={box} value={v["Date"]} onChange={set("Date")} />)}
+        {field("Call or Chat", pick("Call or Chat?", ["Chat", "Call"]))}
+        {field("Happy?", pick("Happy?", ["Yes", "Chill", "No", "No Data"]))}
+        {field("Last Strategy (MM/DD/YYYY)", <input className={box} value={v["Last Strategy?"]} onChange={set("Last Strategy?")} />)}
+        {field("Deposits?", pick("Deposits?", ["YES", "NO"]))}
+        {field("Total Leads", <input className={box} inputMode="numeric" value={v["Total Leads"]} onChange={set("Total Leads")} />)}
+        {field("Sessions Booked", <input className={box} inputMode="numeric" value={v["Sessions Done?"]} onChange={set("Sessions Done?")} />)}
+        {field("Booking % (auto)", <div className={cn(box, "bg-[#eef3f8] text-[#56678a]")}>{booking}</div>)}
+        {field("Total Declining", <input className={box} inputMode="numeric" value={v["Total Declining"]} onChange={set("Total Declining")} />)}
+        {REPORT_BEHAVIOURS.map((b) => <div key={b.key}>{field(b.label, pick(b.key, YES_NOT))}</div>)}
+        {field("Action", pick("Action", ["", ...ACTION_OPTIONS]))}
+      </div>
+      {field("Notes", <textarea className={cn(box, "min-h-[48px]")} value={v["Notes"]} onChange={set("Notes")} />)}
+      <div className="flex items-center gap-2">
+        <button onClick={save} disabled={saving}
+          className="px-3 py-1 rounded-lg text-sm font-semibold bg-[#15B7AE] text-white hover:bg-[#0e8f88] disabled:opacity-60 inline-flex items-center gap-1">
+          {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}{saving ? "Saving…" : "Save to sheet"}
+        </button>
+        <span className="text-[11px] text-[#697a91]">Leads & sessions are prefilled with today&apos;s live numbers — change anything before saving.</span>
+      </div>
+    </div>
   );
 }
