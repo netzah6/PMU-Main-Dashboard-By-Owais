@@ -43,7 +43,8 @@ function stepsFor(o: Onboarding): OnboardingStep[] {
    done; the whole Facebook part (BM + campaign) is the last 10%. */
 const isFb = (s: OnboardingStep) => /^facebook/i.test(s.section);
 function progress(o: Onboarding): { done: number; total: number; pct: number } {
-  const steps = stepsFor(o).filter((s) => s.section !== "Later");
+  // Optional steps (CNAM) never hold a client below 100% (owner, 11/03/2026).
+  const steps = stepsFor(o).filter((s) => s.section !== "Later" && !s.optional);
   const done = steps.filter((s) => o.checklist[s.key]?.done).length;
   const part = (list: OnboardingStep[]) => (list.length ? list.filter((s) => o.checklist[s.key]?.done).length / list.length : 1);
   const pct = Math.round(90 * part(steps.filter((s) => !isFb(s))) + 10 * part(steps.filter(isFb)));
