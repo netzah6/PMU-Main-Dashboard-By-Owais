@@ -11,7 +11,7 @@ import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, PR
 
 // Numbers on the card run 1, 2, 3… in the order shown (owner 11/03/2026);
 // the internal step numbers (s.n) stay as the AI Agent's report keys.
-const stepNo = new Map(RUNBOOK.filter((s) => !s.later).map((s, i) => [s.key, i + 1]));
+const stepNo = new Map(RUNBOOK.filter((s) => !s.later && !s.hidden).map((s, i) => [s.key, i + 1]));
 
 /* The New Client Setup run on an Onboarding card.
    Before Approve: which clean account it will take (dropdown), the step-by-step
@@ -193,7 +193,9 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
   const isAdmin = role === "admin";
   const setup = data?.setup ?? null;
-  const steps = useMemo(() => RUNBOOK.filter((s) => !s.later), []);
+  /* Automatic steps nobody acts on (hidden) stay off the card unless they
+     need a person — failed or amber (owner 11/03/2026). */
+  const steps = useMemo(() => RUNBOOK.filter((s) => !s.later && (!s.hidden || ["failed", "warn"].includes(setup?.steps?.[s.key]?.status ?? ""))), [setup]);
   const counts = useMemo(() => {
     if (!setup) return null;
     const run = steps.filter((s) => ["api", "mini", "ask"].includes(s.who));
@@ -293,7 +295,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
         {/* The plan */}
         <div>
-          <button onClick={() => setShowPlan((v) => !v)} className="text-[11px] text-[#0e8f88] hover:underline">{showPlan ? "hide" : "show"} the {RUNBOOK.length}-step plan</button>
+          <button onClick={() => setShowPlan((v) => !v)} className="text-[11px] text-[#0e8f88] hover:underline">{showPlan ? "hide" : "show"} the {RUNBOOK.filter((s) => !s.hidden && !s.later).length}-step plan</button>
           {showPlan && <PlanList steps={steps} setup={null} cards={{}} isAdmin={isAdmin} />}
         </div>
 
