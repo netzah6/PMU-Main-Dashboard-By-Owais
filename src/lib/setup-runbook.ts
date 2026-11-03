@@ -57,12 +57,11 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 6, key: "product", section: "B · 💳 Deposit product & payment route", who: "api", label: "Create the Commas deposit product \"FULL NAME - BUSINESS NAME\" and save the product ID", checklist: ["fanbasis_product"] },
   { n: 8, key: "route_test", hidden: true, section: "B · 💳 Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
   // C · Phone
-  { n: 9, key: "phone_buy", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
+  { n: 9, key: "phone_buy", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default, delete the previous client's numbers, then forward its calls to the client's own phone (Caller ID only if the form says so)", checklist: ["phone_buy", "phone_forward", "phone_callerid"] },
   { n: 10, key: "phone_a2p", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
   { n: 12, key: "phone_optout", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
   // Numbered 45 so the steps after it keep their numbers (like wf_errors' 43); it runs here, in the phone batch.
   { n: 45, key: "phone_limit", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging limits: daily SMS limit 400 (already 400 or more = done)", how: "New accounts start at 250 a day; hitting it stops every text — AI, workflows, confirmations — until the next day (Janel Lord, 10/28/2026). Owner set every client to 400." },
-  { n: 13, key: "phone_forward", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Forward calls to the client's own number; connect their Caller ID only if the form says so", checklist: ["phone_forward", "phone_callerid"] },
   // D · GHL user
   { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
   { n: 15, key: "user_password", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The AI Agent sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
@@ -123,7 +122,7 @@ const STEP_TITLES: Record<string, string> = {
   account_check: "Check & clean the account", account_take: "Take & rename the account", account_info: "Account info, address & time zone",
   master_row: "Assign team members",
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
-  phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
+  phone_buy: "Buy the number & forward calls", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
   user_create: "Create the client's login", user_password: "Set the password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
   wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow", wf_errors: "All workflows: 0 errors",
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy off & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
@@ -284,7 +283,10 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Before buying, open https://lookup.robokiller.com/ in a new tab and look the candidate number up. It must show as clean / not reported. If it is flagged, pick another number and check again.`,
       `Buy the clean number. Screenshot the Robokiller result and the Phone Numbers page showing the new number.`,
       `Set the new number as the DEFAULT (⋮ → Set as default). Then DELETE every other number on this sub-account — they belong to the previous client (the owner's rule: one user, one number). Reload: only the new number is listed, marked Default. Screenshot.`,
-      `Report the number you bought in your summary (digits only is fine), and every number you deleted.`,
+      // Call forwarding is part of this step (owner 11/03/2026 — one step, one video).
+      `Open the new number → Edit configuration. Set "Forward calls to" = the client's own phone ${clientPhone}. Save, reload and confirm it stuck. Screenshot.`,
+      callerId ? `The form says to connect the client's Caller ID: use "Add Number" → "Add Caller ID / Verified number" with ${clientPhone} — GHL calls or texts a code to the client; if the code is needed, stop with "needs_teammate" and say so.` : `Do NOT connect a Caller ID (the form does not ask for it).`,
+      `Report the number you bought in your summary (digits only is fine), every number you deleted, and that calls forward to ${clientPhone}.`,
     ];
     case "phone_a2p": return [
       `Open ${ghl(L, "settings/phone_number")} → Trust Center (A2P / 10DLC). Confirm the brand and campaign are APPROVED (green).`,
