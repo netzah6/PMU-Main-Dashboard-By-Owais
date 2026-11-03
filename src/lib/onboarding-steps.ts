@@ -42,8 +42,8 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "phone_sms_adv", section: "Sub-Account Phone Setup", label: "Phone → Advanced Settings → SMS Compliance UNCHECK" },
 
   // ── Sub-account user ──
-  { key: "user_add", section: "Sub-Account User", label: "Add employee", loom: "https://www.loom.com/share/0913fe2ea8ed4595a633f0e7186b8d02", doc: USER_DOC, docLabel: "User guide", auto: true },
-  { key: "user_password", section: "Sub-Account User", label: "Set up password: NAME1212!" },
+  // One item since 11/03/2026 (owner): the login is created with its password.
+  { key: "user_add", section: "Sub-Account User", label: "Add employee with password NAME1212!", loom: "https://www.loom.com/share/0913fe2ea8ed4595a633f0e7186b8d02", doc: USER_DOC, docLabel: "User guide", auto: true },
   { key: "user_permissions", section: "Sub-Account User", label: "Permissions", loom: "https://www.loom.com/share/5b3a0ae392b54b04ade081f25762c0a9", auto: true },
   { key: "user_voicemail", section: "Sub-Account User", label: "Call & voicemail settings" },
   { key: "user_phone", section: "Sub-Account User", label: "Purchase local phone + \"Forward Calls To\" all options", auto: true },
