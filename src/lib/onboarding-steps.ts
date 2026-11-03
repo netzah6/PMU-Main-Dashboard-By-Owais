@@ -20,7 +20,6 @@ export type OnboardingStep = {
   optional?: boolean;
 };
 
-const PHONE_DOC = "https://docs.google.com/document/d/15LulW5omYb8hmz8_Litr_Anv_oomLUZhicc_eaegQDk/edit?usp=sharing";
 const USER_DOC = "https://docs.google.com/document/d/16wl7SA-GF15X4SFi3al0ItYXFzk6hwkHNgdEyLMybN8/edit?usp=sharing";
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
@@ -37,7 +36,6 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   // ── Phone ──
   { key: "phone_buy", section: "Sub-Account Phone Setup", label: "Buy phone & verify with Robokiller", loom: "https://www.loom.com/share/f344465bd65941b9ada429c6ed51c59a", doc: "https://lookup.robokiller.com/", docLabel: "Robokiller" },
   { key: "phone_a2p", section: "Sub-Account Phone Setup", label: "Verify A2P", doc: "https://docs.google.com/document/d/1NcgYSX4kw9GaQG53X33enOOQ3TX6GWZnOWApQgyXRmM/edit?tab=t.0", docLabel: "A2P guide" },
-  { key: "phone_cnam", section: "Sub-Account Phone Setup", label: "Verify CNAM — \"PermanentMakeup\" (optional)", doc: PHONE_DOC, docLabel: "Phone guide", optional: true },
   { key: "phone_optout", section: "Sub-Account Phone Setup", label: "Uncheck SMS Compliance Opt-Out" },
   { key: "phone_forward", section: "Sub-Account Phone Setup", label: "Forward calls to the client number" },
   { key: "phone_callerid", section: "Sub-Account Phone Setup", label: "Connect client Caller ID (if they asked)" },
