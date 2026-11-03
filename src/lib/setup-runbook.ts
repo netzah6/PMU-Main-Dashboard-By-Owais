@@ -63,8 +63,8 @@ export const RUNBOOK: RunbookStep[] = [
   // Numbered 45 so the steps after it keep their numbers (like wf_errors' 43); it runs here, in the phone batch.
   { n: 45, key: "phone_limit", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging limits: daily SMS limit 400 (already 400 or more = done)", how: "New accounts start at 250 a day; hitting it stops every text — AI, workflows, confirmations — until the next day (Janel Lord, 10/28/2026). Owner set every client to 400." },
   // D · GHL user
-  { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Create the employee user with the client's name and email", how: "GHL emails the client an invite.", checklist: ["user_add"] },
-  { n: 15, key: "user_password", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Set the password by the team rule (NAME1212!) and save it to the card", how: "The AI Agent sets it in the user's settings (the API refuses). Never shown in chat or screenshots.", checklist: ["user_password"] },
+  // One step since 11/03/2026 (owner): the user is created WITH the team-rule password.
+  { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Create the employee user with the client's name and email, with the password by the team rule (NAME1212!) saved to the card", how: "GHL emails the client an invite. The password is never shown in chat or screenshots.", checklist: ["user_add", "user_password"] },
   { n: 16, key: "user_settings", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
   { n: 17, key: "user_calendar", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
   // E · Workflows
@@ -123,7 +123,7 @@ const STEP_TITLES: Record<string, string> = {
   master_row: "Assign team members",
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
   phone_buy: "Buy the number & forward calls", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
-  user_create: "Create the client's login", user_password: "Set the password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
+  user_create: "Create the client's login & password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
   wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow", wf_errors: "All workflows: 0 errors",
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy off & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
   funnel_create: "One-box funnel & custom values", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
@@ -314,15 +314,10 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     ];
     case "user_create": return [
       `Open ${ghl(L, "settings/staff")} (Settings → My Staff) → "+ Add Employee".`,
-      `First name / last name: "${owner}". Email: ${email}. Password: use a temporary strong one (the next step sets the real one). Role: User. Type: Account. Make sure the user is added to THIS sub-account only.`,
-      `Save. GHL emails the client an invite — that is expected. Reload and confirm the user appears in the staff list. Screenshot the list.`,
-      `Report the exact email you used in your summary.`,
-    ];
-    case "user_password": return [
-      `Open ${ghl(L, "settings/staff")} and edit the user ${email}. Open the password section (often under "Advanced settings" → Password / Change password).`,
-      `Set the password to exactly: ${employeePassword(owner)}  (type it in both fields if there is a confirm box). Save.`,
-      `NEVER take a screenshot while the password is visible or typed in a field. Take the screenshot only after saving, with the dialog closed (e.g. the staff list showing ${email}).`,
-      `Do not write the password in your summary — just say it was set.`,
+      `First name / last name: "${owner}". Email: ${email}. Password: exactly ${employeePassword(owner)}  (type it in both fields if there is a confirm box). Role: User. Type: Account. Make sure the user is added to THIS sub-account only.`,
+      `Save. GHL emails the client an invite — that is expected. If the user ALREADY exists, edit it instead and set the same password (often under "Advanced settings" → Password / Change password).`,
+      `NEVER take a screenshot while the password is visible or typed in a field. Reload and screenshot only the staff list showing ${email}.`,
+      `Report the exact email you used in your summary. Do not write the password — just say it was set.`,
     ];
     case "user_settings": return [
       `Open ${ghl(L, "settings/staff")} and edit the user ${email}. Role / user type: "User" (NOT Admin).`,
