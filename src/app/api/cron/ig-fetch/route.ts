@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { queueIgPostsSweep } from "@/lib/ig-posts-check";
-import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, snapshotFunnel, unclassifiedFunnels, usernameFromLink, type ApifyPost } from "@/lib/ig-fetch";
+import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, refreshHeader, snapshotFunnel, unclassifiedFunnels, usernameFromLink, type ApifyPost } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
 /* Stop starting new funnels after this; Vercel kills the function at 300 s
@@ -122,6 +122,8 @@ export async function GET(req: NextRequest) {
     }
     results[f.slug] = why;
     await markFetch(svc, f.slug, false, why);
+    // Kept pictures still show: give them a full header (owner 11/03/2026).
+    if (await refreshHeader(svc, f.slug, f.igLink).catch(() => false)) results[f.slug] += " — header refreshed";
   }
   // Funnels whose header still has no post count (any age): one Mac Mini
   // card each, read off the public profile page. Dedupes while queued.

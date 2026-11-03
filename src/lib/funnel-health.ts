@@ -172,19 +172,23 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
       let servedImgs: string[] = [];
       let servedVideos: string[] = [];
       let servedPic = "";
+      let servedBare = false;
       let servedReviews = 0;
       if (!page || !page.ok || !cfg || !/\/onebox\.js\?v=/.test(html)) {
         issues.push({ code: "page_down", severity: "high", text: `The funnel page didn't load properly (${page ? `HTTP ${page.status}` : "no response"}${page?.ok && !cfg ? ", no page config" : ""}).`, fix: "Open the funnel link yourself; if it's down, tell Netzah/dev right away — every lead is lost while it's down." });
       } else {
         try {
-          const f = cfg.igFeed ? (JSON.parse(cfg.igFeed) as { imgs?: string[]; posts?: { video?: string }[]; profile?: { pic?: string } }) : null;
+          const f = cfg.igFeed ? (JSON.parse(cfg.igFeed) as { imgs?: string[]; posts?: { video?: string }[]; profile?: { pic?: string; followers?: number | null; following?: number | null } }) : null;
           servedVideos = (f?.posts ?? []).slice(0, 6).map((p) => p.video ?? "").filter(Boolean);
           servedImgs = String(cfg.igFrozenImgs ?? "").split(",").map((u) => u.trim()).filter(Boolean);
           if (!servedImgs.length) servedImgs = f?.imgs ?? [];
           servedPic = f?.profile?.pic ?? "";
+          servedBare = !!f?.profile && (!servedPic || f.profile.followers == null || f.profile.following == null);
         } catch { servedImgs = []; }
         try { servedReviews = cfg.gReviews ? ((JSON.parse(cfg.gReviews) as { reviews?: unknown[] }).reviews?.length ?? 0) : 0; } catch { servedReviews = 0; }
         if (igExpected && servedImgs.length < 3) issues.push({ code: "ig_missing_on_page", severity: "high", text: `We have ${storedGrid} Instagram pictures for this client but the live page shows ${servedImgs.length}.`, fix: "Open the CPD → client → Instagram grid panel and press Refresh from Instagram now; if it still doesn't show, it's a code problem — tell dev." });
+        // Owner 11/03/2026: a header with no photo / following looks fake.
+        if (igExpected && servedImgs.length >= 3 && servedBare) issues.push({ code: "ig_header_bare", severity: "high", text: "The Instagram header on the page has no profile photo or no followers/following — it looks fake.", fix: "Press Refresh from Instagram now in the CPD Instagram grid panel; if the account was renamed or deleted, get the new handle from the client (or switch the Instagram section off)." });
         if (revExpected && servedReviews === 0) issues.push({ code: "rev_missing_on_page", severity: "high", text: "We have Google reviews for this client but the live page doesn't show them.", fix: "Code or cache problem — tell dev." });
       }
 
