@@ -7,7 +7,6 @@ import { WidgetSwitchCard } from "@/components/onboarding/WidgetSwitchCard";
 import { IgSliderCard } from "@/components/onboarding/IgSliderCard";
 import { DepositEmailCard } from "@/components/onboarding/DepositEmailCard";
 import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
 import { versionStyle } from "@/lib/version-style";
 import type { StatsWindow } from "@/lib/onebox-insights";
 
@@ -267,15 +266,16 @@ function Must({ on }: { on: boolean }) {
    "<video url>#poster=<jpg url>": the booking page loads only that small
    picture and streams the video after a tap, so page speed is unchanged. */
 const VIDEO_RE = /\.(mp4|mov|m4v|webm)(\?|#|$)/i;
-const VIDEO_MAX_MB = 50;
+const VIDEO_MAX_MB = 200;
+const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|3gp|avi|hevc)$/i;
 async function videoPoster(file: File): Promise<Blob | null> {
   const src = URL.createObjectURL(file);
   try {
     const v = document.createElement("video");
     v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = src;
-    await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error("unreadable")); window.setTimeout(() => rej(new Error("timeout")), 20000); });
+    await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error("unreadable")); window.setTimeout(() => rej(new Error("timeout")), 8000); });
     v.currentTime = Math.min(0.5, (v.duration || 1) / 2);
-    await new Promise<void>((res) => { v.onseeked = () => res(); window.setTimeout(res, 5000); });
+    await new Promise<void>((res) => { v.onseeked = () => res(); window.setTimeout(res, 4000); });
     if (!v.videoWidth) return null;
     const w = Math.min(720, v.videoWidth), h = Math.round((v.videoHeight * w) / v.videoWidth);
     const c = document.createElement("canvas"); c.width = w; c.height = h;
@@ -283,9 +283,27 @@ async function videoPoster(file: File): Promise<Blob | null> {
     return await new Promise<Blob | null>((res) => c.toBlob(res, "image/jpeg", 0.8));
   } catch { return null; } finally { URL.revokeObjectURL(src); }
 }
+/* Raw PUT to the signed upload URL so the button can show a % — a phone
+   clip can take a minute and a silent spinner looked broken (owner 11/03). */
+function putWithProgress(url: string, file: File, onPct: (n: number) => void): Promise<void> {
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.open("PUT", url);
+    x.setRequestHeader("Content-Type", file.type || "video/mp4");
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onPct(Math.round((e.loaded / e.total) * 100)); };
+    x.onload = () => (x.status < 300 ? res() : rej(new Error(`storage said ${x.status}: ${x.responseText.slice(0, 120)}`)));
+    x.onerror = () => rej(new Error("network error while uploading"));
+    x.send(file);
+  });
+}
 
+/* Status and errors show right under the field: the page toast sits at the
+   top, out of view while the team is down in the photos — a failed video
+   upload looked like "nothing happened" (owner, 11/03/2026). */
 function ImageField({ value, onChange, onToast, allowVideo = false }: { value: string; onChange: (url: string) => void; onToast: (m: string) => void; allowVideo?: boolean }) {
   const [uploading, setUploading] = useState(false);
+  const [status, setStatus] = useState("");
+  const [err, setErr] = useState("");
   const postImage = async (file: Blob, name: string): Promise<string> => {
     const fd = new FormData();
     fd.append("file", file, name);
@@ -296,29 +314,37 @@ function ImageField({ value, onChange, onToast, allowVideo = false }: { value: s
   };
   const pick = async (file: File | null) => {
     if (!file) return;
-    setUploading(true);
+    setUploading(true); setErr(""); setStatus("Starting…");
     try {
-      if (file.type.startsWith("video/")) {
-        if (file.size > VIDEO_MAX_MB * 1024 * 1024) throw new Error(`video is over ${VIDEO_MAX_MB} MB — trim it or export a smaller MP4`);
+      const isVid = file.type.startsWith("video/") || VIDEO_EXT_RE.test(file.name);
+      if (isVid && !allowVideo) throw new Error("this slot takes pictures only");
+      if (isVid) {
+        const mb = file.size / 1024 / 1024;
+        if (mb > VIDEO_MAX_MB) throw new Error(`video is ${Math.round(mb)} MB — max ${VIDEO_MAX_MB} MB; trim it or export a smaller MP4`);
+        setStatus("Reading video…");
         const poster = await videoPoster(file);
-        if (!poster) throw new Error("this browser can't read the video — export it as MP4 (iPhone: Camera → Formats → Most Compatible)");
-        const posterUrl = await postImage(poster, "poster.jpg");
+        const posterUrl = poster ? await postImage(poster, "poster.jpg") : "";
         const r = await fetch("/api/onboarding/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video: true, name: file.name }) });
-        const j = (await r.json()) as { path?: string; token?: string; url?: string; error?: string };
-        if (!r.ok || !j.path || !j.token || !j.url) throw new Error(j.error ?? "Could not start the upload");
-        const { error } = await createClient().storage.from("onboarding").uploadToSignedUrl(j.path, j.token, file, { contentType: file.type || "video/mp4" });
-        if (error) throw new Error(error.message);
-        onChange(`${j.url}#poster=${posterUrl}`);
+        const j = (await r.json()) as { signedUrl?: string; url?: string; error?: string };
+        if (!r.ok || !j.signedUrl || !j.url) throw new Error(j.error ?? "Could not start the upload");
+        setStatus(`Uploading video 0% (${Math.round(mb)} MB)`);
+        await putWithProgress(j.signedUrl, file, (n) => setStatus(`Uploading video ${n}% (${Math.round(mb)} MB)`));
+        onChange(posterUrl ? `${j.url}#poster=${posterUrl}` : j.url);
+        if (!poster) setErr("Uploaded, but this browser couldn't grab a cover picture — the page will show the video's first frame instead. Exporting as MP4 fixes it.");
       } else {
+        setStatus("Uploading…");
         onChange(await postImage(file, file.name));
       }
     } catch (e) {
-      onToast(`Upload failed: ${String(e).replace("Error: ", "")}`);
-    } finally { setUploading(false); }
+      const m = String(e).replace("Error: ", "");
+      setErr(`Upload failed: ${m}`);
+      onToast(`Upload failed: ${m}`);
+    } finally { setUploading(false); setStatus(""); }
   };
   const isVideo = VIDEO_RE.test(value);
   const thumb = isVideo ? (value.split("#poster=")[1] ?? "") : value;
   return (
+    <div className="grid gap-0.5">
     <div className="flex items-center gap-1.5">
       {thumb ? (
         <span className="relative shrink-0">
@@ -332,11 +358,14 @@ function ImageField({ value, onChange, onToast, allowVideo = false }: { value: s
       <label className={cn("shrink-0 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer border",
         uploading ? "opacity-50 pointer-events-none border-[#e4ebf2] text-[#8595a8]" : "border-[#bfe6e2] text-[#0b7f7f] hover:bg-[#f0fbfa]")}>
         {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : "Upload"}
-        <input type="file" accept={allowVideo ? "image/*,video/mp4,video/quicktime,video/webm" : "image/*"} className="hidden" onChange={(e) => { void pick(e.target.files?.[0] ?? null); e.target.value = ""; }} />
+        <input type="file" accept={allowVideo ? "image/*,video/*,.mov,.mp4,.m4v,.webm" : "image/*"} className="hidden" onChange={(e) => { void pick(e.target.files?.[0] ?? null); e.target.value = ""; }} />
       </label>
       {value && (
         <button type="button" onClick={() => onChange("")} title="Remove" className="shrink-0 p-1.5 rounded text-[#94a3b8] hover:text-[#e11d48]"><Trash2 className="w-3.5 h-3.5" /></button>
       )}
+    </div>
+    {status && <span className="text-[10px] text-[#0b7f7f]">{status}</span>}
+    {err && <span className="text-[10px] text-[#b91c1c]">{err}</span>}
     </div>
   );
 }
