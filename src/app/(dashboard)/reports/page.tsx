@@ -412,6 +412,65 @@ export default function ReportsPage() {
       return deps.filter((d) => d.at <= end && !(d.refundedAt != null && d.refundedAt <= end)).length;
     });
   }, [current, bizResolve, depositsByBiz]);
+  // Business Name (lowercased) → owner key as GHL lead status files it.
+  const ownerByBiz = useMemo(() => {
+    const m = new Map<string, string>();
+    rawClients.forEach((c) => {
+      const biz = String(c["Business Name"] ?? "").trim().toLowerCase();
+      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
+      if (biz && owner && !m.has(biz)) m.set(biz, owner);
+    });
+    return m;
+  }, [rawClients]);
+
+  // "Today" point on the charts: coach reports stop at their last date, but
+  // the charts should show where the client is now. Leads / sessions = the
+  // last report's totals + what came in since (Leads sheet rows by unique
+  // phone; GHL contacts added since that booked). Deposits = kept today.
+  const [live, setLive] = useState<{ key: string; leads: number; sessions: number } | null>(null);
+  useEffect(() => {
+    const last = current?.reports[current.reports.length - 1];
+    const biz = current ? bizResolve(current.name) : "";
+    if (!current || !last || isNaN(last.ms) || !biz) { setLive(null); return; }
+    const owner = ownerByBiz.get(biz.toLowerCase()) ?? "";
+    const after = last.ms + 86399999;
+    const dmy = (v: unknown) => {
+      const m = String(v ?? "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      return m ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : NaN;
+    };
+    let dead = false;
+    (async () => {
+      const supabase = createClient();
+      const phones = new Set<string>();
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase.from("leads_master").select("data")
+          .contains("data", { "Business Name": biz }).range(from, from + 999);
+        if (error) throw error;
+        (data ?? []).forEach((r) => {
+          const d = (r as { data: Record<string, unknown> }).data;
+          if (dmy(d["col_6"] ?? d["Date"]) > after) phones.add(String(d["Phone Number"] ?? d["Full Name"] ?? ""));
+        });
+        if (!data || data.length < 1000) break;
+      }
+      let booked = 0;
+      if (owner) {
+        const { count, error } = await supabase.from("ghl_lead_status").select("id", { count: "exact", head: true })
+          .eq("owner_key", owner).eq("booked", true).gt("date_added", new Date(after).toISOString());
+        if (error) throw error;
+        booked = count ?? 0;
+      }
+      if (!dead) setLive({ key: current.name, leads: (last.leads ?? 0) + phones.size, sessions: (last.sessions ?? 0) + booked });
+    })().catch(() => { if (!dead) setLive(null); });
+    return () => { dead = true; };
+  }, [current, bizResolve, ownerByBiz]);
+  const liveNow = live && current && live.key === current.name ? live : null;
+  const depositsNow = useMemo(() => {
+    if (!current) return 0;
+    const deps = depositsByBiz.get(bizResolve(current.name).trim().toLowerCase()) ?? [];
+    return deps.filter((d) => d.refundedAt == null).length;
+  }, [current, bizResolve, depositsByBiz]);
+  const repDates = reps.map((r) => r.short);
+  const todayDates = [...repDates, "Today"];
   const payRow = useMemo(() => (current ? lookupPayment(payments, current.name) : null), [current, payments]);
   const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
   const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
@@ -656,10 +715,10 @@ export default function ReportsPage() {
 
             {/* Charts */}
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
-              <ChartCard title="Total Leads Over Time" color="#34568a" values={reps.map((r) => r.leads ?? 0)} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
-              <ChartCard title="Booking Rate %" color="#15B7AE" values={reps.map((r) => (r.booking ?? 0) * 100)} dates={reps.map((r) => r.short)} yFmt={(v) => `${Math.round(v)}%`} />
-              <ChartCard title="Sessions Booked" color="#7e8fc4" values={reps.map((r) => r.sessions ?? 0)} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
-              <ChartCard title="Deposits (Total, after refunds)" color="#d97706" values={depositCum} dates={reps.map((r) => r.short)} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Total Leads Over Time" color="#34568a" values={[...reps.map((r) => r.leads ?? 0), ...(liveNow ? [liveNow.leads] : [])]} dates={liveNow ? todayDates : repDates} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Booking Rate %" color="#15B7AE" values={[...reps.map((r) => (r.booking ?? 0) * 100), ...(liveNow && liveNow.leads ? [(liveNow.sessions / liveNow.leads) * 100] : [])]} dates={liveNow && liveNow.leads ? todayDates : repDates} yFmt={(v) => `${Math.round(v)}%`} />
+              <ChartCard title="Sessions Booked" color="#7e8fc4" values={[...reps.map((r) => r.sessions ?? 0), ...(liveNow ? [liveNow.sessions] : [])]} dates={liveNow ? todayDates : repDates} yFmt={(v) => String(Math.round(v))} />
+              <ChartCard title="Deposits (Total, after refunds)" color="#d97706" values={reps.length ? [...depositCum, depositsNow] : depositCum} dates={reps.length ? todayDates : repDates} yFmt={(v) => String(Math.round(v))} />
             </div>
 
             {/* Date-by-date comparison */}
