@@ -3,6 +3,7 @@ import { queueIgPostsCheck } from "@/lib/ig-posts-check";
 import { classifyImages } from "@/lib/ig-classify";
 import { feedPosts, rankPosts, type FeedPost, type IgFeed, type IgProfile } from "@/lib/ig-arrange";
 import { MAX_REEL_SECONDS, postCode, storeReelVideo } from "@/lib/ig-reels";
+import { NO_HASH, imageHash, videoHash } from "@/lib/img-hash";
 export type { FeedPost, IgFeed, IgProfile } from "@/lib/ig-arrange";
 
 /* In-house Instagram feed (owner, 10/26/2026): replaces the Elfsight widget
@@ -219,11 +220,14 @@ export async function snapshotFunnel(
   const known = new Map((prevExtras.igFeed?.posts ?? []).filter((p) => (p.kind || p.video) && p.url).map((p) => [p.url, p]));
   /* Copy every image at once (≤ 25 small files) — one by one would eat
      the cron's time budget. */
-  const copy = async (src: string, path: string): Promise<string> => {
+  const copy = async (src: string, path: string): Promise<{ img: string; dh: string | null }> => {
     const body = await download(src);
-    if (!body) return "";
-    const { error } = await svc.storage.from(BUCKET).upload(path, body, { upsert: true, contentType: "image/jpeg" });
-    return error ? "" : svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+    if (!body) return { img: "", dh: null };
+    const [{ error }, dh] = await Promise.all([
+      svc.storage.from(BUCKET).upload(path, body, { upsert: true, contentType: "image/jpeg" }),
+      imageHash(body),
+    ]);
+    return error ? { img: "", dh: null } : { img: svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl, dh };
   };
   /* Reels (owner 10/28/2026): the video is copied now — Instagram's video
      links expire — and judged frame by frame later (ig-reels.ts, its own
@@ -233,16 +237,19 @@ export async function snapshotFunnel(
     if (!p.videoUrl || !code || known.get(p.url ?? "")?.video || (p.videoDuration ?? 0) > MAX_REEL_SECONDS) return Promise.resolve("");
     return storeReelVideo(svc, slug, code, p.videoUrl);
   };
-  const [[newPic, ...copies], videos] = await Promise.all([
+  const [[{ img: newPic }, ...copies], videos] = await Promise.all([
     Promise.all([
       copy(prof?.profilePicUrlHD || prof?.profilePicUrl || "", `${slug}/${today}/profile.jpg`),
-      ...posts.map((p, n) => copy(postImage(p), `${slug}/${today}/${n + 1}.jpg`)),
+      /* Named by post, not by position: a second fetch the same day used
+         to overwrite "5.jpg" with a different post while a judged reel
+         still pointed at it — two posts, one picture (11/03/2026). */
+      ...posts.map((p, n) => copy(postImage(p), `${slug}/${today}/${postCode(p.url) || n + 1}.jpg`)),
     ]),
     Promise.all(posts.map(reelCopy)),
   ]);
   const saved: FeedPost[] = copies
-    .map((img, n): FeedPost => ({
-      img, url: posts[n].url || igLink, result: isResultPost(posts[n]),
+    .map(({ img, dh }, n): FeedPost => ({
+      img, url: posts[n].url || igLink, result: isResultPost(posts[n]), ...(dh ? { dh, dhFor: img } : {}),
       ...(videos[n] ? { video: videos[n], reel: true, cap: clip(String(posts[n].caption ?? ""), 400) } : {}),
     }))
     .filter((p) => p.img);
@@ -258,7 +265,14 @@ export async function snapshotFunnel(
        keeps its place in the judge's queue (attempts + caption). */
     if (c.video) {
       p.video = c.video; p.reel = true;
-      if (c.useful !== undefined) { p.img = c.img; p.frame = c.frame; p.useful = c.useful; if (c.jv) p.jv = c.jv; }
+      if (c.useful !== undefined) { p.frame = c.frame; p.useful = c.useful; if (c.jv) p.jv = c.jv; }
+      /* Only a chosen frame (reels/<code>-f<n>.jpg, never overwritten) is
+         kept; a reel judged not useful shows today's fresh cover. */
+      if (c.useful && c.img.includes("/reels/")) {
+        p.img = c.img;
+        if (c.dh && c.dhFor === c.img) { p.dh = c.dh; p.dhFor = c.img; } else { delete p.dh; delete p.dhFor; }
+      }
+      if (c.vh) p.vh = c.vh;
       if (c.jt) p.jt = c.jt;
       p.cap = c.cap ?? p.cap;
     }
@@ -310,6 +324,53 @@ export async function snapshotFunnel(
     }
   }
   return { ok: true, imgs: saved.length, results: saved.filter((p) => p.result).length };
+}
+
+/* Fingerprints the grid needs to spot re-posted pictures and reels
+   (ig-arrange.ts → dropRepeats) that are missing or no longer match the
+   picture shown — sets saved by older code, a reel whose tile changed, a
+   fetch where ffmpeg failed. The cron's spare time fills them in, the
+   funnels with most missing first. */
+const needsPicHash = (p: FeedPost) => !!p.img && !(p.dh && p.dhFor === p.img);
+const needsVidHash = (p: FeedPost) => !!p.video && !p.vh;
+export async function fingerprintFeeds(svc: SupabaseClient, deadline: number): Promise<{ funnels: number; pictures: number; reels: number }> {
+  const { data } = await svc.from("onebox_clients").select("slug, extras").eq("status", "live");
+  const todo = (data ?? [])
+    .map((c) => { const posts = ((c.extras as { igFeed?: IgFeed } | null)?.igFeed?.posts ?? []); return { slug: String(c.slug), n: posts.filter((p) => needsPicHash(p) || needsVidHash(p)).length }; })
+    .filter((c) => c.n > 0)
+    .sort((a, b) => b.n - a.n);
+  let funnels = 0, pictures = 0, reels = 0;
+  for (const { slug } of todo) {
+    if (Date.now() > deadline) break;
+    const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+    const posts = ((row?.extras ?? {}) as { igFeed?: IgFeed }).igFeed?.posts ?? [];
+    const found = new Map<string, { dh?: string; dhFor?: string; vh?: string }>();
+    const queue = posts.filter((p) => needsPicHash(p) || needsVidHash(p));
+    await Promise.all(Array.from({ length: 6 }, async () => {
+      for (let p = queue.shift(); p; p = queue.shift()) {
+        if (Date.now() > deadline) break;
+        const f: { dh?: string; dhFor?: string; vh?: string } = {};
+        /* A download that fails is retried next time; a picture or reel
+           that downloads but gives no fingerprint is marked NO_HASH. */
+        if (needsPicHash(p)) { const b = await download(p.img); if (b) { f.dh = (await imageHash(b)) ?? NO_HASH; f.dhFor = p.img; pictures++; } }
+        if (needsVidHash(p)) { f.vh = (await videoHash(p.video!)) ?? NO_HASH; reels++; }
+        if (f.dh || f.vh) found.set(p.url || p.img, f);
+      }
+    }));
+    if (!found.size) continue;
+    /* Write onto the CURRENT feed, only where the picture is still the one
+       that was fingerprinted (a refresh or a judge may have landed). */
+    const { data: fresh } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+    const feed = ((fresh?.extras ?? {}) as { igFeed?: IgFeed }).igFeed;
+    if (!feed?.posts?.length) continue;
+    const merged = feed.posts.map((p) => {
+      const f = found.get(p.url || p.img);
+      if (!f) return p;
+      return { ...p, ...(f.dh && f.dhFor === p.img ? { dh: f.dh, dhFor: f.dhFor } : {}), ...(f.vh && p.video ? { vh: f.vh } : {}) };
+    });
+    if (!(await patchExtras(svc, slug, { igFeed: { ...feed, posts: merged } }))) funnels++;
+  }
+  return { funnels, pictures, reels };
 }
 
 /* The post fetch failed (restricted / "does not exist" on a live profile /

@@ -5,6 +5,11 @@ const nextConfig = {
        frames from inside each reel — ship the binary with that function. */
     outputFileTracingIncludes: {
       "/api/cron/ig-reels": ["./node_modules/ffmpeg-static/ffmpeg"],
+      /* …and to fingerprint every saved picture (repeat check, 11/03/2026). */
+      "/api/cron/ig-fetch": ["./node_modules/ffmpeg-static/ffmpeg"],
+      "/api/onebox/ig-widget": ["./node_modules/ffmpeg-static/ffmpeg"],
+      "/api/onboarding/[id]/setup": ["./node_modules/ffmpeg-static/ffmpeg"],
+      "/api/agent/worker/finish": ["./node_modules/ffmpeg-static/ffmpeg"],
     },
   },
   async headers() {
