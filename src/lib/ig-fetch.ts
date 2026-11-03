@@ -63,15 +63,44 @@ export function usernameFromLink(link: string | null | undefined): string {
   return /^(p|reel|reels|explore|accounts|stories)$/i.test(u) ? "" : u;
 }
 
-/* Post count from Elfsight's public Instagram profile endpoint (keyed by
-   username, no widget needed) — the same call ig-feed-watch makes. */
-export async function elfsightPostsCount(username: string): Promise<number | null> {
+/* Elfsight's public Instagram profile endpoint (keyed by username, no
+   widget needed) — the same call ig-feed-watch makes. It has the post
+   count the scrapers stopped returning, and the whole header (picture,
+   name, bio, followers, following) for profiles the profile scraper
+   refuses ("Restricted profile", "Profile does not exist" on a live
+   account — owner 11/03/2026: a header with no picture or bio looks fake). */
+export async function elfsightProfile(username: string): Promise<ApifyProfile | null> {
   if (!username) return null;
   try {
     const r = await fetch(`https://widget-data.service.elfsight.com/api/instagram/profile?username=${encodeURIComponent(username)}`, { signal: AbortSignal.timeout(10_000) });
-    const d = ((await r.json()) as { payload?: { postsCount?: unknown } }).payload;
-    return typeof d?.postsCount === "number" ? d.postsCount : null;
+    const d = ((await r.json()) as { payload?: Record<string, unknown> }).payload;
+    if (!d || Array.isArray(d) || typeof d.username !== "string") return null;
+    const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+    return {
+      username: d.username, fullName: cleanText(d.fullName), profilePicUrl: typeof d.pictureUrl === "string" ? d.pictureUrl : "",
+      biography: cleanText(d.biography), verified: d.isVerified === true,
+      postsCount: num(d.postsCount), followersCount: num(d.followersCount), followsCount: num(d.followingCount),
+    };
   } catch { return null; }
+}
+
+/* The scraper's profile, with every missing header field taken from
+   Elfsight. Elfsight is only asked when something is missing. */
+async function completeProfile(prof: ApifyProfile | undefined, username: string): Promise<ApifyProfile | undefined> {
+  const full = (prof?.profilePicUrlHD || prof?.profilePicUrl) && prof?.fullName && typeof prof?.followsCount === "number" && typeof prof?.postsCount === "number";
+  if (full) return prof;
+  const elf = await elfsightProfile(prof?.username || username);
+  if (!elf) return prof;
+  const p = prof ?? {};
+  return {
+    ...elf, ...p,
+    username: p.username || elf.username,
+    fullName: cleanText(p.fullName) || elf.fullName,
+    profilePicUrlHD: p.profilePicUrlHD, profilePicUrl: p.profilePicUrlHD || p.profilePicUrl || elf.profilePicUrl,
+    biography: cleanText(p.biography) || elf.biography,
+    postsCount: p.postsCount ?? elf.postsCount, followersCount: p.followersCount ?? elf.followersCount, followsCount: p.followsCount ?? elf.followsCount,
+    verified: p.verified ?? elf.verified,
+  };
 }
 
 /* The scraper sends "None" / "null" as text for empty fields. */
@@ -176,10 +205,11 @@ async function download(url: string): Promise<Buffer | null> {
    stay): copy the images, write the ig_snapshots row for today (replace),
    mirror into extras. */
 export async function snapshotFunnel(
-  svc: SupabaseClient, slug: string, prof: ApifyProfile | undefined, latest: ApifyPost[], igLink: string,
+  svc: SupabaseClient, slug: string, scraped: ApifyProfile | undefined, latest: ApifyPost[], igLink: string,
 ): Promise<{ ok: true; imgs: number; results: number } | { ok: false; why: string }> {
   const posts = orderPosts(latest.filter((p) => postImage(p))).slice(0, MAX_POSTS);
   if (posts.length < 3) return { ok: false, why: `only ${posts.length} posts returned` };
+  const prof = await completeProfile(scraped, posts[0].ownerUsername || usernameFromLink(igLink));
   const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
   const prevExtras = (row?.extras ?? {}) as Record<string, unknown> & { igFeed?: IgFeed };
   const prev = prevExtras.igFeed?.profile;
@@ -235,10 +265,9 @@ export async function snapshotFunnel(
   }
   const ordered = rankPosts(saved);
   /* The scrapers stopped returning the post count (10/2026). Elfsight's
-     public profile endpoint still has it (live), then the previous set,
-     then the newest Playwright snapshot. */
+     public profile endpoint still has it (live, via completeProfile), then
+     the previous set, then the newest Playwright snapshot. */
   let postsCount: number | null = typeof prof?.postsCount === "number" ? prof.postsCount : null;
-  if (postsCount == null) postsCount = await elfsightPostsCount(prof?.username || posts[0].ownerUsername || usernameFromLink(igLink));
   if (postsCount == null) postsCount = prev?.posts ?? null;
   if (postsCount == null) {
     const { data: snap } = await svc.from("ig_snapshots").select("posts_count").eq("slug", slug).not("posts_count", "is", null).order("taken_at", { ascending: false }).limit(1).maybeSingle();
@@ -283,6 +312,44 @@ export async function snapshotFunnel(
   return { ok: true, imgs: saved.length, results: saved.filter((p) => p.result).length };
 }
 
+/* The post fetch failed (restricted / "does not exist" on a live profile /
+   blocked) but the funnel still shows its kept pictures: refresh only the
+   header from Elfsight so it never shows a blank photo, no name, no
+   following. Pictures and the failed-fetch mark stay as they are. */
+export async function refreshHeader(svc: SupabaseClient, slug: string, igLink: string): Promise<boolean> {
+  const username = usernameFromLink(igLink);
+  const elf = await elfsightProfile(username);
+  if (!elf) return false;
+  const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+  const feed = ((row?.extras ?? {}) as { igFeed?: IgFeed }).igFeed;
+  if (!feed?.imgs?.length) return false;
+  const prev = feed.profile ?? ({} as Partial<IgProfile>);
+  let pic = "";
+  const body = elf.profilePicUrl ? await download(elf.profilePicUrl) : null;
+  if (body) {
+    const path = `${slug}/${new Date().toISOString().slice(0, 10)}/profile.jpg`;
+    const { error } = await svc.storage.from(BUCKET).upload(path, body, { upsert: true, contentType: "image/jpeg" });
+    if (!error) pic = svc.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+  }
+  const profile: IgProfile = {
+    username: elf.username || prev.username || username,
+    name: elf.fullName || prev.name || "",
+    pic: pic || prev.pic || "",
+    followers: elf.followersCount ?? prev.followers ?? null,
+    posts: elf.postsCount ?? prev.posts ?? null,
+    following: elf.followsCount ?? prev.following ?? null,
+    bio: clip(elf.biography || prev.bio || "", 300),
+    category: prev.category || "",
+    verified: !!(elf.verified ?? prev.verified),
+  };
+  /* Read again after the slow picture copy: a set saved meanwhile keeps
+     its pictures; only the header changes. */
+  const { data: again } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+  const cur = ((again?.extras ?? {}) as { igFeed?: IgFeed }).igFeed;
+  if (!cur) return false;
+  return !(await patchExtras(svc, slug, { igFeed: { ...cur, profile } }));
+}
+
 /* Funnels due for a fresh set: live, with a real Instagram handle, and not
    tried in the last `minAgeDays` (extras.igFetch, written by this fetcher
    only — the Mac Mini's weekly ig_snapshots rows don't count). Never-tried
@@ -325,10 +392,11 @@ export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<
   if (!posts.length) {
     const why = prof?.private ? "private account" : "no posts returned (private, renamed, or blocked)";
     await markFetch(svc, slug, false, why);
+    await refreshHeader(svc, slug, igLink);
     return { ok: false, why };
   }
   const r = await snapshotFunnel(svc, slug, prof, posts, igLink);
-  if (!r.ok) await markFetch(svc, slug, false, r.why);
+  if (!r.ok) { await markFetch(svc, slug, false, r.why); await refreshHeader(svc, slug, igLink); }
   return r;
 }
 
