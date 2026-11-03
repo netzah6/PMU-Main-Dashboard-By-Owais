@@ -43,3 +43,7 @@ create table if not exists public.planned_items (
 );
 alter table public.planned_items enable row level security;
 -- No policies: only the service role (admin-gated API routes) reads or writes.
+
+-- 11/03/2026 review fix: the phone is kept on the row so the same-phone paid
+-- check never depends on the lead row still being linked to the contact.
+alter table public.pick_email_people add column if not exists phone text;

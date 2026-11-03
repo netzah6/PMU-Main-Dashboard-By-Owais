@@ -23,7 +23,8 @@ type Data = {
 const usDay = (iso: string) => new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 const STOP_LABEL: Record<string, string> = {
   paid: "paid before the email", finished: "got both emails", slot_passed: "time already passed", no_email: "no email on file",
-  email_dnd: "opted out of email", contact_gone: "contact deleted", failed: "send failed 3×",
+  email_dnd: "opted out of email", contact_gone: "contact deleted", failed: "send failed 3×", booked: "booked in chat",
+  funnel_off: "client paused", too_late: "too late to send", no_lead_row: "lead record gone", paused: "switched off mid-way",
 };
 
 export function DepositEmailCard() {

@@ -104,7 +104,8 @@ export default function UpcomingPage() {
 
   const today = todayIso();
   const groups = useMemo(() => {
-    const open = (items ?? []).filter((i) => !i.done_at && i.status !== "done");
+    // done_at is the only "done" signal — reopening clears it and the item is back where it was.
+    const open = (items ?? []).filter((i) => !i.done_at);
     const weekEnd = new Date(day(today).getTime() + 7 * 86400_000).toISOString().slice(0, 10);
     const dated = open.filter((i) => i.due_date && i.status !== "parked");
     return {
@@ -115,7 +116,7 @@ export default function UpcomingPage() {
       others: open.filter((i) => !i.due_date && i.status !== "parked" && i.who === "outside"),
       ongoing: open.filter((i) => !i.due_date && i.status !== "parked" && (i.who === "auto" || i.who === "claude")),
       parked: open.filter((i) => i.status === "parked"),
-      done: (items ?? []).filter((i) => i.done_at || i.status === "done"),
+      done: (items ?? []).filter((i) => i.done_at),
     };
   }, [items, today]);
 
