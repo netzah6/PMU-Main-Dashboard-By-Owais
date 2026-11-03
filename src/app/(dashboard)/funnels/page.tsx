@@ -5,6 +5,7 @@ import { Loader2, RefreshCw, Plus, ExternalLink, Stethoscope, Check, X, Search, 
 import { SERVICE_OPTIONS } from "@/lib/onboarding-steps";
 import { WidgetSwitchCard } from "@/components/onboarding/WidgetSwitchCard";
 import { IgSliderCard } from "@/components/onboarding/IgSliderCard";
+import { DepositEmailCard } from "@/components/onboarding/DepositEmailCard";
 import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
 import type { StatsWindow } from "@/lib/onebox-insights";
@@ -1706,6 +1707,7 @@ export default function FunnelsPage() {
       {seesFleetTraffic && <WidgetSwitchCard />}
       {seesFleetTraffic && <IgSliderCard />}
       {seesFleetTraffic && <CapiStatusCard />}
+      {isAdmin && <DepositEmailCard />}
       {isAdmin && (
         <B2cTestsDropdown
           clientTests={funnels.filter((f) => f.abStatus === "running" && f.slug !== "demo-v3" && f.template !== "b2b").length}

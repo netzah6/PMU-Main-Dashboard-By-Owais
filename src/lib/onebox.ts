@@ -782,6 +782,22 @@ export function fmtReservedTime(iso: string): string {
   }).replace(" at ", " ");
 }
 
+/* "Friday, September 20, 2026 5:00 PM" (the exact shape fmtReservedTime
+   writes, and what the team/AI types into the reserved-time field) back to
+   a wall-clock ISO the engine's calendar understands. Returns "" when the
+   text doesn't parse — the lead just sees the calendar instead. */
+const RESERVED_MONTHS: Record<string, number> = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
+export function parseReservedTime(text: string): string {
+  const m = String(text).match(/([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!m) return "";
+  const month = RESERVED_MONTHS[m[1].toLowerCase()];
+  if (!month) return "";
+  let hour = Number(m[4]) % 12;
+  if (/pm/i.test(m[6])) hour += 12;
+  const p2 = (n: number) => (n < 10 ? "0" : "") + n;
+  return `${m[3]}-${p2(month)}-${p2(Number(m[2]))}T${p2(hour)}:${m[5]}:00`;
+}
+
 /* GHL's per-contact appointment endpoint gives startTime and dateAdded as
    the LOCATION's wall clock ("2026-10-26 16:30:00", no offset — verified
    against the offset-bearing times we send), so real comparisons need the

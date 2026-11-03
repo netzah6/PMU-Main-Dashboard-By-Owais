@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getSurveyFieldMap, liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
+import { getSurveyFieldMap, liveAppointmentsOnCalendar, parseReservedTime, wallToIso } from "@/lib/onebox";
 import { getAppLocationToken } from "@/lib/ghl-app";
 
 // Payment-link lookup: the AI's follow-up message sends the lead
@@ -12,22 +12,6 @@ import { getAppLocationToken } from "@/lib/ghl-app";
 // in their own text message; nothing here is served without one.
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
-
-/* "Friday, September 20, 2026 5:00 PM" (the exact shape fmtReservedTime
-   writes, and what the team/AI types into the reserved-time field) back to
-   a wall-clock ISO the engine's calendar understands. Returns "" when the
-   text doesn't parse — the lead just sees the calendar instead. */
-const MONTHS: Record<string, number> = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
-function parseReservedTime(text: string): string {
-  const m = String(text).match(/([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-  if (!m) return "";
-  const month = MONTHS[m[1].toLowerCase()];
-  if (!month) return "";
-  let hour = Number(m[4]) % 12;
-  if (/pm/i.test(m[6])) hour += 12;
-  const p2 = (n: number) => (n < 10 ? "0" : "") + n;
-  return `${m[3]}-${p2(month)}-${p2(Number(m[2]))}T${p2(hour)}:${m[5]}:00`;
-}
 
 export async function GET(req: NextRequest) {
   const slug = String(req.nextUrl.searchParams.get("slug") ?? "").trim().toLowerCase();
