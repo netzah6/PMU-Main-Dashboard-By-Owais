@@ -75,8 +75,10 @@ export function hashDistance(a: string, b: string): number {
 }
 const picHash = (p: FeedPost) => (p.dh && p.dh.length === 64 && p.dhFor === p.img ? p.dh : "");
 const near = (a: string, b: string) => a.length === 64 && b.length === 64 && hashDistance(a, b) <= REPEAT_BITS;
+/* A reel's fingerprint is two frames (1 s + 5 s): both must match. */
+const nearReel = (a = "", b = "") => a.length === 128 && b.length === 128 && near(a.slice(0, 64), b.slice(0, 64)) && near(a.slice(64), b.slice(64));
 export function isRepeat(p: FeedPost, k: FeedPost): boolean {
-  return p.img === k.img || near(picHash(p), picHash(k)) || near(p.vh ?? "", k.vh ?? "");
+  return p.img === k.img || near(picHash(p), picHash(k)) || nearReel(p.vh, k.vh);
 }
 /* `seen` = posts already ruled out (the hidden ones): hiding a picture
    also keeps its re-posted copies off the grid. */

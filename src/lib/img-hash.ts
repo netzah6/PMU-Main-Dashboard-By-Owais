@@ -63,12 +63,15 @@ export async function imageHash(buf: Buffer): Promise<string | null> {
   return toHash(await grayPixels(["-i", "pipe:0"], buf));
 }
 
-/* A reel: a frame from its first seconds (1 s in, else 3 s if that one is
-   blank), so the same reel posted twice matches even when its tiles show
-   different frames. Takes a URL (ffmpeg reads only the bytes it needs) or
-   a local file. */
+/* A reel: two frames, 1 s and 5 s in (128 hex characters), so the same
+   reel posted twice matches even when its tiles show different frames —
+   and two different reels that open on the same branded intro don't (the
+   5 s frame differs; 11/03/2026, Lourdes Beauty). Both frames must have
+   content; a reel shorter than 5 s gets none. Takes a URL (ffmpeg reads
+   only the bytes it needs) or a local file. */
 export async function videoHash(src: string): Promise<string | null> {
-  return toHash(await grayPixels(["-ss", "1", "-i", src])) ?? toHash(await grayPixels(["-ss", "3", "-i", src]));
+  const [a, b] = await Promise.all([1, 5].map(async (t) => toHash(await grayPixels(["-ss", String(t), "-i", src]))));
+  return a && b ? a + b : null;
 }
 
 /* Stored when a picture or reel was fingerprinted but gave none (blank or
