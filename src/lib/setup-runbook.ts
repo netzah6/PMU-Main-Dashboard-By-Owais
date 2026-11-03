@@ -123,7 +123,7 @@ const STEP_TITLES: Record<string, string> = {
   master_row: "Assign team members",
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
   phone_buy: "Buy the number & forward calls", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
-  user_create: "Create the client's login & password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
+  user_create: "Create the client's login & password", user_settings: "Login permissions & calls", user_calendar: "User calendar access",
   wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow", wf_errors: "All workflows: 0 errors",
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy off & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
   funnel_create: "One-box funnel & custom values", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
