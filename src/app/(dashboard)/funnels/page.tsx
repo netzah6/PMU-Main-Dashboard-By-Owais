@@ -267,6 +267,7 @@ function Must({ on }: { on: boolean }) {
    picture and streams the video after a tap, so page speed is unchanged. */
 const VIDEO_RE = /\.(mp4|mov|m4v|webm)(\?|#|$)/i;
 const VIDEO_MAX_MB = 50; // Supabase project-wide file limit: 49 MB uploads, 51 MB is refused (tested 11/03/2026)
+const SHRINK_OVER_MB = 10;
 const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|3gp|avi|hevc)$/i;
 async function videoPoster(file: File): Promise<Blob | null> {
   const src = URL.createObjectURL(file);
@@ -319,16 +320,29 @@ function ImageField({ value, onChange, onToast, allowVideo = false }: { value: s
       const isVid = file.type.startsWith("video/") || VIDEO_EXT_RE.test(file.name);
       if (isVid && !allowVideo) throw new Error("this slot takes pictures only");
       if (isVid) {
-        const mb = file.size / 1024 / 1024;
-        if (mb > VIDEO_MAX_MB) throw new Error(`video is ${Math.round(mb)} MB — max ${VIDEO_MAX_MB} MB; trim it or export a smaller MP4`);
+        /* Small MP4s go up as they are; anything bigger, or a phone .mov,
+           is shrunk here first. If that fails, a file under the limit still
+           goes up as it is. */
+        let clip = file;
+        if (file.size > SHRINK_OVER_MB * 1024 * 1024 || !/\.mp4$/i.test(file.name)) {
+          setStatus("Making the video smaller 0% — keep this tab open");
+          try {
+            const { shrinkVideo } = await import("@/lib/shrink-video");
+            clip = await shrinkVideo(file, (n) => setStatus(`Making the video smaller ${n}% — keep this tab open`));
+          } catch (e) {
+            if (file.size > VIDEO_MAX_MB * 1024 * 1024) throw new Error(`couldn't shrink this video (${String(e).replace("Error: ", "")}) — trim it or export a smaller MP4`);
+          }
+        }
+        const mb = clip.size / 1024 / 1024;
+        if (mb > VIDEO_MAX_MB) throw new Error(`video is still ${Math.round(mb)} MB after shrinking — max ${VIDEO_MAX_MB} MB; trim it first`);
         setStatus("Reading video…");
-        const poster = await videoPoster(file);
+        const poster = await videoPoster(clip);
         const posterUrl = poster ? await postImage(poster, "poster.jpg") : "";
-        const r = await fetch("/api/onboarding/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video: true, name: file.name }) });
+        const r = await fetch("/api/onboarding/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video: true, name: clip.name }) });
         const j = (await r.json()) as { signedUrl?: string; url?: string; error?: string };
         if (!r.ok || !j.signedUrl || !j.url) throw new Error(j.error ?? "Could not start the upload");
         setStatus(`Uploading video 0% (${Math.round(mb)} MB)`);
-        await putWithProgress(j.signedUrl, file, (n) => setStatus(`Uploading video ${n}% (${Math.round(mb)} MB)`));
+        await putWithProgress(j.signedUrl, clip, (n) => setStatus(`Uploading video ${n}% (${Math.round(mb)} MB)`));
         onChange(posterUrl ? `${j.url}#poster=${posterUrl}` : j.url);
         if (!poster) setErr("Uploaded, but this browser couldn't grab a cover picture — the page will show the video's first frame instead. Exporting as MP4 fixes it.");
       } else {
