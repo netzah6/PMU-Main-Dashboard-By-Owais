@@ -47,12 +47,10 @@ export type RunbookStep = {
 
 export const RUNBOOK: RunbookStep[] = [
   // A · Account
-  { n: 0, key: "account_check", section: "A · 🏢 Account", who: "api", label: "Check the clean account and clean it if needed", how: "Live check before anything is renamed: no leftover contacts (any found are deleted), the template (snapshot) is loaded, and A2P is approved. The run stops here if the template or A2P is missing." },
+  { n: 0, key: "account_check", section: "A · 🏢 Account", who: "api", label: "Check the clean account and clean it if needed", how: "Live check before anything is renamed: no leftover contacts (any found are deleted), the template (snapshot) is loaded, A2P is approved, and the dashboard connector can reach the account (leads, chats and deposits sync — automatic, only shown if it fails). The run stops here if any of them is missing." },
   { n: 1, key: "account_take", section: "A · 🏢 Account", who: "api", label: "Take the clean account and rename it to the business name", how: "Only an account still named \"Clean New Account N\" can be taken.", checklist: ["ghl_snapshot"] },
   { n: 2, key: "account_info", section: "A · 🏢 Account", who: "api", label: "Sub-account info: name, email, phone, studio address and time zone", how: "From the client's record. The time zone follows the studio's state (else the phone's area code), so texts and booking times are local.", checklist: ["ghl_info"] },
-  { n: 3, key: "account_cvs", section: "A · 🏢 Account", who: "api", label: "Update the sub-account custom values", how: "Uses the client's details from the Clients tab (no form to fill again). Runs once the template is loaded; fills existing values only, and a missing one is flagged red for the team." },
   { n: 4, key: "master_row", section: "A · 🏢 Account", who: "api", label: "Clients Master row: status, version, assigned coach, media buyer" },
-  { n: 5, key: "connector", section: "A · 🏢 Account", who: "api", label: "Dashboard connector installed on the account (leads, chats and deposits sync)" },
   // B · Deposit product and payment route
   { n: 6, key: "product", section: "B · 💳 Deposit product & payment route", who: "api", label: "Create the Commas deposit product \"FULL NAME - BUSINESS NAME\" and save the product ID", checklist: ["fanbasis_product"] },
   { n: 7, key: "webhook_url", section: "B · 💳 Deposit product & payment route", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The AI Agent reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
@@ -83,7 +81,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 24, key: "cal_active", section: "F · 📅 Calendar", who: "api", label: "Switch the calendar on and confirm open time slots load", how: "The snapshot ships the calendar switched off (Sudbury Med Spa, 10/21/2026: the funnel's time picker could not load). The dashboard turns it on via the API and asks GHL for the next 14 days of slots; stops red if none load." },
   { n: 25, key: "cal_id", section: "F · 📅 Calendar", who: "api", label: "Save the calendar ID to \"CC - Permanent Makeup Transformation Calendar ID\"" },
   // G · Funnel
-  { n: 26, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Create the one-box funnel at book.pmu-care.com/<slug> and set \"CC - Deposit Funnel URL (V3)\"", checklist: ["funnel_onebox"] },
+  { n: 26, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Fill the client's details and create the one-box funnel at book.pmu-care.com/<slug> — this saves the sub-account custom values and \"CC - Deposit Funnel URL (V3)\"", how: "Same as filling the one-box in the Funnels tab and pressing Save: the client's details from the Clients tab go into the custom values (no form to fill again; a missing value is flagged red for the team), then the funnel is created from them.", checklist: ["funnel_onebox"] },
   { n: 27, key: "funnel_pixel", section: "G · 🧲 Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
   { n: 28, key: "funnel_ig", section: "G · 🧲 Funnel", who: "api", label: "Instagram grid: fetch the client's posts from her Instagram link, sort them (results first) and put them on the funnel — no Elfsight", how: "Needs the Instagram link on the form. A private or restricted account can't be fetched; the funnel then shows no Instagram section until it is fixed (Cost per Deposit → client → 📸 panel → Refresh).", checklist: ["funnel_ig_widget"] },
   { n: 44, key: "funnel_reviews", section: "G · 🧲 Funnel", who: "api", label: "Google reviews: find the business on Google (its review link, else name + address) and put its best reviews on the funnel — no Elfsight", how: "Needs a Google Business link on the form, or a correct address. Shows 4–5 star reviews with text; if Google has none yet the funnel just has no reviews section." },
@@ -123,14 +121,14 @@ export const RUNBOOK: RunbookStep[] = [
 /* Short names, shown bold on the setup card; the label stays as the
    description (owner, 10/17/2026: "include the name of every step"). */
 const STEP_TITLES: Record<string, string> = {
-  account_check: "Check & clean the account", account_take: "Take & rename the account", account_info: "Account info, address & time zone", account_cvs: "Custom values",
-  master_row: "Assign team members", connector: "Dashboard connector",
+  account_check: "Check & clean the account", account_take: "Take & rename the account", account_info: "Account info, address & time zone",
+  master_row: "Assign team members",
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
   phone_buy: "Buy the phone number", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
   user_create: "Create the client's login", user_password: "Set the password", user_settings: "Login permissions & calls", user_calendar: "Login calendar access",
   wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow", wf_errors: "All workflows: 0 errors",
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy off & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
-  funnel_create: "Create the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
+  funnel_create: "One-box funnel & custom values", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
   last_profile: "Profile check", last_check: "Final check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
   fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",

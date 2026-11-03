@@ -9,6 +9,10 @@ import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
 import { StepVideos, useStepVideos } from "@/components/onboarding/StepVideos";
 import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, PREAPPROVABLE, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
+// Numbers on the card run 1, 2, 3… in the order shown (owner 11/03/2026);
+// the internal step numbers (s.n) stay as the AI Agent's report keys.
+const stepNo = new Map(RUNBOOK.filter((s) => !s.later).map((s, i) => [s.key, i + 1]));
+
 /* The New Client Setup run on an Onboarding card.
    Before Approve: which clean account it will take (dropdown), the step-by-step
    plan with who does each, and the Approve button. Nothing touches GHL
@@ -477,7 +481,7 @@ function StepNote({ note, status }: { note: string; status: StepState["status"] 
   );
 }
 
-/* Step 3's custom values, live from the sub-account: what's filled, what's
+/* The one-box step's custom values, live from the sub-account: what's filled, what's
    empty, and an inline edit to fill one (owner, 10/17/2026). */
 function CustomValuesList({ onboardingId, locationId }: { onboardingId: string; locationId: string }) {
   const [rows, setRows] = useState<Array<{ name: string; value?: string }> | null>(null);
@@ -596,13 +600,13 @@ function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false 
                 const settledLine = st.at && ["done", "warn", "failed", "skipped"].includes(st.status) ? `${st.who ?? ""} · ${usWhen(st.at)}` : "";
                 return (
                   <li key={s.key} className="px-3 py-1 flex items-start gap-2">
-                    <span className="w-6 shrink-0 text-[11px] text-[#8595a8] tabular-nums mt-0.5">{s.n}</span>
+                    <span className="w-6 shrink-0 text-[11px] text-[#8595a8] tabular-nums mt-0.5">{stepNo.get(s.key)}</span>
                     {/* Who / when lives in the tooltip — owner 2026-10-20 wanted the lines clean. */}
                     {ic && <span className={cn("w-4 shrink-0 text-[13px] leading-5", ic.cls)} title={[ic.label, settledLine].filter(Boolean).join(" · ")}>{ic.icon}</span>}
                     <div className="min-w-0 flex-1">
                       {/* Line 1: name · who · when · screenshots — the description is a tooltip once settled */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        {s.key === "account_cvs" && setup && onboardingId ? (
+                        {s.key === "funnel_create" && setup && onboardingId ? (
                           <button onClick={() => setCvOpen((v) => !v)} title={s.label}
                             className="text-[12.5px] font-semibold text-[#0e8f88] hover:underline">{s.title ?? s.label} {cvOpen ? "▴" : "▾"}</button>
                         ) : (
@@ -624,10 +628,10 @@ function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false 
                       )}
                       {!setup && s.how && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.how}>{s.how}</p>}
                       {/* How-to clips for doing this step by hand (owner 10/29/2026). */}
-                      <StepVideos stepKey={s.key} stepLabel={`${s.n}. ${s.title ?? s.label}`} videos={videos.byStep[s.key] ?? []} isAdmin={isAdmin} onChanged={videos.reload} />
+                      <StepVideos stepKey={s.key} stepLabel={`${stepNo.get(s.key)}. ${s.title ?? s.label}`} videos={videos.byStep[s.key] ?? []} isAdmin={isAdmin} onChanged={videos.reload} />
                       {ic?.label && !["done", "skipped"].includes(st.status) && <p className={cn("text-[10.5px] font-semibold", ic.cls)}>{ic.label}</p>}
                       {st.note && setup && <StepNote note={st.note} status={st.status} />}
-                      {s.key === "account_cvs" && cvOpen && setup?.location_id && onboardingId && <CustomValuesList onboardingId={onboardingId} locationId={setup.location_id} />}
+                      {s.key === "funnel_create" && cvOpen && setup?.location_id && onboardingId && <CustomValuesList onboardingId={onboardingId} locationId={setup.location_id} />}
                       {actions?.(s, st)}
                     </div>
                   </li>

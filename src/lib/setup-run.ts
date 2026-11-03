@@ -234,11 +234,40 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
   }
 }
 
+/* The one-box funnel step = fill the account's custom values from the
+   client's record, then create the funnel from them (owner 11/03/2026). A
+   value that can't be filled makes the step amber, never blocks the funnel. */
+async function fillValuesThenFunnel(svc: Svc, ob: Ob): Promise<StepOut> {
+  const cv = await API_STEPS.account_cvs(svc, ob);
+  if (cv.status === "failed") return { ...cv, note: `Custom values: ${cv.note ?? ""}` };
+  const fu = await API_STEPS.funnel_create(svc, { ...ob, form: { ...ob.form, ...(cv.form ?? {}) } });
+  return {
+    ...fu,
+    status: fu.status === "done" && cv.status === "warn" ? "warn" : fu.status,
+    note: [`Custom values: ${cv.note ?? ""}`, fu.note].filter(Boolean).join("\n"),
+    form: { ...(cv.form ?? {}), ...(fu.form ?? {}) },
+    claim: fu.claim ?? cv.claim,
+  };
+}
+
+/* Step 0 also proves the dashboard can reach the account (marketplace app
+   token) — the old step 5 "Dashboard connector". */
+async function withConnectorCheck(ob: Ob, out: StepOut): Promise<StepOut> {
+  const tok = await getAppLocationToken(ob.setup!.location_id);
+  if (tok.token) return { ...out, note: [out.note, "✓ dashboard connector OK — leads, chats and deposits will sync"].filter(Boolean).join("\n") };
+  return { status: "failed", note: [out.note, `✗ no dashboard connector (${tok.error}). Install the dashboard app on the account: ${dashboardUrl()}/api/oauth/start — then Retry`].filter(Boolean).join("\n") };
+}
+
 async function runApiStep(svc: Svc, ob: Ob, step: RunbookStep): Promise<void> {
   await patch(svc, ob.id, (o) => { if (!o.setup) return; setStep(o.setup, step.key, { status: "running", who: DASHBOARD }); return { setup: o.setup }; });
   let out: StepOut;
   try {
-    out = await API_STEPS[step.key](svc, ob);
+    // Owner 11/03/2026 — simpler card: the custom values are filled as part
+    // of the one-box funnel step (like pressing Save on the one-box), and the
+    // dashboard-connector check rides on step 0 (automatic, shown only when
+    // it fails). Neither is its own line any more.
+    out = step.key === "funnel_create" ? await fillValuesThenFunnel(svc, ob) : await API_STEPS[step.key](svc, ob);
+    if (step.key === "account_check" && out.status === "done") out = await withConnectorCheck(ob, out);
   } catch (e) {
     out = { status: "failed", note: errMsg(e) };
   }
