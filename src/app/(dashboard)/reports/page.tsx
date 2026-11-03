@@ -273,12 +273,41 @@ export default function ReportsPage() {
     return buildDateIndex(Array.from(byClient.values()));
   }, [data]);
 
+  // Owner-name → Business Name with the same token-overlap tolerance as
+  // versionMap: report names don't always equal the master sheet's owner
+  // exactly ("Irma Contella" vs "Irma Contella (Robert)"). Accents are
+  // dropped and words split on punctuation, so "Monique García" finds
+  // "Monique Garcia" and "Stephany Wiltse" finds "Dean Wiltse (Stephany
+  // Wiltse)" — the bracket used to stay glued to the word and never match.
+  const bizResolve = useMemo(() => {
+    const plain = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
+    const words = (s: string) => plain(s).split(/[^\p{L}\p{N}']+/u).filter((t) => t.length > 1);
+    const m = new Map<string, string>();
+    const entries: { tokens: string[]; biz: string }[] = [];
+    rawClients.forEach((c) => {
+      const biz = String(c["Business Name"] ?? "").trim();
+      if (!biz) return;
+      const owner = String(c["Owner Full Name"] ?? "");
+      if (plain(owner)) { m.set(plain(owner), biz); entries.push({ tokens: words(owner), biz }); }
+    });
+    return (name: string): string => {
+      const exact = m.get(plain(name));
+      if (exact) return exact;
+      const tokens = words(name);
+      if (!tokens.length) return "";
+      const hit = entries.find((e) =>
+        tokens.every((t) => e.tokens.includes(t)) || e.tokens.every((t) => tokens.includes(t)));
+      return hit?.biz ?? "";
+    };
+  }, [rawClients]);
+
   // group reports by client
   const clients = useMemo(() => {
     // useTableData returns rows already ordered by sheet_row, and that order is
     // what resolveDates() leans on to read the ambiguous dates — so group
     // without re-ordering, resolve per client, and only then sort by date.
     const map = new Map<string, Report[]>();
+    const bizNames = new Map<string, { key: string; toks: string[] }[]>();
     data.forEach((r) => {
       const name = String(r["Name"] ?? "").trim();
       const date = String(r["Date"] ?? "").trim();
@@ -288,9 +317,22 @@ export default function ReportsPage() {
         leads: num(r["Total Leads"]), booking: num(r["Booking %"]),
         sessions: num(r["Sessions Done?"]), declining: num(r["Declining %"]),
       };
-      (map.get(name) ?? map.set(name, []).get(name)!).push(rep);
+      // One client, one history: a coach renaming the client on the sheet
+      // ("Stephany Wiltse" → "Dean Wiltse (Stephany Wiltse)") used to split
+      // the reports into two clients, so group by the business they resolve to.
+      // Only names sharing a word merge, so two people filed under one
+      // business (Jennifer Darling / Donna Stodola on the agency) stay apart.
+      const toks = name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/[^\p{L}\p{N}']+/u).filter((t) => t.length > 1);
+      const biz = bizResolve(name).toLowerCase();
+      let key = `name:${name.toLowerCase()}`;
+      if (biz) {
+        const peers = bizNames.get(biz) ?? bizNames.set(biz, []).get(biz)!;
+        const hit = peers.find((p) => p.toks.some((t) => toks.includes(t)));
+        if (hit) key = hit.key; else peers.push({ key, toks });
+      }
+      (map.get(key) ?? map.set(key, []).get(key)!).push(rep);
     });
-    return Array.from(map.entries()).map(([name, reps]) => {
+    return Array.from(map.values()).map((reps) => {
       reps.forEach((r) => {
         const ms = dateIndex.get(r.date) ?? NaN;
         r.ms = ms;
@@ -302,6 +344,7 @@ export default function ReportsPage() {
       reps.forEach((r, i) => { if (isNaN(r.ms)) r.ms = i > 0 ? reps[i - 1].ms : 0; });
       reps.sort((a, b) => a.ms - b.ms);
       const first = reps[0], last = reps[reps.length - 1];
+      const name = String(last.raw["Name"] ?? "").trim();
       // "amount we got" = highest recorded value (the latest report can reset to 0)
       const leadsTotal = Math.max(0, ...reps.map((r) => r.leads ?? 0));
       const sessionsTotal = Math.max(0, ...reps.map((r) => r.sessions ?? 0));
@@ -310,7 +353,7 @@ export default function ReportsPage() {
       const growth = first.leads && last.leads != null ? ((last.leads - first.leads) / first.leads) * 100 : 0;
       return { name, reports: reps, leadsTotal, sessionsTotal, bookingRate, count: reps.length, growth, last };
     });
-  }, [data, dateIndex]);
+  }, [data, dateIndex, bizResolve]);
 
   const listed = useMemo(() => {
     let list = clients;
@@ -372,34 +415,6 @@ export default function ReportsPage() {
     m.forEach((arr) => arr.sort((a, b) => a.at - b.at));
     return m;
   }, [depositRows, refundedAt]);
-
-  // Owner-name → Business Name with the same token-overlap tolerance as
-  // versionMap: report names don't always equal the master sheet's owner
-  // exactly ("Irma Contella" vs "Irma Contella (Robert)"). Accents are
-  // dropped and words split on punctuation, so "Monique García" finds
-  // "Monique Garcia" and "Stephany Wiltse" finds "Dean Wiltse (Stephany
-  // Wiltse)" — the bracket used to stay glued to the word and never match.
-  const bizResolve = useMemo(() => {
-    const plain = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
-    const words = (s: string) => plain(s).split(/[^\p{L}\p{N}']+/u).filter((t) => t.length > 1);
-    const m = new Map<string, string>();
-    const entries: { tokens: string[]; biz: string }[] = [];
-    rawClients.forEach((c) => {
-      const biz = String(c["Business Name"] ?? "").trim();
-      if (!biz) return;
-      const owner = String(c["Owner Full Name"] ?? "");
-      if (plain(owner)) { m.set(plain(owner), biz); entries.push({ tokens: words(owner), biz }); }
-    });
-    return (name: string): string => {
-      const exact = m.get(plain(name));
-      if (exact) return exact;
-      const tokens = words(name);
-      if (!tokens.length) return "";
-      const hit = entries.find((e) =>
-        tokens.every((t) => e.tokens.includes(t)) || e.tokens.every((t) => tokens.includes(t)));
-      return hit?.biz ?? "";
-    };
-  }, [rawClients]);
 
   // Deposits kept at each report date for the selected client: taken by then,
   // minus any refunded by then.
@@ -471,6 +486,7 @@ export default function ReportsPage() {
   }, [current, bizResolve, depositsByBiz]);
   const repDates = reps.map((r) => r.short);
   const todayDates = [...repDates, "Today"];
+  const showToday = reps.length > 0;
   const payRow = useMemo(() => (current ? lookupPayment(payments, current.name) : null), [current, payments]);
   const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
   const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
@@ -733,21 +749,26 @@ export default function ReportsPage() {
                           #{i + 1}<br /><span className="font-medium opacity-80" title={r.date === r.label ? undefined : `Sheet value: ${r.date}`}>{r.label}</span>
                         </th>
                       ))}
+                      {showToday && (
+                        <th className="px-3 py-0.5 text-center text-[10px] font-bold uppercase whitespace-nowrap bg-[#0e8f88]">
+                          Today<br /><span className="font-medium opacity-80">live</span>
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    <ContextRow label="Call or Chat" reps={reps} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
-                    <ContextRow label="Last Strategy" reps={reps} get={(r) => strategyLabel(dateIndex, String(r.raw["Last Strategy?"] ?? ""))} />
-                    <ActionRow reps={reps} edits={actionEdits} onSave={saveAction} />
+                    <ContextRow label="Call or Chat" reps={reps} today={showToday} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
+                    <ContextRow label="Last Strategy" reps={reps} today={showToday} get={(r) => strategyLabel(dateIndex, String(r.raw["Last Strategy?"] ?? ""))} />
+                    <ActionRow reps={reps} today={showToday} edits={actionEdits} onSave={saveAction} />
 
-                    <NumRow label="Total Leads" reps={reps} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
-                    <NumRow label="Booking %" reps={reps} get={(r) => (r.booking == null ? null : r.booking * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter />
-                    <NumRow label="Sessions Booked" reps={reps} get={(r) => r.sessions} fmt={(v) => String(v)} higherBetter />
-                    <NumRow label="Deposits (total, after refunds)" reps={reps} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
-                    <NumRow label="Declining %" reps={reps} get={(r) => (r.declining == null ? null : r.declining * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter={false} />
+                    <NumRow label="Total Leads" reps={reps} today={showToday ? liveNow?.leads ?? null : undefined} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Booking %" reps={reps} today={showToday ? (liveNow && liveNow.leads ? (liveNow.sessions / liveNow.leads) * 100 : null) : undefined} get={(r) => (r.booking == null ? null : r.booking * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter />
+                    <NumRow label="Sessions Booked" reps={reps} today={showToday ? liveNow?.sessions ?? null : undefined} get={(r) => r.sessions} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Deposits (total, after refunds)" reps={reps} today={showToday ? depositsNow : undefined} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Declining %" reps={reps} today={showToday ? null : undefined} get={(r) => (r.declining == null ? null : r.declining * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter={false} />
 
-                    <SectionRow label="Behaviours & Process" span={reps.length} />
-                    {BEHAVIOURS.map((b) => <BehaviourRow key={b.key} label={b.label} bkey={b.key} reps={reps} />)}
+                    <SectionRow label="Behaviours & Process" span={reps.length + (showToday ? 1 : 0)} />
+                    {BEHAVIOURS.map((b) => <BehaviourRow key={b.key} label={b.label} bkey={b.key} reps={reps} today={showToday} />)}
                   </tbody>
                 </table>
               </div>
@@ -770,6 +791,8 @@ function ChartCard({ title, color, values, dates, yFmt }: { title: string; color
   );
 }
 
+const TodayBlank = () => <td className="px-3 py-0.5 text-center text-[#a6b3c4] bg-[#f2fbfa]">–</td>;
+
 function SectionRow({ label, span }: { label: string; span: number }) {
   return (
     <tr className="bg-[#eef2f7]">
@@ -778,9 +801,13 @@ function SectionRow({ label, span }: { label: string; span: number }) {
   );
 }
 
-function NumRow({ label, reps, get, fmt, higherBetter }: {
+function NumRow({ label, reps, get, fmt, higherBetter, today }: {
   label: string; reps: Report[]; get: (r: Report) => number | null; fmt: (v: number) => string; higherBetter: boolean;
+  // undefined = no Today column; null = Today column with nothing to show
+  today?: number | null;
 }) {
+  const lastV = reps.length ? get(reps[reps.length - 1]) : null;
+  const td = today != null && lastV != null ? today - lastV : null;
   return (
     <tr className="border-b border-[#eef3f8]">
       <td className="px-3 py-0.5 font-medium text-[#1f3559] whitespace-nowrap sticky left-0 bg-white">{label}</td>
@@ -800,11 +827,21 @@ function NumRow({ label, reps, get, fmt, higherBetter }: {
           </td>
         );
       })}
+      {today !== undefined && (
+        <td className="px-3 py-0.5 text-center whitespace-nowrap font-semibold text-[#0e8f88] bg-[#f2fbfa]">
+          {today == null ? <span className="text-[#a6b3c4]">–</span> : fmt(today)}
+          {td != null && Math.abs(td) > 0.001 && (
+            <span className={cn("ml-1 text-[10px] font-semibold", (higherBetter ? td >= 0 : td <= 0) ? "text-[#0e8f88]" : "text-[#e11d48]")}>
+              {td > 0 ? "▲" : "▼"}{Math.abs(Math.round(td * 100) / 100)}
+            </span>
+          )}
+        </td>
+      )}
     </tr>
   );
 }
 
-function BehaviourRow({ label, bkey, reps }: { label: string; bkey: string; reps: Report[] }) {
+function BehaviourRow({ label, bkey, reps, today }: { label: string; bkey: string; reps: Report[]; today?: boolean }) {
   return (
     <tr className="border-b border-[#eef3f8]">
       <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
@@ -822,22 +859,25 @@ function BehaviourRow({ label, bkey, reps }: { label: string; bkey: string; reps
           </td>
         );
       })}
+      {today && <TodayBlank />}
     </tr>
   );
 }
 
-function ContextRow({ label, reps, get }: { label: string; reps: Report[]; get: (r: Report) => string }) {
+function ContextRow({ label, reps, get, today }: { label: string; reps: Report[]; get: (r: Report) => string; today?: boolean }) {
   return (
     <tr className="border-b border-[#eef3f8]">
       <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
       {reps.map((r, i) => <td key={i} className="px-3 py-0.5 text-center whitespace-nowrap text-[#34568a]">{get(r)}</td>)}
+      {today && <TodayBlank />}
     </tr>
   );
 }
 
 // Editable "Action" row (col T of "Add Data - Tracking") — writes back to the sheet.
-function ActionRow({ reps, edits, onSave }: {
+function ActionRow({ reps, edits, onSave, today }: {
   reps: Report[];
+  today?: boolean;
   edits: Record<number, string>;
   onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
 }) {
@@ -845,6 +885,7 @@ function ActionRow({ reps, edits, onSave }: {
     <tr className="border-b border-[#eef3f8]">
       <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">Action</td>
       {reps.map((r, i) => <ActionCell key={i} report={r} edits={edits} onSave={onSave} />)}
+      {today && <TodayBlank />}
     </tr>
   );
 }
