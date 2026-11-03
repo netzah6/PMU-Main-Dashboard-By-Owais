@@ -61,6 +61,7 @@ const EXCLUDE_REASONS: { key: string; label: string }[] = [
   { key: "refunded", label: "Refunded" },
   { key: "test", label: "Test" },
   { key: "not_a_fit", label: "Not a fit" },
+  { key: "ai_check", label: "AI: moved to a later date" },
   { key: "other", label: "Other" },
 ];
 const reasonLabel = (k: string | null) => EXCLUDE_REASONS.find((r) => r.key === k)?.label ?? "Excluded";

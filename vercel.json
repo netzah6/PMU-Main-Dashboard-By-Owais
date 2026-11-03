@@ -65,6 +65,22 @@
       "schedule": "0 18 * * 0"
     },
     {
+      "path": "/api/cron/pps-chat-scan",
+      "schedule": "0 19 * * 0"
+    },
+    {
+      "path": "/api/cron/pps-session-check",
+      "schedule": "0 20 * * 0"
+    },
+    {
+      "path": "/api/cron/pps-session-check",
+      "schedule": "0 21 * * 0"
+    },
+    {
+      "path": "/api/cron/pps-session-check",
+      "schedule": "0 22 * * 0"
+    },
+    {
       "path": "/api/cron/pps-autocharge",
       "schedule": "0 17 * * 1"
     },

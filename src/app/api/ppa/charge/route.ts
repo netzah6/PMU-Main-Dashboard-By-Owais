@@ -6,7 +6,7 @@ import { getAuth } from "@/lib/ppa";
 // PPS model: "charged" = the client showed and we billed the $45; "excluded"
 // = don't bill and don't count (test, cancelled, refund, no-show, not a fit).
 // An exclude with reason "no_show" is what feeds the show-rate denominator.
-const EXCLUDE_REASONS = ["no_show", "cancelled", "refunded", "test", "not_a_fit", "other"] as const;
+const EXCLUDE_REASONS = ["no_show", "cancelled", "refunded", "test", "not_a_fit", "ai_check", "other"] as const;
 
 export async function POST(req: NextRequest) {
   const auth = await getAuth();
