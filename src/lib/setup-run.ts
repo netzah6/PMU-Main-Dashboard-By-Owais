@@ -148,6 +148,8 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
     v: 1, approved_by: by, approved_at: now(), location_id: poolLocationId, pool_name: poolName,
     status: "running", steps: {}, log: [{ at: now(), key: "run", msg: `Approved by ${by} — taking ${poolName}${preapproved.length ? ` · pre-approved: ${preapproved.join(", ")}` : ""}` }],
     preapproved: preapproved.filter((k) => stepByKey(k)?.who === "ask"),
+    // A yes/no choice left unticked (owner 11/03/2026): no Instagram grid on this funnel.
+    ...(preapproved.includes("funnel_ig") ? {} : { ig_grid: "no" as const }),
   };
   // Team / client / owner steps are shown, not run.
   for (const s of RUNBOOK) if (!["api", "mini", "ask"].includes(s.who) || s.later) setup.steps[s.key] = { status: "manual" };
@@ -276,7 +278,8 @@ async function runApiStep(svc: Svc, ob: Ob, step: RunbookStep): Promise<void> {
     setStep(o.setup, step.key, { status: out.status, who: DASHBOARD, note: out.note, proposal_id: out.proposal_id, error: out.status === "failed" ? out.note : undefined }, `${step.n}. ${step.label} → ${out.status}`);
     Object.assign(o.setup, out.facts ?? {});
     const checklist = { ...o.checklist };
-    if (out.status === "done" || out.status === "warn") tick(checklist, step.checklist, DASHBOARD);
+    // A skipped step is settled too (e.g. no Instagram grid chosen) — its checklist item counts.
+    if (out.status === "done" || out.status === "warn" || out.status === "skipped") tick(checklist, step.checklist, DASHBOARD);
     return { setup: o.setup, checklist, ...(out.form ? { form: { ...o.form, ...out.form } } : {}), ...(out.claim ? { claim: out.claim } : {}) };
   });
   if (["account_cvs", "cal_id", "product", "funnel_create"].includes(step.key)) await refreshCard(svc, ob.id);
@@ -637,6 +640,11 @@ const API_STEPS: Record<string, StepFn> = {
      Elfsight. The hourly job keeps it fresh afterwards. */
   funnel_ig: async (svc, ob) => {
     const slug = ob.setup!.slug!;
+    if (ob.setup!.ig_grid === "no") {
+      const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+      await svc.from("onebox_clients").update({ extras: { ...((row?.extras ?? {}) as Record<string, unknown>), igWidgetOff: true } }).eq("slug", slug);
+      return { status: "skipped", note: "no Instagram grid — the coach chose this at Approve (turn it on later in the Funnels tab)" };
+    }
     await refreshOneboxConfig(svc, slug, ob.setup!.location_id).catch(() => undefined);
     const { data: row } = await svc.from("onebox_clients").select("config").eq("slug", slug).maybeSingle();
     const config = { ...((row?.config ?? {}) as Record<string, unknown>) };

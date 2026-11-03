@@ -281,10 +281,10 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
               <label key={p.key} className="flex items-start gap-1.5 text-[11px] text-[#1f3559] mt-0.5" title={p.label}>
                 <input type="checkbox" checked={preapproved.includes(p.key)} onChange={(e) => setPreapproved((v) => (e.target.checked ? [...v, p.key] : v.filter((k) => k !== p.key)))} className="mt-0.5" />
                 {p.key === "funnel_ig" ? (
-                  <span>{p.title} — {String(form.ig_link ?? "").trim()
+                  <span>Show the Instagram grid on the funnel — {String(form.ig_link ?? "").trim()
                     ? <a href={/^https?:/i.test(form.ig_link) ? form.ig_link : `https://instagram.com/${form.ig_link.replace(/^@/, "")}`} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">{form.ig_link} ↗</a>
-                    : <span className="text-[#b35a00]">no Instagram link on the form — add it, or untick and the widget is skipped</span>}
-                    <span className="text-[#8595a8]"> · check the page first (9+ posts, profile picture)</span></span>
+                    : <span className="text-[#b35a00]">no Instagram link on the form — add it, or untick for no grid</span>}
+                    <span className="text-[#8595a8]"> · the dashboard builds it by itself; untick if her page has few posts or little PMU work</span></span>
                 ) : (
                   <span>{p.title} <span className="text-[#8595a8]">— {p.label}</span></span>
                 )}

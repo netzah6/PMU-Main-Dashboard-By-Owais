@@ -39,6 +39,7 @@ export type RunbookStep = {
   checklist?: string[];      // onboarding checklist keys this step ticks
   later?: boolean;           // not part of the run (re-run from the AI tab later)
   hidden?: boolean;          // runs by itself, nobody acts on it — not listed on the card unless it fails (owner 11/03/2026)
+  choice?: boolean;          // the coach only decides yes/no, with a tickbox at Approve (owner 11/03/2026: the Instagram grid)
   optional?: boolean;        // not every client needs it — the card offers "Not needed"
   confirm?: boolean;         // the dashboard can do it, but only after a person clicks Approve on the card
   steps?: string[];          // by-hand breakdown for the team (Facebook), shown on the card
@@ -84,7 +85,7 @@ export const RUNBOOK: RunbookStep[] = [
   // G · Funnel
   { n: 26, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Fill the client's details and create the one-box funnel at book.pmu-care.com/<slug> — this saves the sub-account custom values and \"CC - Deposit Funnel URL (V3)\"", how: "Same as filling the one-box in the Funnels tab and pressing Save: the client's details from the Clients tab go into the custom values (no form to fill again; a missing value is flagged red for the team), then the funnel is created from them.", checklist: ["funnel_onebox"] },
   { n: 27, key: "funnel_pixel", section: "G · 🧲 Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
-  { n: 28, key: "funnel_ig", section: "G · 🧲 Funnel", who: "api", label: "Instagram grid: fetch the client's posts from her Instagram link, sort them (results first) and put them on the funnel — no Elfsight", how: "Needs the Instagram link on the form. A private or restricted account can't be fetched; the funnel then shows no Instagram section until it is fixed (Cost per Deposit → client → 📸 panel → Refresh).", checklist: ["funnel_ig_widget"] },
+  { n: 28, key: "funnel_ig", hidden: true, choice: true, section: "G · 🧲 Funnel", who: "api", label: "Instagram grid: fetch the client's posts from her Instagram link, sort them (results first) and put them on the funnel — no Elfsight", how: "Needs the Instagram link on the form. A private or restricted account can't be fetched; the funnel then shows no Instagram section until it is fixed (Cost per Deposit → client → 📸 panel → Refresh).", checklist: ["funnel_ig_widget"] },
   { n: 44, key: "funnel_reviews", section: "G · 🧲 Funnel", who: "api", label: "Google reviews: find the business on Google (its review link, else name + address) and put its best reviews on the funnel — no Elfsight", how: "Needs a Google Business link on the form, or a correct address. Shows 4–5 star reviews with text; if Google has none yet the funnel just has no reviews section." },
   { n: 29, key: "funnel_redirect", section: "G · 🧲 Funnel", who: "mini", optional: true, label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect", how: "Only for clients who already ran ads to an old funnel — otherwise mark it \"Not needed\"." },
   { n: 30, key: "funnel_live", section: "G · 🧲 Funnel", who: "api", label: "Check no client value is empty, then go live", how: "Stops red with the list of empty values (deposit, address, product ID, webhook, calendar ID… prices for V3 only) instead of going live with holes." },
@@ -181,7 +182,7 @@ export const OPTIONAL_FIELDS: RequiredField[] = [
 /* "Asks you" steps are decided up front at Approve time (owner 10/21/2026:
    "no stops during the onboarding"): ticked → the AI Agent does it like any
    other step; unticked → the step is skipped. Nothing waits in the AI tab. */
-export const PREAPPROVABLE = RUNBOOK.filter((s) => s.who === "ask").map((s) => ({ key: s.key, title: s.title ?? s.label, label: s.label }));
+export const PREAPPROVABLE = RUNBOOK.filter((s) => s.who === "ask" || s.choice).map((s) => ({ key: s.key, title: s.title ?? s.label, label: s.label }));
 
 export const RUNBOOK_SECTIONS = Array.from(new Set(RUNBOOK.map((s) => s.section)));
 export const stepByKey = (key: string): RunbookStep | undefined => RUNBOOK.find((s) => s.key === key);
@@ -220,6 +221,7 @@ export type SetupState = {
   approved_at: string;
   location_id: string;       // the clean account the run took
   pool_name: string;         // its name before the rename
+  ig_grid?: "no";           // the coach unticked "Show the Instagram grid" at Approve
   status: "running" | "waiting" | "done" | "failed";
   steps: Record<string, StepState>;
   preapproved?: string[];    // "ask" steps approved up front — they run like AI Agent steps
