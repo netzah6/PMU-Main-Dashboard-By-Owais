@@ -70,7 +70,7 @@ export const RUNBOOK: RunbookStep[] = [
   // E · Workflows
   { n: 18, key: "wf_survey", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
   { n: 19, key: "wf_notify", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - One-Box Booking → Notify Artist\": artist's number set so she gets booking texts" },
-  { n: 20, key: "wf_callkill", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "Outgoing-call workflow: no \"Remove from Funnel Survey\" step that kills the AI" },
+  { n: 20, key: "wf_callkill", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Outgoing Call → Google Sheet Webhook\" stays ON with only its Webhook step (it sends every call to the dashboard — no Google Sheet anymore, despite the name) and NO \"Remove from CC - Funnel Survey\" step. \"Outgoing & Incoming Call or AI OFF - Stop follow ups\" is OFF (Draft).", how: "Both used to take the lead out of the AI follow-up after ANY call, even an unanswered one, so the AI went silent. The snapshot already has it right; this check catches older or reused accounts." },
   // Numbered 43 so the steps after it keep their numbers (same as cnam_check's 42); it runs here, last in the workflows batch.
   { n: 43, key: "wf_errors", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "Every published workflow ends with 0 errors: calendar, custom field, pipeline and stage point to THIS account", how: "The template keeps the old account's calendar, field and pipeline IDs. Brows by Susan (10/25/2026) went live with the confirmation, booking and Invalid→Confirm workflows pointing at nothing — no lead got a single text or confirmation." },
   // F · Calendar
@@ -124,7 +124,7 @@ const STEP_TITLES: Record<string, string> = {
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
   phone_buy: "Buy the number & forward calls", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
   user_create: "Create the client's login & password", user_settings: "Login permissions & calls", user_calendar: "User calendar access",
-  wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Outgoing-call workflow", wf_errors: "All workflows: 0 errors",
+  wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Call workflows: keep the AI following up", wf_errors: "All workflows: 0 errors",
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy off & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
   funnel_create: "One-box funnel & custom values", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
@@ -362,7 +362,9 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     ];
     case "wf_callkill": return [
       `Workflows live INSIDE FOLDERS — open each folder or use the workflows search box before deciding one is missing.`,
-      `Open ${ghl(L, "automation/workflows")} → the outgoing-call workflow (name contains "Outgoing" or "Call"). Make sure there is NO step "Remove from workflow: CC - Funnel Survey" (it kills the AI follow-up). If there is one, DELETE that single step only, save, publish. Screenshot the workflow steps.`,
+      `1) Open ${ghl(L, "automation/workflows")} → "CC - Outgoing Call → Google Sheet Webhook". It must be Published with only the trigger "Outgoing call" and the "Webhook - Make" step (that webhook feeds the dashboard's call data — never remove it or turn the workflow off). If it has a step "Remove from workflow: CC - Funnel Survey", DELETE that single step only, save, keep it Published. Screenshot the steps.`,
+      `2) Find "Outgoing & Incoming Call or AI OFF - Stop follow ups". If it is Published, switch it to Draft (change nothing else). Already Draft or not in the account = fine. Screenshot.`,
+      `Report both results in your summary (e.g. "Outgoing Call wf: webhook only, published; Stop follow ups wf: draft").`,
     ];
     case "cal_team": return [
       `Open ${ghl(L, "settings/calendars")} → the "Permanent Makeup Transformation" (Physical Appointment) calendar → edit.`,
