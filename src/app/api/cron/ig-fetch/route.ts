@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { queueIgPostsSweep } from "@/lib/ig-posts-check";
-import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, markFetch, refreshHeader, snapshotFunnel, unclassifiedFunnels, usernameFromLink, type ApifyPost } from "@/lib/ig-fetch";
+import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, fingerprintFeeds, markFetch, refreshHeader, snapshotFunnel, unclassifiedFunnels, usernameFromLink, type ApifyPost } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
 /* Stop starting new funnels after this; Vercel kills the function at 300 s
@@ -68,7 +68,9 @@ export async function GET(req: NextRequest) {
        unsorted pictures. */
     const tail: Record<string, number> = {};
     for (const s of await unclassifiedFunnels(svc, 8)) { if (Date.now() - t0 > TIME_BUDGET_MS) break; tail[s] = await classifyStoredFeed(svc, s); }
-    return NextResponse.json({ fetched: 0, note: "nothing due", classified: Object.keys(tail).length ? tail : undefined });
+    // …and fingerprint pictures/reels the repeat check still lacks (11/03/2026).
+    const fingerprints = await fingerprintFeeds(svc, t0 + TIME_BUDGET_MS).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    return NextResponse.json({ fetched: 0, note: "nothing due", classified: Object.keys(tail).length ? tail : undefined, fingerprints });
   }
   const results: Record<string, string> = {};
   const skipped: string[] = [];

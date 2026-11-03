@@ -16,7 +16,7 @@ export type PostKind = "split_ba" | "after_closeup" | "during" | "person" | "fly
    (ig-reels.ts; `useful` not set yet) a reel ranks by its cover's verdict,
    like any picture. `jt` = failed judge attempts, `cap` = the caption the
    judge reads, `jv` = the judge version that set the verdict. */
-export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number; video?: string; reel?: boolean; frame?: number; useful?: boolean; jt?: number; cap?: string; jv?: number };
+export type FeedPost = { img: string; url: string; result?: boolean; kind?: PostKind; pmu?: boolean; q?: number; tries?: number; video?: string; reel?: boolean; frame?: number; useful?: boolean; jt?: number; cap?: string; jv?: number; dh?: string; dhFor?: string; vh?: string };
 export type IgProfile = {
   username: string; name: string; pic: string; followers: number | null; posts: number | null;
   following?: number | null; bio?: string; category?: string; verified?: boolean;
@@ -60,8 +60,34 @@ export function rankPosts(posts: FeedPost[]): FeedPost[] {
     .map((x) => x.p);
 }
 
+/* Never the same picture twice (owner 11/03/2026: "why does she have the
+   same video 2 times?"). Artists re-post the same photo or reel: a later
+   post drops out when it points at the same stored picture, its picture
+   fingerprint (img-hash.ts, valid only for the picture it was taken from)
+   or its reel fingerprint is within REPEAT_BITS of one already kept. */
+const REPEAT_BITS = 20; // of 256 — repeats score 0–16, different clients on one template 30+
+const NIBBLE_BITS = [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4];
+export function hashDistance(a: string, b: string): number {
+  if (a.length !== b.length) return 256;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d += NIBBLE_BITS[(parseInt(a[i], 16) ^ parseInt(b[i], 16)) & 15];
+  return d;
+}
+const picHash = (p: FeedPost) => (p.dh && p.dh.length === 64 && p.dhFor === p.img ? p.dh : "");
+const near = (a: string, b: string) => !!a && !!b && hashDistance(a, b) <= REPEAT_BITS;
+export function isRepeat(p: FeedPost, k: FeedPost): boolean {
+  return p.img === k.img || near(picHash(p), picHash(k)) || near(p.vh ?? "", k.vh ?? "");
+}
+/* `seen` = posts already ruled out (the hidden ones): hiding a picture
+   also keeps its re-posted copies off the grid. */
+export function dropRepeats(posts: FeedPost[], seen: FeedPost[] = []): FeedPost[] {
+  const kept: FeedPost[] = [];
+  for (const p of posts) if (!kept.some((k) => isRepeat(p, k)) && !seen.some((k) => isRepeat(p, k))) kept.push(p);
+  return kept;
+}
+
 /* What the funnel shows: the owner's pinned posts first (in pin order),
-   then the ranked rest, minus hidden ones. */
+   then the ranked rest, minus hidden ones and repeats. */
 export const MIN_GRID = 3;
 export function arrangeFeed(feed: IgFeed, picks?: IgPicks | null): IgFeed {
   const all = feedPosts(feed);
@@ -71,9 +97,12 @@ export function arrangeFeed(feed: IgFeed, picks?: IgPicks | null): IgFeed {
   const byUrl = new Map(all.filter((p) => p.url).map((p) => [p.url, p]));
   const front = pinned.map((u) => byUrl.get(u)).filter((p): p is FeedPost => !!p && !hidden.has(p.url));
   const rest = rankPosts(all.filter((p) => !hidden.has(p.url) && !pinned.includes(p.url)));
-  let posts = [...front, ...rest];
-  /* Never a blank or near-empty grid: too much hidden → automatic order. */
-  if (posts.length < MIN_GRID) posts = rankPosts(all);
+  const visible = all.filter((p) => !hidden.has(p.url));
+  let posts = dropRepeats([...front, ...rest], all.filter((p) => hidden.has(p.url)));
+  /* Never a blank or near-empty grid: too much hidden → automatic order,
+     still without the hidden ones if that is enough. */
+  if (posts.length < MIN_GRID) posts = dropRepeats(rankPosts(visible));
+  if (posts.length < MIN_GRID) posts = dropRepeats(rankPosts(all));
   return { ...feed, posts, imgs: posts.map((p) => p.img) };
 }
 

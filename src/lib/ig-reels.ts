@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rankPosts, type FeedPost, type IgFeed, type PostKind } from "@/lib/ig-arrange";
+import { ffmpegPath, imageHash, videoHash } from "@/lib/img-hash";
 
 /* Playable reels in the in-house Instagram grid, for the whole fleet
    (owner, 10/28/2026, after the 5-client pilot: "use reels when they show
@@ -59,13 +60,6 @@ export async function storeReelVideo(svc: SupabaseClient, slug: string, code: st
   } catch { return ""; }
 }
 
-/* The ffmpeg binary: shipped next to the function on Vercel (traced from
-   node_modules), the package's own download locally. */
-async function ffmpegPath(): Promise<string> {
-  const p = path.join(process.cwd(), "node_modules", "ffmpeg-static", "ffmpeg");
-  await fs.access(p);
-  return p;
-}
 
 type Frame = { n: number; t: number; tile: string; judge: string };
 
@@ -138,7 +132,7 @@ async function judgeFrames(client: Anthropic, frames: Frame[], dur: number, capt
    to the bucket and its URL returned as `tile`. */
 export async function judgeReel(
   client: Anthropic, videoUrl: string, caption: string, save?: { svc: SupabaseClient; slug: string; code: string },
-): Promise<ReelVerdict & { tile?: string; dur: number }> {
+): Promise<ReelVerdict & { tile?: string; tileDh?: string; vh?: string; dur: number }> {
   const ff = await ffmpegPath();
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "reel-"));
   try {
@@ -146,17 +140,19 @@ export async function judgeReel(
     if (!r.ok) throw new Error(`video ${r.status}`);
     const video = path.join(dir, "v.mp4");
     await fs.writeFile(video, Buffer.from(await r.arrayBuffer()));
-    const { dur, frames } = await extractFrames(ff, video, dir);
+    const [{ dur, frames }, vh] = await Promise.all([extractFrames(ff, video, dir), videoHash(video)]);
     const v = await judgeFrames(client, frames, dur, caption);
-    let tile: string | undefined;
+    let tile: string | undefined, tileDh: string | undefined;
     if (save && v.useful) {
       const f = frames.find((x) => x.n === v.bestFrame)!;
       const p = `${save.slug}/reels/${save.code}-f${v.bestFrame}.jpg`;
-      const { error } = await save.svc.storage.from(BUCKET).upload(p, await fs.readFile(f.tile), { upsert: true, contentType: "image/jpeg", cacheControl: "31536000" });
+      const body = await fs.readFile(f.tile);
+      const { error } = await save.svc.storage.from(BUCKET).upload(p, body, { upsert: true, contentType: "image/jpeg", cacheControl: "31536000" });
       if (error) throw new Error(`tile upload: ${error.message}`);
       tile = save.svc.storage.from(BUCKET).getPublicUrl(p).data.publicUrl;
+      tileDh = (await imageHash(body)) ?? undefined;
     }
-    return { ...v, tile, dur };
+    return { ...v, tile, tileDh, vh: vh ?? undefined, dur };
   } finally {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
@@ -189,7 +185,7 @@ export async function judgeFunnelReels(
   const todo = opts.dry ? posts.filter((p) => !!p.video).slice(0, 12) : posts.filter(needsJudge);
   if (!todo.length) return [];
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 3, timeout: 90_000 });
-  const out: Array<{ url: string } & Partial<ReelVerdict> & { error?: string; tile?: string }> = [];
+  const out: Array<{ url: string } & Partial<ReelVerdict> & { error?: string; tile?: string; tileDh?: string; vh?: string }> = [];
   const queue = [...todo];
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
     for (let p = queue.shift(); p; p = queue.shift()) {
@@ -218,7 +214,10 @@ export async function judgeFunnelReels(
     if (o.error || o.useful === undefined) { p.jt = (p.jt ?? 0) + 1; continue; }
     p.useful = o.useful; p.kind = o.kind; p.pmu = o.pmu; p.q = o.q; p.reel = true; p.jv = JUDGE_VERSION;
     p.frame = o.useful ? o.bestFrame : 0;
-    if (o.useful && o.tile) p.img = o.tile;
+    /* Fingerprints for the repeat check (ig-arrange): the tile's travels
+       with it, the reel's own (1 s in) catches a reel posted twice. */
+    if (o.useful && o.tile) { p.img = o.tile; if (o.tileDh) { p.dh = o.tileDh; p.dhFor = o.tile; } else { delete p.dh; delete p.dhFor; } }
+    if (o.vh) p.vh = o.vh;
     delete p.jt;
   }
   const ordered = rankPosts(feed.posts);

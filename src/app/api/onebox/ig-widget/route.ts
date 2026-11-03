@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { MIN_GRID, feedPosts, gridView, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
+import { MIN_GRID, arrangeFeed, feedPosts, gridView, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
 import { refreshFunnel } from "@/lib/ig-fetch";
 
 export const fetchCache = "force-no-store";
@@ -77,7 +77,9 @@ export async function POST(req: NextRequest) {
     const picks: IgPicks = { hidden: [...(extras.igPicks?.hidden ?? [])].filter((u) => urls.has(u)), pinned: [...(extras.igPicks?.pinned ?? [])].filter((u) => urls.has(u)) };
     const without = (l: string[]) => l.filter((u) => u !== postUrl);
     if (action === "hide") {
-      const left = posts.filter((p) => p.url && !picks.hidden!.includes(p.url) && p.url !== postUrl).length;
+      /* Count what would really show (repeats of hidden pictures drop out too). */
+      const next = [...without(picks.hidden!), postUrl];
+      const left = (arrangeFeed(extras.igFeed!, { hidden: next, pinned: without(picks.pinned!) }).posts ?? []).filter((p) => !next.includes(p.url)).length;
       if (left < MIN_GRID) return NextResponse.json({ error: `Keep at least ${MIN_GRID} pictures on the grid — restore one first.` }, { status: 409 });
       picks.hidden = [...without(picks.hidden!), postUrl]; picks.pinned = without(picks.pinned!);
     }
