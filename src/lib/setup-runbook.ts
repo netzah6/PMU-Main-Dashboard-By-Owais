@@ -60,19 +60,15 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 9, key: "phone_buy", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default, delete the previous client's numbers, then forward its calls to the client's own phone (Caller ID only if the form says so)", checklist: ["phone_buy", "phone_forward", "phone_callerid"] },
   { n: 10, key: "phone_a2p", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
   { n: 12, key: "phone_optout", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
-  // Numbered 45 so the steps after it keep their numbers (like wf_errors' 43); it runs here, in the phone batch.
+  // Numbered 45 so the steps after it keep their numbers; it runs here, in the phone batch.
   { n: 45, key: "phone_limit", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging limits: daily SMS limit 400 (already 400 or more = done)", how: "New accounts start at 250 a day; hitting it stops every text — AI, workflows, confirmations — until the next day (Janel Lord, 10/28/2026). Owner set every client to 400." },
   // D · GHL user
   // One step since 11/03/2026 (owner): the user is created WITH the team-rule password.
   { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Create the employee user with the client's name and email, with the password by the team rule (NAME1212!) saved to the card", how: "GHL emails the client an invite. The password is never shown in chat or screenshots.", checklist: ["user_add", "user_password"] },
   { n: 16, key: "user_settings", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Role \"User\" (not Admin) with only the owner's permission set; call and voicemail settings, \"Forward Calls To\" all options with the new number", checklist: ["user_permissions", "user_voicemail", "user_phone"] },
   { n: 17, key: "user_calendar", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Calendar access: \"Physical Appointment\" only", checklist: ["user_calendar_physical"] },
-  // E · Workflows
+  // E · Workflows (Notify Artist, call workflows and the 0-errors sweep removed 11/03/2026, owner)
   { n: 18, key: "wf_survey", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
-  { n: 19, key: "wf_notify", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - One-Box Booking → Notify Artist\": artist's number set so she gets booking texts" },
-  { n: 20, key: "wf_callkill", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Outgoing Call → Google Sheet Webhook\" stays ON with only its Webhook step (it sends every call to the dashboard — no Google Sheet anymore, despite the name) and NO \"Remove from CC - Funnel Survey\" step. \"Outgoing & Incoming Call or AI OFF - Stop follow ups\" is OFF (Draft).", how: "Both used to take the lead out of the AI follow-up after ANY call, even an unanswered one, so the AI went silent. The snapshot already has it right; this check catches older or reused accounts." },
-  // Numbered 43 so the steps after it keep their numbers (same as cnam_check's 42); it runs here, last in the workflows batch.
-  { n: 43, key: "wf_errors", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "Every published workflow ends with 0 errors: calendar, custom field, pipeline and stage point to THIS account", how: "The template keeps the old account's calendar, field and pipeline IDs. Brows by Susan (10/25/2026) went live with the confirmation, booking and Invalid→Confirm workflows pointing at nothing — no lead got a single text or confirmation." },
   // F · Calendar
   { n: 21, key: "cal_team", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
   { n: 22, key: "cal_hours", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_availability"] },
@@ -124,7 +120,7 @@ const STEP_TITLES: Record<string, string> = {
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
   phone_buy: "Buy the number & forward calls", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
   user_create: "Create the client's login & password", user_settings: "Login permissions & calls", user_calendar: "User calendar access",
-  wf_survey: "Funnel Survey workflow", wf_notify: "Notify Artist workflow", wf_callkill: "Call workflows: keep the AI following up", wf_errors: "All workflows: 0 errors",
+  wf_survey: "Funnel Survey workflow",
   cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_rules: "Look Busy off & booking rules", cal_active: "Calendar on", cal_id: "Calendar ID",
   funnel_create: "One-box funnel & custom values", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
@@ -341,30 +337,6 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       // called them out of scope and left the workflow in Draft — leads got nothing.
       `The workflow MUST end Published with NO errors — fixing any error GHL shows (the red "Resolve errors" panel / orange dots) is part of this step. The usual one is "Create Or Update Opportunity: Opportunity pipeline not found / Stage not found" (the snapshot kept an old pipeline id): open each such step, choose the pipeline "Booking opportunities" and the stage the Demo (V3) template uses in the same step — open Demo (V3)'s copy of this workflow READ-ONLY to see it, never save anything in Demo; if you cannot see it, use "Very Hot-Lead (Filled Survey)🔥". Save each step, then publish.`,
       `Before you finish, re-open the workflow list and confirm this workflow shows Published and the builder shows 0 errors. If it is still Draft or still has errors, the status is "failed" (never "done") and the summary says which error is left.`,
-    ];
-    case "wf_errors": return [
-      `Open ${ghl(L, "automation/workflows")}. Workflows live INSIDE FOLDERS — open every folder. Go through EVERY workflow whose status is Published (leave Draft ones alone).`,
-      `In each one, open the builder and click the error icon in the left toolbar (orange "!" — the "Resolve N errors" panel; a green check means 0 errors). Fix each error with "Open step":`,
-      `• "Referenced Calendar does not exist" (a trigger's or step's "In calendar"): choose "Permanent Makeup Transformation" — this account's calendar. Check BOTH triggers when a workflow has two (e.g. "Appointment Status Invalid -> Confirm…": Unconfirmed/New and Invalid).`,
-      `• "Referenced Contact Custom Field does not exist": choose the field with the SAME name in this account (e.g. "CC - Reserved Appointment Time (V3)🔵"); keep the value that is there.`,
-      `• "Referenced Pipeline / Pipeline Stage does not exist": pipeline "Booking opportunities", and the stage named in the step's title (e.g. "Create Opportunity - Deposit Collected😍" → "Deposit Collected😍"). If the title doesn't say, open Demo (V3)'s copy of the workflow READ-ONLY to see it — never save anything in Demo.`,
-      `• "Workflow selection is required" on an "Add to Workflow" step whose target workflow does not exist anywhere in this account (e.g. "Extension - Follow Up Booked (V3)"): delete that ONE step — GHL will not save the workflow otherwise, and every other account skips it.`,
-      // Seen 10/25/2026 on Candy / Sudbury and on working accounts (browology): GHL flags them, nothing breaks.
-      `• KNOWN HARMLESS — leave them, they do NOT make the step fail: "FanBasis to GHL workflow" → Inbound Webhook "Mapping Reference is required…" (every account shows it; payments still come through), and "Referenced Form does not exist" on "CC- Funnels Setup Form (V2 + V3)" or "CC- Form Submitted - 📸 Update Custom Fields Before & After Pictures" (the client's own setup forms, not lead-facing). List them under "known, left as is".`,
-      `• Any other error: do not guess — leave it and report it.`,
-      `Save each step (Save trigger / Save action), then Save the workflow; it must stay Published and the panel must say 0 errors. Never change message texts, waits, conditions or other steps.`,
-      `Must be checked at least: "CC - Bookings Appointment Confirmation + Reminders", "Customer Booked Appointment - PMU Transformation Calendar (V2 / V3)", "Appointment Status Invalid -> Confirm if \"Fanbasis\" tag in 3 days", "Fanbasis Tag Added - Paid Deposit (V2 / V3)", "FanBasis to GHL workflow", "CC - One-Box Booking -> Notify Artist", "Deposit Follow up Messages 🔔", "CC- Funnel Survey -> (V1 / V2 / V3)".`,
-      `Report one line per workflow you fixed ("<workflow>: <what you fixed>") and list the ones already at 0 errors. Status is "failed" (never "done") if any Published workflow still shows an error other than the known harmless ones — name the workflow and the error.`,
-    ];
-    case "wf_notify": return [
-      `Workflows live INSIDE FOLDERS — open each folder or use the workflows search box before deciding one is missing.`,
-      `Open ${ghl(L, "automation/workflows")} → the workflow named like "CC - One-Box Booking → Notify Artist" (or "Notify Artist"). Its SMS/notification step must go to the artist's own phone ${clientPhone}. Fix the number if it is a placeholder, save, publish. Screenshot the step.`,
-    ];
-    case "wf_callkill": return [
-      `Workflows live INSIDE FOLDERS — open each folder or use the workflows search box before deciding one is missing.`,
-      `1) Open ${ghl(L, "automation/workflows")} → "CC - Outgoing Call → Google Sheet Webhook". It must be Published with only the trigger "Outgoing call" and the "Webhook - Make" step (that webhook feeds the dashboard's call data — never remove it or turn the workflow off). If it has a step "Remove from workflow: CC - Funnel Survey", DELETE that single step only, save, keep it Published. Screenshot the steps.`,
-      `2) Find "Outgoing & Incoming Call or AI OFF - Stop follow ups". If it is Published, switch it to Draft (change nothing else). Already Draft or not in the account = fine. Screenshot.`,
-      `Report both results in your summary (e.g. "Outgoing Call wf: webhook only, published; Stop follow ups wf: draft").`,
     ];
     case "cal_team": return [
       `Open ${ghl(L, "settings/calendars")} → the "Permanent Makeup Transformation" (Physical Appointment) calendar → edit.`,
