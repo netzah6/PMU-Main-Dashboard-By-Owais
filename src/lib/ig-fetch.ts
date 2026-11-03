@@ -3,7 +3,7 @@ import { queueIgPostsCheck } from "@/lib/ig-posts-check";
 import { classifyImages } from "@/lib/ig-classify";
 import { feedPosts, rankPosts, type FeedPost, type IgFeed, type IgProfile } from "@/lib/ig-arrange";
 import { MAX_REEL_SECONDS, postCode, storeReelVideo } from "@/lib/ig-reels";
-import { imageHash, videoHash } from "@/lib/img-hash";
+import { NO_HASH, imageHash, videoHash } from "@/lib/img-hash";
 export type { FeedPost, IgFeed, IgProfile } from "@/lib/ig-arrange";
 
 /* In-house Instagram feed (owner, 10/26/2026): replaces the Elfsight widget
@@ -331,7 +331,7 @@ export async function snapshotFunnel(
    picture shown — sets saved by older code, a reel whose tile changed, a
    fetch where ffmpeg failed. The cron's spare time fills them in, the
    funnels with most missing first. */
-const needsPicHash = (p: FeedPost) => !!p.img && !(p.dh && p.dh.length === 64 && p.dhFor === p.img);
+const needsPicHash = (p: FeedPost) => !!p.img && !(p.dh && p.dhFor === p.img);
 const needsVidHash = (p: FeedPost) => !!p.video && !p.vh;
 export async function fingerprintFeeds(svc: SupabaseClient, deadline: number): Promise<{ funnels: number; pictures: number; reels: number }> {
   const { data } = await svc.from("onebox_clients").select("slug, extras").eq("status", "live");
@@ -350,8 +350,10 @@ export async function fingerprintFeeds(svc: SupabaseClient, deadline: number): P
       for (let p = queue.shift(); p; p = queue.shift()) {
         if (Date.now() > deadline) break;
         const f: { dh?: string; dhFor?: string; vh?: string } = {};
-        if (needsPicHash(p)) { const b = await download(p.img); const h = b ? await imageHash(b) : null; if (h) { f.dh = h; f.dhFor = p.img; pictures++; } }
-        if (needsVidHash(p)) { const h = await videoHash(p.video!); if (h) { f.vh = h; reels++; } }
+        /* A download that fails is retried next time; a picture or reel
+           that downloads but gives no fingerprint is marked NO_HASH. */
+        if (needsPicHash(p)) { const b = await download(p.img); if (b) { f.dh = (await imageHash(b)) ?? NO_HASH; f.dhFor = p.img; pictures++; } }
+        if (needsVidHash(p)) { f.vh = (await videoHash(p.video!)) ?? NO_HASH; reels++; }
         if (f.dh || f.vh) found.set(p.url || p.img, f);
       }
     }));

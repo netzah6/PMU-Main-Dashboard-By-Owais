@@ -38,8 +38,15 @@ async function grayPixels(args: string[], stdin?: Buffer): Promise<Buffer | null
     p.stdin?.end(stdin);
   });
 }
+/* A blank frame (a reel fading in from black, a plain colour card) says
+   nothing about the picture — every blank frame would look like every
+   other one — so it gets no fingerprint. */
+const MIN_CONTRAST = 12;
 function toHash(px: Buffer | null): string | null {
   if (!px || px.length < W * H) return null;
+  let lo = 255, hi = 0;
+  for (let i = 0; i < W * H; i++) { lo = Math.min(lo, px[i]); hi = Math.max(hi, px[i]); }
+  if (hi - lo < MIN_CONTRAST) return null;
   let hex = "";
   for (let r = 0; r < H; r++) {
     for (let half = 0; half < 2; half++) {
@@ -56,9 +63,15 @@ export async function imageHash(buf: Buffer): Promise<string | null> {
   return toHash(await grayPixels(["-i", "pipe:0"], buf));
 }
 
-/* A reel: the frame 1 s in, so the same reel posted twice matches even
-   when its tiles show different frames. Takes a URL (ffmpeg reads only the
-   bytes it needs) or a local file. */
+/* A reel: a frame from its first seconds (1 s in, else 3 s if that one is
+   blank), so the same reel posted twice matches even when its tiles show
+   different frames. Takes a URL (ffmpeg reads only the bytes it needs) or
+   a local file. */
 export async function videoHash(src: string): Promise<string | null> {
-  return toHash(await grayPixels(["-ss", "1", "-i", src]));
+  return toHash(await grayPixels(["-ss", "1", "-i", src])) ?? toHash(await grayPixels(["-ss", "3", "-i", src]));
 }
+
+/* Stored when a picture or reel was fingerprinted but gave none (blank or
+   undecodable), so the fill-in sweep doesn't retry it every hour. Never
+   matches anything (ig-arrange only compares 64-character fingerprints). */
+export const NO_HASH = "-";

@@ -74,7 +74,7 @@ export function hashDistance(a: string, b: string): number {
   return d;
 }
 const picHash = (p: FeedPost) => (p.dh && p.dh.length === 64 && p.dhFor === p.img ? p.dh : "");
-const near = (a: string, b: string) => !!a && !!b && hashDistance(a, b) <= REPEAT_BITS;
+const near = (a: string, b: string) => a.length === 64 && b.length === 64 && hashDistance(a, b) <= REPEAT_BITS;
 export function isRepeat(p: FeedPost, k: FeedPost): boolean {
   return p.img === k.img || near(picHash(p), picHash(k)) || near(p.vh ?? "", k.vh ?? "");
 }
