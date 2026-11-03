@@ -266,7 +266,7 @@ function Must({ on }: { on: boolean }) {
    "<video url>#poster=<jpg url>": the booking page loads only that small
    picture and streams the video after a tap, so page speed is unchanged. */
 const VIDEO_RE = /\.(mp4|mov|m4v|webm)(\?|#|$)/i;
-const VIDEO_MAX_MB = 200;
+const VIDEO_MAX_MB = 50; // Supabase project-wide file limit: 49 MB uploads, 51 MB is refused (tested 11/03/2026)
 const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|3gp|avi|hevc)$/i;
 async function videoPoster(file: File): Promise<Blob | null> {
   const src = URL.createObjectURL(file);
