@@ -7,6 +7,7 @@ import { WidgetSwitchCard } from "@/components/onboarding/WidgetSwitchCard";
 import { IgSliderCard } from "@/components/onboarding/IgSliderCard";
 import { DepositEmailCard } from "@/components/onboarding/DepositEmailCard";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 import { versionStyle } from "@/lib/version-style";
 import type { StatsWindow } from "@/lib/onebox-insights";
 
@@ -260,34 +261,78 @@ function Must({ on }: { on: boolean }) {
 /* Photo slot of the full setup form: upload to the dashboard's public
    bucket (same endpoint as the Onboarding tab) or paste a URL; the URL is
    what goes into the GHL custom value the funnel renders. */
-function ImageField({ value, onChange, onToast }: { value: string; onChange: (url: string) => void; onToast: (m: string) => void }) {
+/* Before/after slots also take a VIDEO (owner, 11/03/2026). The clip goes
+   straight to storage (signed URL — too big for our API), and a still frame
+   is grabbed here in the browser as its poster. The field then holds
+   "<video url>#poster=<jpg url>": the booking page loads only that small
+   picture and streams the video after a tap, so page speed is unchanged. */
+const VIDEO_RE = /\.(mp4|mov|m4v|webm)(\?|#|$)/i;
+const VIDEO_MAX_MB = 50;
+async function videoPoster(file: File): Promise<Blob | null> {
+  const src = URL.createObjectURL(file);
+  try {
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.preload = "auto"; v.src = src;
+    await new Promise<void>((res, rej) => { v.onloadeddata = () => res(); v.onerror = () => rej(new Error("unreadable")); window.setTimeout(() => rej(new Error("timeout")), 20000); });
+    v.currentTime = Math.min(0.5, (v.duration || 1) / 2);
+    await new Promise<void>((res) => { v.onseeked = () => res(); window.setTimeout(res, 5000); });
+    if (!v.videoWidth) return null;
+    const w = Math.min(720, v.videoWidth), h = Math.round((v.videoHeight * w) / v.videoWidth);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    c.getContext("2d")?.drawImage(v, 0, 0, w, h);
+    return await new Promise<Blob | null>((res) => c.toBlob(res, "image/jpeg", 0.8));
+  } catch { return null; } finally { URL.revokeObjectURL(src); }
+}
+
+function ImageField({ value, onChange, onToast, allowVideo = false }: { value: string; onChange: (url: string) => void; onToast: (m: string) => void; allowVideo?: boolean }) {
   const [uploading, setUploading] = useState(false);
+  const postImage = async (file: Blob, name: string): Promise<string> => {
+    const fd = new FormData();
+    fd.append("file", file, name);
+    const res = await fetch("/api/onboarding/upload", { method: "POST", body: fd });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "Upload failed");
+    return json.url;
+  };
   const pick = async (file: File | null) => {
     if (!file) return;
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/onboarding/upload", { method: "POST", body: fd });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Upload failed");
-      onChange(json.url);
+      if (file.type.startsWith("video/")) {
+        if (file.size > VIDEO_MAX_MB * 1024 * 1024) throw new Error(`video is over ${VIDEO_MAX_MB} MB — trim it or export a smaller MP4`);
+        const poster = await videoPoster(file);
+        if (!poster) throw new Error("this browser can't read the video — export it as MP4 (iPhone: Camera → Formats → Most Compatible)");
+        const posterUrl = await postImage(poster, "poster.jpg");
+        const r = await fetch("/api/onboarding/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video: true, name: file.name }) });
+        const j = (await r.json()) as { path?: string; token?: string; url?: string; error?: string };
+        if (!r.ok || !j.path || !j.token || !j.url) throw new Error(j.error ?? "Could not start the upload");
+        const { error } = await createClient().storage.from("onboarding").uploadToSignedUrl(j.path, j.token, file, { contentType: file.type || "video/mp4" });
+        if (error) throw new Error(error.message);
+        onChange(`${j.url}#poster=${posterUrl}`);
+      } else {
+        onChange(await postImage(file, file.name));
+      }
     } catch (e) {
       onToast(`Upload failed: ${String(e).replace("Error: ", "")}`);
     } finally { setUploading(false); }
   };
+  const isVideo = VIDEO_RE.test(value);
+  const thumb = isVideo ? (value.split("#poster=")[1] ?? "") : value;
   return (
     <div className="flex items-center gap-1.5">
-      {value ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={value} alt="" className="w-9 h-9 rounded-lg object-cover border border-[#e4ebf2] shrink-0" />
-      ) : null}
-      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder="Upload or paste an image URL"
+      {thumb ? (
+        <span className="relative shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={thumb} alt="" className="w-9 h-9 rounded-lg object-cover border border-[#e4ebf2]" />
+          {isVideo && <span className="absolute inset-0 flex items-center justify-center text-white text-[11px] drop-shadow">&#9654;</span>}
+        </span>
+      ) : isVideo ? <span className="shrink-0 w-9 h-9 rounded-lg bg-black text-white text-[11px] flex items-center justify-center">&#9654;</span> : null}
+      <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={allowVideo ? "Upload a picture or video, or paste a URL" : "Upload or paste an image URL"}
         className="flex-1 min-w-0 border border-[#e4ebf2] rounded-lg px-3 py-2 text-xs" />
       <label className={cn("shrink-0 px-2.5 py-2 rounded-lg text-xs font-semibold cursor-pointer border",
         uploading ? "opacity-50 pointer-events-none border-[#e4ebf2] text-[#8595a8]" : "border-[#bfe6e2] text-[#0b7f7f] hover:bg-[#f0fbfa]")}>
         {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : "Upload"}
-        <input type="file" accept="image/*" className="hidden" onChange={(e) => void pick(e.target.files?.[0] ?? null)} />
+        <input type="file" accept={allowVideo ? "image/*,video/mp4,video/quicktime,video/webm" : "image/*"} className="hidden" onChange={(e) => { void pick(e.target.files?.[0] ?? null); e.target.value = ""; }} />
       </label>
       {value && (
         <button type="button" onClick={() => onChange("")} title="Remove" className="shrink-0 p-1.5 rounded text-[#94a3b8] hover:text-[#e11d48]"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -2639,10 +2684,10 @@ export default function FunnelsPage() {
                           className={inputCls(k)} />
                       </label>
                     );
-                    const P = (k: string, label: string) => (
+                    const P = (k: string, label: string, allowVideo = false) => (
                       <label key={k} className="grid gap-0.5">
                         {Lbl(k, label)}
-                        <ImageField value={cvForm[k] ?? ""} onChange={(u) => setCvForm((x) => ({ ...x, [k]: u }))} onToast={setToast} />
+                        <ImageField value={cvForm[k] ?? ""} onChange={(u) => setCvForm((x) => ({ ...x, [k]: u }))} onToast={setToast} allowVideo={allowVideo} />
                       </label>
                     );
                     const H = (t: string, v3 = false) => (
@@ -2718,17 +2763,17 @@ export default function FunnelsPage() {
                         {P("studio2", "Studio picture 2")}
                         {P("studio3", "Studio picture 3")}
                         <div className="hidden md:block" />
-                        {P("brows1", "Eyebrows before & after 1")}
-                        {P("brows2", "Eyebrows before & after 2")}
-                        {P("brows3", "Eyebrows before & after 3")}
+                        {P("brows1", "Eyebrows before & after 1 (picture or video)", true)}
+                        {P("brows2", "Eyebrows before & after 2 (picture or video)", true)}
+                        {P("brows3", "Eyebrows before & after 3 (picture or video)", true)}
                         <div className="hidden md:block" />
-                        {P("lips1", "Lips before & after 1")}
-                        {P("lips2", "Lips before & after 2")}
-                        {P("lips3", "Lips before & after 3")}
+                        {P("lips1", "Lips before & after 1 (picture or video)", true)}
+                        {P("lips2", "Lips before & after 2 (picture or video)", true)}
+                        {P("lips3", "Lips before & after 3 (picture or video)", true)}
                         <div className="hidden md:block" />
-                        {P("liner1", "Eyeliner before & after 1")}
-                        {P("liner2", "Eyeliner before & after 2")}
-                        {P("liner3", "Eyeliner before & after 3")}
+                        {P("liner1", "Eyeliner before & after 1 (picture or video)", true)}
+                        {P("liner2", "Eyeliner before & after 2 (picture or video)", true)}
+                        {P("liner3", "Eyeliner before & after 3 (picture or video)", true)}
                         <p className="text-[10px] text-[#697a91] md:col-span-2">Everything here is saved by <b>Step 3 &middot; Save to GoHighLevel</b> — straight into the sub-account&rsquo;s custom values, exactly what the old GHL form did.</p>
                       </div>
                     );

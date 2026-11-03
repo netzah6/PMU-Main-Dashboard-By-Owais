@@ -15,6 +15,20 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  /* Videos (before/after clips, owner 11/03/2026) are too big for a
+     function body, so the browser uploads them straight to storage with a
+     signed URL: POST {video: true, name} → { path, token, url }. */
+  if ((req.headers.get("content-type") ?? "").includes("application/json")) {
+    const body = (await req.json().catch(() => ({}))) as { video?: boolean; name?: string };
+    if (!body.video) return NextResponse.json({ error: "No file" }, { status: 400 });
+    const ext = (String(body.name ?? "").match(/\.(mp4|mov|m4v|webm)$/i)?.[1] ?? "mp4").toLowerCase();
+    const path = `videos/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${ext}`;
+    const svc = createServiceClient();
+    const { data, error } = await svc.storage.from("onboarding").createSignedUploadUrl(path);
+    if (error || !data) return NextResponse.json({ error: error?.message ?? "Could not start the upload" }, { status: 500 });
+    return NextResponse.json({ path, token: data.token, url: svc.storage.from("onboarding").getPublicUrl(path).data.publicUrl });
+  }
+
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "No file" }, { status: 400 });

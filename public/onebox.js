@@ -378,6 +378,9 @@
     "#onebox-root .faqs .fa{margin:0;padding:0 2px 15px;font-family:var(--content);font-size:13.5px;line-height:1.6;color:var(--ink-soft)}" +
     "#onebox-root .studio{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;max-width:640px;margin:10px auto 0}" +
     "#onebox-root .results.solo{max-width:640px;margin:0 auto;border-radius:12px;overflow:hidden}" +
+    "#onebox-root .results .bavid{position:relative;display:block;cursor:pointer;background:#000}" +
+    "#onebox-root .results .bavid img,#onebox-root .results .bavid video{width:100%;aspect-ratio:4/5;object-fit:cover;display:block;pointer-events:none}" +
+    "#onebox-root .results .bavid .vplay{width:40px;height:40px;font-size:15px}" +
     "#onebox-root .igwrap{margin-top:14px}" +
     "#onebox-root .igself{max-width:640px;margin:0 auto}" +
     /* Profile header laid out like the Instagram app: handle on top, photo
@@ -727,6 +730,8 @@
   })();
 
   document.getElementById("ob-extras").addEventListener("click", function (e) {
+    var bv = e.target && e.target.closest ? e.target.closest(".bavid") : null;
+    if (bv) { e.preventDefault(); baVidOpen(bv.getAttribute("data-v"), bv.getAttribute("data-p")); return; }
     var t = e.target;
     while (t && t !== document && !(t.className && String(t.className).indexOf("vidbox") > -1)) t = t.parentNode;
     if (!t || t === document) return;
@@ -736,6 +741,28 @@
     v.src = t.getAttribute("data-v");
     t.parentNode.replaceChild(v, t);
   });
+  /* Before/after video viewer: same dark overlay as the IG slider; the
+     video is created only now, so nothing downloads until the tap. */
+  function baVidOpen(src, poster) {
+    if (!src) return;
+    var ov = document.createElement("div"); ov.className = "iglb";
+    ov.innerHTML = '<button class="lbx" type="button" aria-label="Close">&#215;</button>' +
+      '<div class="lbmedia"><video playsinline controls preload="auto"></video></div>';
+    var v = ov.querySelector("video");
+    if (poster) v.poster = poster;
+    v.src = src;
+    var close = function () {
+      if (!ov.parentNode) return;
+      try { v.pause(); } catch (e2) {}
+      ov.parentNode.removeChild(ov); root.classList.remove("lb-open"); document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKey);
+    };
+    var onKey = function (k) { if (k.key === "Escape") close(); };
+    ov.addEventListener("click", function (k) { if (k.target === ov || (k.target.closest && k.target.closest(".lbx"))) close(); });
+    document.addEventListener("keydown", onKey);
+    root.appendChild(ov); root.classList.add("lb-open"); document.body.style.overflow = "hidden";
+    try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () { v.muted = true; v.play().catch(function () {}); }); } catch (e3) {}
+  }
   var firstShow = true;
   var interacted = false;
   root.addEventListener("pointerdown", function () { interacted = true; }, { passive: true });
@@ -1498,7 +1525,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "128";
+  var ENGINE_V = "129";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
@@ -1750,6 +1777,17 @@
       htmlStr += '<div class="xsec"><h2 class="xhead">See Real Client Results &#128071;</h2>';
       if (RESULTS.length) {
         htmlStr += '<div class="results solo">' + RESULTS.map(function (u) {
+          /* A before/after slot may hold a VIDEO (dashboard upload stores
+             "<video>#poster=<jpg>"). Only the small poster loads with the
+             page; the video itself streams after a tap, like the IG reels
+             (owner, 11/03/2026). */
+          if (/\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(u)) {
+            var vp = u.split("#poster="), vsrc = vp[0], vpos = vp[1] || "";
+            return '<span class="bavid" data-v="' + esc(vsrc) + '" data-p="' + esc(vpos) + '">' +
+              (vpos ? '<img src="' + esc(fastImg(vpos, 640)) + '" alt="Client result video" loading="lazy">'
+                : '<video src="' + esc(vsrc) + '#t=0.1" preload="metadata" muted playsinline></video>') +
+              '<span class="vplay">&#9654;</span></span>';
+          }
           return '<img src="' + esc(fastImg(u, 640)) + '" alt="Client result" loading="lazy">';
         }).join("") + "</div>";
       }

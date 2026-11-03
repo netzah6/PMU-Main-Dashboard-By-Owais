@@ -261,6 +261,12 @@ export async function classifyPhotos(list: string | undefined): Promise<{ url: s
   const urls = String(list ?? "").split(",").map((u) => u.trim()).filter(Boolean);
   return Promise.all(urls.map(async (url) => {
     try {
+      /* A before/after VIDEO ("<mp4>#poster=<jpg>") is always the client's
+         own upload — just check it's reachable, never download the clip. */
+      if (/\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(url)) {
+        const h = await fetch(url.split("#")[0], { method: "HEAD", cache: "no-store", signal: AbortSignal.timeout(15000) });
+        return { url, kind: h.ok ? "own" as const : "broken" as const };
+      }
       const r = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 (photo-check)" }, cache: "no-store", signal: AbortSignal.timeout(15000) });
       if (!r.ok) return { url, kind: "broken" as const };
       const buf = Buffer.from(await r.arrayBuffer());
