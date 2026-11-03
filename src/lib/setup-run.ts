@@ -3,7 +3,7 @@ import { agencyHeaders, moveDealToFirstCycle, saveLoginFieldsRaw } from "@/lib/f
 import { getAppLocationToken } from "@/lib/ghl-app";
 import {
   claimPoolAccount, fillAccountValues, fillCalendarId, syncScheduleTimezones, setLocationProfile, discoverPool, POOL_NAME_RE, setExistingCustomValue, listLocationCustomValues,
-  employeePassword, findLocationUserByEmail, setUserPassword, slugify, type ClaimResult, type ClaimAction,
+  employeePassword, slugify, type ClaimResult, type ClaimAction,
 } from "@/lib/ghl-claim";
 import { deleteAllContacts, inspectLocation, poolBlocker, poolReadiness, refreshPoolCleanliness, type PoolReadiness, type PoolRow } from "@/lib/ghl-cleanup";
 import { createDepositProductFromForm } from "@/lib/deposit-product";
@@ -225,7 +225,6 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     case "connector": case "product": case "funnel_create": return done(ob, "account_take");
     case "funnel_pixel": case "funnel_ig": case "funnel_reviews": return done(ob, "funnel_create");
     case "route_test": return done(ob, "webhook_url") && done(ob, "product") && !!ob.setup?.hook_url;
-    case "user_password": return done(ob, "user_create");
     // Go-live comes BEFORE the funnel test now (owner 10/20/2026: the test is
     // the AI Agent's last step); the redirect decision (done / not needed) first.
     case "funnel_live": return done(ob, "funnel_create") && done(ob, "funnel_redirect");
@@ -581,17 +580,6 @@ const API_STEPS: Record<string, StepFn> = {
     return { status: "done", note: `test payment accepted by the route (${sent.note}). The AI Agent deletes the "Router Test" contact in the funnel test; VOID its deposit-sheet row if one appears.` };
   },
 
-  /* 15 · Password by the team rule on the user the Mac Mini created. */
-  user_password: async (_svc, ob) => {
-    const email = String(ob.form.email ?? "").trim();
-    if (!email) return { status: "failed", note: "no email on the form — the user cannot be found" };
-    const u = await findLocationUserByEmail(ob.setup!.location_id, email);
-    if (!u) return { status: "failed", note: `no user with ${email} on the account yet — check the AI Agent's screenshots, then Retry` };
-    const password = employeePassword(ob.form.owner_name);
-    await setUserPassword(u.id, password);
-    return { status: "done", note: `password set for ${email} (shown on this card only)`, facts: { user_id: u.id, password } };
-  },
-
   /* 25 · One-box funnel = the Funnels tab's "Add client", then the deposit
      URL custom value so the AI's pay link points at it. */
   funnel_create: async (svc, ob) => {
@@ -818,7 +806,7 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   // Gates: a browser step cannot start before the API step it builds on.
   const needs: Record<string, string[]> = {
     webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_limit: ["phone_buy"], phone_forward: ["phone_buy"],
-    user_settings: ["user_password"], user_calendar: ["user_password"], wf_survey: ["user_password"], cal_team: ["user_password"], cal_hours: ["user_password"],
+    user_settings: ["user_create"], user_calendar: ["user_create"], wf_survey: ["user_create"], cal_team: ["user_create"], cal_hours: ["user_create"],
     funnel_ig: ["funnel_create"], funnel_reviews: ["funnel_create"], funnel_redirect: ["funnel_create"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
   };
   for (const k of needs[next.key] ?? []) {
@@ -922,8 +910,8 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
       const shown = cnamRejected ? `⚠ CNAM rejected by the carrier — skipped so the setup goes on (only the caller name on outgoing calls; texts work). Re-submit later or ask GHL support.\n${note}` : note;
       setStep(o.setup, g.key, { status, who: "AI Agent", note: shown.slice(0, 1500), screenshots: g.key === ref.key ? shots : undefined, error: stepOk || cnamRejected ? undefined : (p.status === "needs_teammate" || line ? "the AI Agent needs a teammate — see its note" : "the AI Agent could not finish") }, `card ${p.id} → ${p.status}${line ? ` (step ${g.n}: ${line.ok ? "done" : "failed"})` : ""}`);
       if (stepOk) { tick(checklist, g.checklist, "AI Agent"); closedKeys.push(g.key); }
-      // Step 15: the password the Mini set by the team rule, kept on the card.
-      if (stepOk && g.key === "user_password") o.setup.password = employeePassword(String(o.form.owner_name ?? ""));
+      // Step 14: the password the Mini set by the team rule, kept on the card.
+      if (stepOk && g.key === "user_create") o.setup.password = employeePassword(String(o.form.owner_name ?? ""));
     }
     // Step 7: the payment route URL the Mini read off the workflow editor.
     if (ok && ref.key === "webhook_url") {
