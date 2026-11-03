@@ -37,7 +37,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking" | "ig_drop" | "closebot_missing" | "closebot_not_v3" | "closebot_check" | "funnel_widgets" | "pay_date";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking" | "ig_drop" | "closebot_missing" | "closebot_not_v3" | "closebot_check" | "funnel_widgets" | "pay_date" | "onebox_notify";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
@@ -835,6 +835,73 @@ export async function scanLiveNoPayDate(svc: Svc): Promise<{ live: number; filed
     await svc.from("alerts").update({ status: "resolved", resolved_by: "system (payment date filled / not Live)", resolved_at: new Date().toISOString() }).in("id", toClose);
   }
   return { live: live.length, filed, resolved: toClose.length };
+}
+
+/* A live one-box client whose GHL account has no published "CC - One-Box
+   Booking -> Notify Artist" workflow: the dashboard tags every booking
+   `onebox-booked`, but nothing in the account listens, so the artist never
+   hears about it. Snapshot loads carry the workflow; accounts switched to
+   the one-box on their existing sub-account do not (9 found 2026-11-03,
+   L.Taño first). Checked every 3 hours; clears itself once it's published.
+   An account whose workflows can't be read is skipped, never flagged. */
+export async function scanOneboxNotifyMissing(svc: Svc): Promise<{ checked: number; filed: number; resolved: number; skipped?: boolean; error?: string }> {
+  const now = new Date();
+  if (now.getUTCHours() % 3 !== 0 || now.getUTCMinutes() >= 30) return { checked: 0, filed: 0, resolved: 0, skipped: true };
+  const { data: rows, error } = await svc.from("onebox_clients").select("slug, location_id, client_name, extras").eq("status", "live");
+  if (error) return { checked: 0, filed: 0, resolved: 0, error: error.message };
+  const accounts = new Map<string, { slug: string; name: string }>();
+  for (const r of (rows ?? []) as Array<{ slug: string; location_id: string | null; client_name: string | null; extras: Record<string, unknown> | null }>) {
+    if (!r.location_id || r.extras?.b2b || accounts.has(r.location_id)) continue; // B2B funnels live on the agency account
+    accounts.set(r.location_id, { slug: r.slug, name: r.client_name || r.slug });
+  }
+
+  const checked = new Set<string>();
+  const missing: Array<{ loc: string; slug: string; name: string; draft: boolean }> = [];
+  const list = [...accounts.entries()];
+  for (let i = 0; i < list.length; i += 6) {
+    await Promise.all(list.slice(i, i + 6).map(async ([loc, a]) => {
+      const tok = await getAppLocationToken(loc).catch(() => ({ token: undefined }));
+      if (!tok.token) return;
+      const r = await fetch(`https://services.leadconnectorhq.com/workflows/?locationId=${loc}`, {
+        headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" },
+      }).catch(() => null);
+      if (!r?.ok) return;
+      const wfs = (((await r.json().catch(() => ({}))) as { workflows?: Array<{ name?: string; status?: string }> }).workflows ?? []);
+      checked.add(loc);
+      const notify = wfs.filter((w) => /one-box booking/i.test(String(w.name ?? "")));
+      if (notify.some((w) => w.status === "published")) return;
+      missing.push({ loc, slug: a.slug, name: a.name, draft: notify.length > 0 });
+    }));
+  }
+
+  let filed = 0;
+  for (const m of missing) {
+    const { count } = await svc.from("onebox_leads").select("id", { count: "exact", head: true })
+      .eq("location_id", m.loc).not("ghl_appointment_id", "is", null);
+    const ok = await fileAlert(svc, {
+      type: "onebox_notify",
+      severity: "high",
+      title: `${m.name}: artist gets NO text for one-box bookings`,
+      detail: `${m.draft ? "The \"CC - One-Box Booking -> Notify Artist\" workflow exists but is not published" : "The account has no \"CC - One-Box Booking -> Notify Artist\" workflow"}, so bookings are tagged onebox-booked and nobody is told. ${count ? `${count} one-box booking${count === 1 ? "" : "s"} so far. ` : ""}Fix: build it like Demo (V3) — Contact Tag added "onebox-booked" → Internal Notification SMS to Contact owner → Remove tag onebox-booked → Publish. Then re-add the tag on upcoming bookings so the artist hears about them. Clears itself once published.`,
+      source_key: `onebox-notify:${m.loc}`,
+      meta: { location_id: m.loc, slug: m.slug, draft: m.draft, bookings: count ?? 0, link: `https://app.gohighlevel.com/v2/location/${m.loc}/automation/workflows` },
+      resurfaceAfterDays: 1,
+    });
+    if (ok) filed++;
+  }
+
+  const flagged = new Set(missing.map((m) => `onebox-notify:${m.loc}`));
+  const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "onebox_notify").eq("status", "open");
+  const toClose = (open ?? [])
+    .filter((o) => {
+      const loc = o.source_key.replace(/^onebox-notify:/, "");
+      return !flagged.has(o.source_key) && (checked.has(loc) || !accounts.has(loc)); // fixed, or no longer live
+    })
+    .map((o) => o.id);
+  if (toClose.length) {
+    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (notify workflow published)", resolved_at: new Date().toISOString() }).in("id", toClose);
+  }
+  return { checked: checked.size, filed, resolved: toClose.length };
 }
 
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { scanComplianceSynced, scanComplianceDeep, scanMakeScenarios, scanOnboardingPipeline, scanDuplicateLeads, scanIngestHealth, scanAgreementMissing, scanLeadsWhileNotLive, scanSilentLeads, scanDoubleBookings, scanLiveNoPayDate } from "@/lib/alerts";
+import { scanComplianceSynced, scanComplianceDeep, scanMakeScenarios, scanOnboardingPipeline, scanDuplicateLeads, scanIngestHealth, scanAgreementMissing, scanLeadsWhileNotLive, scanSilentLeads, scanDoubleBookings, scanLiveNoPayDate, scanOneboxNotifyMissing } from "@/lib/alerts";
 
 export const maxDuration = 300;
 
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const svc = createServiceClient();
-  const [synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate] = [
+  const [synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate, oneboxNotify] = [
     await scanComplianceSynced(svc).catch((e) => ({ error: String(e) })),
     await scanComplianceDeep(svc).catch((e) => ({ error: String(e) })),
     await scanMakeScenarios(svc).catch((e) => ({ error: String(e) })),
@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
     await scanSilentLeads(svc).catch((e) => ({ error: String(e) })),
     await scanDoubleBookings(svc).catch((e) => ({ error: String(e) })),
     await scanLiveNoPayDate(svc).catch((e) => ({ error: String(e) })),
+    await scanOneboxNotifyMissing(svc).catch((e) => ({ error: String(e) })),
   ];
-  return NextResponse.json({ timestamp: new Date().toISOString(), synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate });
+  return NextResponse.json({ timestamp: new Date().toISOString(), synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate, oneboxNotify });
 }
