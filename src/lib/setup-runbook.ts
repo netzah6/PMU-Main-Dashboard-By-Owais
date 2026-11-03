@@ -38,6 +38,7 @@ export type RunbookStep = {
   how?: string;              // one line of context shown under the label
   checklist?: string[];      // onboarding checklist keys this step ticks
   later?: boolean;           // not part of the run (re-run from the AI tab later)
+  hidden?: boolean;          // runs by itself, nobody acts on it — not listed on the card unless it fails (owner 11/03/2026)
   optional?: boolean;        // not every client needs it — the card offers "Not needed"
   confirm?: boolean;         // the dashboard can do it, but only after a person clicks Approve on the card
   steps?: string[];          // by-hand breakdown for the team (Facebook), shown on the card
@@ -50,11 +51,11 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 0, key: "account_check", section: "A · 🏢 Account", who: "api", label: "Check the clean account and clean it if needed", how: "Live check before anything is renamed: no leftover contacts (any found are deleted), the template (snapshot) is loaded, A2P is approved, and the dashboard connector can reach the account (leads, chats and deposits sync — automatic, only shown if it fails). The run stops here if any of them is missing." },
   { n: 1, key: "account_take", section: "A · 🏢 Account", who: "api", label: "Take the clean account and rename it to the business name", how: "Only an account still named \"Clean New Account N\" can be taken.", checklist: ["ghl_snapshot"] },
   { n: 2, key: "account_info", section: "A · 🏢 Account", who: "api", label: "Sub-account info: name, email, phone, studio address and time zone", how: "From the client's record. The time zone follows the studio's state (else the phone's area code), so texts and booking times are local.", checklist: ["ghl_info"] },
-  { n: 4, key: "master_row", section: "A · 🏢 Account", who: "api", label: "Clients Master row: status, version, assigned coach, media buyer" },
+  { n: 4, key: "master_row", hidden: true, section: "A · 🏢 Account", who: "api", label: "Clients Master row: status, version, assigned coach, media buyer" },
   // B · Deposit product and payment route
   { n: 6, key: "product", section: "B · 💳 Deposit product & payment route", who: "api", label: "Create the Commas deposit product \"FULL NAME - BUSINESS NAME\" and save the product ID", checklist: ["fanbasis_product"] },
   { n: 7, key: "webhook_url", section: "B · 💳 Deposit product & payment route", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The AI Agent reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
-  { n: 8, key: "route_test", section: "B · 💳 Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
+  { n: 8, key: "route_test", hidden: true, section: "B · 💳 Deposit product & payment route", who: "api", label: "Send one test payment through the route", how: "Test contact and deposit row are deleted afterwards." },
   // C · Phone
   { n: 9, key: "phone_buy", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Pick a local number in the client's area code, check it in Robokiller, buy it, make it the default and delete the previous client's numbers", checklist: ["phone_buy"] },
   { n: 10, key: "phone_a2p", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Confirm A2P is approved (green)", checklist: ["phone_a2p"] },
