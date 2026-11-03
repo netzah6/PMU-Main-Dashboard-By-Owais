@@ -71,37 +71,72 @@ const wordCount = (t: string) => t.trim().split(/\s+/).filter(Boolean).length;
    complaint: a sign-off exists only when the client signed off. The
    client's own habits are measured from their NEW messages so the rule is
    stated as facts, not left to the model's own habit. */
-function clientVibe(thread: ThreadMessage[], agentName: string): string {
-  const inbound = thread.filter((m) => m.direction === "inbound").map((m) => m.body ?? "");
-  const latest = inbound.slice(-3).join("\n").trim();
+/* The client's CURRENT message = everything she sent since our last reply
+   (owner, 11/03/2026: Marie Winfield's 5-paragraph letter was measured
+   together with 3-week-old texts, so her "Hello," greeting was missed). */
+function clientBurst(thread: ThreadMessage[]): string {
+  const msgs = [...thread].sort((a, b) => Date.parse(a.dateAdded ?? "") - Date.parse(b.dateAdded ?? ""));
+  let lastOut = -1;
+  msgs.forEach((m, i) => { if (m.direction === "outbound") lastOut = i; });
+  const burst = msgs.slice(lastOut + 1).filter((m) => m.direction === "inbound").map((m) => (m.body ?? "").trim()).filter(Boolean);
+  if (burst.length) return burst.join("\n");
+  const inbound = msgs.filter((m) => m.direction === "inbound" && (m.body ?? "").trim());
+  return (inbound[inbound.length - 1]?.body ?? "").trim();
+}
+
+/* A careful, letter-style message (several paragraphs, 60+ words): she took
+   time to explain — a three-line text back reads as brushing her off. */
+function letterShape(text: string): { words: number; paras: number } | null {
+  const paras = text.split(/\n\s*\n|\n/).map((l) => l.trim()).filter(Boolean).length;
+  const words = wordCount(text);
+  return words >= 60 && paras >= 3 ? { words, paras } : null;
+}
+
+export function clientVibe(thread: ThreadMessage[], agentName: string): string {
+  const latest = clientBurst(thread);
   if (!latest) return "No client message to mirror — write one short, plain, friendly line.";
   const emojis = [...new Set(latest.match(EMOJI_RE) ?? [])];
   const exclaim = (latest.match(/!/g) ?? []).length;
   const lines = latest.split("\n").map((l) => l.trim()).filter(Boolean);
-  const greeting = /^(hi|hey|hello|good (morning|afternoon|evening))\b/i.test(lines[0] ?? "");
+  const greeting = /^(hi|hey|hello|dear|good (morning|afternoon|evening))\b/i.test(lines[0] ?? "");
   const last = lines[lines.length - 1] ?? "";
   const prev = lines[lines.length - 2] ?? "";
   const signOffWord = /^(thanks?|thank you|regards|best|cheers|sincerely|warmly|talk soon)[,!. ]*/i;
-  const signedOff = signOffWord.test(last) || (signOffWord.test(prev) && wordCount(last) <= 3) || (wordCount(last) <= 2 && /^[A-Z][a-z]+/.test(last) && lines.length >= 2);
-  const formal = /\b(regards|sincerely|dear|kindly|please advise|appreciate your)\b/i.test(latest) && !emojis.length;
+  // A sign-off is a SHORT closing line ("Thanks!", "Regards, Sara") — a long
+  // closing sentence that happens to start "Thank you again…" is not one.
+  const shortLine = (l: string) => wordCount(l) <= 6;
+  const signedOff = (signOffWord.test(last) && shortLine(last)) || (signOffWord.test(prev) && shortLine(prev) && wordCount(last) <= 3) || (wordCount(last) <= 2 && /^[A-Z][a-z]+/.test(last) && lines.length >= 2);
+  const warmClose = !signedOff && lines.length >= 3 && /\b(thank|thanks|appreciate|grateful|hope|hopeful|looking forward)\b/i.test(last);
+  const letter = letterShape(latest);
+  const formal = !emojis.length && (letter !== null
+    || /\b(regards|sincerely|dear|kindly|please advise|appreciate your|genuinely|at this point|moving forward|regroup|I would love to)\b/i.test(latest)
+    || /^(hello|dear)\b[^\n]*,\s*$/i.test(lines[0] ?? ""));
   const parts: string[] = [];
   parts.push(emojis.length
     ? `EMOJIS: the client used ${emojis.join(" ")} — match that energy with a similar amount of emojis (${emojis.join(" ")} or close in spirit). Not more than they did.`
     : "EMOJIS: the client used none — use none.");
   parts.push(exclaim >= 2 ? "ENERGY: excited (several '!') — be warm and upbeat, '!' is fine." : exclaim === 1 ? "ENERGY: friendly — at most one '!'." : "ENERGY: calm — no exclamation marks.");
-  parts.push(formal ? "REGISTER: formal and polite — full sentences, no slang, no emojis." : "REGISTER: casual, texty, like a peer.");
-  parts.push(greeting ? `GREETING: they opened with a greeting line ("${lines[0].slice(0, 40)}") — open with a greeting line to them, with their first name.` : "GREETING: they opened without a greeting — do the same, start straight in.");
+  parts.push(formal ? "REGISTER: polite and composed — full sentences, no slang (no \"Totally\", \"Got it\"), no emojis. Warm, but written like a considered reply, not a quick text." : "REGISTER: casual, texty, like a peer.");
+  parts.push(greeting ? `GREETING: they opened with a greeting line ("${lines[0].slice(0, 40)}") — open with a greeting line to them, with their first name (e.g. "Hi ${"{first name}"},").` : "GREETING: they opened without a greeting — do the same, start straight in.");
   parts.push(signedOff
     ? `SIGN-OFF: they closed with a sign-off ("${prev && signOffWord.test(prev) ? prev : last}"${signOffWord.test(prev) ? ` / "${last}"` : ""}) — close the same way: the same kind of closing word, then "${agentName.split(" ")[0]}" on its own line.`
+    : warmClose
+    ? `SIGN-OFF: they ended with a warm closing sentence but no name — end with one warm closing sentence of your own (thanks / looking forward), and NO name at the end. Never add "${agentName.split(" ")[0]}" on its own.`
     : `SIGN-OFF: they did NOT sign off — NO closing line and NO name at the end. Never add "${agentName.split(" ")[0]}" on its own.`);
-  parts.push(lines.length >= 3 ? `LAYOUT: ${lines.length} short lines/paragraphs — answer in the same shape and order.` : lines.length === 2 ? "LAYOUT: two short parts — reply in two short parts." : "LAYOUT: one line — reply in one line.");
+  parts.push(letter
+    ? `LAYOUT: a careful, letter-style message — ${letter.paras} paragraphs, about ${letter.words} words. Reply as a short letter: the greeting line, then one short paragraph for each of her points IN HER ORDER (thank her for what she thanked you for; acknowledge her reason in her own terms, e.g. results, client quality, spend; confirm her plan back with her exact details — dates, amounts like a daily budget, goals; then your warm close). Every point she raised gets a sentence back.`
+    : lines.length >= 3 ? `LAYOUT: ${lines.length} short lines/paragraphs — answer in the same shape and order.` : lines.length === 2 ? "LAYOUT: two short parts — reply in two short parts." : "LAYOUT: one line — reply in one line.");
   return parts.join(" ");
 }
 
 /* Same idea for length (live test 2026-10-01: a client with five questions
    got a five-point numbered essay; Nicolas texts a line or two). The limit
    is measured from his real replies, not guessed. */
-function lengthRule(agentName: string, samples: string[]): string {
+function lengthRule(agentName: string, samples: string[], clientText = ""): string {
+  // A letter gets a proportionate answer (owner, 11/03/2026: Marie's five
+  // paragraphs got three short lines back).
+  const letter = letterShape(clientText);
+  if (letter) return `the client wrote a careful ${letter.paras}-paragraph message (about ${letter.words} words). Answer in about ${Math.round(letter.words * 0.5)} words (never over ${Math.round(letter.words * 0.75)}), covering each of her points — this overrides ${agentName}'s usual short-text length. Still no filler, no lists, no new promises.`;
   if (samples.length < 5) return "Keep it to 1–2 short sentences, like a text message. No lists.";
   const w = samples.map(wordCount).sort((a, b) => a - b);
   const median = w[Math.floor(w.length / 2)];
@@ -228,7 +263,7 @@ function buildSystemPrompt(input: DraftInput): string {
       ? "6. LENGTH — this is a REVISION of an earlier draft: keep every point the earlier notes asked for and every sentence the change doesn't touch. It may be longer than usual; still no filler."
       : input.winback && input.winback.stage !== "declined"
       ? `6. LENGTH — this reply carries the offer: 2–5 short lines, under ${input.winback.offer === "pps" && (input.winback.price || input.winback.stage !== "opener_answered") ? 100 : 70} words, no lists. Still a text message, not an email.`
-      : `6. LENGTH — ${lengthRule(agentName, voiceSamples)}`,
+      : `6. LENGTH — ${lengthRule(agentName, voiceSamples, clientBurst(input.thread))}`,
     // Owner, 2026-10-08 (Sara's "Hi Nicholas! … Thank you so much, Sara"
     // message got a flat text back): the reply must LOOK like the client's
     // message, not just answer it.
