@@ -21,12 +21,12 @@ export async function POST(req: NextRequest) {
   if ((req.headers.get("content-type") ?? "").includes("application/json")) {
     const body = (await req.json().catch(() => ({}))) as { video?: boolean; name?: string };
     if (!body.video) return NextResponse.json({ error: "No file" }, { status: 400 });
-    const ext = (String(body.name ?? "").match(/\.(mp4|mov|m4v|webm)$/i)?.[1] ?? "mp4").toLowerCase();
+    const ext = (String(body.name ?? "").match(/\.(mp4|mov|m4v|webm|3gp|avi|hevc)$/i)?.[1] ?? "mp4").toLowerCase();
     const path = `videos/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}.${ext}`;
     const svc = createServiceClient();
     const { data, error } = await svc.storage.from("onboarding").createSignedUploadUrl(path);
     if (error || !data) return NextResponse.json({ error: error?.message ?? "Could not start the upload" }, { status: 500 });
-    return NextResponse.json({ path, token: data.token, url: svc.storage.from("onboarding").getPublicUrl(path).data.publicUrl });
+    return NextResponse.json({ path, token: data.token, signedUrl: data.signedUrl, url: svc.storage.from("onboarding").getPublicUrl(path).data.publicUrl });
   }
 
   const form = await req.formData().catch(() => null);
