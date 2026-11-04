@@ -586,7 +586,10 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     const cfg = (await refreshOneboxConfig(svc, slug, row.location_id as string, justWritten)) ?? { ...((row.config ?? {}) as Record<string, string>), ...Object.fromEntries(Object.entries(ONEBOX_EDITABLE_CVS).filter(([, n]) => n in justWritten).map(([k, n]) => [k, justWritten[n]])) };
     const failed = entries.filter((e) => !writtenNames.has(e.name) && !e.noCreate).map((e) => e.name);
     warmFunnel(slug);
-    return NextResponse.json({ ok: true, written: res.written.length, failed, config: cfg });
+    return NextResponse.json({
+      ok: true, written: res.written.length, failed, config: cfg,
+      frozenNote: row.frozen_engine != null ? "Saved in GHL, but this funnel is frozen: the page keeps the old value until it's taken on the Freeze screen." : undefined,
+    });
   }
 
   /* Start Setup step 5 — live check that the ad link now lands on this

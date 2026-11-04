@@ -3,12 +3,14 @@
 -- to production.
 --   onebox_clients.frozen_engine  the engine version this funnel stays on (null = not frozen)
 --   onebox_clients.frozen_at      since when
+--   onebox_clients.frozen_page    everything visitors saw at the click (config, FAQs, checkout block)
 --   onebox_engine_copies          saved engine files, one per version, written on the first freeze
 --   funnel_freeze                 suggestion + freeze history for the Freeze screen
 
 alter table public.onebox_clients
   add column if not exists frozen_engine integer,
-  add column if not exists frozen_at timestamptz;
+  add column if not exists frozen_at timestamptz,
+  add column if not exists frozen_page jsonb;
 
 create table if not exists public.onebox_engine_copies (
   version integer primary key,

@@ -1,15 +1,14 @@
-// Funnel freeze (owner, 11/04/2026): one click keeps a client's survey, booking
-// and deposit pages on today's design and built-in wording, one click undoes it.
-// A frozen funnel loads a saved copy of the engine (onebox_clients.frozen_engine),
-// never enters a split test and ignores the (V1) label.
+// Funnel freeze (owner, 11/04/2026): one click locks everything a visitor sees on
+// a client's survey, booking and deposit pages, one click undoes it. A frozen
+// funnel loads a saved copy of the engine (onebox_clients.frozen_engine) and a
+// snapshot of its page (frozen_page, see onebox-page.ts), never enters a split
+// test and ignores the (V1) label.
 //
-// What it doesn't lock: what's set for that client (custom values: survey
-// questions, photos, logo, offers, prices), the default FAQs and checkout block
-// built in the funnel route, Instagram, reviews, open times. So:
-//  - every /api/onebox/* route the saved engine calls has to keep accepting what
-//    it sends, because that engine keeps running;
-//  - any fleet-wide rollout to funnel pages outside the engine (custom values,
-//    FAQs, the route's HTML) has to skip funnels with frozen_engine set.
+// Stays live, because booking and payment break otherwise: open times, calendar,
+// checkout, deposit amount, pixel. Can't be frozen: the AI, texts, ads.
+//
+// Every /api/onebox/* route the saved engine calls has to keep accepting what it
+// sends, because that engine keeps running.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -96,7 +95,9 @@ export function hasFallen(row: FreezeStatRow): boolean {
   return before != null && now != null && row.before_leads >= 40 && row.leads30 >= 40 && before >= 5 && now <= before / 2;
 }
 
-export type HistoryEntry = { action: "freeze" | "unfreeze" | "decline" | "undecline"; at: string; by: string | null; engine?: number; leads?: number | null; deposits?: number | null };
+export type HistoryEntry = { action: "freeze" | "unfreeze" | "decline" | "undecline" | "accept"; at: string; by: string | null; engine?: number; leads?: number | null; deposits?: number | null; keys?: string[] };
+
+export type DriftItem = { key: string; label: string; from?: string; to?: string };
 
 export type BoardRow = {
   slug: string;
@@ -116,6 +117,7 @@ export type BoardRow = {
   suggested: { at: string; l: number | null; d: number | null } | null;
   declined: { at: string; note: string | null } | null;
   frozen: { engine: number; at: string | null; by: string | null; l: number | null; d: number | null } | null;
+  drift: DriftItem[];
   history: HistoryEntry[];
 };
 

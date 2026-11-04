@@ -56,11 +56,13 @@ export async function POST(req: NextRequest) {
   const sb = createServiceClient();
   const { data: row, error } = await sb
     .from("onebox_clients")
-    .select("slug, extras")
+    .select("slug, extras, frozen_engine")
     .eq("slug", slug)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!row) return NextResponse.json({ error: "Client not found" }, { status: 404 });
+  /* The page shows the pictures saved at the freeze, so a change here would do nothing visible. */
+  if (row.frozen_engine != null) return NextResponse.json({ error: "This funnel is frozen, so its pictures stay as they are. Unfreeze it first on the Freeze screen." }, { status: 409 });
 
   let extras = { ...((row.extras ?? {}) as Record<string, unknown>) } as Record<string, unknown> & { igFeed?: IgFeed; igPicks?: IgPicks };
   if (action === "refresh") {
