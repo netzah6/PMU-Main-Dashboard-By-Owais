@@ -84,8 +84,8 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 30, key: "funnel_live", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Check no client value is empty, then go live", how: "Stops red with the list of empty values (deposit, address, product ID, webhook, calendar ID… prices for V3 only) instead of going live with holes." },
   // H · Last check — the funnel test is the AI Agent's LAST step (owner
   // 10/20/2026); once it passes the team sends the client the logins.
-  { n: 31, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", checklist: ["last_profile"] },
-  { n: 32, key: "last_check", section: "H · ✅ Last check", who: "api", label: "Final check: the dashboard re-reads the live account and funnel (custom values, Commas product, calendar, sync) and lists anything still off", how: "The same report as the \"Verify setup\" button, run by itself at the end. Anything still off stops the run here (red) until it is fixed and retried — the funnel test only runs on a clean account." },
+  { n: 31, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing. Then the dashboard's own check re-reads the live account and funnel and lists anything still off", checklist: ["last_profile"] },
+  { n: 32, key: "last_check", hidden: true, partOf: "last_profile", section: "H · ✅ Last check", who: "api", label: "Final check: the dashboard re-reads the live account and funnel (custom values, Commas product, calendar, sync) and lists anything still off", how: "The same report as the \"Verify setup\" button, run by itself at the end. Anything still off stops the run here (red) until it is fixed and retried — the funnel test only runs on a clean account." },
   // Owner 10/22/2026: the coach tests the funnel by hand (with our demo number) and marks it completed; First Cycle is the coach's click too.
   { n: 33, key: "funnel_test", section: "H · ✅ Last check", who: "team", label: "Test the funnel yourself as a lead, then mark it completed", how: "The last check before the client gets the logins.", checklist: ["fin_test"],
     steps: [`Open the funnel and fill the survey as a lead with our demo number ${TEST_LEAD_PHONE} — pick a time slot, reach the deposit page (do NOT pay)`, `In the client's GHL contacts find the test contact: tag "onebox-survey", first AI text sent within ~2 minutes`, `In the demo sub-account's conversations confirm the text arrived; reply "Yes" and check the client's AI answers`, `Delete the test contact in the client's account, then click "Mark completed"`] },
@@ -123,7 +123,7 @@ const STEP_TITLES: Record<string, string> = {
   cal_hours: "Calendar team, location & hours", cal_active: "Calendar on",
   funnel_create: "Set up the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
-  last_profile: "Profile check", last_check: "Final check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
+  last_profile: "Final check, real test", last_check: "Account & funnel re-check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
   fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
 };
 for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
