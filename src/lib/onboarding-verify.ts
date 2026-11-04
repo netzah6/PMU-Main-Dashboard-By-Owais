@@ -553,7 +553,7 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     const cal = await ghlGet(`${BASE}/calendars/?locationId=${locationId}`, locTok);
     const cals = (cal.json.calendars as Array<Record<string, unknown>> | undefined) ?? [];
     if (!cals.length) {
-      for (const k of ["cal_team", "cal_location", "cal_lookbusy", "cal_availability"]) push(k, "fail", "No calendar found on the sub-account");
+      for (const k of ["cal_team", "cal_location", "cal_availability"]) push(k, "fail", "No calendar found on the sub-account");
     } else {
       // Prefer the active calendar; else the first.
       const c = cals.find((x) => x.isActive) ?? cals[0];
@@ -595,13 +595,6 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
         else if (/^https?:/i.test(cvVal)) push("cal_id_cv", "fail", `The custom value contains a LINK, not a calendar ID${cvExpected ? ` — replace it with: ${cvExpected}` : ""}`);
         else push("cal_id_cv", "fail", `Value "${cvVal.slice(0, 40)}" doesn't match any calendar on this sub-account${cvExpected ? ` — should be: ${cvExpected}` : ""}`);
       }
-
-      const lb = (c.lookBusyConfig as Record<string, unknown> | undefined) ?? {};
-      const lbOn = !!lb.enabled;
-      const lbPct = Number(lb.lookBusyPercentage ?? 0);
-      // Owner, 10/28/2026: Look Busy must be OFF — the one-box shows at most
-      // 3 times a day itself; Look Busy only hides more real openings.
-      push("cal_lookbusy", lbOn ? "fail" : "pass", lbOn ? `Look Busy is ON at ${lbPct}% (should be off)` : "Look Busy is off");
 
       // Calendar ↔ user connection: every selected team member must be a real
       // sub-account user (proves the user is wired into the calendar settings).
