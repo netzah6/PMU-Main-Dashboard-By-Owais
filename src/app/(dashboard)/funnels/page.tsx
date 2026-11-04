@@ -1772,6 +1772,11 @@ export default function FunnelsPage() {
             👁 <span className="hidden sm:inline">Booking pages</span>
           </a>
           {isAdmin && (
+            <a href="/funnels/timeline" title="Every funnel's saved pages and rates, with one click to go back" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
+              🕒 <span className="hidden sm:inline">Timeline</span>
+            </a>
+          )}
+          {isAdmin && (
             <a href="/funnels/freeze" title="See every funnel's stats and freeze a client's page" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
               🧊 <span className="hidden sm:inline">Freeze</span>
             </a>
