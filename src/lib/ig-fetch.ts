@@ -416,7 +416,8 @@ export async function refreshHeader(svc: SupabaseClient, slug: string, igLink: s
    only — the Mac Mini's weekly ig_snapshots rows don't count). Never-tried
    first, then the longest ago. */
 export async function dueFunnels(svc: SupabaseClient, limit: number, minAgeDays = REFRESH_DAYS): Promise<Array<{ slug: string; igLink: string; username: string }>> {
-  const { data: clients } = await svc.from("onebox_clients").select("slug, config, extras").eq("status", "live");
+  /* A frozen funnel keeps its saved pictures, so fetching new ones is money for nothing. */
+  const { data: clients } = await svc.from("onebox_clients").select("slug, config, extras").eq("status", "live").is("frozen_engine", null);
   const cutoff = new Date(Date.now() - minAgeDays * 86400_000).toISOString();
   return (clients ?? [])
     .map((c) => {

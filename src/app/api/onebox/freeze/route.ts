@@ -5,12 +5,15 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { fetchProgramRows, findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { ONEBOX_ENGINE_V, liveEngineSrc } from "@/lib/onebox-engine";
 import { warmFunnel } from "@/lib/onebox-warm";
+import { acceptFrozenDrift, frozenDrift, snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
 import { checkRule, hasFallen, monthKey, monthLabel, type Board, type BoardRow, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
 
 // The Freeze screen (/funnels/freeze), admins only.
 //   GET                                   every funnel: stats, suggestion, frozen state
 //   POST {slug, action:"freeze"}          keep this funnel on today's page
 //   POST {slug, action:"unfreeze"}        back on the live page
+//   POST {slug, action:"accept"}          take values edited since the freeze onto the frozen page
+//   POST {slug, action:"restore"}         put back the page kept until the last Unfreeze
 //   POST {slug, action:"decline"}         stop suggesting it
 //   POST {slug, action:"undecline"}       suggest it again
 export const dynamic = "force-dynamic";
@@ -28,6 +31,7 @@ type FreezeRow = {
   frozen_leads: number | null;
   frozen_deposits: number | null;
   history: HistoryEntry[] | null;
+  last_frozen: { engine: number; at: string | null; by: string | null; leads: number | null; deposits: number | null; page: FrozenPage | null } | null;
 };
 
 const INTERNAL = new Set(["demo-v3", "pmu-bookings", "pps"]);
@@ -51,14 +55,16 @@ export async function GET() {
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "stats failed" }, { status: 500 });
   }
-  const [{ data: freezeRows, error: freezeError }, programs] = await Promise.all([
+  const [{ data: freezeRows, error: freezeError }, { data: frozenClients, error: frozenError }, programs] = await Promise.all([
     svc.from("funnel_freeze").select("*"),
+    svc.from("onebox_clients").select("slug, config, frozen_page").not("frozen_engine", "is", null),
     fetchProgramRows(svc),
   ]);
   /* Never fall through on a failed read: the writes below would take every
      funnel for new and overwrite the saved "when suggested" numbers. */
-  if (freezeError) return NextResponse.json({ error: freezeError.message }, { status: 500 });
+  if (freezeError || frozenError) return NextResponse.json({ error: (freezeError ?? frozenError)?.message }, { status: 500 });
   const bySlug = new Map(((freezeRows ?? []) as FreezeRow[]).map((r) => [r.slug, r]));
+  const driftBySlug = new Map(((frozenClients ?? []) as unknown as OneboxRow[]).map((c) => [c.slug, frozenDrift(c)]));
   const now = new Date();
   const monthKeys = Array.from({ length: MONTHS_SHOWN }, (_, i) => monthKey(now, MONTHS_SHOWN - 1 - i));
 
@@ -100,6 +106,8 @@ export async function GET() {
         frozen: s.frozen_engine != null
           ? { engine: s.frozen_engine, at: s.frozen_at, by: f?.frozen_by ?? null, l: f?.frozen_leads ?? null, d: f?.frozen_deposits ?? null }
           : null,
+        drift: driftBySlug.get(s.slug) ?? [],
+        restorable: s.frozen_engine == null && f?.last_frozen?.page ? { at: f.last_frozen.at } : null,
         history: f?.history ?? [],
       };
     });
@@ -144,13 +152,12 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { slug?: unknown; action?: unknown } | null;
   const slug = typeof body?.slug === "string" ? body.slug.trim() : "";
   const action = body?.action;
-  if (!slug || (action !== "freeze" && action !== "unfreeze" && action !== "decline" && action !== "undecline")) {
-    return NextResponse.json({ error: "slug and action (freeze|unfreeze|decline|undecline) required" }, { status: 400 });
+  if (!slug || (action !== "freeze" && action !== "unfreeze" && action !== "decline" && action !== "undecline" && action !== "accept" && action !== "restore")) {
+    return NextResponse.json({ error: "slug and action (freeze|unfreeze|decline|undecline|accept|restore) required" }, { status: 400 });
   }
 
   const svc = createServiceClient();
-  const { data: client } = await svc.from("onebox_clients")
-    .select("slug, client_name, extras, frozen_engine, frozen_at").eq("slug", slug).maybeSingle();
+  const { data: client } = await svc.from("onebox_clients").select("*").eq("slug", slug).maybeSingle();
   if (!client) return NextResponse.json({ error: "Unknown funnel" }, { status: 404 });
   const { data: priorRow, error: priorError } = await svc.from("funnel_freeze").select("*").eq("slug", slug).maybeSingle();
   /* A failed read here would rewrite the history as empty. */
@@ -174,25 +181,46 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, declined: declined ? { at, note: null } : null });
   }
 
-  if (action === "unfreeze") {
-    if (client.frozen_engine == null) return NextResponse.json({ ok: true, frozen: null });
-    const { error } = await svc.from("onebox_clients").update({ frozen_engine: null, frozen_at: null }).eq("slug", slug);
+  if (action === "accept") {
+    const row = client as OneboxRow;
+    const changes = frozenDrift(row);
+    if (!changes.length) return NextResponse.json({ ok: true, drift: [] });
+    const next = acceptFrozenDrift(row);
+    if (!next) return NextResponse.json({ error: "This funnel isn't frozen." }, { status: 409 });
+    const { error } = await svc.from("onebox_clients").update({ frozen_page: next }).eq("slug", slug);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const { error: recordError } = await svc.from("funnel_freeze").upsert({ slug, history: [...history, { action, at, by, changes }], updated_at: at }, { onConflict: "slug" });
+    warmFunnel(slug);
+    return NextResponse.json({ ok: true, drift: [], warning: recordError ? RECORD_WARNING : undefined });
+  }
+
+  if (action === "unfreeze") {
+    if (client.frozen_engine == null) {
+      return NextResponse.json({ ok: true, frozen: null, restorable: prior?.last_frozen?.page ? { at: prior.last_frozen.at } : null });
+    }
+    /* One click undoes it, so the page it was keeping is saved first: if that
+       fails, nothing changes. */
     const { error: recordError } = await svc.from("funnel_freeze").upsert({
       slug,
       frozen_by: null,
       frozen_leads: null,
       frozen_deposits: null,
+      last_frozen: { engine: client.frozen_engine, at: client.frozen_at, by: prior?.frozen_by ?? null, leads: prior?.frozen_leads ?? null, deposits: prior?.frozen_deposits ?? null, page: client.frozen_page },
       history: [...history, { action, at, by, engine: client.frozen_engine }],
       updated_at: at,
     }, { onConflict: "slug" });
+    if (recordError) return NextResponse.json({ error: "Couldn't save the frozen page, so nothing changed. Try again." }, { status: 500 });
+    const { error } = await svc.from("onebox_clients").update({ frozen_engine: null, frozen_at: null, frozen_page: null }).eq("slug", slug);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     warmFunnel(slug);
-    return NextResponse.json({ ok: true, frozen: null, warning: recordError ? RECORD_WARNING : undefined });
+    return NextResponse.json({ ok: true, frozen: null, restorable: client.frozen_page ? { at: client.frozen_at } : null });
   }
 
-  // Freeze.
+  // Freeze or restore.
   if (client.frozen_engine != null) {
-    return NextResponse.json({ ok: true, frozen: { engine: client.frozen_engine, at: client.frozen_at, by: prior?.frozen_by ?? null, l: prior?.frozen_leads ?? null, d: prior?.frozen_deposits ?? null } });
+    /* Frozen before snapshots existed: the page gets locked now. */
+    if (!client.frozen_page) await svc.from("onebox_clients").update({ frozen_page: snapshotFunnelPage(client as OneboxRow) }).eq("slug", slug);
+    return NextResponse.json({ ok: true, frozen: { engine: client.frozen_engine, at: client.frozen_at, by: prior?.frozen_by ?? null, l: prior?.frozen_leads ?? null, d: prior?.frozen_deposits ?? null }, drift: frozenDrift(client as OneboxRow) });
   }
   if ((client.extras as { template?: string } | null)?.template === "b2b" || INTERNAL.has(slug)) {
     return NextResponse.json({ error: "Only client funnels can be frozen." }, { status: 400 });
@@ -210,6 +238,30 @@ export async function POST(req: NextRequest) {
   if (running?.length) {
     return NextResponse.json({ error: `A split test is running on this funnel (${running[0].name}). End it first.` }, { status: 409 });
   }
+  if (action === "restore") {
+    const last = prior?.last_frozen;
+    if (!last?.page) return NextResponse.json({ error: "There's no saved page to restore." }, { status: 409 });
+    const { error } = await svc.from("onebox_clients").update({ frozen_engine: last.engine, frozen_at: last.at, frozen_page: last.page }).eq("slug", slug);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const { error: recordError } = await svc.from("funnel_freeze").upsert({
+      slug,
+      frozen_by: last.by,
+      frozen_leads: last.leads,
+      frozen_deposits: last.deposits,
+      last_frozen: null,
+      history: [...history, { action, at, by, engine: last.engine }],
+      updated_at: at,
+    }, { onConflict: "slug" });
+    warmFunnel(slug);
+    return NextResponse.json({
+      ok: true,
+      frozen: { engine: last.engine, at: last.at, by: last.by, l: last.leads, d: last.deposits },
+      drift: frozenDrift({ ...(client as OneboxRow), frozen_page: last.page }),
+      restorable: null,
+      warning: recordError ? RECORD_WARNING : undefined,
+    });
+  }
+
   const copyError = await ensureEngineCopy(svc, req.nextUrl.origin);
   if (copyError) return NextResponse.json({ error: copyError }, { status: 502 });
 
@@ -222,16 +274,18 @@ export async function POST(req: NextRequest) {
     if (row) { leads = row.leads30; deposits = row.deposits30; }
   } catch { /* see above */ }
 
-  const { error } = await svc.from("onebox_clients").update({ frozen_engine: ONEBOX_ENGINE_V, frozen_at: at }).eq("slug", slug);
+  /* One write: the engine and the page it shows freeze together. */
+  const { error } = await svc.from("onebox_clients").update({ frozen_engine: ONEBOX_ENGINE_V, frozen_at: at, frozen_page: snapshotFunnelPage(client as OneboxRow) }).eq("slug", slug);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const { error: recordError } = await svc.from("funnel_freeze").upsert({
     slug,
     frozen_by: by,
     frozen_leads: leads,
     frozen_deposits: deposits,
+    last_frozen: null,
     history: [...history, { action, at, by, engine: ONEBOX_ENGINE_V, leads, deposits }],
     updated_at: at,
   }, { onConflict: "slug" });
   warmFunnel(slug);
-  return NextResponse.json({ ok: true, frozen: { engine: ONEBOX_ENGINE_V, at, by, l: leads, d: deposits }, warning: recordError ? RECORD_WARNING : undefined });
+  return NextResponse.json({ ok: true, frozen: { engine: ONEBOX_ENGINE_V, at, by, l: leads, d: deposits }, drift: [], restorable: null, warning: recordError ? RECORD_WARNING : undefined });
 }

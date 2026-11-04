@@ -8,16 +8,16 @@ import { laMonth, pct, monthLabel, RULE, type Board, type BoardRow } from "@/lib
 import { ChevronDown, ExternalLink, Loader2, Search } from "lucide-react";
 
 /* Every funnel's deposit rate, my suggestion to freeze it, how the pages look,
-   and one click to freeze or unfreeze (owner, 11/04/2026). A freeze keeps the
-   survey, booking and deposit pages on that day's design and built-in wording;
-   see src/lib/funnel-freeze.ts. */
+   and one click to freeze or unfreeze (owner, 11/04/2026). A freeze locks what
+   visitors see on the survey, booking and deposit pages; see
+   src/lib/funnel-freeze.ts. */
 
 const BASE = "https://book.pmu-care.com";
 const PAGE = 30;
 /* Under this many leads a month's % says nothing, so it isn't printed. */
 const THIN_MONTH = 20;
 type Filter = "all" | "suggested" | "frozen" | "V3" | "V2.3";
-type Action = "freeze" | "unfreeze" | "decline" | "undecline";
+type Action = "freeze" | "unfreeze" | "decline" | "undecline" | "accept" | "restore";
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "";
@@ -79,9 +79,10 @@ function pagesFor(r: BoardRow) {
   return out;
 }
 
-function PagePreviews({ row, stamp }: { row: BoardRow; stamp: number }) {
-  /* The version in the address, so a just-unfrozen funnel isn't served its old copy. */
-  const fz = row.frozen?.engine ?? 0;
+function PagePreviews({ row, stamp, rev }: { row: BoardRow; stamp: number; rev: number }) {
+  /* The version and edit count in the address, so a funnel just unfrozen or
+     updated isn't served its old copy. */
+  const fz = `${row.frozen?.engine ?? 0}.${rev}`;
   return (
     <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
       {pagesFor(row).map((p) => (
@@ -114,6 +115,7 @@ export default function FreezePage() {
      jumped away on Freeze would put the next client's button under your finger. */
   const [order, setOrder] = useState<Map<string, number>>(new Map());
   const [touched, setTouched] = useState<Set<string>>(new Set());
+  const [previewRev, setPreviewRev] = useState<Record<string, number>>({});
   const [stamp] = useState(() => Date.now());
 
   useEffect(() => {
@@ -162,12 +164,15 @@ export default function FreezePage() {
       const j = await res.json();
       if (!res.ok) { setRowNote((n) => ({ ...n, [slug]: j.error ?? "That didn't work" })); return; }
       if (j.warning) setRowNote((n) => ({ ...n, [slug]: j.warning }));
+      setPreviewRev((v) => ({ ...v, [slug]: (v[slug] ?? 0) + 1 }));
       setTouched((t) => new Set(t).add(slug));
       setBoard((b) => b && {
         ...b,
         rows: b.rows.map((r) => r.slug !== slug ? r : {
           ...r,
-          ...(action === "freeze" || action === "unfreeze" ? { frozen: j.frozen ?? null } : { declined: j.declined ?? null }),
+          ...(action === "decline" || action === "undecline" ? { declined: j.declined ?? null }
+            : action === "accept" ? { drift: [] }
+            : { frozen: j.frozen ?? null, drift: j.drift ?? [], restorable: j.restorable ?? null }),
         }),
       });
     } catch {
@@ -186,8 +191,8 @@ export default function FreezePage() {
         <Link href="/funnels" className="text-sm text-[#0e9c9c] hover:underline">← Funnels</Link>
         <h1 className="text-base sm:text-lg font-semibold text-[#1c2b3a]">🧊 Freeze a funnel</h1>
       </div>
-      <p className="text-sm text-[#34568a] mb-1">Freeze locks a client&apos;s survey, calendar and deposit pages: design, layout and built-in wording. New page changes and split tests skip them. Click again to undo.</p>
-      <p className="text-xs text-[#697a91] mb-3">Still changes: what&apos;s set for this client (survey questions, FAQs, photos, logo, offers, prices, open times), Instagram pictures, Google reviews, the AI, checkout, ads. % = deposits per 100 leads.</p>
+      <p className="text-sm text-[#34568a] mb-1">Freeze locks everything visitors see on a client&apos;s survey, calendar and deposit pages: design, wording, questions, FAQs, photos, logo, offer, Instagram, reviews. New page changes and split tests skip them. Click again to undo.</p>
+      <p className="text-xs text-[#697a91] mb-3">Stays live so booking and payment keep working: open times, calendar, checkout, deposit amount, free booking, video mode, phone, address, Meta pixel. Can&apos;t be frozen: the AI, texts, ads. % = deposits per 100 leads.</p>
 
       {board && (
         <details className="text-xs text-[#697a91] mb-3">
@@ -275,6 +280,15 @@ export default function FreezePage() {
               {r.payLinkElsewhere && <p className="mt-2 text-xs text-[#b45309]">⚠ The AI&apos;s deposit link goes to an old GHL page, which a freeze doesn&apos;t cover.</p>}
               {v1Label && <p className="mt-2 text-xs text-[#b45309]">⚠ {r.frozen ? "The label says (V1), but the freeze keeps the calendar and deposit pages. Unfreeze if the label is right." : "On (V1): survey only, so it can't be frozen. If the label is wrong, fix it first; that also changes the live page."}</p>}
               {r.frozen && r.frozen.engine !== board?.engine && <p className="mt-2 text-xs text-[#697a91]">Staying on page version {r.frozen.engine}. Other clients are on {board?.engine}.</p>}
+              {r.frozen && r.drift.length > 0 && (
+                <div className="mt-2 text-xs text-[#b45309]">
+                  <p>⚠ Changed in GHL since the freeze, so the page and the AI can disagree: {r.drift.map((x) => x.to !== undefined ? `${x.label} (page: ${x.from || "empty"}, GHL: ${x.to || "empty"})` : x.label).join("; ")}.</p>
+                  <button type="button" disabled={!!rowBusy} onClick={() => void act(r.slug, "accept")}
+                    className="mt-1 inline-flex items-center gap-1.5 font-semibold rounded-lg border border-[#f0c48a] bg-white text-[#b45309] px-2.5 py-1 hover:bg-[#fff7ed] disabled:opacity-60">
+                    {rowBusy === "accept" && <Loader2 className="w-3 h-3 animate-spin" />}{rowBusy === "accept" ? "Updating…" : "Use the new values on the page"}
+                  </button>
+                </div>
+              )}
               {rowNote[r.slug] && <p className="mt-2 text-xs text-[#b91c1c]">{rowNote[r.slug]}</p>}
 
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -298,6 +312,12 @@ export default function FreezePage() {
                     {rowBusy === "decline" && <Loader2 className="w-3 h-3 animate-spin" />}Don&apos;t suggest
                   </button>
                 )}
+                {r.restorable && !r.frozen && (
+                  <button type="button" disabled={!!rowBusy} onClick={() => void act(r.slug, "restore")}
+                    className="inline-flex items-center gap-1.5 text-sm rounded-lg border border-[#bfdbfe] bg-[#eef6ff] text-[#1d4ed8] px-3 py-1.5 hover:bg-[#e0efff] disabled:opacity-60">
+                    {rowBusy === "restore" && <Loader2 className="w-4 h-4 animate-spin" />}↩ Put back the page frozen {fmtDate(r.restorable.at)}
+                  </button>
+                )}
                 {r.declined && !r.frozen && (
                   <button type="button" disabled={!!rowBusy} onClick={() => void act(r.slug, "undecline")} className="inline-flex items-center gap-1 text-xs text-[#697a91] hover:underline disabled:opacity-60">
                     {rowBusy === "undecline" && <Loader2 className="w-3 h-3 animate-spin" />}Suggest again
@@ -305,7 +325,7 @@ export default function FreezePage() {
                 )}
               </div>
 
-              {open === r.slug && <PagePreviews row={r} stamp={stamp} />}
+              {open === r.slug && <PagePreviews row={r} stamp={stamp} rev={previewRev[r.slug] ?? 0} />}
             </div>
           );
         })}
