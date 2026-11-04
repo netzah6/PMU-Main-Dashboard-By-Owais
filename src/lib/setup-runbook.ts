@@ -39,6 +39,7 @@ export type RunbookStep = {
   checklist?: string[];      // onboarding checklist keys this step ticks
   later?: boolean;           // not part of the run (re-run from the AI tab later)
   hidden?: boolean;          // runs by itself, nobody acts on it — not listed on the card unless it fails (owner 11/03/2026)
+  partOf?: string;           // shown inside another step's row: one row, one video, this step's status and buttons appear there while it is the open one (owner 11/04/2026: the one-box)
   choice?: boolean;          // the coach only decides yes/no, with a tickbox at Approve (owner 11/03/2026: the Instagram grid)
   optional?: boolean;        // not every client needs it — the card offers "Not needed"
   confirm?: boolean;         // the dashboard can do it, but only after a person clicks Approve on the card
@@ -74,13 +75,13 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 22, key: "cal_hours", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}}); hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself. Hours are browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_team", "cal_location", "cal_availability"] },
   { n: 24, key: "cal_active", section: "F · 📅 Calendar", who: "api", label: "Switch the calendar on and confirm open time slots load", how: "The snapshot ships the calendar switched off (Sudbury Med Spa, 10/21/2026: the funnel's time picker could not load). The dashboard turns it on via the API and asks GHL for the next 14 days of slots; stops red if none load." },
   // G · Funnel
-  { n: 26, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Fill the client's details and create the one-box funnel at book.pmu-care.com/<slug> — this saves the sub-account custom values, the calendar ID and \"CC - Deposit Funnel URL (V3)\"", how: "Same as filling the one-box in the Funnels tab and pressing Save: the client's details from the Clients tab go into the custom values (no form to fill again; a missing value is flagged red for the team), then the funnel is created from them.", checklist: ["funnel_onebox"] },
-  { n: 7, key: "webhook_url", section: "G · 🧲 Funnel", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The AI Agent reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
-  { n: 27, key: "funnel_pixel", section: "G · 🧲 Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
-  { n: 28, key: "funnel_ig", hidden: true, choice: true, section: "G · 🧲 Funnel", who: "api", label: "Instagram grid: fetch the client's posts from her Instagram link, sort them (results first) and put them on the funnel — no Elfsight", how: "Needs the Instagram link on the form. A private or restricted account can't be fetched; the funnel then shows no Instagram section until it is fixed (Cost per Deposit → client → 📸 panel → Refresh).", checklist: ["funnel_ig_widget"] },
-  { n: 44, key: "funnel_reviews", hidden: true, section: "G · 🧲 Funnel", who: "api", label: "Google reviews: find the business on Google (its review link, else name + address) and put its best reviews on the funnel — no Elfsight", how: "Needs a Google Business link on the form, or a correct address. Shows 4–5 star reviews with text; if Google has none yet the funnel just has no reviews section." },
-  { n: 29, key: "funnel_redirect", section: "G · 🧲 Funnel", who: "mini", optional: true, label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect", how: "Only for clients who already ran ads to an old funnel — otherwise mark it \"Not needed\"." },
-  { n: 30, key: "funnel_live", section: "G · 🧲 Funnel", who: "api", label: "Check no client value is empty, then go live", how: "Stops red with the list of empty values (deposit, address, product ID, webhook, calendar ID… prices for V3 only) instead of going live with holes." },
+  { n: 26, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Set up the one-box funnel at book.pmu-care.com/<slug> and update its values: custom values, calendar ID, \"CC - Deposit Funnel URL (V3)\", payment webhook URL, Meta pixel, Instagram grid and Google reviews, the old funnel's redirect if there is one, then check nothing is empty and go live", how: "Same as filling the one-box in the Funnels tab and pressing Save: the client's details from the Clients tab go into the custom values (no form to fill again; a missing value is flagged red for the team), then the funnel is created from them.", checklist: ["funnel_onebox"] },
+  { n: 7, key: "webhook_url", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "mini", label: "Copy the Inbound Webhook URL from the \"FanBasis to GHL workflow\" and paste it on the one-box funnel", how: "The AI Agent reads it in the GHL editor; the dashboard saves it on the one-box funnel (its \"FanBasis to GHL workflow URL\" field, payment routing on) and in \"CC - Fanbasis Webhook URL\"." },
+  { n: 27, key: "funnel_pixel", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Pixel: take the Meta pixel ID from the form or the client's old pages and set it on the funnel" },
+  { n: 28, key: "funnel_ig", hidden: true, choice: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Instagram grid: fetch the client's posts from her Instagram link, sort them (results first) and put them on the funnel — no Elfsight", how: "Needs the Instagram link on the form. A private or restricted account can't be fetched; the funnel then shows no Instagram section until it is fixed (Cost per Deposit → client → 📸 panel → Refresh).", checklist: ["funnel_ig_widget"] },
+  { n: 44, key: "funnel_reviews", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Google reviews: find the business on Google (its review link, else name + address) and put its best reviews on the funnel — no Elfsight", how: "Needs a Google Business link on the form, or a correct address. Shows 4–5 star reviews with text; if Google has none yet the funnel just has no reviews section." },
+  { n: 29, key: "funnel_redirect", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "mini", optional: true, label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect", how: "Only for clients who already ran ads to an old funnel — otherwise mark it \"Not needed\"." },
+  { n: 30, key: "funnel_live", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Check no client value is empty, then go live", how: "Stops red with the list of empty values (deposit, address, product ID, webhook, calendar ID… prices for V3 only) instead of going live with holes." },
   // H · Last check — the funnel test is the AI Agent's LAST step (owner
   // 10/20/2026); once it passes the team sends the client the logins.
   { n: 31, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", checklist: ["last_profile"] },
@@ -120,7 +121,7 @@ const STEP_TITLES: Record<string, string> = {
   user_create: "Create the client's login & password", user_settings: "Login permissions & calls", user_calendar: "User calendar access",
   wf_survey: "Funnel Survey workflow",
   cal_hours: "Calendar team, location & hours", cal_active: "Calendar on",
-  funnel_create: "One-box funnel & custom values", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
+  funnel_create: "Set up the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
   last_profile: "Profile check", last_check: "Final check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
   fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
@@ -175,6 +176,9 @@ export const OPTIONAL_FIELDS: RequiredField[] = [
 export const PREAPPROVABLE = RUNBOOK.filter((s) => s.who === "ask" || s.choice).map((s) => ({ key: s.key, title: s.title ?? s.label, label: s.label }));
 
 export const RUNBOOK_SECTIONS = Array.from(new Set(RUNBOOK.map((s) => s.section)));
+
+/* A row on the setup card = the step plus the steps shown inside it. */
+export const rowMembers = (s: RunbookStep): RunbookStep[] => [s, ...RUNBOOK.filter((c) => c.partOf === s.key)];
 export const stepByKey = (key: string): RunbookStep | undefined => RUNBOOK.find((s) => s.key === key);
 
 export const WHO_LABEL: Record<Who, string> = {

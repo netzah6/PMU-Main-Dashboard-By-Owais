@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { MINI_REFRESH_EVENT } from "@/components/agent/MacMiniTracker";
 import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
 import { StepVideos, useStepVideos } from "@/components/onboarding/StepVideos";
-import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, PREAPPROVABLE, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
+import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, PREAPPROVABLE, rowMembers, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
 // Numbers on the card run 1, 2, 3… in the order shown (owner 11/03/2026);
 // the internal step numbers (s.n) stay as the AI Agent's report keys.
@@ -35,6 +35,23 @@ const WHO_STYLE: Record<Who, string> = {
   api: "bg-[#e6edfb] text-[#2f5fb8]", mini: "bg-[#e6edfb] text-[#2f5fb8]", ask: "bg-[#e6edfb] text-[#2f5fb8]",
   owner: "bg-[#fff1df] text-[#b35a00]", team: "bg-[#ece9fb] text-[#6b5bd1]", client: "bg-[#eceff3] text-[#6b7280]",
 };
+const SETTLED = ["done", "warn", "skipped"];
+
+/* What a row shows. A plain step shows itself. A row with steps inside it
+   (the one-box, owner 11/04/2026) shows the first one still open, with that
+   step's status and buttons; once all are settled, the step's own status with
+   every step's note and screenshots. */
+function rowView(s: RunbookStep, setup: Setup | null, cards: Record<string, Card>): { step: RunbookStep; st: StepState; settled: boolean; shots: Array<{ name: string; url: string }> } {
+  const members = rowMembers(s);
+  const stateOf = (m: RunbookStep): StepState => setup?.steps?.[m.key] ?? { status: "todo" };
+  const open = members.find((m) => !SETTLED.includes(stateOf(m).status));
+  const shotsOf = (m: RunbookStep) => { const x = stateOf(m); return (x.screenshots?.length ? x.screenshots : x.proposal_id ? cards[x.proposal_id]?.screenshots : undefined) ?? []; };
+  if (open) return { step: open, st: stateOf(open), settled: false, shots: shotsOf(open) };
+  const own = stateOf(s);
+  const note = members.length > 1 ? members.map((m) => { const n = stateOf(m).note; return n ? (m === s ? n : `${m.title ?? m.label}: ${n}`) : ""; }).filter(Boolean).join("\n") : own.note;
+  return { step: s, st: { ...own, note }, settled: true, shots: members.flatMap(shotsOf) };
+}
+
 const usWhen = (iso?: string) => (iso ? new Date(iso).toLocaleString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" }) : "");
 
 function stepIcon(st: StepState, card?: Card): { icon: string; cls: string; label: string } {
@@ -195,11 +212,17 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
   const setup = data?.setup ?? null;
   /* Automatic steps nobody acts on (hidden) stay off the card unless they
      need a person — failed or amber (owner 11/03/2026). */
-  const steps = useMemo(() => RUNBOOK.filter((s) => !s.later && (!s.hidden || ["failed", "warn"].includes(setup?.steps?.[s.key]?.status ?? ""))), [setup]);
+  const steps = useMemo(() => RUNBOOK.filter((s) => {
+    if (s.later) return false;
+    if (!s.hidden) return true;
+    const status = setup?.steps?.[s.key]?.status ?? "";
+    // A failed step inside a row shows in that row, with its Retry.
+    return status === "warn" || (status === "failed" && !s.partOf);
+  }), [setup]);
   const counts = useMemo(() => {
     if (!setup) return null;
     const run = steps.filter((s) => ["api", "mini", "ask"].includes(s.who));
-    const done = run.filter((s) => ["done", "warn", "skipped"].includes(setup.steps[s.key]?.status ?? "")).length;
+    const done = run.filter((s) => rowView(s, setup, {}).settled).length;
     return { done, total: run.length };
   }, [setup, steps]);
 
@@ -562,12 +585,12 @@ function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false 
   /* Once a run exists: finished steps on the left, what's left on the right,
      so a coach sees at a glance what the AI Agent did and what is hers
      (owner 2026-10-20 — the single long list used half the screen). */
-  const isDone = (s: RunbookStep) => ["done", "skipped", "warn"].includes(setup?.steps?.[s.key]?.status ?? "todo");
+  const isDone = (s: RunbookStep) => rowView(s, setup, cards).settled;
   if (setup) {
     const done = steps.filter(isDone);
     const todo = steps.filter((s) => !isDone(s));
     // A step the AI Agent failed is a person's job now.
-    const byAgent = todo.filter((s) => AGENT.includes(s.who) && setup.steps?.[s.key]?.status !== "failed").length;
+    const byAgent = todo.filter((s) => AGENT.includes(s.who) && rowView(s, setup, cards).st.status !== "failed").length;
     return (
       <div className="mt-1.5 grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
         <div className="min-w-0">
@@ -595,10 +618,9 @@ function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false 
             <div className="px-3 py-1.5 bg-[#f8fafc] text-[11px] font-bold text-[#34568a]">{section}</div>
             <ul className="divide-y divide-[#f1f5f9]">
               {sec.map((s) => {
-                const st: StepState = setup?.steps?.[s.key] ?? { status: "todo" };
+                const { step: cur, st, shots } = rowView(s, setup, cards);
                 const card = st.proposal_id ? cards[st.proposal_id] : undefined;
                 const ic = setup ? stepIcon(st, card) : null;
-                const shots = (st.screenshots?.length ? st.screenshots : card?.screenshots) ?? [];
                 const settledLine = st.at && ["done", "warn", "failed", "skipped"].includes(st.status) ? `${st.who ?? ""} · ${usWhen(st.at)}` : "";
                 return (
                   <li key={s.key} className="px-3 py-1 flex items-start gap-2">
@@ -631,10 +653,11 @@ function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false 
                       {!setup && s.how && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.how}>{s.how}</p>}
                       {/* How-to clips for doing this step by hand (owner 10/29/2026). */}
                       <StepVideos stepKey={s.key} stepLabel={`${stepNo.get(s.key)}. ${s.title ?? s.label}`} videos={videos.byStep[s.key] ?? []} isAdmin={isAdmin} onChanged={videos.reload} />
+                      {setup && cur.key !== s.key && <p className="text-[10.5px] text-[#475569]">Now: {cur.title ?? cur.label}</p>}
                       {ic?.label && !["done", "skipped"].includes(st.status) && <p className={cn("text-[10.5px] font-semibold", ic.cls)}>{ic.label}</p>}
                       {st.note && setup && <StepNote note={st.note} status={st.status} />}
                       {s.key === "funnel_create" && cvOpen && setup?.location_id && onboardingId && <CustomValuesList onboardingId={onboardingId} locationId={setup.location_id} />}
-                      {actions?.(s, st)}
+                      {actions?.(cur, st)}
                     </div>
                   </li>
                 );
