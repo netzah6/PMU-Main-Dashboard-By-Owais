@@ -44,7 +44,10 @@ const SETTLED = ["done", "warn", "skipped"];
 function rowView(s: RunbookStep, setup: Setup | null, cards: Record<string, Card>): { step: RunbookStep; st: StepState; settled: boolean; shots: Array<{ name: string; url: string }> } {
   const members = rowMembers(s);
   const stateOf = (m: RunbookStep): StepState => setup?.steps?.[m.key] ?? { status: "todo" };
-  const open = members.find((m) => !SETTLED.includes(stateOf(m).status));
+  // Past the row's last step, a step still "todo" was added after this setup
+  // ran (Google reviews on older setups): nothing is waiting on it.
+  const past = members.length > 1 && SETTLED.includes(stateOf(members[members.length - 1]).status);
+  const open = members.find((m) => !SETTLED.includes(stateOf(m).status) && !(past && stateOf(m).status === "todo"));
   const shotsOf = (m: RunbookStep) => { const x = stateOf(m); return (x.screenshots?.length ? x.screenshots : x.proposal_id ? cards[x.proposal_id]?.screenshots : undefined) ?? []; };
   if (open) return { step: open, st: stateOf(open), settled: false, shots: shotsOf(open) };
   const own = stateOf(s);
