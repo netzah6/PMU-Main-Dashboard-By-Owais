@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { refreshOneboxConfig, normalizeElfsight, harvestFirstPixel, setOneboxCustomValues, setDepositFunnelUrl, healFunnelPhotos, classifyPhotos, ONEBOX_EDITABLE_CVS, PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
@@ -379,11 +378,13 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     const bookingUrl = oldUrlForPhotos
       ? oldUrlForPhotos.replace(/-survey[a-z0-9-]*\/?$/i, "-booking")
       : `https://pmu-care.com/${slug}-booking`;
-    const healed = await healFunnelPhotos(svc, slug, row.location_id as string, bookingUrl, config);
+    /* A frozen funnel keeps its photos and questions: Sync only refreshes. */
+    const frozen = row.frozen_engine != null;
+    const healed = frozen ? { config, note: "" } : await healFunnelPhotos(svc, slug, row.location_id as string, bookingUrl, config);
     /* Survey self-heal: a funnel still on the default question set gets
        the account's own services (the seed used to skip single-service
        accounts, so those showed "Lips; Eyebrows" — The Wellness Place). */
-    const seeded = await seedSurveyFromAccount(svc, slug, row.location_id as string, healed.config);
+    const seeded = frozen ? { config: healed.config, seeded: false, note: "" } : await seedSurveyFromAccount(svc, slug, row.location_id as string, healed.config);
     warmFunnel(slug);
     return NextResponse.json({ ok: !!seeded.config, config: seeded.config, pixelNote, photoNote: healed.note || undefined, surveyNote: seeded.seeded ? seeded.note : undefined });
   }

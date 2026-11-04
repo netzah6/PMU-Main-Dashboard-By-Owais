@@ -52,29 +52,47 @@ language sql immutable as $$
   end
 $$;
 
--- One row per funnel: deposits and leads by month, before the new page, last
--- 30 days. Same counting as the 11/04 study: leads = first time a phone (else
--- email, else name) shows up for that client, from 04/27/2026 (the leads sheet
--- starts there); deposits = first per email (else name), no $1 tests.
-create or replace function public.funnel_freeze_stats()
+-- One row per funnel: deposits and leads by month, the period before 08/24/2026,
+-- last 30 days. Same counting as the 11/04 study: leads = first time a phone
+-- (else email, else name) shows up for that client, from 04/27/2026 (the leads
+-- sheet starts there); deposits = first per email (else name), no $1 tests.
+-- Names match exactly, then by a unique prefix of 8+ characters (same rule as
+-- findClientProgram). Days run on Pacific time, like the sheet.
+drop function if exists public.funnel_freeze_stats();
+create function public.funnel_freeze_stats()
 returns table (
-  slug text, client_name text, status text, template text, frozen_engine integer, frozen_at timestamptz,
+  slug text, client_name text, status text, template text, free_booking boolean, deposit_url text,
+  frozen_engine integer, frozen_at timestamptz,
   business text, owner_name text, client_status text, months jsonb,
-  before_leads integer, before_deposits integer, leads30 integer, deposits30 integer, picks30 integer, last_lead date
+  before_leads integer, before_deposits integer, leads30 integer, deposits30 integer,
+  picks30 integer, page_leads30 integer, last_lead date
 )
 language sql stable set search_path = public as $$
-  with cm as (
+  with today as (
+    select (now() at time zone 'America/Los_Angeles')::date d
+  ), cm as (
     select distinct on (k) k, biz, owner_name, st, ad from (
       select freeze_norm(data->>'Business Name') k, data->>'Business Name' biz, trim(data->>'Owner Full Name') owner_name,
         lower(coalesce(data->>'col_1', '')) st,
         coalesce(nullif(data->>'Ad account Name', ''), nullif(data->>'Ad Account Name', '')) ad, sheet_row
       from clients_master where coalesce(data->>'Business Name', '') <> ''
     ) z order by k, (st = 'live') desc, sheet_row desc
-  ), alias as (
+  ), exact_name as (
     select distinct on (a) a, k from (
       select k a, k, 0 pr, st from cm
       union all select freeze_norm(ad), k, 1, st from cm where freeze_norm(ad) <> ''
     ) y where a <> '' order by a, pr, (st = 'live') desc
+  ), names as (
+    select distinct freeze_norm(data->>'Business Name') a from leads_master
+    union select freeze_norm(data->>'Business Name') from deposits
+    union select freeze_norm(client_name) from onebox_clients
+  ), prefix_name as (
+    select n.a, min(c.k) k
+    from names n join cm c on length(n.a) >= 8 and length(c.k) >= 8 and (c.k like n.a || '%' or n.a like c.k || '%')
+    where not exists (select 1 from exact_name e where e.a = n.a)
+    group by n.a having count(distinct c.k) = 1
+  ), alias as (
+    select a, k from exact_name union all select a, k from prefix_name
   ), lf as (
     select al.k, x.who, min(x.d) d from (
       select freeze_norm(data->>'Business Name') a,
@@ -83,7 +101,7 @@ language sql stable set search_path = public as $$
         coalesce(freeze_date(data->>'col_6'), freeze_date(data->>'Date')) d
       from leads_master
     ) x join alias al on al.a = x.a
-    where x.who is not null and x.d >= date '2026-04-27' and x.d <= current_date
+    where x.who is not null and x.d >= date '2026-04-27' and x.d <= (select d from today)
     group by 1, 2
   ), df as (
     select al.k, x.who, min(x.d) d from (
@@ -92,9 +110,9 @@ language sql stable set search_path = public as $$
         freeze_date(data->>'Date') d
       from deposits
       where coalesce(trim(data->>'Amount'), '') not in ('$1', '1', '$1.00')
-        and coalesce(data->>'Email', '') !~* '(test@|^asd@|@test\.|netzach|netzah|mizrahi)'
+        and coalesce(data->>'Email', '') !~* '((^|[._+-])test[0-9]*@|^asd@|@test\.|netzach|netzah|mizrahi)'
     ) x join alias al on al.a = x.a
-    where x.who is not null and x.d >= date '2026-04-27' and x.d <= current_date
+    where x.who is not null and x.d >= date '2026-04-27' and x.d <= (select d from today)
     group by 1, 2
   ), mm as (
     select k, m, sum(l)::int l, sum(n)::int n from (
@@ -106,22 +124,30 @@ language sql stable set search_path = public as $$
   ), ls as (
     select k,
       count(*) filter (where d < date '2026-08-24')::int before_leads,
-      count(*) filter (where d >= current_date - 30)::int leads30,
+      count(*) filter (where d > (select d from today) - 30)::int leads30,
       max(d) last_lead
     from lf group by 1
   ), ds as (
     select k,
       count(*) filter (where d < date '2026-08-24')::int before_deposits,
-      count(*) filter (where d >= current_date - 30)::int deposits30
+      count(*) filter (where d > (select d from today) - 30)::int deposits30
     from df group by 1
   ), pk as (
-    select ol.slug, count(*)::int picks30 from onebox_leads ol
-    where ol.picked_time_at >= now() - interval '30 days' group by 1
+    select ol.slug,
+      count(distinct ol.who) filter (where ol.picked > (select d from today) - 30)::int picks30,
+      count(distinct ol.who) filter (where ol.came > (select d from today) - 30)::int page_leads30
+    from (
+      select o.slug, (o.picked_time_at at time zone 'America/Los_Angeles')::date picked, (o.created_at at time zone 'America/Los_Angeles')::date came,
+        coalesce(nullif(right(regexp_replace(coalesce(o.phone, ''), '\D', '', 'g'), 10), ''), o.id::text) who
+      from onebox_leads o
+      where o.created_at >= now() - interval '32 days' or o.picked_time_at >= now() - interval '32 days'
+    ) ol group by 1
   )
-  select oc.slug, oc.client_name, oc.status, oc.extras->>'template', oc.frozen_engine, oc.frozen_at,
+  select oc.slug, oc.client_name, oc.status, oc.extras->>'template', coalesce(oc.extras->>'freeBooking', '') in ('true', '1'), oc.config->>'depositFunnelUrl',
+    oc.frozen_engine, oc.frozen_at,
     cm.biz, cm.owner_name, cm.st, coalesce(mj.months, '{}'::jsonb),
     coalesce(ls.before_leads, 0), coalesce(ds.before_deposits, 0), coalesce(ls.leads30, 0), coalesce(ds.deposits30, 0),
-    coalesce(pk.picks30, 0), ls.last_lead
+    coalesce(pk.picks30, 0), coalesce(pk.page_leads30, 0), ls.last_lead
   from onebox_clients oc
   left join alias al on al.a = freeze_norm(oc.client_name)
   left join cm on cm.k = al.k

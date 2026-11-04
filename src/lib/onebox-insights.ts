@@ -438,7 +438,9 @@ export async function applyPage1Decision(svc: SupabaseClient, slug: string, metr
   const expId = Number(metrics.expId ?? 0);
   if (!expId) throw new Error("no experiment id on the flag");
   let note = "test ended — current page kept";
-  if (metrics.winner === "b") {
+  if (metrics.winner === "b" && await isFrozen(svc, slug)) {
+    note = "test ended — this funnel is frozen, so its copy was not changed";
+  } else if (metrics.winner === "b") {
     const override = (metrics.override ?? {}) as Record<string, string>;
     const { data: client } = await svc.from("onebox_clients").select("location_id").eq("slug", slug).single();
     if (!client) throw new Error("unknown funnel");

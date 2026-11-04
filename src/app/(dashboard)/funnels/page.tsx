@@ -2236,7 +2236,7 @@ export default function FunnelsPage() {
                       👁 Booking page
                     </a>
                     {f.frozenAt && (
-                      <span title="This funnel's pages stay as they are: new page changes and split tests skip it. Undo on the Freeze screen." className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]">
+                      <span title={`This funnel's page design and built-in wording stay as they are: new page changes and split tests skip it. Its own questions, photos and offers can still be edited.${isAdmin ? " Undo on the Freeze screen." : ""}`} className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]">
                         🧊 Frozen since {new Date(f.frozenAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" })}
                       </span>
                     )}
