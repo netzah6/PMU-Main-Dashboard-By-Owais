@@ -157,7 +157,7 @@ export async function approveSetup(svc: Svc, onboardingId: string, poolLocationI
   // mid-run (owner 10/21/2026: "if not, just move on — no stops").
   for (const s of RUNBOOK) if (s.who === "ask" && !(setup.preapproved ?? []).includes(s.key)) setup.steps[s.key] = { status: "skipped", who: by, at: now(), note: "not ticked at Approve — skipped (tick it next time to have the AI Agent do it)" };
   if (ob.claim) {
-    for (const k of ["account_check", "account_take", "account_info", "account_cvs", "cal_id"]) setup.steps[k] = { status: "done", who: ob.claim.claimed_by ?? "Claim button", at: ob.claim.claimed_at ?? now(), note: `done earlier by the Claim button (${ob.claim.original_name} → ${ob.claim.business_name})` };
+    for (const k of ["account_check", "account_take", "account_info", "account_cvs"]) setup.steps[k] = { status: "done", who: ob.claim.claimed_by ?? "Claim button", at: ob.claim.claimed_at ?? now(), note: `done earlier by the Claim button (${ob.claim.original_name} → ${ob.claim.business_name})` };
     const pid = String(ob.form.product_id ?? "").trim();
     if (pid) { setup.steps.product = { status: "done", who: "Claim button", at: now(), note: `product ID ${pid} already on the form` }; setup.product_id = pid; }
   }
@@ -220,8 +220,9 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
   switch (s.key) {
     case "account_check": case "master_row": return true;
     case "account_take": return done(ob, "account_check");
-    case "account_info": case "account_cvs": case "cal_id": return done(ob, "account_take");
-    case "cal_active": return done(ob, "cal_rules");
+    case "account_info": case "account_cvs": return done(ob, "account_take");
+    // Reads the calendar ID, which the one-box step saves.
+    case "cal_active": return done(ob, "cal_hours") && done(ob, "funnel_create");
     case "connector": case "product": case "funnel_create": return done(ob, "account_take");
     case "funnel_pixel": case "funnel_ig": case "funnel_reviews": return done(ob, "funnel_create");
     case "route_test": return done(ob, "webhook_url") && done(ob, "product") && !!ob.setup?.hook_url;
@@ -236,18 +237,23 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
 }
 
 /* The one-box funnel step = fill the account's custom values from the
-   client's record, then create the funnel from them (owner 11/03/2026). A
-   value that can't be filled makes the step amber, never blocks the funnel. */
+   client's record, save the calendar ID, then create the funnel from them
+   (owner 11/03/2026). A value that can't be filled makes the step amber, never
+   blocks the funnel. */
 async function fillValuesThenFunnel(svc: Svc, ob: Ob): Promise<StepOut> {
   const cv = await API_STEPS.account_cvs(svc, ob);
   if (cv.status === "failed") return { ...cv, note: `Custom values: ${cv.note ?? ""}` };
+  const [cal] = await fillCalendarId(ob.setup!.location_id);
+  const base = cv.claim ?? ob.claim;
+  const claim = base && cal?.ok ? { ...base, actions: [...base.actions, cal] } : cv.claim;
+  const calNote = cal ? `${cal.action}${cal.detail ? ` — ${cal.detail}` : ""}` : "Calendar ID: could not read the account's calendars";
   const fu = await API_STEPS.funnel_create(svc, { ...ob, form: { ...ob.form, ...(cv.form ?? {}) } });
   return {
     ...fu,
-    status: fu.status === "done" && cv.status === "warn" ? "warn" : fu.status,
-    note: [`Custom values: ${cv.note ?? ""}`, fu.note].filter(Boolean).join("\n"),
+    status: fu.status === "done" && (cv.status === "warn" || !cal?.ok) ? "warn" : fu.status,
+    note: [`Custom values: ${cv.note ?? ""}`, calNote, fu.note].filter(Boolean).join("\n"),
     form: { ...(cv.form ?? {}), ...(fu.form ?? {}) },
-    claim: fu.claim ?? cv.claim,
+    claim: fu.claim ?? claim,
   };
 }
 
@@ -281,7 +287,7 @@ async function runApiStep(svc: Svc, ob: Ob, step: RunbookStep): Promise<void> {
     if (out.status === "done" || out.status === "warn" || out.status === "skipped") tick(checklist, step.checklist, DASHBOARD);
     return { setup: o.setup, checklist, ...(out.form ? { form: { ...o.form, ...out.form } } : {}), ...(out.claim ? { claim: out.claim } : {}) };
   });
-  if (["account_cvs", "cal_id", "product", "funnel_create"].includes(step.key)) await refreshCard(svc, ob.id);
+  if (["account_cvs", "product", "funnel_create"].includes(step.key)) await refreshCard(svc, ob.id);
 }
 
 /* Pre-live check (V3 one-box): the "CC -" values the AI and the funnel read
@@ -491,20 +497,11 @@ const API_STEPS: Record<string, StepFn> = {
       : { status: "done", note: `${acts.length} custom values filled from the client's record`, claim, form: extra };
   },
 
-  /* 24 · Transformation calendar ID → its custom value. */
   /* 24 · The snapshot's calendar arrives switched off (owner 10/21/2026): turn
      it on here, in section F, and prove GHL returns open slots. */
   cal_active: async (_svc, ob) => {
     const cal = await ensureCalendarActive(ob.setup!.location_id);
     return { status: cal.ok ? "done" : "failed", note: `${cal.ok ? "✓" : "✗"} ${cal.note}` };
-  },
-
-  cal_id: async (_svc, ob) => {
-    const acts = await fillCalendarId(ob.setup!.location_id);
-    const a = acts[0];
-    const claim = ob.claim && a?.ok ? { ...ob.claim, actions: [...ob.claim.actions, a] } : undefined;
-    if (!a) return { status: "failed", note: "could not read the account's calendars" };
-    return { status: a.ok ? "done" : "failed", note: `${a.action}${a.detail ? ` — ${a.detail}` : ""}`, claim };
   },
 
   /* 4 · Clients Master row: Version / Assigned / Media Buyer from the form,

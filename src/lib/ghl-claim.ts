@@ -394,7 +394,7 @@ export async function claimPoolAccount(
   actions.push({ action: `Business profile → ${profile.summary}`, ok: profile.ok, detail: profile.ok ? undefined : profile.summary });
 
   // 2–4. Custom values, treated areas, calendar ID — unless the caller fills
-  //      them later (the setup run does it as its own steps 3 and 24).
+  //      them later (the setup run does it inside its one-box funnel step).
   if (!opts.skipValues) {
     actions.push(...(await fillAccountValues(poolLocationId, form)));
     actions.push(...(await fillCalendarId(poolLocationId)));
