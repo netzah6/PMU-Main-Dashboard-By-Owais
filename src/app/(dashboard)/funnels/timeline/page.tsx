@@ -161,10 +161,14 @@ function History({ row, stamp, onLocked }: { row: TimelineRow; stamp: number; on
               {e.v.isNow && <span className="rounded-full bg-[#e8f7f6] text-[#0b7a7a] px-1.5 text-[10px] font-bold">Now</span>}
               <span className="text-[#697a91]">Page version {e.v.engine}</span>
             </div>
-            <p className="mt-1 text-xs text-[#34568a]">{e.v.changes.length ? e.v.changes.map(changeText).join("; ") : "Saved. Nothing changed before this, it's the first one."}</p>
+            <p className="mt-1 text-xs text-[#34568a]">{e.v.changes.length ? e.v.changes.map(changeText).join("; ") : "First save."}</p>
             <div className="mt-1 text-[11px] text-[#697a91] tabular-nums">
-              {fmtDay(e.v.stats.from)}–{fmtDay(e.v.stats.to)}: {e.v.stats.l} leads · booking {pct(e.v.stats.p, e.v.stats.l)} ({e.v.stats.p}) · deposit {pct(e.v.stats.d, e.v.stats.l)} ({e.v.stats.d})
-              {e.v.stats.l < MIN_LEADS ? " · too few leads to judge" : e.v.stats.stillCounting ? " · deposits still coming in" : ""}
+              {e.v.stats.to < e.v.stats.from ? "Changed again the same day." : (
+                <>
+                  {fmtDay(e.v.stats.from)}–{fmtDay(e.v.stats.to)}: {e.v.stats.l} leads · booking {pct(e.v.stats.p, e.v.stats.l)} ({e.v.stats.p}) · deposit {pct(e.v.stats.d, e.v.stats.l)} ({e.v.stats.d})
+                  {e.v.stats.l < MIN_LEADS ? " · too few leads to judge" : e.v.stats.stillCounting ? " · deposits still coming in" : ""}
+                </>
+              )}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => setPreview(preview === e.v.id ? null : e.v.id)} className="inline-flex items-center gap-1 text-xs rounded-lg border border-[#e4ebf2] px-2 py-1 text-[#34568a] hover:bg-[#f6f9fc]">
