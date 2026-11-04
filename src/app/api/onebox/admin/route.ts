@@ -6,6 +6,7 @@ import { refreshOneboxConfig, normalizeElfsight, harvestFirstPixel, setOneboxCus
 import { addOneboxFunnel, seedSurveyFromAccount } from "@/lib/onebox-add";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
+import { warmFunnel } from "@/lib/onebox-warm";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 import { isValidHookUrlForLocation, clientHookUrl, buildReplayPayload, replayToClientHook } from "@/lib/payment-router";
 
@@ -126,7 +127,7 @@ export async function GET(req: NextRequest) {
 
   const { data: allRows } = await svc
     .from("onebox_clients")
-    .select("slug, location_id, client_name, status, cv_synced_at, config, extras, created_at")
+    .select("slug, location_id, client_name, status, cv_synced_at, config, extras, created_at, frozen_at")
     .order("created_at", { ascending: true });
   /* Coaches and the media buyer see CLIENT (B2C) funnels only — the
      agency's own B2B funnels never leave the server for them (owner,
@@ -258,6 +259,7 @@ export async function GET(req: NextRequest) {
       clientName: r.client_name,
       status: r.status,
       cvSyncedAt: r.cv_synced_at,
+      frozenAt: r.frozen_at ?? null,
       url: funnelUrl(req, r.slug),
       hasCalendar: b2b ? !!b2b.calendarId : !!config.calendarId,
       hasFanbasis: !!(config.fanbasisProductId || config.fanbasisCode || extras.fanbasisHtml),
@@ -312,30 +314,6 @@ export async function POST(req: NextRequest) {
      that moves traffic or money stays admin-only. */
   // "status" = the Go live / Pause button: coaches publish their own
   // onboardings without waiting on an admin (Netzah, 2026-09-16).
-  /* Under the funnel page's long stale-while-revalidate window, a quiet
-   funnel could keep serving pre-edit copy for as long as nobody visits.
-   After any dashboard-driven config change we act as the funnel's next
-   visitor once the 60s fresh window has lapsed, so the edge revalidates
-   with the new copy within ~2 minutes. The "ob-warm" UA is in the funnel
-   route's scraper list: on A/B-test clients (always no-store) the ping is
-   a harmless no-op that mints no assignment row. */
-
-function warmFunnel(slug: string) {
-  waitUntil((async () => {
-    /* Two pings: an in-flight pre-save render can be stored by the CDN
-       seconds after the save, making a single +65s ping land inside that
-       entry's fresh minute and revalidate nothing. The second ping at
-       +150s is past any such window. */
-    for (const delayMs of [75_000, 150_000]) {
-      await new Promise((r) => setTimeout(r, delayMs === 75_000 ? delayMs : delayMs - 75_000));
-      await fetch(`https://book.pmu-care.com/${slug}`, {
-        cache: "no-store",
-        headers: { "user-agent": "ob-warm/1 (cache refresh after dashboard save)" },
-      }).catch(() => {});
-    }
-  })());
-}
-
 const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "verifyRedirect", "intakeLink"]);
   /* The media buyer updates funnel OFFERS (owner, 2026-09-25) and META
      PIXELS (owner, 2026-10-02): "cvs" restricted to the offer field, and
