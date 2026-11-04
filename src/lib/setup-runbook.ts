@@ -109,10 +109,10 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 38, key: "fb_adset", section: "J · 📣 Facebook", who: "team", label: "Ad set: website conversion, PMU For All dataset, Lead event, local audience", checklist: ["fb_as_conversion", "fb_as_dataset", "fb_as_event", "fb_as_audience", "fb_as_location", "fb_as_radius", "fb_as_age", "fb_as_gender", "fb_as_interests", "fb_as_languages"],
     steps: ["Conversion: Website · Dataset: PMU For All · Event: Lead", "Advantage+ audience → switch to original audience options", "Location = the studio address, adjust the radius", "Age 25–60 · Women · no interests · languages per the ad copy"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/879bc4c7a1d541ec9baf8235f590fd5f" }] },
-  { n: 39, key: "fb_ad", section: "J · 📣 Facebook", who: "team", label: "Ad: FB + IG account, video, copy, headline, funnel link", checklist: ["fb_ad_name", "fb_ad_accounts", "fb_ad_format", "fb_ad_multi", "fb_ad_video", "fb_ad_copy", "fb_ad_headline", "fb_ad_link"],
+  { n: 39, key: "fb_ad", section: "J · 📣 Facebook", who: "team", label: "Ad: FB + IG account, video, copy, headline, funnel link", cardLabel: "Ad: FB + IG account, video, copy, headline, funnel link; then publish and turn the campaign on", checklist: ["fb_ad_name", "fb_ad_accounts", "fb_ad_format", "fb_ad_multi", "fb_ad_video", "fb_ad_copy", "fb_ad_headline", "fb_ad_link"],
     steps: ["Select the client's FB page and IG account", "Single image or video · uncheck Multi-advertiser ads", "Video from the folder (by service) · copy from the doc · headline per the offer", "Paste the one-box funnel link"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/354328b7939a496ab06ff8b6eec22ecc" }, { label: "Videos folder", url: "https://drive.google.com/drive/folders/1SijOuN58F4upfSIGfVbYUXn6mOQ17wGB?usp=drive_link" }, { label: "Ad copy doc", url: "https://docs.google.com/document/d/11h3ob6JleKekycZuIDvkAyY--lz7F869V5Um6rlBsak/edit?usp=sharing" }, { label: "Headlines doc", url: "https://docs.google.com/document/d/154yZyumlQVKoHwwTk4XtZFzCn_JyUDa0pdycJRRerUo/edit?usp=sharing" }] },
-  { n: 40, key: "fb_publish", section: "J · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
+  { n: 40, key: "fb_publish", hidden: true, partOf: "fb_ad", section: "J · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
   { n: 41, key: "client_connect", section: "J · 📣 Facebook", who: "client", label: "Client connects her Facebook page and Instagram to the sub-account", checklist: ["last_connect"] },
 ];
 
@@ -129,7 +129,7 @@ const STEP_TITLES: Record<string, string> = {
   funnel_create: "Set up the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   closebot_connect: "Connect to CloseBot", funnel_test: "Test the funnel", funnel_live: "Check values & go live",
   last_profile: "Final check, real test", last_check: "Account & funnel re-check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
-  fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
+  fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad & publish", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
 };
 for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
 
