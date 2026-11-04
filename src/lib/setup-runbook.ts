@@ -39,6 +39,7 @@ export type RunbookStep = {
   checklist?: string[];      // onboarding checklist keys this step ticks
   later?: boolean;           // not part of the run (re-run from the AI tab later)
   hidden?: boolean;          // runs by itself, nobody acts on it — not listed on the card unless it fails (owner 11/03/2026)
+  v3Only?: boolean;          // skipped and not listed unless the client is on V3
   cardLabel?: string;        // description on the setup card when the row covers more than this step; label stays what the AI Agent's card reads
   partOf?: string;           // shown inside another step's row: one row, one video, this step's status and buttons appear there while it is the open one (owner 11/04/2026: the one-box)
   choice?: boolean;          // the coach only decides yes/no, with a tickbox at Approve (owner 11/03/2026: the Instagram grid)
@@ -83,33 +84,36 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 44, key: "funnel_reviews", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Google reviews: find the business on Google (its review link, else name + address) and put its best reviews on the funnel — no Elfsight", how: "Needs a Google Business link on the form, or a correct address. Shows 4–5 star reviews with text; if Google has none yet the funnel just has no reviews section." },
   { n: 29, key: "funnel_redirect", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "mini", optional: true, label: "If the client had an old funnel: rename it \"-old\" and redirect the ad path to the new one-box, then verify the redirect", how: "Only for clients who already ran ads to an old funnel — otherwise mark it \"Not needed\"." },
   { n: 30, key: "funnel_live", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Check no client value is empty, then go live", how: "Stops red with the list of empty values (deposit, address, product ID, webhook, calendar ID… prices for V3 only) instead of going live with holes." },
-  // H · Last check — the funnel test is the AI Agent's LAST step (owner
+  // H · CloseBot — every V3 client needs it, and it was never part of the run
+  // (owner 11/04/2026). Before the last check: the funnel test needs the AI to answer.
+  { n: 46, key: "closebot_connect", v3Only: true, section: "H · 🤖 CloseBot", who: "mini", label: "Connect the account to CloseBot on the slay agent, with the same settings as every V3 client", how: "Source with Bot Auto Shutoff on, follow-up hours, the artist's first name as Override Name, and the slay job flow on SMS for leads tagged (v3) and ai on. If the AI Agent can't do it, a person can do the same in CloseBot and approve the step manually." },
+  // I · Last check — the funnel test is the AI Agent's LAST step (owner
   // 10/20/2026); once it passes the team sends the client the logins.
-  { n: 31, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", cardLabel: "Profile image, cover photo and description present; the dashboard re-reads the live account and funnel and lists anything still off; then test the funnel yourself as a lead and mark it completed", checklist: ["last_profile"] },
-  { n: 32, key: "last_check", hidden: true, partOf: "last_profile", section: "H · ✅ Last check", who: "api", label: "Final check: the dashboard re-reads the live account and funnel (custom values, Commas product, calendar, sync) and lists anything still off", how: "The same report as the \"Verify setup\" button, run by itself at the end. Anything still off stops the run here (red) until it is fixed and retried — the funnel test only runs on a clean account." },
+  { n: 31, key: "last_profile", section: "I · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", cardLabel: "Profile image, cover photo and description present; the dashboard re-reads the live account and funnel and lists anything still off; then test the funnel yourself as a lead and mark it completed", checklist: ["last_profile"] },
+  { n: 32, key: "last_check", hidden: true, partOf: "last_profile", section: "I · ✅ Last check", who: "api", label: "Final check: the dashboard re-reads the live account and funnel (custom values, Commas product, calendar, sync) and lists anything still off", how: "The same report as the \"Verify setup\" button, run by itself at the end. Anything still off stops the run here (red) until it is fixed and retried — the funnel test only runs on a clean account." },
   // Owner 10/22/2026: the coach tests the funnel by hand (with our demo number) and marks it completed; First Cycle is the coach's click too.
-  { n: 33, key: "funnel_test", hidden: true, partOf: "last_profile", section: "H · ✅ Last check", who: "team", label: "Test the funnel yourself as a lead, then mark it completed", how: "The last check before the client gets the logins.", checklist: ["fin_test"],
+  { n: 33, key: "funnel_test", hidden: true, partOf: "last_profile", section: "I · ✅ Last check", who: "team", label: "Test the funnel yourself as a lead, then mark it completed", how: "The last check before the client gets the logins.", checklist: ["fin_test"],
     steps: [`Open the funnel and fill the survey as a lead with our demo number ${TEST_LEAD_PHONE} — pick a time slot, reach the deposit page (do NOT pay)`, `In the client's GHL contacts find the test contact: tag "onebox-survey", first AI text sent within ~2 minutes`, `In the demo sub-account's conversations confirm the text arrived; reply "Yes" and check the client's AI answers`, `Delete the test contact in the client's account, then click "Mark completed"`] },
   // Owner 10/24/2026: CNAM approval takes the carrier days (or gets
   // rejected), so submitting it (step 11) is not "verified" — the team ticks it.
-  { n: 34, key: "first_cycle", section: "H · ✅ Last check", who: "api", badge: "team", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
-  { n: 35, key: "later_hours", section: "H · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run the calendar hours from the AI tab", later: true },
-  // I · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
+  { n: 34, key: "first_cycle", section: "I · ✅ Last check", who: "api", badge: "team", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
+  { n: 35, key: "later_hours", section: "I · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run the calendar hours from the AI tab", later: true },
+  // J · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
   // then marks each step completed on the card. Loom + docs from the sheet.
-  { n: 36, key: "fb_bm", section: "I · 📣 Facebook", who: "team", label: "Business Manager and ad account ready", checklist: ["fb_bm_name", "fb_bm_adaccount", "fb_bm_payment", "fb_bm_partner", "fb_bm_invite"],
+  { n: 36, key: "fb_bm", section: "J · 📣 Facebook", who: "team", label: "Business Manager and ad account ready", checklist: ["fb_bm_name", "fb_bm_adaccount", "fb_bm_payment", "fb_bm_partner", "fb_bm_invite"],
     steps: ["Business Manager name = the client's name in the Master Google Sheet", "Ad account name = the same name", "Payment method connected on the ad account", "Partner access granted to our 3 BMs (see the guide)", "Team invited to the BM (see the invite guide)"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/672705f2837b4322826f320933ddd376" }, { label: "Partner access guide", url: "https://docs.google.com/document/d/1VpYxHBjgeWT6wmL2FRn1Lb8OHw1RjD6ksLVa7yO6sK0/edit?usp=sharing" }, { label: "Team invite guide", url: "https://docs.google.com/document/d/12Y7G5mlbNwc-XbN9ctgzSthU-hCpSBjWsU7OuwJLwNI/edit?usp=sharing" }] },
-  { n: 37, key: "fb_campaign", section: "I · 📣 Facebook", who: "team", label: "Campaign built from the template (left paused)", checklist: ["fb_campaign", "fb_c_new", "fb_c_manual", "fb_c_name", "fb_c_budget"],
+  { n: 37, key: "fb_campaign", section: "J · 📣 Facebook", who: "team", label: "Campaign built from the template (left paused)", checklist: ["fb_campaign", "fb_c_new", "fb_c_manual", "fb_c_name", "fb_c_budget"],
     steps: ["New \"Leads\" campaign → Manual Leads Campaign", "Name it like the sheet, e.g. \"Microshading 1 (FU V2)\"", "Daily budget per the client's plan"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/3920ab07ad0f4a8f9e68ef1411e739e3" }] },
-  { n: 38, key: "fb_adset", section: "I · 📣 Facebook", who: "team", label: "Ad set: website conversion, PMU For All dataset, Lead event, local audience", checklist: ["fb_as_conversion", "fb_as_dataset", "fb_as_event", "fb_as_audience", "fb_as_location", "fb_as_radius", "fb_as_age", "fb_as_gender", "fb_as_interests", "fb_as_languages"],
+  { n: 38, key: "fb_adset", section: "J · 📣 Facebook", who: "team", label: "Ad set: website conversion, PMU For All dataset, Lead event, local audience", checklist: ["fb_as_conversion", "fb_as_dataset", "fb_as_event", "fb_as_audience", "fb_as_location", "fb_as_radius", "fb_as_age", "fb_as_gender", "fb_as_interests", "fb_as_languages"],
     steps: ["Conversion: Website · Dataset: PMU For All · Event: Lead", "Advantage+ audience → switch to original audience options", "Location = the studio address, adjust the radius", "Age 25–60 · Women · no interests · languages per the ad copy"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/879bc4c7a1d541ec9baf8235f590fd5f" }] },
-  { n: 39, key: "fb_ad", section: "I · 📣 Facebook", who: "team", label: "Ad: FB + IG account, video, copy, headline, funnel link", checklist: ["fb_ad_name", "fb_ad_accounts", "fb_ad_format", "fb_ad_multi", "fb_ad_video", "fb_ad_copy", "fb_ad_headline", "fb_ad_link"],
+  { n: 39, key: "fb_ad", section: "J · 📣 Facebook", who: "team", label: "Ad: FB + IG account, video, copy, headline, funnel link", checklist: ["fb_ad_name", "fb_ad_accounts", "fb_ad_format", "fb_ad_multi", "fb_ad_video", "fb_ad_copy", "fb_ad_headline", "fb_ad_link"],
     steps: ["Select the client's FB page and IG account", "Single image or video · uncheck Multi-advertiser ads", "Video from the folder (by service) · copy from the doc · headline per the offer", "Paste the one-box funnel link"],
     links: [{ label: "Loom", url: "https://www.loom.com/share/354328b7939a496ab06ff8b6eec22ecc" }, { label: "Videos folder", url: "https://drive.google.com/drive/folders/1SijOuN58F4upfSIGfVbYUXn6mOQ17wGB?usp=drive_link" }, { label: "Ad copy doc", url: "https://docs.google.com/document/d/11h3ob6JleKekycZuIDvkAyY--lz7F869V5Um6rlBsak/edit?usp=sharing" }, { label: "Headlines doc", url: "https://docs.google.com/document/d/154yZyumlQVKoHwwTk4XtZFzCn_JyUDa0pdycJRRerUo/edit?usp=sharing" }] },
-  { n: 40, key: "fb_publish", section: "I · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
-  { n: 41, key: "client_connect", section: "I · 📣 Facebook", who: "client", label: "Client connects her Facebook page and Instagram to the sub-account", checklist: ["last_connect"] },
+  { n: 40, key: "fb_publish", section: "J · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
+  { n: 41, key: "client_connect", section: "J · 📣 Facebook", who: "client", label: "Client connects her Facebook page and Instagram to the sub-account", checklist: ["last_connect"] },
 ];
 
 /* Short names, shown bold on the setup card; the label stays as the
@@ -123,7 +127,7 @@ const STEP_TITLES: Record<string, string> = {
   wf_survey: "Funnel Survey workflow",
   cal_hours: "Calendar team, location & hours", cal_active: "Calendar on",
   funnel_create: "Set up the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
-  funnel_test: "Test the funnel", funnel_live: "Check values & go live",
+  closebot_connect: "Connect to CloseBot", funnel_test: "Test the funnel", funnel_live: "Check values & go live",
   last_profile: "Final check, real test", last_check: "Account & funnel re-check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
   fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad", fb_publish: "Publish the campaign", client_connect: "Client connects FB & IG",
 };
@@ -371,6 +375,20 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
     case "later_hours": return [
       `Open ${ghl(L, "settings/staff")} → edit ${email} → User Availability and set the new hours the client sent: ${hours}. Save, reload, confirm, screenshot before and after.`,
     ];
+    case "closebot_connect": {
+      const biz = f.form.business_name?.trim() || owner;
+      const first = owner.split(/\s+/)[0];
+      return [
+        `This step works in CloseBot (https://app.closebot.com), for this one client only: ${biz}, GoHighLevel location ${L}. Never change another client's source. If CloseBot shows a sign-in page: type nothing, status "needs_teammate", summary "Mac Mini is not signed in to CloseBot".`,
+        `Open https://app.closebot.com/settings/sources and look for ${biz}'s source. If it is there and the slay agent is already on it with SMS, change nothing below that is already right.`,
+        `No source yet: Add New Source → HighLevel Sub-Account → "Connect HighLevel Sub-Account Now". On the GoHighLevel page click Login, then Next, search "${biz}" and click it. The source is created even if the dialog's "Add Source" is not pressed. If this account is not in the list, or GoHighLevel asks for a sign-in you can't finish, status "needs_teammate" and say so.`,
+        `Open the source → Settings: Bot Auto Shutoff ON. Follow-Up Restrictions: Mon–Fri 08:00–20:00, Sat 09:00–20:00, Sun 10:00–20:00. Reply Restrictions: none. Press the bottom-right "Save changes" (a hidden "Save" does not persist).`,
+        `Source → Variables: Override Name ON, enter "${first}", press "Save changes".`,
+        `Open the agent named slay (bot_OMQ35MOH48F6T4Z1). If its editor ALREADY shows "Publish" before you change anything, someone has unpublished edits: change nothing, status "needs_teammate", summary "slay has unpublished edits, the owner must publish first".`,
+        `Right toolbar rocket icon = Sources panel → + New → ${biz}'s source. Channel: SMS. Filters: "tag is (v3)", then "Add filter" → "tag is ai on" (the grey "tag is not ai off" is built in). Then press Publish once. Do not change the agent's prompt or anything else.`,
+        `Reload the Sources panel and confirm ${biz} is listed with SMS and both filters, then reload the source and confirm Bot Auto Shutoff and the Override Name stuck. Screenshot both. Do not send any message.`,
+      ];
+    }
     default: return [step.label];
   }
 }

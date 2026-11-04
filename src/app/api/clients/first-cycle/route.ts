@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { agencyHeaders, moveDealToFirstCycle, saveLoginFieldsRaw } from "@/lib/first-cycle";
+import { agencyHeaders, knownLogins, moveDealToFirstCycle, saveLoginFieldsRaw } from "@/lib/first-cycle";
 
 // "Move to First Cycle" from the Clients tab (owner, 2026-10-27): the status
 // change to Live offers a checkbox; ticking it saves the login email, password
@@ -20,25 +20,7 @@ export async function GET(req: NextRequest) {
   const contactId = req.nextUrl.searchParams.get("contactId") ?? "";
   const email = (req.nextUrl.searchParams.get("email") ?? "").trim().toLowerCase();
   const business = (req.nextUrl.searchParams.get("business") ?? "").trim();
-  const svc = createServiceClient();
-  const { data } = await svc.from("onboardings").select("form, setup").order("created_at", { ascending: false }).limit(400);
-  type Row = { form: Record<string, string>; setup: { password?: string; funnel_url?: string } | null };
-  const rows = (data ?? []) as Row[];
-  const hit = rows.find((r) => contactId && String(r.form?.master_contact_id ?? "") === contactId)
-    ?? rows.find((r) => email && String(r.form?.email ?? "").trim().toLowerCase() === email);
-  let funnelUrl = String(hit?.setup?.funnel_url ?? "");
-  if (!funnelUrl && business) {
-    const { data: ob } = await svc.from("onebox_clients").select("slug, client_name").neq("slug", "demo-v3");
-    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const m = (ob ?? []).find((o) => norm(String(o.client_name ?? "")) === norm(business));
-    if (m) funnelUrl = `https://book.pmu-care.com/f/${m.slug}`;
-  }
-  return NextResponse.json({
-    email: String(hit?.form?.email ?? email ?? ""),
-    password: String(hit?.setup?.password ?? ""),
-    funnelUrl,
-    fromSetup: !!hit,
-  });
+  return NextResponse.json(await knownLogins(createServiceClient(), { contactId, email, business }));
 }
 
 export async function POST(req: NextRequest) {

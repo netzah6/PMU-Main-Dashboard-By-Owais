@@ -9,9 +9,6 @@ import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
 import { StepVideos, useStepVideos } from "@/components/onboarding/StepVideos";
 import { RUNBOOK, RUNBOOK_SECTIONS, WHO_LABEL, missingFields, requiredFields, PREAPPROVABLE, rowMembers, type RunbookStep, type SetupState, type StepState, type Who } from "@/lib/setup-runbook";
 
-// Numbers on the card run 1, 2, 3… in the order shown (owner 11/03/2026);
-// the internal step numbers (s.n) stay as the AI Agent's report keys.
-const stepNo = new Map(RUNBOOK.filter((s) => !s.later && !s.hidden).map((s, i) => [s.key, i + 1]));
 
 /* The New Client Setup run on an Onboarding card.
    Before Approve: which clean account it will take (dropdown), the step-by-step
@@ -216,12 +213,12 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
   /* Automatic steps nobody acts on (hidden) stay off the card unless they
      need a person — failed or amber (owner 11/03/2026). */
   const steps = useMemo(() => RUNBOOK.filter((s) => {
-    if (s.later) return false;
+    if (s.later || (s.v3Only && !/v3/i.test(String(form.version ?? "")))) return false;
     if (!s.hidden) return true;
     const status = setup?.steps?.[s.key]?.status ?? "";
     // A failed step inside a row shows in that row, with its Retry.
     return status === "warn" || (status === "failed" && !s.partOf);
-  }), [setup]);
+  }), [setup, form.version]);
   const counts = useMemo(() => {
     if (!setup) return null;
     const run = steps.filter((s) => ["api", "mini", "ask"].includes(s.who));
@@ -321,7 +318,7 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
 
         {/* The plan */}
         <div>
-          <button onClick={() => setShowPlan((v) => !v)} className="text-[11px] text-[#0e8f88] hover:underline">{showPlan ? "hide" : "show"} the {RUNBOOK.filter((s) => !s.hidden && !s.later).length}-step plan</button>
+          <button onClick={() => setShowPlan((v) => !v)} className="text-[11px] text-[#0e8f88] hover:underline">{showPlan ? "hide" : "show"} the {steps.filter((s) => !s.hidden).length}-step plan</button>
           {showPlan && <PlanList steps={steps} setup={null} cards={{}} isAdmin={isAdmin} />}
         </div>
 
@@ -585,6 +582,9 @@ function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false 
 }) {
   const [cvOpen, setCvOpen] = useState(false);
   const videos = useStepVideos();
+  // Numbers on the card run 1, 2, 3… in the order shown (owner 11/03/2026);
+  // the internal step numbers (s.n) stay as the AI Agent's report keys.
+  const stepNo = new Map(steps.filter((s) => !s.hidden).map((s, i) => [s.key, i + 1]));
   /* Once a run exists: finished steps on the left, what's left on the right,
      so a coach sees at a glance what the AI Agent did and what is hers
      (owner 2026-10-20 — the single long list used half the screen). */

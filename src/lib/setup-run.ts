@@ -197,6 +197,15 @@ export async function advanceSetup(svc: Svc, onboardingId: string): Promise<Setu
           setStep(ob.setup, s.key, { status: "failed", error: "the run stopped in the middle of this step", note: "the run stopped in the middle of this step (timeout) — check the account, then Retry" }, `${s.n}. timed out`);
           touched = true;
         }
+        // V3-only step: not for other versions, and never reopened on a setup
+        // that had already passed it when the step was added.
+        if (s.v3Only && st.status === "todo") {
+          const notV3 = !/v3/i.test(String(ob.form.version ?? ""));
+          if (notV3 || ob.setup.status === "done" || isSettled(stepState(ob.setup, "last_profile"))) {
+            setStep(ob.setup, s.key, { status: "skipped", note: notV3 ? "V3 only: not needed for this client" : "this setup was past this point when the step was added" }, `${s.n}. skipped`);
+            touched = true;
+          }
+        }
       }
       return touched ? { setup: ob.setup } : undefined;
     });
@@ -804,7 +813,7 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   const needs: Record<string, string[]> = {
     webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_limit: ["phone_buy"], phone_forward: ["phone_buy"],
     user_settings: ["user_create"], user_calendar: ["user_create"], wf_survey: ["user_create"], cal_hours: ["user_create"],
-    funnel_ig: ["funnel_create"], funnel_reviews: ["funnel_create"], funnel_redirect: ["funnel_create"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
+    funnel_ig: ["funnel_create"], funnel_reviews: ["funnel_create"], funnel_redirect: ["funnel_create"], closebot_connect: ["funnel_live"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
   };
   for (const k of needs[next.key] ?? []) {
     const st = stepState(setup, k);

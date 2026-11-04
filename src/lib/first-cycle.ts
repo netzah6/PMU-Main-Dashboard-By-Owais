@@ -1,4 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAppLocationToken } from "@/lib/ghl-app";
+import { fileAlert } from "@/lib/alerts";
 
 /* Moving a client to "First Cycle" in the agency pipeline fires the
    "Started stage -> Went live Notification" workflow, which texts the client
@@ -68,4 +70,69 @@ export async function moveDealToFirstCycle(contactId: string, H: Record<string, 
   const r = await fetch(`${GHL}/opportunities/${opp.id}`, { method: "PUT", headers: H, body: JSON.stringify({ pipelineId: target.pipelineId, pipelineStageId: target.stageId }) });
   if (!r.ok) return { ok: false, note: `could not move the deal: HTTP ${r.status} ${(await r.text()).slice(0, 150)}` };
   return { ok: true, already: false, deal: opp.name ?? "", stage: target.stageName };
+}
+
+/* Whatever the setup run and the funnels already know about this client. */
+export async function knownLogins(svc: SupabaseClient, q: { contactId?: string; email?: string; business?: string }): Promise<{ email: string; password: string; funnelUrl: string; fromSetup: boolean }> {
+  const { data } = await svc.from("onboardings").select("form, setup").order("created_at", { ascending: false }).limit(400);
+  type Row = { form: Record<string, string>; setup: { password?: string; funnel_url?: string } | null };
+  const rows = (data ?? []) as Row[];
+  const email = (q.email ?? "").trim().toLowerCase();
+  const hit = rows.find((r) => q.contactId && String(r.form?.master_contact_id ?? "") === q.contactId)
+    ?? rows.find((r) => email && String(r.form?.email ?? "").trim().toLowerCase() === email);
+  let funnelUrl = String(hit?.setup?.funnel_url ?? "");
+  const business = (q.business ?? "").trim();
+  if (!funnelUrl && business) {
+    const { data: ob } = await svc.from("onebox_clients").select("slug, client_name").neq("slug", "demo-v3");
+    const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const m = (ob ?? []).find((o) => norm(String(o.client_name ?? "")) === norm(business));
+    if (m) funnelUrl = `https://book.pmu-care.com/f/${m.slug}`;
+  }
+  return { email: String(hit?.form?.email ?? email ?? ""), password: String(hit?.setup?.password ?? ""), funnelUrl, fromSetup: !!hit };
+}
+
+/* A deal landed in First Cycle, however it got there (Nancy Duarte, 11/04/2026:
+   dragged by hand in GHL, so the welcome texts went out blank — same as Rosell
+   Torres). The "Went live" workflow calls this first, waits, and texts only if
+   all three fields are filled. Nothing here sends a text. Missing logins = no
+   texts and an alert for the team. */
+export async function prepareFirstCycle(svc: SupabaseClient, contactId: string): Promise<{ ok: boolean; skipped?: string; missing?: string[] }> {
+  const a = await agencyHeaders();
+  if ("error" in a) throw new Error(a.error);
+  const H = a.H;
+  // The route has no login, so it only acts on a deal really sitting in First Cycle.
+  const pipes = (await fetch(`${GHL}/opportunities/pipelines?locationId=${MAIN_LOC}`, { headers: H }).then((r) => r.json())) as { pipelines?: Array<{ stages?: Array<{ id: string; name: string }> }> };
+  const stageIds = new Set((pipes.pipelines ?? []).flatMap((p) => p.stages ?? []).filter((t) => /first\s*cycle/i.test(t.name)).map((t) => t.id));
+  const opps = (await fetch(`${GHL}/opportunities/search?location_id=${MAIN_LOC}&contact_id=${encodeURIComponent(contactId)}&limit=20`, { headers: H }).then((r) => r.json())) as { opportunities?: Array<{ pipelineStageId?: string }> };
+  if (!(opps.opportunities ?? []).some((o) => stageIds.has(String(o.pipelineStageId)))) return { ok: false, skipped: "no deal in First Cycle" };
+
+  const cr = await fetch(`${GHL}/contacts/${encodeURIComponent(contactId)}`, { headers: H });
+  if (!cr.ok) throw new Error(`contact read HTTP ${cr.status}`);
+  const { contact } = (await cr.json()) as { contact: { email?: string; firstName?: string; lastName?: string; companyName?: string; customFields?: Array<{ id: string; value?: unknown }> } };
+  const list = (await fetch(`${GHL}/locations/${MAIN_LOC}/customFields?model=contact`, { headers: H }).then((r) => r.json())) as { customFields?: Array<{ id: string; fieldKey?: string }> };
+  const current = (key: string) => {
+    const id = (list.customFields ?? []).find((f) => (f.fieldKey ?? "").toLowerCase() === key)?.id;
+    return String((contact.customFields ?? []).find((f) => f.id === id)?.value ?? "").trim();
+  };
+  const have = { email: current("contact.cc__login_email"), password: current("contact.cc__login_password"), funnelUrl: current("contact.cc__funnel_url") };
+  const run = await knownLogins(svc, { contactId, email: contact.email, business: contact.companyName });
+  // The setup run is the newest truth (a returning client gets new logins).
+  const want = {
+    email: (run.fromSetup ? run.email : "").trim() || have.email || String(contact.email ?? "").trim(),
+    password: run.password.trim() || have.password,
+    funnelUrl: run.funnelUrl.trim() || have.funnelUrl,
+  };
+  if (want.email !== have.email || want.password !== have.password || want.funnelUrl !== have.funnelUrl) {
+    await saveLoginFieldsRaw(want, contactId, H);
+  }
+  const missing = [!want.email && "login email", !want.password && "password", !want.funnelUrl && "funnel link"].filter(Boolean) as string[];
+  if (missing.length) {
+    const who = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.companyName || contactId;
+    await fileAlert(svc, {
+      type: "onboarding", severity: "high", source_key: `first_cycle_blank:${contactId}`, resurfaceAfterDays: 1,
+      title: `${who} moved to First Cycle: welcome texts NOT sent`,
+      detail: `The dashboard has no ${missing.join(", ")} for this client, so nothing went out. Fill the CC - Login fields on the agency contact, then move the deal out of First Cycle and back to send the texts.`,
+    });
+  }
+  return { ok: missing.length === 0, missing };
 }
