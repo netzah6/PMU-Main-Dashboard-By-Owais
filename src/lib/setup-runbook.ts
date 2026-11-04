@@ -71,8 +71,7 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 18, key: "wf_survey", batch: "workflows", section: "E · ⚙️ Workflows", who: "mini", label: "\"CC - Funnel Survey → (V1 / V2 / V3)\": assign the new user, confirm the trigger \"Contact tag added → onebox-survey\"", how: "The missing trigger is what silenced Most Wanted Beauty and Marie.", checklist: ["wf_assign"] },
   // F · Calendar (Look Busy step removed 11/03/2026, owner: new accounts arrive with it off;
   // the calendar ID is saved by the one-box step in G)
-  { n: 21, key: "cal_team", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}})", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself.", checklist: ["cal_team", "cal_location"] },
-  { n: 22, key: "cal_hours", batch: "calendar", section: "F · 📅 Calendar", who: "mini", label: "Hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "Browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_availability"] },
+  { n: 22, key: "cal_hours", section: "F · 📅 Calendar", who: "mini", label: "Team member = the client's login only; meeting location = \"Full address\" ({{location.full_address}}); hours and days from the form, on the per-staff schedule screen, in the studio's time zone", how: "The merge field follows the sub-account's address, so a later address change updates the calendar by itself. Hours are browser only. The API path mangles this screen (Mindy To). The schedule's time zone must match the sub-account's (set from the studio address in step 2); the dashboard sets it to the sub-account's zone as soon as this step finishes, and the last check (step 32) checks again.", checklist: ["cal_team", "cal_location", "cal_availability"] },
   { n: 24, key: "cal_active", section: "F · 📅 Calendar", who: "api", label: "Switch the calendar on and confirm open time slots load", how: "The snapshot ships the calendar switched off (Sudbury Med Spa, 10/21/2026: the funnel's time picker could not load). The dashboard turns it on via the API and asks GHL for the next 14 days of slots; stops red if none load." },
   // G · Funnel
   { n: 26, key: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Fill the client's details and create the one-box funnel at book.pmu-care.com/<slug> — this saves the sub-account custom values, the calendar ID and \"CC - Deposit Funnel URL (V3)\"", how: "Same as filling the one-box in the Funnels tab and pressing Save: the client's details from the Clients tab go into the custom values (no form to fill again; a missing value is flagged red for the team), then the funnel is created from them.", checklist: ["funnel_onebox"] },
@@ -92,7 +91,7 @@ export const RUNBOOK: RunbookStep[] = [
   // Owner 10/24/2026: CNAM approval takes the carrier days (or gets
   // rejected), so submitting it (step 11) is not "verified" — the team ticks it.
   { n: 34, key: "first_cycle", section: "H · ✅ Last check", who: "api", badge: "team", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
-  { n: 35, key: "later_hours", section: "H · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run step 22 from the AI tab", later: true },
+  { n: 35, key: "later_hours", section: "H · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run the calendar hours from the AI tab", later: true },
   // I · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
   // then marks each step completed on the card. Loom + docs from the sheet.
   { n: 36, key: "fb_bm", section: "I · 📣 Facebook", who: "team", label: "Business Manager and ad account ready", checklist: ["fb_bm_name", "fb_bm_adaccount", "fb_bm_payment", "fb_bm_partner", "fb_bm_invite"],
@@ -120,7 +119,7 @@ const STEP_TITLES: Record<string, string> = {
   phone_buy: "Buy the number & forward calls", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
   user_create: "Create the client's login & password", user_settings: "Login permissions & calls", user_calendar: "User calendar access",
   wf_survey: "Funnel Survey workflow",
-  cal_team: "Calendar team & location", cal_hours: "Calendar hours", cal_active: "Calendar on",
+  cal_hours: "Calendar team, location & hours", cal_active: "Calendar on",
   funnel_create: "One-box funnel & custom values", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   funnel_test: "Test the funnel", funnel_live: "Check values & go live",
   last_profile: "Profile check", last_check: "Final check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
@@ -337,11 +336,10 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `The workflow MUST end Published with NO errors — fixing any error GHL shows (the red "Resolve errors" panel / orange dots) is part of this step. The usual one is "Create Or Update Opportunity: Opportunity pipeline not found / Stage not found" (the snapshot kept an old pipeline id): open each such step, choose the pipeline "Booking opportunities" and the stage the Demo (V3) template uses in the same step — open Demo (V3)'s copy of this workflow READ-ONLY to see it, never save anything in Demo; if you cannot see it, use "Very Hot-Lead (Filled Survey)🔥". Save each step, then publish.`,
       `Before you finish, re-open the workflow list and confirm this workflow shows Published and the builder shows 0 errors. If it is still Draft or still has errors, the status is "failed" (never "done") and the summary says which error is left.`,
     ];
-    case "cal_team": return [
+    // Team & location are part of this step (owner 11/03/2026 — one step).
+    case "cal_hours": return [
       `Open ${ghl(L, "settings/calendars")} → the "Permanent Makeup Transformation" (Physical Appointment) calendar → edit.`,
       `Staff & location: ${owner} (${email}) must be the ONLY staff member (remove anyone else). Her meeting location: choose "Full address" so the field shows {{location.full_address}} — do NOT type the address itself. Save changes and screenshot.`,
-    ];
-    case "cal_hours": return [
       `Open ${ghl(L, "settings/staff")} → edit ${email} → "User Availability" (the per-staff weekly schedule) — NOT the calendar's own availability.`,
       `Set the schedule's Timezone to the SAME zone as Settings → Business Profile → Time Zone (the studio's local time) — never your own or Israel time. Do this even when the form has no hours.`,
       `Set the weekly hours and days from the form: ${hours}. Days not listed are closed. Save.`,
