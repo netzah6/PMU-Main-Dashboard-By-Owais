@@ -5,6 +5,7 @@ import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { INTERNAL_FUNNELS as INTERNAL, ensureEngineCopy, freezeBlockedReason } from "@/lib/funnel-freeze-server";
 import { warmFunnel } from "@/lib/onebox-warm";
+import { runFunnelTimeline } from "@/lib/funnel-timeline";
 import { acceptFrozenDrift, frozenDrift, snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
 import { checkRule, hasFallen, monthKey, monthLabel, type Board, type BoardRow, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
 
@@ -174,6 +175,7 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const { error: recordError } = await svc.from("funnel_freeze").upsert({ slug, history: [...history, { action, at, by, changes }], updated_at: at }, { onConflict: "slug" });
     warmFunnel(slug);
+    await runFunnelTimeline(svc, { origin: req.nextUrl.origin, slug }).catch(() => {});
     return NextResponse.json({ ok: true, drift: [], warning: recordError ? RECORD_WARNING : undefined });
   }
 
@@ -196,6 +198,7 @@ export async function POST(req: NextRequest) {
     const { error } = await svc.from("onebox_clients").update({ frozen_engine: null, frozen_at: null, frozen_page: null }).eq("slug", slug);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     warmFunnel(slug);
+    await runFunnelTimeline(svc, { origin: req.nextUrl.origin, slug }).catch(() => {});
     return NextResponse.json({ ok: true, frozen: null, restorable: client.frozen_page ? { at: client.frozen_at } : null });
   }
 
@@ -222,6 +225,7 @@ export async function POST(req: NextRequest) {
       updated_at: at,
     }, { onConflict: "slug" });
     warmFunnel(slug);
+    await runFunnelTimeline(svc, { origin: req.nextUrl.origin, slug }).catch(() => {});
     return NextResponse.json({
       ok: true,
       frozen: { engine: last.engine, at: last.at, by: last.by, l: last.leads, d: last.deposits },
@@ -256,5 +260,6 @@ export async function POST(req: NextRequest) {
     updated_at: at,
   }, { onConflict: "slug" });
   warmFunnel(slug);
+  await runFunnelTimeline(svc, { origin: req.nextUrl.origin, slug }).catch(() => {});
   return NextResponse.json({ ok: true, frozen: { engine: ONEBOX_ENGINE_V, at, by, l: leads, d: deposits }, drift: [], restorable: null, warning: recordError ? RECORD_WARNING : undefined });
 }

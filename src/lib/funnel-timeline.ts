@@ -16,7 +16,8 @@ export type Fingerprint = Record<string, TrackedItem>;
 export type ChangeItem = { key: string; label: string; restorable: boolean; from?: string; to?: string };
 
 const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
-const short = (s: string) => (s.length > 80 ? `${s.slice(0, 77)}...` : s);
+/* By whole characters: half an emoji is invalid in jsonb and would fail the save. */
+const short = (s: string) => { const c = Array.from(s); return c.length > 80 ? `${c.slice(0, 77).join("")}...` : s; };
 const countList = (s: string) => s.split(",").filter((x) => x.trim()).length;
 
 /* Shown with their value on the timeline. */
@@ -32,9 +33,11 @@ const DETAIL_TEXT: Record<string, string> = {
   originalPriceEyeliner: "Original price, eyeliner", discountedPriceEyeliner: "Discounted price, eyeliner",
   originalPriceLips: "Original price, lips", discountedPriceLips: "Discounted price, lips",
   touchupPrice: "Touch-up price", firstTouchup: "First touch-up", services: "Services", businessHours: "Business hours",
-  ownerName: "Owner name", otherLocations: "Other locations", yearsInBusiness: "Years in business",
+  ownerName: "Owner name", otherLocations: "Other locations", yearsInBusiness: "Years in business", extraNotes: "Extra notes for the AI",
 };
-const DETAIL_HIDDEN: Record<string, string> = { calendarId: "Calendar", fanbasisProductId: "Checkout product", metaPixelId: "Meta pixel" };
+const DETAIL_HIDDEN: Record<string, string> = { calendarId: "Calendar", fanbasisProductId: "Checkout product" };
+/* Always logged, even the first time they can be read. */
+const FROM_OTHER_TABLES = new Set(["label", "budget", "test"]);
 
 export function fingerprintFunnel(
   row: OneboxRow,
@@ -51,23 +54,24 @@ export function fingerprintFunnel(
   add("title", "Page title", page.title ?? "", true);
   add("logo", "Logo", src.logo ?? "", true);
   add("surveyRaw", "Survey questions", src.surveyRaw ?? "", true);
-  add("faqs", "FAQs", JSON.stringify((page.faqs ?? []).map((f) => [f.q, f.a, f.v ?? ""])), true);
+  add("faqs", "FAQs", JSON.stringify((page.faqs ?? []).map((f) => [f.q, f.a, f.v ?? "", f.p ?? ""])), true);
   const results = [src.resultImgs, src.resultCvImgs].filter(Boolean).join(",");
   add("resultPhotos", "Result photos", results, true, `${countList(results)} photos`);
   const studio = [src.studioImgs, src.studioCvImgs].filter(Boolean).join(",");
   add("studioPhotos", "Studio photos", studio, true, `${countList(studio)} photos`);
 
-  /* Instagram and reviews: only what a visitor sees. Their saved JSON also holds
-     dates ("2 weeks ago"), which change with no change on the page. */
+  /* Instagram and reviews: only what a visitor sees. Each fetch saves the same
+     posts under new addresses, and reviews carry dates ("2 weeks ago"), so those
+     alone would log a change with no change on the page. */
   let igImgs: string[] = String(page.cfg?.igFrozenImgs ?? "").split(",").filter((u) => u.trim());
   if (!igImgs.length) {
     try { igImgs = (JSON.parse(page.cfg?.igFeed || "{}") as { imgs?: string[] }).imgs ?? []; } catch { igImgs = []; }
   }
-  add("instagram", "Instagram pictures", igImgs.join(","), true, `${igImgs.length} pictures`);
+  add("instagram", "Instagram pictures", page.ig ? JSON.stringify([page.ig.posts, page.ig.picks, page.ig.profile]) : igImgs.join(","), true, `${igImgs.length} pictures`);
   let reviews: { rating?: number | null; count?: number | null; reviews?: { name?: string; stars?: number; text?: string }[] } = {};
   try { reviews = JSON.parse(page.cfg?.gReviews || "{}"); } catch { reviews = {}; }
   add("reviews", "Google reviews", JSON.stringify([reviews.rating ?? null, reviews.count ?? null, (reviews.reviews ?? []).map((x) => [x.name, x.stars, x.text])]), true,
-    `${reviews.reviews?.length ?? 0} shown`);
+    `${reviews.reviews?.length ?? 0} shown, ${reviews.count ?? "no"} reviews`);
 
   const cfg = row.config ?? {};
   for (const [k, label] of Object.entries(DETAIL_TEXT)) {
@@ -76,6 +80,7 @@ export function fingerprintFunnel(
   for (const [k, label] of Object.entries(DETAIL_HIDDEN)) {
     if (k in cfg) add(k, label, cfg[k] ?? "", false);
   }
+  add("metaPixelId", "Meta pixel", String(cfg.metaPixelId || row.extras?.metaPixelId || "").replace(/\D/g, ""), false);
   add("status", "Funnel status", row.status ?? "", false, row.status ?? "");
   add("frozen", "Locked", row.frozen_engine != null ? "yes" : "no", false, row.frozen_engine != null ? "yes" : "no");
   add("freeBooking", "Free booking", row.extras?.freeBooking ? "on" : "off", false, row.extras?.freeBooking ? "on" : "off");
@@ -83,7 +88,7 @@ export function fingerprintFunnel(
   /* Read from other tables: missing means "couldn't read", and diffFingerprints
      keeps the last value instead of logging a change that didn't happen. */
   if (ctx.label !== undefined) add("label", "Program label", ctx.label, false, ctx.label);
-  if (ctx.budget !== undefined) add("budget", "Ad budget per day", String(ctx.budget), false, `$${ctx.budget}`);
+  if (ctx.budget !== undefined) add("budget", "Ad budget per day", String(ctx.budget), false, ctx.budget > 0 ? `$${ctx.budget}` : "$0 (ads off)");
   if (ctx.test !== undefined) add("test", "Split test", ctx.test, false, ctx.test || "none");
   return out;
 }
@@ -92,13 +97,20 @@ export function diffFingerprints(prev: Fingerprint, next: Fingerprint): ChangeIt
   const out: ChangeItem[] = [];
   for (const [key, item] of Object.entries(next)) {
     const was = prev[key];
-    if (!was || was.h === item.h) continue;
+    if (!was) {
+      /* Keys added to this code later aren't changes on the funnel. */
+      if (FROM_OTHER_TABLES.has(key)) out.push({ key, label: item.l, restorable: item.r, to: item.v });
+      continue;
+    }
+    if (was.h === item.h) continue;
     const showValues = was.v !== undefined && item.v !== undefined && was.v !== item.v;
     out.push(showValues ? { key, label: item.l, restorable: item.r, from: was.v, to: item.v } : { key, label: item.l, restorable: item.r });
   }
   return out;
 }
 
+/* True when going from one to the other would change nothing for a visitor,
+   apart from the values that always stay live. */
 export const samePage = (a: Fingerprint, b: Fingerprint) =>
   Object.entries(a).every(([k, item]) => !item.r || b[k]?.h === item.h) && Object.entries(b).every(([k, item]) => !item.r || a[k]?.h === item.h);
 
@@ -120,7 +132,7 @@ export async function runFunnelTimeline(svc: SupabaseClient, opts: { origin: str
   /* Without the last version every funnel would look brand new. */
   if (latest.error) throw new Error(latest.error.message);
 
-  const lastBySlug = new Map(((latest.data ?? []) as { slug: string; fingerprint: Fingerprint }[]).map((v) => [v.slug, v.fingerprint]));
+  const lastBySlug = new Map(((latest.data ?? []) as { slug: string; id: number; fingerprint: Fingerprint }[]).map((v) => [v.slug, v]));
   const budgetByOwner = new Map(((budgets.data ?? []) as { owner_name: string | null; daily_budget: number | string | null }[])
     .map((b) => [String(b.owner_name ?? "").toLowerCase().trim(), Number(b.daily_budget ?? 0)]));
   const testBySlug = new Map(((tests.data ?? []) as { slug: string; name: string }[]).map((t) => [t.slug, t.name]));
@@ -138,29 +150,36 @@ export async function runFunnelTimeline(svc: SupabaseClient, opts: { origin: str
       const page = locked ? (row.frozen_page as FrozenPage) : snapshotFunnelPage(row);
       const engine = row.frozen_engine ?? ONEBOX_ENGINE_V;
       const program = programs.error ? null : findClientProgram((programs.data ?? []) as ProgramRow[], String(row.client_name ?? ""));
-      /* A zero budget usually means the ads sheet is mid-sync, so it is treated
-         as unknown. A real pause shows in the leads and in any note. */
-      const budget = program ? budgetByOwner.get(program.ownerName.toLowerCase().trim()) : undefined;
       const next = fingerprintFunnel(row, page, engine, {
         label: program?.version,
-        budget: budget && budget > 0 ? budget : undefined,
+        budget: program && !budgets.error ? budgetByOwner.get(program.ownerName.toLowerCase().trim()) : undefined,
         test: tests.error ? undefined : testBySlug.get(row.slug) ?? "",
       });
-      const prev = lastBySlug.get(row.slug);
+      const last = lastBySlug.get(row.slug);
+      const prev = last?.fingerprint;
       if (prev) for (const [k, item] of Object.entries(prev)) if (!(k in next)) next[k] = item;
       const changes = prev ? diffFingerprints(prev, next) : [];
       if (prev && !changes.length) continue;
       if (prev) changed++;
       if (sample === undefined) sample = { slug: row.slug, changes, keys: Object.keys(next).length };
-      inserts.push({ slug: row.slug, engine, frozen: locked, page, fingerprint: next, changes });
+      inserts.push({ slug: row.slug, engine, frozen: locked, page, fingerprint: next, changes, prev_id: last?.id ?? 0 });
     } catch (e) {
       failed.push(`${raw.slug}: ${e instanceof Error ? e.message : "failed"}`);
     }
   }
   if (!opts.dry) {
+    /* prev_id: if another run already saved this change, this one is skipped.
+       One bad row can't block the rest of its batch: a failed batch retries by row. */
+    const save = (batch: Record<string, unknown>[]) =>
+      svc.from("funnel_versions").upsert(batch, { onConflict: "slug,prev_id", ignoreDuplicates: true });
     for (let i = 0; i < inserts.length; i += 25) {
-      const { error } = await svc.from("funnel_versions").insert(inserts.slice(i, i + 25));
-      if (error) failed.push(`save ${i}: ${error.message}`);
+      const batch = inserts.slice(i, i + 25);
+      const { error } = await save(batch);
+      if (!error) continue;
+      for (const one of batch) {
+        const { error: oneError } = await save([one]);
+        if (oneError) failed.push(`${one.slug}: ${oneError.message}`);
+      }
     }
   }
   return { checked: tracked.length, saved: opts.dry ? 0 : inserts.length, changed, failed, engineCopyError: engineCopyError ?? undefined, sample: opts.dry ? sample : undefined };

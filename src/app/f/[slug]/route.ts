@@ -5,6 +5,7 @@ import { refreshOneboxConfig, SYNC_TTL_MS } from "@/lib/onebox";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { buildFunnelPage, lockFunnelPage, type FrozenPage, type OneboxRow as Row } from "@/lib/onebox-page";
 import { frozenEngineSrc, liveEngineSrc } from "@/lib/onebox-engine";
+import { signLogoUrl } from "@/lib/logo-sign";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
 // the hosted engine public/onebox.js owns the DOM; a hydrated page would
@@ -51,9 +52,11 @@ export async function GET(
   const isPay = req.headers.get("x-ob-pay") === "1" || req.nextUrl.searchParams.has("pay");
   const wantsSplit = !req.nextUrl.searchParams.has("ob_e") && !req.nextUrl.searchParams.has("preview") && !isPay;
   type ProbeVar = { vkey: string; kind: string; weight: number; config_override: Record<string, string> | null };
-  /* Timeline screen: ?preview=…&fzv=<id> shows a saved version. Only with
-     ?preview, which the engine keeps strictly read-only. */
-  const savedVersion = req.nextUrl.searchParams.has("preview") ? req.nextUrl.searchParams.get("fzv") ?? "" : "";
+  /* Timeline screen: ?preview=…&fzv=<id>&fzs=<signature> shows a saved version.
+     Only with ?preview= (the same test the engine uses to stay strictly read-only)
+     and a link from that screen, so content taken off a page doesn't stay public. */
+  const fzv = /[?&]preview=/.test(req.nextUrl.search) ? req.nextUrl.searchParams.get("fzv") ?? "" : "";
+  const savedVersion = /^\d+$/.test(fzv) && signLogoUrl(`fzv:${fzv}`) && req.nextUrl.searchParams.get("fzs") === signLogoUrl(`fzv:${fzv}`) ? fzv : "";
   const [clientRes, expRes, paramVarRes, savedRes] = await Promise.all([
     svc.from("onebox_clients").select("*").eq("slug", slug).single(),
     wantsSplit
@@ -68,7 +71,7 @@ export async function GET(
       ? svc.from("onebox_variants").select("config_override, kind, onebox_experiments!inner(slug)")
           .eq("experiment_id", Number(obE)).eq("vkey", obV).maybeSingle()
       : Promise.resolve({ data: null }),
-    /^\d+$/.test(savedVersion)
+    savedVersion
       ? svc.from("funnel_versions").select("engine, page").eq("id", Number(savedVersion)).eq("slug", slug).maybeSingle()
       : Promise.resolve({ data: null }),
   ]);

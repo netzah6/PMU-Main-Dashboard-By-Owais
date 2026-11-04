@@ -179,6 +179,8 @@ export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: s
   };
   /* Same URL the engine will render (its fastImg proxies media-library
      files) so the preload warms the right resource, never a second one. */
+  /* A per-account webhook secret: the engine never reads it, and the page is public. */
+  delete cfg.fanbasisHookUrl;
   const logoPreload = funnelLogo(cfg.logo || "");
   if (logoPreload) cfg.logo = logoPreload;
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
@@ -238,6 +240,9 @@ export type FrozenPage = {
   title: string;
   /* The editable values at the click, as they are in GHL, to spot later edits. */
   source: Record<string, string>;
+  /* Which Instagram posts and header the page shows, for the timeline. The picture
+     addresses can't tell: each fetch saves the same posts under a new date folder. */
+  ig?: { posts: string[]; picks: unknown; profile: string[] };
 };
 
 export type Drift = { key: string; label: string; from?: string; to?: string };
@@ -249,7 +254,15 @@ export function snapshotFunnelPage(row: OneboxRow): FrozenPage {
   const { cfg, faqs, title } = buildFunnelPage(row, { expId: "", expVkey: "", isPay: false });
   /* Live values are never read from a snapshot, so they aren't copied into it. */
   const kept = Object.fromEntries(Object.entries(cfg).filter(([k]) => !LIVE_KEYS.has(k)));
-  return { cfg: kept, faqs, title, source: pickSource(row) };
+  const fixed = String(cfg.igFrozenImgs ?? "").split(",").filter((u) => u.trim());
+  const feed = row.extras?.igFeed;
+  const arranged = !fixed.length && cfg.igFeed && feed ? arrangeFeed(feed, row.extras?.igPicks) : null;
+  const posts = fixed.length ? fixed : (arranged?.posts ?? []).slice(0, 12).map((x) => x.url || x.img);
+  const prof = feed?.profile;
+  return {
+    cfg: kept, faqs, title, source: pickSource(row),
+    ig: { posts: [...posts].sort(), picks: row.extras?.igPicks ?? null, profile: [prof?.username ?? "", prof?.name ?? "", prof?.bio ?? "", prof?.category ?? ""] },
+  };
 }
 
 export function lockFunnelPage(page: FunnelPage, frozen: FrozenPage): void {

@@ -5,9 +5,10 @@ import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { INTERNAL_FUNNELS, freezeBlockedReason } from "@/lib/funnel-freeze-server";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { frozenDrift, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
+import { signLogoUrl } from "@/lib/logo-sign";
 import { warmFunnel } from "@/lib/onebox-warm";
 import { runFunnelTimeline, samePage, type ChangeItem, type Fingerprint } from "@/lib/funnel-timeline";
-import { flagFall, pacificDay, periodStats, sumDays, type DayCounts, type TimelineBoard, type TimelineDetail, type TimelineRow, type TimelineVersion } from "@/lib/funnel-timeline-view";
+import { addDays, changeWindows, flagFall, pacificDay, sumDays, type DayCounts, type TimelineBoard, type TimelineDetail, type TimelineRow, type TimelineVersion } from "@/lib/funnel-timeline-view";
 import type { HistoryEntry } from "@/lib/funnel-freeze";
 
 // The Timeline screen (/funnels/timeline), admins only.
@@ -34,7 +35,16 @@ type DailyRow = {
   days: Record<string, DayCounts>;
 };
 
-const dayBefore = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+/* The counting takes about 5 s and covers every funnel, so opening several
+   histories in a row shares one result. Display-only. */
+let dailyMemo: { at: number; since: string; rows: DailyRow[] } | null = null;
+async function loadDaily(svc: ReturnType<typeof createServiceClient>, since: string): Promise<DailyRow[]> {
+  if (dailyMemo && dailyMemo.since <= since && Date.now() - dailyMemo.at < 120_000) return dailyMemo.rows;
+  const { data, error } = await svc.rpc("funnel_timeline_daily", { p_since: since });
+  if (error) throw new Error(error.message);
+  dailyMemo = { at: Date.now(), since, rows: (data ?? []) as DailyRow[] };
+  return dailyMemo.rows;
+}
 
 export async function GET(req: NextRequest) {
   const auth = await getAuth();
@@ -47,32 +57,34 @@ export async function GET(req: NextRequest) {
   if (slug && !/^[a-z0-9-]+$/.test(slug)) return NextResponse.json({ error: "Unknown funnel" }, { status: 404 });
 
   if (slug) {
-    const [{ data: versions, error: vErr }, { data: notes, error: nErr }, { data: daily, error: dErr }] = await Promise.all([
+    const [{ data: versions, error: vErr }, { data: notes, error: nErr }, { data: copies }] = await Promise.all([
       svc.from("funnel_versions").select("id, saved_at, engine, frozen, fingerprint, changes").eq("slug", slug).order("saved_at", { ascending: false }).order("id", { ascending: false }).limit(300),
       svc.from("funnel_notes").select("id, at, note, by, slug").or(`slug.eq.${slug},slug.is.null`).order("at", { ascending: false }).limit(300),
-      svc.rpc("funnel_timeline_daily", { p_since: "2026-11-01" }),
+      svc.from("onebox_engine_copies").select("version"),
     ]);
-    const firstError = vErr ?? nErr ?? dErr;
+    const firstError = vErr ?? nErr;
     if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 });
-    const days = ((daily ?? []) as DailyRow[]).find((d) => d.slug === slug)?.days ?? {};
     const rows = (versions ?? []) as { id: number; saved_at: string; engine: number; frozen: boolean; fingerprint: Fingerprint; changes: ChangeItem[] }[];
+    const saved = new Set(((copies ?? []) as { version: number }[]).map((c) => c.version));
+    /* The history still opens if the counting fails: it just shows no rates. */
+    const oldest = rows.length ? pacificDay(new Date(rows[rows.length - 1].saved_at)) : today;
+    let days: Record<string, DayCounts> | null = null;
+    try {
+      days = (await loadDaily(svc, addDays(oldest, -14))).find((d) => d.slug === slug)?.days ?? {};
+    } catch { /* see above */ }
     const current = rows[0]?.fingerprint;
-    const out: TimelineVersion[] = rows.map((v, i) => {
-      const from = pacificDay(new Date(v.saved_at));
-      /* A version runs until the day before the next one; the day of a change
-         counts for the new version. */
-      const to = i === 0 ? today : dayBefore(pacificDay(new Date(rows[i - 1].saved_at)), 1);
-      return {
-        id: v.id,
-        savedAt: v.saved_at,
-        engine: v.engine,
-        frozen: v.frozen,
-        changes: v.changes ?? [],
-        isNow: i === 0,
-        samePageAsNow: !!current && samePage(v.fingerprint, current),
-        stats: periodStats(days, from, to, today),
-      };
-    });
+    const out: TimelineVersion[] = rows.map((v, i) => ({
+      id: v.id,
+      savedAt: v.saved_at,
+      engine: v.engine,
+      frozen: v.frozen,
+      changes: v.changes ?? [],
+      isNow: i === 0,
+      samePageAsNow: !!current && samePage(v.fingerprint, current),
+      engineSaved: saved.has(v.engine),
+      previewSig: signLogoUrl(`fzv:${v.id}`),
+      windows: days ? changeWindows(days, pacificDay(new Date(v.saved_at)), today) : null,
+    }));
     const detail: TimelineDetail = {
       versions: out,
       notes: ((notes ?? []) as { id: number; at: string; note: string; by: string | null; slug: string | null }[]).map((n) => ({ id: n.id, at: n.at, note: n.note, allFunnels: n.slug == null })),
@@ -80,33 +92,33 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(detail);
   }
 
-  const [{ data: daily, error: dErr }, { data: latest, error: lErr }, programs] = await Promise.all([
-    svc.rpc("funnel_timeline_daily", { p_since: dayBefore(today, 28) }),
+  const [dailyRows, { data: latest, error: lErr }, programs] = await Promise.all([
+    loadDaily(svc, addDays(today, -56)).catch((e: unknown) => (e instanceof Error ? e : new Error("Couldn't count"))),
     svc.rpc("funnel_latest_versions"),
     fetchProgramRows(svc),
   ]);
-  const firstError = dErr ?? lErr;
-  if (firstError) return NextResponse.json({ error: firstError.message }, { status: 500 });
+  if (dailyRows instanceof Error) return NextResponse.json({ error: dailyRows.message }, { status: 500 });
+  if (lErr) return NextResponse.json({ error: lErr.message }, { status: 500 });
   const latestBySlug = new Map(((latest ?? []) as { slug: string; saved_at: string; changes: ChangeItem[] }[]).map((v) => [v.slug, v]));
-  const recentStart = dayBefore(today, 13);
-  const olderStart = dayBefore(today, 27);
-  const olderEnd = dayBefore(today, 14);
-  const rows: TimelineRow[] = ((daily ?? []) as DailyRow[])
+  const rows: TimelineRow[] = dailyRows
     .filter((d) => d.template !== "b2b" && !INTERNAL_FUNNELS.has(d.slug) && (d.status === "live" || d.frozen_engine != null))
     .map((d) => {
-      const last14 = sumDays(d.days, recentStart, today);
-      const prev14 = sumDays(d.days, olderStart, olderEnd);
+      const last14 = sumDays(d.days, addDays(today, -13), today);
+      const prev14 = sumDays(d.days, addDays(today, -27), addDays(today, -14));
+      const last28 = sumDays(d.days, addDays(today, -27), today);
+      const prev28 = sumDays(d.days, addDays(today, -55), addDays(today, -28));
+      const version = findClientProgram(programs, d.client_name)?.version ?? "";
       const v = latestBySlug.get(d.slug);
       return {
         slug: d.slug,
         business: d.business ?? d.client_name,
         owner: d.owner_name ?? "",
-        version: findClientProgram(programs, d.client_name)?.version ?? "",
+        version,
         clientStatus: d.client_status ?? "",
         freeBooking: d.free_booking,
         last14,
         prev14,
-        fall: flagFall(last14, prev14),
+        fall: flagFall(last14, prev14, last28, prev28, version === "(V1)"),
         lastChange: v ? { at: v.saved_at, changes: v.changes ?? [] } : null,
         lockedAt: d.frozen_engine != null ? d.frozen_at : null,
       };
@@ -158,28 +170,26 @@ export async function POST(req: NextRequest) {
   if (copyError) return NextResponse.json({ error: "Couldn't check that page version. Try again." }, { status: 503 });
   if (!copy) return NextResponse.json({ error: `Page version ${version.engine} wasn't saved, so this page can't come back.` }, { status: 409 });
 
-  const prior = priorRow as { frozen_by: string | null; frozen_leads: number | null; frozen_deposits: number | null; history: HistoryEntry[] | null } | null;
+  const prior = priorRow as { history: HistoryEntry[] | null } | null;
+  const origin = req.nextUrl.origin;
+  /* The page being replaced gets its own row first, so it can come back too. */
+  await runFunnelTimeline(svc, { origin, slug }).catch(() => {});
   const at = new Date().toISOString();
   const by = auth.email;
-  /* If it is already locked on another page, keep that page so it can be put back. */
-  const { error: recordError } = await svc.from("funnel_freeze").upsert({
+  const { error } = await svc.from("onebox_clients").update({ frozen_engine: version.engine, frozen_at: at, frozen_page: version.page }).eq("slug", slug);
+  if (error) return NextResponse.json({ error: "The page didn't change. Try again." }, { status: 500 });
+  await svc.from("funnel_freeze").upsert({
     slug,
     frozen_by: by,
     frozen_leads: null,
     frozen_deposits: null,
-    ...(client.frozen_page ? { last_frozen: { engine: client.frozen_engine, at: client.frozen_at, by: prior?.frozen_by ?? null, leads: prior?.frozen_leads ?? null, deposits: prior?.frozen_deposits ?? null, page: client.frozen_page } } : {}),
     history: [...(prior?.history ?? []), { action: "goback", at, by, engine: version.engine }],
     updated_at: at,
   }, { onConflict: "slug" });
-  if (recordError) return NextResponse.json({ error: "Couldn't save the record, so nothing changed. Try again." }, { status: 500 });
-  const { error } = await svc.from("onebox_clients").update({ frozen_engine: version.engine, frozen_at: at, frozen_page: version.page }).eq("slug", slug);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
   const savedOn = new Date(version.saved_at).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" });
   await svc.from("funnel_notes").insert({ slug, note: `Went back to the page saved ${savedOn}`, by });
   warmFunnel(slug);
-  /* On the timeline right away; the cron would catch it within 6 hours anyway. */
-  await runFunnelTimeline(svc, { origin: req.nextUrl.origin, slug }).catch(() => {});
+  await runFunnelTimeline(svc, { origin, slug }).catch(() => {});
   return NextResponse.json({
     ok: true,
     lockedAt: at,

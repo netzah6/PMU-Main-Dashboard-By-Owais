@@ -12,9 +12,11 @@ create table if not exists public.funnel_versions (
   frozen boolean not null default false,
   page jsonb not null,
   fingerprint jsonb not null,
-  changes jsonb not null default '[]'::jsonb
+  changes jsonb not null default '[]'::jsonb,
+  prev_id bigint not null default 0 -- the version this one replaces; unique, so two runs at once can't both save
 );
 create index if not exists funnel_versions_slug_saved on public.funnel_versions (slug, saved_at desc);
+create unique index if not exists funnel_versions_one_next on public.funnel_versions (slug, prev_id);
 alter table public.funnel_versions enable row level security;
 
 create table if not exists public.funnel_notes (
@@ -34,7 +36,8 @@ language sql stable set search_path = public as $$
   from funnel_versions v order by v.slug, v.saved_at desc, v.id desc
 $$;
 
--- Leads, people who picked a time, and deposits per funnel per Pacific day, one
+-- l = leads, b = leads on the one-box page, p = people who picked a time, d =
+-- deposits, per funnel per Pacific day, one
 -- row per funnel (a row per day would hit the API's 1,000-row cap within a week).
 -- Same counting as funnel_freeze_stats in funnel-freeze.sql.
 create or replace function public.funnel_timeline_daily(p_since date)
@@ -96,16 +99,22 @@ language sql stable set search_path = public as $$
       min((o.picked_time_at at time zone 'America/Los_Angeles')::date) d
     from onebox_leads o where o.picked_time_at >= p_since::timestamp - interval '1 day'
     group by 1, 2
+  ), pl as (
+    select o.slug, coalesce(nullif(right(regexp_replace(coalesce(o.phone, ''), '\D', '', 'g'), 10), ''), o.id::text) who,
+      min((o.created_at at time zone 'America/Los_Angeles')::date) d
+    from onebox_leads o where o.created_at >= p_since::timestamp - interval '1 day'
+    group by 1, 2
   ), per as (
     select oc.slug, al.k from onebox_clients oc left join alias al on al.a = freeze_norm(oc.client_name)
   ), u as (
-    select p.slug, lf.d, 1 l, 0 pk, 0 dp from per p join lf on lf.k = p.k where lf.d >= p_since
-    union all select p.slug, df.d, 0, 0, 1 from per p join df on df.k = p.k where df.d >= p_since
-    union all select pf.slug, pf.d, 0, 1, 0 from pf where pf.d >= p_since
+    select p.slug, lf.d, 1 l, 0 pk, 0 dp, 0 pg from per p join lf on lf.k = p.k where lf.d >= p_since
+    union all select p.slug, df.d, 0, 0, 1, 0 from per p join df on df.k = p.k where df.d >= p_since
+    union all select pf.slug, pf.d, 0, 1, 0, 0 from pf where pf.d >= p_since
+    union all select pl.slug, pl.d, 0, 0, 0, 1 from pl where pl.d >= p_since
   ), g as (
-    select u.slug, u.d, sum(u.l)::int l, sum(u.pk)::int p, sum(u.dp)::int n from u group by 1, 2
+    select u.slug, u.d, sum(u.l)::int l, sum(u.pk)::int p, sum(u.dp)::int n, sum(u.pg)::int b from u group by 1, 2
   ), j as (
-    select g.slug, jsonb_object_agg(to_char(g.d, 'YYYY-MM-DD'), jsonb_build_object('l', g.l, 'p', g.p, 'd', g.n)) days from g group by 1
+    select g.slug, jsonb_object_agg(to_char(g.d, 'YYYY-MM-DD'), jsonb_build_object('l', g.l, 'p', g.p, 'd', g.n, 'b', g.b)) days from g group by 1
   )
   select oc.slug, oc.client_name, oc.status, oc.extras->>'template', coalesce(oc.extras->>'freeBooking', '') in ('true', '1'),
     oc.frozen_engine, oc.frozen_at, cm.biz, cm.owner_name, cm.st, coalesce(j.days, '{}'::jsonb)
