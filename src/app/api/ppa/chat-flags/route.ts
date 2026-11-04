@@ -32,8 +32,22 @@ export async function GET() {
     if (n.length < 6) return false;
     return refundNames.some((r) => r.includes(n) || n.includes(r));
   };
-  const visible = ((flags ?? []) as Array<{ contact_name: string | null; contact_id: string | null; detected_date: string | null }>)
+  const notRefunded = ((flags ?? []) as Array<{ contact_name: string | null; contact_id: string | null; detected_date: string | null }>)
     .filter((f) => !refunded(f.contact_name));
+
+  // One lead = one bill (owner, 11/04/2026): a lead who has since moved to
+  // Session Done, or has a deposit or calendar row, is already billed that way.
+  const flagContacts = notRefunded.map((f) => f.contact_id).filter(Boolean) as string[];
+  const billedElsewhere = new Set<string>();
+  if (flagContacts.length) {
+    const rows = await Promise.all([
+      svc.from("ppa_selfbooked").select("contact_id").in("contact_id", flagContacts),
+      svc.from("ppa_calendar_booked").select("contact_id").in("contact_id", flagContacts),
+      svc.from("ppa_deposit_contacts").select("contact_id").in("contact_id", flagContacts),
+    ]);
+    for (const r of rows) for (const x of (r.data ?? []) as Array<{ contact_id: string | null }>) if (x.contact_id) billedElsewhere.add(x.contact_id);
+  }
+  const visible = notRefunded.filter((f) => !f.contact_id || !billedElsewhere.has(f.contact_id));
 
   // "We only charge AFTER the appointment happened": a flag whose detected
   // date — or whose contact's calendar appointment — is still in the future

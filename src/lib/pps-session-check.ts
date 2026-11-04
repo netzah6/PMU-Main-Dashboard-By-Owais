@@ -171,7 +171,7 @@ export async function verifySessions(deadlineMs = 240_000, ownerKeyFilter?: stri
     allRows<{ appt_id: string; biz_norm: string; contact_name: string | null; email: string | null }>((a, b) =>
       svc.from("ppa_deposit_rows").select("appt_id, biz_norm, contact_name, email").in("biz_norm", roster.map((c) => c.bizNorm).filter(Boolean)).range(a, b)),
     svc.from("ppa_calendar_booked").select("appt_id, owner_key, contact_id, contact_name, email, start_time").in("owner_key", ownerKeys),
-    svc.from("ppa_selfbooked").select("contact_id").in("owner_key", ownerKeys),
+    allRows<{ contact_id: string | null }>((a, b) => svc.from("ppa_selfbooked").select("contact_id").in("owner_key", ownerKeys).range(a, b)),
     svc.from("ppa_chat_flags").select("conversation_id, owner_key, location_id, contact_id, contact_name, detected_date, scanned_at")
       .in("owner_key", ownerKeys).eq("verdict", "booked").eq("dismissed", false).eq("billed", false),
     svc.from("pps_session_checks").select("check_key, verdict").in("owner_key", ownerKeys),
@@ -225,9 +225,11 @@ export async function verifySessions(deadlineMs = 240_000, ownerKeyFilter?: stri
   // (c) "Deposit Collected" leads with no deposit, no calendar booking, not
   // already billed as self-booked or from chat.
   const skip = new Set<string>(calContacts);
-  for (const r of (sbRes.data ?? []) as Array<{ contact_id: string | null }>) if (r.contact_id) skip.add(r.contact_id);
-  const { data: depContacts } = await svc.from("ppa_deposit_contacts").select("contact_id").in("owner_key", ownerKeys);
-  for (const r of (depContacts ?? []) as Array<{ contact_id: string | null }>) if (r.contact_id) skip.add(r.contact_id);
+  for (const r of sbRes) if (r.contact_id) skip.add(r.contact_id);
+  const depContacts = await allRows<{ contact_id: string | null }>((a, b) => svc.from("ppa_deposit_contacts").select("contact_id").in("owner_key", ownerKeys).range(a, b));
+  for (const r of depContacts) if (r.contact_id) skip.add(r.contact_id);
+  const chatBilled = await allRows<{ contact_id: string | null }>((a, b) => svc.from("ppa_chat_billed_contacts").select("contact_id").range(a, b));
+  for (const r of chatBilled) if (r.contact_id) skip.add(r.contact_id);
   // Only the "Deposit Collected" stages (the full map is past the 1,000-row cap).
   const { data: stageMap } = await svc.from("ghl_stage_map").select("location_id, stage_id, stage_name").ilike("stage_name", "%deposit%collected%");
   const stageName = new Map<string, string>();

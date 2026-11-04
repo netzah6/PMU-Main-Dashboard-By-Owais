@@ -111,9 +111,7 @@ export async function scanChats(deadlineMs = 240_000): Promise<ChatScanSummary> 
   // Contacts already covered by a deterministic billing path — their chats
   // don't need reading: deposit leads, done-stage leads, calendar-booked leads.
   const covered = new Set<string>();
-  const [depRes, apptRes, refRes] = await Promise.all([
-    svc.from("ppa_deposit_contacts").select("contact_id").in("owner_key", ownerKeys),
-    svc.from("ghl_appointments").select("contact_id").in("owner_key", ownerKeys),
+  const [refRes] = await Promise.all([
     svc.from("deposit_refunds").select("contact_name").eq("status", "refunded"),
   ]);
   // Refunded deposit = session never happened; that lead's chats must not
@@ -126,14 +124,20 @@ export async function scanChats(deadlineMs = 240_000): Promise<ChatScanSummary> 
     const n = normName(name);
     return n.length >= 6 && refundNames.some((r) => r.includes(n) || n.includes(r));
   };
-  for (const r of (depRes.data ?? []) as Array<{ contact_id: string | null }>) if (r.contact_id) covered.add(r.contact_id);
-  for (const r of (apptRes.data ?? []) as Array<{ contact_id: string | null }>) if (r.contact_id) covered.add(r.contact_id);
-  // Done-stage contacts (self-booked path) — page past the 1,000-row cap.
-  for (let from = 0; ; from += 1000) {
-    const { data } = await svc.from("ppa_selfbooked").select("contact_id").range(from, from + 999);
-    const page = (data ?? []) as Array<{ contact_id: string | null }>;
-    for (const r of page) if (r.contact_id) covered.add(r.contact_id);
-    if (page.length < 1000) break;
+  // Page past the 1,000-row cap: a cut-off list let a lead on the calendar be
+  // scanned and billed a second time from chat (11/03/2026).
+  const pages: Array<(from: number, to: number) => PromiseLike<{ data: unknown[] | null }>> = [
+    (a, b) => svc.from("ppa_deposit_contacts").select("contact_id").in("owner_key", ownerKeys).range(a, b),
+    (a, b) => svc.from("ghl_appointments").select("contact_id").in("owner_key", ownerKeys).range(a, b),
+    (a, b) => svc.from("ppa_selfbooked").select("contact_id").range(a, b), // done-stage contacts (self-booked path)
+  ];
+  for (const fetchPage of pages) {
+    for (let from = 0; ; from += 1000) {
+      const { data } = await fetchPage(from, from + 999);
+      const page = (data ?? []) as Array<{ contact_id: string | null }>;
+      for (const r of page) if (r.contact_id) covered.add(r.contact_id);
+      if (page.length < 1000) break;
+    }
   }
 
   // Scan state: skip conversations already scanned with no new messages, and
