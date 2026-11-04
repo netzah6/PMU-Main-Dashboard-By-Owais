@@ -1,5 +1,6 @@
 -- Funnel freeze (owner, 11/04/2026): click a client's funnel to keep its page
--- exactly as it is today, click again to undo. Already applied to production.
+-- design and built-in wording as they are, click again to undo. Already applied
+-- to production.
 --   onebox_clients.frozen_engine  the engine version this funnel stays on (null = not frozen)
 --   onebox_clients.frozen_at      since when
 --   onebox_engine_copies          saved engine files, one per version, written on the first freeze
@@ -111,6 +112,7 @@ language sql stable set search_path = public as $$
       from deposits
       where coalesce(trim(data->>'Amount'), '') not in ('$1', '1', '$1.00')
         and coalesce(data->>'Email', '') !~* '((^|[._+-])test[0-9]*@|^asd@|@test\.|netzach|netzah|mizrahi)'
+        and coalesce(data->>'Full Name', '') !~* '(\mtest\M|netza|mizrahi)'
     ) x join alias al on al.a = x.a
     where x.who is not null and x.d >= date '2026-04-27' and x.d <= (select d from today)
     group by 1, 2

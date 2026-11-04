@@ -48,7 +48,10 @@ function MonthBars({ row, top }: { row: BoardRow; top: number }) {
       {row.months.map((m, i) => {
         const p = pct(m.d, m.l);
         const current = i === row.months.length - 1;
-        const firm = !current && m.l >= THIN_MONTH;
+        /* Deposits weren't recorded yet for many clients back then, so those
+           zeros aren't a measured 0%, same as the "no deposits recorded" stat. */
+        const unrecorded = row.before.d === 0 && m.d === 0 && m.m <= "2026-08";
+        const firm = !current && m.l >= THIN_MONTH && !unrecorded;
         return (
           <div key={m.m} className="flex flex-col items-center w-9 shrink-0" title={`${monthLabel(m.m)}: ${m.d} deposits of ${m.l} leads${current ? " (month not over)" : ""}`}>
             <div className="text-[10px] text-[#34568a] tabular-nums h-3.5">{p != null && firm ? `${Math.round(p)}%` : ""}</div>
@@ -127,6 +130,8 @@ export default function FreezePage() {
       .catch(() => setError("Couldn't load"));
   }, [role]);
   useEffect(() => setShown(PAGE), [q, filter]);
+  /* An acted-on card stays only on the filter it was acted on. */
+  useEffect(() => setTouched(new Set()), [filter]);
 
   const rows = board?.rows;
   const list = useMemo(() => {
