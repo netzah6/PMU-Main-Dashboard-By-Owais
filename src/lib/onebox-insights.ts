@@ -1,3 +1,4 @@
+import { FROZEN_NO_TEST, isFrozen } from "@/lib/funnel-freeze";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PERSON_DEDUPE_MS, personKeys, refreshOneboxConfig, setOneboxCustomValues } from "@/lib/onebox";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
@@ -328,6 +329,7 @@ export function buildPage1Override(cfg: Record<string, string>): Record<string, 
 /* Create the 50/50 page-1 test for one flagged client. Any other running
    experiment for the slug is paused first (one live test per funnel). */
 export async function launchPage1Test(svc: SupabaseClient, slug: string, custom?: Record<string, string>): Promise<{ expId: number; override: Record<string, string> }> {
+  if (await isFrozen(svc, slug)) throw new Error(FROZEN_NO_TEST);
   const { data: client } = await svc.from("onebox_clients").select("config").eq("slug", slug).single();
   if (!client) throw new Error("unknown funnel");
   const built = buildPage1Override((client.config ?? {}) as Record<string, string>);
@@ -436,7 +438,9 @@ export async function applyPage1Decision(svc: SupabaseClient, slug: string, metr
   const expId = Number(metrics.expId ?? 0);
   if (!expId) throw new Error("no experiment id on the flag");
   let note = "test ended — current page kept";
-  if (metrics.winner === "b") {
+  if (metrics.winner === "b" && await isFrozen(svc, slug)) {
+    note = "test ended — this funnel is frozen, so its copy was not changed";
+  } else if (metrics.winner === "b") {
     const override = (metrics.override ?? {}) as Record<string, string>;
     const { data: client } = await svc.from("onebox_clients").select("location_id").eq("slug", slug).single();
     if (!client) throw new Error("unknown funnel");

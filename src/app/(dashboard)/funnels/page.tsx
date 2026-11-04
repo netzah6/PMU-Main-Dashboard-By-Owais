@@ -52,7 +52,7 @@ type AbResult = {
 
 type Funnel = {
   slug: string; locationId: string; clientName: string; status: string;
-  cvSyncedAt: string | null; url: string;
+  cvSyncedAt: string | null; frozenAt: string | null; url: string;
   hasCalendar: boolean; hasFanbasis: boolean; hasWidget: boolean; hasPixel: boolean; pixelId?: string;
   oldFunnelUrl: string;
   adRedirect: "" | "yes" | "no";
@@ -1770,6 +1770,11 @@ export default function FunnelsPage() {
           <a href="/funnels/previews" title="See every client's booking page" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
             👁 <span className="hidden sm:inline">Booking pages</span>
           </a>
+          {isAdmin && (
+            <a href="/funnels/freeze" title="See every funnel's stats and freeze a client's page" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
+              🧊 <span className="hidden sm:inline">Freeze</span>
+            </a>
+          )}
           <button onClick={() => void load()} title="Refresh" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} /> <span className="hidden sm:inline">Refresh</span>
           </button>
@@ -2230,6 +2235,11 @@ export default function FunnelsPage() {
                       className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-white text-[#34568a] border-[#cbd5e1] hover:bg-[#f1f5f9]">
                       👁 Booking page
                     </a>
+                    {f.frozenAt && (
+                      <span title={`This funnel's page design and built-in wording stay as they are: new page changes and split tests skip it. Its own questions, photos and offers can still be edited.${isAdmin ? " Undo on the Freeze screen." : ""}`} className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]">
+                        🧊 Frozen since {new Date(f.frozenAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" })}
+                      </span>
+                    )}
                     {/* The GHL sub-account behind this funnel, checkable without
                         asking (owner, 2026-09-24) — click copies the ID. */}
                     <CopyChip text={f.locationId} label={`sub-account: ${f.locationId}`} onCopied={() => setToast("Sub-account ID copied ✓")} />

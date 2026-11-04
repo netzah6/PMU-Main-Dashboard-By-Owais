@@ -5,6 +5,7 @@ import { getAppLocationToken } from "@/lib/ghl-app";
 import { PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
+import { FROZEN_NO_TEST, isFrozen } from "@/lib/funnel-freeze";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 120;
@@ -503,6 +504,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (await isFrozen(svc, slug)) return NextResponse.json({ error: FROZEN_NO_TEST }, { status: 409 });
     // One live test per funnel keeps the maths (and the story) simple.
     await svc.from("onebox_experiments").update({ status: "paused" }).eq("slug", slug).eq("status", "running");
     const { data: exp, error } = await svc
@@ -542,6 +544,7 @@ export async function POST(req: NextRequest) {
     const slug = String(body.slug ?? "").trim();
     const target = String(body.target ?? "").trim();
     if (!slug || !target) return NextResponse.json({ error: "slug and target required" }, { status: 400 });
+    if (await isFrozen(svc, slug)) return NextResponse.json({ error: FROZEN_NO_TEST }, { status: 409 });
     let tu: URL;
     try { tu = new URL(target); } catch { return NextResponse.json({ error: "the original-funnel URL is not a valid URL" }, { status: 400 }); }
     const namedRight = /-ab-ghl\/?$/.test(tu.pathname);
@@ -597,6 +600,8 @@ export async function POST(req: NextRequest) {
        become a redirect back to us since it was paused, which would make
        both sides identical. Re-check before letting it carry traffic. */
     if (status === "running") {
+      const { data: owner } = await svc.from("onebox_experiments").select("slug").eq("id", id).maybeSingle();
+      if (owner?.slug && await isFrozen(svc, owner.slug as string)) return NextResponse.json({ error: FROZEN_NO_TEST }, { status: 409 });
       const { data: vars } = await svc.from("onebox_variants").select("kind, target, weight").eq("experiment_id", id);
       for (const v of vars ?? []) {
         if (v.kind !== "external" || !v.target || !((v.weight as number) > 0)) continue;

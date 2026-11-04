@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { refreshOneboxConfig, parseFaqs, buildFanbasisBlock, SYNC_TTL_MS } from "@/lib/onebox";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { signLogoUrl } from "@/lib/logo-sign";
+import { frozenEngineSrc, liveEngineSrc } from "@/lib/onebox-engine";
 import { arrangeFeed, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
 import type { GReviews } from "@/lib/g-reviews";
 
@@ -24,6 +25,9 @@ type Row = {
   client_name: string;
   status: string;
   cv_synced_at: string | null;
+  /* Freeze screen (owner, 11/04/2026): the saved engine version this funnel
+     stays on. Set = no split tests, no (V1) switch, saved engine file. */
+  frozen_engine?: number | null;
   config: Record<string, string>;
   extras: {
     faqs?: { q: string; a: string }[];
@@ -162,7 +166,8 @@ export async function GET(
   if (!row || row.status === "draft") {
     return new Response("Not found", { status: 404 });
   }
-  const exp = expRes.data as { id: number; onebox_variants: ProbeVar[] } | null;
+  const frozenEngine = row.frozen_engine ?? null;
+  const exp = (frozenEngine ? null : expRes.data) as { id: number; onebox_variants: ProbeVar[] } | null;
   const expVars = exp?.onebox_variants ?? [];
   // [].every() is vacuously true — a variantless running row is not a test.
   const testLive = !!exp && expVars.length > 0 && expVars.every((v) => v.kind === "onebox");
@@ -241,7 +246,7 @@ export async function GET(
      the same slug can render different headlines, offers or copy. The
      experiment must belong to this slug — otherwise ignore. */
   const variantOverrides: Record<string, string> = {};
-  const paramVar = paramVarRes.data as { config_override: Record<string, unknown> | null; onebox_experiments: { slug: string } } | null;
+  const paramVar = (frozenEngine ? null : paramVarRes.data) as { config_override: Record<string, unknown> | null; onebox_experiments: { slug: string } } | null;
   if (paramVar && paramVar.onebox_experiments?.slug === slug) {
     const override = (paramVar.config_override ?? {}) as Record<string, unknown>;
     for (const [k, v] of Object.entries(override)) {
@@ -260,8 +265,8 @@ export async function GET(
       }
     }
   }
-  const expId = flip ? String(flip.expId) : req.nextUrl.searchParams.get("ob_e") ?? "";
-  const expVkey = flip ? flip.vkey : req.nextUrl.searchParams.get("ob_v") ?? "";
+  const expId = flip ? String(flip.expId) : frozenEngine ? "" : req.nextUrl.searchParams.get("ob_e") ?? "";
+  const expVkey = flip ? flip.vkey : frozenEngine ? "" : req.nextUrl.searchParams.get("ob_v") ?? "";
   /* Per-visitor / mid-test responses must never enter the shared CDN cache. */
   const respHeaders = (base: Record<string, string>): Record<string, string> => {
     const h = { ...base };
@@ -319,11 +324,14 @@ export async function GET(
      ONLY — no booking page, no deposit page. The program comes from the
      same Clients Master row the dashboard's V3/V1 switcher edits, so
      flipping it there changes this page too (within the ~1-min cache).
-     V3 (and anything unmatched) keeps the full flow. */
-  try {
-    const prog = findClientProgram(await fetchProgramRows(svc), String(row.client_name ?? ""));
-    if (prog?.version === "(V1)") cfg.flow = "v1";
-  } catch { /* the funnel must render even if the sheet mirror is down */ }
+     V3 (and anything unmatched) keeps the full flow. A frozen funnel keeps
+     the page it was frozen on: the Freeze screen flags the label instead. */
+  if (!frozenEngine) {
+    try {
+      const prog = findClientProgram(await fetchProgramRows(svc), String(row.client_name ?? ""));
+      if (prog?.version === "(V1)") cfg.flow = "v1";
+    } catch { /* the funnel must render even if the sheet mirror is down */ }
+  }
   /* Same URL the engine will render (its fastImg proxies media-library
      files) so the preload warms the right resource, never a second one. */
   const logoRaw = (cfg.logo || "").replace(/["\\]/g, "");
@@ -383,7 +391,10 @@ export async function GET(
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Lato:wght@400;700&family=Inter:wght@400;600&display=swap"></noscript>
 ${logoPreload ? `<link rel="preload" as="image" href="${logoPreload}" fetchpriority="high">` : ""}
 ${isPay ? `<script>window.OB_PAYFETCH=(function(){try{var t=new URLSearchParams(location.search).get("t");if(!t){var m=location.pathname.match(/\\/([A-Za-z0-9]{8,40})\\/(confirm|last-step)\\/?$/);if(m)t=m[1];}if(!t)return null;return fetch("/api/onebox/paylead?slug=${row.slug}&t="+encodeURIComponent(t)).then(function(r){return r.ok?r.json():null}).catch(function(){return null});}catch(e){return null}})();</script>` : ""}
-<script src="/onebox.js?v=129" defer></script>
+${frozenEngine
+  /* Never a blank page: if the saved copy can't load, run the live engine. */
+  ? `<script src="${frozenEngineSrc(frozenEngine)}" defer onerror="var s=document.createElement('script');s.src='${liveEngineSrc}';document.head.appendChild(s)"></script>`
+  : `<script src="${liveEngineSrc}" defer></script>`}
 </head>
 <body style="margin:0">
 ${isPay ? `<div id="ob-pay-veil" style="position:fixed;inset:0;z-index:9999;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Inter,system-ui,sans-serif"><p style="margin:0 0 6px;font-weight:700;font-size:18px">One moment&hellip;</p><p style="margin:0;color:#667">Loading your reservation</p></div>` : ""}
