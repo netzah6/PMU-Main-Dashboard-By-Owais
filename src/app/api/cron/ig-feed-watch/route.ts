@@ -34,6 +34,7 @@ type ClientRow = {
   client_name: string | null;
   config: { igWidget?: string; elfsightId?: string } | null;
   extras: { template?: string; igWidgetOff?: boolean; igFrozen?: boolean } | null;
+  frozen_engine?: number | null;
 };
 
 type HistoryRow = { week_start: string; posts_count: number | null };
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
     for (let i = 0; ; i += 1000) {
       const { data, error } = await svc
         .from("onebox_clients")
-        .select("slug, client_name, config, extras")
+        .select("slug, client_name, config, extras, frozen_engine")
         .eq("status", "live")
         .order("slug")
         .range(i, i + 999);
@@ -122,7 +123,7 @@ export async function GET(req: NextRequest) {
       /* A frozen funnel already shows a fixed set of posts, so a drop there
          is not about the live feed changing and "switch to the best-run
          posts" would suggest a click already made — track it, don't flag. */
-      if (c.extras?.igFrozen) return;
+      if (c.extras?.igFrozen || c.frozen_engine != null) return;
       flagged++;
 
       // 3. Did the post count change since the best run? Only THIS week's

@@ -3,7 +3,7 @@
 -- to production.
 --   onebox_clients.frozen_engine  the engine version this funnel stays on (null = not frozen)
 --   onebox_clients.frozen_at      since when
---   onebox_clients.frozen_page    everything visitors saw at the click (config, FAQs, checkout block)
+--   onebox_clients.frozen_page    what visitors saw at the click (config, FAQs, title), minus what stays live
 --   onebox_engine_copies          saved engine files, one per version, written on the first freeze
 --   funnel_freeze                 suggestion + freeze history for the Freeze screen
 

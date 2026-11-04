@@ -247,7 +247,9 @@ const pickSource = (row: OneboxRow) =>
 
 export function snapshotFunnelPage(row: OneboxRow): FrozenPage {
   const { cfg, faqs, title } = buildFunnelPage(row, { expId: "", expVkey: "", isPay: false });
-  return { cfg, faqs, title, source: pickSource(row) };
+  /* Live values are never read from a snapshot, so they aren't copied into it. */
+  const kept = Object.fromEntries(Object.entries(cfg).filter(([k]) => !LIVE_KEYS.has(k)));
+  return { cfg: kept, faqs, title, source: pickSource(row) };
 }
 
 export function lockFunnelPage(page: FunnelPage, frozen: FrozenPage): void {

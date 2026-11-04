@@ -5,7 +5,8 @@
 // test and ignores the (V1) label.
 //
 // Stays live, because booking and payment break otherwise: open times, calendar,
-// checkout, deposit amount, phone, address, pixel. Can't be frozen: the AI, texts, ads.
+// checkout, deposit amount, free booking, video mode, phone, address, pixel.
+// Can't be frozen: the AI, texts, ads.
 //
 // Every /api/onebox/* route the saved engine calls has to keep accepting what it
 // sends, because that engine keeps running.

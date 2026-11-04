@@ -240,8 +240,13 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
       if (jsVisitors >= 1) issues.push({ code: "visitors_js_error", severity: jsVisitors >= 2 ? "high" : "medium", text: `Drawing the ${/reviews/.test(jsErr[0]?.error ?? "") ? "Google reviews" : "Instagram grid"} crashed for ${jsVisitors} visitor${jsVisitors === 1 ? "" : "s"}: “${String(jsErr[0]?.error ?? "").slice(0, 120)}”.`, fix: "Code problem — tell dev. The booking step itself keeps working (the widget is skipped)." });
 
       // 4. The refresh jobs are still running.
-      if (igExpected && !ex.igFrozen && daysSince(ex.igFetch?.at ?? ex.igFeed?.at) > STALE_DAYS) issues.push({ code: "ig_stale", severity: "medium", text: `Instagram pictures haven't refreshed in ${Math.round(daysSince(ex.igFetch?.at ?? ex.igFeed?.at))} days (should be every 13).`, fix: "The hourly Instagram refresh job may have stopped — tell dev; Refresh from Instagram now fixes this client meanwhile." });
+      if (igExpected && !frozenCfg && !ex.igFrozen && daysSince(ex.igFetch?.at ?? ex.igFeed?.at) > STALE_DAYS) issues.push({ code: "ig_stale", severity: "medium", text: `Instagram pictures haven't refreshed in ${Math.round(daysSince(ex.igFetch?.at ?? ex.igFeed?.at))} days (should be every 13).`, fix: "The hourly Instagram refresh job may have stopped — tell dev; Refresh from Instagram now fixes this client meanwhile." });
       if (revExpected && daysSince(ex.gFetch?.at) > STALE_DAYS) issues.push({ code: "rev_stale", severity: "medium", text: `Google reviews haven't refreshed in ${Math.round(daysSince(ex.gFetch?.at))} days (should be every 13).`, fix: "The daily Google reviews job may have stopped — tell dev." });
+
+      /* Refresh is refused on a frozen funnel, so the advice has to say so. */
+      if (frozenCfg) for (const i of issues) {
+        if (/Refresh from Instagram/.test(i.fix)) i.fix = "This funnel is frozen, so unfreeze it on the Freeze screen first. Then press Refresh from Instagram in the CPD Instagram panel; if it still doesn't show, it's a code problem, tell dev.";
+      }
 
       const pageUp = !issues.some((i) => i.code === "page_down");
       results.push({

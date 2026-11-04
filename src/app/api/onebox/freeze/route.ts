@@ -195,21 +195,25 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "unfreeze") {
-    if (client.frozen_engine == null) return NextResponse.json({ ok: true, frozen: null });
-    const { error } = await svc.from("onebox_clients").update({ frozen_engine: null, frozen_at: null, frozen_page: null }).eq("slug", slug);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (client.frozen_engine == null) {
+      return NextResponse.json({ ok: true, frozen: null, restorable: prior?.last_frozen?.page ? { at: prior.last_frozen.at } : null });
+    }
+    /* One click undoes it, so the page it was keeping is saved first: if that
+       fails, nothing changes. */
     const { error: recordError } = await svc.from("funnel_freeze").upsert({
       slug,
       frozen_by: null,
       frozen_leads: null,
       frozen_deposits: null,
-      /* One click undoes it, so the page it was keeping has to survive that click. */
       last_frozen: { engine: client.frozen_engine, at: client.frozen_at, by: prior?.frozen_by ?? null, leads: prior?.frozen_leads ?? null, deposits: prior?.frozen_deposits ?? null, page: client.frozen_page },
       history: [...history, { action, at, by, engine: client.frozen_engine }],
       updated_at: at,
     }, { onConflict: "slug" });
+    if (recordError) return NextResponse.json({ error: "Couldn't save the frozen page, so nothing changed. Try again." }, { status: 500 });
+    const { error } = await svc.from("onebox_clients").update({ frozen_engine: null, frozen_at: null, frozen_page: null }).eq("slug", slug);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     warmFunnel(slug);
-    return NextResponse.json({ ok: true, frozen: null, restorable: client.frozen_page ? { at: client.frozen_at } : null, warning: recordError ? RECORD_WARNING : undefined });
+    return NextResponse.json({ ok: true, frozen: null, restorable: client.frozen_page ? { at: client.frozen_at } : null });
   }
 
   // Freeze or restore.

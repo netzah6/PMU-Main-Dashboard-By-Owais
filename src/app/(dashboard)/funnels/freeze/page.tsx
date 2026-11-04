@@ -192,7 +192,7 @@ export default function FreezePage() {
         <h1 className="text-base sm:text-lg font-semibold text-[#1c2b3a]">🧊 Freeze a funnel</h1>
       </div>
       <p className="text-sm text-[#34568a] mb-1">Freeze locks everything visitors see on a client&apos;s survey, calendar and deposit pages: design, wording, questions, FAQs, photos, logo, offer, Instagram, reviews. New page changes and split tests skip them. Click again to undo.</p>
-      <p className="text-xs text-[#697a91] mb-3">Stays live so booking and payment keep working: open times, calendar, checkout, deposit amount, phone, address, Meta pixel. Can&apos;t be frozen: the AI, texts, ads. % = deposits per 100 leads.</p>
+      <p className="text-xs text-[#697a91] mb-3">Stays live so booking and payment keep working: open times, calendar, checkout, deposit amount, free booking, video mode, phone, address, Meta pixel. Can&apos;t be frozen: the AI, texts, ads. % = deposits per 100 leads.</p>
 
       {board && (
         <details className="text-xs text-[#697a91] mb-3">
