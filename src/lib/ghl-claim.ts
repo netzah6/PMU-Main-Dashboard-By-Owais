@@ -501,7 +501,7 @@ export async function syncScheduleTimezones(locationId: string): Promise<ClaimAc
       actions.push({ action: `Schedule "${s.name ?? s.id}" time zone ${from || "(none)"} → ${locTz}`, ok, detail: ok ? undefined : `HTTP ${r.status}` });
     }
   }
-  if (!actions.length) actions.push({ action: "Schedule time zone", ok: false, detail: "no schedule is linked to the Transformation calendar — set the artist's hours (step 22) first" });
+  if (!actions.length) actions.push({ action: "Schedule time zone", ok: false, detail: "no schedule is linked to the Transformation calendar — set the artist's hours (calendar step) first" });
   return actions;
 }
 

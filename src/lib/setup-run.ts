@@ -340,7 +340,7 @@ async function ensureCalendarActive(locationId: string): Promise<{ ok: boolean; 
   if (!fr.ok) return { ok: false, note: `calendar "${cal.name ?? calendarId}": free slots HTTP ${fr.status} — ${(await fr.text()).slice(0, 120)}` };
   const j = (await fr.json()) as Record<string, { slots?: string[] }>;
   const n = Object.values(j).reduce((a, v) => a + (Array.isArray(v?.slots) ? v.slots.length : 0), 0);
-  return { ok: n > 0, note: `calendar "${cal.name ?? calendarId}" ${flipped ? "was INACTIVE → switched on" : "active"} · ${n} open slots in the next 14 days${n ? "" : " — check the staff hours (step 22)"}` };
+  return { ok: n > 0, note: `calendar "${cal.name ?? calendarId}" ${flipped ? "was INACTIVE → switched on" : "active"} · ${n} open slots in the next 14 days${n ? "" : " — check the staff hours (calendar step)"}` };
 }
 
 /* Owner 10/21/2026: the final check FIXES the client-facing contact values
@@ -803,7 +803,7 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   // Gates: a browser step cannot start before the API step it builds on.
   const needs: Record<string, string[]> = {
     webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_limit: ["phone_buy"], phone_forward: ["phone_buy"],
-    user_settings: ["user_create"], user_calendar: ["user_create"], wf_survey: ["user_create"], cal_team: ["user_create"], cal_hours: ["user_create"],
+    user_settings: ["user_create"], user_calendar: ["user_create"], wf_survey: ["user_create"], cal_hours: ["user_create"],
     funnel_ig: ["funnel_create"], funnel_reviews: ["funnel_create"], funnel_redirect: ["funnel_create"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
   };
   for (const k of needs[next.key] ?? []) {
@@ -919,7 +919,7 @@ export async function onSetupProposalClosed(svc: Svc, p: { id: string; conversat
     return { setup: o.setup, checklist };
   });
 
-  /* Step 22: put the artist's schedule in the sub-account's time zone right
+  /* Calendar step: put the artist's schedule in the sub-account's time zone right
      away (owner 2026-10-20) — whatever the AI Agent did with the hours, a
      schedule left in Israel or another US zone shifts every slot. The last
      check (step 32, the final check) still re-checks it. */
