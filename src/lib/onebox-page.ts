@@ -242,7 +242,7 @@ export type FrozenPage = {
   source: Record<string, string>;
   /* Which Instagram posts and header the page shows, for the timeline. The picture
      addresses can't tell: each fetch saves the same posts under a new date folder. */
-  ig?: { posts: string[]; picks: unknown; profile: string[] };
+  ig?: { posts: string[]; first: string[]; picks: unknown; profile: string[] };
 };
 
 export type Drift = { key: string; label: string; from?: string; to?: string };
@@ -261,7 +261,9 @@ export function snapshotFunnelPage(row: OneboxRow): FrozenPage {
   const prof = feed?.profile;
   return {
     cfg: kept, faqs, title, source: pickSource(row),
-    ig: { posts: [...posts].sort(), picks: row.extras?.igPicks ?? null, profile: [prof?.username ?? "", prof?.name ?? "", prof?.bio ?? "", prof?.category ?? ""] },
+    /* Sorted, so a small reorder is no change, but visitors see the first six, so a
+       new first row is. */
+    ig: { posts: [...posts].sort(), first: posts.slice(0, 6).sort(), picks: row.extras?.igPicks ?? null, profile: [prof?.username ?? "", prof?.name ?? "", prof?.bio ?? "", prof?.category ?? ""] },
   };
 }
 

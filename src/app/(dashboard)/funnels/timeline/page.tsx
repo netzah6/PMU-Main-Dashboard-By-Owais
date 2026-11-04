@@ -18,8 +18,10 @@ type Filter = "all" | "fell" | "locked" | "V3" | "V2.3";
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "";
 const pct = (r: number | null) => (r == null ? "—" : `${r}%`);
+/* Not page values, so "stays live" would mean nothing on them. */
+const NOT_ON_PAGE = new Set(["frozen", "status", "label", "budget", "test"]);
 const changeText = (c: ChangeItem) =>
-  `${c.to !== undefined ? `${c.label}: ${c.from || "empty"} → ${c.to || "empty"}` : `${c.label} changed`}${c.restorable ? "" : " (stays live)"}`;
+  `${c.to !== undefined ? `${c.label}: ${c.from || "empty"} → ${c.to || "empty"}` : `${c.label} changed`}${c.restorable || NOT_ON_PAGE.has(c.key) ? "" : " (stays live)"}`;
 
 function Rates({ label, c, noCalendar }: { label: string; c: DayCounts; noCalendar?: boolean }) {
   return (
@@ -60,7 +62,7 @@ function SavedPages({ row, version, stamp }: { row: TimelineRow; version: Timeli
 const windowLine = (label: string, c: DayCounts, noCalendar: boolean) =>
   `${label}: ${c.l} leads · ${noCalendar ? "" : `booking ${pct(bookingRate(c))} (${c.p}) · `}deposit ${pct(rate(c.d, c.l))} (${c.d})`;
 
-function History({ row, stamp, reload, onLocked }: { row: TimelineRow; stamp: number; reload: number; onLocked: (slug: string, at: string | null) => void }) {
+function History({ row, stamp, reload, onLocked, onLoaded }: { row: TimelineRow; stamp: number; reload: number; onLocked: (slug: string, at: string | null) => void; onLoaded: (slug: string, newest: TimelineVersion | undefined) => void }) {
   const [detail, setDetail] = useState<TimelineDetail | null>(null);
   const [error, setError] = useState("");
   const [preview, setPreview] = useState<number | null>(null);
@@ -72,7 +74,7 @@ function History({ row, stamp, reload, onLocked }: { row: TimelineRow; stamp: nu
   const load = () => fetch(`/api/onebox/timeline?slug=${encodeURIComponent(row.slug)}`)
     .then(async (r) => {
       const j = await r.json();
-      if (r.ok) { setDetail(j as TimelineDetail); setError(""); } else setError(j.error ?? "Couldn't load");
+      if (r.ok) { setDetail(j as TimelineDetail); setError(""); onLoaded(row.slug, (j as TimelineDetail).versions[0]); } else setError(j.error ?? "Couldn't load");
     })
     .catch(() => setError("Couldn't load"));
   useEffect(() => { void load(); }, [row.slug, reload]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -256,6 +258,12 @@ export default function TimelinePage() {
   const setLocked = (slug: string, at: string | null) =>
     setBoard((b) => b && { ...b, rows: b.rows.map((r) => (r.slug === slug ? { ...r, lockedAt: at } : r)) });
 
+  /* Keeps the card's "Last save" line true after a go back, without re-sorting. */
+  const setNewest = (slug: string, newest: TimelineVersion | undefined) => {
+    if (!newest) return;
+    setBoard((b) => b && { ...b, rows: b.rows.map((r) => (r.slug === slug ? { ...r, lastChange: { at: newest.savedAt, changes: newest.changes } } : r)) });
+  };
+
   const saveNow = async () => {
     setSaving(true);
     setSaveNote("");
@@ -368,7 +376,7 @@ export default function TimelinePage() {
                   🕒 See history <ChevronDown className={cn("w-4 h-4 transition-transform", open === r.slug && "rotate-180")} />
                 </button>
               </div>
-              {open === r.slug && <History row={r} stamp={stamp} reload={reload} onLocked={setLocked} />}
+              {open === r.slug && <History row={r} stamp={stamp} reload={reload} onLocked={setLocked} onLoaded={setNewest} />}
             </div>
           );
         })}

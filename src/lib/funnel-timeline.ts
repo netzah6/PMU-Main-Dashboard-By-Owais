@@ -67,7 +67,7 @@ export function fingerprintFunnel(
   if (!igImgs.length) {
     try { igImgs = (JSON.parse(page.cfg?.igFeed || "{}") as { imgs?: string[] }).imgs ?? []; } catch { igImgs = []; }
   }
-  add("instagram", "Instagram pictures", page.ig ? JSON.stringify([page.ig.posts, page.ig.picks, page.ig.profile]) : igImgs.join(","), true, `${igImgs.length} pictures`);
+  add("instagram", "Instagram pictures", page.ig ? JSON.stringify([page.ig.posts, page.ig.first, page.ig.picks, page.ig.profile]) : igImgs.join(","), true, `${igImgs.length} pictures`);
   let reviews: { rating?: number | null; count?: number | null; reviews?: { name?: string; stars?: number; text?: string }[] } = {};
   try { reviews = JSON.parse(page.cfg?.gReviews || "{}"); } catch { reviews = {}; }
   add("reviews", "Google reviews", JSON.stringify([reviews.rating ?? null, reviews.count ?? null, (reviews.reviews ?? []).map((x) => [x.name, x.stars, x.text])]), true,

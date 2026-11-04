@@ -201,7 +201,7 @@ export async function GET(
      flipping it there changes this page too (within the ~1-min cache).
      V3 (and anything unmatched) keeps the full flow. A frozen funnel keeps
      the page it was frozen on: the Freeze screen flags the label instead. */
-  if (!frozenEngine) {
+  if (!row.frozen_engine) {
     try {
       const prog = findClientProgram(await fetchProgramRows(svc), String(row.client_name ?? ""));
       if (prog?.version === "(V1)") cfg.flow = "v1";
