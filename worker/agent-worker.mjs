@@ -52,7 +52,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 //    shutdown, never a kill);
 //  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
 //    works), so Chrome's account reconcilor can never log the mailbox out.
-const WORKER_VERSION = 8; // self-update refuses to downgrade below this
+const WORKER_VERSION = 9; // self-update refuses to downgrade below this
 const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const LOGIN_LOCK = join(HOME, "login.lock");
 // --profile-directory=Default: without it Chrome may open the "Who's using
@@ -272,7 +272,7 @@ THE APPROVED TASK — do these, in order:
 ${t.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 ${t.notes && !t.steps.includes(t.notes) ? `\nNotes: ${t.notes}\n` : ""}
 RULES (never break these):
-- Work ONLY inside sub-account ${t.location_id}. If the page shows a different account, switch to it or stop.
+- Work ONLY inside sub-account ${t.location_id}. If the page shows a different account, switch to it or stop.${t.steps.some((s) => s.includes("app.closebot.com")) ? `\n- This task also works in app.closebot.com, for this one client only (the setup run's CloseBot step, owner 11/04/2026). Never change another client's source or the agent's prompt.` : ""}
 - Do only what the task says. Never delete anything unless the task explicitly says to delete it.
 - NEVER send any message, email, text, or review request to anyone — with ONE exception: a message to GoHighLevel's own support chat when THE APPROVED TASK above explicitly tells you to send it (CNAM removal). Never touch billing, payment methods, or the agency settings.
 - If the task is to produce a document (an export, a list, a report), save it in the current folder as .xlsx or .csv (or .pdf) and list it under "files" in your final JSON — the team downloads it from the dashboard and sends it themselves.
