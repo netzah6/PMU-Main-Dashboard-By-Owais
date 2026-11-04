@@ -593,7 +593,7 @@ function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false 
     const done = steps.filter(isDone);
     const todo = steps.filter((s) => !isDone(s));
     // A step the AI Agent failed is a person's job now.
-    const byAgent = todo.filter((s) => AGENT.includes(s.who) && rowView(s, setup, cards).st.status !== "failed").length;
+    const byAgent = todo.filter((s) => { const v = rowView(s, setup, cards); return AGENT.includes(v.step.who) && v.st.status !== "failed"; }).length;
     return (
       <div className="mt-1.5 grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
         <div className="min-w-0">
@@ -637,20 +637,20 @@ function PlanList({ steps, setup, cards, actions, onboardingId, isAdmin = false 
                           <button onClick={() => setCvOpen((v) => !v)} title={s.label}
                             className="text-[12.5px] font-semibold text-[#0e8f88] hover:underline">{s.title ?? s.label} {cvOpen ? "▴" : "▾"}</button>
                         ) : (
-                          <span title={s.label} className={cn("text-[12.5px] font-semibold", st.status === "done" || st.status === "skipped" ? "text-[#475569]" : "text-[#1f3559]")}>{s.title ?? s.label}</span>
+                          <span title={s.cardLabel ?? s.label} className={cn("text-[12.5px] font-semibold", st.status === "done" || st.status === "skipped" ? "text-[#475569]" : "text-[#1f3559]")}>{s.title ?? s.label}</span>
                         )}
-                        <span className={cn("text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap", WHO_STYLE[s.badge ?? s.who])}>{WHO_LABEL[s.badge ?? s.who]}</span>
-                        {setup && st.status === "failed" && AGENT.includes(s.who) && (
+                        <span className={cn("text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap", WHO_STYLE[cur.badge ?? cur.who])}>{WHO_LABEL[cur.badge ?? cur.who]}</span>
+                        {setup && st.status === "failed" && AGENT.includes(cur.who) && (
                           <span className="text-[9.5px] font-bold px-1.5 py-px rounded-full whitespace-nowrap bg-[#fde8ee] text-[#e11d48]">👤 needs a person</span>
                         )}
                         {shots.length > 0 && <ScreenshotGallery shots={shots} variant="chip" />}
                       </div>
-                      {s.title && !["done", "skipped"].includes(st.status) && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.label}>{s.label}</p>}
+                      {s.title && !["done", "skipped"].includes(st.status) && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.cardLabel ?? s.label}>{s.cardLabel ?? s.label}</p>}
                       {/* By-hand breakdown for the team (Facebook) — how to do it, with the Loom / docs. */}
-                      {s.steps && !["done", "skipped"].includes(st.status) && (
+                      {cur.steps && !["done", "skipped"].includes(st.status) && (
                         <div className="mt-0.5">
-                          <ul className="text-[10.5px] text-[#475569] list-disc pl-4 space-y-px">{s.steps.map((t) => <li key={t}>{t}</li>)}</ul>
-                          {s.links && <p className="text-[10.5px] mt-0.5 flex gap-2 flex-wrap">{s.links.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">{l.label} ↗</a>)}</p>}
+                          <ul className="text-[10.5px] text-[#475569] list-disc pl-4 space-y-px">{cur.steps.map((t) => <li key={t}>{t}</li>)}</ul>
+                          {cur.links && <p className="text-[10.5px] mt-0.5 flex gap-2 flex-wrap">{cur.links.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="text-[#0e8f88] hover:underline">{l.label} ↗</a>)}</p>}
                         </div>
                       )}
                       {!setup && s.how && <p className="text-[10.5px] text-[#8595a8] truncate" title={s.how}>{s.how}</p>}

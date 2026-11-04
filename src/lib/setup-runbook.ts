@@ -39,6 +39,7 @@ export type RunbookStep = {
   checklist?: string[];      // onboarding checklist keys this step ticks
   later?: boolean;           // not part of the run (re-run from the AI tab later)
   hidden?: boolean;          // runs by itself, nobody acts on it — not listed on the card unless it fails (owner 11/03/2026)
+  cardLabel?: string;        // description on the setup card when the row covers more than this step; label stays what the AI Agent's card reads
   partOf?: string;           // shown inside another step's row: one row, one video, this step's status and buttons appear there while it is the open one (owner 11/04/2026: the one-box)
   choice?: boolean;          // the coach only decides yes/no, with a tickbox at Approve (owner 11/03/2026: the Instagram grid)
   optional?: boolean;        // not every client needs it — the card offers "Not needed"
@@ -84,10 +85,10 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 30, key: "funnel_live", hidden: true, partOf: "funnel_create", section: "G · 🧲 Funnel", who: "api", label: "Check no client value is empty, then go live", how: "Stops red with the list of empty values (deposit, address, product ID, webhook, calendar ID… prices for V3 only) instead of going live with holes." },
   // H · Last check — the funnel test is the AI Agent's LAST step (owner
   // 10/20/2026); once it passes the team sends the client the logins.
-  { n: 31, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing. Then the dashboard's own check re-reads the live account and funnel and lists anything still off", checklist: ["last_profile"] },
+  { n: 31, key: "last_profile", section: "H · ✅ Last check", who: "mini", label: "Profile image, cover photo and description present; flags what's missing", cardLabel: "Profile image, cover photo and description present; the dashboard re-reads the live account and funnel and lists anything still off; then test the funnel yourself as a lead and mark it completed", checklist: ["last_profile"] },
   { n: 32, key: "last_check", hidden: true, partOf: "last_profile", section: "H · ✅ Last check", who: "api", label: "Final check: the dashboard re-reads the live account and funnel (custom values, Commas product, calendar, sync) and lists anything still off", how: "The same report as the \"Verify setup\" button, run by itself at the end. Anything still off stops the run here (red) until it is fixed and retried — the funnel test only runs on a clean account." },
   // Owner 10/22/2026: the coach tests the funnel by hand (with our demo number) and marks it completed; First Cycle is the coach's click too.
-  { n: 33, key: "funnel_test", section: "H · ✅ Last check", who: "team", label: "Test the funnel yourself as a lead, then mark it completed", how: "The last check before the client gets the logins.", checklist: ["fin_test"],
+  { n: 33, key: "funnel_test", hidden: true, partOf: "last_profile", section: "H · ✅ Last check", who: "team", label: "Test the funnel yourself as a lead, then mark it completed", how: "The last check before the client gets the logins.", checklist: ["fin_test"],
     steps: [`Open the funnel and fill the survey as a lead with our demo number ${TEST_LEAD_PHONE} — pick a time slot, reach the deposit page (do NOT pay)`, `In the client's GHL contacts find the test contact: tag "onebox-survey", first AI text sent within ~2 minutes`, `In the demo sub-account's conversations confirm the text arrived; reply "Yes" and check the client's AI answers`, `Delete the test contact in the client's account, then click "Mark completed"`] },
   // Owner 10/24/2026: CNAM approval takes the carrier days (or gets
   // rejected), so submitting it (step 11) is not "verified" — the team ticks it.
