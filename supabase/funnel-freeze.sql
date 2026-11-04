@@ -32,6 +32,7 @@ create table if not exists public.funnel_freeze (
   frozen_leads integer,
   frozen_deposits integer,
   history jsonb not null default '[]'::jsonb,
+  last_frozen jsonb, -- the page kept until the last Unfreeze, so a misclick can be restored
   updated_at timestamptz not null default now()
 );
 alter table public.funnel_freeze enable row level security;

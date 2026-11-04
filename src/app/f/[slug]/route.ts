@@ -182,7 +182,7 @@ export async function GET(
   if (isB2B) return serveB2B(row, req, variantOverrides, { expId, expVkey, respHeaders });
 
   const page = buildFunnelPage(row, { expId, expVkey, isPay });
-  if (frozenEngine && row.frozen_page) lockFunnelPage(page, row.frozen_page, row);
+  if (frozenEngine && row.frozen_page) lockFunnelPage(page, row.frozen_page);
   const { cfg, faqs, title, logoPreload, fanbasisHtml } = page;
   /* Program-driven flow: a (V1) client's funnel is survey → thank-you
      ONLY — no booking page, no deposit page. The program comes from the

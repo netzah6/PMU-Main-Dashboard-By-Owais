@@ -114,6 +114,24 @@ export type FunnelPage = {
   fanbasisHtml: string;
 };
 
+function funnelLogo(raw: string): string {
+  const logoRaw = raw.replace(/["\\]/g, "");
+  const logoFast = !logoRaw ? ""
+    : /^https:\/\/(assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr)\//.test(logoRaw)
+      ? `https://images.leadconnectorhq.com/image/f_webp/q_80/r_320/u_${logoRaw}`
+      : logoRaw;
+  /* Serve the logo through our own immutable caching proxy: GHL's image
+     service costs ~0.3-1.2s per request; behind /api/onebox/logo the first
+     visitor per edge region warms it and everyone after gets ~30ms. The
+     engine's fastImg passes relative URLs through untouched, so cfg.logo
+     can carry the proxied form. A changed logo changes the source URL,
+     which changes the proxy URL — immutability is safe. */
+  const logoSig = logoFast ? signLogoUrl(logoFast) : "";
+  return logoFast && logoSig && /^https:\/\/(images\.leadconnectorhq\.com|assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr|services\.leadconnectorhq\.com)\//.test(logoFast)
+    ? `/api/onebox/logo?u=${encodeURIComponent(logoFast)}&s=${logoSig}`
+    : logoFast;
+}
+
 export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: string; isPay: boolean }): FunnelPage {
   const { expId, expVkey, isPay } = req;
   const cfg: Record<string, string> = {
@@ -161,21 +179,7 @@ export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: s
   };
   /* Same URL the engine will render (its fastImg proxies media-library
      files) so the preload warms the right resource, never a second one. */
-  const logoRaw = (cfg.logo || "").replace(/["\\]/g, "");
-  const logoFast = !logoRaw ? ""
-    : /^https:\/\/(assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr)\//.test(logoRaw)
-      ? `https://images.leadconnectorhq.com/image/f_webp/q_80/r_320/u_${logoRaw}`
-      : logoRaw;
-  /* Serve the logo through our own immutable caching proxy: GHL's image
-     service costs ~0.3-1.2s per request; behind /api/onebox/logo the first
-     visitor per edge region warms it and everyone after gets ~30ms. The
-     engine's fastImg passes relative URLs through untouched, so cfg.logo
-     can carry the proxied form. A changed logo changes the source URL,
-     which changes the proxy URL — immutability is safe. */
-  const logoSig = logoFast ? signLogoUrl(logoFast) : "";
-  const logoPreload = logoFast && logoSig && /^https:\/\/(images\.leadconnectorhq\.com|assets\.cdn\.filesafe\.space|storage\.googleapis\.com\/msgsndr|services\.leadconnectorhq\.com)\//.test(logoFast)
-    ? `/api/onebox/logo?u=${encodeURIComponent(logoFast)}&s=${logoSig}`
-    : logoFast;
+  const logoPreload = funnelLogo(cfg.logo || "");
   if (logoPreload) cfg.logo = logoPreload;
   const title = `${row.client_name || cfg.biz || "Book"} — Claim Your Offer`;
   // </script> inside the JSON payloads must not terminate the script tag.
@@ -205,55 +209,63 @@ export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: s
 }
 
 /* ── Freeze (owner, 11/04/2026): "freeze everything" ──
-   Everything a visitor reads or sees is taken from the snapshot. These stay live
-   because booking, payment and tracking break otherwise: the calendar, the deposit
-   amount (it has to match what the checkout charges), the pixel, and whatever
-   identifies this request. */
+   Everything a visitor reads or sees comes from the snapshot, except what would
+   break a booking, a payment or send someone to the wrong place:
+   the calendar, the deposit amount (it has to match the charge), free booking and
+   video mode (they decide whether a deposit is taken), the phone and address, the
+   pixel, and the checkout block (served live, so an urgent payment fix reaches
+   every funnel: commit 7af67a7, 08/24/2026). */
 const LIVE_KEYS = new Set([
   "slug", "locationId", "submitUrl", "experimentId", "variantKey", "fanbasisSelector", "pay", "flow",
-  "calendarId", "deposit", "metaPixelId",
+  "calendarId", "deposit", "freeBooking", "consultMode", "phone", "address", "metaPixelId",
   "fanbasisProductId", "fanbasisCode", "fanbasisHookUrl", "thankYouPath", "depositFunnelUrl",
 ]);
 
 /* The values someone can still edit for a frozen client. Changing one doesn't
    reach the page, so the Freeze screen lists it and offers to take it. */
 const DRIFT_LABELS: Record<string, string> = {
-  offer: "Offer", biz: "Business name", phone: "Phone", address: "Address",
+  offer: "Offer", biz: "Business name",
   headline: "Headline", sub: "Subheadline", congrats: "Congrats line", bookingHead: "Booking headline", depositHead: "Deposit headline",
   surveyRaw: "Survey questions", faqsRaw: "FAQs", logo: "Logo",
   resultImgs: "Result photos", resultCvImgs: "Result photos", studioImgs: "Studio photos", studioCvImgs: "Studio photos",
   igLink: "Instagram link",
 };
-const DRIFT_SHOWS_VALUE = new Set(["offer", "biz", "phone", "address", "headline", "sub", "congrats", "bookingHead", "depositHead"]);
+const DRIFT_SHOWS_VALUE = new Set(["offer", "biz", "headline", "sub", "congrats", "bookingHead", "depositHead"]);
 
-export type FrozenPage = FunnelPage & {
-  fanbasisKey: string;
+export type FrozenPage = {
+  cfg: Record<string, string>;
+  faqs: FaqItem[];
+  title: string;
   /* The editable values at the click, as they are in GHL, to spot later edits. */
   source: Record<string, string>;
 };
 
 export type Drift = { key: string; label: string; from?: string; to?: string };
 
-/* The checkout block is kept only while it would still charge the same product:
-   if the product or thank-you page changes, the live block wins. */
-const fanbasisKey = (row: OneboxRow) =>
-  JSON.stringify([row.config.fanbasisProductId ?? "", row.config.thankYouPath ?? "", row.config.fanbasisCode ?? "", row.extras?.fanbasisHtml ?? ""]);
-
 const pickSource = (row: OneboxRow) =>
   Object.fromEntries(Object.keys(DRIFT_LABELS).map((k) => [k, String(row.config[k] ?? "")]));
 
 export function snapshotFunnelPage(row: OneboxRow): FrozenPage {
-  return { ...buildFunnelPage(row, { expId: "", expVkey: "", isPay: false }), fanbasisKey: fanbasisKey(row), source: pickSource(row) };
+  const { cfg, faqs, title } = buildFunnelPage(row, { expId: "", expVkey: "", isPay: false });
+  return { cfg, faqs, title, source: pickSource(row) };
 }
 
-export function lockFunnelPage(page: FunnelPage, frozen: FrozenPage, row: OneboxRow): void {
+export function lockFunnelPage(page: FunnelPage, frozen: FrozenPage): void {
+  /* A value added after the click (photos in a slot that was empty) must not
+     appear either: only what the snapshot has reaches the page. */
+  for (const k of Object.keys(page.cfg)) {
+    if (!LIVE_KEYS.has(k) && !(k in frozen.cfg)) delete page.cfg[k];
+  }
   for (const [k, v] of Object.entries(frozen.cfg)) {
     if (!LIVE_KEYS.has(k)) page.cfg[k] = v;
   }
+  /* Same logo, re-signed on each render: a stored signature would break the
+     picture the day the signing secret changes. */
+  const logo = funnelLogo(frozen.source.logo ?? "");
+  page.cfg.logo = logo;
+  page.logoPreload = logo;
   page.faqs = frozen.faqs;
   page.title = frozen.title;
-  page.logoPreload = frozen.logoPreload;
-  if (frozen.fanbasisKey === fanbasisKey(row)) page.fanbasisHtml = frozen.fanbasisHtml;
 }
 
 export function frozenDrift(row: OneboxRow): Drift[] {
@@ -283,7 +295,6 @@ export function acceptFrozenDrift(row: OneboxRow): FrozenPage | null {
     next.source[key] = now;
     if (key === "faqsRaw") next.faqs = fresh.faqs;
     else next.cfg[key] = fresh.cfg[key] ?? "";
-    if (key === "logo") next.logoPreload = fresh.logoPreload;
   }
   return next;
 }

@@ -6,6 +6,7 @@ import { addOneboxFunnel, seedSurveyFromAccount } from "@/lib/onebox-add";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
 import { warmFunnel } from "@/lib/onebox-warm";
+import { frozenDrift, type OneboxRow } from "@/lib/onebox-page";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 import { isValidHookUrlForLocation, clientHookUrl, buildReplayPayload, replayToClientHook } from "@/lib/payment-router";
 
@@ -586,9 +587,14 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     const cfg = (await refreshOneboxConfig(svc, slug, row.location_id as string, justWritten)) ?? { ...((row.config ?? {}) as Record<string, string>), ...Object.fromEntries(Object.entries(ONEBOX_EDITABLE_CVS).filter(([, n]) => n in justWritten).map(([k, n]) => [k, justWritten[n]])) };
     const failed = entries.filter((e) => !writtenNames.has(e.name) && !e.noCreate).map((e) => e.name);
     warmFunnel(slug);
+    /* Only what really stays behind on a frozen page gets the warning: the
+       deposit, calendar and checkout are live, so those saves are just saved. */
+    const held = row.frozen_engine != null ? frozenDrift({ ...row, config: cfg } as OneboxRow) : [];
     return NextResponse.json({
       ok: true, written: res.written.length, failed, config: cfg,
-      frozenNote: row.frozen_engine != null ? "Saved in GHL, but this funnel is frozen: the page keeps the old value until it's taken on the Freeze screen." : undefined,
+      frozenNote: held.length
+        ? `Saved in GHL. This funnel is frozen, so its page keeps the old ${held.map((d) => d.label.toLowerCase()).join(", ")}. ${auth.role === "admin" ? "You can" : "An admin can"} take the new values on the Freeze screen.`
+        : undefined,
     });
   }
 

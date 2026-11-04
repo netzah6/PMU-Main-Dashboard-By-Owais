@@ -52,7 +52,7 @@ type FunnelReview = {
   ageDays?: number | null;
   stats?: { leads30: number; picked30: number; paid30: number; leadToPicked: number | null; pickedToPaid: number | null; fleet: { pickedToPaidMedian: number } };
   checks?: FunnelCheck[];
-  igState?: { hasWidget: boolean; widgetOff: boolean; frozen: boolean; hasSnapshot: boolean };
+  igState?: { hasWidget: boolean; widgetOff: boolean; frozen: boolean; hasSnapshot: boolean; fullFreeze?: boolean };
 };
 
 // IG-feed watch (owner, 2026-10-15) from /api/onebox/ig-feed: weekly deposit
@@ -867,7 +867,10 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
               ))}
               {funnelReview.igState?.hasWidget && (
                 <>
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {funnelReview.igState.fullFreeze && (
+                  <p className="pt-1 text-[10px] text-[#1d4ed8]">🧊 This funnel is frozen, so its page keeps the pictures saved that day. Unfreeze it on the Freeze screen to change them.</p>
+                )}
+                <div className={cn("flex flex-wrap items-center gap-1.5 pt-1", funnelReview.igState.fullFreeze && "hidden")}>
                   <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8595a8]">IG widget:</span>
                   <button
                     onClick={() => igAction(funnelReview.igState!.widgetOff ? "on" : "off")}
@@ -913,7 +916,7 @@ export function LeadBreakdown({ ownerKey }: { ownerKey: string }) {
                       ) : igFeedError ? (
                         <div className="text-[11px] text-[#b91c1c]">{igFeedError}</div>
                       ) : igFeed?.grid ? (
-                        <IgGridBody grid={igFeed.grid} busy={igBusy} onPick={igPick} frozen={!!funnelReview.igState.frozen} widgetOff={!!funnelReview.igState.widgetOff} />
+                        <IgGridBody grid={igFeed.grid} busy={igBusy} onPick={igPick} frozen={!!funnelReview.igState.frozen || !!funnelReview.igState.fullFreeze} widgetOff={!!funnelReview.igState.widgetOff} />
                       ) : igFeed ? (
                         <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#697a91]">
                           No Instagram pictures fetched for this funnel yet.

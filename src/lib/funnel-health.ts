@@ -124,7 +124,7 @@ function reviewsGap(row: Row): string | null {
 export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: string; deadlineMs?: number } = {}) {
   const started = Date.now();
   const deadline = opts.deadlineMs ?? 260_000;
-  let q = svc.from("onebox_clients").select("slug, client_name, config, extras").eq("status", "live");
+  let q = svc.from("onebox_clients").select("slug, client_name, config, extras, frozen_page").eq("status", "live");
   if (opts.slug) q = q.eq("slug", opts.slug);
   const { data: rows, error } = await q;
   if (error) throw new Error(error.message);
@@ -150,13 +150,21 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
       const name = c.client_name || c.slug;
       if (Date.now() - started > deadline) { results.push({ slug: c.slug, name, checked: false, gridOk: false, reviewsOk: false, issues: [], gaps: [], visits: 0 }); continue; }
       const ex = (c.extras ?? {}) as { igWidgetOff?: boolean; igFeed?: IgFeed; igPicks?: IgPicks; igFrozen?: boolean; igSnapshot?: { imgs?: string[] }; gWidgetOff?: boolean; gReviews?: { reviews?: unknown[] }; gFetch?: { at?: string }; igFetch?: { at?: string } };
-      const storedGrid = ex.igWidgetOff ? 0 : ex.igFrozen && ex.igSnapshot?.imgs?.length ? ex.igSnapshot.imgs.length : ex.igFeed?.imgs?.length ? arrangeFeed(ex.igFeed, ex.igPicks).imgs.length : 0;
+      /* A frozen funnel shows what was saved at the click, whatever has been
+         fetched since: judge the page against that, not the live feed. */
+      const frozenCfg = ((c as { frozen_page?: { cfg?: Record<string, string> } | null }).frozen_page)?.cfg;
+      const frozenTiles = (): number => {
+        const fixed = String(frozenCfg?.igFrozenImgs ?? "").split(",").filter((u) => u.trim()).length;
+        if (fixed) return fixed;
+        try { return (JSON.parse(frozenCfg?.igFeed || "{}") as { imgs?: string[] }).imgs?.length ?? 0; } catch { return 0; }
+      };
+      const storedGrid = frozenCfg ? frozenTiles() : ex.igWidgetOff ? 0 : ex.igFrozen && ex.igSnapshot?.imgs?.length ? ex.igSnapshot.imgs.length : ex.igFeed?.imgs?.length ? arrangeFeed(ex.igFeed, ex.igPicks).imgs.length : 0;
       const igExpected = storedGrid >= 3;
-      const revExpected = !ex.gWidgetOff && (ex.gReviews?.reviews?.length ?? 0) > 0;
+      const revExpected = frozenCfg ? !!frozenCfg.gReviews : !ex.gWidgetOff && (ex.gReviews?.reviews?.length ?? 0) > 0;
       const issues: Issue[] = [];
       const gaps: GapReason[] = [];
-      if (!igExpected) { const g = igGap(c); if (g) gaps.push({ slug: c.slug, name, what: "instagram", why: g }); }
-      if (!revExpected) { const g = reviewsGap(c); if (g) gaps.push({ slug: c.slug, name, what: "reviews", why: g }); }
+      if (!igExpected && !frozenCfg) { const g = igGap(c); if (g) gaps.push({ slug: c.slug, name, what: "instagram", why: g }); }
+      if (!revExpected && !frozenCfg) { const g = reviewsGap(c); if (g) gaps.push({ slug: c.slug, name, what: "reviews", why: g }); }
 
       // 1. The page as visitors get it. "ob-warm" is in the funnel route's
       //    bot list, so this visit never mints an A/B assignment row (it

@@ -5,7 +5,7 @@
 // test and ignores the (V1) label.
 //
 // Stays live, because booking and payment break otherwise: open times, calendar,
-// checkout, deposit amount, pixel. Can't be frozen: the AI, texts, ads.
+// checkout, deposit amount, phone, address, pixel. Can't be frozen: the AI, texts, ads.
 //
 // Every /api/onebox/* route the saved engine calls has to keep accepting what it
 // sends, because that engine keeps running.
@@ -95,7 +95,7 @@ export function hasFallen(row: FreezeStatRow): boolean {
   return before != null && now != null && row.before_leads >= 40 && row.leads30 >= 40 && before >= 5 && now <= before / 2;
 }
 
-export type HistoryEntry = { action: "freeze" | "unfreeze" | "decline" | "undecline" | "accept"; at: string; by: string | null; engine?: number; leads?: number | null; deposits?: number | null; keys?: string[] };
+export type HistoryEntry = { action: "freeze" | "unfreeze" | "decline" | "undecline" | "accept" | "restore"; at: string; by: string | null; engine?: number; leads?: number | null; deposits?: number | null; changes?: DriftItem[] };
 
 export type DriftItem = { key: string; label: string; from?: string; to?: string };
 
@@ -118,6 +118,8 @@ export type BoardRow = {
   declined: { at: string; note: string | null } | null;
   frozen: { engine: number; at: string | null; by: string | null; l: number | null; d: number | null } | null;
   drift: DriftItem[];
+  /* The page kept until the last Unfreeze, so a misclick can be put back. */
+  restorable: { at: string | null } | null;
   history: HistoryEntry[];
 };
 

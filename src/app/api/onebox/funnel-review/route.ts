@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const sb = createServiceClient();
   const { data: client, error } = await sb
     .from("onebox_clients")
-    .select("slug, client_name, status, config, extras, created_at")
+    .select("slug, client_name, status, config, extras, created_at, frozen_engine")
     .eq("location_id", locationId)
     .eq("status", "live")
     .maybeSingle();
@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
       widgetOff: !!ex.igWidgetOff,
       frozen: !!ex.igFrozen,
       hasSnapshot: !!ex.igSnapshot?.imgs?.length,
+      fullFreeze: (client as { frozen_engine?: number | null }).frozen_engine != null,
     },
     ageDays,
     stats: {
