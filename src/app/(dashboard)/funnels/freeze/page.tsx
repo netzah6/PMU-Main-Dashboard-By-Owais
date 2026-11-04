@@ -53,7 +53,7 @@ function MonthBars({ row, top }: { row: BoardRow; top: number }) {
         const current = i === row.months.length - 1;
         return (
           <div key={m.m} className="flex flex-col items-center w-9 shrink-0" title={`${monthLabel(m.m)}: ${m.d} deposits of ${m.l} leads${current ? " (month not over)" : ""}`}>
-            <div className="text-[10px] text-[#34568a] tabular-nums h-3.5">{p == null ? "" : Math.round(p)}</div>
+            <div className="text-[10px] text-[#34568a] tabular-nums h-3.5">{p == null ? "" : `${Math.round(p)}%`}</div>
             <div className="h-10 w-full flex items-end border-b border-[#e4ebf2]">
               {p != null && <div className={cn("w-full rounded-t", current ? "bg-[#a7dcd9]" : "bg-[#0e9c9c]")} style={{ height: `${Math.max(2, Math.min(100, (p / top) * 100))}%` }} />}
             </div>

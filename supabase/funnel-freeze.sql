@@ -41,17 +41,15 @@ language sql immutable as $$
 $$;
 
 -- Sheet dates are DD/MM/YYYY or ISO; anything else is no date.
+-- One plain CASE, not a CTE: Postgres can only inline it that way (24 s vs 2 s).
 create or replace function public.freeze_date(x text) returns date
 language sql immutable as $$
-  with p as (
-    select case
-      when x ~ '^\d{1,2}/\d{1,2}/\d{4}$' then array[split_part(x, '/', 3), split_part(x, '/', 2), split_part(x, '/', 1)]
-      when x ~ '^\d{4}-\d{2}-\d{2}' then array[left(x, 4), substr(x, 6, 2), substr(x, 9, 2)]
-    end a
-  )
-  select case when a is not null and a[1]::int >= 2000 and a[2]::int between 1 and 12 and a[3]::int between 1 and 31
-    then make_date(a[1]::int, a[2]::int, 1) + (a[3]::int - 1) end
-  from p
+  select case
+    when x ~ '^\d{1,2}/\d{1,2}/\d{4}$' and split_part(x, '/', 3)::int >= 2000 and split_part(x, '/', 2)::int between 1 and 12 and split_part(x, '/', 1)::int between 1 and 31
+      then make_date(split_part(x, '/', 3)::int, split_part(x, '/', 2)::int, 1) + (split_part(x, '/', 1)::int - 1)
+    when x ~ '^\d{4}-\d{2}-\d{2}' and left(x, 4)::int >= 2000 and substr(x, 6, 2)::int between 1 and 12 and substr(x, 9, 2)::int between 1 and 31
+      then make_date(left(x, 4)::int, substr(x, 6, 2)::int, 1) + (substr(x, 9, 2)::int - 1)
+  end
 $$;
 
 -- One row per funnel: deposits and leads by month, before the new page, last

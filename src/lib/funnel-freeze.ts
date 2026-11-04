@@ -70,7 +70,8 @@ export function checkRule(row: FreezeStatRow, version: string, now: Date): RuleR
   if (!lastLead || today - lastLead > RULE.leadWithinDays * 86_400_000) return { ok: false, why: `No new lead in ${RULE.leadWithinDays} days` };
   if (history < RULE.minHistoryLeads) return { ok: false, why: `Under ${RULE.minHistoryLeads} leads before ${monthLabel(a)}` };
   if (ma.l < RULE.minMonthLeads || mb.l < RULE.minMonthLeads) return { ok: false, why: `Under ${RULE.minMonthLeads} leads in ${names}` };
-  if ((ra ?? 0) < RULE.minRate || (rb ?? 0) < RULE.minRate) return { ok: false, why: `Under ${RULE.minRate}% in ${names}` };
+  /* Compared unrounded: 4 of 67 is 5.97%, which must not pass as "6%". */
+  if ((100 * ma.d) / ma.l < RULE.minRate || (100 * mb.d) / mb.l < RULE.minRate) return { ok: false, why: `Under ${RULE.minRate}% in ${names}` };
   return { ok: true, why: `${ra}% in ${monthLabel(a)}, ${rb}% in ${monthLabel(b)}, ads running, history before ${monthLabel(a)}` };
 }
 
