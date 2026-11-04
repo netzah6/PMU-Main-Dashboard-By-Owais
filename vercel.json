@@ -167,6 +167,10 @@
     {
       "path": "/api/cron/pick-email",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/funnel-timeline",
+      "schedule": "20 */6 * * *"
     }
   ],
   "headers": [

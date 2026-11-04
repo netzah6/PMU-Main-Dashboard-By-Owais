@@ -1,9 +1,9 @@
-import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/ppa";
 import { createServiceClient } from "@/lib/supabase/server";
-import { fetchProgramRows, findClientProgram, type ProgramRow } from "@/lib/client-program";
-import { ONEBOX_ENGINE_V, liveEngineSrc } from "@/lib/onebox-engine";
+import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
+import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
+import { INTERNAL_FUNNELS as INTERNAL, ensureEngineCopy, freezeBlockedReason } from "@/lib/funnel-freeze-server";
 import { warmFunnel } from "@/lib/onebox-warm";
 import { acceptFrozenDrift, frozenDrift, snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
 import { checkRule, hasFallen, monthKey, monthLabel, type Board, type BoardRow, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
@@ -34,7 +34,6 @@ type FreezeRow = {
   last_frozen: { engine: number; at: string | null; by: string | null; leads: number | null; deposits: number | null; page: FrozenPage | null } | null;
 };
 
-const INTERNAL = new Set(["demo-v3", "pmu-bookings", "pps"]);
 const MONTHS_SHOWN = 7;
 
 async function loadStats(svc: ReturnType<typeof createServiceClient>): Promise<FreezeStatRow[]> {
@@ -126,22 +125,6 @@ export async function GET() {
   return NextResponse.json(board);
 }
 
-/* Save today's engine file the first time anyone freezes on this version. It is
-   read from the deployed file itself and has to name the version it claims. */
-async function ensureEngineCopy(svc: ReturnType<typeof createServiceClient>, origin: string): Promise<string | null> {
-  const { data: have, error: readError } = await svc.from("onebox_engine_copies").select("version").eq("version", ONEBOX_ENGINE_V).maybeSingle();
-  if (readError) return readError.message;
-  if (have) return null;
-  const res = await fetch(new URL(liveEngineSrc, origin), { cache: "no-store" }).catch(() => null);
-  const body = res?.ok ? await res.text() : "";
-  if (!body.includes(`ENGINE_V = "${ONEBOX_ENGINE_V}"`)) return `Couldn't read page version ${ONEBOX_ENGINE_V}, nothing was frozen. Try again in a minute.`;
-  const { error } = await svc.from("onebox_engine_copies").upsert(
-    { version: ONEBOX_ENGINE_V, body, sha256: createHash("sha256").update(body).digest("hex") },
-    { onConflict: "version", ignoreDuplicates: true },
-  );
-  return error ? error.message : null;
-}
-
 const RECORD_WARNING = "Done, but its history entry wasn't saved.";
 
 export async function POST(req: NextRequest) {
@@ -222,22 +205,8 @@ export async function POST(req: NextRequest) {
     if (!client.frozen_page) await svc.from("onebox_clients").update({ frozen_page: snapshotFunnelPage(client as OneboxRow) }).eq("slug", slug);
     return NextResponse.json({ ok: true, frozen: { engine: client.frozen_engine, at: client.frozen_at, by: prior?.frozen_by ?? null, l: prior?.frozen_leads ?? null, d: prior?.frozen_deposits ?? null }, drift: frozenDrift(client as OneboxRow) });
   }
-  if ((client.extras as { template?: string } | null)?.template === "b2b" || INTERNAL.has(slug)) {
-    return NextResponse.json({ error: "Only client funnels can be frozen." }, { status: 400 });
-  }
-  /* (V1) has no calendar or deposit, and a frozen funnel always keeps the full
-     page, so freezing one would silently change it. Read fresh, not through
-     fetchProgramRows: its memo is display-only and hides a failed read. */
-  const { data: programRows, error: programError } = await svc.from("client_program_rows").select("sheet_row, business_name, version, owner_name");
-  if (programError) return NextResponse.json({ error: "Couldn't check this client's label. Try again." }, { status: 503 });
-  if (findClientProgram((programRows ?? []) as ProgramRow[], String(client.client_name ?? ""))?.version === "(V1)") {
-    return NextResponse.json({ error: "On (V1): survey only, so it can't be frozen. If the label is wrong, fix it first; that also changes the live page." }, { status: 409 });
-  }
-  const { data: running, error: runningError } = await svc.from("onebox_experiments").select("id, name").eq("slug", slug).eq("status", "running").limit(1);
-  if (runningError) return NextResponse.json({ error: "Couldn't check for split tests. Try again." }, { status: 503 });
-  if (running?.length) {
-    return NextResponse.json({ error: `A split test is running on this funnel (${running[0].name}). End it first.` }, { status: 409 });
-  }
+  const blocked = await freezeBlockedReason(svc, client);
+  if (blocked) return NextResponse.json({ error: blocked.error }, { status: blocked.status });
   if (action === "restore") {
     const last = prior?.last_frozen;
     if (!last?.page) return NextResponse.json({ error: "There's no saved page to restore." }, { status: 409 });

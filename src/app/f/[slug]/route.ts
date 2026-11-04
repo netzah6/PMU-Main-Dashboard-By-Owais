@@ -3,7 +3,7 @@ import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { refreshOneboxConfig, SYNC_TTL_MS } from "@/lib/onebox";
 import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
-import { buildFunnelPage, lockFunnelPage, type OneboxRow as Row } from "@/lib/onebox-page";
+import { buildFunnelPage, lockFunnelPage, type FrozenPage, type OneboxRow as Row } from "@/lib/onebox-page";
 import { frozenEngineSrc, liveEngineSrc } from "@/lib/onebox-engine";
 
 // Public one-box funnel page: /f/<slug>, served as raw HTML (no React —
@@ -51,7 +51,10 @@ export async function GET(
   const isPay = req.headers.get("x-ob-pay") === "1" || req.nextUrl.searchParams.has("pay");
   const wantsSplit = !req.nextUrl.searchParams.has("ob_e") && !req.nextUrl.searchParams.has("preview") && !isPay;
   type ProbeVar = { vkey: string; kind: string; weight: number; config_override: Record<string, string> | null };
-  const [clientRes, expRes, paramVarRes] = await Promise.all([
+  /* Timeline screen: ?preview=…&fzv=<id> shows a saved version. Only with
+     ?preview, which the engine keeps strictly read-only. */
+  const savedVersion = req.nextUrl.searchParams.has("preview") ? req.nextUrl.searchParams.get("fzv") ?? "" : "";
+  const [clientRes, expRes, paramVarRes, savedRes] = await Promise.all([
     svc.from("onebox_clients").select("*").eq("slug", slug).single(),
     wantsSplit
       ? svc.from("onebox_experiments").select("id, onebox_variants(vkey, kind, weight, config_override)")
@@ -65,12 +68,17 @@ export async function GET(
       ? svc.from("onebox_variants").select("config_override, kind, onebox_experiments!inner(slug)")
           .eq("experiment_id", Number(obE)).eq("vkey", obV).maybeSingle()
       : Promise.resolve({ data: null }),
+    /^\d+$/.test(savedVersion)
+      ? svc.from("funnel_versions").select("engine, page").eq("id", Number(savedVersion)).eq("slug", slug).maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
   const row = clientRes.data as Row | null;
   if (!row || row.status === "draft") {
     return new Response("Not found", { status: 404 });
   }
-  const frozenEngine = row.frozen_engine ?? null;
+  const saved = savedRes.data as { engine: number; page: FrozenPage } | null;
+  const frozenEngine = saved?.engine ?? row.frozen_engine ?? null;
+  const frozenPage = saved?.page ?? row.frozen_page ?? null;
   const exp = (frozenEngine ? null : expRes.data) as { id: number; onebox_variants: ProbeVar[] } | null;
   const expVars = exp?.onebox_variants ?? [];
   // [].every() is vacuously true — a variantless running row is not a test.
@@ -182,7 +190,7 @@ export async function GET(
   if (isB2B) return serveB2B(row, req, variantOverrides, { expId, expVkey, respHeaders });
 
   const page = buildFunnelPage(row, { expId, expVkey, isPay });
-  if (frozenEngine && row.frozen_page) lockFunnelPage(page, row.frozen_page);
+  if (frozenEngine && frozenPage) lockFunnelPage(page, frozenPage);
   const { cfg, faqs, title, logoPreload, fanbasisHtml } = page;
   /* Program-driven flow: a (V1) client's funnel is survey → thank-you
      ONLY — no booking page, no deposit page. The program comes from the

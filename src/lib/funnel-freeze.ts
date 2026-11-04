@@ -96,7 +96,7 @@ export function hasFallen(row: FreezeStatRow): boolean {
   return before != null && now != null && row.before_leads >= 40 && row.leads30 >= 40 && before >= 5 && now <= before / 2;
 }
 
-export type HistoryEntry = { action: "freeze" | "unfreeze" | "decline" | "undecline" | "accept" | "restore"; at: string; by: string | null; engine?: number; leads?: number | null; deposits?: number | null; changes?: DriftItem[] };
+export type HistoryEntry = { action: "freeze" | "unfreeze" | "decline" | "undecline" | "accept" | "restore" | "goback"; at: string; by: string | null; engine?: number; leads?: number | null; deposits?: number | null; changes?: DriftItem[] };
 
 export type DriftItem = { key: string; label: string; from?: string; to?: string };
 
