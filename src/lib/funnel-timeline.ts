@@ -86,6 +86,7 @@ export function fingerprintFunnel(
   add("status", "Funnel status", row.status ?? "", false, row.status ?? "");
   add("frozen", "Locked", row.frozen_engine != null ? "yes" : "no", false, row.frozen_engine != null ? "yes" : "no");
   add("freeBooking", "Free booking", row.extras?.freeBooking ? "on" : "off", false, row.extras?.freeBooking ? "on" : "off");
+  add("bigOffer", "Big offer line", row.extras?.bigOffer ? "on" : "off", false, row.extras?.bigOffer ? "on" : "off");
   add("consultMode", "Video visits", row.extras?.consultMode ?? "", false, row.extras?.consultMode || "off");
   /* Read from other tables: missing means "couldn't read", and diffFingerprints
      keeps the last value instead of logging a change that didn't happen. */

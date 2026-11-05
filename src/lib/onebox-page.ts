@@ -30,6 +30,7 @@ export type OneboxRow = {
        in-studio visit — the engine reframes its wording (Brows By Kali). */
     consultMode?: string;
     freeBooking?: boolean;
+    bigOffer?: boolean;
     /* "b2b" = the agency's own artist-acquisition funnel: config lives in
        extras.b2b (the CV sync must never overwrite it) and the page runs
        the dedicated onebox-b2b.js engine — no Fanbasis, booking a free
@@ -175,6 +176,7 @@ export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: s
     surveyRaw: row.config.surveyRaw || "",
     consultMode: row.extras.consultMode || "",
     freeBooking: row.extras.freeBooking ? "1" : "",
+    bigOffer: row.extras.bigOffer ? "1" : "",
     pay: isPay ? "1" : "",
   };
   /* Same URL the engine will render (its fastImg proxies media-library
