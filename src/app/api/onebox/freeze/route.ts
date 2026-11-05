@@ -5,10 +5,11 @@ import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { INTERNAL_FUNNELS as INTERNAL, ensureEngineCopy, freezeBlockedReason } from "@/lib/funnel-freeze-server";
 import { warmFunnel } from "@/lib/onebox-warm";
-import { findGoBackSuggestions, runFunnelTimeline } from "@/lib/funnel-timeline";
+import { signLogoUrl } from "@/lib/logo-sign";
+import { findGoBackSuggestions, runFunnelTimeline, type ChangeItem } from "@/lib/funnel-timeline";
 import type { GoBackSuggestion } from "@/lib/funnel-timeline-view";
 import { acceptFrozenDrift, frozenDrift, snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
-import { hasFallen, monthKey, type Board, type BoardRow, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
+import { adsHints, fellFromPeak, findPeak, monthKey, peakWindow, pickPeakVersion, type Board, type BoardRow, type Peak, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
 
 // The Freeze screen (/funnels/freeze), admins only.
 //   GET                                   every funnel: stats, suggestion, frozen state
@@ -37,6 +38,10 @@ type FreezeRow = {
 };
 
 const MONTHS_SHOWN = 7;
+/* The timeline's first save (11/04/2026 Pacific). No page from before it exists. */
+const FIRST_SAVE = "2026-11-05T00:00:00Z";
+/* The sheet has both "(V1)" and "V1". */
+const isV1 = (version: string) => version.replace(/[()]/g, "").trim().toUpperCase() === "V1";
 
 async function loadStats(svc: ReturnType<typeof createServiceClient>): Promise<FreezeStatRow[]> {
   const { data, error } = await svc.rpc("funnel_freeze_stats");
@@ -91,6 +96,8 @@ export async function GET() {
         suggested = { at: stamp, l: s.leads30, d: s.deposits30 };
         firstSeen.push({ slug: s.slug, suggested_at: stamp, suggested_leads: s.leads30, suggested_deposits: s.deposits30, updated_at: stamp });
       }
+      const peak = findPeak(s.months, now);
+      const fell = fellFromPeak(peak, s.leads30, s.deposits30, s.client_status);
       let payLinkElsewhere = false;
       try { payLinkElsewhere = !!s.deposit_url && new URL(s.deposit_url).hostname !== "book.pmu-care.com"; } catch { /* not a URL: nothing to warn about */ }
       return {
@@ -107,7 +114,10 @@ export async function GET() {
         now: { l: s.leads30, d: s.deposits30, picks: s.picks30, pageLeads: s.page_leads30 },
         lastLead: s.last_lead,
         goBack,
-        fell: hasFallen(s),
+        peak,
+        fell,
+        fellHints: fell && peak ? adsHints(peak, s.leads30, s.last_lead, now) : [],
+        peakPage: null,
         suggested,
         declined: f?.declined_at ? { at: f.declined_at, note: f.declined_note } : null,
         frozen: s.frozen_engine != null
@@ -117,7 +127,28 @@ export async function GET() {
         restorable: s.frozen_engine == null && f?.last_frozen?.page ? { at: f.last_frozen.at } : null,
         history: f?.history ?? [],
       };
+    })
+    /* (V1) funnels aren't shown (owner, 11/05/2026). Two stay: a frozen one, so it can be
+       unfrozen, and one that fell from a good rate, because a (V1) label set by mistake
+       removes the calendar and deposit steps (Tonni, 09/2026). */
+    .filter((r) => !isV1(r.version) || r.frozen || r.fell);
+
+  /* "See the page from its best months": only possible for months after pages
+     started being saved, so today this reads nothing. */
+  const wanting = rows.filter((r) => r.fell && r.peak && peakWindow(r.peak).end > FIRST_SAVE);
+  if (wanting.length) {
+    const [copies, ...lists] = await Promise.all([
+      svc.from("onebox_engine_copies").select("version"),
+      ...wanting.map((r) => svc.from("funnel_versions").select("id, saved_at, engine, changes").eq("slug", r.slug)
+        .order("saved_at", { ascending: false }).order("id", { ascending: false }).limit(300)),
+    ]);
+    const saved = new Set(((copies.data ?? []) as { version: number }[]).map((c) => c.version));
+    wanting.forEach((r, i) => {
+      const { start, end } = peakWindow(r.peak as Peak);
+      const hit = pickPeakVersion((lists[i].data ?? []) as { id: number; saved_at: string; engine: number; changes: ChangeItem[] | null }[], start, end);
+      if (hit && saved.has(hit.version.engine)) r.peakPage = { id: hit.version.id, sig: signLogoUrl(`fzv:${hit.version.id}`), savedAt: hit.version.saved_at, sameAsNow: hit.sameAsNow };
     });
+  }
   /* A saved baseline is never overwritten for the same change: new rows are inserted,
      existing ones only filled in where the date is empty or older than this change. */
   const fresh = firstSeen.filter((r) => !bySlug.has(r.slug));
