@@ -190,7 +190,17 @@ export function FreezeCard({ r, engine, top, busy, note, openNow, openSaved, con
           <a href={`/funnels/timeline?q=${encodeURIComponent(r.business)}`} target="_blank" rel="noopener" className="font-semibold text-[#0e9c9c] hover:underline">🕒 Timeline</a>
         </div>
       )}
-      {r.fell && r.fellHints.map((h) => <p key={h} className="mt-1 text-xs text-[#b45309]">⚠ {h}</p>)}
+      {r.fell && r.fellWhy && (
+        <p className="mt-1.5 rounded-lg border border-[#f0c48a] bg-[#fffaf3] px-2.5 py-1.5 text-xs text-[#1f3559]">
+          <span className="font-bold">💡 Why I think it fell</span>
+          <span className={cn("ml-1.5 rounded-full border px-1.5 py-px text-[10px] font-bold", r.fellWhy.sure === "likely" ? "border-[#f0c48a] bg-white text-[#b45309]" : "border-[#d7e0ea] bg-white text-[#697a91]")}>
+            {r.fellWhy.sure === "likely" ? "Likely" : r.fellWhy.sure === "maybe" ? "Not sure" : "May be chance"}
+          </span>
+          <span className="block mt-0.5">{r.fellWhy.text}</span>
+        </p>
+      )}
+      {/* The note above already opens with the first ad warning. */}
+      {r.fell && r.fellHints.slice(r.fellWhy ? 1 : 0).map((h) => <p key={h} className="mt-1 text-xs text-[#b45309]">⚠ {h}</p>)}
       {r.fell && v1Label && <p className="mt-1 text-xs text-[#b45309]">⚠ The label is (V1), so this page has no calendar or deposit step. If that&apos;s a mistake, fix the label.</p>}
       {r.peakPage && !r.peakPage.sameAsNow && openSaved === "peak" && <PagePreviews row={r} stamp={stamp} rev={0} saved={r.peakPage} />}
 

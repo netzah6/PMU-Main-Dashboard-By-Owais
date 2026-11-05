@@ -125,6 +125,59 @@ export function adsHints(peak: Peak, leads30: number, lastLead: string | null, n
   return out;
 }
 
+/* "Why I think it fell" (owner, 11/05/2026): one short note on a fallen client's
+   card, so the owner can decide what to do. It reads the client's daily check-up
+   (cpd_briefs.issues) and names the most likely cause first: ads, then anything
+   that blocks paying or picking, then the AI being switched off, then price.
+   When nothing is found and the numbers are small, it says the fall may be chance. */
+export type FellWhy = { text: string; sure: "likely" | "maybe" | "chance" };
+export type BriefIssue = { code: string; title?: string };
+
+/* How likely it is to see this few deposits if the best rate still held (Poisson). */
+function chanceOfSoFew(peak: Peak, leads30: number, deposits30: number): number {
+  const expected = (peak.d / peak.l) * leads30;
+  let term = Math.exp(-expected), sum = term;
+  for (let k = 1; k <= deposits30; k++) { term *= expected / k; sum += term; }
+  return sum;
+}
+
+export function fellWhy(issues: BriefIssue[] | null, peak: Peak, now: { l: number; d: number; picks: number; pageLeads: number }, hints: string[]): FellWhy {
+  const has = (code: string) => (issues ?? []).find((i) => i.code === code);
+  const pct = (title?: string) => { const m = title?.match(/(\d+(?:\.\d+)?)%/); return m ? Math.round(Number(m[1])) : null; };
+  const picked = now.pageLeads > 0 ? `${now.picks} of ${now.pageLeads} leads picked a time and ${now.d} paid` : "";
+  const mayBeChance = chanceOfSoFew(peak, now.l, now.d) > 0.02;
+  /* Strong = a cause that by itself explains lost deposits. */
+  const strong: string[] = [];
+  const weak: string[] = [];
+
+  if (hints.length) strong.push(hints[0]);
+  else if (has("ads_off")) strong.push("The ads aren't bringing leads. Check the card, the budget and the ad.");
+  if (has("cant_charge")) strong.push("The pay page has no product, so nobody can pay.");
+  if (has("pick_none")) strong.push("Almost nobody can pick a time. The calendar likely shows no open times.");
+  const call = has("call_kill"), text = has("text_kill"), off = has("ai_off_high");
+  if (call || text || off) {
+    const share = pct(off?.title) ?? pct(call?.title) ?? pct(text?.title);
+    const on = share != null ? ` on ${share}% of leads` : "";
+    strong.push(call || text
+      ? `She ${call && text ? "calls and texts" : call ? "calls" : "texts"} leads herself. That switches the AI off${on}, so nobody asks them for the deposit.`
+      : `The AI is switched off${on}, so nobody asks them for the deposit.`);
+  }
+  if (has("price_cliff")) weak.push("The page shows a price over $450. Far fewer leads pay above that.");
+  if (has("hot_waiting")) weak.push("Some leads asked a question and nobody answered.");
+  if (has("pick_low") && !has("pick_none")) weak.push("Fewer leads than usual pick a time.");
+
+  const reasons = [...strong, ...weak];
+  let sure: FellWhy["sure"] = strong.length && !mayBeChance ? "likely" : "maybe";
+  if (!strong.length && (has("pay_low") || has("no_deposits") || now.d === 0))
+    reasons.push("Leads pick a time but don't pay, and I found nothing broken. She may take deposits herself (Zelle, cash). Ask her, and test the pay page.");
+  if (!reasons.length) {
+    sure = "chance";
+    reasons.push("I found nothing wrong. The numbers are small, so this can be chance. Watch it 2 more weeks before changing anything.");
+  }
+  const tail = sure !== "chance" && mayBeChance ? " The numbers are small, so part of this can be chance." : "";
+  return { text: `${reasons.slice(0, 3).join(" ")}${picked ? ` (${picked} in 30 days.)` : ""}${tail}`, sure };
+}
+
 /* Which saved page was live for most of the best months, and whether it is still
    today's page. A row is saved for any change (budget, phone, Instagram…), so rows
    are joined into one page until a row where we changed the page itself. */
@@ -174,6 +227,8 @@ export type BoardRow = {
   fell: boolean;
   /* What else could explain the fall: leads down, or no new lead for days. */
   fellHints: string[];
+  /* The short "why I think it fell" note; null when the client didn't fall. */
+  fellWhy: FellWhy | null;
   /* The page saved during those best months, when one exists. */
   peakPage: { id: number; sig: string; savedAt: string; sameAsNow: boolean } | null;
   suggested: { at: string; l: number | null; d: number | null } | null;
