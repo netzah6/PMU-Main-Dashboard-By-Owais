@@ -213,6 +213,14 @@ export function winbackRule(w: WinbackContext, callInvite: string | null): strin
   if (w.stage === "wants_details") {
     return `5. WIN-BACK, SHE WANTS THE DETAILS — ${first} is a former client we texted first; we mentioned the offer and she said yes / asked for more. Give her the details now, clearly, in plain words: ${pitch}${approvedScript} Then ${nextStep} (the natural one here is "want me to get you set up?"). Do not ask again whether she wants the details or wants to try it — she just said so. Never promise results or a number of clients. ${precedence}`;
   }
+  /* Owner, 11/05/2026 (Kelly Waldeck: "Is this the same Monthly fee? I'm
+     still paying off the last contract"): she only had the teaser, asked a
+     question, and got "no monthly fee… want me to get you set up?" with no
+     numbers. Until our texts have shown the $50 + $60, any question of hers
+     about the program is answered WITH the full approved terms. */
+  if (w.stage === "offer_presented" && w.offer === "pps" && !w.termsShown) {
+    return `5. WIN-BACK, SHE ASKED ABOUT THE PROGRAM AND HASN'T SEEN THE PRICE YET — ${first} is a former client we texted first. We mentioned the pay-per-appointment program but never told her the $50 + $60 terms, and she wrote back with a question or a worry. The first line answers exactly what she asked, plainly and kindly (asked if it is the same monthly fee → no, there is no monthly fee and no contract with this one; shared a money worry → one short, warm line that you understand). Then give her the full terms, every time: ${pitch}${approvedScript} The warm first line of that message IS your answer to her question — do not open with "love that you're open to it" unless she said yes. Then ${nextStep} (the natural one here is "want me to get you set up?"). Never promise results or a number of clients. ${precedence}`;
+  }
   if (w.stage === "offer_presented") {
     return `5. WIN-BACK, OFFER ON THE TABLE — ${first} is a former client we texted first and we have already described the offer. Answer exactly what she asked or objected to, using only these facts: ${pitch}${w.offer === "pps" ? ` If she asks about the fee, the price, the cost, or how it works, that IS the details question — answer with the full approved message:${approvedScript}` : ""} Then ${nextStep}. If she says she's not interested or fully booked on her own, thank her warmly and stop — never push. Never promise results or a number of clients. ${precedence}`;
   }
@@ -262,7 +270,7 @@ function buildSystemPrompt(input: DraftInput): string {
       // short (owner, 2026-10-04: the 9–5 hours vanished on an edit).
       ? "6. LENGTH — this is a REVISION of an earlier draft: keep every point the earlier notes asked for and every sentence the change doesn't touch. It may be longer than usual; still no filler."
       : input.winback && input.winback.stage !== "declined"
-      ? `6. LENGTH — this reply carries the offer: 2–5 short lines, under ${input.winback.offer === "pps" && (input.winback.price || input.winback.stage !== "opener_answered") ? 100 : 70} words, no lists. Still a text message, not an email.`
+      ? `6. LENGTH — this reply carries the offer: 2–5 short lines, under ${input.winback.offer === "pps" && input.winback.stage === "offer_presented" && !input.winback.termsShown ? 120 : input.winback.offer === "pps" && (input.winback.price || input.winback.stage !== "opener_answered") ? 100 : 70} words, no lists. Still a text message, not an email.`
       : `6. LENGTH — ${lengthRule(agentName, voiceSamples, clientBurst(input.thread))}`,
     // Owner, 2026-10-08 (Sara's "Hi Nicholas! … Thank you so much, Sara"
     // message got a flat text back): the reply must LOOK like the client's

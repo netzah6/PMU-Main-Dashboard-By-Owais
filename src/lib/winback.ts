@@ -66,7 +66,7 @@ export function winbackInstructions(r: Pick<WinbackRow, "owner_name" | "business
    `price` is the number she gave (her brow price), when she gave one, so the
    reply can do the "$60 on a $600 appointment" math honestly. */
 export type WinbackStage = "opener_answered" | "offer_presented" | "wants_details" | "thinking" | "declined";
-export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; lowPrice: number | null; touchUp: number | null; inFlow: boolean };
+export type WinbackContext = { name: string; offer: WinbackOffer | null; offerText: string; stage: WinbackStage; price: number | null; lowPrice: number | null; touchUp: number | null; inFlow: boolean; termsShown: boolean };
 /* PPS requirement (owner, 2026-10-25, Linsey King "$500 + $100 touch-up"):
    the first session must be $400 or less. Above that, the AI explains the
    requirement and proposes moving the difference onto the touch-up
@@ -89,6 +89,9 @@ export function rateHoldUntil(now = new Date()): string {
 type FlowRow = Pick<WinbackRow, "owner_name" | "offer"> & { batch_started_at?: string | null; step?: number | null };
 const OPENER = /charging for brows/i;
 const OFFER_SHOWN = /per[- ]show|pay[- ]per[- ]appointment|\$50 deposit|\$60\b|shows? up|no monthly fee|only pay|monthly program|go over the numbers|want the details|show you how it works/i;
+const PPS_PITCHED = /pay[- ]per[- ]appointment|pago por cita/i;
+// The real numbers: the $60 she pays per client who shows up.
+const TERMS_SHOWN = /\$\s?60\b/;
 // Her LAST text only (a "no" she walks back two texts later must not stick).
 // Explicit refusals count anywhere; short brush-offs ("no", "I'm good",
 // "maybe later") only when they ARE the message — "as long as I get 400-450 a
@@ -113,6 +116,11 @@ export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackCont
   const ours = since.filter((m) => m.direction === "outbound").map((m) => m.body);
   const hers = since.filter((m) => m.direction === "inbound").map((m) => m.body);
   const offerShown = ours.some((b) => OFFER_SHOWN.test(b));
+  // What we actually told her wins over the sheet (Kelly Waldeck, 11/05/2026:
+  // the sheet said Monthly, our texts pitched pay-per-appointment, and her
+  // "is this the same monthly fee?" got an answer with no $50 / $60 in it).
+  const offer: WinbackOffer | null = ours.some((b) => PPS_PITCHED.test(b)) ? "pps" : r.offer;
+  const termsShown = ours.some((b) => TERMS_SHOWN.test(b));
   const last = hers[hers.length - 1] ?? "";
   // "not interested in monthly but pay per show sounds good" is not a no.
   const declined = (DECLINE_ANY.test(last) || DECLINE_SHORT.test(last)) && !/\bbut\b/i.test(last);
@@ -157,13 +165,14 @@ export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackCont
   const lowPrice = initials.length ? Math.min(...initials[initials.length - 1]) : null;
   return {
     name: r.owner_name,
-    offer: r.offer,
-    offerText: OFFER_TEXT[r.offer ?? "none"],
+    offer,
+    offerText: OFFER_TEXT[offer ?? "none"],
     stage: declined ? "declined" : thinking ? "thinking" : wants ? "wants_details" : offerShown ? "offer_presented" : "opener_answered",
     price,
     lowPrice,
     touchUp,
     inFlow,
+    termsShown,
   };
 }
 
