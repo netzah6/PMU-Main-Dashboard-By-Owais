@@ -20,12 +20,12 @@ export async function GET(req: NextRequest) {
 
   // ?count=1 → just the open count, for the nav badge.
   if (req.nextUrl.searchParams.get("count") === "1") {
-    const { count } = await svc.from("alerts").select("id", { count: "exact", head: true }).eq("status", "open");
+    const { count } = await svc.from("alerts").select("id", { count: "exact", head: true }).eq("status", "open").neq("type", "ig_drop");
     return NextResponse.json({ open: count ?? 0 });
   }
 
   const { data: open } = await svc
-    .from("alerts").select("*").eq("status", "open")
+    .from("alerts").select("*").eq("status", "open").neq("type", "ig_drop") // deposit-rate drops live on the Freeze screen
     .order("created_at", { ascending: false }).limit(200);
   const { data: resolved } = await svc
     .from("alerts").select("*").eq("status", "resolved")

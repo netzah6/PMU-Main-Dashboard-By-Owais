@@ -349,9 +349,22 @@ export async function scanIngestHealth(svc: Svc): Promise<number> {
   if (error) return 0;
   const rows = (data ?? []) as Array<{ source: string; recent: number; prior_24h: number }>;
   let filed = 0;
+  // Calls are made in studio hours only: every night has 6+ empty hours
+  // (10/30/2026: 9 PM - 5 AM Pacific was flagged as an outage). Judge calls
+  // only while the whole window sits in the calling day (18:00-03:00 UTC).
+  const utcHour = new Date().getUTCHours();
+  const callsWindowIsDaytime = utcHour >= 18 || utcHour < 3;
   for (const r of rows) {
     const recent = Number(r.recent), prior = Number(r.prior_24h);
-    if (recent > 0 || prior < INGEST_PROOF_OF_LIFE) continue;
+    if (recent > 0) {
+      // Data is arriving again: the box has nothing left to say.
+      await svc.from("alerts")
+        .update({ status: "resolved", resolved_by: `system (${r.source} are arriving again)`, resolved_at: new Date().toISOString() })
+        .eq("type", "data_quality").eq("source_key", `ingest-stopped:${r.source}`).eq("status", "open");
+      continue;
+    }
+    if (prior < INGEST_PROOF_OF_LIFE) continue;
+    if (r.source === "calls" && !callsWindowIsDaytime) continue;
     const label = r.source === "calls" ? "Calls" : "Leads";
     const ok = await fileAlert(svc, {
       type: "data_quality",

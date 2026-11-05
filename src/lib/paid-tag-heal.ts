@@ -63,6 +63,47 @@ export async function findPaidTarget(H: Record<string, string>, loc: string, ema
   return { kind: "tag", contact: same[0], byName: true };
 }
 
+/* Close a paid-deposit box once the work is visibly done (owner 11/05/2026:
+   "it's supposed to disappear right after the client got the confirmation").
+   Done = a LIVE read of her contact shows a paid tag AND a confirmed
+   appointment. A failed read, or a lead we still can't name, leaves it open. */
+export async function resolvePaidAlerts(svc: Svc): Promise<number> {
+  const { data: open } = await svc.from("alerts").select("id, source_key, meta")
+    .eq("type", "paid_not_synced").eq("status", "open").order("created_at", { ascending: true }).limit(25);
+  let resolved = 0;
+  for (const a of (open ?? []) as Array<{ id: string; source_key: string; meta: { location_id?: string; contact_id?: string } | null }>) {
+    try {
+      let loc = String(a.meta?.location_id ?? ""), cid = String(a.meta?.contact_id ?? "");
+      if (!cid) {
+        // "can't be found" boxes: a later run (or a person) may have matched her since.
+        const key = a.source_key.replace(/^paid-(notfound|healed):/, "");
+        const { data: chk } = await svc.from("paid_tag_checks").select("location_id, contact_id").eq("key", key).maybeSingle();
+        const c = chk as { location_id: string | null; contact_id: string | null } | null;
+        cid = String(c?.contact_id ?? ""); loc = loc || String(c?.location_id ?? "");
+      }
+      if (!loc || !cid) continue;
+      const tok = await getAppLocationToken(loc);
+      if (!tok.token) continue;
+      const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" };
+      const cr = await fetch(`${GHL}/contacts/${encodeURIComponent(cid)}`, { headers: H });
+      if (!cr.ok) continue;
+      const contact = ((await cr.json()) as { contact?: GContact }).contact;
+      if (!contact || !isPaid(contact)) continue;
+      const ar = await fetch(`${GHL}/contacts/${encodeURIComponent(cid)}/appointments`, { headers: H });
+      if (!ar.ok) continue;
+      const events = ((await ar.json()) as { events?: Array<Record<string, unknown>> }).events ?? [];
+      const confirmed = events.some((e) => e.deleted !== true
+        && ["confirmed", "showed"].includes(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase()));
+      if (!confirmed) continue;
+      const { error } = await svc.from("alerts")
+        .update({ status: "resolved", resolved_by: "system (paid tag on, appointment confirmed)", resolved_at: new Date().toISOString() })
+        .eq("id", a.id).eq("status", "open");
+      if (!error) resolved++;
+    } catch { /* one bad read never stops the rest */ }
+  }
+  return resolved;
+}
+
 export async function healPaidTags(svc: Svc): Promise<{ checked: number; healed: string[]; notFound: string[]; errors: string[] }> {
   const healed: string[] = [], notFound: string[] = [], errors: string[] = [];
   const since = new Date(Date.now() - 48 * 3600_000).toISOString();
