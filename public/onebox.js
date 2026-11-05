@@ -208,6 +208,8 @@
     "#onebox-root .biglogo{display:block;margin:0 auto 12px;max-height:64px;width:auto}" +
     "#onebox-root .lede{text-align:center;margin:0 auto;max-width:none;font-family:var(--headline);font-weight:400;font-size:clamp(15px,4.5vw,22px);line-height:1.3;letter-spacing:-.01em;color:#000}" +
     "#onebox-root .ledeoffer{color:inherit;font-weight:inherit}" +
+    /* Per-client (extras.bigOffer, owner 11/05/2026: A Natural Beautie): the offer gets its own big line. */
+    "#onebox-root.bigoffer .ledeoffer{display:block;font-weight:800;font-size:1.65em;line-height:1.15;margin:.12em 0 .16em;white-space:nowrap}#onebox-root.bigoffer .lede br{display:none}" +
     "#onebox-root h1.page{font-family:var(--headline);font-weight:700;font-size:clamp(22px,6.2vw,32px);line-height:1.25;text-align:center;margin:10px auto 0;max-width:22ch;text-wrap:balance;color:#000}" +
     "#onebox-root .sub{font-family:var(--headline);font-weight:400;font-size:20px;text-align:center;margin:6px 0 0;color:var(--ink-soft)}" +
     "#onebox-root .trust{text-align:center;padding:0 20px;margin-bottom:12px}" +
@@ -614,6 +616,7 @@
 
   /* ------------------------------------------------------------------ */
   if (V2) root.classList.add("v2");
+  if (C.bigOffer) root.classList.add("bigoffer");
   root.innerHTML =
     '<div class="topbar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg><span>' + esc(ADDR) + "</span></div>" +
     (TOPBAR_V === "b" ? "" : '<div class="callbar">Call Us Today:' + (PHONE ? " " + esc(PHONE) : "") + "</div>") +
@@ -665,6 +668,22 @@
   (function fitLede() {
     var el = root.querySelector(".lede");
     if (!el) return;
+    /* Big offer line: three lines on purpose, so only keep the offer inside the page width. */
+    if (C.bigOffer) {
+      var big = el.querySelector(".ledeoffer");
+      if (!big) return;
+      var fitBig = function () {
+        big.style.fontSize = "";
+        var w = el.clientWidth, px = parseFloat(getComputedStyle(big).fontSize);
+        while (px > 14 && big.scrollWidth > w) {
+          px -= 1;
+          big.style.fontSize = px + "px";
+        }
+      };
+      fitBig();
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitBig);
+      return;
+    }
     function fit() {
       el.style.fontSize = "";
       var fs = parseFloat(getComputedStyle(el).fontSize);
@@ -1525,7 +1544,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "129";
+  var ENGINE_V = "130";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
