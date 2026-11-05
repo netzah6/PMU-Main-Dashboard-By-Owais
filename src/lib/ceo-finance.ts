@@ -144,7 +144,9 @@ export async function getAgencyFinance(): Promise<FinanceResult> {
     const meta = await sheets.spreadsheets.get({ spreadsheetId: FINANCE_SHEET_ID, fields: "sheets.properties.title" });
     const have = new Set((meta.data.sheets ?? []).map((x) => String(x.properties?.title ?? "")));
     const MONTHS_HERE = [
-      ...MONTHS.filter((m) => have.has(m.tab)),
+      // The team sometimes shortens a new month's tab ("Nov V2" for "November
+      // V2", 11/2026 — the dashboard lost November until both were accepted).
+      ...MONTHS.map((m) => ({ ...m, tab: [m.tab, m.tab.replace(m.label, m.label.slice(0, 3))].find((t) => have.has(t)) ?? "" })).filter((m) => m.tab),
       ...MONTHS_2027.map((m) => ({ ...m, tab: m.tabs.find((t) => have.has(t)) ?? "" })).filter((m) => m.tab),
     ];
     const ranges = MONTHS_HERE.map((m) => `'${m.tab}'!A1:N1000`);

@@ -46,6 +46,18 @@ type BatchPreview = {
   skipped: Array<{ sheetRow: number; name: string; why: string }>;
 };
 
+// What the follow-up preview returns (POST /api/winback/followup, dryRun).
+type FollowupPreview = {
+  until: string; texts: { price: string; spots: string }; notice: string | null;
+  people: Array<{ sheetRow: number; name: string; business: string | null; kind: "price" | "spots"; lang: "en" | "es"; text: string; herLast: string; warn: string | null }>;
+  skipped: Array<{ sheetRow: number; name: string; why: string }>;
+  sent: number; failed: Array<{ name: string; error: string }>;
+};
+const FOLLOWUP_CHIP = {
+  price: { label: "$60 hold", cls: "bg-[#e6f7f5] text-[#0e8f88]", title: "She already saw the $50 + $60 price — gets the “$60 until the date, then $80” text" },
+  spots: { label: "Spots + call", cls: "bg-[#e3eefb] text-[#185fa5]", title: "No price shared yet — gets the “limited spots” text with the call link" },
+};
+
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const STOP_LABEL: Record<string, string> = {
   opted_out: "Stopped: opted out", failed: "Stopped: send failed", current_client: "Stopped: current client", human: "Stopped: teammate took over",
@@ -100,6 +112,11 @@ export function WinbackList({ activeId, disabled, onOpen }: {
   const [preview, setPreview] = useState<BatchPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [followup, setFollowup] = useState<FollowupPreview | null>(null);
+  const [ticked, setTicked] = useState<Set<number>>(new Set());
+  const [until, setUntil] = useState("");
+  const [checkingFollowup, setCheckingFollowup] = useState(false);
+  const [sendingFollowup, setSendingFollowup] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -202,6 +219,48 @@ export function WinbackList({ activeId, disabled, onOpen }: {
     }
   };
 
+  /* "💬 Follow up": people who answered but did not come back. A preview
+     first (nothing is sent): each person with the text she would get — the
+     $60 hold when she already saw the price, limited spots + call link when
+     she didn't. The owner ticks who gets it (flagged ones start unticked),
+     then Send texts exactly those, each re-read right before her text. */
+  const previewFollowup = async (date?: string) => {
+    setCheckingFollowup(true);
+    try {
+      const r = await fetch("/api/winback/followup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun: true, until: date || undefined }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Couldn't build the follow-up list");
+      const p = j as FollowupPreview;
+      setFollowup(p);
+      setUntil(p.until);
+      setTicked(new Set(p.people.filter((x) => !x.warn).map((x) => x.sheetRow)));
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""), { duration: 15_000 });
+    } finally {
+      setCheckingFollowup(false);
+    }
+  };
+  const sendFollowup = async () => {
+    if (!followup || ticked.size === 0) return;
+    setSendingFollowup(true);
+    try {
+      const r = await fetch("/api/winback/followup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun: false, until: followup.until, sheetRows: [...ticked] }) });
+      const j = (await r.json()) as FollowupPreview & { error?: string };
+      if (!r.ok) throw new Error(j.error || "Couldn't send the follow-ups");
+      const left = [...j.failed.map((f) => `${f.name} (${f.error})`), ...j.skipped.map((s) => `${s.name} (${s.why})`)];
+      (left.length ? toast.warning : toast.success)(
+        `Follow-up sent to ${j.sent} ${j.sent === 1 ? "person" : "people"}` + (left.length ? ` · not sent: ${left.join("; ")}` : ""),
+        { duration: left.length ? 20_000 : 10_000 },
+      );
+      setFollowup(null);
+      await load(true);
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""), { duration: 15_000 });
+    } finally {
+      setSendingFollowup(false);
+    }
+  };
+
   const setOutcome = async (p: Person, outcome: "won" | "lost" | null) => {
     setPeople((list) => list?.map((x) => (x.sheetRow === p.sheetRow ? { ...x, outcome } : x)) ?? null);
     const r = await fetch("/api/winback", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sheetRow: p.sheetRow, outcome }) }).catch(() => null);
@@ -230,7 +289,7 @@ export function WinbackList({ activeId, disabled, onOpen }: {
     .filter((p) => filter === "all" || (filter === "check" ? flagged(p) : filter === "batch" ? inBatch(p) : stateOf(p) === filter))
     .sort((a, b) => (b.conv?.lastMessageDate ?? "").localeCompare(a.conv?.lastMessageDate ?? "") || a.sheetRow - b.sheetRow);
   const tabs: Array<[Filter, string]> = [["check", "🚩 Check"], ["reply", "💬 Replied"], ["waiting", "⏳ Waiting"], ["new", "Quiet"], ["batch", "📨 Batch"], ["done", "Done"], ["missing", "Not in GHL"], ["all", "All"]];
-  const busy = syncing || reviewing || previewing || starting;
+  const busy = syncing || reviewing || previewing || starting || checkingFollowup || sendingFollowup;
 
   return (
     <>
@@ -250,11 +309,16 @@ export function WinbackList({ activeId, disabled, onOpen }: {
           className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-[#0e8f88] hover:bg-[#e6f7f5] flex items-center gap-1 disabled:opacity-60">
           <RefreshCw size={11} className={syncing || loading ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync from sheet"}
         </button>
+        <button onClick={() => previewFollowup()} disabled={busy || disabled || !!preview || !!followup}
+          title="People who answered but didn't come back yet — preview who gets which follow-up text. Nothing is sent until you confirm"
+          className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-[#b45309] hover:bg-[#fff4e0] flex items-center gap-1 disabled:opacity-60">
+          {checkingFollowup ? <Loader2 size={11} className="animate-spin" /> : "💬"} {checkingFollowup ? "Reading chats…" : "Follow up"}
+        </button>
         <span className="flex items-center gap-1 text-[10px] text-[#697a91]" title="How many people to start today (newest leavers first, max 50)">
           <input type="number" min={1} max={50} value={batchSize} disabled={busy || !!preview}
             onChange={(e) => setBatchSize(Math.min(50, Math.max(1, Math.floor(Number(e.target.value) || 1))))}
             className="w-10 text-[10px] border border-[#e4ebf2] rounded px-1 py-0.5 bg-white text-[#1f3559]" />
-          <button onClick={previewBatch} disabled={busy || disabled || !!preview}
+          <button onClick={previewBatch} disabled={busy || disabled || !!preview || !!followup}
             title="Preview who gets today's first text — nothing is sent until you confirm"
             className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[#15B7AE] text-white hover:bg-[#0e8f88] flex items-center gap-1 disabled:opacity-60">
             {previewing ? <Loader2 size={11} className="animate-spin" /> : "▶"} {previewing ? "Checking…" : "Start next batch"}
@@ -293,6 +357,70 @@ export function WinbackList({ activeId, disabled, onOpen }: {
               {starting && <Loader2 size={11} className="animate-spin" />} {starting ? "Starting…" : `Send to ${preview.picked.length}`}
             </button>
             <button onClick={() => setPreview(null)} disabled={starting}
+              className="px-2 py-1 rounded text-[11px] font-semibold text-[#697a91] hover:bg-white border border-[#e4ebf2] disabled:opacity-60">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {followup && (
+        <div className="m-2 rounded-lg border border-[#f0b454] bg-[#fffaf0] p-2.5 text-[11px] text-[#1f3559] max-h-[65%] overflow-y-auto">
+          <p className="font-bold text-[12px]">Follow-up preview — {followup.people.length} answered but didn&apos;t come back yet</p>
+          {followup.notice && <p className="mt-1 rounded bg-[#fde8ee] text-[#e11d48] px-2 py-1 font-semibold">{followup.notice}</p>}
+          <p className="mt-1.5 font-semibold text-[#0e8f88]">She saw the price → $60 hold</p>
+          <p className="rounded bg-white border border-[#e4ebf2] px-2 py-1 italic text-[#697a91]">“{followup.texts.price}”</p>
+          <div className="mt-1 flex items-center gap-1.5 text-[10px] text-[#697a91]">
+            <span title="After this date the rate is $80 — you have to keep that promise">$60 held until (MM/DD)</span>
+            <input value={until} onChange={(e) => setUntil(e.target.value)} disabled={checkingFollowup || sendingFollowup} placeholder="11/14"
+              className="w-14 text-[10px] border border-[#e4ebf2] rounded px-1 py-0.5 bg-white text-[#1f3559]" />
+            {until.trim() !== followup.until && (
+              <button onClick={() => previewFollowup(until.trim())} disabled={checkingFollowup || sendingFollowup}
+                className="px-1.5 py-0.5 rounded font-semibold text-[#b45309] hover:bg-[#fff4e0] border border-[#f0b454] flex items-center gap-1 disabled:opacity-60">
+                {checkingFollowup && <Loader2 size={10} className="animate-spin" />} Update date
+              </button>
+            )}
+          </div>
+          <p className="mt-1.5 font-semibold text-[#185fa5]">No price shared yet → limited spots + call link</p>
+          <p className="rounded bg-white border border-[#e4ebf2] px-2 py-1 italic text-[#697a91]">“{followup.texts.spots}”</p>
+          {followup.people.length > 0 ? (
+            <ul className="mt-2 space-y-1">
+              {followup.people.map((p) => (
+                <li key={p.sheetRow}>
+                  <label className="flex items-start gap-1.5 cursor-pointer" title={p.text}>
+                    <input type="checkbox" className="mt-0.5" checked={ticked.has(p.sheetRow)} disabled={sendingFollowup}
+                      onChange={(e) => setTicked((t) => { const n = new Set(t); if (e.target.checked) n.add(p.sheetRow); else n.delete(p.sheetRow); return n; })} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="font-semibold truncate">{p.name}</span>
+                        <span title={FOLLOWUP_CHIP[p.kind].title} className={cn("shrink-0 px-1.5 rounded text-[9px] font-bold", FOLLOWUP_CHIP[p.kind].cls)}>{FOLLOWUP_CHIP[p.kind].label}</span>
+                        {p.lang === "es" && <span title="She writes in Spanish — she gets the Spanish text" className="shrink-0 px-1.5 rounded text-[9px] font-bold bg-[#f1f5f9] text-[#697a91]">Spanish</span>}
+                      </span>
+                      <span className="block text-[#8595a8] truncate">↩ {p.herLast}</span>
+                      {p.warn && <span className="block text-[#b45309] font-semibold">⚠ {p.warn}</span>}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-[#8595a8]">Nobody to follow up with right now.</p>
+          )}
+          {followup.skipped.length > 0 && (
+            <details className="mt-1.5">
+              <summary className="cursor-pointer text-[#b45309] font-semibold" title="Came back already, said no, got this follow-up lately, or she wrote last and needs a real answer">{followup.skipped.length} left out</summary>
+              <ul className="mt-0.5 space-y-0.5 text-[#697a91]">
+                {followup.skipped.map((s) => <li key={s.sheetRow}><b className="text-[#1f3559]">{s.name}</b> — {s.why}</li>)}
+              </ul>
+            </details>
+          )}
+          <p className="mt-1.5 text-[10px] text-[#8595a8]">Hover a name to read her exact text. ⚠ people start unticked. Nobody gets this follow-up twice within 14 days.</p>
+          <div className="mt-2 flex items-center gap-1.5">
+            <button onClick={sendFollowup} disabled={sendingFollowup || checkingFollowup || ticked.size === 0 || until.trim() !== followup.until}
+              title={until.trim() !== followup.until ? "Press Update date first" : undefined}
+              className="px-2 py-1 rounded text-[11px] font-bold bg-[#15B7AE] text-white hover:bg-[#0e8f88] flex items-center gap-1 disabled:opacity-60">
+              {sendingFollowup && <Loader2 size={11} className="animate-spin" />} {sendingFollowup ? "Sending…" : `Send to ${ticked.size}`}
+            </button>
+            <button onClick={() => setFollowup(null)} disabled={sendingFollowup}
               className="px-2 py-1 rounded text-[11px] font-semibold text-[#697a91] hover:bg-white border border-[#e4ebf2] disabled:opacity-60">
               Cancel
             </button>
