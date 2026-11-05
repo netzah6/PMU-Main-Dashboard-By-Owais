@@ -61,12 +61,65 @@ export function monthKey(now: Date, back: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-/* Freezing locks today's page, so it can't bring a fallen rate back: the screen
-   says so instead of inviting the click. */
-export function hasFallen(row: FreezeStatRow): boolean {
-  const before = pct(row.before_deposits, row.before_leads);
-  const now = pct(row.deposits30, row.leads30);
-  return before != null && now != null && row.before_leads >= 40 && row.leads30 >= 40 && before >= 5 && now <= before / 2;
+/* "Had a good rate and then fell" (owner, 11/05/2026): the best 2 full months in
+   a row against the last 30 days. It is a list to look at, not a verdict: about half
+   of the falls this size happen by chance, and ads or the AI can be the cause. */
+export const FELL = { minPeakRate: 5, minPeakLeads: 60, minMonthLeads: 15, minNowLeads: 40, keptAtMost: 0.6 };
+
+export type Peak = { from: string; to: string; l: number; d: number };
+
+const nextMonth = (key: string) => {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+};
+const dayBefore = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+
+export function findPeak(months: Record<string, MonthStat>, now: Date): Peak | null {
+  const keys = Object.keys(months).filter((k) => months[k].l > 0).sort();
+  const cutoff = dayBefore(laDate(now), 30);
+  /* A month counts once it has been over for 30 days, so it can't overlap "now".
+     The first month never counts: it is usually a partial one. */
+  const counts = (k: string) => !!months[k] && k !== keys[0] && months[k].l >= FELL.minMonthLeads && dayBefore(`${nextMonth(k)}-01`, 1) <= cutoff;
+  let best: Peak | null = null;
+  for (const from of keys) {
+    const to = nextMonth(from);
+    if (!counts(from) || !counts(to)) continue;
+    const l = months[from].l + months[to].l;
+    const d = months[from].d + months[to].d;
+    if (l < FELL.minPeakLeads) continue;
+    if (!best || d / l >= best.d / best.l) best = { from, to, l, d };
+  }
+  return best;
+}
+
+export const peakLabel = (p: Peak) => `${monthLabel(p.from)}–${monthLabel(p.to)} ${p.to.slice(0, 4)}`;
+
+export function fellFromPeak(peak: Peak | null, leads30: number, deposits30: number, clientStatus: string | null): boolean {
+  if (!peak || (clientStatus ?? "") !== "live" || leads30 < FELL.minNowLeads) return false;
+  const best = (100 * peak.d) / peak.l;
+  return best >= FELL.minPeakRate && (100 * deposits30) / leads30 <= best * FELL.keptAtMost;
+}
+
+/* The best months as times, for looking up the pages saved back then. Pacific
+   midnight, give or take the daylight-saving hour. */
+export const peakWindow = (p: Peak) => ({ start: `${p.from}-01T08:00:00Z`, end: `${nextMonth(p.to)}-01T08:00:00Z` });
+
+/* Which saved page was live for most of that time. Versions newest first, all
+   saved before the window's end; a page stays live until the next one is saved. */
+export function pickPeakVersion<T extends { saved_at: string }>(versions: T[], startIso: string, endIso: string): T | null {
+  const start = Date.parse(startIso);
+  let until = Date.parse(endIso);
+  let best: T | null = null;
+  let bestMs = 0;
+  for (const v of versions) {
+    const savedAt = Date.parse(v.saved_at);
+    const ms = until - Math.max(savedAt, start);
+    if (ms > bestMs) { best = v; bestMs = ms; }
+    until = Math.min(until, savedAt);
+    if (until <= start) break;
+  }
+  return best;
 }
 
 export type HistoryEntry = { action: "freeze" | "unfreeze" | "decline" | "undecline" | "accept" | "restore" | "goback"; at: string; by: string | null; engine?: number; leads?: number | null; deposits?: number | null; changes?: DriftItem[] };
@@ -87,7 +140,11 @@ export type BoardRow = {
   now: { l: number; d: number; picks: number; pageLeads: number };
   lastLead: string | null;
   goBack: GoBackSuggestion | null;
+  /* Best 2 months in a row, and whether the last 30 days are far below them. */
+  peak: Peak | null;
   fell: boolean;
+  /* The page saved during those best months, when one exists. */
+  peakPage: { id: number; sig: string; savedAt: string } | null;
   suggested: { at: string; l: number | null; d: number | null } | null;
   declined: { at: string; note: string | null } | null;
   frozen: { engine: number; at: string | null; by: string | null; l: number | null; d: number | null } | null;

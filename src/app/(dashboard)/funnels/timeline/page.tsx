@@ -239,6 +239,11 @@ export default function TimelinePage() {
     .catch(() => setError("Couldn't load"));
   useEffect(() => { if (role === "admin") void load(); }, [role]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => setShown(PAGE), [q, filter]);
+  /* The Freeze screen links here with a client's name: ?q=… fills the search. */
+  useEffect(() => {
+    const name = new URLSearchParams(window.location.search).get("q");
+    if (name) setQ(name);
+  }, []);
 
   const rows = board?.rows;
   const list = useMemo(() => {

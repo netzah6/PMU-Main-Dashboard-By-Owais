@@ -5,10 +5,11 @@ import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { INTERNAL_FUNNELS as INTERNAL, ensureEngineCopy, freezeBlockedReason } from "@/lib/funnel-freeze-server";
 import { warmFunnel } from "@/lib/onebox-warm";
+import { signLogoUrl } from "@/lib/logo-sign";
 import { findGoBackSuggestions, runFunnelTimeline } from "@/lib/funnel-timeline";
 import type { GoBackSuggestion } from "@/lib/funnel-timeline-view";
 import { acceptFrozenDrift, frozenDrift, snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
-import { hasFallen, monthKey, type Board, type BoardRow, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
+import { fellFromPeak, findPeak, monthKey, peakWindow, pickPeakVersion, type Board, type BoardRow, type Peak, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
 
 // The Freeze screen (/funnels/freeze), admins only.
 //   GET                                   every funnel: stats, suggestion, frozen state
@@ -37,6 +38,8 @@ type FreezeRow = {
 };
 
 const MONTHS_SHOWN = 7;
+/* The timeline's first save (11/04/2026 Pacific). No page from before it exists. */
+const FIRST_SAVE = "2026-11-05T00:00:00Z";
 
 async function loadStats(svc: ReturnType<typeof createServiceClient>): Promise<FreezeStatRow[]> {
   const { data, error } = await svc.rpc("funnel_freeze_stats");
@@ -91,6 +94,7 @@ export async function GET() {
         suggested = { at: stamp, l: s.leads30, d: s.deposits30 };
         firstSeen.push({ slug: s.slug, suggested_at: stamp, suggested_leads: s.leads30, suggested_deposits: s.deposits30, updated_at: stamp });
       }
+      const peak = findPeak(s.months, now);
       let payLinkElsewhere = false;
       try { payLinkElsewhere = !!s.deposit_url && new URL(s.deposit_url).hostname !== "book.pmu-care.com"; } catch { /* not a URL: nothing to warn about */ }
       return {
@@ -107,7 +111,9 @@ export async function GET() {
         now: { l: s.leads30, d: s.deposits30, picks: s.picks30, pageLeads: s.page_leads30 },
         lastLead: s.last_lead,
         goBack,
-        fell: hasFallen(s),
+        peak,
+        fell: fellFromPeak(peak, s.leads30, s.deposits30, s.client_status),
+        peakPage: null,
         suggested,
         declined: f?.declined_at ? { at: f.declined_at, note: f.declined_note } : null,
         frozen: s.frozen_engine != null
@@ -117,7 +123,26 @@ export async function GET() {
         restorable: s.frozen_engine == null && f?.last_frozen?.page ? { at: f.last_frozen.at } : null,
         history: f?.history ?? [],
       };
+    })
+    /* (V1) funnels aren't shown (owner, 11/05/2026). One that is frozen stays, so it can be unfrozen. */
+    .filter((r) => r.version !== "(V1)" || r.frozen);
+
+  /* "See the page from its best months": only possible for months after pages
+     started being saved, so today this reads nothing. */
+  const wanting = rows.filter((r) => r.fell && r.peak && peakWindow(r.peak).end > FIRST_SAVE);
+  if (wanting.length) {
+    const [copies, ...lists] = await Promise.all([
+      svc.from("onebox_engine_copies").select("version"),
+      ...wanting.map((r) => svc.from("funnel_versions").select("id, saved_at, engine").eq("slug", r.slug)
+        .lt("saved_at", peakWindow(r.peak as Peak).end).order("saved_at", { ascending: false }).order("id", { ascending: false }).limit(300)),
+    ]);
+    const saved = new Set(((copies.data ?? []) as { version: number }[]).map((c) => c.version));
+    wanting.forEach((r, i) => {
+      const { start, end } = peakWindow(r.peak as Peak);
+      const v = pickPeakVersion((lists[i].data ?? []) as { id: number; saved_at: string; engine: number }[], start, end);
+      if (v && saved.has(v.engine)) r.peakPage = { id: v.id, sig: signLogoUrl(`fzv:${v.id}`), savedAt: v.saved_at };
     });
+  }
   /* A saved baseline is never overwritten for the same change: new rows are inserted,
      existing ones only filled in where the date is empty or older than this change. */
   const fresh = firstSeen.filter((r) => !bySlug.has(r.slug));
