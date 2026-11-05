@@ -19,7 +19,7 @@ const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "";
 export const isSuggested = (r: BoardRow) => !!r.goBack && !r.frozen;
 
-function Stat({ label, d, l, extra, strong }: { label: string; d: number | null | undefined; l: number | null | undefined; extra?: string; strong?: boolean }) {
+function Stat({ label, d, l, extra, strong }: { label: string; d: number | null | undefined; l: number | null | undefined; extra?: React.ReactNode; strong?: boolean }) {
   const known = d != null && l != null;
   const p = known ? pct(d, l) : null;
   const count = !known ? "no count" : l ? `${d} of ${l} leads` : d ? `${d} deposit${d === 1 ? "" : "s"}, no leads` : "no leads";
@@ -27,7 +27,7 @@ function Stat({ label, d, l, extra, strong }: { label: string; d: number | null 
     <div className="min-w-0">
       <div className="text-[11px] text-[#697a91] leading-tight">{label}</div>
       <div className={cn("text-lg font-semibold leading-snug tabular-nums", strong ? "text-[#1c2b3a]" : "text-[#34568a]")}>{p == null ? "—" : `${p}%`}</div>
-      <div className="text-[11px] text-[#697a91] leading-tight tabular-nums">{count}{extra ? ` · ${extra}` : ""}</div>
+      <div className="text-[11px] text-[#697a91] leading-tight tabular-nums">{count}{extra ? <> · {extra}</> : null}</div>
     </div>
   );
 }
@@ -124,18 +124,13 @@ export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stam
   const fewThroughPage = r.now.l >= 20 && r.now.pageLeads < r.now.l * 0.7;
   const showPutBack = !!r.restorable && !r.frozen;
   const showSuggestAgain = !!r.declined && !r.frozen && !suggested;
+  const previewLabel = r.frozen ? "See frozen pages" : "See how it would stay";
   return (
     <div className={cn("rounded-xl border bg-white p-3", r.frozen ? "border-[#bfdbfe]" : suggested ? "border-[#0e9c9c]" : r.fell ? "border-[#f0c48a]" : "border-[#e4ebf2]")}>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <div className="min-w-0 flex-1 basis-40">
-          <div className="text-sm font-semibold text-[#1c2b3a]">{r.business}</div>
-          <div className="text-[11px] text-[#697a91]">{r.owner}</div>
-        </div>
-        {vs && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold" style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>{r.version.replace(/[()]/g, "")}</span>}
-        {r.matched && r.clientStatus !== "live" && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea] capitalize">{r.clientStatus || "no status"}</span>}
-        {r.frozen && <span className="shrink-0 rounded-full border px-2 py-px text-[11px] font-bold bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]">🧊 Frozen since {fmtDate(r.frozen.at)}</span>}
-        {suggested && <span className="shrink-0 rounded-full border px-2 py-px text-[11px] font-bold bg-[#e8f7f6] text-[#0b7a7a] border-[#a7dcd9]">⭐ I suggest going back</span>}
-        {r.fell && <span className="shrink-0 rounded-full border px-2 py-px text-[11px] font-bold bg-[#fff7ed] text-[#b45309] border-[#f0c48a]">📉 Fell</span>}
+      {/* Line 1: the name, with the two buttons at its right. Line 2: owner and chips across
+          the full width, so a long name or owner never squeezes them on a phone. */}
+      <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+        <div className="min-w-0 flex-1 text-sm font-semibold text-[#1c2b3a]">{r.business}</div>
         <div className="flex shrink-0 items-center gap-1.5">
           {r.frozen ? (
             <button type="button" disabled={!!busy} onClick={() => onAct("unfreeze")} className={cn(SMALL_BUTTON, "border-[#cbd5e1] bg-white text-[#34568a] hover:bg-[#f1f5f9]")}>
@@ -146,20 +141,28 @@ export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stam
               {freezing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "🧊"} {freezing ? "Freezing…" : "Freeze"}
             </button>
           )}
-          <button type="button" onClick={() => onToggle("now")} className={cn(SMALL_BUTTON, "border-[#e4ebf2] bg-white font-normal text-[#34568a] hover:bg-[#f6f9fc]")}>
-            👁 <span className="sm:hidden">See pages</span><span className="hidden sm:inline">{r.frozen ? "See frozen pages" : "See how it would stay"}</span>
+          <button type="button" onClick={() => onToggle("now")} title={previewLabel} className={cn(SMALL_BUTTON, "border-[#e4ebf2] bg-white font-normal text-[#34568a] hover:bg-[#f6f9fc]")}>
+            👁 <span className="sm:hidden">View</span><span className="hidden sm:inline">{previewLabel}</span>
             <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", open === "now" && "rotate-180")} />
           </button>
+        </div>
+        <div className="flex basis-full flex-wrap items-center gap-x-1.5 gap-y-1">
+          {r.owner && <span className="text-[11px] text-[#697a91]">{r.owner}</span>}
+          {vs && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold" style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>{r.version.replace(/[()]/g, "")}</span>}
+          {r.matched && r.clientStatus !== "live" && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea] capitalize">{r.clientStatus || "no status"}</span>}
+          {r.frozen && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]">🧊 Frozen since {fmtDate(r.frozen.at)}</span>}
+          {suggested && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold bg-[#e8f7f6] text-[#0b7a7a] border-[#a7dcd9]">⭐ I suggest going back</span>}
+          {r.fell && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold bg-[#fff7ed] text-[#b45309] border-[#f0c48a]">📉 Fell</span>}
         </div>
       </div>
 
       {r.matched ? (
         <>
           <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
-            {r.peak && <Stat label={`Best 2 months: ${peakLabel(r.peak)}`} d={r.peak.d} l={r.peak.l} />}
+            {r.peak && <Stat label={`Best months: ${peakLabel(r.peak)}`} d={r.peak.d} l={r.peak.l} />}
             {r.goBack && r.suggested && <Stat label={`When suggested ${fmtDate(r.suggested.at)}`} d={r.suggested.d} l={r.suggested.l} />}
             {r.frozen && <Stat label={`When frozen ${fmtDate(r.frozen.at)}`} d={r.frozen.d} l={r.frozen.l} />}
-            <Stat label="Now, last 30 days" d={r.now.d} l={r.now.l} extra={`${r.now.picks} picked a time`} strong />
+            <Stat label="Now, last 30 days" d={r.now.d} l={r.now.l} extra={<>{r.now.picks} picked<span className="hidden sm:inline"> a time</span></>} strong />
           </div>
           <div className="mt-2"><MonthBars row={r} top={top} /></div>
         </>
