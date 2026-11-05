@@ -5,9 +5,10 @@ import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { INTERNAL_FUNNELS as INTERNAL, ensureEngineCopy, freezeBlockedReason } from "@/lib/funnel-freeze-server";
 import { warmFunnel } from "@/lib/onebox-warm";
-import { runFunnelTimeline } from "@/lib/funnel-timeline";
+import { findGoBackSuggestions, runFunnelTimeline } from "@/lib/funnel-timeline";
+import type { GoBackSuggestion } from "@/lib/funnel-timeline-view";
 import { acceptFrozenDrift, frozenDrift, snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
-import { checkRule, hasFallen, monthKey, monthLabel, type Board, type BoardRow, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
+import { hasFallen, monthKey, type Board, type BoardRow, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
 
 // The Freeze screen (/funnels/freeze), admins only.
 //   GET                                   every funnel: stats, suggestion, frozen state
@@ -66,6 +67,12 @@ export async function GET() {
   const bySlug = new Map(((freezeRows ?? []) as FreezeRow[]).map((r) => [r.slug, r]));
   const driftBySlug = new Map(((frozenClients ?? []) as unknown as OneboxRow[]).map((c) => [c.slug, frozenDrift(c)]));
   const now = new Date();
+  /* Suggestions are extra: the screen still opens, and says so, if they can't be worked out. */
+  let suggestionsFailed = false;
+  const suggestions = await findGoBackSuggestions(svc, stats, programs, now).catch(() => {
+    suggestionsFailed = true;
+    return new Map<string, GoBackSuggestion>();
+  });
   const monthKeys = Array.from({ length: MONTHS_SHOWN }, (_, i) => monthKey(now, MONTHS_SHOWN - 1 - i));
 
   type FirstSeen = { slug: string; suggested_at: string; suggested_leads: number; suggested_deposits: number; updated_at: string };
@@ -76,11 +83,11 @@ export async function GET() {
     .map((s) => {
       const version = findClientProgram(programs, s.client_name)?.version ?? "";
       const f = bySlug.get(s.slug);
-      const rule = checkRule(s, version, now);
-      /* The first time the rule picks a client, its rate is written down: that
-         is the "when suggested" number the screen compares against later. */
+      const goBack = suggestions.get(s.slug) ?? null;
+      /* The first time a client is suggested for a change, its rate is written down:
+         that is the "when suggested" number the screen compares against later. */
       let suggested = f?.suggested_at ? { at: f.suggested_at, l: f.suggested_leads, d: f.suggested_deposits } : null;
-      if (!suggested && rule.ok && s.frozen_engine == null && !f?.declined_at) {
+      if (goBack && (!suggested || suggested.at < goBack.changeAt)) {
         suggested = { at: stamp, l: s.leads30, d: s.deposits30 };
         firstSeen.push({ slug: s.slug, suggested_at: stamp, suggested_leads: s.leads30, suggested_deposits: s.deposits30, updated_at: stamp });
       }
@@ -99,7 +106,7 @@ export async function GET() {
         before: { l: s.before_leads, d: s.before_deposits },
         now: { l: s.leads30, d: s.deposits30, picks: s.picks30, pageLeads: s.page_leads30 },
         lastLead: s.last_lead,
-        rule,
+        goBack,
         fell: hasFallen(s),
         suggested,
         declined: f?.declined_at ? { at: f.declined_at, note: f.declined_note } : null,
@@ -111,18 +118,18 @@ export async function GET() {
         history: f?.history ?? [],
       };
     });
-  /* A saved baseline is never overwritten: new rows are inserted, existing ones
-     only filled in where the date is still empty. */
+  /* A saved baseline is never overwritten for the same change: new rows are inserted,
+     existing ones only filled in where the date is empty or older than this change. */
   const fresh = firstSeen.filter((r) => !bySlug.has(r.slug));
   if (fresh.length) await svc.from("funnel_freeze").upsert(fresh, { onConflict: "slug", ignoreDuplicates: true });
   for (const { slug, ...values } of firstSeen.filter((r) => bySlug.has(r.slug))) {
-    await svc.from("funnel_freeze").update(values).eq("slug", slug).is("suggested_at", null);
+    await svc.from("funnel_freeze").update(values).eq("slug", slug).or(`suggested_at.is.null,suggested_at.lt.${suggestions.get(slug)?.changeAt}`);
   }
 
   const others = rows
-    .filter((r) => /v3/i.test(r.version) && r.clientStatus === "live" && !r.frozen && !r.rule.ok)
+    .filter((r) => /v3/i.test(r.version) && r.clientStatus === "live" && !r.frozen)
     .reduce((a, r) => ({ l: a.l + r.now.l, d: a.d + r.now.d }), { l: 0, d: 0 });
-  const board: Board = { engine: ONEBOX_ENGINE_V, ruleMonths: [monthLabel(monthKey(now, 2)), monthLabel(monthKey(now, 1))], others, rows };
+  const board: Board = { engine: ONEBOX_ENGINE_V, suggestionsFailed, others, rows };
   return NextResponse.json(board);
 }
 

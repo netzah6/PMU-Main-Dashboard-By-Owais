@@ -2,6 +2,8 @@ import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { ensureEngineCopy, INTERNAL_FUNNELS } from "@/lib/funnel-freeze-server";
+import { addDays, AUTOMATIC_KEYS, changeWindows, fellAfterChange, GO_BACK_Z, hadBookingOutage, isOtherCause, isOurChange, pacificDay, sumDays, zFell, type DayCounts, type GoBackSuggestion } from "@/lib/funnel-timeline-view";
+import { signLogoUrl } from "@/lib/logo-sign";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
 
@@ -183,4 +185,164 @@ export async function runFunnelTimeline(svc: SupabaseClient, opts: { origin: str
     }
   }
   return { checked: tracked.length, saved: opts.dry ? 0 : inserts.length, changed, failed, engineCopyError: engineCopyError ?? undefined, sample: opts.dry ? sample : undefined };
+}
+
+export type DailyRow = {
+  slug: string;
+  client_name: string;
+  status: string;
+  template: string | null;
+  free_booking: boolean;
+  frozen_engine: number | null;
+  frozen_at: string | null;
+  business: string | null;
+  owner_name: string | null;
+  client_status: string | null;
+  days: Record<string, DayCounts>;
+};
+
+/* The counting takes about 5 s and covers every funnel, so opening several
+   histories in a row shares one result. Display-only. */
+let dailyMemo: { at: number; since: string; rows: DailyRow[] } | null = null;
+export async function loadDaily(svc: SupabaseClient, since: string): Promise<DailyRow[]> {
+  if (dailyMemo && dailyMemo.since <= since && Date.now() - dailyMemo.at < 120_000) return dailyMemo.rows;
+  const { data, error } = await svc.rpc("funnel_timeline_daily", { p_since: since });
+  if (error) throw new Error(error.message);
+  dailyMemo = { at: Date.now(), since, rows: (data ?? []) as DailyRow[] };
+  return dailyMemo.rows;
+}
+
+/* The change windows look up to 28 days back, for changes up to 56 days old. */
+export const dailySince = (today: string) => addDays(today, -84);
+
+/* Would going back change anything we changed? Instagram and reviews refresh by
+   themselves, so a difference only there means the change was already undone. */
+const sameOurPage = (a: Fingerprint, b: Fingerprint) =>
+  Object.entries(a).every(([k, item]) => !item.r || AUTOMATIC_KEYS.has(k) || !b[k] || b[k].h === item.h);
+
+type ChangeRow = { id: number; slug: string; saved_at: string; changes: ChangeItem[]; prev_id: number; day: string };
+
+/* Which funnels fell clearly after a change we made, where the page from before that
+   change is saved and really differs from today's. Costs nothing until a change exists.
+   Throws on a failed read, so the screen can say it couldn't check. */
+export async function findGoBackSuggestions(
+  svc: SupabaseClient,
+  funnels: { slug: string; client_name: string; client_status: string | null }[],
+  programs: ProgramRow[],
+  now: Date,
+): Promise<Map<string, GoBackSuggestion>> {
+  const out = new Map<string, GoBackSuggestion>();
+  const today = pacificDay(now);
+  const lookBack = addDays(today, -56);
+  const rows: ChangeRow[] = [];
+  /* Older rows too: a change that can't be undone inside a window still counts as another cause. */
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await svc.from("funnel_versions").select("id, slug, saved_at, changes, prev_id")
+      .gt("prev_id", 0).gte("saved_at", `${dailySince(today)}T00:00:00Z`).order("saved_at", { ascending: false }).order("id", { ascending: false }).range(from, from + 999);
+    if (error) throw new Error(error.message);
+    for (const r of data ?? []) rows.push({ ...(r as Omit<ChangeRow, "day">), changes: (r.changes ?? []) as ChangeItem[], day: pacificDay(new Date(r.saved_at as string)) });
+    if ((data ?? []).length < 1000) break;
+  }
+  /* A change needs 7 days before it can be judged, so a newer one costs nothing yet. */
+  if (!rows.some((r) => r.day >= lookBack && r.day <= addDays(today, -6) && r.changes.some(isOurChange))) return out;
+
+  const [{ data: states, error: stateError }, { data: locks, error: lockError }, daily] = await Promise.all([
+    svc.from("funnel_freeze").select("slug, declined_at, history"),
+    svc.from("onebox_clients").select("slug, frozen_engine"),
+    loadDaily(svc, dailySince(today)),
+  ]);
+  if (stateError ?? lockError) throw new Error((stateError ?? lockError)?.message);
+  const stateBySlug = new Map(((states ?? []) as { slug: string; declined_at: string | null; history: { action: string; at: string }[] | null }[]).map((s) => [s.slug, s]));
+  const locked = new Set(((locks ?? []) as { slug: string; frozen_engine: number | null }[]).filter((c) => c.frozen_engine != null).map((c) => c.slug));
+  const isV1 = (name: string) => findClientProgram(programs, name)?.version === "(V1)";
+  const days = new Map(daily.map((d) => [d.slug, d.days]));
+
+  /* A page update reaches every funnel, so one funnel falling after it is usually that
+     funnel's own wobble. It counts only if funnels fell together on those same days, on
+     the same measure. Funnels with an outage are left out: one broken account would
+     look like everyone falling. */
+  const fleetDays = daily.filter((d) => d.template !== "b2b" && !INTERNAL_FUNNELS.has(d.slug) && d.client_status === "live" && !isV1(d.client_name)).map((d) => d.days);
+  const fleetMemo = new Map<string, { booking: boolean; deposit: boolean }>();
+  const fleetFell = (day: string) => {
+    let hit = fleetMemo.get(day);
+    if (!hit) {
+      const healthy = fleetDays.filter((d) => !hadBookingOutage(d, day, today));
+      const sum = (from: string, to: string) => healthy.reduce((a, d) => {
+        const c = sumDays(d, from, to);
+        return { l: a.l + c.l, b: a.b + c.b, p: a.p + c.p, d: a.d + c.d };
+      }, { l: 0, b: 0, p: 0, d: 0 });
+      const before = sum(addDays(day, -14), addDays(day, -1));
+      const after = sum(day, addDays(day, changeWindows({}, day, today).afterDays - 1));
+      const dEnd = addDays(day, 27) < today ? addDays(day, 27) : today;
+      const dBefore = sum(addDays(day, -28), addDays(day, -1));
+      const dAfter = sum(day, dEnd);
+      hit = { booking: zFell(after.p, after.b, before.p, before.b) >= GO_BACK_Z, deposit: zFell(dAfter.d, dAfter.l, dBefore.d, dBefore.l) >= GO_BACK_Z };
+      fleetMemo.set(day, hit);
+    }
+    return hit;
+  };
+  /* The same change on many funnels the same day came from us for everyone (a page
+     update, a default FAQ, a bulk rollout), so it gets the same check. */
+  const SAME_DAY_FLEET = 20;
+  const sameDayCount = new Map<string, number>();
+  for (const r of rows) for (const c of r.changes.filter(isOurChange)) sameDayCount.set(`${r.day}|${c.key}`, (sameDayCount.get(`${r.day}|${c.key}`) ?? 0) + 1);
+  const isFleetChange = (r: ChangeRow) => r.changes.filter(isOurChange).every((c) => c.key === "engine" || (sameDayCount.get(`${r.day}|${c.key}`) ?? 0) >= SAME_DAY_FLEET);
+
+  const bySlug = new Map<string, ChangeRow[]>();
+  for (const r of rows) {
+    const list = bySlug.get(r.slug);
+    if (list) list.push(r); else bySlug.set(r.slug, [r]);
+  }
+
+  const picks: { slug: string; row: ChangeRow; older: ChangeRow[]; fall: NonNullable<ReturnType<typeof fellAfterChange>> }[] = [];
+  for (const f of funnels) {
+    if ((f.client_status ?? "") !== "live" || locked.has(f.slug) || isV1(f.client_name)) continue;
+    const history = bySlug.get(f.slug) ?? [];
+    const state = stateBySlug.get(f.slug);
+    /* Don't ask again about what was already tried or turned down. */
+    const lastGoBack = (state?.history ?? []).filter((h) => h.action === "goback").map((h) => h.at).sort().pop() ?? "";
+    const declinedAt = state?.declined_at ?? "";
+    const causeDays = history.filter((h) => h.changes.some(isOtherCause)).map((h) => h.day);
+    const found: { row: ChangeRow; fall: NonNullable<ReturnType<typeof fellAfterChange>> }[] = [];
+    for (const row of history) {
+      if (row.day < lookBack || row.saved_at <= lastGoBack || row.saved_at <= declinedAt) continue;
+      const ours = row.changes.filter(isOurChange);
+      if (!ours.length) continue;
+      if (causeDays.some((d) => d >= addDays(row.day, -28) && d <= addDays(row.day, 27))) continue;
+      const fall = fellAfterChange(days.get(f.slug) ?? {}, row.day, today);
+      if (!fall) continue;
+      if (isFleetChange(row)) {
+        const fleet = fleetFell(row.day);
+        if (!((fall.what !== "deposit" && fleet.booking) || (fall.what !== "booking" && fleet.deposit))) continue;
+      }
+      found.push({ row, fall });
+    }
+    /* A later change also looks guilty, because its "before" days are mostly from before
+       the fall. The strongest fall points at the real one. */
+    found.sort((a, b) => b.fall.z - a.fall.z);
+    if (found[0]) picks.push({ slug: f.slug, ...found[0], older: history });
+  }
+  if (!picks.length) return out;
+
+  const [targets, latest, copies, running] = await Promise.all([
+    svc.from("funnel_versions").select("id, saved_at, engine, fingerprint").in("id", picks.map((p) => p.row.prev_id)),
+    svc.rpc("funnel_latest_versions"),
+    svc.from("onebox_engine_copies").select("version"),
+    svc.from("onebox_experiments").select("slug").eq("status", "running"),
+  ]);
+  const readError = targets.error ?? latest.error ?? copies.error ?? running.error;
+  if (readError) throw new Error(readError.message);
+  const targetById = new Map(((targets.data ?? []) as { id: number; saved_at: string; engine: number; fingerprint: Fingerprint }[]).map((v) => [v.id, v]));
+  const nowBySlug = new Map(((latest.data ?? []) as { slug: string; fingerprint: Fingerprint }[]).map((v) => [v.slug, v.fingerprint]));
+  const saved = new Set(((copies.data ?? []) as { version: number }[]).map((c) => c.version));
+  const testing = new Set(((running.data ?? []) as { slug: string }[]).map((e) => e.slug));
+  for (const { slug, row, older, fall } of picks) {
+    const target = targetById.get(row.prev_id);
+    const current = nowBySlug.get(slug);
+    /* Only what can really come back. */
+    if (!target || !current || !saved.has(target.engine) || testing.has(slug) || sameOurPage(target.fingerprint, current)) continue;
+    const undoes = Array.from(new Set(older.filter((h) => h.saved_at >= row.saved_at).flatMap((h) => h.changes.filter(isOurChange).map((c) => c.label))));
+    out.set(slug, { ...fall, versionId: target.id, savedAt: target.saved_at, previewSig: signLogoUrl(`fzv:${target.id}`), changeAt: row.saved_at, changes: row.changes.filter(isOurChange), undoes });
+  }
+  return out;
 }
