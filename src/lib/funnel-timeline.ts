@@ -2,6 +2,8 @@ import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { ensureEngineCopy, INTERNAL_FUNNELS } from "@/lib/funnel-freeze-server";
+import { addDays, fellAfterChange, isOurChange, OTHER_CAUSE_KEYS, pacificDay, type DayCounts, type GoBackSuggestion } from "@/lib/funnel-timeline-view";
+import { signLogoUrl } from "@/lib/logo-sign";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
 
@@ -183,4 +185,96 @@ export async function runFunnelTimeline(svc: SupabaseClient, opts: { origin: str
     }
   }
   return { checked: tracked.length, saved: opts.dry ? 0 : inserts.length, changed, failed, engineCopyError: engineCopyError ?? undefined, sample: opts.dry ? sample : undefined };
+}
+
+export type DailyRow = {
+  slug: string;
+  client_name: string;
+  status: string;
+  template: string | null;
+  free_booking: boolean;
+  frozen_engine: number | null;
+  frozen_at: string | null;
+  business: string | null;
+  owner_name: string | null;
+  client_status: string | null;
+  days: Record<string, DayCounts>;
+};
+
+/* The counting takes about 5 s and covers every funnel, so opening several
+   histories in a row shares one result. Display-only. */
+let dailyMemo: { at: number; since: string; rows: DailyRow[] } | null = null;
+export async function loadDaily(svc: SupabaseClient, since: string): Promise<DailyRow[]> {
+  if (dailyMemo && dailyMemo.since <= since && Date.now() - dailyMemo.at < 120_000) return dailyMemo.rows;
+  const { data, error } = await svc.rpc("funnel_timeline_daily", { p_since: since });
+  if (error) throw new Error(error.message);
+  dailyMemo = { at: Date.now(), since, rows: (data ?? []) as DailyRow[] };
+  return dailyMemo.rows;
+}
+
+/* The change windows look up to 28 days back, for changes up to 56 days old. */
+export const dailySince = (today: string) => addDays(today, -84);
+
+type ChangeRow = { id: number; slug: string; saved_at: string; changes: ChangeItem[]; prev_id: number };
+
+/* Which funnels fell clearly after a change we made, where the page from before that
+   change is saved and really differs from today's. Costs nothing until a change exists. */
+export async function findGoBackSuggestions(
+  svc: SupabaseClient,
+  funnels: { slug: string; client_name: string; frozen_engine: number | null }[],
+  programs: ProgramRow[],
+  now: Date,
+): Promise<Map<string, GoBackSuggestion>> {
+  const out = new Map<string, GoBackSuggestion>();
+  const today = pacificDay(now);
+  const rows: ChangeRow[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await svc.from("funnel_versions").select("id, slug, saved_at, changes, prev_id")
+      .gt("prev_id", 0).gte("saved_at", `${addDays(today, -56)}T00:00:00Z`).order("saved_at", { ascending: false }).range(from, from + 999);
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as ChangeRow[]));
+    if ((data ?? []).length < 1000) break;
+  }
+  if (!rows.some((r) => (r.changes ?? []).some(isOurChange))) return out;
+
+  const bySlug = new Map<string, ChangeRow[]>();
+  for (const r of rows) bySlug.set(r.slug, [...(bySlug.get(r.slug) ?? []), r]);
+  const days = new Map((await loadDaily(svc, dailySince(today))).map((d) => [d.slug, d.days]));
+
+  const picks: (Omit<GoBackSuggestion, "savedAt" | "previewSig" | "versionId"> & { slug: string; prevId: number })[] = [];
+  for (const f of funnels) {
+    if (f.frozen_engine != null || findClientProgram(programs, f.client_name)?.version === "(V1)") continue;
+    const history = bySlug.get(f.slug) ?? [];
+    for (const row of history) {
+      const ours = (row.changes ?? []).filter(isOurChange);
+      if (!ours.length) continue;
+      const changeDay = pacificDay(new Date(row.saved_at));
+      const otherCause = history.some((h) => pacificDay(new Date(h.saved_at)) >= addDays(changeDay, -14) && (h.changes ?? []).some((c) => OTHER_CAUSE_KEYS.has(c.key)));
+      if (otherCause) continue;
+      const fall = fellAfterChange(days.get(f.slug) ?? {}, changeDay, today);
+      if (!fall) continue;
+      picks.push({ ...fall, slug: f.slug, prevId: row.prev_id, changeAt: row.saved_at, changes: ours });
+      break;
+    }
+  }
+  if (!picks.length) return out;
+
+  const [{ data: targets }, { data: latest }, { data: copies }, { data: running }] = await Promise.all([
+    svc.from("funnel_versions").select("id, saved_at, engine, fingerprint").in("id", picks.map((p) => p.prevId)),
+    svc.rpc("funnel_latest_versions"),
+    svc.from("onebox_engine_copies").select("version"),
+    svc.from("onebox_experiments").select("slug").eq("status", "running"),
+  ]);
+  const targetById = new Map(((targets ?? []) as { id: number; saved_at: string; engine: number; fingerprint: Fingerprint }[]).map((v) => [v.id, v]));
+  const nowBySlug = new Map(((latest ?? []) as { slug: string; fingerprint: Fingerprint }[]).map((v) => [v.slug, v.fingerprint]));
+  const saved = new Set(((copies ?? []) as { version: number }[]).map((c) => c.version));
+  const testing = new Set(((running ?? []) as { slug: string }[]).map((e) => e.slug));
+  for (const { slug, prevId, ...rest } of picks) {
+    const target = targetById.get(prevId);
+    const current = nowBySlug.get(slug);
+    /* Only what can really come back. */
+    if (!target || !current || !saved.has(target.engine) || testing.has(slug) || samePage(target.fingerprint, current)) continue;
+    out.set(slug, { ...rest, versionId: target.id, savedAt: target.saved_at, previewSig: signLogoUrl(`fzv:${target.id}`) });
+  }
+  return out;
 }

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useUser } from "@/lib/hooks/useUser";
 import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
-import { laMonth, pct, monthLabel, RULE, type Board, type BoardRow } from "@/lib/funnel-freeze";
+import { laMonth, pct, monthLabel, type Board, type BoardRow } from "@/lib/funnel-freeze";
+import { changeText, goBackWhy } from "@/lib/funnel-timeline-view";
 import { ChevronDown, ExternalLink, Loader2, Search } from "lucide-react";
 
 /* Every funnel's deposit rate, my suggestion to freeze it, how the pages look,
@@ -21,7 +22,7 @@ type Action = "freeze" | "unfreeze" | "decline" | "undecline" | "accept" | "rest
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "";
-const isSuggested = (r: BoardRow) => r.rule.ok && !r.frozen && !r.declined;
+const isSuggested = (r: BoardRow) => !!r.goBack && !r.frozen && !r.declined;
 const rank = (r: BoardRow) => (isSuggested(r) ? 0 : r.frozen ? 1 : 2);
 
 function Stat({ label, d, l, extra, strong, zeroNote }: { label: string; d: number | null | undefined; l: number | null | undefined; extra?: string; strong?: boolean; zeroNote?: string }) {
@@ -79,7 +80,9 @@ function pagesFor(r: BoardRow) {
   return out;
 }
 
-function PagePreviews({ row, stamp, rev }: { row: BoardRow; stamp: number; rev: number }) {
+function PagePreviews({ row, stamp, rev, saved }: { row: BoardRow; stamp: number; rev: number; saved?: { id: number; sig: string } }) {
+  /* A saved page from before a change, instead of today's. */
+  const old = saved ? `&fzv=${saved.id}&fzs=${saved.sig}` : "";
   /* The version and edit count in the address, so a funnel just unfrozen or
      updated isn't served its old copy. */
   const fz = `${row.frozen?.engine ?? 0}.${rev}`;
@@ -87,12 +90,12 @@ function PagePreviews({ row, stamp, rev }: { row: BoardRow; stamp: number; rev: 
     <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
       {pagesFor(row).map((p) => (
         <div key={`${p.key}:${fz}`} className="shrink-0">
-          <a href={`${BASE}/f/${row.slug}?preview=${p.key}`} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-xs font-semibold text-[#0e9c9c] hover:underline mb-1">
+          <a href={`${BASE}/f/${row.slug}?preview=${p.key}${old}`} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-xs font-semibold text-[#0e9c9c] hover:underline mb-1">
             {p.label} <ExternalLink className="w-3 h-3" />
           </a>
           <div className="relative overflow-hidden rounded-[18px] border-4 border-[#1f2937] bg-white" style={{ width: 218, height: 430 }}>
             <div className="absolute inset-0 flex items-center justify-center text-[#697a91]"><Loader2 className="w-5 h-5 animate-spin" /></div>
-            <iframe title={`${row.business} ${p.label} page`} src={`${BASE}/f/${row.slug}?preview=${p.key}&pv=${stamp}&fz=${fz}`} loading="lazy"
+            <iframe title={`${row.business} ${p.label} page`} src={`${BASE}/f/${row.slug}?preview=${p.key}${old}&pv=${stamp}&fz=${fz}`} loading="lazy"
               style={{ position: "relative", width: 390, height: 770, border: 0, transform: "scale(0.5385)", transformOrigin: "0 0" }} />
           </div>
         </div>
@@ -109,6 +112,8 @@ export default function FreezePage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [shown, setShown] = useState(PAGE);
   const [open, setOpen] = useState<string | null>(null);
+  const [openOld, setOpenOld] = useState<string | null>(null);
+  const [confirmBack, setConfirmBack] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, Action>>({});
   const [rowNote, setRowNote] = useState<Record<string, string>>({});
   /* The order and the rows you've acted on are fixed until a reload: a card that
@@ -182,6 +187,31 @@ export default function FreezePage() {
     }
   };
 
+  /* Goes through the Timeline's lock: the funnel stays on that saved page until unfrozen. */
+  const goBack = async (r: BoardRow) => {
+    if (!r.goBack) return;
+    setBusy((b) => ({ ...b, [r.slug]: "freeze" }));
+    setRowNote((n) => ({ ...n, [r.slug]: "" }));
+    try {
+      const res = await fetch("/api/onebox/timeline", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "goback", slug: r.slug, versionId: r.goBack.versionId }) });
+      const j = await res.json();
+      if (!res.ok) { setRowNote((n) => ({ ...n, [r.slug]: j.error ?? "That didn't work" })); return; }
+      setTouched((t) => new Set(t).add(r.slug));
+      setConfirmBack(null);
+      setOpenOld(null);
+      setPreviewRev((v) => ({ ...v, [r.slug]: (v[r.slug] ?? 0) + 1 }));
+      setRowNote((n) => ({ ...n, [r.slug]: `Done. Visitors see the old page within about 3 minutes.${j.drift?.length ? ` GHL still has newer values, so the AI may say something different: ${j.drift.join(", ")}.` : ""}` }));
+      setBoard((b) => b && {
+        ...b,
+        rows: b.rows.map((x) => x.slug !== r.slug ? x : { ...x, goBack: null, restorable: null, frozen: { engine: j.engine, at: j.lockedAt, by: null, l: null, d: null } }),
+      });
+    } catch {
+      setRowNote((n) => ({ ...n, [r.slug]: "That didn't work. Check your connection and try again." }));
+    } finally {
+      setBusy((b) => { const rest = { ...b }; delete rest[r.slug]; return rest; });
+    }
+  };
+
   if (userLoading) return <div className="flex items-center gap-2 text-sm text-[#697a91] p-8"><Loader2 className="w-4 h-4 animate-spin" />Loading…</div>;
   if (role !== "admin") return <div className="p-8 text-[#697a91]">Admins only.</div>;
 
@@ -196,9 +226,12 @@ export default function FreezePage() {
 
       {board && (
         <details className="text-xs text-[#697a91] mb-3">
-          <summary className="cursor-pointer text-[#34568a] font-semibold">How I pick who to suggest</summary>
-          <p className="mt-1">On V3 and live, a new lead in the last {RULE.leadWithinDays} days, {RULE.minHistoryLeads}+ leads before {board.ruleMonths[0]}, {Math.round(RULE.minPageShare * 100)}%+ of leads coming through this page, and {RULE.minMonthLeads}+ leads with {RULE.minRate}%+ in both {board.ruleMonths[0]} and {board.ruleMonths[1]}. It&apos;s a judgment call, not a test: a freeze protects a page, it doesn&apos;t add deposits.</p>
+          <summary className="cursor-pointer text-[#34568a] font-semibold">When I suggest going back</summary>
+          <p className="mt-1">Only when all of this is true: we changed something on the funnel (not Instagram or reviews), the booking or deposit rate clearly fell after it, leads did not drop, the ads, label and deposit did not change around the same time, and the page from before the change is saved. It could still be chance, so look at the old page first.</p>
         </details>
+      )}
+      {board && counts.suggested === 0 && (
+        <p className="text-xs text-[#34568a] mb-3">⭐ No suggestions right now. Counting changes started 11/04/2026, so a suggestion needs at least 7 days after a change.</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -224,7 +257,7 @@ export default function FreezePage() {
       {board && (
         <div className="text-xs text-[#697a91] mb-3">
           {list.length} funnels
-          {filter !== "V2.3" && <> · V3 clients I&apos;m not suggesting, last 30 days: <span className="font-semibold text-[#1c2b3a] tabular-nums">{pct(board.others.d, board.others.l) ?? "—"}%</span></>}
+          {filter !== "V2.3" && <> · all V3 clients not frozen, last 30 days: <span className="font-semibold text-[#1c2b3a] tabular-nums">{pct(board.others.d, board.others.l) ?? "—"}%</span></>}
         </div>
       )}
 
@@ -240,7 +273,7 @@ export default function FreezePage() {
           const rowBusy = busy[r.slug];
           const freezing = rowBusy === "freeze" || rowBusy === "unfreeze";
           const vs = r.version ? versionStyle(r.version) : null;
-          const fewThroughPage = r.now.l >= 20 && r.now.pageLeads < r.now.l * RULE.minPageShare;
+          const fewThroughPage = r.now.l >= 20 && r.now.pageLeads < r.now.l * 0.7;
           return (
             <div key={r.slug} className={cn("rounded-xl border bg-white p-3", r.frozen ? "border-[#bfdbfe]" : suggested ? "border-[#0e9c9c]" : "border-[#e4ebf2]")}>
               <div className="flex flex-wrap items-start gap-2">
@@ -251,14 +284,14 @@ export default function FreezePage() {
                 {vs && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold" style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>{r.version.replace(/[()]/g, "")}</span>}
                 {r.matched && r.clientStatus !== "live" && <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea] capitalize">{r.clientStatus || "no status"}</span>}
                 {r.frozen && <span className="shrink-0 rounded-full border px-2 py-px text-[11px] font-bold bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]">🧊 Frozen since {fmtDate(r.frozen.at)}</span>}
-                {suggested && <span className="shrink-0 rounded-full border px-2 py-px text-[11px] font-bold bg-[#e8f7f6] text-[#0b7a7a] border-[#a7dcd9]">⭐ I suggest freezing</span>}
+                {suggested && <span className="shrink-0 rounded-full border px-2 py-px text-[11px] font-bold bg-[#e8f7f6] text-[#0b7a7a] border-[#a7dcd9]">⭐ I suggest going back</span>}
               </div>
 
               {r.matched ? (
                 <>
                   <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
                     <Stat label="04/27–08/23/2026" d={r.before.d} l={r.before.l} zeroNote="no deposits recorded" />
-                    {r.suggested && <Stat label={`When suggested ${fmtDate(r.suggested.at)}`} d={r.suggested.d} l={r.suggested.l} />}
+                    {r.goBack && r.suggested && <Stat label={`When suggested ${fmtDate(r.suggested.at)}`} d={r.suggested.d} l={r.suggested.l} />}
                     {r.frozen && <Stat label={`When frozen ${fmtDate(r.frozen.at)}`} d={r.frozen.d} l={r.frozen.l} />}
                     <Stat label="Now, last 30 days" d={r.now.d} l={r.now.l} extra={`${r.now.picks} picked a time`} strong />
                   </div>
@@ -268,11 +301,10 @@ export default function FreezePage() {
                 <p className="mt-2 text-xs text-[#697a91]">This name doesn&apos;t match the Clients sheet, so there are no numbers.</p>
               )}
 
-              {suggested && <p className="mt-2 text-xs text-[#34568a]">Why: {r.rule.why}.</p>}
-              {r.declined && !r.frozen && <p className="mt-2 text-xs text-[#697a91]">Not suggesting this one{r.declined.note ? `: ${r.declined.note}` : "."}</p>}
-              {!suggested && !r.frozen && !r.declined && /v3/i.test(r.version) && r.clientStatus === "live" && (
-                <p className="mt-2 text-xs text-[#697a91]">{r.suggested ? "No longer suggested" : "Not suggested"}: {r.rule.why}.</p>
+              {suggested && r.goBack && (
+                <p className="mt-2 text-xs text-[#34568a]">Why: {goBackWhy(r.goBack)} after we changed this on {fmtDate(r.goBack.changeAt)}: {r.goBack.changes.slice(0, 3).map(changeText).join("; ")}. It could still be chance.</p>
               )}
+              {r.declined && !r.frozen && <p className="mt-2 text-xs text-[#697a91]">Not suggesting this one{r.declined.note ? `: ${r.declined.note}` : "."}</p>}
               {r.fell && !r.frozen && (
                 <p className="mt-2 text-xs text-[#b45309]">⚠ This rate fell. Freezing keeps today&apos;s page, so it won&apos;t bring the old rate back.</p>
               )}
@@ -291,6 +323,26 @@ export default function FreezePage() {
               )}
               {rowNote[r.slug] && <p className="mt-2 text-xs text-[#b91c1c]">{rowNote[r.slug]}</p>}
 
+              {suggested && r.goBack && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {confirmBack === r.slug ? (
+                    <>
+                      <span className="text-xs text-[#b45309]">Change the live page to the one saved {fmtDate(r.goBack.savedAt)}? Deposit, phone, address, calendar and checkout stay as they are now.</span>
+                      <button type="button" disabled={!!rowBusy} onClick={() => void goBack(r)} className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg bg-[#0e9c9c] text-white px-3 py-1.5 hover:bg-[#0b8383] disabled:opacity-60">
+                        {rowBusy && <Loader2 className="w-4 h-4 animate-spin" />}Yes, go back
+                      </button>
+                      <button type="button" disabled={!!rowBusy} onClick={() => setConfirmBack(null)} className="text-xs text-[#697a91] hover:underline">No</button>
+                    </>
+                  ) : (
+                    <button type="button" disabled={!!rowBusy} onClick={() => setConfirmBack(r.slug)} className="text-sm font-semibold rounded-lg bg-[#0e9c9c] text-white px-3 py-1.5 hover:bg-[#0b8383] disabled:opacity-60">↩ Go back to the page saved {fmtDate(r.goBack.savedAt)}</button>
+                  )}
+                  <button type="button" onClick={() => setOpenOld(openOld === r.slug ? null : r.slug)} className="inline-flex items-center gap-1 text-sm rounded-lg border border-[#e4ebf2] px-3 py-1.5 text-[#34568a] hover:bg-[#f6f9fc]">
+                    👁 See the old page <ChevronDown className={cn("w-4 h-4 transition-transform", openOld === r.slug && "rotate-180")} />
+                  </button>
+                </div>
+              )}
+              {suggested && r.goBack && openOld === r.slug && <PagePreviews row={r} stamp={stamp} rev={0} saved={{ id: r.goBack.versionId, sig: r.goBack.previewSig }} />}
+
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {r.frozen ? (
                   <button type="button" disabled={!!rowBusy} onClick={() => void act(r.slug, "unfreeze")}
@@ -299,7 +351,7 @@ export default function FreezePage() {
                   </button>
                 ) : (
                   <button type="button" disabled={!!rowBusy || v1Label} onClick={() => void act(r.slug, "freeze")}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg bg-[#0e9c9c] text-white px-3 py-1.5 hover:bg-[#0b8383] disabled:opacity-50">
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg border border-[#0e9c9c] text-[#0b7a7a] bg-white px-3 py-1.5 hover:bg-[#e8f7f6] disabled:opacity-50">
                     {freezing ? <Loader2 className="w-4 h-4 animate-spin" /> : "🧊"} {freezing ? "Freezing…" : "Freeze"}
                   </button>
                 )}

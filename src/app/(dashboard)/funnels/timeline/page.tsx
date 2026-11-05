@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useUser } from "@/lib/hooks/useUser";
 import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
-import { MIN_LEADS, bookingRate, rate, type DayCounts, type TimelineBoard, type TimelineDetail, type TimelineRow, type TimelineVersion } from "@/lib/funnel-timeline-view";
-import type { ChangeItem } from "@/lib/funnel-timeline";
+import { MIN_LEADS, bookingRate, changeText, goBackWhy, rate, type DayCounts, type TimelineBoard, type TimelineDetail, type TimelineRow, type TimelineVersion } from "@/lib/funnel-timeline-view";
 import { ChevronDown, ExternalLink, Loader2, Search } from "lucide-react";
 
 /* Every funnel's saved pages next to its booking and deposit rates, with one click
@@ -18,11 +17,6 @@ type Filter = "all" | "fell" | "locked" | "V3" | "V2.3";
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "";
 const pct = (r: number | null) => (r == null ? "—" : `${r}%`);
-/* Not page values, so "stays live" would mean nothing on them. */
-const NOT_ON_PAGE = new Set(["frozen", "status", "label", "budget", "test"]);
-const changeText = (c: ChangeItem) =>
-  `${c.to !== undefined ? `${c.label}: ${c.from || "empty"} → ${c.to || "empty"}` : `${c.label} changed`}${c.restorable || NOT_ON_PAGE.has(c.key) ? "" : " (stays live)"}`;
-
 function Rates({ label, c, noCalendar }: { label: string; c: DayCounts; noCalendar?: boolean }) {
   return (
     <div className="min-w-0">
@@ -174,6 +168,7 @@ function History({ row, stamp, reload, onLocked, onLoaded }: { row: TimelineRow;
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
               <span className="font-semibold text-[#1c2b3a] tabular-nums">{fmtDate(e.v.savedAt)}</span>
               {e.v.isNow && <span className="rounded-full bg-[#e8f7f6] text-[#0b7a7a] px-1.5 text-[10px] font-bold">Now</span>}
+              {row.goBack?.versionId === e.v.id && <span className="rounded-full bg-[#e8f7f6] text-[#0b7a7a] px-1.5 text-[10px] font-bold">⭐ I suggest this page</span>}
               <span className="text-[#697a91]">Page version {e.v.engine}</span>
             </div>
             <p className="mt-1 text-xs text-[#34568a]">{e.v.changes.length ? e.v.changes.map(changeText).join("; ") : "First save."}</p>
@@ -236,8 +231,8 @@ export default function TimelinePage() {
       if (!r.ok) { setError(j.error ?? "Couldn't load"); return; }
       setError("");
       const b = j as TimelineBoard;
-      /* Who fell first; the order stays until a reload, so cards don't jump. */
-      const sorted = [...b.rows].sort((x, y) => (y.fall ? 1 : 0) - (x.fall ? 1 : 0) || (rate(y.last14.d, y.last14.l) ?? -1) - (rate(x.last14.d, x.last14.l) ?? -1) || x.business.localeCompare(y.business));
+      /* Suggested first, then who fell; the order stays until a reload, so cards don't jump. */
+      const sorted = [...b.rows].sort((x, y) => (y.goBack ? 1 : 0) - (x.goBack ? 1 : 0) || (y.fall ? 1 : 0) - (x.fall ? 1 : 0) || (rate(y.last14.d, y.last14.l) ?? -1) - (rate(x.last14.d, x.last14.l) ?? -1) || x.business.localeCompare(y.business));
       setOrder(new Map(sorted.map((r2, i) => [r2.slug, i])));
       setBoard(b);
     })
@@ -366,6 +361,11 @@ export default function TimelinePage() {
                 <Rates label="14 days before" c={r.prev14} noCalendar={r.version === "(V1)"} />
               </div>
               {!r.fall && (r.last14.l < MIN_LEADS || r.prev14.l < MIN_LEADS) && <p className="mt-1 text-[11px] text-[#697a91]">Too few leads to judge a fall.</p>}
+              {r.goBack && !r.lockedAt && (
+                <p className="mt-2 text-xs font-semibold text-[#0b7a7a]">
+                  ⭐ I suggest going back to the page saved {fmtDate(r.goBack.savedAt)}: {goBackWhy(r.goBack)} after we changed this on {fmtDate(r.goBack.changeAt)}: {r.goBack.changes.slice(0, 3).map(changeText).join("; ")}. It could still be chance. Open the history to see the old page.
+                </p>
+              )}
               {r.lastChange && (
                 <p className="mt-2 text-xs text-[#34568a]">
                   Last save {fmtDate(r.lastChange.at)}{r.lastChange.changes.length ? `: ${r.lastChange.changes.slice(0, 3).map(changeText).join("; ")}${r.lastChange.changes.length > 3 ? `; and ${r.lastChange.changes.length - 3} more` : ""}` : ""}

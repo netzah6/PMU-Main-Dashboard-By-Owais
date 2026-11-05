@@ -7,7 +7,7 @@ import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { frozenDrift, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
 import { signLogoUrl } from "@/lib/logo-sign";
 import { warmFunnel } from "@/lib/onebox-warm";
-import { runFunnelTimeline, samePage, type ChangeItem, type Fingerprint } from "@/lib/funnel-timeline";
+import { dailySince, findGoBackSuggestions, loadDaily, runFunnelTimeline, samePage, type ChangeItem, type DailyRow, type Fingerprint } from "@/lib/funnel-timeline";
 import { addDays, changeWindows, flagFall, pacificDay, sumDays, type DayCounts, type TimelineBoard, type TimelineDetail, type TimelineRow, type TimelineVersion } from "@/lib/funnel-timeline-view";
 import type { HistoryEntry } from "@/lib/funnel-freeze";
 
@@ -20,31 +20,6 @@ import type { HistoryEntry } from "@/lib/funnel-freeze";
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const maxDuration = 300; // warmFunnel's pings run 150 s after the response
-
-type DailyRow = {
-  slug: string;
-  client_name: string;
-  status: string;
-  template: string | null;
-  free_booking: boolean;
-  frozen_engine: number | null;
-  frozen_at: string | null;
-  business: string | null;
-  owner_name: string | null;
-  client_status: string | null;
-  days: Record<string, DayCounts>;
-};
-
-/* The counting takes about 5 s and covers every funnel, so opening several
-   histories in a row shares one result. Display-only. */
-let dailyMemo: { at: number; since: string; rows: DailyRow[] } | null = null;
-async function loadDaily(svc: ReturnType<typeof createServiceClient>, since: string): Promise<DailyRow[]> {
-  if (dailyMemo && dailyMemo.since <= since && Date.now() - dailyMemo.at < 120_000) return dailyMemo.rows;
-  const { data, error } = await svc.rpc("funnel_timeline_daily", { p_since: since });
-  if (error) throw new Error(error.message);
-  dailyMemo = { at: Date.now(), since, rows: (data ?? []) as DailyRow[] };
-  return dailyMemo.rows;
-}
 
 export async function GET(req: NextRequest) {
   const auth = await getAuth();
@@ -70,7 +45,7 @@ export async function GET(req: NextRequest) {
     const oldest = rows.length ? pacificDay(new Date(rows[rows.length - 1].saved_at)) : today;
     let days: Record<string, DayCounts> | null = null;
     try {
-      days = (await loadDaily(svc, addDays(oldest, -14))).find((d) => d.slug === slug)?.days ?? {};
+      days = (await loadDaily(svc, addDays(oldest, -28))).find((d) => d.slug === slug)?.days ?? {};
     } catch { /* see above */ }
     const current = rows[0]?.fingerprint;
     const out: TimelineVersion[] = rows.map((v, i) => ({
@@ -93,14 +68,16 @@ export async function GET(req: NextRequest) {
   }
 
   const [dailyRows, { data: latest, error: lErr }, programs] = await Promise.all([
-    loadDaily(svc, addDays(today, -56)).catch((e: unknown) => (e instanceof Error ? e : new Error("Couldn't count"))),
+    loadDaily(svc, dailySince(today)).catch((e: unknown) => (e instanceof Error ? e : new Error("Couldn't count"))),
     svc.rpc("funnel_latest_versions"),
     fetchProgramRows(svc),
   ]);
   if (dailyRows instanceof Error) return NextResponse.json({ error: dailyRows.message }, { status: 500 });
   if (lErr) return NextResponse.json({ error: lErr.message }, { status: 500 });
   const latestBySlug = new Map(((latest ?? []) as { slug: string; saved_at: string; changes: ChangeItem[] }[]).map((v) => [v.slug, v]));
-  const rows: TimelineRow[] = dailyRows
+  /* Suggestions are extra: the screen still opens if they can't be worked out. */
+  const suggestions = await findGoBackSuggestions(svc, dailyRows, programs, new Date()).catch(() => new Map());
+  const rows: TimelineRow[] = (dailyRows as DailyRow[])
     .filter((d) => d.template !== "b2b" && !INTERNAL_FUNNELS.has(d.slug) && (d.status === "live" || d.frozen_engine != null))
     .map((d) => {
       const last14 = sumDays(d.days, addDays(today, -13), today);
@@ -119,6 +96,7 @@ export async function GET(req: NextRequest) {
         last14,
         prev14,
         fall: flagFall(last14, prev14, last28, prev28, version === "(V1)"),
+        goBack: suggestions.get(d.slug) ?? null,
         lastChange: v ? { at: v.saved_at, changes: v.changes ?? [] } : null,
         lockedAt: d.frozen_engine != null ? d.frozen_at : null,
       };
@@ -193,6 +171,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     lockedAt: at,
+    engine: version.engine,
     /* The AI reads the live values, so the page and the AI can now disagree. */
     drift: frozenDrift({ ...(client as OneboxRow), frozen_page: version.page as FrozenPage }).map((d) => d.label),
   });
