@@ -169,7 +169,12 @@ export async function POST(req: NextRequest) {
   const fresh = Date.now() - AI_HOLD_LIVE_MS;
   const isFreshHold = (a: ContactAppointment) => !paidIds.has(a.id) && (a.addedMs || 0) >= fresh
     && (a.status === AI_HOLD_STATUS
-      || (a.status === "confirmed" && (a.updatedMs || 0) >= Date.now() - 15 * 60_000 && (a.updatedMs || 0) - (a.addedMs || 0) > 60_000));
+      || (a.status === "confirmed" && (a.updatedMs || 0) >= Date.now() - 15 * 60_000 && (a.updatedMs || 0) - (a.addedMs || 0) > 60_000)
+      /* Booked in the chat minutes ago: the account's workflow waits 10
+         minutes before it turns the AI's booking into a hold, so until then
+         it still reads "confirmed" / "new". She paid 5 minutes after the AI
+         booked (10/31) and was left with two appointments at two times. */
+      || ((a.status === "confirmed" || a.status === "new") && (a.addedMs || 0) >= Date.now() - 15 * 60_000));
   /* She paid for a different time than the one the AI is holding — she
      picked again on the pay page, or went back to the funnel. The account's
      "Invalid -> Confirm" workflow confirms that hold as soon as the deposit
