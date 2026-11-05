@@ -174,7 +174,7 @@ export async function POST(req: NextRequest) {
          minutes before it turns the AI's booking into a hold, so until then
          it still reads "confirmed" / "new". She paid 5 minutes after the AI
          booked (10/31) and was left with two appointments at two times. */
-      || ((a.status === "confirmed" || a.status === "new") && (a.addedMs || 0) >= Date.now() - 15 * 60_000));
+      || ((a.status === "confirmed" || a.status === "new") && (a.addedMs || 0) >= Date.now() - 30 * 60_000));
   /* She paid for a different time than the one the AI is holding — she
      picked again on the pay page, or went back to the funnel. The account's
      "Invalid -> Confirm" workflow confirms that hold as soon as the deposit
@@ -182,7 +182,12 @@ export async function POST(req: NextRequest) {
      With exactly one fresh hold, move THAT appointment to the paid time
      instead. Only fresh holds are ever moved, and two or more can't be told
      apart, so those book as before and get flagged. */
-  const holds = same ? [] : appts.filter(isFreshHold);
+  const allHolds = same ? [] : appts.filter(isFreshHold);
+  /* The AI sometimes books the same time twice (one chat message reaching
+     it twice). Twins at one time are one hold: move the first, and the
+     twin left behind is flagged below like any other leftover. */
+  const holds = allHolds.length > 1 && allHolds.every((a) => Math.abs(a.startMs - allHolds[0].startMs) < 60_000)
+    ? [allHolds[0]] : allHolds;
   let reused: { id: string } | null = null;
   let movedFrom = "";
   let needsReview = false;
@@ -278,6 +283,12 @@ export async function POST(req: NextRequest) {
     } else {
       verifyNote = `could not re-check the calendar after booking (${after.error ?? "no response"})`;
     }
+  }
+  /* We reused or moved an appointment: anything else already sitting at the
+     paid minute is a twin (the AI booked the same time twice) and would send
+     its own confirmation — flag it now; the sweep only covers some accounts. */
+  if (reused && bookedId) {
+    twins = appts.filter((a) => a.id !== bookedId && Math.abs(a.startMs - Date.parse(startIso)) < 60_000).map((a) => a.id);
   }
   if (!lookedUp) console.warn("[onebox/book] appointment lookup failed before booking:", contactId, lookupError);
   if (twins.length || verifyNote || !lookedUp || otherHolds.length || needsReview) {
