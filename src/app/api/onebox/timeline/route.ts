@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/ppa";
 import { createServiceClient } from "@/lib/supabase/server";
-import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
+import { fetchProgramRows, findClientProgram, isV1Label } from "@/lib/client-program";
 import { INTERNAL_FUNNELS, freezeBlockedReason } from "@/lib/funnel-freeze-server";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { frozenDrift, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
@@ -104,7 +104,11 @@ export async function GET(req: NextRequest) {
         lastChange: v ? { at: v.saved_at, changes: v.changes ?? [] } : null,
         lockedAt: d.frozen_engine != null ? d.frozen_at : null,
       };
-    });
+    })
+    /* (V1) funnels aren't shown (owner, 11/05/2026), same as on the Freeze screen. Two stay:
+       a locked one, so it can be unlocked, and one whose rate fell, because a (V1) label
+       set by mistake removes the calendar and deposit steps. */
+    .filter((r) => !isV1Label(r.version) || !!r.lockedAt || !!r.fall);
   const board: TimelineBoard = { engine: ONEBOX_ENGINE_V, rows, suggestionsFailed };
   return NextResponse.json(board);
 }

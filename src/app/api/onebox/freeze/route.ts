@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "@/lib/ppa";
 import { createServiceClient } from "@/lib/supabase/server";
-import { fetchProgramRows, findClientProgram } from "@/lib/client-program";
+import { fetchProgramRows, findClientProgram, isV1Label } from "@/lib/client-program";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { INTERNAL_FUNNELS as INTERNAL, ensureEngineCopy, freezeBlockedReason } from "@/lib/funnel-freeze-server";
 import { warmFunnel } from "@/lib/onebox-warm";
@@ -40,8 +40,6 @@ type FreezeRow = {
 const MONTHS_SHOWN = 7;
 /* The timeline's first save (11/04/2026 Pacific). No page from before it exists. */
 const FIRST_SAVE = "2026-11-05T00:00:00Z";
-/* The sheet has both "(V1)" and "V1". */
-const isV1 = (version: string) => version.replace(/[()]/g, "").trim().toUpperCase() === "V1";
 
 async function loadStats(svc: ReturnType<typeof createServiceClient>): Promise<FreezeStatRow[]> {
   const { data, error } = await svc.rpc("funnel_freeze_stats");
@@ -131,7 +129,7 @@ export async function GET() {
     /* (V1) funnels aren't shown (owner, 11/05/2026). Two stay: a frozen one, so it can be
        unfrozen, and one that fell from a good rate, because a (V1) label set by mistake
        removes the calendar and deposit steps (Tonni, 09/2026). */
-    .filter((r) => !isV1(r.version) || r.frozen || r.fell);
+    .filter((r) => !isV1Label(r.version) || r.frozen || r.fell);
 
   /* "See the page from its best months": only possible for months after pages
      started being saved, so today this reads nothing. */
