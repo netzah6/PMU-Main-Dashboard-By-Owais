@@ -289,10 +289,10 @@ const validTz = (tz: unknown): string | null => {
   try { new Intl.DateTimeFormat("en-US", { timeZone: s }); return s; } catch { return null; }
 };
 
-type GhlContact = { firstName: string; phone: string; email: string; timezone: string; smsDnd: boolean; emailDnd: boolean };
+export type GhlContact = { firstName: string; phone: string; email: string; timezone: string; smsDnd: boolean; emailDnd: boolean };
 
 /** null = the contact is gone from GHL; throws when GHL can't be read. */
-async function readContact(acct: PmuAccount, contactId: string): Promise<GhlContact | null> {
+export async function readContact(acct: PmuAccount, contactId: string): Promise<GhlContact | null> {
   const r = await fetchWithBackoff(`${GHL_BASE}/contacts/${encodeURIComponent(contactId)}`, { headers: H7(acct) });
   if (r.status === 404) return null;
   if (r.status === 429) throw new Error("GHL is busy (rate limit) — try again in a minute");
@@ -312,12 +312,12 @@ async function readContact(acct: PmuAccount, contactId: string): Promise<GhlCont
   };
 }
 
-type ConvState = { id: string; lastAt: number | null; inbound: boolean };
+export type ConvState = { id: string; lastAt: number | null; inbound: boolean };
 /* The person's conversations as GHL's search index lists them: each thread's
    last message direction + date (epoch ms or ISO). The index can lag behind
    the real chat by hours for replies sent from the GHL app, so anything that
    decides a send reads the thread itself (readThreads) as well. */
-async function convSearch(acct: PmuAccount, contactId: string): Promise<ConvState[]> {
+export async function convSearch(acct: PmuAccount, contactId: string): Promise<ConvState[]> {
   const r = await fetchWithBackoff(`${GHL_BASE}/conversations/search?locationId=${acct.locationId}&contactId=${encodeURIComponent(contactId)}&limit=5`, { headers: H4(acct) });
   if (r.status === 429) throw new Error("GHL is busy (rate limit)");
   if (!r.ok) throw new Error(`GHL conversations search failed (${r.status})`);
@@ -330,7 +330,7 @@ async function convSearch(acct: PmuAccount, contactId: string): Promise<ConvStat
 }
 /* The newest messages of up to three threads, oldest → newest. Media-only
    messages read as "[voice note]" / "[photo]" so a voice-note reply counts. */
-async function readThreads(acct: PmuAccount, convs: ConvState[], limit: number): Promise<ThreadMessage[]> {
+export async function readThreads(acct: PmuAccount, convs: ConvState[], limit: number): Promise<ThreadMessage[]> {
   const msgs: ThreadMessage[] = [];
   for (const c of convs.slice(0, 3)) {
     msgs.push(...await getThread(acct, c.id, { limit, labelMedia: true }));
