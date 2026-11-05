@@ -13,7 +13,9 @@ const BASE = "https://book.pmu-care.com";
 /* Under this many leads a month's % says nothing, so it isn't printed. */
 export const THIN_MONTH = 20;
 export type Action = "freeze" | "unfreeze" | "decline" | "undecline" | "accept" | "restore";
-export type Preview = "now" | "old" | "peak";
+/* A saved page from the past: the one before a change, or the one from the best months. */
+export type SavedPreview = "old" | "peak";
+export type Preview = "now" | SavedPreview;
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "";
@@ -104,7 +106,9 @@ export type FreezeCardProps = {
   top: number;
   busy: Action | undefined;
   note: string;
-  open: Preview | null;
+  /* Today's pages and one saved page can be open together, to compare them. */
+  openNow: boolean;
+  openSaved: SavedPreview | null;
   confirmBack: boolean;
   stamp: number;
   rev: number;
@@ -116,21 +120,23 @@ export type FreezeCardProps = {
 
 const SMALL_BUTTON = "inline-flex items-center gap-1 text-xs font-semibold rounded-lg border px-2.5 py-1 disabled:opacity-60";
 
-export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stamp, rev, onAct, onGoBack, onToggle, onConfirmBack }: FreezeCardProps) {
+export function FreezeCard({ r, engine, top, busy, note, openNow, openSaved, confirmBack, stamp, rev, onAct, onGoBack, onToggle, onConfirmBack }: FreezeCardProps) {
   const suggested = isSuggested(r);
-  const v1Label = r.version === "(V1)";
+  const v1Label = r.version.replace(/[()]/g, "").trim().toUpperCase() === "V1";
   const freezing = busy === "freeze" || busy === "unfreeze";
   const vs = r.version ? versionStyle(r.version) : null;
   const fewThroughPage = r.now.l >= 20 && r.now.pageLeads < r.now.l * 0.7;
   const showPutBack = !!r.restorable && !r.frozen;
   const showSuggestAgain = !!r.declined && !r.frozen && !suggested;
   const previewLabel = r.frozen ? "See frozen pages" : "See how it would stay";
+  const bestRate = r.peak ? pct(r.peak.d, r.peak.l) ?? 0 : 0;
+  const nowRate = pct(r.now.d, r.now.l) ?? 0;
   return (
     <div className={cn("rounded-xl border bg-white p-3", r.frozen ? "border-[#bfdbfe]" : suggested ? "border-[#0e9c9c]" : r.fell ? "border-[#f0c48a]" : "border-[#e4ebf2]")}>
       {/* Line 1: the name, with the two buttons at its right. Line 2: owner and chips across
           the full width, so a long name or owner never squeezes them on a phone. */}
       <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
-        <div className="min-w-0 flex-1 text-sm font-semibold text-[#1c2b3a]">{r.business}</div>
+        <div className="min-w-0 flex-1 break-words text-sm font-semibold text-[#1c2b3a]">{r.business}</div>
         <div className="flex shrink-0 items-center gap-1.5">
           {r.frozen ? (
             <button type="button" disabled={!!busy} onClick={() => onAct("unfreeze")} className={cn(SMALL_BUTTON, "border-[#cbd5e1] bg-white text-[#34568a] hover:bg-[#f1f5f9]")}>
@@ -141,9 +147,9 @@ export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stam
               {freezing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "🧊"} {freezing ? "Freezing…" : "Freeze"}
             </button>
           )}
-          <button type="button" onClick={() => onToggle("now")} title={previewLabel} className={cn(SMALL_BUTTON, "border-[#e4ebf2] bg-white font-normal text-[#34568a] hover:bg-[#f6f9fc]")}>
+          <button type="button" onClick={() => onToggle("now")} title={previewLabel} aria-label={previewLabel} aria-expanded={openNow} className={cn(SMALL_BUTTON, "border-[#e4ebf2] bg-white font-normal text-[#34568a] hover:bg-[#f6f9fc]")}>
             👁 <span className="sm:hidden">View</span><span className="hidden sm:inline">{previewLabel}</span>
-            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", open === "now" && "rotate-180")} />
+            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", openNow && "rotate-180")} />
           </button>
         </div>
         <div className="flex basis-full flex-wrap items-center gap-x-1.5 gap-y-1">
@@ -159,7 +165,8 @@ export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stam
       {r.matched ? (
         <>
           <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
-            {r.peak && <Stat label={`Best months: ${peakLabel(r.peak)}`} d={r.peak.d} l={r.peak.l} />}
+            {/* Only when it really was better: the last weeks never count toward it, so "now" can be higher. */}
+            {r.peak && bestRate > nowRate && <Stat label={`Best months: ${peakLabel(r.peak)}`} d={r.peak.d} l={r.peak.l} />}
             {r.goBack && r.suggested && <Stat label={`When suggested ${fmtDate(r.suggested.at)}`} d={r.suggested.d} l={r.suggested.l} />}
             {r.frozen && <Stat label={`When frozen ${fmtDate(r.frozen.at)}`} d={r.frozen.d} l={r.frozen.l} />}
             <Stat label="Now, last 30 days" d={r.now.d} l={r.now.l} extra={<>{r.now.picks} picked<span className="hidden sm:inline"> a time</span></>} strong />
@@ -172,18 +179,20 @@ export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stam
 
       {r.fell && r.peak && (
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#b45309]">
-          <span>📉 Fell from {pct(r.peak.d, r.peak.l)}% in {peakLabel(r.peak)} to {pct(r.now.d, r.now.l)}% now.</span>
-          {r.peakPage ? (
-            <button type="button" onClick={() => onToggle("peak")} className={cn(SMALL_BUTTON, "border-[#f0c48a] bg-white text-[#b45309] hover:bg-[#fff7ed]")}>
-              👁 See the page from {peakLabel(r.peak)} <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", open === "peak" && "rotate-180")} />
+          <span>📉 Fell from {bestRate}% in {peakLabel(r.peak)} to {nowRate}% now.{r.frozen ? "" : " A freeze won't bring this back."}</span>
+          {r.peakPage && !r.peakPage.sameAsNow && (
+            <button type="button" onClick={() => onToggle("peak")} aria-expanded={openSaved === "peak"} className={cn(SMALL_BUTTON, "border-[#f0c48a] bg-white text-[#b45309] hover:bg-[#fff7ed]")}>
+              👁 See the page from {peakLabel(r.peak)} <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", openSaved === "peak" && "rotate-180")} />
             </button>
-          ) : (
-            <span className="text-[#697a91]">{r.peak.to < "2026-11" ? "The page from then wasn't saved. Saving started 11/04/2026." : "No saved page was found for those months."}</span>
           )}
-          <a href={`/funnels/timeline?q=${encodeURIComponent(r.business)}`} className="font-semibold text-[#0e9c9c] hover:underline">🕒 See what changed</a>
+          {r.peakPage?.sameAsNow && <span className="text-[#697a91]">The page is still the same as back then.</span>}
+          {!r.peakPage && <span className="text-[#697a91]">{r.peak.to < "2026-11" ? "That page wasn't saved. Saving started 11/04/2026." : "No saved page was found for those months."}</span>}
+          <a href={`/funnels/timeline?q=${encodeURIComponent(r.business)}`} target="_blank" rel="noopener" className="font-semibold text-[#0e9c9c] hover:underline">🕒 Timeline</a>
         </div>
       )}
-      {r.peakPage && open === "peak" && <PagePreviews row={r} stamp={stamp} rev={0} saved={r.peakPage} />}
+      {r.fell && r.fellHints.map((h) => <p key={h} className="mt-1 text-xs text-[#b45309]">⚠ {h}</p>)}
+      {r.fell && v1Label && <p className="mt-1 text-xs text-[#b45309]">⚠ The label is (V1), so this page has no calendar or deposit step. If that&apos;s a mistake, fix the label.</p>}
+      {r.peakPage && !r.peakPage.sameAsNow && openSaved === "peak" && <PagePreviews row={r} stamp={stamp} rev={0} saved={r.peakPage} />}
 
       {suggested && r.goBack && (
         <p className="mt-2 text-xs text-[#34568a]">Why: {goBackWhy(r.goBack)} after we changed this on {fmtDate(r.goBack.changeAt)}: {r.goBack.changes.slice(0, 3).map(changeText).join("; ")}{r.goBack.changes.length > 3 ? `; and ${r.goBack.changes.length - 3} more` : ""}. It could still be chance.</p>
@@ -192,6 +201,7 @@ export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stam
       {fewThroughPage && <p className="mt-2 text-xs text-[#b45309]">⚠ Only {r.now.pageLeads} of {r.now.l} leads came through this page, so these numbers are mostly about another page.</p>}
       {r.payLinkElsewhere && <p className="mt-2 text-xs text-[#b45309]">⚠ The AI&apos;s deposit link goes to an old GHL page, which a freeze doesn&apos;t cover.</p>}
       {v1Label && r.frozen && <p className="mt-2 text-xs text-[#b45309]">⚠ The label says (V1), but the freeze keeps the calendar and deposit pages. Unfreeze if the label is right.</p>}
+      {v1Label && !r.frozen && !r.fell && <p className="mt-2 text-xs text-[#b45309]">⚠ On (V1): survey only, so it can&apos;t be frozen. If the label is wrong, fix it first; that also changes the live page.</p>}
       {r.frozen && r.frozen.engine !== engine && <p className="mt-2 text-xs text-[#697a91]">Staying on page version {r.frozen.engine}. Other clients are on {engine}.</p>}
       {r.frozen && r.drift.length > 0 && (
         <div className="mt-2 text-xs text-[#b45309]">
@@ -217,15 +227,15 @@ export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stam
           ) : (
             <button type="button" disabled={!!busy} onClick={() => onConfirmBack(true)} className="text-sm font-semibold rounded-lg bg-[#0e9c9c] text-white px-3 py-1.5 hover:bg-[#0b8383] disabled:opacity-60">↩ Go back to the page saved {fmtDate(r.goBack.savedAt)}</button>
           )}
-          <button type="button" onClick={() => onToggle("old")} className="inline-flex items-center gap-1 text-sm rounded-lg border border-[#e4ebf2] px-3 py-1.5 text-[#34568a] hover:bg-[#f6f9fc]">
-            👁 See the old page <ChevronDown className={cn("w-4 h-4 transition-transform", open === "old" && "rotate-180")} />
+          <button type="button" onClick={() => onToggle("old")} aria-expanded={openSaved === "old"} className="inline-flex items-center gap-1 text-sm rounded-lg border border-[#e4ebf2] px-3 py-1.5 text-[#34568a] hover:bg-[#f6f9fc]">
+            👁 See the old page <ChevronDown className={cn("w-4 h-4 transition-transform", openSaved === "old" && "rotate-180")} />
           </button>
           <button type="button" disabled={!!busy} onClick={() => onAct("decline")} className="inline-flex items-center gap-1 text-xs text-[#697a91] hover:underline disabled:opacity-60">
             {busy === "decline" && <Loader2 className="w-3 h-3 animate-spin" />}Don&apos;t suggest
           </button>
         </div>
       )}
-      {suggested && r.goBack && open === "old" && <PagePreviews row={r} stamp={stamp} rev={0} saved={{ id: r.goBack.versionId, sig: r.goBack.previewSig }} />}
+      {suggested && r.goBack && openSaved === "old" && <PagePreviews row={r} stamp={stamp} rev={0} saved={{ id: r.goBack.versionId, sig: r.goBack.previewSig }} />}
 
       {(showPutBack || showSuggestAgain) && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -242,7 +252,7 @@ export function FreezeCard({ r, engine, top, busy, note, open, confirmBack, stam
         </div>
       )}
 
-      {open === "now" && <PagePreviews row={r} stamp={stamp} rev={rev} />}
+      {openNow && <PagePreviews row={r} stamp={stamp} rev={rev} />}
     </div>
   );
 }

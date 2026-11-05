@@ -5,7 +5,7 @@ import { useUser } from "@/lib/hooks/useUser";
 import { cn } from "@/lib/utils";
 import { FELL, pct, type Board, type BoardRow } from "@/lib/funnel-freeze";
 import { HIGH_BOOKING, HIGH_DEPOSIT } from "@/lib/funnel-timeline-view";
-import { FreezeCard, THIN_MONTH, isSuggested, type Action, type Preview } from "@/components/funnels/FreezeCard";
+import { FreezeCard, THIN_MONTH, isSuggested, type Action, type SavedPreview } from "@/components/funnels/FreezeCard";
 import { Loader2, Search } from "lucide-react";
 
 /* Every funnel's deposit rate, my suggestion to go back after a change, how the pages look,
@@ -27,8 +27,10 @@ export default function FreezePage() {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [shown, setShown] = useState(PAGE);
-  /* One preview open at a time: today's pages, the page before a change, or the page from the best months. */
-  const [open, setOpen] = useState<{ slug: string; which: Preview } | null>(null);
+  /* Today's pages and one saved page (before a change, or from the best months) can be
+     open together, to compare them. */
+  const [openNow, setOpenNow] = useState<string | null>(null);
+  const [openSaved, setOpenSaved] = useState<{ slug: string; which: SavedPreview } | null>(null);
   const [confirmBack, setConfirmBack] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, Action>>({});
   const [rowNote, setRowNote] = useState<Record<string, string>>({});
@@ -66,8 +68,9 @@ export default function FreezePage() {
         : filter === "fell" ? r.fell
         : filter === "frozen" ? !!r.frozen || touched.has(r.slug)
         : r.version.toUpperCase().includes(filter))
-      /* Biggest fall first on the Fell list; everywhere else the order from the load. */
-      .sort((a, b) => (filter === "fell" ? drop(b) - drop(a) : 0) || (order.get(a.slug) ?? 0) - (order.get(b.slug) ?? 0));
+      /* On the Fell list: clients whose ads look fine first, then the biggest fall. Everywhere
+         else the order from the load. */
+      .sort((a, b) => (filter === "fell" ? a.fellHints.length - b.fellHints.length || drop(b) - drop(a) : 0) || (order.get(a.slug) ?? 0) - (order.get(b.slug) ?? 0));
   }, [rows, q, filter, order, touched]);
   const counts = useMemo(() => ({
     suggested: (rows ?? []).filter(isSuggested).length,
@@ -117,7 +120,7 @@ export default function FreezePage() {
       if (!res.ok) { setRowNote((n) => ({ ...n, [r.slug]: j.error ?? "That didn't work" })); return; }
       setTouched((t) => new Set(t).add(r.slug));
       setConfirmBack(null);
-      setOpen(null);
+      setOpenSaved(null);
       setPreviewRev((v) => ({ ...v, [r.slug]: (v[r.slug] ?? 0) + 1 }));
       setRowNote((n) => ({ ...n, [r.slug]: `Done. Visitors see the old page within about 3 minutes.${j.drift?.length ? ` GHL still has newer values, so the AI may say something different: ${j.drift.join(", ")}.` : ""}${j.warning ? ` ${j.warning}` : ""}` }));
       setBoard((b) => b && {
@@ -152,7 +155,7 @@ export default function FreezePage() {
       {board && (
         <details className="text-xs text-[#697a91] mb-3">
           <summary className="cursor-pointer text-[#34568a] font-semibold">Who shows under Fell</summary>
-          <p className="mt-1">A live client whose best 2 months in a row had {FELL.minPeakRate}%+ deposits ({FELL.minPeakLeads}+ leads, the first month not counted), and whose last 30 days ({FELL.minNowLeads}+ leads) are at {Math.round(FELL.keptAtMost * 100)}% of that or less. It is a list to look at, not proof: about half of the falls this size are chance, and ads or the AI can be the cause. A freeze keeps today&apos;s page, so it won&apos;t bring an old rate back.</p>
+          <p className="mt-1">A live client whose best 2 months in a row, in the last 6 months, had {FELL.minPeakRate}%+ deposits ({FELL.minPeakLeads}+ leads, the first month not counted), and whose last 30 days ({FELL.minNowLeads}+ leads) are at {Math.round(FELL.keptAtMost * 100)}% of that or less. It is a list to look at, not proof: more than half of the falls this size are chance, and ads or the AI can be the cause. A card warns when leads are down or stopped. A freeze keeps today&apos;s page, so it won&apos;t bring an old rate back.</p>
         </details>
       )}
       {board?.suggestionsFailed && <p className="text-xs text-[#b91c1c] mb-3">Couldn&apos;t check for suggestions just now. Reload in a minute.</p>}
@@ -197,10 +200,12 @@ export default function FreezePage() {
         {list.slice(0, shown).map((r) => (
           <FreezeCard key={r.slug} r={r} engine={board?.engine ?? 0} top={top}
             busy={busy[r.slug]} note={rowNote[r.slug] ?? ""}
-            open={open?.slug === r.slug ? open.which : null} confirmBack={confirmBack === r.slug}
+            openNow={openNow === r.slug} openSaved={openSaved?.slug === r.slug ? openSaved.which : null} confirmBack={confirmBack === r.slug}
             stamp={stamp} rev={previewRev[r.slug] ?? 0}
             onAct={(action) => void act(r.slug, action)} onGoBack={() => void goBack(r)}
-            onToggle={(which) => setOpen(open?.slug === r.slug && open.which === which ? null : { slug: r.slug, which })}
+            onToggle={(which) => which === "now"
+              ? setOpenNow(openNow === r.slug ? null : r.slug)
+              : setOpenSaved(openSaved?.slug === r.slug && openSaved.which === which ? null : { slug: r.slug, which })}
             onConfirmBack={(on) => setConfirmBack(on ? r.slug : null)} />
         ))}
       </div>
