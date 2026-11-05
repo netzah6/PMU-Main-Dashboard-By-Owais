@@ -26,6 +26,7 @@ export const maxDuration = 300;
    owner compares both post sets on the Cost/Deposit card and clicks.
    ?dry=1 computes everything but writes nothing. */
 
+const FILE_DROP_ALERTS = false;
 const CONCURRENCY = 4;
 const TIME_BUDGET_MS = 270_000;
 
@@ -159,6 +160,9 @@ export async function GET(req: NextRequest) {
         + `Last 2 full weeks (${windowLabel(current)}): ${current.deposits} from ${current.leads} (${pct(current)}%). `
         + `${postsLine} Open the client's Cost/Deposit card → 'Posts vs deposit rate' to compare the posts from the best run with today's and switch the funnel to the best-run posts if you want. Nothing changes on its own.`;
       if (dryRun) return;
+      // Owner 11/05/2026: deposit-rate drops are tracked on the Freeze screen
+      // now, so they no longer go to the Alerts tab.
+      if (!FILE_DROP_ALERTS) return;
       const ok = await fileAlert(svc, {
         type: "ig_drop",
         severity: "medium",

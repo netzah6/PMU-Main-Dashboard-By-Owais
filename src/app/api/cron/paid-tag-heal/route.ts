@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { healPaidTags } from "@/lib/paid-tag-heal";
+import { healPaidTags, resolvePaidAlerts } from "@/lib/paid-tag-heal";
 
 export const maxDuration = 120;
 
@@ -10,6 +10,8 @@ export async function GET(req: NextRequest) {
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const result = await healPaidTags(createServiceClient());
-  return NextResponse.json({ timestamp: new Date().toISOString(), ...result });
+  const svc = createServiceClient();
+  const result = await healPaidTags(svc);
+  const resolved = await resolvePaidAlerts(svc).catch(() => 0);
+  return NextResponse.json({ timestamp: new Date().toISOString(), ...result, resolved });
 }
