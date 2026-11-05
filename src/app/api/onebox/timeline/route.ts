@@ -8,7 +8,7 @@ import { frozenDrift, type FrozenPage, type OneboxRow } from "@/lib/onebox-page"
 import { signLogoUrl } from "@/lib/logo-sign";
 import { warmFunnel } from "@/lib/onebox-warm";
 import { dailySince, findGoBackSuggestions, loadDaily, runFunnelTimeline, samePage, type ChangeItem, type DailyRow, type Fingerprint } from "@/lib/funnel-timeline";
-import { addDays, changeWindows, flagFall, pacificDay, sumDays, type DayCounts, type TimelineBoard, type TimelineDetail, type TimelineRow, type TimelineVersion } from "@/lib/funnel-timeline-view";
+import { addDays, changeWindows, flagFall, pacificDay, sumDays, type DayCounts, type GoBackSuggestion, type TimelineBoard, type TimelineDetail, type TimelineRow, type TimelineVersion } from "@/lib/funnel-timeline-view";
 import type { HistoryEntry } from "@/lib/funnel-freeze";
 
 // The Timeline screen (/funnels/timeline), admins only.
@@ -75,8 +75,12 @@ export async function GET(req: NextRequest) {
   if (dailyRows instanceof Error) return NextResponse.json({ error: dailyRows.message }, { status: 500 });
   if (lErr) return NextResponse.json({ error: lErr.message }, { status: 500 });
   const latestBySlug = new Map(((latest ?? []) as { slug: string; saved_at: string; changes: ChangeItem[] }[]).map((v) => [v.slug, v]));
-  /* Suggestions are extra: the screen still opens if they can't be worked out. */
-  const suggestions = await findGoBackSuggestions(svc, dailyRows, programs, new Date()).catch(() => new Map());
+  /* Suggestions are extra: the screen still opens, and says so, if they can't be worked out. */
+  let suggestionsFailed = false;
+  const suggestions = await findGoBackSuggestions(svc, dailyRows, programs, new Date()).catch(() => {
+    suggestionsFailed = true;
+    return new Map<string, GoBackSuggestion>();
+  });
   const rows: TimelineRow[] = (dailyRows as DailyRow[])
     .filter((d) => d.template !== "b2b" && !INTERNAL_FUNNELS.has(d.slug) && (d.status === "live" || d.frozen_engine != null))
     .map((d) => {
@@ -101,7 +105,7 @@ export async function GET(req: NextRequest) {
         lockedAt: d.frozen_engine != null ? d.frozen_at : null,
       };
     });
-  const board: TimelineBoard = { engine: ONEBOX_ENGINE_V, rows };
+  const board: TimelineBoard = { engine: ONEBOX_ENGINE_V, rows, suggestionsFailed };
   return NextResponse.json(board);
 }
 

@@ -5,8 +5,8 @@ import type { ChangeItem } from "@/lib/funnel-timeline";
 /* l = leads, b = leads on the one-box page, p = picked a time, d = deposits. */
 export type DayCounts = { l: number; b: number; p: number; d: number };
 
-export const pacificDay = (d: Date) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+const PACIFIC_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" });
+export const pacificDay = (d: Date) => PACIFIC_DAY.format(d);
 
 export const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
@@ -33,7 +33,7 @@ const FALL_Z = 2.33;
 
 export type Fall = { what: "booking" | "deposit" | "both" };
 
-const zFell = (nowN: number, nowL: number, beforeN: number, beforeL: number) => {
+export const zFell = (nowN: number, nowL: number, beforeN: number, beforeL: number) => {
   const pooled = (nowN + beforeN) / (nowL + beforeL);
   const se = Math.sqrt(pooled * (1 - pooled) * (1 / nowL + 1 / beforeL));
   return se > 0 ? (beforeN / beforeL - nowN / nowL) / se : 0;
@@ -49,36 +49,84 @@ export function flagFall(n14: DayCounts, b14: DayCounts, n28: DayCounts, b28: Da
 }
 
 /* The suggestion to go back (owner, 11/04/2026): "funnels that had a high percentage
-   and then fell because of a change we did, only the ones we can reverse". Stricter
-   than the Fell flag, because each funnel gets many changes tested. */
-const GO_BACK_Z = 2.58;
+   and then fell because of a change we did, only the ones we can reverse". Tested on
+   real data: every funnel's rate wobbles, and each one gets many changes, so a looser
+   rule would suggest several a month with nothing wrong. */
+export const GO_BACK_Z = 2.58;
 const MIN_DAYS_AFTER = 7;
-/* Fewer leads per day than this share of before points to the ads, not the page. */
+/* "Had a high percentage": a funnel that was already weak has no good page to return to. */
+export const HIGH_BOOKING = 50;
+export const HIGH_DEPOSIT = 5;
+/* Leads moving this much point to the ads, not the page. */
 const MIN_VOLUME_KEPT = 0.6;
+const MAX_VOLUME_RISE = 1.5;
+/* It has to be still low today: a funnel that recovered needs nothing. */
+const STILL_LOW = 0.75;
 
 /* Instagram and reviews refresh on their own. Everything else that can come back is
    something we changed. */
-const AUTOMATIC_KEYS = new Set(["instagram", "reviews"]);
+export const AUTOMATIC_KEYS = new Set(["instagram", "reviews"]);
 export const isOurChange = (c: ChangeItem) => c.restorable && !AUTOMATIC_KEYS.has(c.key);
-/* If one of these changed around the same time, the page may not be the cause, and
-   going back wouldn't undo it. */
-export const OTHER_CAUSE_KEYS = new Set(["budget", "label", "status", "deposit", "calendarId", "fanbasisProductId", "freeBooking", "consultMode", "test"]);
+/* A change that going back can't undo (prices, deposit, budget, label…) may be the real
+   cause, so that period isn't blamed on the page. */
+export const isOtherCause = (c: ChangeItem) => !c.restorable && c.key !== "frozen";
 
-export type ChangeFall = { what: Fall["what"]; before: DayCounts; after: DayCounts; afterDays: number; depositBefore: DayCounts; depositAfter: DayCounts };
+export type ChangeFall = {
+  what: Fall["what"];
+  z: number;
+  before: DayCounts;
+  after: DayCounts;
+  afterDays: number;
+  depositBefore: DayCounts;
+  depositAfter: DayCounts;
+};
+
+/* 5+ days in a row with real traffic and nobody picking: something is broken (account,
+   calendar), and an old page wouldn't fix that. */
+function hadBookingOutage(days: Record<string, DayCounts>, from: string, to: string): boolean {
+  let run = 0;
+  let leads = 0;
+  for (let d = from; d <= to; d = addDays(d, 1)) {
+    const c = days[d];
+    if (c && c.p > 0) { run = 0; leads = 0; continue; }
+    run++;
+    leads += c?.b ?? 0;
+    if (run >= 5 && leads >= 15) return true;
+  }
+  return false;
+}
 
 export function fellAfterChange(days: Record<string, DayCounts>, changeDay: string, today: string): ChangeFall | null {
   const { before, after, afterDays } = changeWindows(days, changeDay, today);
   if (afterDays < MIN_DAYS_AFTER || before.l < MIN_LEADS || after.l < MIN_LEADS) return null;
-  if (after.l / afterDays < (before.l / 14) * MIN_VOLUME_KEPT) return null;
-  const booking = before.b >= MIN_LEADS && after.b >= MIN_LEADS && zFell(after.p, after.b, before.p, before.b) >= GO_BACK_Z;
+  const volume = (after.l / afterDays) / (before.l / 14);
+  if (volume < MIN_VOLUME_KEPT || volume > MAX_VOLUME_RISE) return null;
+  if (hadBookingOutage(days, changeDay, today)) return null;
   /* Deposits are few, so they get twice the days on each side. */
-  const end = addDays(changeDay, 27) < today ? addDays(changeDay, 27) : today;
+  const dEnd = addDays(changeDay, 27) < today ? addDays(changeDay, 27) : today;
   const dBefore = sumDays(days, addDays(changeDay, -28), addDays(changeDay, -1));
-  const dAfter = sumDays(days, changeDay, end);
+  const dAfter = sumDays(days, changeDay, dEnd);
+  const recent14 = sumDays(days, addDays(today, -13), today);
+  const recent28 = sumDays(days, addDays(today, -27), today);
+
+  const bookingZ = before.b >= MIN_LEADS && after.b >= MIN_LEADS ? zFell(after.p, after.b, before.p, before.b) : 0;
+  const bookingBefore = rate(before.p, before.b) ?? 0;
+  const booking = bookingZ >= GO_BACK_Z && bookingBefore >= HIGH_BOOKING
+    && (rate(recent14.p, recent14.b) ?? 100) <= bookingBefore * STILL_LOW;
+
   /* Most leads have to come through this page, or going back can't be what helps. */
-  const deposit = dBefore.l >= MIN_LEADS && dAfter.l >= MIN_LEADS && dAfter.b >= dAfter.l * 0.7 && zFell(dAfter.d, dAfter.l, dBefore.d, dBefore.l) >= GO_BACK_Z;
+  const depositZ = dBefore.l >= MIN_LEADS && dAfter.l >= MIN_LEADS && dAfter.b >= dAfter.l * 0.7 ? zFell(dAfter.d, dAfter.l, dBefore.d, dBefore.l) : 0;
+  const depositBefore = rate(dBefore.d, dBefore.l) ?? 0;
+  const deposit = depositZ >= GO_BACK_Z && depositBefore >= HIGH_DEPOSIT && (rate(recent28.d, recent28.l) ?? 100) <= depositBefore * STILL_LOW;
+
   if (!booking && !deposit) return null;
-  return { what: booking && deposit ? "both" : booking ? "booking" : "deposit", before, after, afterDays, depositBefore: dBefore, depositAfter: dAfter };
+  /* Fewer people booking but more paying isn't a fall worth reversing: deposits are what pays. */
+  if (!deposit && dBefore.l >= MIN_LEADS && (rate(dAfter.d, dAfter.l) ?? 0) >= depositBefore) return null;
+  return {
+    what: booking && deposit ? "both" : booking ? "booking" : "deposit",
+    z: Math.max(booking ? bookingZ : 0, deposit ? depositZ : 0),
+    before, after, afterDays, depositBefore: dBefore, depositAfter: dAfter,
+  };
 }
 
 export type GoBackSuggestion = ChangeFall & {
@@ -88,15 +136,16 @@ export type GoBackSuggestion = ChangeFall & {
   previewSig: string;
   changeAt: string;
   changes: ChangeItem[];
+  /* Every page change since then, which going back also undoes. */
+  undoes: string[];
 };
 
 const shownRate = (r: number | null) => (r == null ? "—" : `${r}%`);
 
 export function goBackWhy(g: ChangeFall): string {
-  const parts: string[] = [];
-  if (g.what !== "deposit") parts.push(`booking fell from ${shownRate(bookingRate(g.before))} to ${shownRate(bookingRate(g.after))}`);
-  if (g.what !== "booking") parts.push(`deposit fell from ${shownRate(rate(g.depositBefore.d, g.depositBefore.l))} to ${shownRate(rate(g.depositAfter.d, g.depositAfter.l))}`);
-  return parts.join(" and ");
+  const booking = `booking ${g.what === "deposit" ? "went" : "fell"} from ${shownRate(bookingRate(g.before))} to ${shownRate(bookingRate(g.after))}`;
+  const deposit = `deposit ${g.what === "booking" ? "went" : "fell"} from ${shownRate(rate(g.depositBefore.d, g.depositBefore.l))} to ${shownRate(rate(g.depositAfter.d, g.depositAfter.l))}`;
+  return g.what === "deposit" ? `${deposit}, ${booking}` : `${booking}, ${deposit}`;
 }
 
 /* Not page values, so "stays live" would mean nothing on them. */
@@ -134,7 +183,7 @@ export type TimelineRow = {
   lockedAt: string | null;
 };
 
-export type TimelineBoard = { engine: number; rows: TimelineRow[] };
+export type TimelineBoard = { engine: number; rows: TimelineRow[]; suggestionsFailed: boolean };
 
 export type TimelineVersion = {
   id: number;

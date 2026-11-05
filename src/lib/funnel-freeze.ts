@@ -99,6 +99,7 @@ export type BoardRow = {
 
 export type Board = {
   engine: number;
+  suggestionsFailed: boolean;
   others: { l: number; d: number };
   rows: BoardRow[];
 };

@@ -168,7 +168,7 @@ function History({ row, stamp, reload, onLocked, onLoaded }: { row: TimelineRow;
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
               <span className="font-semibold text-[#1c2b3a] tabular-nums">{fmtDate(e.v.savedAt)}</span>
               {e.v.isNow && <span className="rounded-full bg-[#e8f7f6] text-[#0b7a7a] px-1.5 text-[10px] font-bold">Now</span>}
-              {row.goBack?.versionId === e.v.id && <span className="rounded-full bg-[#e8f7f6] text-[#0b7a7a] px-1.5 text-[10px] font-bold">⭐ I suggest this page</span>}
+              {row.goBack?.versionId === e.v.id && !row.lockedAt && <span className="rounded-full bg-[#e8f7f6] text-[#0b7a7a] px-1.5 text-[10px] font-bold">⭐ I suggest this page</span>}
               <span className="text-[#697a91]">Page version {e.v.engine}</span>
             </div>
             <p className="mt-1 text-xs text-[#34568a]">{e.v.changes.length ? e.v.changes.map(changeText).join("; ") : "First save."}</p>
@@ -316,6 +316,7 @@ export default function TimelinePage() {
         </button>
       </div>
       {saveNote && <p className="text-xs text-[#b45309] mb-2">{saveNote}</p>}
+      {board?.suggestionsFailed && <p className="text-xs text-[#b91c1c] mb-2">Couldn&apos;t check for suggestions just now. Reload in a minute.</p>}
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <div className="relative flex-1 min-w-[200px]">
@@ -363,7 +364,7 @@ export default function TimelinePage() {
               {!r.fall && (r.last14.l < MIN_LEADS || r.prev14.l < MIN_LEADS) && <p className="mt-1 text-[11px] text-[#697a91]">Too few leads to judge a fall.</p>}
               {r.goBack && !r.lockedAt && (
                 <p className="mt-2 text-xs font-semibold text-[#0b7a7a]">
-                  ⭐ I suggest going back to the page saved {fmtDate(r.goBack.savedAt)}: {goBackWhy(r.goBack)} after we changed this on {fmtDate(r.goBack.changeAt)}: {r.goBack.changes.slice(0, 3).map(changeText).join("; ")}. It could still be chance. Open the history to see the old page.
+                  ⭐ I suggest going back to the page saved {fmtDate(r.goBack.savedAt)}: {goBackWhy(r.goBack)} after we changed this on {fmtDate(r.goBack.changeAt)}: {r.goBack.changes.slice(0, 3).map(changeText).join("; ")}{r.goBack.changes.length > 3 ? `; and ${r.goBack.changes.length - 3} more` : ""}. It could still be chance. Open the history to see the old page.
                 </p>
               )}
               {r.lastChange && (

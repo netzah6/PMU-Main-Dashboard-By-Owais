@@ -5,10 +5,10 @@ import { useUser } from "@/lib/hooks/useUser";
 import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
 import { laMonth, pct, monthLabel, type Board, type BoardRow } from "@/lib/funnel-freeze";
-import { changeText, goBackWhy } from "@/lib/funnel-timeline-view";
+import { HIGH_BOOKING, HIGH_DEPOSIT, changeText, goBackWhy } from "@/lib/funnel-timeline-view";
 import { ChevronDown, ExternalLink, Loader2, Search } from "lucide-react";
 
-/* Every funnel's deposit rate, my suggestion to freeze it, how the pages look,
+/* Every funnel's deposit rate, my suggestion to go back after a change, how the pages look,
    and one click to freeze or unfreeze (owner, 11/04/2026). A freeze locks what
    visitors see on the survey, booking and deposit pages; see
    src/lib/funnel-freeze.ts. */
@@ -22,7 +22,7 @@ type Action = "freeze" | "unfreeze" | "decline" | "undecline" | "accept" | "rest
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "";
-const isSuggested = (r: BoardRow) => !!r.goBack && !r.frozen && !r.declined;
+const isSuggested = (r: BoardRow) => !!r.goBack && !r.frozen;
 const rank = (r: BoardRow) => (isSuggested(r) ? 0 : r.frozen ? 1 : 2);
 
 function Stat({ label, d, l, extra, strong, zeroNote }: { label: string; d: number | null | undefined; l: number | null | undefined; extra?: string; strong?: boolean; zeroNote?: string }) {
@@ -175,7 +175,7 @@ export default function FreezePage() {
         ...b,
         rows: b.rows.map((r) => r.slug !== slug ? r : {
           ...r,
-          ...(action === "decline" || action === "undecline" ? { declined: j.declined ?? null }
+          ...(action === "decline" ? { declined: j.declined ?? null, goBack: null } : action === "undecline" ? { declined: null }
             : action === "accept" ? { drift: [] }
             : { frozen: j.frozen ?? null, drift: j.drift ?? [], restorable: j.restorable ?? null }),
         }),
@@ -227,11 +227,12 @@ export default function FreezePage() {
       {board && (
         <details className="text-xs text-[#697a91] mb-3">
           <summary className="cursor-pointer text-[#34568a] font-semibold">When I suggest going back</summary>
-          <p className="mt-1">Only when all of this is true: we changed something on the funnel (not Instagram or reviews), the booking or deposit rate clearly fell after it, leads did not drop, the ads, label and deposit did not change around the same time, and the page from before the change is saved. It could still be chance, so look at the old page first.</p>
+          <p className="mt-1">Only when all of this is true: we changed something on this funnel (not Instagram or reviews). Its booking was {HIGH_BOOKING}%+ or its deposit {HIGH_DEPOSIT}%+ before the change. The rate clearly fell after it and is still low today. Leads did not move much. No price, deposit, ad budget or label changed around that time. The page from before the change is saved. A page update for all funnels counts only if funnels fell together. Each funnel has few deposits, so this mostly catches booking falls. It could still be chance, so look at the old page first.</p>
         </details>
       )}
-      {board && counts.suggested === 0 && (
-        <p className="text-xs text-[#34568a] mb-3">⭐ No suggestions right now. Counting changes started 11/04/2026, so a suggestion needs at least 7 days after a change.</p>
+      {board?.suggestionsFailed && <p className="text-xs text-[#b91c1c] mb-3">Couldn&apos;t check for suggestions just now. Reload in a minute.</p>}
+      {board && !board.suggestionsFailed && counts.suggested === 0 && (
+        <p className="text-xs text-[#34568a] mb-3">⭐ No suggestions right now.{Date.now() < Date.parse("2026-11-12T08:00:00Z") ? " Saving changes started 11/04/2026, and a suggestion needs at least 7 days after a change." : " No funnel fell after a change we can reverse."}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -257,7 +258,7 @@ export default function FreezePage() {
       {board && (
         <div className="text-xs text-[#697a91] mb-3">
           {list.length} funnels
-          {filter !== "V2.3" && <> · all V3 clients not frozen, last 30 days: <span className="font-semibold text-[#1c2b3a] tabular-nums">{pct(board.others.d, board.others.l) ?? "—"}%</span></>}
+          {filter !== "V2.3" && <> · all live V3 clients not frozen, last 30 days: <span className="font-semibold text-[#1c2b3a] tabular-nums">{pct(board.others.d, board.others.l) ?? "—"}%</span></>}
         </div>
       )}
 
@@ -302,9 +303,9 @@ export default function FreezePage() {
               )}
 
               {suggested && r.goBack && (
-                <p className="mt-2 text-xs text-[#34568a]">Why: {goBackWhy(r.goBack)} after we changed this on {fmtDate(r.goBack.changeAt)}: {r.goBack.changes.slice(0, 3).map(changeText).join("; ")}. It could still be chance.</p>
+                <p className="mt-2 text-xs text-[#34568a]">Why: {goBackWhy(r.goBack)} after we changed this on {fmtDate(r.goBack.changeAt)}: {r.goBack.changes.slice(0, 3).map(changeText).join("; ")}{r.goBack.changes.length > 3 ? `; and ${r.goBack.changes.length - 3} more` : ""}. It could still be chance.</p>
               )}
-              {r.declined && !r.frozen && <p className="mt-2 text-xs text-[#697a91]">Not suggesting this one{r.declined.note ? `: ${r.declined.note}` : "."}</p>}
+              {r.declined && !r.frozen && !suggested && <p className="mt-2 text-xs text-[#697a91]">You chose not to go back. I&apos;ll only suggest it again after a new change{r.declined.note ? `. Note: ${r.declined.note}` : "."}</p>}
               {r.fell && !r.frozen && (
                 <p className="mt-2 text-xs text-[#b45309]">⚠ This rate fell. Freezing keeps today&apos;s page, so it won&apos;t bring the old rate back.</p>
               )}
@@ -321,13 +322,13 @@ export default function FreezePage() {
                   </button>
                 </div>
               )}
-              {rowNote[r.slug] && <p className="mt-2 text-xs text-[#b91c1c]">{rowNote[r.slug]}</p>}
+              {rowNote[r.slug] && <p className={cn("mt-2 text-xs", rowNote[r.slug].startsWith("Done") ? "text-[#15803d]" : "text-[#b91c1c]")}>{rowNote[r.slug]}</p>}
 
               {suggested && r.goBack && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {confirmBack === r.slug ? (
                     <>
-                      <span className="text-xs text-[#b45309]">Change the live page to the one saved {fmtDate(r.goBack.savedAt)}? Deposit, phone, address, calendar and checkout stay as they are now.</span>
+                      <span className="text-xs text-[#b45309]">Change the live page to the one saved {fmtDate(r.goBack.savedAt)}? This undoes: {r.goBack.undoes.join(", ")}. The funnel stays frozen on that page until you unfreeze it. Deposit, phone, address, calendar and checkout stay as they are now.</span>
                       <button type="button" disabled={!!rowBusy} onClick={() => void goBack(r)} className="inline-flex items-center gap-1.5 text-sm font-semibold rounded-lg bg-[#0e9c9c] text-white px-3 py-1.5 hover:bg-[#0b8383] disabled:opacity-60">
                         {rowBusy && <Loader2 className="w-4 h-4 animate-spin" />}Yes, go back
                       </button>
