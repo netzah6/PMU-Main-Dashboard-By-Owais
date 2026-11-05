@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { cancelAppointmentQuietly } from "@/lib/appointment-cancel";
 import { getV3Accounts, type V3Account } from "@/lib/ghl-ingest";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { getThread } from "@/lib/ghl-conversations";
@@ -1206,6 +1207,7 @@ export async function fileDoubleBookingAlert(
    every other account relies on the book route's own check. Open boxes
    close only after a LIVE re-read of the contact's calendar shows one
    appointment left — never because a sync or a read came back short. */
+const AUTO_CANCEL_SINCE = Date.parse("2026-11-05T18:00:00Z");
 export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; filed: number; resolved: number } | { error: string }> {
   // "invalid" = the AI's unpaid hold (AI_HOLD_STATUS in lib/onebox).
   const { data, error } = await svc.from("ghl_appointments")
@@ -1302,7 +1304,26 @@ export async function scanDoubleBookings(svc: Svc): Promise<{ checked: number; f
       && !["cancelled", "noshow", "showed"].includes(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase())
       && !(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase() === "invalid"
         && Date.parse(String(e.dateAdded ?? "").replace(" ", "T").slice(0, 19) + "Z") < Date.now() - 4 * 86400_000));
-    if (stillOn.length > 1) continue;
+    if (stillOn.length > 1) {
+      /* The last booking wins — cancel the older one(s) ourselves, once per
+         box. Keep the paid appointment; with none paid (the AI booked twice)
+         keep the one booked last. A paid appointment is never cancelled.
+         Boxes from before this rule stay for a person (owner, 11/05). */
+      const mm = (a.meta ?? {}) as Record<string, unknown>;
+      if (mm.auto_cancel_at || Date.parse(String(a.created_at)) < AUTO_CANCEL_SINCE) continue;
+      const { data: paidRows } = await svc.from("onebox_leads").select("ghl_appointment_id").in("ghl_appointment_id", stillOn.map((e) => String(e.id)));
+      const paidOn = new Set((paidRows ?? []).map((p) => String(p.ghl_appointment_id)));
+      if (paidOn.size > 1) continue;
+      const added = (e: Record<string, unknown>) => Date.parse(String(e.dateAdded ?? "").replace(" ", "T").slice(0, 19) + "Z") || 0;
+      const keep = stillOn.find((e) => paidOn.has(String(e.id))) ?? [...stillOn].sort((x, y) => added(y) - added(x))[0];
+      const results: Record<string, boolean> = {};
+      for (const e of stillOn) {
+        if (e.id === keep.id) continue;
+        results[String(e.id)] = await cancelAppointmentQuietly(tok.token, m.location_id, m.contact_id, String(e.id));
+      }
+      await svc.from("alerts").update({ meta: { ...mm, auto_cancel_at: new Date().toISOString(), auto_cancel_kept: String(keep.id), auto_cancel: results } }).eq("id", a.id);
+      continue; // the next scan's live read closes the box if the cancel held
+    }
     const { error: upErr } = await svc.from("alerts").update({ status: "resolved", resolved_by: "system (only one appointment left)", resolved_at: new Date().toISOString() }).eq("id", a.id);
     if (!upErr) resolved++;
   }

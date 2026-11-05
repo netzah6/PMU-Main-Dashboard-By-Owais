@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
+import { cancelAppointmentQuietly } from "@/lib/appointment-cancel";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
@@ -302,6 +304,24 @@ export async function POST(req: NextRequest) {
         : needsReview && lookedUp && !verifyNote ? `Her appointment at the paid time (${bookedId}) is still unconfirmed — GHL refused the confirm. Open it and set it to Confirmed.`
         : `${verifyNote || `the lookup before booking failed (${lookupError ?? "unknown"})`} — check the contact's calendar by hand.`,
     }).catch(() => {});
+    /* The last booking wins: she just booked and paid here, so the unpaid
+       appointments this chat left behind (a twin at the same minute, the
+       AI's hold at another time) are cancelled — off her clock. The box
+       above closes itself when every cancel held; a failed one leaves it
+       for a person. */
+    const toCancel = [...new Set([...twins, ...otherHolds.map((a) => a.id)])].filter((id) => id !== bookedId && !paidIds.has(id));
+    if (bookedId && toCancel.length && lookedUp && !verifyNote && !needsReview) {
+      const token = tok.token;
+      waitUntil((async () => {
+        let all = true;
+        for (const id of toCancel) if (!(await cancelAppointmentQuietly(token, locationId, contactId, id))) all = false;
+        console.info("[onebox/book] cancelled older appointments", contactId, toCancel, all ? "ok" : "NOT all");
+        if (all) {
+          await svc.from("alerts").update({ status: "resolved", resolved_by: "system (older appointment cancelled)", resolved_at: new Date().toISOString() })
+            .eq("type", "double_booking").eq("status", "open").contains("meta", { contact_id: contactId, location_id: locationId });
+        }
+      })().catch(() => {}));
+    }
     const note = twins.length ? `double booked with ${twins.join(", ")}` : holdsOnly ? `other appointment(s) left at other times: ${otherHolds.map((a) => a.id).join(", ")}` : needsReview && lookedUp && !verifyNote ? `could not confirm ${bookedId}` : (verifyNote || `lookup failed: ${lookupError ?? "unknown"}`);
     // This journey's row only — the note must not overwrite another row's answers.
     if (leadPreRes.data?.id) {
