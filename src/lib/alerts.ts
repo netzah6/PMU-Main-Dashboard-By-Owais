@@ -555,6 +555,14 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
   // was set up at some point — only blank/"onboarding" is truly stuck.
   const isStuck = (match: { status: string } | undefined) =>
     !match || match.status === "" || match.status === "onboarding";
+  // The dashboard's own setup run is the first to know a client went live —
+  // the sheet status is typed by hand and lags (a client took leads for two
+  // days while her row still said "Onboarding", 11/05).
+  const { data: obs } = await svc.from("onboardings").select("form, setup");
+  const liveOwners = ((obs ?? []) as Array<{ form: Record<string, unknown> | null; setup: Record<string, unknown> | null }>)
+    .filter((o) => String(o.setup?.status ?? "") === "done")
+    .map((o) => String(o.form?.owner_name ?? "").trim()).filter(Boolean);
+  const setupDone = (cname: string) => !!cname && liveOwners.some((o) => nameMatches(o, cname));
 
   // 1. Overdue onboarding: confirmed launch call 3+ business days past, client not Live.
   let overdue = 0;
@@ -583,7 +591,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
       }
     } catch { /* fall back to the event title */ }
     const match = findClient(cname);
-    if (!isStuck(match)) continue;
+    if (!isStuck(match) || setupDone(cname)) continue;
     const ok = await fileAlert(svc, {
       type: "onboarding",
       title: `${cname}: not LIVE ${bd} business days after the launch call`,
@@ -660,6 +668,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     const setUp = !isStuck(client);
     if (a.source_key.startsWith("launch-overdue:")) {
       if (setUp) toClose.push({ id: a.id, why: `status is ${client!.status}` });
+      else if (setupDone(cname)) toClose.push({ id: a.id, why: "setup finished on the dashboard" });
     } else if (a.source_key.startsWith("launch-missing:")) {
       const hasCall = eventsTrusted && (
         (!!contactId && eventContactIds.has(contactId)) ||
