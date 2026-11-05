@@ -10,6 +10,10 @@ export type ClientProgram = { version: string; sheetRow: number; ownerName: stri
 
 export const normBiz = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+/* Is this client on the V1 program? The sheet has both "(V1)" and "V1". For what a
+   screen lists only: the funnel page itself goes survey-only for "(V1)" exactly. */
+export const isV1Label = (version: string) => version.replace(/[()]/g, "").trim().toUpperCase() === "V1";
+
 /* The program rows change at sheet-sync cadence (~15 min), but the funnel
    render was paying a full-view fetch (~65KB over the wire) per visitor.
    Per-lambda memo, 60s — the same staleness class as the page's own CDN
