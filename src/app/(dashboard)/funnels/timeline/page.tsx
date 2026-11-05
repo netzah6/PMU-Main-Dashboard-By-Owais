@@ -81,7 +81,7 @@ function History({ row, stamp, reload, onLocked, onLoaded }: { row: TimelineRow;
       const j = await res.json();
       if (!res.ok) { setMessage(j.error ?? "That didn't work"); return; }
       onLocked(row.slug, j.lockedAt);
-      setMessage(`Done. This funnel now shows the page saved ${fmtDate(v.savedAt)}. Visitors see it within about 3 minutes.${j.drift?.length ? ` GHL still has newer values, so the AI may say something different: ${j.drift.join(", ")}.` : ""}`);
+      setMessage(`Done. This funnel now shows the page saved ${fmtDate(v.savedAt)}. Visitors see it within about 3 minutes.${j.drift?.length ? ` GHL still has newer values, so the AI may say something different: ${j.drift.join(", ")}.` : ""}${j.warning ? ` ${j.warning}` : ""}`);
       setConfirm(null);
       await load();
     } catch {

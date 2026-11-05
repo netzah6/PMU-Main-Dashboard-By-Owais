@@ -83,7 +83,7 @@ export type ChangeFall = {
 
 /* 5+ days in a row with real traffic and nobody picking: something is broken (account,
    calendar), and an old page wouldn't fix that. */
-function hadBookingOutage(days: Record<string, DayCounts>, from: string, to: string): boolean {
+export function hadBookingOutage(days: Record<string, DayCounts>, from: string, to: string): boolean {
   let run = 0;
   let leads = 0;
   for (let d = from; d <= to; d = addDays(d, 1)) {
@@ -121,7 +121,7 @@ export function fellAfterChange(days: Record<string, DayCounts>, changeDay: stri
 
   if (!booking && !deposit) return null;
   /* Fewer people booking but more paying isn't a fall worth reversing: deposits are what pays. */
-  if (!deposit && dBefore.l >= MIN_LEADS && (rate(dAfter.d, dAfter.l) ?? 0) >= depositBefore) return null;
+  if (!deposit && dBefore.l >= MIN_LEADS && depositBefore > 0 && (rate(dAfter.d, dAfter.l) ?? 0) >= depositBefore) return null;
   return {
     what: booking && deposit ? "both" : booking ? "booking" : "deposit",
     z: Math.max(booking ? bookingZ : 0, deposit ? depositZ : 0),

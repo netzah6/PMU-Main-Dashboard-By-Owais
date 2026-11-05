@@ -200,7 +200,7 @@ export default function FreezePage() {
       setConfirmBack(null);
       setOpenOld(null);
       setPreviewRev((v) => ({ ...v, [r.slug]: (v[r.slug] ?? 0) + 1 }));
-      setRowNote((n) => ({ ...n, [r.slug]: `Done. Visitors see the old page within about 3 minutes.${j.drift?.length ? ` GHL still has newer values, so the AI may say something different: ${j.drift.join(", ")}.` : ""}` }));
+      setRowNote((n) => ({ ...n, [r.slug]: `Done. Visitors see the old page within about 3 minutes.${j.drift?.length ? ` GHL still has newer values, so the AI may say something different: ${j.drift.join(", ")}.` : ""}${j.warning ? ` ${j.warning}` : ""}` }));
       setBoard((b) => b && {
         ...b,
         rows: b.rows.map((x) => x.slug !== r.slug ? x : { ...x, goBack: null, restorable: null, frozen: { engine: j.engine, at: j.lockedAt, by: null, l: null, d: null } }),
@@ -227,7 +227,7 @@ export default function FreezePage() {
       {board && (
         <details className="text-xs text-[#697a91] mb-3">
           <summary className="cursor-pointer text-[#34568a] font-semibold">When I suggest going back</summary>
-          <p className="mt-1">Only when all of this is true: we changed something on this funnel (not Instagram or reviews). Its booking was {HIGH_BOOKING}%+ or its deposit {HIGH_DEPOSIT}%+ before the change. The rate clearly fell after it and is still low today. Leads did not move much. No price, deposit, ad budget or label changed around that time. The page from before the change is saved. A page update for all funnels counts only if funnels fell together. Each funnel has few deposits, so this mostly catches booking falls. It could still be chance, so look at the old page first.</p>
+          <p className="mt-1">Only when all of this is true: we changed something on this funnel (not Instagram or reviews). Its booking was {HIGH_BOOKING}%+ or its deposit {HIGH_DEPOSIT}%+ before the change. The rate clearly fell after it and is still low today. Leads did not move much. Nothing else that stays live changed around that time, such as a price, the deposit, the ad budget, the label or the phone. The page from before the change is saved. A page update for all funnels counts only if funnels fell together. Each funnel has few deposits, so this mostly catches booking falls. It could still be chance, so look at the old page first.</p>
         </details>
       )}
       {board?.suggestionsFailed && <p className="text-xs text-[#b91c1c] mb-3">Couldn&apos;t check for suggestions just now. Reload in a minute.</p>}
@@ -371,7 +371,7 @@ export default function FreezePage() {
                     {rowBusy === "restore" && <Loader2 className="w-4 h-4 animate-spin" />}↩ Put back the page frozen {fmtDate(r.restorable.at)}
                   </button>
                 )}
-                {r.declined && !r.frozen && (
+                {r.declined && !r.frozen && !suggested && (
                   <button type="button" disabled={!!rowBusy} onClick={() => void act(r.slug, "undecline")} className="inline-flex items-center gap-1 text-xs text-[#697a91] hover:underline disabled:opacity-60">
                     {rowBusy === "undecline" && <Loader2 className="w-3 h-3 animate-spin" />}Suggest again
                   </button>

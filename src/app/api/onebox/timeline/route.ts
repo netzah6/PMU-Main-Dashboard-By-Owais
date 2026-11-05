@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
   const by = auth.email;
   const { error } = await svc.from("onebox_clients").update({ frozen_engine: version.engine, frozen_at: at, frozen_page: version.page }).eq("slug", slug);
   if (error) return NextResponse.json({ error: "The page didn't change. Try again." }, { status: 500 });
-  await svc.from("funnel_freeze").upsert({
+  const { error: recordError } = await svc.from("funnel_freeze").upsert({
     slug,
     frozen_by: by,
     frozen_leads: null,
@@ -176,6 +176,7 @@ export async function POST(req: NextRequest) {
     ok: true,
     lockedAt: at,
     engine: version.engine,
+    warning: recordError ? "The page changed, but its history entry wasn't saved, so this suggestion may come back." : undefined,
     /* The AI reads the live values, so the page and the AI can now disagree. */
     drift: frozenDrift({ ...(client as OneboxRow), frozen_page: version.page as FrozenPage }).map((d) => d.label),
   });

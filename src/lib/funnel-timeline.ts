@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findClientProgram, type ProgramRow } from "@/lib/client-program";
 import { ensureEngineCopy, INTERNAL_FUNNELS } from "@/lib/funnel-freeze-server";
-import { addDays, AUTOMATIC_KEYS, changeWindows, fellAfterChange, GO_BACK_Z, isOtherCause, isOurChange, pacificDay, sumDays, zFell, type DayCounts, type GoBackSuggestion } from "@/lib/funnel-timeline-view";
+import { addDays, AUTOMATIC_KEYS, changeWindows, fellAfterChange, GO_BACK_Z, hadBookingOutage, isOtherCause, isOurChange, pacificDay, sumDays, zFell, type DayCounts, type GoBackSuggestion } from "@/lib/funnel-timeline-view";
 import { signLogoUrl } from "@/lib/logo-sign";
 import { ONEBOX_ENGINE_V } from "@/lib/onebox-engine";
 import { snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
@@ -243,7 +243,8 @@ export async function findGoBackSuggestions(
     for (const r of data ?? []) rows.push({ ...(r as Omit<ChangeRow, "day">), changes: (r.changes ?? []) as ChangeItem[], day: pacificDay(new Date(r.saved_at as string)) });
     if ((data ?? []).length < 1000) break;
   }
-  if (!rows.some((r) => r.day >= lookBack && r.changes.some(isOurChange))) return out;
+  /* A change needs 7 days before it can be judged, so a newer one costs nothing yet. */
+  if (!rows.some((r) => r.day >= lookBack && r.day <= addDays(today, -6) && r.changes.some(isOurChange))) return out;
 
   const [{ data: states, error: stateError }, { data: locks, error: lockError }, daily] = await Promise.all([
     svc.from("funnel_freeze").select("slug, declined_at, history"),
@@ -257,19 +258,35 @@ export async function findGoBackSuggestions(
   const days = new Map(daily.map((d) => [d.slug, d.days]));
 
   /* A page update reaches every funnel, so one funnel falling after it is usually that
-     funnel's own wobble. It counts only if funnels fell together on those same days. */
+     funnel's own wobble. It counts only if funnels fell together on those same days, on
+     the same measure. Funnels with an outage are left out: one broken account would
+     look like everyone falling. */
   const fleetDays = daily.filter((d) => d.template !== "b2b" && !INTERNAL_FUNNELS.has(d.slug) && d.client_status === "live" && !isV1(d.client_name)).map((d) => d.days);
-  const fleetMemo = new Map<string, boolean>();
+  const fleetMemo = new Map<string, { booking: boolean; deposit: boolean }>();
   const fleetFell = (day: string) => {
-    if (!fleetMemo.has(day)) {
-      const end = changeWindows({}, day, today).afterDays - 1;
-      const sum = (from: string, to: string) => fleetDays.reduce((a, d) => { const c = sumDays(d, from, to); return { b: a.b + c.b, p: a.p + c.p }; }, { b: 0, p: 0 });
+    let hit = fleetMemo.get(day);
+    if (!hit) {
+      const healthy = fleetDays.filter((d) => !hadBookingOutage(d, day, today));
+      const sum = (from: string, to: string) => healthy.reduce((a, d) => {
+        const c = sumDays(d, from, to);
+        return { l: a.l + c.l, b: a.b + c.b, p: a.p + c.p, d: a.d + c.d };
+      }, { l: 0, b: 0, p: 0, d: 0 });
       const before = sum(addDays(day, -14), addDays(day, -1));
-      const after = sum(day, addDays(day, end));
-      fleetMemo.set(day, zFell(after.p, after.b, before.p, before.b) >= GO_BACK_Z);
+      const after = sum(day, addDays(day, changeWindows({}, day, today).afterDays - 1));
+      const dEnd = addDays(day, 27) < today ? addDays(day, 27) : today;
+      const dBefore = sum(addDays(day, -28), addDays(day, -1));
+      const dAfter = sum(day, dEnd);
+      hit = { booking: zFell(after.p, after.b, before.p, before.b) >= GO_BACK_Z, deposit: zFell(dAfter.d, dAfter.l, dBefore.d, dBefore.l) >= GO_BACK_Z };
+      fleetMemo.set(day, hit);
     }
-    return fleetMemo.get(day) as boolean;
+    return hit;
   };
+  /* The same change on many funnels the same day came from us for everyone (a page
+     update, a default FAQ, a bulk rollout), so it gets the same check. */
+  const SAME_DAY_FLEET = 20;
+  const sameDayCount = new Map<string, number>();
+  for (const r of rows) for (const c of r.changes.filter(isOurChange)) sameDayCount.set(`${r.day}|${c.key}`, (sameDayCount.get(`${r.day}|${c.key}`) ?? 0) + 1);
+  const isFleetChange = (r: ChangeRow) => r.changes.filter(isOurChange).every((c) => c.key === "engine" || (sameDayCount.get(`${r.day}|${c.key}`) ?? 0) >= SAME_DAY_FLEET);
 
   const bySlug = new Map<string, ChangeRow[]>();
   for (const r of rows) {
@@ -291,10 +308,14 @@ export async function findGoBackSuggestions(
       if (row.day < lookBack || row.saved_at <= lastGoBack || row.saved_at <= declinedAt) continue;
       const ours = row.changes.filter(isOurChange);
       if (!ours.length) continue;
-      if (ours.every((c) => c.key === "engine") && !fleetFell(row.day)) continue;
       if (causeDays.some((d) => d >= addDays(row.day, -28) && d <= addDays(row.day, 27))) continue;
       const fall = fellAfterChange(days.get(f.slug) ?? {}, row.day, today);
-      if (fall) found.push({ row, fall });
+      if (!fall) continue;
+      if (isFleetChange(row)) {
+        const fleet = fleetFell(row.day);
+        if (!((fall.what !== "deposit" && fleet.booking) || (fall.what !== "booking" && fleet.deposit))) continue;
+      }
+      found.push({ row, fall });
     }
     /* A later change also looks guilty, because its "before" days are mostly from before
        the fall. The strongest fall points at the real one. */
