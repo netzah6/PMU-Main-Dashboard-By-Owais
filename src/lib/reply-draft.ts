@@ -400,7 +400,9 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
   if (setupCallOk && draft) {
     const hasLink = /https?:\/\/|www\./i.test(draft);
     if (hasLink) draft = (await ask("\n\nIMPORTANT: do NOT include any link.")) || draft;
-    if (!/quick call/i.test(draft)) {
+    // Only the full "how it works" message (it carries the $60) must end
+    // with the question — a short answer to something else is left alone.
+    if (/\$60/.test(draft) && !/quick call/i.test(draft)) {
       const body = draft.trim().replace(/\n*\s*What day works best this week\?\s*$/i, "").trim();
       draft = `${body}\n\n${SETUP_CALL_QUESTION}`;
     }
