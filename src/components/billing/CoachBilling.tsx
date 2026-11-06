@@ -2,6 +2,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, ExternalLink, Loader2, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUser } from "@/lib/hooks/useUser";
 
 // PPS Billing as a Client Success Coach sees it: their own clients, the money
 // already collected from them, what is still to be charged on their upcoming
@@ -67,8 +68,8 @@ function NumCell({ value, sub, tone = "gray", title, className }: {
 }
 
 /* One charged contact, and the coach's way to ask for credit on it. */
-function ChargeRow({ ownerKey, clientLabel, charge, credit, onRequested }: {
-  ownerKey: string; clientLabel: string;
+function ChargeRow({ ownerKey, clientLabel, charge, credit, onRequested, preview }: {
+  ownerKey: string; clientLabel: string; preview: boolean;
   charge: { day: string; name: string; amount: number; source: string; receiptUrl: string | null };
   credit?: Credit; onRequested: () => Promise<void>;
 }) {
@@ -79,6 +80,8 @@ function ChargeRow({ ownerKey, clientLabel, charge, credit, onRequested }: {
 
   const send = async () => {
     if (busy || !why.trim()) return;
+    // An admin's request is approved on the spot, so a preview must never send one.
+    if (preview) { setError("Preview only. Nothing was sent. A coach's request goes to the admin."); return; }
     setBusy(true);
     setError(null);
     try {
@@ -215,9 +218,9 @@ function ActivityLog({ ownerKey }: { ownerKey: string }) {
   );
 }
 
-function ClientCharges({ client, runs, runsLoading, runsError, credits, onRequested }: {
+function ClientCharges({ client, runs, runsLoading, runsError, credits, onRequested, preview }: {
   client: Client; runs: Run[] | null; runsLoading: boolean; runsError: string | null;
-  credits: Credit[]; onRequested: () => Promise<void>;
+  credits: Credit[]; onRequested: () => Promise<void>; preview: boolean;
 }) {
   const charges = (runs ?? []).flatMap((run) => run.clients
     .filter((c) => c.ownerKey === client.ownerKey)
@@ -249,7 +252,7 @@ function ClientCharges({ client, runs, runsLoading, runsError, credits, onReques
           {charges.map((ch, i) => (
             <ChargeRow key={`${ch.day}-${ch.name}-${i}`} ownerKey={client.ownerKey}
               clientLabel={`${client.ownerName}${client.business ? ` — ${client.business}` : ""}`}
-              charge={ch} credit={mine.find((c) => isForContact(c.reason, ch.name))} onRequested={onRequested} />
+              charge={ch} credit={mine.find((c) => isForContact(c.reason, ch.name))} onRequested={onRequested} preview={preview} />
           ))}
         </ul>
       )}
@@ -259,6 +262,10 @@ function ClientCharges({ client, runs, runsLoading, runsError, credits, onReques
 }
 
 export function CoachBilling() {
+  // An admin using "View as coach" has no book of their own: show every client
+  // so the screen can be checked, and never send a real credit request from it.
+  const { realRole } = useUser();
+  const preview = realRole === "admin";
   const [clients, setClients] = useState<Client[]>([]);
   const [cards, setCards] = useState<Map<string, Card>>(new Map());
   const [cardsLoading, setCardsLoading] = useState(false);
@@ -367,9 +374,9 @@ export function CoachBilling() {
       {/* Everything on one line (owner, 11/06/2026): less scrolling. */}
       <div className="flex items-center gap-2 flex-wrap">
         <h1 className="text-xl font-bold text-[#1f3559]">PPA Billing</h1>
-        {coach && (
+        {(coach || preview) && (
           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#eef2ff] text-[#3a5a8c] border border-[#c7d2fe]">
-            {coach}&apos;s clients
+            {preview ? "Preview: all clients" : <>{coach}&apos;s clients</>}
           </span>
         )}
         {[
@@ -407,7 +414,7 @@ export function CoachBilling() {
         <div className="flex items-center gap-2 text-sm text-[#697a91] py-10 justify-center">
           <Loader2 size={15} className="animate-spin" /> Loading your PPS clients…
         </div>
-      ) : !coach ? (
+      ) : !coach && !preview ? (
         <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7] px-4 py-6 text-sm text-[#8a6d3b]">
           No clients are assigned to your name yet. The Clients Master sheet&apos;s <b>Assigned</b> column is what links a
           client to you — ask an admin to set it to your first name.
@@ -512,7 +519,7 @@ export function CoachBilling() {
                   {isOpen && (
                     <tr className="border-b border-[#e4ebf2]">
                       <td colSpan={12} className="p-0">
-                        <ClientCharges client={c} runs={runs} runsLoading={runsLoading} runsError={runsError} credits={credits} onRequested={onRequested} />
+                        <ClientCharges client={c} runs={runs} runsLoading={runsLoading} runsError={runsError} credits={credits} onRequested={onRequested} preview={preview} />
                       </td>
                     </tr>
                   )}
