@@ -7,9 +7,10 @@ import { INTERNAL_FUNNELS as INTERNAL, ensureEngineCopy, freezeBlockedReason } f
 import { warmFunnel } from "@/lib/onebox-warm";
 import { signLogoUrl } from "@/lib/logo-sign";
 import { findGoBackSuggestions, runFunnelTimeline, type ChangeItem } from "@/lib/funnel-timeline";
-import type { GoBackSuggestion } from "@/lib/funnel-timeline-view";
+import { pacificDay, type GoBackSuggestion } from "@/lib/funnel-timeline-view";
 import { acceptFrozenDrift, frozenDrift, snapshotFunnelPage, type FrozenPage, type OneboxRow } from "@/lib/onebox-page";
-import { adsHints, fellFromPeak, fellWhy, findPeak, monthKey, peakWindow, pickPeakVersion, type Board, type BoardRow, type BriefIssue, type Peak, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
+import { adsHints, fellFromPeak, findPeak, monthKey, peakWindow, pickPeakVersion, type Board, type BoardRow, type Peak, type FreezeStatRow, type HistoryEntry } from "@/lib/funnel-freeze";
+import { addFellCauses } from "@/lib/fell-causes-server";
 
 // The Freeze screen (/funnels/freeze), admins only.
 //   GET                                   every funnel: stats, suggestion, frozen state
@@ -116,6 +117,8 @@ export async function GET() {
         fell,
         fellHints: fell && peak ? adsHints(peak, s.leads30, s.last_lead, now) : [],
         fellWhy: null,
+        fellCauses: [],
+        lastDeposit: s.last_deposit ?? null,
         peakPage: null,
         suggested,
         declined: f?.declined_at ? { at: f.declined_at, note: f.declined_note } : null,
@@ -132,17 +135,11 @@ export async function GET() {
        removes the calendar and deposit steps (Tonni, 09/2026). */
     .filter((r) => !isV1Label(r.version) || r.frozen || r.fell);
 
+  /* "Why I think it fell" and the list of every possible cause, for fallen clients only. */
+  await addFellCauses(svc, rows, stats, now, pacificDay(new Date(Date.parse(FIRST_SAVE) - 1)));
+
   /* "See the page from its best months": only possible for months after pages
      started being saved, so today this reads nothing. */
-  /* "Why I think it fell": from each fallen client's daily check-up. A missing
-     check-up still gets a note, from the numbers alone. */
-  const fallen = rows.filter((r) => r.fell && r.peak);
-  if (fallen.length) {
-    const { data: briefs } = await svc.from("cpd_briefs").select("slug, issues").in("slug", fallen.map((r) => r.slug));
-    const issuesBySlug = new Map(((briefs ?? []) as { slug: string; issues: BriefIssue[] | null }[]).map((b) => [b.slug, b.issues]));
-    for (const r of fallen) r.fellWhy = fellWhy(issuesBySlug.get(r.slug) ?? null, r.peak as Peak, r.now, r.fellHints);
-  }
-
   const wanting = rows.filter((r) => r.fell && r.peak && peakWindow(r.peak).end > FIRST_SAVE);
   if (wanting.length) {
     const [copies, ...lists] = await Promise.all([
