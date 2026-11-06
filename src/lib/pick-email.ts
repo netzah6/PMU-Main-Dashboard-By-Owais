@@ -17,8 +17,8 @@ type Svc = ReturnType<typeof createServiceClient>;
    booking.pmu-care.com since 11/03) — no forced header, so a reply still
    reaches the artist. The service named in the email is the one the lead
    chose on the page (owner, 11/06/2026: a scalp-only artist must never read
-   "permanent makeup"); brows / lips / eyeliner say "permanent makeup" in full
-   (owner: leads don't all know what PMU means); an unknown answer names no
+   "permanent makeup"); brows / lips / eyeliner name the area plus "permanent
+   makeup" in full (owner: leads don't all know what PMU means); an unknown answer names no
    service at all. */
 
 export const PICK_EMAIL_KEY = "pick_email";
@@ -73,7 +73,11 @@ export function serviceWords(area: string | null | undefined): string {
   if (/dark\s*circle/.test(a)) return "dark circle neutralization";
   if (/stretch/.test(a)) return "stretch mark camouflage";
   if (/scar/.test(a)) return "scar camouflage";
-  if (/brow|lip|liner|permanent\s*make/.test(a)) return "permanent makeup";
+  // Owner, 11/06/2026: name the exact area she asked for — it converts better than the general words.
+  if (/brow/.test(a)) return "eyebrow permanent makeup";
+  if (/lip/.test(a)) return "lip permanent makeup";
+  if (/liner/.test(a)) return "eyeliner permanent makeup";
+  if (/permanent\s*make/.test(a)) return "permanent makeup";
   return "";
 }
 export type Email = { subject: string; html: string };
