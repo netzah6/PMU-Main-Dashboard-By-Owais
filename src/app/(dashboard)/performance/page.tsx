@@ -2,7 +2,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { DataFreshness } from "@/components/freshness/DataFreshness";
 import { createClient } from "@/lib/supabase/client";
-import { formatCurrency, formatDate, userColor, cn } from "@/lib/utils";
+import { formatCurrency, userColor, cn } from "@/lib/utils";
 import { Search, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useUser } from "@/lib/hooks/useUser";
@@ -29,8 +29,6 @@ interface PerfRow {
   spent14: number | string | null;
   spent7: number | string | null;
   spent_all: number | string | null;
-  sessions_done: string | null;
-  last_strategy: string | null;
   campaigns: { name: string; norm: string; budget: number | null; spent: number | null; active: boolean; included: boolean }[] | null;
   acct_key: string | null;
 }
@@ -190,7 +188,7 @@ function CampaignsCell({ campaigns, acctKey, onChanged }: { campaigns: PerfRow["
   );
 }
 
-const HEADERS = ["Owner Name", "Business Name", "Daily Budget", "Assigned", "Media Buyer", "1-Box", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Sessions Done", "Last Strategy", "Campaigns"];
+const HEADERS = ["Owner Name", "Business Name", "Daily Budget", "Assigned", "Media Buyer", "1-Box", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Campaigns"];
 
 /* UNSETTLED ad account → one click texts the client, from PMU Bookings On
    Demand (the teammate's own number there when they have one), to ask their
@@ -458,8 +456,6 @@ export default function PerformancePage() {
                       {num(r.spent7) == null ? <span className="text-[#a6b3c4]">—</span> : formatCurrency(num(r.spent7))}
                     </td>
                     <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{num(r.spent_all) ? formatCurrency(num(r.spent_all)) : "—"}</td>
-                    <td className="px-2 sm:px-3 py-1 text-center text-[#1e2a3a] whitespace-nowrap">{r.sessions_done || <span className="text-[#a6b3c4]">—</span>}</td>
-                    <td className="px-2 sm:px-3 py-1 text-[#34568a] whitespace-nowrap">{r.last_strategy ? formatDate(r.last_strategy) : <span className="text-[#a6b3c4]">—</span>}</td>
                     <td className="px-2 sm:px-3 py-1 align-top"><CampaignsCell campaigns={r.campaigns} acctKey={r.acct_key} onChanged={load} /></td>
                   </tr>
                   {isOpen && (
