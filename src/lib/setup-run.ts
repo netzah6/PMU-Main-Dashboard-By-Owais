@@ -197,6 +197,12 @@ export async function advanceSetup(svc: Svc, onboardingId: string): Promise<Setu
           setStep(ob.setup, s.key, { status: "failed", error: "the run stopped in the middle of this step", note: "the run stopped in the middle of this step (timeout) — check the account, then Retry" }, `${s.n}. timed out`);
           touched = true;
         }
+        // Added 11/06/2026: a setup that had already finished keeps the
+        // status its row has now (it may be Paused or Offboarded since).
+        if (s.key === "status_live" && st.status === "todo" && ob.setup.status === "done") {
+          setStep(ob.setup, s.key, { status: "skipped", note: "this setup was finished when the step was added" }, `${s.n}. skipped`);
+          touched = true;
+        }
         // V3-only step: not for other versions, and never reopened on a setup
         // that had already passed it when the step was added.
         if (s.v3Only && st.status === "todo") {
@@ -241,6 +247,7 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     case "last_check": return done(ob, "funnel_live") && done(ob, "last_profile") && done(ob, "user_settings");
     // Runs only after a person clicked Approve on the card (confirm step).
     case "first_cycle": return done(ob, "funnel_test") && !!stepState(ob.setup, "first_cycle").confirmed_by;
+    case "status_live": return done(ob, "first_cycle");
     default: return false;
   }
 }
@@ -775,6 +782,28 @@ const API_STEPS: Record<string, StepFn> = {
     if (!mv.ok) return { status: mv.warn ? "warn" : "failed", note: mv.note };
     if (mv.already) return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${mv.deal}" already in ${mv.stage}` };
     return { status: "done", note: `${fieldNotes.join("; ")}\ndeal "${mv.deal}" → ${mv.stage} — the client gets the 3 welcome texts now` };
+  },
+  /* 47 · Status "Live" on the client's Clients Master row — the dashboard
+     copy first (what every tab reads), then the same cell in the sheet.
+     Field-scoped write: only the status changes. */
+  status_live: async (svc, ob) => {
+    const norm = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const { data: cm } = await svc.from("clients_master").select("sheet_row, data");
+    const rows = (cm ?? []) as Array<{ sheet_row: number; data: Record<string, unknown> }>;
+    const wantRow = Number(ob.form.master_row ?? 0);
+    const row = (wantRow ? rows.find((r) => Number(r.sheet_row) === wantRow) : undefined)
+      ?? rows.find((r) => norm(r.data["Owner Full Name"]) === norm(ob.form.owner_name) && (!norm(r.data["Business Name"]) || norm(r.data["Business Name"]) === norm(ob.form.business_name)));
+    if (!row) return { status: "warn", note: `No Clients Master row found for ${ob.form.owner_name} / ${ob.form.business_name} — set the status to Live by hand` };
+    const cur = String(row.data.col_1 ?? "").trim();
+    if (/^live$/i.test(cur)) return { status: "done", note: `row ${row.sheet_row}: status is already Live` };
+    if (/^(paused|offboarded|lost)$/i.test(cur)) return { status: "warn", note: `row ${row.sheet_row}: status is "${cur}" — left as it is; change it by hand if the client is live` };
+    const merged = { ...row.data, col_1: "Live", row_number: row.sheet_row };
+    const { error } = await svc.from("clients_master").update({ data: merged, synced_at: now() }).eq("sheet_row", row.sheet_row);
+    if (error) throw new Error(`dashboard copy: ${error.message}`);
+    const entry = getSheetEntryForTable("clients_master");
+    if (!entry) throw new Error("Clients Master sheet mapping missing");
+    await writeRowToSheet(entry.spreadsheetId, entry.sheetName, row.sheet_row, merged, entry.fallbackIndex, ["col_1"]);
+    return { status: "done", note: `row ${row.sheet_row}: Status = Live${cur ? ` (was "${cur}")` : ""}` };
   },
 };
 

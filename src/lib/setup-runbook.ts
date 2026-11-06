@@ -97,6 +97,8 @@ export const RUNBOOK: RunbookStep[] = [
   // Owner 10/24/2026: CNAM approval takes the carrier days (or gets
   // rejected), so submitting it (step 11) is not "verified" — the team ticks it.
   { n: 34, key: "first_cycle", section: "I · ✅ Last check", who: "api", badge: "team", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
+  // Owner 11/06/2026: the run itself marks the client Live — nobody types it in the sheet.
+  { n: 47, key: "status_live", section: "I · ✅ Last check", who: "api", label: "Set the client's status to \"Live\" on the dashboard", how: "Runs by itself right after the deal moves to First Cycle. The Clients tab and every report then show the client as Live; the Google Sheet row gets the same status." },
   { n: 35, key: "later_hours", section: "I · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run the calendar hours from the AI tab", later: true },
   // J · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
   // then marks each step completed on the card. Loom + docs from the sheet.
@@ -128,7 +130,7 @@ const STEP_TITLES: Record<string, string> = {
   cal_hours: "Calendar team, location & hours", cal_active: "Calendar on",
   funnel_create: "Set up the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   closebot_connect: "Connect to CloseBot", funnel_test: "Test the funnel", funnel_live: "Check values & go live",
-  last_profile: "Final check, real test", last_check: "Account & funnel re-check", first_cycle: "Move to First Cycle", later_hours: "Update hours later",
+  last_profile: "Final check, real test", last_check: "Account & funnel re-check", first_cycle: "Move to First Cycle", status_live: "Status → Live", later_hours: "Update hours later",
   fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad & publish", fb_publish: "Publish the campaign", client_connect: "Help our client to connect their FB & IG",
 };
 for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
