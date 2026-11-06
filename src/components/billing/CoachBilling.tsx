@@ -144,6 +144,77 @@ function ChargeRow({ ownerKey, clientLabel, charge, credit, onRequested }: {
 }
 
 /* The dropdown under a client: every contact we charged them for, plus their credit. */
+// ── Activity & credit balance (owner, 11/06/2026) ─────────────────────────────
+// The same event list the admin sees on a client — every card charge, credit
+// added and credit used, newest first, with the credit left after each step —
+// so a coach can track the activity of their own PPS clients. Read-only; the
+// API only serves it for clients in the coach's book.
+type LedgerEvent = {
+  at: string; kind: "credit" | "card" | "credit_used"; amount: number; creditUsed: number;
+  names: string[]; reason: string | null; receiptUrl: string | null; balanceAfter: number;
+};
+
+function ActivityLog({ ownerKey }: { ownerKey: string }) {
+  const [events, setEvents] = useState<LedgerEvent[] | null>(null);
+  const [creditLeft, setCreditLeft] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setEvents(null); setError(null);
+    fetch(`/api/ppa/client?owner_key=${encodeURIComponent(ownerKey)}&ledger=1`)
+      .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || "Could not load activity"); return j; })
+      .then((j) => { if (alive) { setEvents(j.ledger ?? []); setCreditLeft(j.creditLeft ?? 0); } })
+      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : "Could not load activity"); });
+    return () => { alive = false; };
+  }, [ownerKey]);
+
+  return (
+    <div className="mt-3 rounded-lg border border-[#e4ebf2] bg-white">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
+        <ChevronRight size={14} className={cn("text-[#8595a8] transition-transform", open && "rotate-90")} />
+        <span className="text-xs font-bold text-[#1f3559]">📒 Activity & credit balance</span>
+        <span className="text-[11px] text-[#697a91]">
+          {events ? <>{events.length} event{events.length === 1 ? "" : "s"}{creditLeft > 0 ? <> · <strong className="text-[#15803d]">{money2(creditLeft)} credit left</strong></> : " · no credit on file"}</> : null}
+        </span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          {error ? (
+            <p className="text-xs text-[#e11d48]">{error}</p>
+          ) : !events ? (
+            <div className="flex items-center gap-2 text-xs text-[#697a91] py-1"><Loader2 size={13} className="animate-spin" /> Loading activity…</div>
+          ) : events.length === 0 ? (
+            <p className="text-xs text-[#8595a8] py-1">No charges or credits yet.</p>
+          ) : (
+            <div className="space-y-1">
+              {events.map((e, i) => {
+                const when = new Date(e.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+                const names = e.names.length ? e.names.join(" · ") : "";
+                return (
+                  <div key={i} className={cn("flex items-start gap-2 text-[11px] flex-wrap rounded-md px-2 py-1 border",
+                    e.kind === "credit" ? "bg-[#eef7ff] border-[#c9dbfb]" : e.kind === "credit_used" ? "bg-[#fffbeb] border-[#fde68a]" : "bg-[#f4fbf7] border-[#c7edd4]")}>
+                    <span className="text-[#8595a8] whitespace-nowrap w-[92px] shrink-0">{when}</span>
+                    <span className="flex-1 min-w-[200px] text-[#1f3559]">
+                      {e.kind === "credit" && <><strong className="text-[#1d4ed8]">+{money2(e.amount)} credit added</strong>{e.reason ? <span className="text-[#697a91]"> — {e.reason}</span> : null}</>}
+                      {e.kind === "credit_used" && <><strong className="text-[#b45309]">−{money2(e.amount)} credit used</strong> for {e.names.length} show{e.names.length === 1 ? "" : "s"}{names ? <span className="text-[#697a91]"> — {names}</span> : null}</>}
+                      {e.kind === "card" && <><strong className="text-[#15803d]">{money2(e.amount)} charged on card</strong> for {e.names.length} show{e.names.length === 1 ? "" : "s"}{e.creditUsed > 0 ? <span className="text-[#697a91]"> (less {money2(e.creditUsed)} credit)</span> : null}{names ? <span className="text-[#697a91]"> — {names}</span> : null}
+                        {e.receiptUrl && <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="ml-1 text-[#15803d] underline">receipt ↗</a>}</>}
+                    </span>
+                    <span className={cn("whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-bold border", e.balanceAfter > 0 ? "bg-white text-[#1d4ed8] border-[#c9dbfb]" : "bg-white text-[#8595a8] border-[#e2e8f0]")}
+                      title="Unused credit after this step">credit left {money2(e.balanceAfter)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClientCharges({ client, runs, runsLoading, runsError, credits, onRequested }: {
   client: Client; runs: Run[] | null; runsLoading: boolean; runsError: string | null;
   credits: Credit[]; onRequested: () => Promise<void>;
@@ -182,6 +253,7 @@ function ClientCharges({ client, runs, runsLoading, runsError, credits, onReques
           ))}
         </ul>
       )}
+      <ActivityLog ownerKey={client.ownerKey} />
     </div>
   );
 }
