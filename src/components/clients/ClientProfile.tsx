@@ -3,7 +3,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
-import { GhlNotes } from "./GhlNotes";
 import { StepTracker } from "./StepTracker";
 import { ActivityTabs, RangePicker, type Range } from "./ActivityTabs";
 import { formatCurrency, formatPercent, userColor, cn } from "@/lib/utils";
@@ -778,10 +777,6 @@ export function ClientProfile({
             <p className="text-sm text-[#34568a] whitespace-pre-line">{String(localClient.notes)}</p>
           </Section>
         )}
-
-        {/* GHL Notes — last on the page (user, 2026-09-14); it used to sit
-            above Activity and pushed everything down. */}
-        {ghlContactId && <GhlNotes contactId={ghlContactId} />}
 
       </div>
     </div>

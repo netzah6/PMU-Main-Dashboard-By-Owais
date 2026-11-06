@@ -6,12 +6,9 @@ import { cn } from "@/lib/utils";
 const DONE = { color: "#15803d", bg: "#dcfce7", border: "#86efac", dot: "#16a34a" };
 const TOGGLE_STEPS: { key: string; label: string }[] = [
   { key: "Launch Call",          label: "Launch Call" },
-  { key: "A2P Verified",         label: "A2P" },
   { key: "FB Group",             label: "FB Group" },
   { key: "Sync Schedule",        label: "Sync Schedule" },
-  { key: "UNSUBSCRIBE Removed",  label: "Unsubscribe Removed" },
   { key: "Agreement",            label: "Agreement Signed" },
-  { key: "AI Agent Access",      label: "AI Access" },
   { key: "GMB",                  label: "GMB" },
 ];
 
