@@ -51,7 +51,7 @@ export async function addFellCauses(svc: SupabaseClient, rows: BoardRow[], stats
   ]);
   const failed = briefs.error || adRows.error || noteRows.error || changeRows.error || testRows.error || pageRows.error || depAsk.error;
   if (failed) {
-    for (const r of fallen) r.fellWhy = { text: "I couldn't load this client's check-up just now. Reload the page.", sure: "unknown" };
+    for (const r of fallen) r.fellWhy = { text: "Could not load the check-up. Reload the page.", sure: "unknown" };
     return;
   }
   const briefList = (briefs.data ?? []) as BriefRow[];
@@ -82,7 +82,7 @@ export async function addFellCauses(svc: SupabaseClient, rows: BoardRow[], stats
   });
   for (const r of fallen) {
     if (!keyed(r)) {
-      r.fellWhy = { text: "I can't match this client to the team notes and the ad account: the owner name in the Clients sheet is empty or has a quote mark in it.", sure: "unknown" };
+      r.fellWhy = { text: "Can't check: the owner name in the Clients sheet is empty or has a quote mark.", sure: "unknown" };
       continue;
     }
     const peak = r.peak as Peak;
@@ -131,6 +131,6 @@ export async function addFellCauses(svc: SupabaseClient, rows: BoardRow[], stats
       } : null,
     };
     r.fellCauses = fellCauses(input);
-    r.fellWhy = fellWhy(r.fellCauses, r.now);
+    r.fellWhy = fellWhy(r.fellCauses);
   }
 }

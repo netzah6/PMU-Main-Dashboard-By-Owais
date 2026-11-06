@@ -156,7 +156,7 @@ export default function FreezePage() {
         <details className="text-xs text-[#697a91] mb-3">
           <summary className="cursor-pointer text-[#34568a] font-semibold">Who shows under Fell</summary>
           <p className="mt-1">A live client whose best 2 months in a row, in the last 6 months, had {FELL.minPeakRate}%+ deposits ({FELL.minPeakLeads}+ leads, the first month not counted), and whose last 30 days ({FELL.minNowLeads}+ leads) are at {Math.round(FELL.keptAtMost * 100)}% of that or less. It is a list to look at, not proof: more than half of the falls this size are chance, and ads or the AI can be the cause. A freeze keeps today&apos;s page, so it won&apos;t bring an old rate back.</p>
-          <p className="mt-1">Each card lists everything that could cause the fall, in 4 groups. <b>Found</b>: a problem in the numbers now that stops deposits, or a change with a date after the best months. <b>Possible</b>: true today, but nobody saved when it began. <b>Can&apos;t check</b>: not in our data, with who to ask. <b>Looks fine</b>: checked with a number. Nothing is written as found, or as fine, unless the data shows it.</p>
+          <p className="mt-1">Each card lists everything that could cause the fall, a few words each. Click a line for the full sentence. <b>Found</b>: a problem in the numbers now, or a change with a date after the best months. <b>Possible</b>: true today, not known since when. <b>Can&apos;t check</b>: not in our data, with who to ask. <b>Fine</b>: checked with a number.</p>
         </details>
       )}
       {board?.suggestionsFailed && <p className="text-xs text-[#b91c1c] mb-3">Couldn&apos;t check for suggestions just now. Reload in a minute.</p>}
