@@ -22,6 +22,8 @@ const TABS: Tab[] = [
   { label: "👑 CEO", href: "/ceo", adminOnly: true },
   // Every planned launch, test readout and open decision by date (owner, 2026-11-03).
   { label: "🗓️ Upcoming", href: "/upcoming", adminOnly: true },
+  // One place for the whole reactivation effort: former clients + demos that didn't close (owner, 2026-11-06).
+  { label: "🔁 Win-back", href: "/winback", adminOnly: true },
   // Sales + Subs sit right after AI, always visible (user request 2026-09-16).
   { label: "💼 Sales", href: "/sales", adminOnly: true }, // sales board (setter + closer KPIs & to-dos), demo checker, coach tracker
   { label: "🔄 Subs", href: "/subscriptions", adminOnly: true }, // Square + dashboard billing — admins only
