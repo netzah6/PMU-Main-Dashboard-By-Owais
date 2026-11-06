@@ -32,6 +32,7 @@ export async function GET() {
       when: fmtWhen(iso),
       deposit: String(sample?.config?.deposit ?? "").trim() || "$50",
       link: sample ? `https://book.pmu-care.com/f/${sample.slug}?preview=deposit` : "https://book.pmu-care.com",
+      service: "permanent makeup",
     };
     return NextResponse.json(
       { ...summary, preview: [pickEmail(1, vars), pickEmail(2, vars)], sampleSlug: sample?.slug ?? null },
