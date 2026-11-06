@@ -197,9 +197,10 @@ export async function advanceSetup(svc: Svc, onboardingId: string): Promise<Setu
           setStep(ob.setup, s.key, { status: "failed", error: "the run stopped in the middle of this step", note: "the run stopped in the middle of this step (timeout) — check the account, then Retry" }, `${s.n}. timed out`);
           touched = true;
         }
-        // Added 11/06/2026: a setup that had already finished keeps the
-        // status its row has now (it may be Paused or Offboarded since).
-        if (s.key === "status_live" && st.status === "todo" && ob.setup.status === "done") {
+        // Added 11/06/2026: a setup that was fully finished (Facebook too)
+        // before this step existed keeps the status its row has now.
+        if (s.key === "status_live" && st.status === "todo" && ob.setup.status === "done"
+          && Date.parse(String(ob.setup.finished_at ?? "")) < Date.parse("2026-11-06T00:00:00Z") && isSettled(stepState(ob.setup, "fb_publish"))) {
           setStep(ob.setup, s.key, { status: "skipped", note: "this setup was finished when the step was added" }, `${s.n}. skipped`);
           touched = true;
         }
@@ -247,7 +248,7 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     case "last_check": return done(ob, "funnel_live") && done(ob, "last_profile") && done(ob, "user_settings");
     // Runs only after a person clicked Approve on the card (confirm step).
     case "first_cycle": return done(ob, "funnel_test") && !!stepState(ob.setup, "first_cycle").confirmed_by;
-    case "status_live": return done(ob, "first_cycle");
+    case "status_live": return done(ob, "first_cycle") && ["fb_bm", "fb_campaign", "fb_adset", "fb_ad", "fb_publish"].every((k) => done(ob, k));
     default: return false;
   }
 }
@@ -1120,7 +1121,8 @@ export async function onPoolSnapshotClosedForSetup(svc: Svc, p: { id: string; st
 async function settle(svc: Svc, onboardingId: string): Promise<void> {
   const ob = await loadOb(svc, onboardingId);
   const setup = ob.setup!;
-  const steps = runSteps();
+  // The run is "done" without the after-run step (it waits on the team's Facebook steps).
+  const steps = runSteps().filter((s) => !s.afterRun);
   const states = steps.map((s) => ({ s, st: stepState(setup, s.key) }));
   const failed = states.filter((x) => x.st.status === "failed");
   const waiting = states.filter((x) => x.st.status === "waiting_owner" || (x.s.confirm && x.st.status === "todo" && states.filter((y) => y.s.key !== x.s.key).every((y) => isSettled(y.st))));

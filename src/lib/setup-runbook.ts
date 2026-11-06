@@ -37,6 +37,7 @@ export type RunbookStep = {
   badge?: Who;              // what the card shows when it differs from who runs it (First Cycle: the coach clicks, the dashboard moves the deal)
   how?: string;              // one line of context shown under the label
   checklist?: string[];      // onboarding checklist keys this step ticks
+  afterRun?: boolean;        // runs by itself after the team's steps; the run is "done" without it
   later?: boolean;           // not part of the run (re-run from the AI tab later)
   hidden?: boolean;          // runs by itself, nobody acts on it — not listed on the card unless it fails (owner 11/03/2026)
   v3Only?: boolean;          // skipped and not listed unless the client is on V3
@@ -97,8 +98,6 @@ export const RUNBOOK: RunbookStep[] = [
   // Owner 10/24/2026: CNAM approval takes the carrier days (or gets
   // rejected), so submitting it (step 11) is not "verified" — the team ticks it.
   { n: 34, key: "first_cycle", section: "I · ✅ Last check", who: "api", badge: "team", confirm: true, label: "Move the client's deal to \"First Cycle\" — the Went-live workflow then texts the client the logins and funnel (3 texts)", how: "Click Approve: the dashboard saves the login email, password and funnel URL on the client's agency contact, moves the deal, and the \"Started stage -> Went live Notification\" workflow sends the welcome texts a few minutes apart. Nobody sends the logins by hand anymore (owner 10/22/2026).", checklist: ["fin_master"] },
-  // Owner 11/06/2026: the run itself marks the client Live — nobody types it in the sheet.
-  { n: 47, key: "status_live", section: "I · ✅ Last check", who: "api", label: "Set the client's status to \"Live\" on the dashboard", how: "Runs by itself right after the deal moves to First Cycle. The Clients tab and every report then show the client as Live; the Google Sheet row gets the same status." },
   { n: 35, key: "later_hours", section: "I · ✅ Last check", who: "mini", label: "Later, when the client sends new hours: re-run the calendar hours from the AI tab", later: true },
   // J · Facebook — by hand (owner 10/20/2026): the breakdown the team follows,
   // then marks each step completed on the card. Loom + docs from the sheet.
@@ -116,6 +115,9 @@ export const RUNBOOK: RunbookStep[] = [
     links: [{ label: "Loom", url: "https://www.loom.com/share/354328b7939a496ab06ff8b6eec22ecc" }, { label: "Videos folder", url: "https://drive.google.com/drive/folders/1SijOuN58F4upfSIGfVbYUXn6mOQ17wGB?usp=drive_link" }, { label: "Ad copy doc", url: "https://docs.google.com/document/d/11h3ob6JleKekycZuIDvkAyY--lz7F869V5Um6rlBsak/edit?usp=sharing" }, { label: "Headlines doc", url: "https://docs.google.com/document/d/154yZyumlQVKoHwwTk4XtZFzCn_JyUDa0pdycJRRerUo/edit?usp=sharing" }] },
   { n: 40, key: "fb_publish", hidden: true, partOf: "fb_ad", section: "J · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
   { n: 41, key: "client_connect", section: "J · 📣 Facebook", who: "client", label: "Help the client connect their Facebook page and Instagram to the sub-account", checklist: ["last_connect"] },
+  // Owner 11/06/2026: the very last step, after the Facebook campaign — the
+  // dashboard marks the client Live by itself; nobody types it in the sheet.
+  { n: 47, key: "status_live", afterRun: true, section: "J · 📣 Facebook", who: "api", label: "Set the client's status to \"Live\" on the dashboard", how: "Runs by itself once the Facebook campaign is published (the Facebook steps above are marked completed) and the deal is in First Cycle. The Clients tab and every report then show the client as Live; the Google Sheet row gets the same status." },
 ];
 
 /* Short names, shown bold on the setup card; the label stays as the
