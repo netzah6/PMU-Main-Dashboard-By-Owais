@@ -150,6 +150,8 @@ function lengthRule(agentName: string, samples: string[], clientText = ""): stri
    so a bare "got it" is wrong. React → offer → one forward question. The
    normal SCOPE rule (never pitch) is replaced by this one for these chats;
    the call switch still decides whether the closing question is a call. */
+const SETUP_CALL_QUESTION = "Want to jump on a quick call so we can set it up for you? What day works best this week?";
+
 export function winbackRule(w: WinbackContext, callInvite: string | null): string {
   const first = w.name.split(" ")[0] || "she";
   // PPS needs a first session of $400 or less (owner, 2026-10-25). Over it:
@@ -386,7 +388,24 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
       draft = again && hasLink(again) ? again : `${draft.trim()}\n\nYou can grab a time for our strategy call here: ${link}`;
     }
   }
-  if (!input.inviteCall) {
+  /* Owner, 11/06/2026: the win-back "how it works" message (pay-per-
+     appointment, price known and within the limit) ends with a quick setup
+     call question. That is not a strategy-call invite, so the check below
+     must not cut it (it did: the draft ended with a bare "What day works
+     best this week?"). Links stay forbidden. */
+  const wb = input.winback;
+  const setupCallOk = !input.inviteCall && !!wb && wb.offer === "pps" && !!wb.price
+    && (wb.lowPrice ?? wb.price) <= PPS_MAX_INITIAL
+    && (wb.stage === "wants_details" || wb.stage === "offer_presented");
+  if (setupCallOk && draft) {
+    const hasLink = /https?:\/\/|www\./i.test(draft);
+    if (hasLink) draft = (await ask("\n\nIMPORTANT: do NOT include any link.")) || draft;
+    if (!/quick call/i.test(draft)) {
+      const body = draft.trim().replace(/\n*\s*What day works best this week\?\s*$/i, "").trim();
+      draft = `${body}\n\n${SETUP_CALL_QUESTION}`;
+    }
+  }
+  if (!input.inviteCall && !setupCallOk) {
     // The switch is off: no call link ever; no invite unless the client
     // asked for a call themselves (then a plain acknowledgement is fine).
     const asked = clientAskedForCall(input.thread);
