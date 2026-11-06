@@ -47,7 +47,7 @@ export default function LeadsPage() {
           <option value="30">Last 30 Days</option>
         </select>
       </div>
-      <AutoTable data={filtered} loading={loading} error={error} exportFilename="leads.csv" />
+      <AutoTable data={filtered} loading={loading} error={error} />
     </div>
   );
 }

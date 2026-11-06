@@ -30,7 +30,7 @@ export default function CallsPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="w-full pl-8 pr-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#1f3559] placeholder:text-[#8595a8] focus:outline-none focus:border-[#15B7AE]" />
       </div>
-      <AutoTable data={filtered} loading={loading} error={error} exportFilename="calls.csv" />
+      <AutoTable data={filtered} loading={loading} error={error} />
     </div>
   );
 }

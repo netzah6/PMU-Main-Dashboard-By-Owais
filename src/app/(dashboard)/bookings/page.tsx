@@ -40,7 +40,7 @@ export default function BookingsPage() {
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
           className="px-3 py-2 bg-white border border-[#e4ebf2] rounded-lg text-sm text-[#34568a] focus:outline-none focus:border-[#15B7AE]" />
       </div>
-      <AutoTable data={filtered} loading={loading} error={error} exportFilename="bookings.csv" />
+      <AutoTable data={filtered} loading={loading} error={error} />
     </div>
   );
 }
