@@ -99,7 +99,6 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
   { key: "last_connect", section: "Last Checking", label: "Help the client connect their FB & IG" },
   { key: "last_publish", section: "Last Checking", label: "PUBLISH & TURN ON THE CAMPAIGN" },
   { key: "fin_master", section: "Last Checking", label: "Move to: ✅ First Cycle stage", auto: true },
-  { key: "last_fb_group", section: "Last Checking", label: "Invite the client to our Facebook group, if they haven't joined yet" },
 
   // ── Later ──
   { key: "later_calendar", section: "Later", label: "Integrate the client calendar to her GHL account" },
