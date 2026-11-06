@@ -15,8 +15,11 @@ type Svc = ReturnType<typeof createServiceClient>;
 
    Sender = the sub-account's own email sender (artist's name, LC Email domain
    booking.pmu-care.com since 11/03) — no forced header, so a reply still
-   reaches the artist. The subject always says "permanent makeup" (owner:
-   leads don't all know what PMU means). */
+   reaches the artist. The service named in the email is the one the lead
+   chose on the page (owner, 11/06/2026: a scalp-only artist must never read
+   "permanent makeup"); brows / lips / eyeliner say "permanent makeup" in full
+   (owner: leads don't all know what PMU means); an unknown answer names no
+   service at all. */
 
 export const PICK_EMAIL_KEY = "pick_email";
 export const PICK_EMAIL_PLANNED = "2026-11-25";
@@ -57,7 +60,22 @@ export async function setPickEmailEnabled(svc: Svc, enabled: boolean, by: string
 }
 
 // ─── The two emails ─────────────────────────────────────────────────────────
-export type EmailVars = { first: string; biz: string; when: string | null; deposit: string; link: string };
+export type EmailVars = { first: string; biz: string; when: string | null; deposit: string; link: string; service?: string | null };
+
+/** The lead's "which area" answer → the words the email uses for the service.
+    "" when the answer is missing or isn't a service we know (some funnels store
+    a city there) — the email then just says "your appointment". */
+export function serviceWords(area: string | null | undefined): string {
+  const a = String(area ?? "").toLowerCase();
+  if (/scalp|\bsmp\b/.test(a)) return "scalp micropigmentation";
+  if (/removal/.test(a)) return "tattoo removal";
+  if (/fine\s*line/.test(a)) return "fine line tattoo";
+  if (/dark\s*circle/.test(a)) return "dark circle neutralization";
+  if (/stretch/.test(a)) return "stretch mark camouflage";
+  if (/scar/.test(a)) return "scar camouflage";
+  if (/brow|lip|liner|permanent\s*make/.test(a)) return "permanent makeup";
+  return "";
+}
 export type Email = { subject: string; html: string };
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
@@ -68,12 +86,13 @@ const wrap = (inner: string) => `<div style="font-family:Arial,Helvetica,sans-se
 /** Step 1 or 2, filled in for one lead. `when` null → the copy skips the time. */
 export function pickEmail(step: 1 | 2, v: EmailVars): Email {
   const first = esc(v.first), biz = esc(v.biz), dep = esc(v.deposit), when = v.when ? esc(v.when) : null;
+  const appt = v.service ? `${v.service} appointment` : "appointment"; // fixed words from serviceWords — nothing to escape
   if (step === 1) {
     return {
-      subject: when ? `Finish booking your permanent makeup appointment — ${v.when}` : "Finish booking your permanent makeup appointment",
+      subject: when ? `Finish booking your ${appt} — ${v.when}` : `Finish booking your ${appt}`,
       html: wrap(
         `<p>Hi ${first},</p>` +
-        `<p>You picked ${when ? `<b>${when}</b>` : "a time"} for your permanent makeup appointment with <b>${biz}</b> — you're one step away.</p>` +
+        `<p>You picked ${when ? `<b>${when}</b>` : "a time"} for your ${appt} with <b>${biz}</b> — you're one step away.</p>` +
         `<p>The last step is your ${dep} deposit. It's 100% refundable: after your free consultation it goes toward your service, or you get it back in full.</p>` +
         button(v.link) +
         `<p>Until the deposit is in, that time is still open to other clients.</p>` +
@@ -83,10 +102,10 @@ export function pickEmail(step: 1 | 2, v: EmailVars): Email {
     };
   }
   return {
-    subject: when ? `Still want ${v.when}? Your permanent makeup appointment isn't booked yet` : "Your permanent makeup appointment isn't booked yet",
+    subject: when ? `Still want ${v.when}? Your ${appt} isn't booked yet` : `Your ${appt} isn't booked yet`,
     html: wrap(
       `<p>Hi ${first},</p>` +
-      `<p>Just checking in — your permanent makeup appointment with <b>${biz}</b>${when ? ` on <b>${when}</b>` : ""} isn't booked yet.</p>` +
+      `<p>Just checking in — your ${appt} with <b>${biz}</b>${when ? ` on <b>${when}</b>` : ""} isn't booked yet.</p>` +
       `<p>If you still want it, it takes about a minute. Your ${dep} deposit is 100% refundable.</p>` +
       button(v.link) +
       `<p>If that time doesn't work anymore, the same link lets you choose a different time.</p>` +
@@ -367,6 +386,7 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
         when: fmtWhen(slotIso),
         deposit: String(cfg.deposit ?? "").trim() || "$50",
         link: confirmLink(p.slug, p.contact_id),
+        service: serviceWords(String((latest.answers as Record<string, unknown> | null)?.area ?? "")),
       });
       if (dryRun) {
         res.preview!.push({ contactId: p.contact_id, slug: p.slug, step, to: email.replace(/^(.).*(@.*)$/, "$1…$2"), dueAt: sendAt.toISOString(), subject: msg.subject });
