@@ -485,6 +485,29 @@ const SALES_PIPELINE_ID = "YA9eFBz6BVKNN8381dbx";
 const STAGE_CLOSED_PAYING = "7b9d4113-8bbb-4394-a736-024dea2c11bb";
 const STAGE_PAY_PER_APPT = "867aa647-7ce0-48e1-90a9-c7d3674544c5";
 
+/* Owner 11/06: a deal at "First Cycle" or any later stage of the Client Journey
+   pipeline has gone live, whatever the sheet status says (Jennifer Montoya: a
+   blank duplicate row kept her "not LIVE"). A failed read returns false, so the
+   alert stays rather than clearing by mistake. */
+export async function wentLiveStageIds(tok: string): Promise<Set<string>> {
+  const r = await fetch(`${GHL}/opportunities/pipelines?locationId=${MAIN_LOC}`, { headers: ghlHeaders(tok, "2021-07-28") }).catch(() => null);
+  if (!r?.ok) return new Set();
+  const j = (await r.json()) as { pipelines?: Array<{ stages?: Array<{ id: string; name: string }> }> };
+  for (const p of j.pipelines ?? []) {
+    const stages = p.stages ?? [];
+    const at = stages.findIndex((t) => /first\s*cycle/i.test(t.name));
+    if (at >= 0) return new Set(stages.slice(at).map((t) => t.id));
+  }
+  return new Set();
+}
+export async function dealWentLive(contactId: string, tok: string, stageIds: Set<string>): Promise<boolean> {
+  if (!contactId || !stageIds.size) return false;
+  const r = await fetch(`${GHL}/opportunities/search?location_id=${MAIN_LOC}&contact_id=${encodeURIComponent(contactId)}&limit=20`, { headers: ghlHeaders(tok, "2021-07-28") }).catch(() => null);
+  if (!r?.ok) return false;
+  const j = (await r.json()) as { opportunities?: Array<{ pipelineStageId?: string }> };
+  return (j.opportunities ?? []).some((o) => stageIds.has(String(o.pipelineStageId)));
+}
+
 const nameNorm = (s: string) => s.toLowerCase().replace(/[^a-z]+/g, " ").trim();
 function nameMatches(a: string, b: string): boolean {
   const at = nameNorm(a).split(" ").filter((t) => t.length >= 2);
@@ -565,6 +588,8 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     .map((o) => String(o.form?.owner_name ?? "").trim()).filter(Boolean);
   const setupDone = (cname: string) => !!cname && liveOwners.some((o) => nameMatches(o, cname));
 
+  const liveStages = await wentLiveStageIds(tok);
+
   // 1. Overdue onboarding: confirmed launch call 3+ business days past, client not Live.
   let overdue = 0;
   const seenContacts = new Set<string>();
@@ -592,7 +617,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
       }
     } catch { /* fall back to the event title */ }
     const match = findClient(cname);
-    if (!isStuck(match) || setupDone(cname)) continue;
+    if (!isStuck(match) || setupDone(cname) || await dealWentLive(contactId, tok, liveStages)) continue;
     const ok = await fileAlert(svc, {
       type: "onboarding",
       title: `${cname}: not LIVE ${bd} business days after the launch call`,
@@ -670,6 +695,7 @@ export async function scanOnboardingPipeline(svc: Svc): Promise<{ overdue: numbe
     if (a.source_key.startsWith("launch-overdue:")) {
       if (setUp) toClose.push({ id: a.id, why: `status is ${client!.status}` });
       else if (setupDone(cname)) toClose.push({ id: a.id, why: "setup finished on the dashboard" });
+      else if (await dealWentLive(contactId, tok, liveStages)) toClose.push({ id: a.id, why: "deal reached First Cycle" });
     } else if (a.source_key.startsWith("launch-missing:")) {
       const hasCall = eventsTrusted && (
         (!!contactId && eventContactIds.has(contactId)) ||
