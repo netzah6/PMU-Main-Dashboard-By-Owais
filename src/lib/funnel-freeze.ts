@@ -169,7 +169,9 @@ export function fellWhy(issues: BriefIssue[] | null, peak: Peak, now: { l: numbe
   const reasons = [...strong, ...weak];
   let sure: FellWhy["sure"] = strong.length && !mayBeChance ? "likely" : "maybe";
   if (!strong.length && (has("pay_low") || has("no_deposits") || now.d === 0))
-    reasons.push("Leads pick a time but don't pay, and I found nothing broken. She may take deposits herself (Zelle, cash). Ask her, and test the pay page.");
+    /* No guesses here (owner, 11/05/2026): the chats of two such clients showed no
+       deposits taken outside the page, so the note says what is known and stops. */
+    reasons.push("Leads pick a time but don't pay. I found nothing broken, and I don't know why yet. Test the pay page as a lead and read a few of their chats.");
   if (!reasons.length) {
     sure = "chance";
     reasons.push("I found nothing wrong. The numbers are small, so this can be chance. Watch it 2 more weeks before changing anything.");
