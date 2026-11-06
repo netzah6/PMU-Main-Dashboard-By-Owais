@@ -248,7 +248,7 @@ function prereqsMet(ob: Ob, s: RunbookStep): boolean {
     case "last_check": return done(ob, "funnel_live") && done(ob, "last_profile") && done(ob, "user_settings");
     // Runs only after a person clicked Approve on the card (confirm step).
     case "first_cycle": return done(ob, "funnel_test") && !!stepState(ob.setup, "first_cycle").confirmed_by;
-    case "status_live": return done(ob, "first_cycle") && ["fb_bm", "fb_campaign", "fb_adset", "fb_ad", "fb_publish", "fb_group"].every((k) => done(ob, k));
+    case "status_live": return done(ob, "first_cycle") && ["fb_bm", "fb_campaign", "fb_adset", "fb_ad", "fb_publish"].every((k) => done(ob, k));
     default: return false;
   }
 }
