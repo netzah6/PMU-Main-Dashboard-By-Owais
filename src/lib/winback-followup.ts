@@ -145,6 +145,8 @@ export async function runFollowup(acct: PmuAccount, opts: { dryRun?: boolean; un
       const res = await sendConversationMessage(acct, { contactId: v.person.contactId, message: v.person.text, channel: "SMS" });
       if (!res.ok) { failed.push({ name: r.owner_name, error: res.error ?? "Send failed" }); return; }
       sent++;
+      // Stamp it so the 🔁 tracker shows who got which follow-up, and when.
+      await svc.from("winback_contacts").update({ followup_sent_at: new Date().toISOString(), followup_kind: v.person.kind, followup_until: v.person.kind === "price" ? until : null }).eq("sheet_row", r.sheet_row);
     }
     people.push(v.person);
   };
