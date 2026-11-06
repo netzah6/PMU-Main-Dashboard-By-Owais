@@ -771,7 +771,8 @@ export async function scanAgreementMissing(svc: Svc): Promise<{ seeded: number; 
 
 /* Live client with no expected payment date on the Financing sheet's latest
    month tab (owner, 11/02): no DAY OF PAYMENT, or no row at all. PPS/PPA
-   clients pay per show, so they never need one. One alert per client; it
+   clients pay per show, so they never need one; "Need More Bookings" clients
+   aren't charged until they get more bookings. One alert per client; it
    clears itself once a date is filled in or the client stops being Live.
    Names differ between the two sheets ("Ah Ra Cho (Estee Cho)", "Erin
    Heidecke 30%", "Martin Aba / Alise Herrera"), so every alias on either
@@ -835,6 +836,8 @@ export async function scanLiveNoPayDate(svc: Svc): Promise<{ live: number; filed
   for (const c of live) {
     const row = findRow(c.owner, c.business);
     if (row && /pps|ppa/i.test(String(row.payment_status ?? ""))) continue;
+    // Owner 11/06: we get them more bookings first, then charge again.
+    if (row && /need more bookings/i.test(String(row.payment_status ?? ""))) continue;
     if (row && hasPayDate(row.pay_day)) continue;
     const key = `pay-date:${normalizeOwnerKey(c.owner)}`;
     flagged.add(key);
@@ -855,7 +858,7 @@ export async function scanLiveNoPayDate(svc: Svc): Promise<{ live: number; filed
   const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "pay_date").eq("status", "open");
   const toClose = (open ?? []).filter((o) => !flagged.has(o.source_key)).map((o) => o.id);
   if (toClose.length) {
-    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (payment date filled / not Live)", resolved_at: new Date().toISOString() }).in("id", toClose);
+    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (payment date filled / no date needed / not Live)", resolved_at: new Date().toISOString() }).in("id", toClose);
   }
   return { live: live.length, filed, resolved: toClose.length };
 }
