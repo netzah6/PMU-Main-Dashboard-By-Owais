@@ -386,6 +386,10 @@ export async function onIgEngageClosed(svc: Svc, p: { id: string; status: string
     await textOwner(svc, `📸 Instagram engagement switched OFF: Instagram showed a warning on the Mac Mini (${p.summary.slice(0, 100)}). Nothing more will run until you turn it back on in the Instagram tab — wait a few days first.`).catch(() => null);
   }
   const t = now();
+  /* Owner 11/01 and again 11/06/2026: "approve them yourself, you don't need
+     to ask me". With approval off, a comment idea the Mini brought back
+     without posting is approved on arrival — the next visit posts it. */
+  const autoApprove = !(await getSettings(svc)).approveComments;
   const actions: Array<Record<string, unknown>> = [];
   for (const c of rep.clients ?? []) {
     const username = usernameFromLink(c.username);
@@ -414,10 +418,13 @@ export async function onIgEngageClosed(svc: Svc, p: { id: string; status: string
     if (c.comment_posted?.text) actions.push({ username, kind: "comment", text: String(c.comment_posted.text).slice(0, 500), post_url: c.comment_posted.post_url ?? null, status: "done", task_id: p.id, done_at: t });
     // A fresh comment idea replaces the client's older one nobody decided on.
     if (c.draft?.text && !blocked) await svc.from("ig_engage_actions").update({ status: "skipped", note: "replaced by a newer idea", decided_at: t }).eq("username", username).eq("status", "draft");
-    if (c.draft?.text && !blocked) actions.push({ username, kind: "comment", text: String(c.draft.text).slice(0, 500), post_url: c.draft.post_url ?? null, context: c.draft.context ? String(c.draft.context).slice(0, 300) : null, status: "draft", task_id: p.id });
+    if (c.draft?.text && !blocked) actions.push({ username, kind: "comment", text: String(c.draft.text).slice(0, 500), post_url: c.draft.post_url ?? null, context: c.draft.context ? String(c.draft.context).slice(0, 300) : null, task_id: p.id,
+      ...(autoApprove ? { status: "approved", decided_at: t, decided_by: "auto (owner: no approval needed)" } : { status: "draft" }) });
     for (const id of c.posted ?? []) {
       await svc.from("ig_engage_actions").update({ status: "done", done_at: t, task_id: p.id }).eq("id", id).eq("status", "approved");
     }
+    // One waiting comment per client: the new idea replaces an approved one that never got posted.
+    if (autoApprove && c.draft?.text && !blocked) await svc.from("ig_engage_actions").update({ status: "skipped", note: "replaced by a newer idea", decided_at: t }).eq("username", username).eq("status", "approved");
   }
   if (actions.length) await svc.from("ig_engage_actions").insert(actions);
 
