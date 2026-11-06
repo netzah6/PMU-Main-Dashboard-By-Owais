@@ -102,7 +102,7 @@ export function pickEmail(step: 1 | 2, v: EmailVars): Email {
     };
   }
   return {
-    subject: when ? `Still want ${v.when}? Your permanent makeup appointment isn't booked yet` : "Your permanent makeup appointment isn't booked yet",
+    subject: when ? `Still want ${v.when}? Your ${appt} isn't booked yet` : `Your ${appt} isn't booked yet`,
     html: wrap(
       `<p>Hi ${first},</p>` +
       `<p>Just checking in — your ${appt} with <b>${biz}</b>${when ? ` on <b>${when}</b>` : ""} isn't booked yet.</p>` +
