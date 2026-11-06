@@ -293,7 +293,14 @@ export default function OnboardingPage() {
               {/* The setup run puts its account line here (Clean New Account N → business · GHL · funnel). */}
               <span id="setup-meta-slot" /></span></h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Progress on the first line, as a percent (owner 11/06/2026) — no box of its own, less scrolling. */}
+            <div className="flex items-center gap-2 mr-1" title={`${pr.done} of ${pr.total} steps done`}>
+              <div className="h-2.5 w-28 sm:w-40 rounded-full bg-[#e9eef4] overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: pct === 100 ? "#15803d" : "#15B7AE" }} />
+              </div>
+              <span className="text-sm font-bold tabular-nums" style={{ color: pct === 100 ? "#15803d" : "#0e8f88" }}>{pct}%</span>
+            </div>
             <button onClick={() => runVerify(open.id)} disabled={verifying}
               title="Auto-check the funnel, payment and account setup"
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#4f46e5] hover:bg-[#4338ca] text-white disabled:opacity-50">
@@ -314,17 +321,6 @@ export default function OnboardingPage() {
             )}
             <button onClick={() => remove(open)} title="Delete onboarding"
               className="p-2 rounded-lg text-[#94a3b8] hover:text-[#e11d48] hover:bg-[#fde8ee]"><Trash2 size={15} /></button>
-          </div>
-        </div>
-
-        {/* Progress */}
-        <div className="rounded-xl border border-[#e4ebf2] bg-white p-3">
-          <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="font-semibold text-[#34568a]">{pr.done} of {pr.total} steps done</span>
-            <span className="font-bold text-[#0e8f88]">{pct}%</span>
-          </div>
-          <div className="h-2.5 rounded-full bg-[#f1f5f9] overflow-hidden">
-            <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: pct === 100 ? "#15803d" : "#15B7AE" }} />
           </div>
         </div>
 
