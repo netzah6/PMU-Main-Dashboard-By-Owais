@@ -313,6 +313,12 @@ function buildSystemPrompt(input: DraftInput): string {
         ]
       : []),
     "OUTPUT RULES:",
+    // Owner, 11/06/2026 (a client's voice note): the draft opened with the
+    // model's own reasoning ("the message is a voice note — we can't hear
+    // it… the right move is…"). The message goes inside <reply> tags and
+    // only that part is kept (see replyOnly).
+    "- Put the message inside <reply></reply> tags and write NOTHING outside them — no analysis, no explanation of your choices, no comment about the chat or about earlier messages.",
+    '- A client message shown as "[voice note]" is audio you cannot hear. Never guess what she said and never explain that you cannot hear it to yourself: write a short, warm reply that you got her voice note and ask her to type it out (or say what it is about), and stop there.',
     "- Return ONLY the message text to send. No preamble, no quotes, no notes. A signature (first name on the last line) ONLY when the client signed theirs (rule 3) — never because past replies had one.",
     "- Reply in the same language the client is using.",
     "- Match the client's level of formality and warmth.",
@@ -350,6 +356,16 @@ function buildUserPrompt(input: DraftInput): string {
   ].join("\n");
 }
 
+/* Keeps only the message: the part inside <reply>…</reply>. If the model
+   left the tags out, the whole text is the message (as before); a cut-off
+   closing tag still counts. */
+export function replyOnly(raw: string): string {
+  const closed = /<reply>([\s\S]*?)<\/reply>/i.exec(raw);
+  if (closed) return closed[1].trim();
+  const open = /<reply>([\s\S]*)$/i.exec(raw);
+  return (open ? open[1] : raw).replace(/<\/?reply>/gi, "").trim();
+}
+
 export type DraftResult = { draft: string; model: string };
 
 export async function generateDraft(input: DraftInput): Promise<DraftResult> {
@@ -369,11 +385,10 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
       system,
       messages: [{ role: "user", content: photos.length ? [{ type: "text", text }, ...photos] : text }],
     });
-    return msg.content
+    return replyOnly(msg.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
-      .join("")
-      .trim();
+      .join(""));
   };
 
   let draft = await ask();
