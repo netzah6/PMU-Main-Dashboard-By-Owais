@@ -214,6 +214,8 @@ export function SetupRunPanel({ onboardingId, role, form, onChanged }: {
      need a person — failed or amber (owner 11/03/2026). */
   const steps = useMemo(() => RUNBOOK.filter((s) => {
     if (s.later || (s.v3Only && !/v3/i.test(String(form.version ?? "")))) return false;
+    // Added 11/06/2026: not asked on a client who was already through to Live.
+    if (s.key === "fb_group" && !setup?.steps?.fb_group && ["done", "warn", "skipped"].includes(setup?.steps?.status_live?.status ?? "")) return false;
     if (!s.hidden) return true;
     const status = setup?.steps?.[s.key]?.status ?? "";
     // A failed step inside a row shows in that row, with its Retry.

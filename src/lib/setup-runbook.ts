@@ -115,6 +115,8 @@ export const RUNBOOK: RunbookStep[] = [
     links: [{ label: "Loom", url: "https://www.loom.com/share/354328b7939a496ab06ff8b6eec22ecc" }, { label: "Videos folder", url: "https://drive.google.com/drive/folders/1SijOuN58F4upfSIGfVbYUXn6mOQ17wGB?usp=drive_link" }, { label: "Ad copy doc", url: "https://docs.google.com/document/d/11h3ob6JleKekycZuIDvkAyY--lz7F869V5Um6rlBsak/edit?usp=sharing" }, { label: "Headlines doc", url: "https://docs.google.com/document/d/154yZyumlQVKoHwwTk4XtZFzCn_JyUDa0pdycJRRerUo/edit?usp=sharing" }] },
   { n: 40, key: "fb_publish", hidden: true, partOf: "fb_ad", section: "J · 📣 Facebook", who: "owner", label: "Publish and turn the campaign on", checklist: ["fb_ad_publish", "last_publish"] },
   { n: 41, key: "client_connect", section: "J · 📣 Facebook", who: "client", label: "Help the client connect their Facebook page and Instagram to the sub-account", checklist: ["last_connect"] },
+  // Owner 11/06/2026: by hand, and Live waits for it.
+  { n: 48, key: "fb_group", section: "J · 📣 Facebook", who: "team", label: "Invite the client to join our Facebook group, if they haven't joined yet", checklist: ["last_fb_group"] },
   // Owner 11/06/2026: the very last step, after the Facebook campaign — the
   // dashboard marks the client Live by itself; nobody types it in the sheet.
   { n: 47, key: "status_live", afterRun: true, section: "J · 📣 Facebook", who: "api", label: "Set the client's status to \"Live\" on the dashboard", how: "Runs by itself once the Facebook campaign is published (the Facebook steps above are marked completed) and the deal is in First Cycle. The Clients tab and every report then show the client as Live; the Google Sheet row gets the same status." },
@@ -133,7 +135,7 @@ const STEP_TITLES: Record<string, string> = {
   funnel_create: "Set up the one-box funnel", funnel_pixel: "Meta pixel", funnel_ig: "Instagram grid", funnel_reviews: "Google reviews", funnel_redirect: "Old funnel redirect",
   closebot_connect: "Connect to CloseBot", funnel_test: "Test the funnel", funnel_live: "Check values & go live",
   last_profile: "Final check, real test", last_check: "Account & funnel re-check", first_cycle: "Move to First Cycle", status_live: "Status → Live", later_hours: "Update hours later",
-  fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad & publish", fb_publish: "Publish the campaign", client_connect: "Help our client to connect their FB & IG",
+  fb_bm: "Business Manager", cnam_check: "CNAM approved", fb_campaign: "Campaign", fb_adset: "Ad set", fb_ad: "Ad & publish", fb_publish: "Publish the campaign", fb_group: "Invite to our Facebook group", client_connect: "Help our client to connect their FB & IG",
 };
 for (const s of RUNBOOK) s.title = STEP_TITLES[s.key];
 
