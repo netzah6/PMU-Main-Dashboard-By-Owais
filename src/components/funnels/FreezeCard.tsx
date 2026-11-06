@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
 import { laMonth, pct, monthLabel, peakLabel, type BoardRow } from "@/lib/funnel-freeze";
 import { changeText, goBackWhy } from "@/lib/funnel-timeline-view";
-import { CAUSE_GROUP_LABEL, FINE_ANSWER, type Cause, type CauseState, type FellWhy } from "@/lib/fell-causes";
+import { FINE_ANSWER, type Cause, type CauseState, type FellWhy } from "@/lib/fell-causes";
 import { ChevronDown, ExternalLink, Loader2 } from "lucide-react";
 
 /* One funnel on the Freeze screen (src/app/(dashboard)/funnels/freeze/page.tsx).
@@ -121,24 +121,25 @@ export type FreezeCardProps = {
 
 const SMALL_BUTTON = "inline-flex items-center gap-1 text-xs font-semibold rounded-lg border px-2.5 py-1 disabled:opacity-60";
 
-const WHY_LABEL: Record<FellWhy["sure"], string> = { likely: "Likely", maybe: "Not sure", chance: "May be chance", unknown: "Not known yet" };
+const WHY_LABEL: Record<FellWhy["sure"], string> = { likely: "Likely", maybe: "Not sure", chance: "", unknown: "" };
 
 /* Every possible cause of a fall (owner, 11/05/2026: "anything that you have in mind,
-   list it there"), closed until asked for so the card stays short. What was found and
-   what is possible open first; the long "can't check" and "fine" parts stay folded. */
+   list it there"), as a few words each (owner, 11/06/2026: "too much text... short,
+   right to the point"). The full sentence opens when a line is clicked. What was found
+   and what is possible open first; the long "can't check" and "fine" parts stay folded. */
 const CAUSE_SECTIONS: { state: CauseState; label: string; open: boolean }[] = [
   { state: "found", label: "⚠ Found", open: true },
-  { state: "maybe", label: "👀 Possible, not proven", open: true },
-  { state: "unknown", label: "❓ Can't check from here: who to ask", open: false },
-  { state: "fine", label: "✓ Checked, looks fine", open: false },
+  { state: "maybe", label: "👀 Possible", open: true },
+  { state: "unknown", label: "❓ Can't check", open: false },
+  { state: "fine", label: "✓ Fine", open: false },
 ];
 
 function CauseList({ causes }: { causes: Cause[] }) {
   const count = (s: CauseState) => causes.filter((c) => c.state === s).length;
   return (
-    <details className="mt-1.5">
+    <details className="mt-1">
       <summary className="cursor-pointer select-none font-semibold text-[#0b7a7a] hover:underline">
-        Everything that could cause this ({causes.length}): {count("found")} found, {count("maybe")} possible, {count("unknown")} can&apos;t check, {count("fine")} look fine
+        All {causes.length} possible causes: {count("found")} found · {count("maybe")} possible · {count("unknown")} can&apos;t check · {count("fine")} fine
       </summary>
       <div className="mt-1.5 space-y-1.5">
         {CAUSE_SECTIONS.map((sec) => {
@@ -147,13 +148,17 @@ function CauseList({ causes }: { causes: Cause[] }) {
           return (
             <details key={sec.state} open={sec.open} className="rounded-md border border-[#f1dcc0] bg-white px-2 py-1">
               <summary className="cursor-pointer select-none font-bold">{sec.label} ({list.length})</summary>
-              <ul className="mt-1 space-y-1.5">
+              <ul className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
                 {list.map((c) => (
-                  <li key={c.id} className="leading-snug">
-                    <span className="mr-1 whitespace-nowrap rounded border border-[#e4ebf2] bg-[#f6f9fc] px-1 text-[10px] font-semibold text-[#697a91]">{CAUSE_GROUP_LABEL[c.group]}</span>
-                    {/* A cause that wasn't found reads as a question, so its title can't pass for a finding. */}
-                    <span className="font-semibold">{c.title}{c.state === "unknown" || c.state === "fine" ? "?" : "."}</span>{" "}
-                    <span className="text-[#34568a]">{c.state === "fine" ? `${c.answer ?? FINE_ANSWER} ` : ""}{c.text}</span>
+                  <li key={c.id} className="min-w-0 leading-snug">
+                    <details>
+                      <summary className="cursor-pointer py-1 marker:text-[#b6c2d0] sm:py-0">{c.short}</summary>
+                      {/* A cause that wasn't found reads as a question, so its title can't pass for a finding. */}
+                      <p className="mb-1 ml-3.5 break-words text-[11px] text-[#34568a]">
+                        <span className="font-semibold">{c.title}{c.state === "unknown" || c.state === "fine" ? "?" : "."}</span>{" "}
+                        {c.state === "fine" ? `${c.answer ?? FINE_ANSWER} ` : ""}{c.text}
+                      </p>
+                    </details>
                   </li>
                 ))}
               </ul>
@@ -237,12 +242,14 @@ export function FreezeCard({ r, engine, top, busy, note, openNow, openSaved, con
       )}
       {r.fell && r.fellWhy && (
         <div className="mt-1.5 rounded-lg border border-[#f0c48a] bg-[#fffaf3] px-2.5 py-1.5 text-xs text-[#1f3559]">
+          {/* One short line. The badge only shows when something was found: "Not known yet" needs none. */}
           <p>
-            <span className="font-bold">💡 Why I think it fell</span>
-            <span className={cn("ml-1.5 rounded-full border px-1.5 py-px text-[10px] font-bold", r.fellWhy.sure === "likely" ? "border-[#f0c48a] bg-white text-[#b45309]" : "border-[#d7e0ea] bg-white text-[#697a91]")}>
-              {WHY_LABEL[r.fellWhy.sure]}
-            </span>
-            <span className="block mt-0.5">{r.fellWhy.text}</span>
+            <span className="font-bold">💡 Why it fell:</span> {r.fellWhy.text}{" "}
+            {WHY_LABEL[r.fellWhy.sure] && (
+              <span className={cn("whitespace-nowrap rounded-full border px-1.5 py-px text-[10px] font-bold", r.fellWhy.sure === "likely" ? "border-[#f0c48a] bg-white text-[#b45309]" : "border-[#d7e0ea] bg-white text-[#697a91]")}>
+                {WHY_LABEL[r.fellWhy.sure]}
+              </span>
+            )}
           </p>
           {r.fellCauses.length > 0 && <CauseList causes={r.fellCauses} />}
         </div>
