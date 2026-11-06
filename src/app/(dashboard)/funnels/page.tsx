@@ -2498,8 +2498,9 @@ export default function FunnelsPage() {
                   {busy === `intakeLink:${f.slug}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null} 📩 Info-request link
                 </button>
                 )}
-                {/* Coaches publish their own onboardings — Go live is not admin-gated. */}
-                {canEdit && (
+                {/* Coaches publish their own onboardings — Go live is not admin-gated.
+                    No Pause (owner, 11/06/2026): a funnel that exists stays live. */}
+                {canEdit && f.status !== "live" && (
                 <button onClick={() => void (async () => {
                     const goingLive = f.status !== "live";
                     /* Going live locks in the program picked in Start Setup
@@ -2525,9 +2526,8 @@ export default function FunnelsPage() {
                       setToast("Live ✓ — but no Clients-sheet row matches this client, so the program can't be saved there");
                   })()}
                   disabled={busy === `status:${f.slug}` || busy === `cvs:${f.slug}` || progBusy === f.slug}
-                  className={cn("text-xs rounded-lg px-2.5 py-1 border font-medium",
-                    f.status === "live" ? "border-[#fdba74] text-[#c2410c] hover:bg-[#fff3e6]" : "ob-golive border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]")}>
-                  {f.status === "live" ? "Pause" : "Go live"}
+                  className="text-xs rounded-lg px-2.5 py-1 border font-medium ob-golive border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] hover:bg-[#d6f0df]">
+                  Go live
                 </button>
                 )}
                 {/* Hard delete — admin only, never on a live funnel (ads may
