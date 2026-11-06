@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
 import { laMonth, pct, monthLabel, peakLabel, type BoardRow } from "@/lib/funnel-freeze";
 import { changeText, goBackWhy } from "@/lib/funnel-timeline-view";
+import { CAUSE_GROUP_LABEL, FINE_ANSWER, type Cause, type CauseState, type FellWhy } from "@/lib/fell-causes";
 import { ChevronDown, ExternalLink, Loader2 } from "lucide-react";
 
 /* One funnel on the Freeze screen (src/app/(dashboard)/funnels/freeze/page.tsx).
@@ -120,6 +121,50 @@ export type FreezeCardProps = {
 
 const SMALL_BUTTON = "inline-flex items-center gap-1 text-xs font-semibold rounded-lg border px-2.5 py-1 disabled:opacity-60";
 
+const WHY_LABEL: Record<FellWhy["sure"], string> = { likely: "Likely", maybe: "Not sure", chance: "May be chance", unknown: "Not known yet" };
+
+/* Every possible cause of a fall (owner, 11/05/2026: "anything that you have in mind,
+   list it there"), closed until asked for so the card stays short. What was found and
+   what is possible open first; the long "can't check" and "fine" parts stay folded. */
+const CAUSE_SECTIONS: { state: CauseState; label: string; open: boolean }[] = [
+  { state: "found", label: "⚠ Found", open: true },
+  { state: "maybe", label: "👀 Possible, not proven", open: true },
+  { state: "unknown", label: "❓ Can't check from here: who to ask", open: false },
+  { state: "fine", label: "✓ Checked, looks fine", open: false },
+];
+
+function CauseList({ causes }: { causes: Cause[] }) {
+  const count = (s: CauseState) => causes.filter((c) => c.state === s).length;
+  return (
+    <details className="mt-1.5">
+      <summary className="cursor-pointer select-none font-semibold text-[#0b7a7a] hover:underline">
+        Everything that could cause this ({causes.length}): {count("found")} found, {count("maybe")} possible, {count("unknown")} can&apos;t check, {count("fine")} look fine
+      </summary>
+      <div className="mt-1.5 space-y-1.5">
+        {CAUSE_SECTIONS.map((sec) => {
+          const list = causes.filter((c) => c.state === sec.state);
+          if (!list.length) return null;
+          return (
+            <details key={sec.state} open={sec.open} className="rounded-md border border-[#f1dcc0] bg-white px-2 py-1">
+              <summary className="cursor-pointer select-none font-bold">{sec.label} ({list.length})</summary>
+              <ul className="mt-1 space-y-1.5">
+                {list.map((c) => (
+                  <li key={c.id} className="leading-snug">
+                    <span className="mr-1 whitespace-nowrap rounded border border-[#e4ebf2] bg-[#f6f9fc] px-1 text-[10px] font-semibold text-[#697a91]">{CAUSE_GROUP_LABEL[c.group]}</span>
+                    {/* A cause that wasn't found reads as a question, so its title can't pass for a finding. */}
+                    <span className="font-semibold">{c.title}{c.state === "unknown" || c.state === "fine" ? "?" : "."}</span>{" "}
+                    <span className="text-[#34568a]">{c.state === "fine" ? `${c.answer ?? FINE_ANSWER} ` : ""}{c.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
 export function FreezeCard({ r, engine, top, busy, note, openNow, openSaved, confirmBack, stamp, rev, onAct, onGoBack, onToggle, onConfirmBack }: FreezeCardProps) {
   const suggested = isSuggested(r);
   const v1Label = r.version.replace(/[()]/g, "").trim().toUpperCase() === "V1";
@@ -191,16 +236,19 @@ export function FreezeCard({ r, engine, top, busy, note, openNow, openSaved, con
         </div>
       )}
       {r.fell && r.fellWhy && (
-        <p className="mt-1.5 rounded-lg border border-[#f0c48a] bg-[#fffaf3] px-2.5 py-1.5 text-xs text-[#1f3559]">
-          <span className="font-bold">💡 Why I think it fell</span>
-          <span className={cn("ml-1.5 rounded-full border px-1.5 py-px text-[10px] font-bold", r.fellWhy.sure === "likely" ? "border-[#f0c48a] bg-white text-[#b45309]" : "border-[#d7e0ea] bg-white text-[#697a91]")}>
-            {r.fellWhy.sure === "likely" ? "Likely" : r.fellWhy.sure === "maybe" ? "Not sure" : "May be chance"}
-          </span>
-          <span className="block mt-0.5">{r.fellWhy.text}</span>
-        </p>
+        <div className="mt-1.5 rounded-lg border border-[#f0c48a] bg-[#fffaf3] px-2.5 py-1.5 text-xs text-[#1f3559]">
+          <p>
+            <span className="font-bold">💡 Why I think it fell</span>
+            <span className={cn("ml-1.5 rounded-full border px-1.5 py-px text-[10px] font-bold", r.fellWhy.sure === "likely" ? "border-[#f0c48a] bg-white text-[#b45309]" : "border-[#d7e0ea] bg-white text-[#697a91]")}>
+              {WHY_LABEL[r.fellWhy.sure]}
+            </span>
+            <span className="block mt-0.5">{r.fellWhy.text}</span>
+          </p>
+          {r.fellCauses.length > 0 && <CauseList causes={r.fellCauses} />}
+        </div>
       )}
-      {/* The note above already opens with the first ad warning. */}
-      {r.fell && r.fellHints.slice(r.fellWhy ? 1 : 0).map((h) => <p key={h} className="mt-1 text-xs text-[#b45309]">⚠ {h}</p>)}
+      {/* Without the list, the ad warnings still show; with it, they are lines in the list. */}
+      {r.fell && r.fellCauses.length === 0 && r.fellHints.map((h) => <p key={h} className="mt-1 text-xs text-[#b45309]">⚠ {h}</p>)}
       {r.fell && v1Label && <p className="mt-1 text-xs text-[#b45309]">⚠ The label is (V1), so this page has no calendar or deposit step. If that&apos;s a mistake, fix the label.</p>}
       {r.peakPage && !r.peakPage.sameAsNow && openSaved === "peak" && <PagePreviews row={r} stamp={stamp} rev={0} saved={r.peakPage} />}
 

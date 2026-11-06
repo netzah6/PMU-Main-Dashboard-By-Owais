@@ -69,7 +69,7 @@ returns table (
   frozen_engine integer, frozen_at timestamptz,
   business text, owner_name text, client_status text, months jsonb,
   before_leads integer, before_deposits integer, leads30 integer, deposits30 integer,
-  picks30 integer, page_leads30 integer, last_lead date
+  picks30 integer, page_leads30 integer, last_lead date, last_deposit date
 )
 language sql stable set search_path = public as $$
   with today as (
@@ -135,7 +135,8 @@ language sql stable set search_path = public as $$
   ), ds as (
     select k,
       count(*) filter (where d < date '2026-08-24')::int before_deposits,
-      count(*) filter (where d > (select d from today) - 30)::int deposits30
+      count(*) filter (where d > (select d from today) - 30)::int deposits30,
+      max(d) last_deposit
     from df group by 1
   ), pk as (
     select ol.slug,
@@ -152,7 +153,7 @@ language sql stable set search_path = public as $$
     oc.frozen_engine, oc.frozen_at,
     cm.biz, cm.owner_name, cm.st, coalesce(mj.months, '{}'::jsonb),
     coalesce(ls.before_leads, 0), coalesce(ds.before_deposits, 0), coalesce(ls.leads30, 0), coalesce(ds.deposits30, 0),
-    coalesce(pk.picks30, 0), coalesce(pk.page_leads30, 0), ls.last_lead
+    coalesce(pk.picks30, 0), coalesce(pk.page_leads30, 0), ls.last_lead, ds.last_deposit
   from onebox_clients oc
   left join alias al on al.a = freeze_norm(oc.client_name)
   left join cm on cm.k = al.k
