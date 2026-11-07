@@ -104,8 +104,36 @@ export async function resolvePaidAlerts(svc: Svc): Promise<number> {
   return resolved;
 }
 
-export async function healPaidTags(svc: Svc): Promise<{ checked: number; healed: string[]; notFound: string[]; errors: string[] }> {
-  const healed: string[] = [], notFound: string[] = [], errors: string[] = [];
+/* Paid but never booked (owner, 11/07/2026): the one-box creates the GHL
+   appointment from the BROWSER, the moment the checkout reports the deposit
+   cleared (OB_ONPAID). When that callback never runs — tab closed, wallet
+   redirect, checkout script hiccup — the payment still reaches GHL through
+   the Fanbasis webhook (tag "fanbasis buyer"), but no appointment exists, so
+   the artist gets no notification and the lead no confirmation or reminders
+   (first seen on a Shape-and-Shade lead who picked 11/16 10 AM). Server-side
+   fallback: a paid contact whose one-box lead holds a picked time with no
+   appointment gets booked through the same /api/onebox/book call the browser
+   makes, so every automation fires exactly as it should have. */
+async function bookPaidNotBooked(svc: Svc, origin: string | undefined, contactId: string): Promise<string | null> {
+  if (!origin) return null;
+  const { data: lead } = await svc.from("onebox_leads")
+    .select("slug, full_name, phone, answers, slot_iso, ghl_status")
+    .eq("ghl_contact_id", contactId).not("slot_iso", "is", null).is("ghl_appointment_id", null)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const l = lead as { slug: string; full_name: string | null; phone: string | null; answers: { email?: string; tz?: string } | null; slot_iso: string; ghl_status: string | null } | null;
+  if (!l || l.ghl_status === "booked" || !l.full_name || !l.phone) return null;
+  if (Date.parse(l.slot_iso) < Date.now()) return null; // her time already passed; nothing sensible to book
+  const r = await fetch(`${origin}/api/onebox/book`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug: l.slug, full_name: l.full_name, phone: l.phone, email: l.answers?.email ?? "", startTime: l.slot_iso, ...(l.answers?.tz ? { tz: l.answers.tz } : {}) }),
+  });
+  const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!j.ok) throw new Error(`book: ${j.error ?? r.status}`);
+  return l.slot_iso;
+}
+
+export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked: number; healed: string[]; notFound: string[]; booked: string[]; errors: string[] }> {
+  const healed: string[] = [], notFound: string[] = [], booked: string[] = [], errors: string[] = [];
   const since = new Date(Date.now() - 48 * 3600_000).toISOString();
   const { data: rows } = await svc.from("deposits").select("data, synced_at").gte("synced_at", since);
   const recentDay = Date.now() - 3 * 86_400_000;
@@ -115,7 +143,7 @@ export async function healPaidTags(svc: Svc): Promise<{ checked: number; healed:
     && !/demo/i.test(String(r.data["Business Name"] ?? ""))
     && !/^router\.test/i.test(String(r.data["Email"] ?? "")) // the setup run's own test payment
     && String(r.data["Email"] ?? "").includes("@"));
-  if (!deps.length) return { checked: 0, healed, notFound, errors };
+  if (!deps.length) return { checked: 0, healed, notFound, booked, errors };
 
   const { data: ob } = await svc.from("onebox_clients").select("location_id, client_name");
   const locByBiz = new Map(((ob ?? []) as Array<{ location_id: string; client_name: string }>).map((o) => [normBiz(o.client_name), o.location_id]));
@@ -155,7 +183,26 @@ export async function healPaidTags(svc: Svc): Promise<{ checked: number; healed:
         continue;
       }
       const c = t.contact;
-      if (t.kind === "ok") { await svc.from("paid_tag_checks").upsert({ key, location_id: loc, contact_id: c.id, result: "ok", checked_at: new Date().toISOString() }); continue; }
+      // Paid (already, or healed below) but the browser never created her
+      // appointment → book it now, server-side. Once per payment, like the tag.
+      const bookNow = async () => {
+        try {
+          const slot = await bookPaidNotBooked(svc, origin, c.id);
+          if (!slot) return;
+          booked.push(`${name} (${biz})`);
+          await fileOrAppendAlert(svc, {
+            type: "paid_not_synced", severity: "medium",
+            title: `${name} paid ${biz} but her appointment was never created — booked automatically`,
+            detail: `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} cleared, but the booking call from her browser never ran, so GHL had no appointment (no artist notification, no confirmation or reminders). The time she picked (${new Date(slot).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC) is now booked and confirmed, so every automation fires. Resolve this once checked.`,
+            source_key: `paid-booked:${key}`, meta: { location_id: loc, contact_id: c.id, link: ghlContactUrl(loc, c.id) },
+          });
+        } catch (e) { errors.push(`${biz}: ${e instanceof Error ? e.message.slice(0, 100) : "book error"}`); }
+      };
+      if (t.kind === "ok") {
+        await svc.from("paid_tag_checks").upsert({ key, location_id: loc, contact_id: c.id, result: "ok", checked_at: new Date().toISOString() });
+        await bookNow();
+        continue;
+      }
       const tg = await fetch(`${GHL}/contacts/${c.id}/tags`, { method: "POST", headers: H, body: JSON.stringify({ tags: ["fanbasis buyer"] }) });
       if (!tg.ok) { errors.push(`${biz}: tag HTTP ${tg.status}`); continue; }
       await svc.from("paid_tag_checks").upsert({ key, location_id: loc, contact_id: c.id, result: "healed", checked_at: new Date().toISOString() });
@@ -168,9 +215,10 @@ export async function healPaidTags(svc: Svc): Promise<{ checked: number; healed:
           : `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} reached the Deposits sheet but not her GHL contact. The "fanbasis buyer" tag was added, so the paid-deposit workflow now confirms her appointment. Resolve this once checked.`,
         source_key: `paid-healed:${key}`, meta: { location_id: loc, contact_id: c.id, link: ghlContactUrl(loc, c.id) },
       });
+      await bookNow();
     } catch (e) {
       errors.push(`${biz}: ${e instanceof Error ? e.message.slice(0, 100) : "error"}`);
     }
   }
-  return { checked, healed, notFound, errors };
+  return { checked, healed, notFound, booked, errors };
 }
