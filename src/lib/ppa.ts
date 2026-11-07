@@ -145,76 +145,92 @@ function parseGhlTime(v: unknown): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-// Pull calendar appointments into ghl_appointments (via the per-contact
-// endpoint — the only calendar endpoint the app token can read).
-// Covers deposit leads AND every lead with an opportunity since June — an
-// artist who books a no-deposit lead on her GHL calendar is billable, and
-// without the wider pull those appointments were invisible.
+// Pull calendar appointments into ghl_appointments, one calendar at a time.
+//
+// History: this used to walk every deposit lead AND every opportunity contact
+// since June through GHL's per-contact appointments endpoint — 11,000+ calls
+// per run. The cron has a 5-minute budget, so each run died part-way, always
+// in the same order, and the clients at the tail (Sima: last synced 08/14)
+// never got their appointments. Paid leads then sat in "No appt" and were
+// never billed. The calendar events endpoint returns every appointment on a
+// calendar for a date window (~80 calls for the whole roster), so the pull is
+// complete in well under a minute and finds appointments even for leads whose
+// deposit row never matched a contact.
 // Optionally scope to specific clients (drill-down refresh); otherwise all.
-const LEAD_APPTS_SINCE = "2026-06-01";
+const APPTS_SINCE = Date.UTC(2026, 5, 1); // 2026-06-01: when PPA billing started
+const APPTS_AHEAD_MS = 400 * 86400000;     // far-future bookings count as upcoming
+const APPTS_CHUNK_MS = 62 * 86400000;      // GHL caps the events window at ~2 months
 
-export async function ingestAppointments(ownerKeys?: string[]): Promise<{ contacts: number; appointments: number }> {
+export type IngestReport = {
+  locations: number; calendars: number; appointments: number;
+  failed: Array<{ location_id: string; owner_key: string; error: string }>;
+};
+
+async function ghlGet(url: string, token: string): Promise<Response> {
+  return fetch(url, { headers: { Authorization: `Bearer ${token}`, Version: "2021-04-15", Accept: "application/json" } });
+}
+
+export async function ingestAppointments(ownerKeys?: string[]): Promise<IngestReport> {
   const svc = createServiceClient();
   const keys = ownerKeys && ownerKeys.length ? ownerKeys : (await getPpaRoster()).clients.map((c) => c.ownerKey);
 
-  const { data: depData } = await svc
-    .from("ppa_deposit_contacts").select("contact_id, location_id, owner_key").in("owner_key", keys);
+  // owner -> sub-account(s); ghl_sync_status is the maintained mapping.
+  const { data: locRows } = await svc
+    .from("ghl_sync_status").select("owner_key, location_id").in("owner_key", keys).not("location_id", "is", null);
+  const locs = new Map<string, string>();
+  for (const r of (locRows ?? []) as Array<{ owner_key: string; location_id: string }>) locs.set(r.location_id, r.owner_key);
 
-  // Supabase caps a select at 1,000 rows — the roster's leads exceed that,
-  // so page through and dedupe against the deposit contacts.
-  type CRow = { contact_id: string; location_id: string; owner_key: string };
-  const rows: CRow[] = [...((depData ?? []) as CRow[])];
-  const seen = new Set(rows.map((r) => r.contact_id));
-  for (let from = 0; ; from += 1000) {
-    const { data: oppData } = await svc
-      .from("ghl_opportunities").select("contact_id, location_id, owner_key")
-      .in("owner_key", keys).gte("date_added", LEAD_APPTS_SINCE)
-      .range(from, from + 999);
-    const page = (oppData ?? []) as CRow[];
-    for (const r of page) {
-      if (!r.contact_id || seen.has(r.contact_id)) continue;
-      seen.add(r.contact_id);
-      rows.push(r);
-    }
-    if (page.length < 1000) break;
-  }
-  const tokenByLoc = new Map<string, string | null>();
+  const report: IngestReport = { locations: locs.size, calendars: 0, appointments: 0, failed: [] };
   const now = new Date().toISOString();
-  let appointments = 0;
-  await mapWithConcurrency(rows, 8, async (row) => {
-    if (!row.contact_id || !row.location_id) return;
-    if (!tokenByLoc.has(row.location_id)) {
-      const t = await getAppLocationToken(row.location_id);
-      tokenByLoc.set(row.location_id, t.token ?? null);
-    }
-    const tok = tokenByLoc.get(row.location_id);
-    if (!tok) return;
+  const windowEnd = Date.now() + APPTS_AHEAD_MS;
+
+  await mapWithConcurrency([...locs.entries()], 6, async ([locationId, ownerKey]) => {
+    const fail = (error: string) => { report.failed.push({ location_id: locationId, owner_key: ownerKey, error }); };
     try {
-      const r = await fetch(`${BASE}/contacts/${row.contact_id}/appointments`, {
-        headers: { Authorization: `Bearer ${tok}`, Version: "2021-07-28", Accept: "application/json" },
-      });
-      if (!r.ok) return;
-      const j = (await r.json()) as { events?: Array<Record<string, unknown>> };
-      const events = j.events ?? [];
-      if (!events.length) return;
-      const appts = events.map((e) => ({
-        id: String(e.id),
-        location_id: String(e.locationId ?? row.location_id),
-        owner_key: row.owner_key,
-        contact_id: String(e.contactId ?? row.contact_id),
-        calendar_id: (e.calendarId ?? null) as string | null,
-        start_time: parseGhlTime(e.startTime),
-        end_time: parseGhlTime(e.endTime),
-        status: (e.appointmentStatus ?? e.appoinmentStatus ?? null) as string | null, // GHL ships both spellings
-        title: (e.title ?? null) as string | null,
-        raw: e,
-        synced_at: now,
-      }));
-      await svc.from("ghl_appointments").upsert(appts, { onConflict: "id" });
-      appointments += appts.length;
-    } catch { /* best-effort */ }
+      let tok = (await getAppLocationToken(locationId)).token;
+      if (!tok) return fail("no token");
+      let r = await ghlGet(`${BASE}/calendars/?locationId=${locationId}`, tok);
+      if (r.status === 401) {
+        // Stored token rejected by GHL ("Invalid JWT") — mint a fresh one once.
+        tok = (await getAppLocationToken(locationId, true)).token;
+        if (!tok) return fail("no token after 401");
+        r = await ghlGet(`${BASE}/calendars/?locationId=${locationId}`, tok);
+      }
+      if (!r.ok) return fail(`calendars HTTP ${r.status}`);
+      const cals = ((await r.json()) as { calendars?: Array<{ id: string }> }).calendars ?? [];
+      for (const cal of cals) {
+        report.calendars++;
+        for (let from = APPTS_SINCE; from < windowEnd; from += APPTS_CHUNK_MS) {
+          const to = Math.min(from + APPTS_CHUNK_MS, windowEnd);
+          const er = await ghlGet(`${BASE}/calendars/events?locationId=${locationId}&calendarId=${cal.id}&startTime=${from}&endTime=${to}`, tok);
+          if (!er.ok) { fail(`events ${cal.id} HTTP ${er.status}`); continue; }
+          const events = ((await er.json()) as { events?: Array<Record<string, unknown>> }).events ?? [];
+          // Blocked slots come back on the same endpoint without a contact.
+          const appts = events.filter((e) => e.contactId).map((e) => ({
+            id: String(e.id),
+            location_id: String(e.locationId ?? locationId),
+            owner_key: ownerKey,
+            contact_id: String(e.contactId),
+            calendar_id: (e.calendarId ?? cal.id) as string,
+            start_time: parseGhlTime(e.startTime),
+            end_time: parseGhlTime(e.endTime),
+            status: (e.appointmentStatus ?? e.appoinmentStatus ?? null) as string | null, // GHL ships both spellings
+            title: (e.title ?? null) as string | null,
+            raw: e,
+            synced_at: now,
+          }));
+          if (!appts.length) continue;
+          const { error } = await svc.from("ghl_appointments").upsert(appts, { onConflict: "id" });
+          if (error) { fail(`upsert: ${error.message}`); continue; }
+          report.appointments += appts.length;
+        }
+      }
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e));
+    }
   });
-  return { contacts: rows.length, appointments };
+  if (report.failed.length) console.warn("[ppa-appointments] failures", JSON.stringify(report.failed));
+  return report;
 }
 
 // Ensure ghl_stage_map has stage names for the given locations. Skips locations

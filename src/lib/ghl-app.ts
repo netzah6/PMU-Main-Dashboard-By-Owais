@@ -182,11 +182,14 @@ function tokenCanWriteContacts(token: string): boolean {
     return meta.scopes.includes("contacts.write");
   } catch { return true; }
 }
-export async function getAppLocationToken(locationId: string): Promise<{ token?: string; error?: string }> {
+/* `forceAgency` skips the cache and the stored per-location row and mints
+   straight from the agency token — the retry path when GHL answers 401
+   ("Invalid JWT") to a token the stored row still says is valid. */
+export async function getAppLocationToken(locationId: string, forceAgency = false): Promise<{ token?: string; error?: string }> {
   const hit = locCache.get(locationId);
-  if (hit && Date.now() - hit.ts < 50 * 60 * 1000) return { token: hit.token };
+  if (!forceAgency && hit && Date.now() - hit.ts < 50 * 60 * 1000) return { token: hit.token };
   // Per-location install token? (never for the agency's own location — see above)
-  if (locationId !== AGENCY_LOCATION_ID) try {
+  if (!forceAgency && locationId !== AGENCY_LOCATION_ID) try {
     const svc = createServiceClient();
     const { data } = await svc.from("ghl_oauth_locations").select("*").eq("location_id", locationId).single();
     if (data?.access_token && tokenCanWriteContacts(data.access_token as string)) {
