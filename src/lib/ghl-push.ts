@@ -44,6 +44,34 @@ export function cleanTz(v: unknown): string {
 export interface GhlPushResult {
   contactId: string | null;
   error?: string;
+  /** The survey tag was asked for but GHL never shows it on the contact — the
+      sub-account's outreach workflow will NOT fire for this lead. */
+  tagMissing?: boolean;
+}
+
+/* Add a tag and make sure it landed. GHL's tag endpoint quietly fails for
+   roughly 1 lead in 12 (checked 11/07/2026: contact, fields and note all
+   saved, tags empty, no text ever sent — ~30 leads a day fleet-wide). The
+   outreach workflow triggers on this tag, so a lost tag is a lost lead.
+   Up to 3 attempts with a short pause, then a read-back to confirm. */
+export async function addContactTagVerified(contactId: string, tag: string, token: string): Promise<boolean> {
+  const H = { Authorization: `Bearer ${token}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" };
+  const has = async () => {
+    const r = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}`, { headers: H }).catch(() => null);
+    if (!r || !r.ok) return null;
+    const j = (await r.json().catch(() => ({}))) as { contact?: { tags?: string[] } };
+    return (j.contact?.tags ?? []).map((t) => t.toLowerCase()).includes(tag.toLowerCase());
+  };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await new Promise((res) => setTimeout(res, attempt === 1 ? 1500 : 4000));
+    const r = await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
+      method: "POST", headers: H, body: JSON.stringify({ tags: [tag] }),
+    }).catch(() => null);
+    if (!r || !r.ok) continue;
+    const ok = await has();
+    if (ok !== false) return true; // true = confirmed; null = could not read back, trust the 200
+  }
+  return (await has()) === true;
 }
 
 export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
@@ -105,12 +133,10 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
 
     /* Tag through the ADD endpoint, never through the upsert body: upsert
        REPLACES the whole tag array (Browology "(v3)"/"ai off", Aug 19). */
+    let tagMissing = false;
     if (contactId && inp.withTag && !inp.disqualified) {
-      await fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", "Content-Type": "application/json" },
-        body: JSON.stringify({ tags: [inp.surveyTag] }),
-      }).catch(() => {});
+      tagMissing = !(await addContactTagVerified(contactId, inp.surveyTag, tok.token));
+      if (tagMissing) console.error("[ghl-push] survey tag did not land", inp.locationId, contactId);
     }
 
     if (contactId && !inp.partial) {
@@ -155,7 +181,7 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
         body: JSON.stringify({ body: note }),
       }).catch(() => {});
     }
-    return { contactId };
+    return { contactId, ...(tagMissing ? { tagMissing: true } : {}) };
   } catch (e) {
     return { contactId: null, error: String(e).slice(0, 180) };
   }

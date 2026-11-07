@@ -230,7 +230,9 @@ export async function POST(req: NextRequest) {
     timezone: cleanTz(body.tz),
   });
   const contactId = push.contactId;
-  const ghlStatus = contactId ? "created" : "failed";
+  // "created-untagged": contact saved but the onebox-survey tag never landed,
+  // so no workflow fired — the ghl-retry cron re-tags these (see there).
+  const ghlStatus = contactId ? (push.tagMissing ? "created-untagged" : "created") : "failed";
   if (push.error) console.error("[onebox/submit] GHL upsert failed:", push.error);
 
   if (leadRow?.id) {

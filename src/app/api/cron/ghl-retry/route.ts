@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { bookAppointmentForLead, pushLeadToGhl } from "@/lib/ghl-push";
+import { bookAppointmentForLead, pushLeadToGhl, addContactTagVerified } from "@/lib/ghl-push";
+import { getAppLocationToken } from "@/lib/ghl-app";
 import { addOneboxBookedTag, ensureContactOwner } from "@/lib/artist-notify";
 import { filePaidNotBookedAlert, resolvePaidNotBookedAlert } from "@/lib/alerts";
 
@@ -40,7 +41,9 @@ export async function GET(req: NextRequest) {
      exactly how the 2026-09-22 16:39 run skipped the paid-lead healing. */
   if (!leads?.length) {
     const paidHealOnly = await healPaidLeads(svc);
-    return NextResponse.json({ retried: 0, paidHeal: paidHealOnly });
+    const notifyHealOnly = await healMissedArtistNotifications(svc);
+    const tagHealOnly = await healMissingSurveyTags(svc);
+    return NextResponse.json({ retried: 0, paidHeal: paidHealOnly, notifyHeal: notifyHealOnly, tagHeal: tagHealOnly });
   }
 
   const { data: clients } = await svc
@@ -92,7 +95,72 @@ export async function GET(req: NextRequest) {
   }
   const paidHeal = await healPaidLeads(svc);
   const notifyHeal = await healMissedArtistNotifications(svc);
-  return NextResponse.json({ retried: leads.length, ok, failed, tagged, errors, paidHeal, notifyHeal });
+  const tagHeal = await healMissingSurveyTags(svc);
+  return NextResponse.json({ retried: leads.length, ok, failed, tagged, errors, paidHeal, notifyHeal, tagHeal });
+}
+
+/* Phase 4 — leads whose contact was created but the "onebox-survey" tag
+   never landed (owner, 11/07/2026: ~1 lead in 12, every day, fleet-wide —
+   contact, fields and note all saved, tags empty, so the sub-account's
+   outreach workflow never fired and the lead never got a text). The push now
+   verifies the tag and marks the lead "created-untagged" when it still fails;
+   this pass re-reads each recent lead's tags LIVE (the synced copy can lag),
+   re-adds the tag with the verified call, and puts the lead back to
+   "created". Same policy as the retry above: only leads younger than
+   TAG_WINDOW_MS get the tag (a late tag there is just a slightly delayed
+   normal flow); never a lead who already paid or was disqualified. */
+async function healMissingSurveyTags(svc: ReturnType<typeof createServiceClient>) {
+  const since = new Date(Date.now() - TAG_WINDOW_MS).toISOString();
+  const until = new Date(Date.now() - 10 * 60_000).toISOString(); // give the live push its own retries first
+  const { data: leads } = await svc
+    .from("onebox_leads")
+    .select("id, slug, location_id, full_name, ghl_contact_id, ghl_status, answers, created_at")
+    .in("ghl_status", ["created", "created-untagged"])
+    .not("ghl_contact_id", "is", null)
+    .gte("created_at", since).lte("created_at", until)
+    .order("created_at", { ascending: false })
+    .limit(150);
+  const { data: clients } = await svc.from("onebox_clients").select("slug, extras").in("slug", [...new Set((leads ?? []).map((l) => l.slug as string))]);
+  const b2bTag = new Map((clients ?? []).map((c) => [c.slug as string, ((c.extras ?? {}) as { template?: string; b2b?: { tag?: string } })]));
+  let checked = 0, retagged = 0, stillMissing = 0;
+  const tokens = new Map<string, string | null>();
+  const errors: string[] = [];
+  for (const l of leads ?? []) {
+    const a = (l.answers ?? {}) as Record<string, unknown>;
+    if (a.disqualified === true || a.disqualified === "true" || /test/i.test(String(l.full_name ?? ""))) continue;
+    const ex = b2bTag.get(l.slug as string);
+    const tag = ex?.template === "b2b" ? (ex.b2b?.tag || "b2b-onebox-survey") : "onebox-survey";
+    const locationId = l.location_id as string;
+    if (!tokens.has(locationId)) tokens.set(locationId, (await getAppLocationToken(locationId)).token ?? null);
+    const tok = tokens.get(locationId);
+    if (!tok) continue;
+    try {
+      const r = await fetch(`https://services.leadconnectorhq.com/contacts/${l.ghl_contact_id}`, {
+        headers: { Authorization: `Bearer ${tok}`, Version: "2021-07-28", Accept: "application/json" },
+      });
+      if (!r.ok) continue;
+      checked++;
+      const tags = (((await r.json()) as { contact?: { tags?: string[] } }).contact?.tags ?? []).map((t) => t.toLowerCase());
+      if (tags.includes(tag)) {
+        if (l.ghl_status === "created-untagged") await svc.from("onebox_leads").update({ ghl_status: "created" }).eq("id", l.id);
+        continue;
+      }
+      // A paid/booked contact must not have the outreach restarted.
+      if (tags.some((t) => ["fanbasis buyer", "deposit collected", "booked"].includes(t))) continue;
+      const ok = await addContactTagVerified(l.ghl_contact_id as string, tag, tok);
+      if (ok) {
+        retagged++;
+        await svc.from("onebox_leads").update({ ghl_status: "created", answers: { ...a, tag_healed_at: new Date().toISOString() } }).eq("id", l.id);
+      } else {
+        stillMissing++;
+        await svc.from("onebox_leads").update({ ghl_status: "created-untagged" }).eq("id", l.id);
+      }
+    } catch (e) {
+      errors.push(`${l.slug}: ${e instanceof Error ? e.message.slice(0, 80) : "error"}`);
+    }
+  }
+  if (retagged || stillMissing) console.log("[ghl-retry] survey-tag heal", { checked, retagged, stillMissing });
+  return { checked, retagged, stillMissing, errors: errors.slice(0, 10) };
 }
 
 /* Phase 3 — booked leads whose "onebox-booked" tag never landed, so the
