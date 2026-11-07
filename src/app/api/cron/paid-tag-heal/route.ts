@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const svc = createServiceClient();
-  const result = await healPaidTags(svc);
+  const result = await healPaidTags(svc, req.nextUrl.origin);
   const resolved = await resolvePaidAlerts(svc).catch(() => 0);
   return NextResponse.json({ timestamp: new Date().toISOString(), ...result, resolved });
 }
