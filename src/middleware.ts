@@ -55,6 +55,20 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     const pt = request.nextUrl.pathname.match(/^\/([a-z0-9-]+)\/([A-Za-z0-9]{8,40})\/(confirm|last-step)\/?$/);
     if (pt && !RESERVED.has(pt[1].toLowerCase())) {
       const url = request.nextUrl.clone();
+      /* The deposit-reminder EMAIL's button carries ?via=email: it goes
+         through a tiny click endpoint first (notes the open, then 302s to
+         the clean confirm link) — the only way the test card can tell a
+         payment that followed the email from one that would have come
+         anyway (11/08/2026). Slug + contact ride request headers: params
+         added during a rewrite never reach the handler. */
+      if (request.nextUrl.searchParams.get("via") === "email") {
+        url.pathname = "/api/onebox/pick-email/click";
+        url.search = "";
+        const ch = new Headers(request.headers);
+        ch.set("x-ob-slug", pt[1].toLowerCase());
+        ch.set("x-ob-contact", pt[2]);
+        return NextResponse.rewrite(url, { request: { headers: ch } });
+      }
       url.pathname = `/f/${pt[1].toLowerCase()}`;
       url.search = "";
       const th = new Headers(request.headers);

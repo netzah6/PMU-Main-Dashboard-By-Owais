@@ -128,7 +128,12 @@ export function fmtWhen(slotIso: string | null | undefined): string | null {
   return `${day} at ${time}`;
 }
 
-export const confirmLink = (slug: string, contactId: string) => `https://book.pmu-care.com/${slug}/${contactId}/confirm`;
+/* `via: "email"` marks the deposit-reminder email's link: the middleware
+   routes it through /api/onebox/pick-email/click, which notes the open and
+   sends her on to the clean confirm page — the only way the test can tell a
+   payment that followed the email from one that would have come anyway. */
+export const confirmLink = (slug: string, contactId: string, via?: "email") =>
+  `https://book.pmu-care.com/${slug}/${contactId}/confirm${via ? `?via=${via}` : ""}`;
 
 /* "TAYLOR" / "carolina" → "Taylor" / "Carolina"; "McKenna" stays. */
 const tidyName = (s: string) => (s === s.toUpperCase() || s === s.toLowerCase())
@@ -178,6 +183,13 @@ const TEAM_PHONES = new Set(["2067364980", "2064296368"]);
 const last10 = (phone: string | null | undefined) => String(phone ?? "").replace(/\D/g, "").slice(-10);
 const isTest = (l: Lead) => /test|\btst/i.test(String(l.full_name ?? "")) || TEAM_PHONES.has(last10(l.phone));
 const isPaidLead = (l: Lead) => PAID.has(String(l.ghl_status ?? "")) || !!l.paid_at;
+/* A paid row belongs to THIS pick when its payment time is from the pick on
+   (an hour of slack), or — no payment time (older rows, admin follow-ups) —
+   when the row itself was created within 2 days before the pick. Anything
+   older is an earlier visit's deposit: she can't pay again, so she is neither
+   "open" nor a conversion. The send loop and the readout share this rule. */
+const paidForThisPick = (l: Lead, pickMs: number) =>
+  l.paid_at ? Date.parse(l.paid_at) >= pickMs - 3600_000 : Date.parse(l.created_at) >= pickMs - 2 * 86400_000;
 const STEP_MAX_AGE_MS = { 1: 24 * 3600_000, 2: 72 * 3600_000 } as const; // never "an hour ago" days later
 
 /** Funnels whose picks get the email: live, a deposit to finish, not the agency's B2B pages. */
@@ -223,10 +235,16 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
     if (!data || data.length < 1000) break;
   }
   const byContact = new Map<string, Lead[]>();
+  const disqualified = new Set<string>();
   for (const l of fresh) {
-    if (!funnels.has(l.slug) || (l.answers ?? {}).disqualified || isTest(l)) continue;
+    if (!funnels.has(l.slug) || isTest(l)) continue;
+    /* The funnel judges "disqualified" from the latest row, but a re-pick
+       stamps the pick time on every row of the same phone — one clean older
+       row must not sneak a disqualified lead in (audit, 11/07/2026). */
+    if ((l.answers ?? {}).disqualified) { disqualified.add(l.ghl_contact_id as string); continue; }
     byContact.set(l.ghl_contact_id as string, [...(byContact.get(l.ghl_contact_id as string) ?? []), l]);
   }
+  for (const id of disqualified) byContact.delete(id);
   const ids = [...byContact.keys()];
   const known = new Set<string>();
   for (let i = 0; i < ids.length; i += 300) {
@@ -310,7 +328,12 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
         if (error) { await later(p, `same-phone rows: ${error.message}`); continue; }
         samePhone = ((data ?? []) as Lead[]).filter((l) => last10(l.phone) === phone10);
       }
-      if ([...rows, ...samePhone].some(isPaidLead)) { await stop(p, "paid"); continue; }
+      const paidRows = [...rows, ...samePhone].filter(isPaidLead);
+      if (paidRows.length) {
+        // "paid" = for this pick; "paid_earlier" = an older visit's deposit (the readout leaves her out of both sides).
+        await stop(p, paidRows.some((r) => paidForThisPick(r, Date.parse(p.picked_at))) ? "paid" : "paid_earlier");
+        continue;
+      }
 
       const tok = await tokenFor(p.location_id);
       if (!tok) { await later(p, "no GHL token for the sub-account"); continue; }
@@ -389,7 +412,7 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
         biz: String(cfg.biz ?? "").trim() || String(funnel.client_name ?? "").trim() || "your artist",
         when: fmtWhen(slotIso),
         deposit: String(cfg.deposit ?? "").trim() || "$50",
-        link: confirmLink(p.slug, p.contact_id),
+        link: confirmLink(p.slug, p.contact_id, "email"),
         service: serviceWords(String((latest.answers as Record<string, unknown> | null)?.area ?? "")),
       });
       if (dryRun) {
@@ -400,7 +423,7 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
       // Claim the step before sending — a crash can lose one email, never send it twice.
       const nextDue = step === 1 ? new Date(Math.max(Date.parse(p.picked_at) + SECOND_AFTER_MS, now.getTime() + 12 * 3600_000)).toISOString() : null;
       const { data: claimed } = await svc.from("pick_email_people")
-        .update({ step, [`sent${step}_at`]: now.toISOString(), next_due_at: nextDue, stopped_reason: step === 2 ? "finished" : null, slot_iso: slotIso, updated_at: stamp() })
+        .update({ step, [`sent${step}_at`]: now.toISOString(), next_due_at: nextDue, stopped_reason: step === 2 ? "finished" : null, slot_iso: slotIso, link_v: 1, updated_at: stamp() })
         .eq("contact_id", p.contact_id).eq("step", p.step).is("stopped_reason", null).select("contact_id");
       if (!claimed?.length) continue;
       const sr = await fetch(`${GHL}/conversations/messages`, {
@@ -423,6 +446,14 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
         continue;
       }
       const attempts = p.attempts + 1;
+      /* GHL refuses a malformed address outright ("gmail.con"-style typos) —
+         retrying can't change that, so stop now instead of three 30-min tries. */
+      if (/e-?mail is invalid|invalid e-?mail|INVALID_EMAIL/i.test(err)) {
+        await svc.from("pick_email_people").update({
+          step: p.step, [`sent${step}_at`]: null, attempts, send_error: err, next_due_at: null, stopped_reason: "invalid_email", updated_at: stamp(),
+        }).eq("contact_id", p.contact_id);
+        continue;
+      }
       const optOut = /\bdnd\b|do not disturb|opt(ed)?[\s-]?out|unsubscrib/i.test(err);
       await svc.from("pick_email_people").update({
         step: p.step, [`sent${step}_at`]: null, attempts, send_error: err,
@@ -437,7 +468,17 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
 }
 
 // ─── Readout (Funnels card) ─────────────────────────────────────────────────
-export type PickEmailSide = { people: number; open: number; paid: number; paidPct: number | null };
+export type PickEmailSide = {
+  people: number; open: number; paid: number;
+  /* The rate uses only people whose pick is 7+ days old — they have had their
+     whole window. Null until someone has. */
+  paidPct: number | null; matured: { open: number; paid: number };
+  earlier: number;                          // paid on an earlier visit: can't pay again, left out of both sides
+  /* Email side: people emailed with the tracked link (link_v = 1, from
+     11/08/2026 — earlier sends carried the plain link and can't register an
+     open), how many opened it, how many paid after opening. */
+  emailedTracked: number; clicked: number; paidAfterClick: number;
+};
 export type PickEmailSummary = {
   settings: PickEmailSettings; planned: string;
   sides: { email: PickEmailSide; hold: PickEmailSide };
@@ -451,10 +492,10 @@ export type PickEmailSummary = {
    itself belongs to this pick — never an earlier visit's deposit. */
 export async function pickEmailSummary(svc: Svc): Promise<PickEmailSummary> {
   const settings = await getPickEmailSettings(svc);
-  type Row = Person & { sent1_at: string | null; sent2_at: string | null; send_error: string | null; updated_at: string };
+  type Row = Person & { sent1_at: string | null; sent2_at: string | null; clicked_at: string | null; link_v: number | null; send_error: string | null; updated_at: string };
   const people: Row[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await svc.from("pick_email_people").select(`${PERSON_COLS}, sent1_at, sent2_at, send_error, updated_at`).order("contact_id").range(from, from + 999);
+    const { data, error } = await svc.from("pick_email_people").select(`${PERSON_COLS}, sent1_at, sent2_at, clicked_at, link_v, send_error, updated_at`).order("contact_id").range(from, from + 999);
     if (error) throw new Error(error.message);
     people.push(...((data ?? []) as Row[]));
     if (!data || data.length < 1000) break;
@@ -462,6 +503,7 @@ export async function pickEmailSummary(svc: Svc): Promise<PickEmailSummary> {
   const pickOf = new Map(people.map((p) => [p.contact_id, Date.parse(p.picked_at)]));
   // Per contact: the earliest payment tied to this pick; null = paid, time unknown.
   const paidAt = new Map<string, number | null>();
+  const paidBefore = new Set<string>(); // has a deposit from an earlier visit (and maybe none for this pick)
   const ids = people.map((p) => p.contact_id);
   for (let i = 0; i < ids.length; i += 300) {
     const { data, error } = await svc.from("onebox_leads").select("ghl_contact_id, ghl_status, paid_at, created_at").in("ghl_contact_id", ids.slice(i, i + 300));
@@ -470,25 +512,43 @@ export async function pickEmailSummary(svc: Svc): Promise<PickEmailSummary> {
       const id = r.ghl_contact_id as string, pick = pickOf.get(id) ?? 0;
       if (!PAID.has(String(r.ghl_status ?? "")) && !r.paid_at) continue;
       const t = r.paid_at ? Date.parse(r.paid_at as string) : null;
-      if (t != null ? t < pick - 3600_000 : Date.parse(r.created_at as string) < pick - 2 * 86400_000) continue; // an earlier visit's deposit
+      if (t != null ? t < pick - 3600_000 : Date.parse(r.created_at as string) < pick - 2 * 86400_000) { paidBefore.add(id); continue; } // an earlier visit's deposit
       const prev = paidAt.get(id);
       paidAt.set(id, prev === undefined ? t : prev == null ? t : t == null ? prev : Math.min(prev, t));
     }
   }
+  const MATURE_MS = 7 * 86400_000, nowMs = Date.now();
   const side = (arm: "email" | "hold"): PickEmailSide => {
     const ps = people.filter((p) => p.arm === arm);
-    let open = 0, paid = 0;
+    let open = 0, paid = 0, mOpen = 0, mPaid = 0, earlier = 0, emailedTracked = 0, clicked = 0, paidAfterClick = 0;
     for (const p of ps) {
       const pick = Date.parse(p.picked_at);
-      const at = paidAt.get(p.contact_id); // undefined = not paid
+      const at = paidAt.get(p.contact_id); // undefined = not paid for this pick
+      if (at === undefined && paidBefore.has(p.contact_id)) { earlier++; continue; } // already a client — can't pay again
       if (at != null && at <= pick + FIRST_AFTER_MS) continue; // paid on the page right away
       open++;
-      if (at === null || (at !== undefined && at <= pick + 7 * 86400_000)) paid++;
+      const won = at === null || (at !== undefined && at <= pick + MATURE_MS);
+      if (won) paid++;
+      if (nowMs - pick >= MATURE_MS) { mOpen++; if (won) mPaid++; }
+      if (p.link_v) emailedTracked++;
+      if (p.clicked_at) {
+        clicked++;
+        if (won && at != null && at >= Date.parse(p.clicked_at)) paidAfterClick++;
+      }
     }
-    return { people: ps.length, open, paid, paidPct: open ? Math.round((paid / open) * 1000) / 10 : null };
+    return {
+      people: ps.length, open, paid,
+      paidPct: mOpen ? Math.round((mPaid / mOpen) * 1000) / 10 : null, matured: { open: mOpen, paid: mPaid },
+      earlier, emailedTracked, clicked, paidAfterClick,
+    };
   };
   const stopped: Record<string, number> = {};
-  for (const p of people) if (p.arm === "email" && p.stopped_reason) stopped[p.stopped_reason] = (stopped[p.stopped_reason] ?? 0) + 1;
+  for (const p of people) {
+    if (p.arm !== "email" || !p.stopped_reason) continue;
+    // Rows stopped as "paid" before 11/08/2026 may be an earlier visit's deposit — label them the way the sides count them.
+    const reason = p.stopped_reason === "paid" && paidBefore.has(p.contact_id) && !paidAt.has(p.contact_id) ? "paid_earlier" : p.stopped_reason;
+    stopped[reason] = (stopped[reason] ?? 0) + 1;
+  }
   const errs = people.filter((p) => p.send_error).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   return {
     settings, planned: PICK_EMAIL_PLANNED,
