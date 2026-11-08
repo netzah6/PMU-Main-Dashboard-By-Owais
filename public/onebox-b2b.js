@@ -100,6 +100,15 @@
 /* Booked screen (owner 11/08/2026): the sales headline is noise once the
    call is booked — keep a slim photo band, drop the words. */
 "body.ob-done .hero{padding:34px 20px 96px}body.ob-done .hero h1,body.ob-done .hero .sub{display:none}" +
+/* Owner 11/08/2026: the booked screen mirrors the ORIGINAL funnel's thank-you
+   page step by step (banner → video → warning → calendar → email note → how the
+   call works) so the A/B test compares like with like. The progress row goes
+   (the check already says it) and the check is smaller. */
+"body.ob-done .ob-progress{display:none}body.ob-done .bigcheck{width:52px;height:52px;margin:0 auto 8px}body.ob-done .bigcheck svg{width:26px;height:26px}" +
+".tybanner{background:var(--teal);color:#fff;font-family:var(--font-head);font-weight:800;font-size:17px;line-height:1.3;text-align:center;border-radius:12px;padding:12px 14px;margin:14px 0 10px}" +
+".tyh{font-family:var(--font-head);font-weight:800;font-size:19px;text-align:center;margin:16px 0 8px}" +
+".tyor{font-style:italic;font-weight:700;font-size:14.5px;text-align:center;margin:10px 0 2px}" +
+".calbtn.g{background:var(--teal);border-color:var(--teal);color:#fff}.calbtn.a{background:#111;border-color:#111;color:#fff}" +
 ".hero h1{color:#fff;font-size:clamp(28px,4.6vw,46px);font-weight:800;max-width:900px;margin:0 auto}" +
 ".hero h1 .hl{color:var(--teal)}" +
 ".hero .sub{color:#e9f5f3;font-size:clamp(16px,2vw,20px);font-weight:700;margin:18px auto 0;max-width:640px;font-family:var(--font-head)}" +
@@ -186,9 +195,9 @@
 /* Owner 11/08/2026: the two calendar buttons sit side by side on one row
    (also on phones) to save scrolling on the booked screen. */
 ".calbtns{display:flex;gap:8px;flex-wrap:nowrap;justify-content:center;margin:12px 0 4px}" +
-".calbtn{flex:1 1 0;justify-content:center;display:inline-flex;align-items:center;gap:6px;border:2px solid var(--line);background:#fff;border-radius:999px;padding:10px 8px;font-weight:700;font-size:13px;white-space:nowrap;color:var(--ink);text-decoration:none;transition:border-color .15s}" +
+".calbtn{flex:1 1 0;justify-content:center;display:inline-flex;align-items:center;gap:6px;border:2px solid var(--line);background:#fff;border-radius:999px;padding:10px 8px;font-weight:700;font-size:13px;line-height:1.2;text-align:center;color:var(--ink);text-decoration:none;transition:border-color .15s}" +
 ".howcall .hc .vidcard{margin-top:8px}" +
-".donevid{margin-top:12px}" +
+".donevid{margin-top:0}" +
 ".calbtn:hover{border-color:var(--teal)}" +
 /* Louder warning (owner, 2026-09-23): solid red, bigger, unmissable. */
 ".warnbox{border:2px solid #dc2626;background:#fef2f2;border-radius:12px;padding:14px 18px;font-size:16px;font-weight:600;line-height:1.55;color:#b91c1c;margin:16px 0;text-align:left}" +
@@ -990,26 +999,19 @@
     var h = '<div class="donewrap">';
     h += '<div class="bigcheck"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 7"/></svg></div>';
     h += '<h2 class="q-title" style="text-align:center">You’re booked, ' + f + "!</h2>";
-    h += '<p class="q-note" style="text-align:center;margin-bottom:8px">Your spot in <b>' + area + "</b> is reserved.</p>";
-    h += '<div class="apptcard">';
-    h += '<div class="row"><span class="ic">📅</span><div><b>' + fmtWhen(S.booked.iso) + "</b> (local)</div></div>";
-    h += '<div class="row"><span class="ic">📞</span><div>15-min call with <b>Nicolas (CEO)</b></div></div>';
-    if (S.email) h += '<div class="row"><span class="ic">📧</span><div>Email sent to <b>' + esc(S.email) + "</b></div></div>";
-    h += "</div>";
-    /* Owner 11/08/2026 (after reading a friend's med-spa thank-you page,
-       whose "do not leave, watch this before the call" homework fights
-       no-shows — 19 of our 38 test discovery calls were no-shows): the
-       intro video sits right under the confirmation, the two calendar
-       buttons share one row, and the "how the call works" list is now 4
-       steps, one of which is to watch a client interview. */
-    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Watch before the call · Nicolas, 2 min").replace('class="vidcard"', 'class="vidcard donevid"');
-    h += '<div class="calbtns"><a class="calbtn" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Google Calendar</a><a class="calbtn" href="' + icsHref() + '" download="discovery-call.ics"> Apple Calendar</a></div>';
-    h += '<div class="warnbox"><b>WARNING:</b> No rescheduling. Honor your time.</div>';
-    h += '<div class="howcall"><h3>Your 4 steps before the call:</h3>';
-    h += '<div class="hc"><span class="n">1</span><div>Reply <b>YES</b> to our confirmation text.</div></div>';
-    h += '<div class="hc"><span class="n">2</span><div><b>Watch Martha’s interview</b> below (2x income in 30 days).' + vidCardHTML(VIDEOS[0].id, VIDEOS[0].thumb, VIDEOS[0].cap) + '</div></div>';
-    h += '<div class="hc"><span class="n">3</span><div>Be at your <b>computer</b>, in a <b>quiet place</b>.</div></div>';
-    h += '<div class="hc"><span class="n">4</span><div>Bring a <b>pen &amp; paper</b> to take notes.</div></div></div>';
+    h += '<p class="q-note" style="text-align:center;margin-bottom:4px"><b>' + fmtWhen(S.booked.iso) + "</b> (local) · 15-min call with Nicolas (CEO)</p>";
+    /* From here down: the original funnel's thank-you page, same order and
+       same words (pmu-bookings.com thank-you step, read 11/08/2026). */
+    h += '<div class="tybanner">Watch The Video Below OR You Won\'t Be Able To Attend The Call.</div>';
+    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Nicolas — 2:37").replace('class="vidcard"', 'class="vidcard donevid"');
+    h += '<div class="warnbox"><b>WARNING:</b> Time is our highest standard. We don’t reschedule, and we partner only with those who honor commitment.</div>';
+    h += '<div class="tyh">Add The Call To Your Calendar By Clicking Below</div>';
+    h += '<div class="calbtns"><a class="calbtn g" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a><a class="calbtn a" href="' + icsHref() + '" download="discovery-call.ics"> Add to Apple Calendar</a></div>';
+    h += '<p class="tyor">OR check your email and click "I know the sender" in your event email we just sent you!</p>';
+    h += '<div class="howcall"><h3 style="text-align:center;font-size:19px">How The Call Will Work:</h3>';
+    h += '<div class="hc"><span class="n">1</span><div>We will text you a message via cell phone to confirm the call.</div></div>';
+    h += '<div class="hc"><span class="n">2</span><div>Be at your desk or in a quiet place or we will politely end the call.</div></div>';
+    h += '<div class="hc"><span class="n">3</span><div>Bring a Pen &amp; Paper to take notes.</div></div></div>';
     h += "</div>";
     render(h, false);
     /* The bottom "check availability" band makes no sense once the call is
