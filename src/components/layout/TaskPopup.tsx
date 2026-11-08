@@ -23,6 +23,10 @@ type Task = {
   contactId: string | null; contactName: string;
 };
 type Seen = { day: string; ids: string[]; snoozeUntil: number };
+/* Client problems for this coach (🚦 leads but not Live, welcome texts not
+   sent) from /api/alerts/mine — shown above the tasks; they close by
+   themselves once fixed (owner, 11/08/2026). */
+type ClientAlert = { id: string; type: string; title: string; created_at: string; link: string | null };
 
 const REFRESH_MS = 15 * 60_000;
 const SNOOZE_MS = 60 * 60_000;
@@ -64,19 +68,22 @@ export function TaskPopup() {
   const seenKey = `pmu_task_popup:${user?.id ?? ""}`;
 
   const [tasks, setTasks] = useState<Task[] | null>(null);
+  const [alerts, setAlerts] = useState<ClientAlert[]>([]);
   const [open, setOpen] = useState(false);
   const [doneBusy, setDoneBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/ghl/tasks");
-      if (!r.ok) return;
-      const j = (await r.json()) as { tasks?: Task[] };
+      const [r, ra] = await Promise.all([fetch("/api/ghl/tasks"), fetch("/api/alerts/mine").catch(() => null)]);
+      const j = r.ok ? ((await r.json()) as { tasks?: Task[] }) : {};
       const list = (j.tasks ?? []).filter((t) => !t.completed);
+      const aj = ra?.ok ? ((await ra.json()) as { alerts?: ClientAlert[] }) : {};
+      const al = aj.alerts ?? [];
       setTasks(list);
+      setAlerts(al);
       const seen = readSeen(seenKey);
-      const fresh = list.some((t) => !seen.ids.includes(t.id));
-      if (list.length && Date.now() >= seen.snoozeUntil && (seen.day !== today() || fresh)) setOpen(true);
+      const fresh = [...list.map((t) => t.id), ...al.map((a) => a.id)].some((id) => !seen.ids.includes(id));
+      if ((list.length || al.length) && Date.now() >= seen.snoozeUntil && (seen.day !== today() || fresh)) setOpen(true);
     } catch { /* try again on the next refresh */ }
   }, [seenKey]);
 
@@ -98,7 +105,7 @@ export function TaskPopup() {
   const dueToday = sorted.filter((t) => dayOf(t.dueDate) === t0).length;
 
   const gotIt = () => {
-    writeSeen(seenKey, { day: today(), ids: (tasks ?? []).map((t) => t.id), snoozeUntil: 0 });
+    writeSeen(seenKey, { day: today(), ids: [...(tasks ?? []).map((t) => t.id), ...alerts.map((a) => a.id)], snoozeUntil: 0 });
     setOpen(false);
   };
   const later = () => {
@@ -124,24 +131,40 @@ export function TaskPopup() {
   };
 
   // Not on the Tasks tab itself — the full list is already on screen there.
-  if (!enabled || !open || !sorted.length || pathname?.startsWith("/tasks")) return null;
+  if (!enabled || !open || (!sorted.length && !alerts.length) || pathname?.startsWith("/tasks")) return null;
 
   return (
     <div role="dialog" aria-label="Your tasks"
       className="fixed z-40 bottom-4 right-4 left-4 sm:left-auto sm:w-[380px] rounded-2xl border border-[#cdeeed] bg-white shadow-xl">
       <div className="flex items-start justify-between gap-2 px-4 pt-3 pb-2 border-b border-[#eef3f8]">
         <div>
-          <p className="text-sm font-bold text-[#1f3559]">📋 Your tasks · {sorted.length} open</p>
+          <p className="text-sm font-bold text-[#1f3559]">
+            {alerts.length > 0 && <>🚦 {alerts.length} client{alerts.length === 1 ? "" : "s"} to fix{sorted.length > 0 && " · "}</>}
+            {sorted.length > 0 && <>📋 {sorted.length} task{sorted.length === 1 ? "" : "s"}</>}
+          </p>
           <p className="text-[11px] text-[#697a91]">
             {overdue > 0 && <span className="font-semibold text-[#e11d48]">{overdue} overdue</span>}
             {overdue > 0 && dueToday > 0 && " · "}
             {dueToday > 0 && <span className="font-semibold text-[#c2620a]">{dueToday} due today</span>}
-            {!overdue && !dueToday && "Nothing overdue — nice."}
+            {!overdue && !dueToday && (sorted.length ? "Nothing overdue — nice." : "Each one closes by itself once fixed.")}
             {viewAs && " · preview (everyone's tasks)"}
           </p>
         </div>
         <button onClick={later} title="Remind me in an hour" aria-label="Close" className="p-1 rounded text-[#8595a8] hover:text-[#1f3559]"><X size={15} /></button>
       </div>
+      {alerts.length > 0 && (
+        <ul className="max-h-[30vh] overflow-y-auto divide-y divide-[#fdecc8] bg-[#fffaf0] border-b border-[#f6e3b8]">
+          {alerts.slice(0, SHOW_MAX).map((a) => (
+            <li key={a.id} className="flex items-start gap-2 px-4 py-2">
+              <span className="shrink-0 mt-0.5">{a.type === "status" ? "🚦" : "🚀"}</span>
+              <p className="flex-1 min-w-0 text-[13px] font-semibold text-[#1f3559] break-words">{a.title}</p>
+              {a.link && (
+                <a href={a.link} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[11px] font-semibold text-[#0e8f88] hover:underline mt-0.5">GHL ↗</a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       <ul className="max-h-[50vh] overflow-y-auto divide-y divide-[#f1f5f9]">
         {sorted.slice(0, SHOW_MAX).map((t) => {
           const due = dueText(t.dueDate);
