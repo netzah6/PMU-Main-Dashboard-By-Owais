@@ -97,6 +97,9 @@
 ".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:72px 20px 150px;text-align:center}" +
 ".hero::before{content:\"\";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,25,22,.72) 0%,rgba(7,25,22,.55) 55%,rgba(7,25,22,.78) 100%)}" +
 ".hero>*{position:relative}" +
+/* Booked screen (owner 11/08/2026): the sales headline is noise once the
+   call is booked — keep a slim photo band, drop the words. */
+"body.ob-done .hero{padding:34px 20px 96px}body.ob-done .hero h1,body.ob-done .hero .sub{display:none}" +
 ".hero h1{color:#fff;font-size:clamp(28px,4.6vw,46px);font-weight:800;max-width:900px;margin:0 auto}" +
 ".hero h1 .hl{color:var(--teal)}" +
 ".hero .sub{color:#e9f5f3;font-size:clamp(16px,2vw,20px);font-weight:700;margin:18px auto 0;max-width:640px;font-family:var(--font-head)}" +
@@ -180,8 +183,12 @@
 ".apptcard{background:var(--mist);border:1px solid var(--line);border-radius:14px;padding:16px;margin:16px 0;text-align:left}" +
 ".apptcard .row{display:flex;gap:10px;align-items:flex-start;padding:6px 0;font-size:15px}" +
 ".apptcard .row .ic{flex:none;width:22px;text-align:center}" +
-".calbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:14px 0 4px}" +
-".calbtn{display:inline-flex;align-items:center;gap:8px;border:2px solid var(--line);background:#fff;border-radius:999px;padding:10px 18px;font-weight:700;font-size:14px;color:var(--ink);text-decoration:none;transition:border-color .15s}" +
+/* Owner 11/08/2026: the two calendar buttons sit side by side on one row
+   (also on phones) to save scrolling on the booked screen. */
+".calbtns{display:flex;gap:8px;flex-wrap:nowrap;justify-content:center;margin:12px 0 4px}" +
+".calbtn{flex:1 1 0;justify-content:center;display:inline-flex;align-items:center;gap:6px;border:2px solid var(--line);background:#fff;border-radius:999px;padding:10px 8px;font-weight:700;font-size:13px;white-space:nowrap;color:var(--ink);text-decoration:none;transition:border-color .15s}" +
+".howcall .hc .vidcard{margin-top:8px}" +
+".donevid{margin-top:12px}" +
 ".calbtn:hover{border-color:var(--teal)}" +
 /* Louder warning (owner, 2026-09-23): solid red, bigger, unmissable. */
 ".warnbox{border:2px solid #dc2626;background:#fef2f2;border-radius:12px;padding:14px 18px;font-size:16px;font-weight:600;line-height:1.55;color:#b91c1c;margin:16px 0;text-align:left}" +
@@ -978,23 +985,31 @@
   function showDone() {
     S.phase = "done";
     clearInterval(S.holdTimer);
+    document.body.classList.add("ob-done");
     var f = esc(firstName() || "you"), area = esc(S.area || "your area");
     var h = '<div class="donewrap">';
     h += '<div class="bigcheck"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 7"/></svg></div>';
     h += '<h2 class="q-title" style="text-align:center">You’re booked, ' + f + "!</h2>";
-    h += '<p class="q-note" style="text-align:center;margin-bottom:8px">Your <b>1 spot in ' + area + "</b> is reserved under your name.</p>";
+    h += '<p class="q-note" style="text-align:center;margin-bottom:8px">Your spot in <b>' + area + "</b> is reserved.</p>";
     h += '<div class="apptcard">';
-    h += '<div class="row"><span class="ic">📅</span><div><b>' + fmtWhen(S.booked.iso) + "</b> (your local time)</div></div>";
-    h += '<div class="row"><span class="ic">📞</span><div>15-min discovery call with <b>Nicolas (CEO)</b> — we’ll text you to confirm</div></div>';
-    if (S.email) h += '<div class="row"><span class="ic">📧</span><div>Confirmation sent to <b>' + esc(S.email) + '</b> — click “I know the sender” in the event email</div></div>';
+    h += '<div class="row"><span class="ic">📅</span><div><b>' + fmtWhen(S.booked.iso) + "</b> (local)</div></div>";
+    h += '<div class="row"><span class="ic">📞</span><div>15-min call with <b>Nicolas (CEO)</b></div></div>';
+    if (S.email) h += '<div class="row"><span class="ic">📧</span><div>Email sent to <b>' + esc(S.email) + "</b></div></div>";
     h += "</div>";
-    h += '<div class="calbtns"><a class="calbtn" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a><a class="calbtn" href="' + icsHref() + '" download="discovery-call.ics"> Add to Apple Calendar</a></div>';
-    h += '<div class="warnbox"><b>WARNING:</b> Time is our highest standard. We don’t reschedule, and we partner only with those who honor commitment.</div>';
-    h += '<div class="howcall"><h3>How the call will work:</h3>';
-    h += '<div class="hc"><span class="n">1</span><div>We’ll <b>text you</b> via cell phone to confirm the call.</div></div>';
-    h += '<div class="hc"><span class="n">2</span><div>Be at your desk or in a <b>quiet place</b> — or we’ll politely end the call.</div></div>';
-    h += '<div class="hc"><span class="n">3</span><div>Bring a <b>pen &amp; paper</b> to take notes.</div></div></div>';
-    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Watch this 2-min message from Nicolas before your call");
+    /* Owner 11/08/2026 (after reading a friend's med-spa thank-you page,
+       whose "do not leave, watch this before the call" homework fights
+       no-shows — 19 of our 38 test discovery calls were no-shows): the
+       intro video sits right under the confirmation, the two calendar
+       buttons share one row, and the "how the call works" list is now 4
+       steps, one of which is to watch a client interview. */
+    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Watch before the call · Nicolas, 2 min").replace('class="vidcard"', 'class="vidcard donevid"');
+    h += '<div class="calbtns"><a class="calbtn" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Google Calendar</a><a class="calbtn" href="' + icsHref() + '" download="discovery-call.ics"> Apple Calendar</a></div>';
+    h += '<div class="warnbox"><b>WARNING:</b> No rescheduling. Honor your time.</div>';
+    h += '<div class="howcall"><h3>Your 4 steps before the call:</h3>';
+    h += '<div class="hc"><span class="n">1</span><div>Reply <b>YES</b> to our confirmation text.</div></div>';
+    h += '<div class="hc"><span class="n">2</span><div><b>Watch Martha’s interview</b> below (2x income in 30 days).' + vidCardHTML(VIDEOS[0].id, VIDEOS[0].thumb, VIDEOS[0].cap) + '</div></div>';
+    h += '<div class="hc"><span class="n">3</span><div>Be at your <b>computer</b>, in a <b>quiet place</b>.</div></div>';
+    h += '<div class="hc"><span class="n">4</span><div>Bring a <b>pen &amp; paper</b> to take notes.</div></div></div>';
     h += "</div>";
     render(h, false);
     /* The bottom "check availability" band makes no sense once the call is
@@ -1059,7 +1074,13 @@
   /* ---------- boot ---------- */
   if ("scrollRestoration" in history) { try { history.scrollRestoration = "manual"; } catch (e) {} }
   window.scrollTo(0, 0);
-  showStep(false);
+  /* ?obpreview=done renders the booked screen with sample data, so the
+     owner can review it without booking a real call (11/08/2026). */
+  if (params.get("obpreview") === "done") {
+    var pv = new Date(); pv.setDate(pv.getDate() + 1); pv.setHours(10, 0, 0, 0);
+    S.name = "Preview"; S.area = "your area"; S.email = "you@example.com"; S.booked = { iso: pv.toISOString() };
+    showDone();
+  } else showStep(false);
   /* Warm the calendar during the survey — by the time the visitor reaches
      the booking step, availability is already in memory. */
   setTimeout(function () { if (!cal.loaded && !cal.loading) loadSlots(null); }, 2500);
