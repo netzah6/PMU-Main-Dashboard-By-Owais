@@ -97,6 +97,18 @@
 ".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:72px 20px 150px;text-align:center}" +
 ".hero::before{content:\"\";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,25,22,.72) 0%,rgba(7,25,22,.55) 55%,rgba(7,25,22,.78) 100%)}" +
 ".hero>*{position:relative}" +
+/* Booked screen (owner 11/08/2026): the sales headline is noise once the
+   call is booked — keep a slim photo band, drop the words. */
+"body.ob-done .hero{padding:34px 20px 96px}body.ob-done .hero h1,body.ob-done .hero .sub{display:none}" +
+/* Owner 11/08/2026: the booked screen mirrors the ORIGINAL funnel's thank-you
+   page step by step (banner → video → warning → calendar → email note → how the
+   call works) so the A/B test compares like with like. The progress row goes
+   (the check already says it) and the check is smaller. */
+"body.ob-done .ob-progress{display:none}body.ob-done .bigcheck{width:52px;height:52px;margin:0 auto 8px}body.ob-done .bigcheck svg{width:26px;height:26px}" +
+".tybanner{background:var(--teal);color:#fff;font-family:var(--font-head);font-weight:800;font-size:17px;line-height:1.3;text-align:center;border-radius:12px;padding:12px 14px;margin:14px 0 10px}" +
+".tyh{font-family:var(--font-head);font-weight:800;font-size:19px;text-align:center;margin:16px 0 8px}" +
+".tyor{font-style:italic;font-weight:700;font-size:14.5px;text-align:center;margin:10px 0 2px}" +
+".calbtn.g{background:var(--teal);border-color:var(--teal);color:#fff}.calbtn.a{background:#111;border-color:#111;color:#fff}" +
 ".hero h1{color:#fff;font-size:clamp(28px,4.6vw,46px);font-weight:800;max-width:900px;margin:0 auto}" +
 ".hero h1 .hl{color:var(--teal)}" +
 ".hero .sub{color:#e9f5f3;font-size:clamp(16px,2vw,20px);font-weight:700;margin:18px auto 0;max-width:640px;font-family:var(--font-head)}" +
@@ -180,8 +192,12 @@
 ".apptcard{background:var(--mist);border:1px solid var(--line);border-radius:14px;padding:16px;margin:16px 0;text-align:left}" +
 ".apptcard .row{display:flex;gap:10px;align-items:flex-start;padding:6px 0;font-size:15px}" +
 ".apptcard .row .ic{flex:none;width:22px;text-align:center}" +
-".calbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:14px 0 4px}" +
-".calbtn{display:inline-flex;align-items:center;gap:8px;border:2px solid var(--line);background:#fff;border-radius:999px;padding:10px 18px;font-weight:700;font-size:14px;color:var(--ink);text-decoration:none;transition:border-color .15s}" +
+/* Owner 11/08/2026: the two calendar buttons sit side by side on one row
+   (also on phones) to save scrolling on the booked screen. */
+".calbtns{display:flex;gap:8px;flex-wrap:nowrap;justify-content:center;margin:12px 0 4px}" +
+".calbtn{flex:1 1 0;justify-content:center;display:inline-flex;align-items:center;gap:6px;border:2px solid var(--line);background:#fff;border-radius:999px;padding:10px 8px;font-weight:700;font-size:13px;line-height:1.2;text-align:center;color:var(--ink);text-decoration:none;transition:border-color .15s}" +
+".howcall .hc .vidcard{margin-top:8px}" +
+".donevid{margin-top:0}" +
 ".calbtn:hover{border-color:var(--teal)}" +
 /* Louder warning (owner, 2026-09-23): solid red, bigger, unmissable. */
 ".warnbox{border:2px solid #dc2626;background:#fef2f2;border-radius:12px;padding:14px 18px;font-size:16px;font-weight:600;line-height:1.55;color:#b91c1c;margin:16px 0;text-align:left}" +
@@ -978,23 +994,24 @@
   function showDone() {
     S.phase = "done";
     clearInterval(S.holdTimer);
+    document.body.classList.add("ob-done");
     var f = esc(firstName() || "you"), area = esc(S.area || "your area");
     var h = '<div class="donewrap">';
     h += '<div class="bigcheck"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 7"/></svg></div>';
     h += '<h2 class="q-title" style="text-align:center">You’re booked, ' + f + "!</h2>";
-    h += '<p class="q-note" style="text-align:center;margin-bottom:8px">Your <b>1 spot in ' + area + "</b> is reserved under your name.</p>";
-    h += '<div class="apptcard">';
-    h += '<div class="row"><span class="ic">📅</span><div><b>' + fmtWhen(S.booked.iso) + "</b> (your local time)</div></div>";
-    h += '<div class="row"><span class="ic">📞</span><div>15-min discovery call with <b>Nicolas (CEO)</b> — we’ll text you to confirm</div></div>';
-    if (S.email) h += '<div class="row"><span class="ic">📧</span><div>Confirmation sent to <b>' + esc(S.email) + '</b> — click “I know the sender” in the event email</div></div>';
-    h += "</div>";
-    h += '<div class="calbtns"><a class="calbtn" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a><a class="calbtn" href="' + icsHref() + '" download="discovery-call.ics"> Add to Apple Calendar</a></div>';
+    h += '<p class="q-note" style="text-align:center;margin-bottom:4px"><b>' + fmtWhen(S.booked.iso) + "</b> (local) · 15-min call with Nicolas (CEO)</p>";
+    /* From here down: the original funnel's thank-you page, same order and
+       same words (pmu-bookings.com thank-you step, read 11/08/2026). */
+    h += '<div class="tybanner">Watch The Video Below OR You Won\'t Be Able To Attend The Call.</div>';
+    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Nicolas — 2:37").replace('class="vidcard"', 'class="vidcard donevid"');
     h += '<div class="warnbox"><b>WARNING:</b> Time is our highest standard. We don’t reschedule, and we partner only with those who honor commitment.</div>';
-    h += '<div class="howcall"><h3>How the call will work:</h3>';
-    h += '<div class="hc"><span class="n">1</span><div>We’ll <b>text you</b> via cell phone to confirm the call.</div></div>';
-    h += '<div class="hc"><span class="n">2</span><div>Be at your desk or in a <b>quiet place</b> — or we’ll politely end the call.</div></div>';
-    h += '<div class="hc"><span class="n">3</span><div>Bring a <b>pen &amp; paper</b> to take notes.</div></div></div>';
-    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Watch this 2-min message from Nicolas before your call");
+    h += '<div class="tyh">Add The Call To Your Calendar By Clicking Below</div>';
+    h += '<div class="calbtns"><a class="calbtn g" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a><a class="calbtn a" href="' + icsHref() + '" download="discovery-call.ics"> Add to Apple Calendar</a></div>';
+    h += '<p class="tyor">OR check your email and click "I know the sender" in your event email we just sent you!</p>';
+    h += '<div class="howcall"><h3 style="text-align:center;font-size:19px">How The Call Will Work:</h3>';
+    h += '<div class="hc"><span class="n">1</span><div>We will text you a message via cell phone to confirm the call.</div></div>';
+    h += '<div class="hc"><span class="n">2</span><div>Be at your desk or in a quiet place or we will politely end the call.</div></div>';
+    h += '<div class="hc"><span class="n">3</span><div>Bring a Pen &amp; Paper to take notes.</div></div></div>';
     h += "</div>";
     render(h, false);
     /* The bottom "check availability" band makes no sense once the call is
@@ -1059,7 +1076,13 @@
   /* ---------- boot ---------- */
   if ("scrollRestoration" in history) { try { history.scrollRestoration = "manual"; } catch (e) {} }
   window.scrollTo(0, 0);
-  showStep(false);
+  /* ?obpreview=done renders the booked screen with sample data, so the
+     owner can review it without booking a real call (11/08/2026). */
+  if (params.get("obpreview") === "done") {
+    var pv = new Date(); pv.setDate(pv.getDate() + 1); pv.setHours(10, 0, 0, 0);
+    S.name = "Preview"; S.area = "your area"; S.email = "you@example.com"; S.booked = { iso: pv.toISOString() };
+    showDone();
+  } else showStep(false);
   /* Warm the calendar during the survey — by the time the visitor reaches
      the booking step, availability is already in memory. */
   setTimeout(function () { if (!cal.loaded && !cal.loading) loadSlots(null); }, 2500);
