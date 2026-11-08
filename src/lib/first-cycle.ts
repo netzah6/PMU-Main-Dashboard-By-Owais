@@ -73,7 +73,7 @@ export async function moveDealToFirstCycle(contactId: string, H: Record<string, 
 }
 
 /* Whatever the setup run and the funnels already know about this client. */
-export async function knownLogins(svc: SupabaseClient, q: { contactId?: string; email?: string; business?: string }): Promise<{ email: string; password: string; funnelUrl: string; fromSetup: boolean }> {
+export async function knownLogins(svc: SupabaseClient, q: { contactId?: string; email?: string; business?: string }): Promise<{ email: string; password: string; funnelUrl: string; fromSetup: boolean; coach: string }> {
   const { data } = await svc.from("onboardings").select("form, setup").order("created_at", { ascending: false }).limit(400);
   type Row = { form: Record<string, string>; setup: { password?: string; funnel_url?: string } | null };
   const rows = (data ?? []) as Row[];
@@ -81,14 +81,17 @@ export async function knownLogins(svc: SupabaseClient, q: { contactId?: string; 
   const hit = rows.find((r) => q.contactId && String(r.form?.master_contact_id ?? "") === q.contactId)
     ?? rows.find((r) => email && String(r.form?.email ?? "").trim().toLowerCase() === email);
   let funnelUrl = String(hit?.setup?.funnel_url ?? "");
-  const business = (q.business ?? "").trim();
-  if (!funnelUrl && business) {
+  /* The agency contact often has no company name (Kobasic Brows, 11/06/2026:
+     set up by hand, funnel live, but the welcome texts said "no funnel link"),
+     so the onboarding form's business name is tried as well. */
+  const names = [q.business, hit?.form?.business_name].map((v) => String(v ?? "").trim()).filter(Boolean);
+  if (!funnelUrl && names.length) {
     const { data: ob } = await svc.from("onebox_clients").select("slug, client_name").neq("slug", "demo-v3");
     const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const m = (ob ?? []).find((o) => norm(String(o.client_name ?? "")) === norm(business));
+    const m = (ob ?? []).find((o) => names.some((n) => norm(String(o.client_name ?? "")) === norm(n)));
     if (m) funnelUrl = `https://book.pmu-care.com/f/${m.slug}`;
   }
-  return { email: String(hit?.form?.email ?? email ?? ""), password: String(hit?.setup?.password ?? ""), funnelUrl, fromSetup: !!hit };
+  return { email: String(hit?.form?.email ?? email ?? ""), password: String(hit?.setup?.password ?? ""), funnelUrl, fromSetup: !!hit, coach: String(hit?.form?.assigned ?? "").trim() };
 }
 
 /* A deal landed in First Cycle, however it got there (Nancy Duarte, 11/04/2026:
@@ -132,6 +135,8 @@ export async function prepareFirstCycle(svc: SupabaseClient, contactId: string):
       type: "onboarding", severity: "high", source_key: `first_cycle_blank:${contactId}`, resurfaceAfterDays: 1,
       title: `${who} moved to First Cycle: welcome texts NOT sent`,
       detail: `The dashboard has no ${missing.join(", ")} for this client, so nothing went out. Fill the CC - Login fields on the agency contact, then move the deal out of First Cycle and back to send the texts.`,
+      // csm puts the box in the assigned coach's pop-up, not only on the admin Alerts tab.
+      meta: { csm: run.coach || null, contact_id: contactId, contact_name: who, link: `https://app.gohighlevel.com/v2/location/${MAIN_LOC}/contacts/detail/${contactId}` },
     });
   }
   return { ok: missing.length === 0, missing };

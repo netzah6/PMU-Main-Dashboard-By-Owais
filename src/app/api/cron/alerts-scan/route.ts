@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { scanComplianceSynced, scanComplianceDeep, scanMakeScenarios, scanOnboardingPipeline, scanDuplicateLeads, scanIngestHealth, scanAgreementMissing, scanLeadsWhileNotLive, scanSilentLeads, scanDoubleBookings, scanLiveNoPayDate, scanOneboxNotifyMissing } from "@/lib/alerts";
+import { autoMergeClientDuplicates } from "@/lib/client-dupes";
 
 export const maxDuration = 300;
 
@@ -13,7 +14,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const svc = createServiceClient();
-  const [synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate, oneboxNotify] = [
+  // Merge exact duplicate Clients Master rows first, so the scans below see one row per client.
+  const [clientDupes, synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate, oneboxNotify] = [
+    await autoMergeClientDuplicates(svc).catch((e) => ({ error: String(e) })),
     await scanComplianceSynced(svc).catch((e) => ({ error: String(e) })),
     await scanComplianceDeep(svc).catch((e) => ({ error: String(e) })),
     await scanMakeScenarios(svc).catch((e) => ({ error: String(e) })),
@@ -27,5 +30,5 @@ export async function GET(req: NextRequest) {
     await scanLiveNoPayDate(svc).catch((e) => ({ error: String(e) })),
     await scanOneboxNotifyMissing(svc).catch((e) => ({ error: String(e) })),
   ];
-  return NextResponse.json({ timestamp: new Date().toISOString(), synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate, oneboxNotify });
+  return NextResponse.json({ timestamp: new Date().toISOString(), clientDupes, synced, deep, make, onboarding, dupes, ingest, agreement, notLive, silentLeads, doubleBookings, payDate, oneboxNotify });
 }

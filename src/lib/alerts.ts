@@ -1111,6 +1111,17 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
           const list = Array.isArray(msgs.messages) ? msgs.messages : msgs.messages?.messages ?? [];
           out = list.filter((m) => m.direction === "outbound").length;
         }
+        /* No thread in GHL is not proof of silence: the artist can delete a
+           conversation. Basic Beige Brows, 11/07/2026: Carolina Betancourt got
+           the texts, the artist wrote "Ignore the automatic response", then
+           deleted the thread — our synced copy still had it. Every one of the
+           account's 8 "no text" alerts since 10/08 was this. So a missing
+           thread counts as texted when our copy saw activity after signup. */
+        if (!out && !c0) {
+          const { data: seen } = await svc.from("ghl_conversations").select("id")
+            .eq("contact_id", l.ghl_contact_id).gte("last_message_date", l.created_at).limit(1);
+          if (seen?.length) continue;
+        }
         if (!out && !/test|ignore/i.test(l.full_name)) silent.push(l.full_name);
       } catch { /* one flaky lookup must not kill the sweep */ }
     }
