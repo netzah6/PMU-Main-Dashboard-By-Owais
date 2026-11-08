@@ -36,10 +36,24 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
   if (!exp) return NextResponse.json({ experiment: null });
 
-  const [{ data: variants }, { data: assigns }, { data: leads }, { data: client }] = await Promise.all([
+  /* PostgREST returns at most 1,000 rows per call. A running test soon has
+     more visitors than that (the B2B test had 2,160 on 11/08/2026 and the
+     card read "1000" for one side and "0" for the other), so assignments
+     and leads are read in pages until a short page comes back. */
+  async function allRows<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null }>): Promise<T[]> {
+    const out: T[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data } = await build(from, from + 999);
+      out.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    return out;
+  }
+  const [{ data: variants }, assigns, leads, { data: client }] = await Promise.all([
     svc.from("onebox_variants").select("vkey, label, kind, target, weight, config_override").eq("experiment_id", exp.id).order("vkey"),
-    svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id).gte("created_at", exp.created_at),
-    svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, ghl_contact_id, picked_time_at, answers, created_at, phone, full_name").eq("slug", slug).gte("created_at", exp.created_at),
+    allRows<{ vkey: string }>((from, to) => svc.from("onebox_assignments").select("vkey").eq("experiment_id", exp.id).gte("created_at", exp.created_at).order("created_at").range(from, to)),
+    allRows<{ variant_key: string | null; ghl_status: string | null; ghl_appointment_id: string | null; ghl_contact_id: string | null; picked_time_at: string | null; answers: unknown; created_at: string; phone: string | null; full_name: string | null }>(
+      (from, to) => svc.from("onebox_leads").select("variant_key, ghl_status, ghl_appointment_id, ghl_contact_id, picked_time_at, answers, created_at, phone, full_name").eq("slug", slug).gte("created_at", exp.created_at).order("created_at").range(from, to)),
     svc.from("onebox_clients").select("location_id, config, client_name, extras").eq("slug", slug).single(),
   ]);
 
