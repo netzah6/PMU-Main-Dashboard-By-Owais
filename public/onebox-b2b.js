@@ -99,7 +99,14 @@
 ".hero>*{position:relative}" +
 /* Booked screen (owner 11/08/2026): the sales headline is noise once the
    call is booked — keep a slim photo band, drop the words. */
-"body.ob-done .hero{padding:34px 20px 96px}body.ob-done .hero h1,body.ob-done .hero .sub{display:none}" +
+/* Owner 11/08/2026 v2: the booked screen looks like the original funnel's
+   thank-you page — no logo band, no hero, flat white page, teal banner on top,
+   dashed warning, rectangular teal/black buttons, plain centered lines. */
+"body.ob-done .topbar,body.ob-done .hero{display:none}body.ob-done .boxwrap{margin-top:0;padding:0}body.ob-done .obox{max-width:760px;border-radius:0;box-shadow:none}body.ob-done .ob-head{display:none}" +
+"body.ob-done .tybanner{border-radius:0;margin:0 -26px 14px;padding:16px 18px;font-size:19px}" +
+"body.ob-done .warnbox{border:2px dashed #111;background:#fff;color:#111;font-weight:500;font-size:15px;padding:12px 14px}body.ob-done .warnbox b{color:#dc2626}" +
+"body.ob-done .calbtn{border-radius:6px;font-size:14px}" +
+"body.ob-done .howcall .n{display:none}body.ob-done .howcall .hc{display:block;text-align:center;font-size:15.5px;padding:8px 0}body.ob-done .howcall .hc .vidcard{margin-top:10px}" +
 /* Owner 11/08/2026: the booked screen mirrors the ORIGINAL funnel's thank-you
    page step by step (banner → video → warning → calendar → email note → how the
    call works) so the A/B test compares like with like. The progress row goes
@@ -995,23 +1002,19 @@
     S.phase = "done";
     clearInterval(S.holdTimer);
     document.body.classList.add("ob-done");
-    var f = esc(firstName() || "you"), area = esc(S.area || "your area");
     var h = '<div class="donewrap">';
-    h += '<div class="bigcheck"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 7"/></svg></div>';
-    h += '<h2 class="q-title" style="text-align:center">You’re booked, ' + f + "!</h2>";
-    h += '<p class="q-note" style="text-align:center;margin-bottom:4px"><b>' + fmtWhen(S.booked.iso) + "</b> (local) · 15-min call with Nicolas (CEO)</p>";
-    /* From here down: the original funnel's thank-you page, same order and
-       same words (pmu-bookings.com thank-you step, read 11/08/2026). */
+    /* Same order and words as the original funnel's thank-you page
+       (pmu-bookings.com thank-you step, owner 11/08/2026). */
     h += '<div class="tybanner">Watch The Video Below OR You Won\'t Be Able To Attend The Call.</div>';
-    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Nicolas — 2:37").replace('class="vidcard"', 'class="vidcard donevid"');
+    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Nicolas · 2:37").replace('class="vidcard"', 'class="vidcard donevid"');
     h += '<div class="warnbox"><b>WARNING:</b> Time is our highest standard. We don’t reschedule, and we partner only with those who honor commitment.</div>';
     h += '<div class="tyh">Add The Call To Your Calendar By Clicking Below</div>';
     h += '<div class="calbtns"><a class="calbtn g" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a><a class="calbtn a" href="' + icsHref() + '" download="discovery-call.ics"> Add to Apple Calendar</a></div>';
     h += '<p class="tyor">OR check your email and click "I know the sender" in your event email we just sent you!</p>';
     h += '<div class="howcall"><h3 style="text-align:center;font-size:19px">How The Call Will Work:</h3>';
-    h += '<div class="hc"><span class="n">1</span><div>We will text you a message via cell phone to confirm the call.</div></div>';
-    h += '<div class="hc"><span class="n">2</span><div>Be at your desk or in a quiet place or we will politely end the call.</div></div>';
-    h += '<div class="hc"><span class="n">3</span><div>Bring a Pen &amp; Paper to take notes.</div></div></div>';
+    h += '<div class="hc"><span class="n">1</span><div><b>1.</b> We will text you a message via cell phone to confirm the call.</div></div>';
+    h += '<div class="hc"><span class="n">2</span><div><b>2.</b> Be at your desk or in a quiet place or we will politely end the call.</div></div>';
+    h += '<div class="hc"><span class="n">3</span><div><b>3.</b> Watch the interview below showing how we helped Martha double her income in 30 days — and within 7 months she became fully booked 3 months in advance.' + vidCardHTML(VIDEOS[0].id, VIDEOS[0].thumb, VIDEOS[0].cap) + '</div></div></div>';
     h += "</div>";
     render(h, false);
     /* The bottom "check availability" band makes no sense once the call is
