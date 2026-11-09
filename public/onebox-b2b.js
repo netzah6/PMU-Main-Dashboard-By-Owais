@@ -82,7 +82,7 @@
     sticky: "See If You Qualify — 60 sec",
     goodSub: "A <b>pay-per-appointment spot is open in {area}</b>. Book your free 15-minute call to lock it in — we’ll walk you through exactly how it works.",
   } : {
-    heroSmall: "Only <b>one PMU artist per area</b> — check if yours is still open below.",
+    heroSmall: "One <b>PMU artist per area</b> — check yours below.",
     resultsSub: "Screenshots from client ad accounts — this is what “on autopilot” actually looks like.",
     gTitle: "Guaranteed Bookings — Or It’s Free",
     g1: "Usually, the clients we accept don’t need a money-back guarantee.",
@@ -140,7 +140,7 @@
 ".tyh{font-family:var(--font-head);font-weight:800;font-size:19px;text-align:center;margin:16px 0 8px}" +
 ".tyor{font-style:italic;font-weight:700;font-size:14.5px;text-align:center;margin:10px 0 2px}" +
 ".calbtn.g{background:var(--teal);border-color:var(--teal);color:#fff}.calbtn.a{background:#111;border-color:#111;color:#fff}" +
-".hero h1{color:#fff;font-size:clamp(22px,5.9vw,46px);line-height:1.15;letter-spacing:-.3px;font-weight:800;max-width:900px;margin:0 auto}" +
+".hero h1{color:#fff;font-size:clamp(27px,7.2vw,46px);line-height:1.1;letter-spacing:-.4px;font-weight:800;max-width:900px;margin:0 auto}" +
 /* Owner 11/09/2026: small pill above the headline, like "ONLY FOR MED SPAS…" on the friend's page. */
 ".hero .onlyfor{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.08);color:#fff;border-radius:999px;padding:5px 12px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin:0 auto 14px}" +
 ".hero .onlyfor i{width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block}" +
