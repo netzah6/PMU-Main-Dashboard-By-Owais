@@ -104,9 +104,15 @@
    dashed warning, rectangular teal/black buttons, plain centered lines. */
 "body.ob-done .topbar,body.ob-done .hero{display:none}body.ob-done .boxwrap{margin-top:0;padding:0}body.ob-done .obox{max-width:760px;border-radius:0;box-shadow:none}body.ob-done .ob-head{display:none}" +
 "body.ob-done .tybanner{border-radius:0;margin:0 -26px 14px;padding:16px 18px;font-size:19px}" +
-"body.ob-done .warnbox{border:2px dashed #111;background:#fff;color:#111;font-weight:500;font-size:15px;padding:12px 14px}body.ob-done .warnbox b{color:#dc2626}" +
+"body.ob-done .warnbox{border:2px dashed #111;background:#fff;color:#111;font-weight:500;font-size:15px;padding:12px 14px}body.ob-done .warnbox b{color:#dc2626;font-weight:900;letter-spacing:.02em}" +
 "body.ob-done .calbtn{border-radius:6px;font-size:14px}" +
-"body.ob-done .howcall .n{display:none}body.ob-done .howcall .hc{display:block;text-align:center;font-size:15.5px;padding:8px 0}body.ob-done .howcall .hc .vidcard{margin-top:10px}" +
+"body.ob-done .howcall .hc{display:flex;gap:12px;align-items:flex-start;text-align:left;font-size:15px;line-height:1.45;padding:12px 14px;margin:8px 0;background:#f7fbfa;border:1px solid var(--line);border-radius:12px}" +
+"body.ob-done .howcall .n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--grad);color:#fff;font-family:var(--font-head);font-weight:800;font-size:14px;display:grid;place-items:center;box-shadow:0 6px 14px -6px rgba(0,180,165,.6)}" +
+"body.ob-done .howcall .hc .vidcard{margin-top:10px}" +
+".tyimg{display:block;width:100%;border-radius:10px;border:1px solid var(--line);margin:10px 0 14px}" +
+".tycap{font-size:11.5px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;text-align:center;color:#334155;margin:0 0 6px}" +
+/* The original thank-you page has only the video reviews under the steps, then the footer. */
+"body.ob-done .truststrip,body.ob-done #ob-results,body.ob-done #ob-testimonials,body.ob-done .guarantee,body.ob-done .founder,body.ob-done .finalcta{display:none}" +
 /* Owner 11/08/2026: the booked screen mirrors the ORIGINAL funnel's thank-you
    page step by step (banner → video → warning → calendar → email note → how the
    call works) so the A/B test compares like with like. The progress row goes
@@ -215,10 +221,11 @@
 ".howcall .n{flex:none;width:26px;height:26px;border-radius:50%;background:var(--grad);color:#fff;font-family:var(--font-head);font-weight:800;font-size:13px;display:grid;place-items:center;margin-top:1px}" +
 ".vidcard{position:relative;border-radius:14px;overflow:hidden;margin-top:16px;cursor:pointer;border:none;padding:0;display:block;width:100%;background:#0c1f1c}" +
 ".vidcard img{width:100%;aspect-ratio:16/9;object-fit:cover}" +
-".vidcard .play{position:absolute;inset:0;display:grid;place-items:center;background:rgba(7,25,22,.25);transition:background .15s}" +
+/* Owner 11/08/2026: play buttons smaller and see-through so they never hide a face. */
+".vidcard .play{position:absolute;inset:0;display:grid;place-items:center;background:rgba(7,25,22,.08);transition:background .15s}" +
 ".vidcard:hover .play{background:rgba(7,25,22,.12)}" +
-".vidcard .ply{width:64px;height:64px;border-radius:50%;background:var(--teal);display:grid;place-items:center;box-shadow:0 10px 26px -6px rgba(0,0,0,.4)}" +
-".vidcard .ply svg{width:24px;height:24px;margin-left:3px}" +
+".vidcard .ply{width:56px;height:40px;border-radius:9px;background:rgba(39,190,170,.72);display:grid;place-items:center;box-shadow:0 6px 18px -8px rgba(0,0,0,.45)}" +
+".vidcard .ply svg{width:20px;height:20px;margin-left:2px}" +
 ".vidcard .cap{position:absolute;left:0;right:0;bottom:0;padding:22px 14px 10px;background:linear-gradient(transparent,rgba(7,25,22,.85));color:#fff;font-size:13.5px;font-weight:700;text-align:left}" +
 ".vidcard iframe{width:100%;aspect-ratio:16/9;border:0;display:block}" +
 ":where(#onebox-root) section{padding:64px 20px;display:block}" +
@@ -287,7 +294,7 @@
 /* Shared polish (ported from the PPS variant to both offers, 2026-10-06):
    richer interview cards, direct one-tap slot booking, white footer. */
 ".vids-grid{gap:28px}.vt{background:#fff;border-radius:22px;padding:14px 14px 20px;box-shadow:0 22px 50px -24px rgba(10,60,55,.35),0 2px 10px rgba(10,60,55,.06);border:1px solid rgba(0,163,150,.08);transition:transform .2s,box-shadow .2s}.vt:hover{transform:translateY(-3px);box-shadow:0 30px 60px -24px rgba(10,60,55,.45),0 4px 14px rgba(10,60,55,.08)}" +
-".vt .vidcard{border-radius:16px}.vt .vidcard img{transform:scale(1.02);transition:transform .35s}.vt .vidcard:hover img{transform:scale(1.07)}.vt .vidcard .ply{width:72px;height:72px;box-shadow:0 0 0 10px rgba(255,255,255,.22),0 14px 30px -6px rgba(0,0,0,.5)}.vt .vidcard .cap{padding:34px 16px 12px;font-size:12.5px;letter-spacing:.2px;text-transform:uppercase;background:linear-gradient(transparent,rgba(7,25,22,.9))}" +
+".vt .vidcard{border-radius:16px}.vt .vidcard img{transform:scale(1.02);transition:transform .35s}.vt .vidcard:hover img{transform:scale(1.07)}.vt .vidcard .ply{width:56px;height:40px;box-shadow:0 6px 18px -8px rgba(0,0,0,.45)}.vt .vidcard .cap{padding:34px 16px 12px;font-size:12.5px;letter-spacing:.2px;text-transform:uppercase;background:linear-gradient(transparent,rgba(7,25,22,.9))}" +
 /* Interview cards (owner, 2026-09-23): bigger text; stars on their own
    line, name — business on the next. */
 ".vt blockquote{margin:16px 2px 8px;font-size:17.5px;line-height:1.6;font-style:italic}.vt .who{font-size:15.5px;margin-top:2px}.vt .who::before{content:\"★★★★★\";display:block;margin-bottom:4px;font-size:15px;color:#f5b301;letter-spacing:2px;font-style:normal}.vt .loc{font-size:13.5px}" +
@@ -1011,10 +1018,11 @@
     h += '<div class="tyh">Add The Call To Your Calendar By Clicking Below</div>';
     h += '<div class="calbtns"><a class="calbtn g" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a><a class="calbtn a" href="' + icsHref() + '" download="discovery-call.ics"> Add to Apple Calendar</a></div>';
     h += '<p class="tyor">OR check your email and click "I know the sender" in your event email we just sent you!</p>';
+    h += '<img class="tyimg" src="/b2b/know-sender.webp" alt="Press the I know the sender button in the calendar invite email" loading="lazy">';
     h += '<div class="howcall"><h3 style="text-align:center;font-size:19px">How The Call Will Work:</h3>';
-    h += '<div class="hc"><span class="n">1</span><div><b>1.</b> We will text you a message via cell phone to confirm the call.</div></div>';
-    h += '<div class="hc"><span class="n">2</span><div><b>2.</b> Be at your desk or in a quiet place or we will politely end the call.</div></div>';
-    h += '<div class="hc"><span class="n">3</span><div><b>3.</b> Watch the interview below showing how we helped Martha double her income in 30 days — and within 7 months she became fully booked 3 months in advance.' + vidCardHTML(VIDEOS[0].id, VIDEOS[0].thumb, VIDEOS[0].cap) + '</div></div></div>';
+    h += '<div class="hc"><span class="n">1</span><div>We will text you a message via cell phone to confirm the call.</div></div>';
+    h += '<div class="hc"><span class="n">2</span><div>Be at your desk or in a quiet place or we will politely end the call.</div></div>';
+    h += '<div class="hc"><span class="n">3</span><div>Watch the interview below showing how we helped Martha double her income in 30 days — and within 7 months she became fully booked 3 months in advance.' + vidCardHTML(VIDEOS[0].id, VIDEOS[0].thumb, VIDEOS[0].cap) + '</div></div></div>';
     h += "</div>";
     render(h, false);
     /* The bottom "check availability" band makes no sense once the call is
