@@ -145,8 +145,13 @@ export function winbackContext(r: FlowRow, thread: ThreadMessage[]): WinbackCont
     const t = clean(b);
     const found = [...t.matchAll(/(?<!\d)(\d{3,4})(?!\d)/g)].map((m) => ({ n: Number(m[1]), at: m.index ?? 0 })).filter((f) => isPrice(f.n));
     // "300, no touch up" / "includes the touch up" name no touch-up price.
-    const noTouch = /\b(no|without|incl\w*|free)\s+(a\s+|the\s+)?(free\s+)?touch[\s-]?ups?\b/i.test(t) && !/\d{3,4}\s*(for\s+(the\s+)?)?touch/i.test(t);
-    const touchAt = noTouch ? -1 : t.search(/touch[\s-]?ups?/i);
+    // Owner, 11/09/2026 (a former client wrote "$550 - $600 first treatment.
+    // $100 second treatment"): we ask her for "the second treatment", so that
+    // wording names the touch-up price too. Before, $100 was read as a
+    // first-session price, her lowest became $100, and the $400 rule stayed off.
+    const TOUCH = /touch[\s-]?ups?|\b(second|2nd)\s+(treatment|session|visit)/i;
+    const noTouch = /\b(no|without|incl\w*|free)\s+(a\s+|the\s+)?(free\s+)?(touch[\s-]?ups?|(second|2nd)\s+(treatment|session|visit))\b/i.test(t) && !/\d{3,4}\s*(for\s+(the\s+)?)?(touch|(second|2nd)\s+(treatment|session|visit))/i.test(t);
+    const touchAt = noTouch ? -1 : t.search(TOUCH);
     let tu: { n: number; at: number } | null = null;
     if (touchAt >= 0 && found.length) {
       tu = found.reduce((a, f) => (Math.abs(f.at - touchAt) < Math.abs(a.at - touchAt) ? f : a));
