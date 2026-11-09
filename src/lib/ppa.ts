@@ -230,7 +230,49 @@ export async function ingestAppointments(ownerKeys?: string[]): Promise<IngestRe
     }
   });
   if (report.failed.length) console.warn("[ppa-appointments] failures", JSON.stringify(report.failed));
+  await backfillAppointmentContacts(svc, locs);
   return report;
+}
+
+/* 11/09/2026: a deposit links to its appointment only through ghl_contacts
+   (deposit email → contact → appointment). The contact ingest pulls a few
+   contacts per run, so a lead who booked through the one-box pay link often
+   has an appointment row here but no contact row — and her deposit showed as
+   "No appt" on the PPS tab (Laquisha / Archery Brow Bar, Tina / Leila Beauty).
+   After every appointment ingest, fetch the contact of each appointment whose
+   contact is still missing and store it, so the link closes on the next
+   refresh_ppa_facts. */
+async function backfillAppointmentContacts(svc: ReturnType<typeof createServiceClient>, locs: Map<string, string>): Promise<void> {
+  const { data: missing } = await svc.rpc("ppa_appointment_contacts_missing").select("*");
+  const rows = (missing ?? []) as Array<{ contact_id: string; location_id: string }>;
+  if (!rows.length) return;
+  const now = new Date().toISOString();
+  const tokens = new Map<string, string | null>();
+  let saved = 0;
+  await mapWithConcurrency(rows.slice(0, 300), 6, async (r) => {
+    try {
+      if (!tokens.has(r.location_id)) tokens.set(r.location_id, (await getAppLocationToken(r.location_id)).token ?? null);
+      const tok = tokens.get(r.location_id);
+      if (!tok) return;
+      const res = await fetch(`${BASE}/contacts/${r.contact_id}`, { headers: { Authorization: `Bearer ${tok}`, Version: "2021-07-28", Accept: "application/json" } });
+      if (!res.ok) return;
+      const c = ((await res.json()) as { contact?: Record<string, unknown> }).contact;
+      if (!c?.id) return;
+      const { error } = await svc.from("ghl_contacts").upsert({
+        id: String(c.id), location_id: r.location_id, owner_key: locs.get(r.location_id) ?? null,
+        contact_name: (c.contactName ?? c.name ?? [c.firstName, c.lastName].filter(Boolean).join(" ") ?? null) as string | null,
+        email: (c.email ?? null) as string | null,
+        phone: (c.phone ?? null) as string | null,
+        source: (c.source ?? null) as string | null,
+        type: (c.type ?? null) as string | null,
+        assigned_to: (c.assignedTo ?? null) as string | null,
+        date_added: c.dateAdded ? new Date(String(c.dateAdded)).toISOString() : null,
+        raw: c, synced_at: now,
+      }, { onConflict: "id" });
+      if (!error) saved++;
+    } catch { /* best effort */ }
+  });
+  if (saved) console.log(`[ppa-appointments] backfilled ${saved} contacts missing for appointments`);
 }
 
 // Ensure ghl_stage_map has stage names for the given locations. Skips locations
