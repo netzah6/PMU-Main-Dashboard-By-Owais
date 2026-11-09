@@ -121,7 +121,7 @@
    dashed warning, rectangular teal/black buttons, plain centered lines. */
 "body.ob-done .topbar,body.ob-done .hero{display:none}body.ob-done .boxwrap{margin-top:0;padding:0}body.ob-done .obox{max-width:760px;border-radius:0;box-shadow:none}body.ob-done .ob-head{display:none}" +
 "body.ob-done .tybanner{border-radius:0;margin:0 -26px 14px;padding:16px 18px;font-size:19px}" +
-"body.ob-done .warnbox{border:2px dashed #111;background:#fff;color:#111;font-weight:500;font-size:15px;padding:12px 14px}body.ob-done .warnbox b{color:#dc2626;font-weight:900;letter-spacing:.02em}" +
+"body.ob-done .warnbox{border:2px dashed #111;background:#fff;color:#111;font-weight:500;font-size:15px;padding:12px 14px}body.ob-done .warnbox b{display:inline-block;background:#dc2626;color:#fff;font-family:var(--font-head);font-weight:800;font-size:15px;letter-spacing:.06em;padding:2px 9px;border-radius:6px;margin-right:4px;vertical-align:1px}" +
 "body.ob-done .calbtn{border-radius:6px;font-size:14px}" +
 "body.ob-done .howcall .hc{display:flex;gap:12px;align-items:flex-start;text-align:left;font-size:15px;line-height:1.45;padding:12px 14px;margin:8px 0;background:#f7fbfa;border:1px solid var(--line);border-radius:12px}" +
 "body.ob-done .howcall .n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--grad);color:#fff;font-family:var(--font-head);font-weight:800;font-size:14px;display:grid;place-items:center;box-shadow:0 6px 14px -6px rgba(0,180,165,.6)}" +
@@ -248,6 +248,12 @@
 ".vidcard:hover .play{background:rgba(7,25,22,.12)}" +
 ".vidcard .ply{width:56px;height:40px;border-radius:9px;background:rgba(39,190,170,.72);display:grid;place-items:center;box-shadow:0 6px 18px -8px rgba(0,0,0,.45)}" +
 ".vidcard .ply svg{width:20px;height:20px;margin-left:2px}" +
+/* Owner 11/09/2026: every video card reacts — image zooms, the play button
+   brightens and grows, and a soft pulse ring invites the tap. */
+".vidcard img{transition:transform .35s ease}.vidcard:hover img{transform:scale(1.04)}" +
+".vidcard .ply{transition:transform .2s ease,background .2s ease;animation:obpulse 2.4s ease-out infinite}.vidcard:hover .ply{transform:scale(1.1);background:rgba(39,190,170,.95)}" +
+"@keyframes obpulse{0%{box-shadow:0 6px 18px -8px rgba(0,0,0,.45),0 0 0 0 rgba(39,190,170,.55)}70%{box-shadow:0 6px 18px -8px rgba(0,0,0,.45),0 0 0 14px rgba(39,190,170,0)}100%{box-shadow:0 6px 18px -8px rgba(0,0,0,.45),0 0 0 0 rgba(39,190,170,0)}}" +
+"@media (prefers-reduced-motion:reduce){.vidcard .ply{animation:none}}" +
 ".vidcard .cap{position:absolute;left:0;right:0;bottom:0;padding:22px 14px 10px;background:linear-gradient(transparent,rgba(7,25,22,.85));color:#fff;font-size:13.5px;font-weight:700;text-align:left}" +
 ".vidcard iframe{width:100%;aspect-ratio:16/9;border:0;display:block}" +
 ":where(#onebox-root) section{padding:64px 20px;display:block}" +
@@ -1072,7 +1078,7 @@
     var id = card.getAttribute("data-wid");
     card.removeAttribute("data-wid");
     card.innerHTML = '<iframe src="https://fast.wistia.net/embed/iframe/' + esc(id) +
-      '?autoPlay=true&videoFoam=true" title="Video" allow="autoplay; fullscreen" allowtransparency="true" allowfullscreen></iframe>';
+      '?autoPlay=true&videoFoam=true&playbar=false" title="Video" allow="autoplay; fullscreen" allowtransparency="true" allowfullscreen></iframe>';
   });
 
   /* ---------- sticky CTA / final CTA ---------- */
