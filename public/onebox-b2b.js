@@ -110,8 +110,9 @@
 "@media (max-width:560px){.topbar{gap:9px;padding:11px 16px}.topbar img{width:38px;height:38px}.topbar .wordmark{font-size:16px}}" +
 /* Owner 11/09/2026: less scrolling on the first screen — tighter top padding,
    headline sized to 3 lines on a phone, guarantee line on a solid highlight bar
-   (like the "You only pay us after…" line on the friend's page). */
-".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:44px 12px 150px;text-align:center}" +
+   (like the "You only pay us after…" line on the friend's page).
+   Later 11/09: top padding 44px → 30px so the pill sits closer to the logo bar. */
+".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:30px 12px 150px;text-align:center}" +
 ".hero::before{content:\"\";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,25,22,.72) 0%,rgba(7,25,22,.55) 55%,rgba(7,25,22,.78) 100%)}" +
 ".hero>*{position:relative}" +
 /* Booked screen (owner 11/08/2026): the sales headline is noise once the
