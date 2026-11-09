@@ -110,9 +110,8 @@
 "@media (max-width:560px){.topbar{gap:9px;padding:11px 16px}.topbar img{width:38px;height:38px}.topbar .wordmark{font-size:16px}}" +
 /* Owner 11/09/2026: less scrolling on the first screen — tighter top padding,
    headline sized to 3 lines on a phone, guarantee line on a solid highlight bar
-   (like the "You only pay us after…" line on the friend's page).
-   Later 11/09: top padding 44px → 30px so the pill sits closer to the logo bar. */
-".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:30px 12px 150px;text-align:center}" +
+   (like the "You only pay us after…" line on the friend's page). */
+".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:44px 12px 150px;text-align:center}" +
 ".hero::before{content:\"\";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,25,22,.72) 0%,rgba(7,25,22,.55) 55%,rgba(7,25,22,.78) 100%)}" +
 ".hero>*{position:relative}" +
 /* Booked screen (owner 11/08/2026): the sales headline is noise once the
@@ -347,7 +346,12 @@
    the brand; the footer keeps the logo), tighter hero top, and a sub
    sized to hold its two <br> lines on one row each at phone width. */
 ".hero{padding-top:40px}" +
-".hero .sub{font-size:clamp(11.5px,3.15vw,19px);line-height:1.45}" : "");
+".hero .sub{font-size:clamp(11.5px,3.15vw,19px);line-height:1.45}" :
+/* Owner 11/09/2026: no "Step 1 of 9" row (bar + label) on any step, and the
+   room it freed spread as breathing space, so a phone shows logo → headline →
+   "Check My Area" in one screen without crowding. */
+".ob-head{display:none}.ob-body{padding-top:26px}@media (max-width:520px){.ob-body{padding-top:24px}}" +
+".hero .onlyfor{margin-bottom:16px}.hero .sub{margin-top:18px}.hero .sub small{margin-top:10px}.q-title{margin-bottom:8px}");
 
   /* ---------- page skeleton ---------- */
   var root = document.getElementById("onebox-root");
