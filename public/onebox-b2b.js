@@ -40,6 +40,20 @@
     { id: "0hptjpbu24", thumb: W + "3ec092a0fc950a95ddccb9238f6f68f8" + CROP, cap: "Interview — Teri, Brow Botanical", quote: "“I’ve literally tripled my clients. It’s been the best decision for my business!”", who: "Teri Foulds — Brow Botanical", loc: "Midland, TX, USA" },
     { id: "0coykd6lw2", thumb: W + "a13bbb216c74c03477fa7dcc9c21ac3c" + CROP, cap: "Interview — Nahid, Shihan Day Spa", quote: "“The strategy they gave me helped me 3X my bookings. I finally have a system that actually works!”", who: "Nahid Farzinzad — Shihan Day Spa", loc: "Avon, CT, USA" },
   ];
+  /* Booked screen only (owner 11/09/2026): Martha already plays inside step 3,
+     so her grid card is hidden there and these seven more interviews from the
+     original thank-you page are shown instead. Ids + thumbnails verified via
+     Wistia oEmbed; two YouTube-import videos on that page (Deyonne, Elena)
+     could not be told apart, so they are left out. */
+  var VIDEOS_MORE = [
+    { id: "4c9y30nhpo", thumb: W + "db94fefd39465c1de4facbd15bf27a47" + CROP, cap: "Interview — Tracey, Fine Arts Permanent Cosmetics", quote: "“They make the leads excited, they are more than just a marketing company.”", who: "Tracey Collett — Fine Arts Permanent Cosmetics, LLC", loc: "Chandler, AZ, USA" },
+    { id: "cyxu36m8sh", thumb: W + "438abb6324bf240099334d3b493fe5c1" + CROP, cap: "Interview — Maryam, Eye Select Beauty", quote: "“The training on how to talk to clients has been a game-changer! I feel so much more confident now, my clients are responding better than ever.”", who: "Maryam Thomas — Eye Select Beauty LLC", loc: "Scottsdale, AZ, USA" },
+    { id: "cpcevkx0eh", thumb: W + "70a274d34f83e3dc0ced34ec26165034" + CROP, cap: "Interview — Kelly, Sage Chevelle Beauty", quote: "“I’m now fully booked out two months in advance! PMU Bookings On Demand completely changed the game for me.”", who: "Kelly Giacalone — Sage Chevelle Beauty By Kelly", loc: "San Diego, CA, USA" },
+    { id: "nll8940dea", thumb: W + "3136e1a45ec22e404109bfe83ff4b683" + CROP, cap: "Interview — Jenna, It Girl Ink IV", quote: "“Thank you for making my business easy to run, spend time with my family and not worry about having clients.”", who: "Jenna Chaco — It Girl Ink IV", loc: "Henderson, NV, USA" },
+    { id: "qmurqsncly", thumb: W + "88a77cdbec910515808471c6d2bd9440" + CROP, cap: "Interview — Tanisa, Nakkid Skinn Studio", quote: "“I never imagined I’d be booked out for 2 months straight. PMU Bookings On Demand gave me a predictable system that keeps my calendar full!”", who: "Tanisa Moss — Nakkid Skinn Studio", loc: "Marietta, GA, USA" },
+    { id: "bj1741zvza", thumb: W + "abadaf37ea28f91399196fcb63962ba9" + CROP, cap: "Interview — Porscha, Alluring PMU & Aesthetics", quote: "“I was able to 3X my business and couldn’t do it alone, they have a system to scale, thank you!”", who: "Porscha Anthony — Alluring PMU & Aesthetics", loc: "Orange Park, FL, USA" },
+    { id: "jxhlqg7294", thumb: W + "cd4aee4c0eecc3618f43b717988c05a62af54816" + CROP, cap: "Interview — Dulce, Brows Glow Up PMU", quote: "“I went from $1,500 a month to $9,500 in just 3 months. Now my husband and I are buying a new house!”", who: "Dulce Rojas — Brows Glow Up PMU", loc: "San Antonio, TX, USA" },
+  ];
   var INTRO_VIDEO = { id: "o009b7n55c", thumb: W + "af2125c514399fa1e7fc6102dbb7eb0f" + CROP };
 
   var PPS = C.variant === "pps";
@@ -115,6 +129,7 @@
 ".tyimg{display:block;width:100%;border-radius:10px;border:1px solid var(--line);margin:10px 0 14px}" +
 ".tycap{font-size:11.5px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;text-align:center;color:#334155;margin:0 0 6px}" +
 /* The original thank-you page has only the video reviews under the steps, then the footer. */
+".vt-extra{display:none}body.ob-done .vt-extra{display:block}body.ob-done .vt-martha{display:none}" +
 "body.ob-done .truststrip,body.ob-done #ob-results,body.ob-done #ob-testimonials,body.ob-done .guarantee,body.ob-done .founder,body.ob-done .finalcta{display:none}" +
 /* Owner 11/08/2026: the booked screen mirrors the ORIGINAL funnel's thank-you
    page step by step (banner → video → warning → calendar → email note → how the
@@ -125,10 +140,13 @@
 ".tyh{font-family:var(--font-head);font-weight:800;font-size:19px;text-align:center;margin:16px 0 8px}" +
 ".tyor{font-style:italic;font-weight:700;font-size:14.5px;text-align:center;margin:10px 0 2px}" +
 ".calbtn.g{background:var(--teal);border-color:var(--teal);color:#fff}.calbtn.a{background:#111;border-color:#111;color:#fff}" +
-".hero h1{color:#fff;font-size:clamp(20px,5.4vw,46px);line-height:1.15;letter-spacing:-.3px;font-weight:800;max-width:900px;margin:0 auto}" +
+".hero h1{color:#fff;font-size:clamp(22px,5.9vw,46px);line-height:1.15;letter-spacing:-.3px;font-weight:800;max-width:900px;margin:0 auto}" +
+/* Owner 11/09/2026: small pill above the headline, like "ONLY FOR MED SPAS…" on the friend's page. */
+".hero .onlyfor{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.08);color:#fff;border-radius:999px;padding:5px 12px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin:0 auto 14px}" +
+".hero .onlyfor i{width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block}" +
 ".hero h1 .hl{color:var(--teal)}" +
 ".hero .sub{color:#e9f5f3;font-size:clamp(16px,2vw,20px);font-weight:700;margin:16px auto 0;max-width:640px;font-family:var(--font-head)}" +
-".hero .subhl{background:var(--teal);color:#fff;padding:3px 9px;line-height:1.7;-webkit-box-decoration-break:clone;box-decoration-break:clone;border-radius:3px}" +
+".hero .subhl{background:none;color:#fff;padding:0 4px;line-height:1.6;box-shadow:inset 0 -.42em 0 0 var(--teal);-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
 ".hero .sub small{display:block;font-weight:600;font-size:.86em;opacity:.92;margin-top:6px;font-family:var(--font-body)}" +
 ".boxwrap{padding:0 16px;margin-top:-108px;position:relative;z-index:5}" +
 ".obox{max-width:620px;margin:0 auto;background:#fff;border-radius:20px;box-shadow:var(--shadow-card);overflow:hidden}" +
@@ -345,7 +363,7 @@
     /* PPS: no white logo band — the hero opens the page and the logo still
        lives in the footer; saves a full band of scrolling on phones. */
     (PPS ? "" : '<div class="topbar"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span class="wordmark">PMU Bookings On Demand</span></div>') +
-    '<header class="hero"><h1>' + HEADLINE + '</h1>' +
+    '<header class="hero">' + (PPS ? "" : '<div class="onlyfor"><i></i>Only for permanent makeup artists</div>') + '<h1>' + HEADLINE + '</h1>' +
     '<p class="sub">' + SUB + (T.heroSmall ? '<small>' + T.heroSmall + '</small>' : '') + '</p></header>' +
     '<div class="boxwrap" id="boxanchor"><div class="obox" id="obox">' +
     '<div class="ob-head"><div class="ob-progress"><div class="ob-track"><div class="ob-fill" id="obfill"></div></div><div class="ob-steplabel" id="obstep">Step 1</div></div></div>' +
@@ -360,8 +378,9 @@
     "</div></div></section>" +
     '<section id="ob-videos" style="background:var(--mist)"><div class="wrap"><div class="eyebrow">Video Reviews</div><h2 class="sec-title">Hear it from artists like you</h2>' +
     '<p class="sec-sub">Unscripted interviews with PMU artists using the system today.</p><div class="vids-grid">' +
-    VIDEOS.map(function (v) {
-      return '<div class="vt">' + vidCardHTML(v.id, v.thumb, v.cap) +
+    VIDEOS.concat(VIDEOS_MORE).map(function (v, i) {
+      var cls = "vt" + (v.id === VIDEOS[0].id ? " vt-martha" : "") + (i >= VIDEOS.length ? " vt-extra" : "");
+      return '<div class="' + cls + '">' + vidCardHTML(v.id, v.thumb, v.cap) +
         "<blockquote>" + v.quote + "</blockquote>" +
         '<div class="who">' + esc(v.who) + '</div><div class="loc">' + esc(v.loc) + "</div></div>";
     }).join("") +
