@@ -111,7 +111,7 @@
 /* Owner 11/09/2026: less scrolling on the first screen — tighter top padding,
    headline sized to 3 lines on a phone, guarantee line on a solid highlight bar
    (like the "You only pay us after…" line on the friend's page). */
-".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:44px 16px 150px;text-align:center}" +
+".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:44px 12px 150px;text-align:center}" +
 ".hero::before{content:\"\";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,25,22,.72) 0%,rgba(7,25,22,.55) 55%,rgba(7,25,22,.78) 100%)}" +
 ".hero>*{position:relative}" +
 /* Booked screen (owner 11/08/2026): the sales headline is noise once the
@@ -121,7 +121,7 @@
    dashed warning, rectangular teal/black buttons, plain centered lines. */
 "body.ob-done .topbar,body.ob-done .hero{display:none}body.ob-done .boxwrap{margin-top:0;padding:0}body.ob-done .obox{max-width:760px;border-radius:0;box-shadow:none}body.ob-done .ob-head{display:none}" +
 "body.ob-done .tybanner{border-radius:0;margin:0 -26px 14px;padding:16px 18px;font-size:19px}" +
-"body.ob-done .warnbox{border:2px dashed #111;background:#fff;color:#111;font-weight:500;font-size:15px;padding:12px 14px}body.ob-done .warnbox b{display:inline-block;background:#dc2626;color:#fff;font-family:var(--font-head);font-weight:800;font-size:15px;letter-spacing:.06em;padding:2px 9px;border-radius:6px;margin-right:4px;vertical-align:1px}" +
+"body.ob-done .warnbox{border:2px dashed #111;background:#fff;color:#111;font-weight:500;font-size:15px;padding:12px 14px}body.ob-done .warnbox b{color:#dc2626;font-weight:900;font-size:1.08em;letter-spacing:.03em}" +
 "body.ob-done .calbtn{border-radius:6px;font-size:14px}" +
 "body.ob-done .howcall .hc{display:flex;gap:12px;align-items:flex-start;text-align:left;font-size:15px;line-height:1.45;padding:12px 14px;margin:8px 0;background:#f7fbfa;border:1px solid var(--line);border-radius:12px}" +
 "body.ob-done .howcall .n{flex:none;width:30px;height:30px;border-radius:50%;background:var(--grad);color:#fff;font-family:var(--font-head);font-weight:800;font-size:14px;display:grid;place-items:center;box-shadow:0 6px 14px -6px rgba(0,180,165,.6)}" +
@@ -140,7 +140,7 @@
 ".tyh{font-family:var(--font-head);font-weight:800;font-size:19px;text-align:center;margin:16px 0 8px}" +
 ".tyor{font-style:italic;font-weight:700;font-size:14.5px;text-align:center;margin:10px 0 2px}" +
 ".calbtn.g{background:var(--teal);border-color:var(--teal);color:#fff}.calbtn.a{background:#111;border-color:#111;color:#fff}" +
-".hero h1{color:#fff;font-size:clamp(27px,7.2vw,46px);line-height:1.1;letter-spacing:-.4px;font-weight:800;max-width:900px;margin:0 auto}" +
+".hero h1{color:#fff;font-size:clamp(25px,6.6vw,46px);line-height:1.1;letter-spacing:-.5px;font-weight:800;max-width:900px;margin:0 auto}" +
 /* Owner 11/09/2026: small pill above the headline, like "ONLY FOR MED SPAS…" on the friend's page. */
 ".hero .onlyfor{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.08);color:#fff;border-radius:999px;padding:5px 12px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin:0 auto 14px}" +
 ".hero .onlyfor i{width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block}" +
