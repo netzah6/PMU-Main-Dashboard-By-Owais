@@ -82,7 +82,7 @@
     sticky: "See If You Qualify — 60 sec",
     goodSub: "A <b>pay-per-appointment spot is open in {area}</b>. Book your free 15-minute call to lock it in — we’ll walk you through exactly how it works.",
   } : {
-    heroSmall: "We partner with only <b>one PMU artist per area</b> — check if yours is still open below.",
+    heroSmall: "Only <b>one PMU artist per area</b> — check if yours is still open below.",
     resultsSub: "Screenshots from client ad accounts — this is what “on autopilot” actually looks like.",
     gTitle: "Guaranteed Bookings — Or It’s Free",
     g1: "Usually, the clients we accept don’t need a money-back guarantee.",
@@ -146,7 +146,7 @@
 ".hero .onlyfor i{width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block}" +
 ".hero h1 .hl{color:var(--teal)}" +
 ".hero .sub{color:#e9f5f3;font-size:clamp(16px,2vw,20px);font-weight:700;margin:16px auto 0;max-width:640px;font-family:var(--font-head)}" +
-".hero .subhl{background:none;color:#fff;padding:0 4px;line-height:1.6;box-shadow:inset 0 -.42em 0 0 var(--teal);-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
+".hero .subhl{background:none;color:#fff;padding:0 4px;line-height:1.6;box-shadow:inset 0 -.42em 0 0 rgba(0,204,187,.55);-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
 ".hero .sub small{display:block;font-weight:600;font-size:.86em;opacity:.92;margin-top:6px;font-family:var(--font-body)}" +
 ".boxwrap{padding:0 16px;margin-top:-108px;position:relative;z-index:5}" +
 ".obox{max-width:620px;margin:0 auto;background:#fff;border-radius:20px;box-shadow:var(--shadow-card);overflow:hidden}" +
@@ -319,7 +319,9 @@
 ".vt .vidcard{border-radius:16px}.vt .vidcard img{transform:scale(1.02);transition:transform .35s}.vt .vidcard:hover img{transform:scale(1.07)}.vt .vidcard .ply{width:56px;height:40px;box-shadow:0 6px 18px -8px rgba(0,0,0,.45)}.vt .vidcard .cap{padding:34px 16px 12px;font-size:12.5px;letter-spacing:.2px;text-transform:uppercase;background:linear-gradient(transparent,rgba(7,25,22,.9))}" +
 /* Interview cards (owner, 2026-09-23): bigger text; stars on their own
    line, name — business on the next. */
-".vt blockquote{margin:16px 2px 8px;font-size:17.5px;line-height:1.6;font-style:italic}.vt .who{font-size:15.5px;margin-top:2px}.vt .who::before{content:\"★★★★★\";display:block;margin-bottom:4px;font-size:15px;color:#f5b301;letter-spacing:2px;font-style:normal}.vt .loc{font-size:13.5px}" +
+/* Owner 11/09/2026: review text centered everywhere; stars bigger and more yellow. */
+".vt{text-align:center}.vt blockquote{margin:16px 2px 8px;font-size:17.5px;line-height:1.6;font-style:italic}.vt .who{font-size:15.5px;margin-top:2px}.vt .who::before{content:\"★★★★★\";display:block;margin-bottom:6px;font-size:20px;line-height:1;color:#ffb400;letter-spacing:3px;font-style:normal}.vt .loc{font-size:13.5px}" +
+".tcard{text-align:center}.tcard .st{font-size:20px;color:#ffb400;letter-spacing:3px}" +
 /* Slot tap books directly — the Claim button only mirrors busy state. */
 "#ob-bookgo{display:none}" +
 /* White footer: bigger logo stacked over the wordmark, legal links inline. */
