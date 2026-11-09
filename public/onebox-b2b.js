@@ -140,10 +140,13 @@
 ".tyh{font-family:var(--font-head);font-weight:800;font-size:19px;text-align:center;margin:16px 0 8px}" +
 ".tyor{font-style:italic;font-weight:700;font-size:14.5px;text-align:center;margin:10px 0 2px}" +
 ".calbtn.g{background:var(--teal);border-color:var(--teal);color:#fff}.calbtn.a{background:#111;border-color:#111;color:#fff}" +
-".hero h1{color:#fff;font-size:clamp(20px,5.4vw,46px);line-height:1.15;letter-spacing:-.3px;font-weight:800;max-width:900px;margin:0 auto}" +
+".hero h1{color:#fff;font-size:clamp(22px,5.9vw,46px);line-height:1.15;letter-spacing:-.3px;font-weight:800;max-width:900px;margin:0 auto}" +
+/* Owner 11/09/2026: small pill above the headline, like "ONLY FOR MED SPAS…" on the friend's page. */
+".hero .onlyfor{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.08);color:#fff;border-radius:999px;padding:5px 12px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin:0 auto 14px}" +
+".hero .onlyfor i{width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block}" +
 ".hero h1 .hl{color:var(--teal)}" +
 ".hero .sub{color:#e9f5f3;font-size:clamp(16px,2vw,20px);font-weight:700;margin:16px auto 0;max-width:640px;font-family:var(--font-head)}" +
-".hero .subhl{background:var(--teal);color:#fff;padding:3px 9px;line-height:1.7;-webkit-box-decoration-break:clone;box-decoration-break:clone;border-radius:3px}" +
+".hero .subhl{background:none;color:#fff;padding:0 4px;line-height:1.6;box-shadow:inset 0 -.42em 0 0 var(--teal);-webkit-box-decoration-break:clone;box-decoration-break:clone}" +
 ".hero .sub small{display:block;font-weight:600;font-size:.86em;opacity:.92;margin-top:6px;font-family:var(--font-body)}" +
 ".boxwrap{padding:0 16px;margin-top:-108px;position:relative;z-index:5}" +
 ".obox{max-width:620px;margin:0 auto;background:#fff;border-radius:20px;box-shadow:var(--shadow-card);overflow:hidden}" +
@@ -360,7 +363,7 @@
     /* PPS: no white logo band — the hero opens the page and the logo still
        lives in the footer; saves a full band of scrolling on phones. */
     (PPS ? "" : '<div class="topbar"><img src="' + IMG.logo + '" alt="PMU Bookings On Demand logo"><span class="wordmark">PMU Bookings On Demand</span></div>') +
-    '<header class="hero"><h1>' + HEADLINE + '</h1>' +
+    '<header class="hero">' + (PPS ? "" : '<div class="onlyfor"><i></i>Only for permanent makeup artists</div>') + '<h1>' + HEADLINE + '</h1>' +
     '<p class="sub">' + SUB + (T.heroSmall ? '<small>' + T.heroSmall + '</small>' : '') + '</p></header>' +
     '<div class="boxwrap" id="boxanchor"><div class="obox" id="obox">' +
     '<div class="ob-head"><div class="ob-progress"><div class="ob-track"><div class="ob-fill" id="obfill"></div></div><div class="ob-steplabel" id="obstep">Step 1</div></div></div>' +
