@@ -20,8 +20,6 @@ const TABS: Tab[] = [
   { label: "🤖 AI", href: "/ask" },
   { label: "👥 Clients", href: "/clients" },
   { label: "👑 CEO", href: "/ceo", adminOnly: true },
-  // Every planned launch, test readout and open decision by date (owner, 2026-11-03).
-  { label: "🗓️ Upcoming", href: "/upcoming", adminOnly: true },
   // One place for the whole reactivation effort: former clients + demos that didn't close (owner, 2026-11-06).
   { label: "🔁 Win-back", href: "/winback", adminOnly: true },
   // Sales + Subs sit right after AI, always visible (user request 2026-09-16).
@@ -67,6 +65,9 @@ const TABS: Tab[] = [
   { label: "📣 Blast", href: "/blast" }, // text blasts — human-confirmed; admins + coaches (user request 2026-08-27)
   { label: "🗺️ Map", href: "/map" },
   { label: "📊 Reports", href: "/reports" },
+  // Every planned launch, test readout and open decision by date (owner, 2026-11-03).
+  // Last main tab, right after Reports (owner, 2026-11-09).
+  { label: "🗓️ Upcoming", href: "/upcoming", adminOnly: true },
 ];
 
 // Strict per-role allowlists — these roles see ONLY the listed tabs.
