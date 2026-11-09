@@ -33,12 +33,12 @@
   /* Real interview videos (Wistia), surfaced pre-booking — on the original
      funnel these sit on the thank-you page where they can't convert. */
   var VIDEOS = [
-    { id: "b5fi6btwv8", thumb: W + "a81c5e43c1613f6498b58ceccdde8aac" + CROP, cap: "Interview — Martha, Faces By Design", quote: "“I doubled my income in 30 days, and within 7 months I became fully booked 3 months in advance.”", who: "Martha Jones — Faces By Design", loc: "Whipple, OH, USA" },
-    { id: "rgs4u6l8d5", thumb: W + "447d316ac983aac4620af95e0c5402dd" + CROP, cap: "Interview — Lisa Bee, A Natural Beautie", quote: "“I’m making over six figures a month now, and I don’t even have to post consistently on social media!”", who: "Lisa Bee — A Natural Beautie", loc: "Atlanta, GA, USA" },
-    { id: "1dfxla3d8c", thumb: W + "6eec51f79e8b8dc2e27d237976442f692547a625" + CROP, cap: "Interview — Erin, Bombshell Beauty & Lash Bar", quote: "“I hit over 60 bookings in less than 90 days — it completely changed the game for my business.”", who: "Erin Heidecke — Bombshell Beauty & Lash Bar", loc: "Grayslake, IL, USA" },
-    { id: "gxdwoxhndt", thumb: W + "8b08d8de07b81a2a7e34cecfe059f8f2" + CROP, cap: "Interview — Tonni, Timeless Beauty's", quote: "“In just 4 months, I went from making $3k a month to $12k! The strategies were a game-changer.”", who: "Tonni Petty — Timeless Beauty's", loc: "Puyallup, WA, USA" },
-    { id: "0hptjpbu24", thumb: W + "3ec092a0fc950a95ddccb9238f6f68f8" + CROP, cap: "Interview — Teri, Brow Botanical", quote: "“I’ve literally tripled my clients. It’s been the best decision for my business!”", who: "Teri Foulds — Brow Botanical", loc: "Midland, TX, USA" },
-    { id: "0coykd6lw2", thumb: W + "a13bbb216c74c03477fa7dcc9c21ac3c" + CROP, cap: "Interview — Nahid, Shihan Day Spa", quote: "“The strategy they gave me helped me 3X my bookings. I finally have a system that actually works!”", who: "Nahid Farzinzad — Shihan Day Spa", loc: "Avon, CT, USA" },
+    { id: "b5fi6btwv8", head: "Income doubled in 30 days — fully booked 3 months ahead", mins: 17, thumb: W + "a81c5e43c1613f6498b58ceccdde8aac" + CROP, cap: "Interview — Martha, Faces By Design", quote: "“I doubled my income in 30 days, and within 7 months I became fully booked 3 months in advance.”", who: "Martha Jones — Faces By Design", loc: "Whipple, OH, USA" },
+    { id: "rgs4u6l8d5", head: "Over six figures a month — without posting on social media", mins: 7, thumb: W + "447d316ac983aac4620af95e0c5402dd" + CROP, cap: "Interview — Lisa Bee, A Natural Beautie", quote: "“I’m making over six figures a month now, and I don’t even have to post consistently on social media!”", who: "Lisa Bee — A Natural Beautie", loc: "Atlanta, GA, USA" },
+    { id: "1dfxla3d8c", head: "60+ bookings in under 90 days", mins: 14, thumb: W + "6eec51f79e8b8dc2e27d237976442f692547a625" + CROP, cap: "Interview — Erin, Bombshell Beauty & Lash Bar", quote: "“I hit over 60 bookings in less than 90 days — it completely changed the game for my business.”", who: "Erin Heidecke — Bombshell Beauty & Lash Bar", loc: "Grayslake, IL, USA" },
+    { id: "gxdwoxhndt", head: "From $3k to $12k a month in 4 months", mins: 20, thumb: W + "8b08d8de07b81a2a7e34cecfe059f8f2" + CROP, cap: "Interview — Tonni, Timeless Beauty's", quote: "“In just 4 months, I went from making $3k a month to $12k! The strategies were a game-changer.”", who: "Tonni Petty — Timeless Beauty's", loc: "Puyallup, WA, USA" },
+    { id: "0hptjpbu24", head: "Tripled her clients", mins: 12, thumb: W + "3ec092a0fc950a95ddccb9238f6f68f8" + CROP, cap: "Interview — Teri, Brow Botanical", quote: "“I’ve literally tripled my clients. It’s been the best decision for my business!”", who: "Teri Foulds — Brow Botanical", loc: "Midland, TX, USA" },
+    { id: "0coykd6lw2", head: "3X her bookings with one system", mins: 18, thumb: W + "a13bbb216c74c03477fa7dcc9c21ac3c" + CROP, cap: "Interview — Nahid, Shihan Day Spa", quote: "“The strategy they gave me helped me 3X my bookings. I finally have a system that actually works!”", who: "Nahid Farzinzad — Shihan Day Spa", loc: "Avon, CT, USA" },
   ];
   /* Booked screen only (owner 11/09/2026): Martha already plays inside step 3,
      so her grid card is hidden there and these seven more interviews from the
@@ -46,13 +46,13 @@
      Wistia oEmbed; two YouTube-import videos on that page (Deyonne, Elena)
      could not be told apart, so they are left out. */
   var VIDEOS_MORE = [
-    { id: "4c9y30nhpo", thumb: W + "db94fefd39465c1de4facbd15bf27a47" + CROP, cap: "Interview — Tracey, Fine Arts Permanent Cosmetics", quote: "“They make the leads excited, they are more than just a marketing company.”", who: "Tracey Collett — Fine Arts Permanent Cosmetics, LLC", loc: "Chandler, AZ, USA" },
-    { id: "cyxu36m8sh", thumb: W + "438abb6324bf240099334d3b493fe5c1" + CROP, cap: "Interview — Maryam, Eye Select Beauty", quote: "“The training on how to talk to clients has been a game-changer! I feel so much more confident now, my clients are responding better than ever.”", who: "Maryam Thomas — Eye Select Beauty LLC", loc: "Scottsdale, AZ, USA" },
-    { id: "cpcevkx0eh", thumb: W + "70a274d34f83e3dc0ced34ec26165034" + CROP, cap: "Interview — Kelly, Sage Chevelle Beauty", quote: "“I’m now fully booked out two months in advance! PMU Bookings On Demand completely changed the game for me.”", who: "Kelly Giacalone — Sage Chevelle Beauty By Kelly", loc: "San Diego, CA, USA" },
-    { id: "nll8940dea", thumb: W + "3136e1a45ec22e404109bfe83ff4b683" + CROP, cap: "Interview — Jenna, It Girl Ink IV", quote: "“Thank you for making my business easy to run, spend time with my family and not worry about having clients.”", who: "Jenna Chaco — It Girl Ink IV", loc: "Henderson, NV, USA" },
-    { id: "qmurqsncly", thumb: W + "88a77cdbec910515808471c6d2bd9440" + CROP, cap: "Interview — Tanisa, Nakkid Skinn Studio", quote: "“I never imagined I’d be booked out for 2 months straight. PMU Bookings On Demand gave me a predictable system that keeps my calendar full!”", who: "Tanisa Moss — Nakkid Skinn Studio", loc: "Marietta, GA, USA" },
-    { id: "bj1741zvza", thumb: W + "abadaf37ea28f91399196fcb63962ba9" + CROP, cap: "Interview — Porscha, Alluring PMU & Aesthetics", quote: "“I was able to 3X my business and couldn’t do it alone, they have a system to scale, thank you!”", who: "Porscha Anthony — Alluring PMU & Aesthetics", loc: "Orange Park, FL, USA" },
-    { id: "jxhlqg7294", thumb: W + "cd4aee4c0eecc3618f43b717988c05a62af54816" + CROP, cap: "Interview — Dulce, Brows Glow Up PMU", quote: "“I went from $1,500 a month to $9,500 in just 3 months. Now my husband and I are buying a new house!”", who: "Dulce Rojas — Brows Glow Up PMU", loc: "San Antonio, TX, USA" },
+    { id: "4c9y30nhpo", head: "Leads arrive excited and ready to book", mins: 7, thumb: W + "db94fefd39465c1de4facbd15bf27a47" + CROP, cap: "Interview — Tracey, Fine Arts Permanent Cosmetics", quote: "“They make the leads excited, they are more than just a marketing company.”", who: "Tracey Collett — Fine Arts Permanent Cosmetics, LLC", loc: "Chandler, AZ, USA" },
+    { id: "cyxu36m8sh", head: "Clients respond better than ever", mins: 9, thumb: W + "438abb6324bf240099334d3b493fe5c1" + CROP, cap: "Interview — Maryam, Eye Select Beauty", quote: "“The training on how to talk to clients has been a game-changer! I feel so much more confident now, my clients are responding better than ever.”", who: "Maryam Thomas — Eye Select Beauty LLC", loc: "Scottsdale, AZ, USA" },
+    { id: "cpcevkx0eh", head: "Fully booked 2 months in advance", mins: 19, thumb: W + "70a274d34f83e3dc0ced34ec26165034" + CROP, cap: "Interview — Kelly, Sage Chevelle Beauty", quote: "“I’m now fully booked out two months in advance! PMU Bookings On Demand completely changed the game for me.”", who: "Kelly Giacalone — Sage Chevelle Beauty By Kelly", loc: "San Diego, CA, USA" },
+    { id: "nll8940dea", head: "A business that runs easy — time for family", mins: 10, thumb: W + "3136e1a45ec22e404109bfe83ff4b683" + CROP, cap: "Interview — Jenna, It Girl Ink IV", quote: "“Thank you for making my business easy to run, spend time with my family and not worry about having clients.”", who: "Jenna Chaco — It Girl Ink IV", loc: "Henderson, NV, USA" },
+    { id: "qmurqsncly", head: "Booked out 2 months straight", mins: 21, thumb: W + "88a77cdbec910515808471c6d2bd9440" + CROP, cap: "Interview — Tanisa, Nakkid Skinn Studio", quote: "“I never imagined I’d be booked out for 2 months straight. PMU Bookings On Demand gave me a predictable system that keeps my calendar full!”", who: "Tanisa Moss — Nakkid Skinn Studio", loc: "Marietta, GA, USA" },
+    { id: "bj1741zvza", head: "3X her business with a system to scale", mins: 14, thumb: W + "abadaf37ea28f91399196fcb63962ba9" + CROP, cap: "Interview — Porscha, Alluring PMU & Aesthetics", quote: "“I was able to 3X my business and couldn’t do it alone, they have a system to scale, thank you!”", who: "Porscha Anthony — Alluring PMU & Aesthetics", loc: "Orange Park, FL, USA" },
+    { id: "jxhlqg7294", head: "From $1,500 to $9,500 a month in 3 months", mins: 21, thumb: W + "cd4aee4c0eecc3618f43b717988c05a62af54816" + CROP, cap: "Interview — Dulce, Brows Glow Up PMU", quote: "“I went from $1,500 a month to $9,500 in just 3 months. Now my husband and I are buying a new house!”", who: "Dulce Rojas — Brows Glow Up PMU", loc: "San Antonio, TX, USA" },
   ];
   var INTRO_VIDEO = { id: "o009b7n55c", thumb: W + "af2125c514399fa1e7fc6102dbb7eb0f" + CROP };
 
@@ -328,6 +328,8 @@
 /* Owner 11/09/2026: review text centered everywhere; stars bigger and more yellow. */
 ".vt{text-align:center}.vt blockquote{margin:16px 2px 8px;font-size:17.5px;line-height:1.6;font-style:italic}.vt .who{font-size:15.5px;margin-top:2px}.vt .who::before{content:\"★★★★★\";display:block;margin-bottom:6px;font-size:20px;line-height:1;color:#ffb400;letter-spacing:3px;font-style:normal}.vt .loc{font-size:13.5px}" +
 ".tcard{text-align:center}.tcard .st{font-size:20px;color:#ffb400;letter-spacing:3px}" +
+".vt .vhead{font-family:var(--font-head);font-weight:800;font-size:16.5px;line-height:1.3;color:var(--ink);margin:2px 0 10px}.vt .vlen{display:inline-block;font-family:var(--font-body);font-weight:700;font-size:12px;color:var(--muted);background:var(--mist);border-radius:999px;padding:2px 8px;margin-left:6px;vertical-align:2px}" +
+".vidcard.wlazy.ready .play,.vidcard.wlazy.ready .cap{display:none}" +
 /* Slot tap books directly — the Claim button only mirrors busy state. */
 "#ob-bookgo{display:none}" +
 /* White footer: bigger logo stacked over the wordmark, legal links inline. */
@@ -386,9 +388,19 @@
     "</div></div></section>" +
     '<section id="ob-videos" style="background:var(--mist)"><div class="wrap"><div class="eyebrow">Video Reviews</div><h2 class="sec-title">Hear it from artists like you</h2>' +
     '<p class="sec-sub">Unscripted interviews with PMU artists using the system today.</p><div class="vids-grid">' +
-    VIDEOS.concat(VIDEOS_MORE).map(function (v, i) {
+    /* Owner 11/09/2026: strongest money results first (Lisa Bee, Tonni, Dulce),
+       the result line ABOVE the video with the length, and the real Wistia
+       player (moving preview) loaded only when the card scrolls into view.
+       The first page still shows six cards; the rest appear on the booked screen. */
+    (function () {
+      var all = VIDEOS.concat(VIDEOS_MORE), by = {};
+      all.forEach(function (v) { by[v.id] = v; });
+      var order = ["rgs4u6l8d5", "gxdwoxhndt", "jxhlqg7294", "b5fi6btwv8", "1dfxla3d8c", "cpcevkx0eh", "0hptjpbu24", "0coykd6lw2", "qmurqsncly", "bj1741zvza", "4c9y30nhpo", "cyxu36m8sh", "nll8940dea"];
+      return order.map(function (id) { return by[id]; }).filter(Boolean);
+    })().map(function (v, i) {
       var cls = "vt" + (v.id === VIDEOS[0].id ? " vt-martha" : "") + (i >= VIDEOS.length ? " vt-extra" : "");
-      return '<div class="' + cls + '">' + vidCardHTML(v.id, v.thumb, v.cap) +
+      var head = v.head ? '<div class="vhead">' + esc(v.head) + (v.mins ? ' <span class="vlen">▶ ' + v.mins + ' min</span>' : '') + '</div>' : '';
+      return '<div class="' + cls + '">' + head + vidCardHTML(v.id, v.thumb, v.cap).replace('class="vidcard"', 'class="vidcard wlazy"') +
         "<blockquote>" + v.quote + "</blockquote>" +
         '<div class="who">' + esc(v.who) + '</div><div class="loc">' + esc(v.loc) + "</div></div>";
     }).join("") +
@@ -1069,6 +1081,31 @@
     }
     window.scrollTo(0, 0);
   }
+
+  /* ---------- real Wistia players for the interview grid (owner 11/09/2026):
+     the iframe is inserted when a card comes within 300px of the viewport,
+     so Wistia's own moving preview shows without loading 13 players at once.
+     The still image stays underneath until the player paints. ---------- */
+  (function () {
+    function arm(card) {
+      var id = card.getAttribute("data-wid");
+      if (!id) return;
+      card.removeAttribute("data-wid");
+      var f = document.createElement("iframe");
+      f.src = "https://fast.wistia.net/embed/iframe/" + id + "?videoFoam=true";
+      f.title = "Interview"; f.setAttribute("allow", "autoplay; fullscreen"); f.setAttribute("allowtransparency", "true"); f.setAttribute("allowfullscreen", "");
+      f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
+      card.style.aspectRatio = "16/9";
+      card.appendChild(f);
+      card.classList.add("ready");
+    }
+    var cards = root.querySelectorAll(".vidcard.wlazy[data-wid]");
+    if (!("IntersectionObserver" in window)) { cards.forEach(arm); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { io.unobserve(en.target); arm(en.target); } });
+    }, { rootMargin: "300px 0px" });
+    cards.forEach(function (c) { io.observe(c); });
+  })();
 
   /* ---------- Wistia click-to-play (event delegation covers cards
      rendered later, e.g. on the confirmation step) ---------- */
