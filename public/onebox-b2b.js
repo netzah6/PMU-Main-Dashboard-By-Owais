@@ -399,8 +399,8 @@
       return order.map(function (id) { return by[id]; }).filter(Boolean);
     })().map(function (v, i) {
       var cls = "vt" + (v.id === VIDEOS[0].id ? " vt-martha" : "") + (i >= VIDEOS.length ? " vt-extra" : "");
-      var head = v.head ? '<div class="vhead">' + esc(v.head) + (v.mins ? ' <span class="vlen">▶ ' + v.mins + ' min</span>' : '') + '</div>' : '';
-      return '<div class="' + cls + '">' + head + vidCardHTML(v.id, v.thumb, v.cap).replace('class="vidcard"', 'class="vidcard wlazy"') +
+      /* Owner 11/09/2026: no result line / length above the video — the card is video, quote, stars, name. */
+      return '<div class="' + cls + '">' + vidCardHTML(v.id, v.thumb, v.cap).replace('class="vidcard"', 'class="vidcard wlazy"') +
         "<blockquote>" + v.quote + "</blockquote>" +
         '<div class="who">' + esc(v.who) + '</div><div class="loc">' + esc(v.loc) + "</div></div>";
     }).join("") +
