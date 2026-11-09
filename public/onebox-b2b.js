@@ -51,7 +51,7 @@
      it never wraps to a third line on a phone — scroll depth matters. */
   var SUB = C.sub || (PPS
     ? "No Retainer. No Upfront Fee.<br>You Pay A Small Fee Per Appointment That Shows Up."
-    : "Without Discount Services… GUARANTEED Or 100% Money-Back");
+    : "<mark class=\"subhl\">Without Discount Services… GUARANTEED Or 100% Money-Back</mark>");
   /* Page copy that differs between the two offers. */
   var T = PPS ? {
     /* No hero small line (owner, 2026-09-23) — the box's first question
@@ -94,7 +94,10 @@
 ".topbar img{width:52px;height:52px}" +
 ".topbar .wordmark{font-family:var(--font-head);font-weight:800;font-size:21px;letter-spacing:-.2px}" +
 "@media (max-width:560px){.topbar{gap:9px;padding:11px 16px}.topbar img{width:38px;height:38px}.topbar .wordmark{font-size:16px}}" +
-".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:72px 20px 150px;text-align:center}" +
+/* Owner 11/09/2026: less scrolling on the first screen — tighter top padding,
+   headline sized to 3 lines on a phone, guarantee line on a solid highlight bar
+   (like the "You only pay us after…" line on the friend's page). */
+".hero{position:relative;background:#0c1f1c url(" + IMG.hero + ") center 30%/cover no-repeat;padding:44px 16px 150px;text-align:center}" +
 ".hero::before{content:\"\";position:absolute;inset:0;background:linear-gradient(180deg,rgba(7,25,22,.72) 0%,rgba(7,25,22,.55) 55%,rgba(7,25,22,.78) 100%)}" +
 ".hero>*{position:relative}" +
 /* Booked screen (owner 11/08/2026): the sales headline is noise once the
@@ -122,9 +125,10 @@
 ".tyh{font-family:var(--font-head);font-weight:800;font-size:19px;text-align:center;margin:16px 0 8px}" +
 ".tyor{font-style:italic;font-weight:700;font-size:14.5px;text-align:center;margin:10px 0 2px}" +
 ".calbtn.g{background:var(--teal);border-color:var(--teal);color:#fff}.calbtn.a{background:#111;border-color:#111;color:#fff}" +
-".hero h1{color:#fff;font-size:clamp(28px,4.6vw,46px);font-weight:800;max-width:900px;margin:0 auto}" +
+".hero h1{color:#fff;font-size:clamp(20px,5.4vw,46px);line-height:1.15;letter-spacing:-.3px;font-weight:800;max-width:900px;margin:0 auto}" +
 ".hero h1 .hl{color:var(--teal)}" +
-".hero .sub{color:#e9f5f3;font-size:clamp(16px,2vw,20px);font-weight:700;margin:18px auto 0;max-width:640px;font-family:var(--font-head)}" +
+".hero .sub{color:#e9f5f3;font-size:clamp(16px,2vw,20px);font-weight:700;margin:16px auto 0;max-width:640px;font-family:var(--font-head)}" +
+".hero .subhl{background:var(--teal);color:#fff;padding:3px 9px;line-height:1.7;-webkit-box-decoration-break:clone;box-decoration-break:clone;border-radius:3px}" +
 ".hero .sub small{display:block;font-weight:600;font-size:.86em;opacity:.92;margin-top:6px;font-family:var(--font-body)}" +
 ".boxwrap{padding:0 16px;margin-top:-108px;position:relative;z-index:5}" +
 ".obox{max-width:620px;margin:0 auto;background:#fff;border-radius:20px;box-shadow:var(--shadow-card);overflow:hidden}" +
