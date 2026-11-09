@@ -1038,7 +1038,7 @@
     /* Same order and words as the original funnel's thank-you page
        (pmu-bookings.com thank-you step, owner 11/08/2026). */
     h += '<div class="tybanner">Watch The Video Below OR You Won\'t Be Able To Attend The Call.</div>';
-    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Nicolas · 2:37").replace('class="vidcard"', 'class="vidcard donevid"');
+    h += vidCardHTML(INTRO_VIDEO.id, INTRO_VIDEO.thumb, "Nicolas").replace('class="vidcard"', 'class="vidcard donevid"');
     h += '<div class="warnbox"><b>WARNING:</b> Time is our highest standard. We don’t reschedule, and we partner only with those who honor commitment.</div>';
     h += '<div class="tyh">Add The Call To Your Calendar By Clicking Below</div>';
     h += '<div class="calbtns"><a class="calbtn g" href="' + gcalLink() + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a><a class="calbtn a" href="' + icsHref() + '" download="discovery-call.ics"> Add to Apple Calendar</a></div>';
@@ -1081,7 +1081,10 @@
   function updSticky() {
     if (!sticky || !boxEl) return;
     var r = boxEl.getBoundingClientRect();
-    var out = r.bottom < 70 || r.top > window.innerHeight;
+    /* Owner 11/09/2026: show the floating button earlier — as soon as the
+       bottom of the box passes the middle of the screen, not only once the
+       whole box has scrolled away — so nobody misses it. */
+    var out = r.bottom < window.innerHeight * 0.55 || r.top > window.innerHeight;
     sticky.classList.toggle("show", out && S.phase !== "done");
   }
   window.addEventListener("scroll", updSticky, { passive: true });
