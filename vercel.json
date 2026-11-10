@@ -37,6 +37,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/ai-holds",
+      "schedule": "5-59/10 * * * *"
+    },
+    {
       "path": "/api/cron/ghl-ingest",
       "schedule": "0 */3 * * *"
     },
