@@ -52,7 +52,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 //    shutdown, never a kill);
 //  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
 //    works), so Chrome's account reconcilor can never log the mailbox out.
-const WORKER_VERSION = 9; // self-update refuses to downgrade below this
+const WORKER_VERSION = 10; // self-update refuses to downgrade below this
 const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const LOGIN_LOCK = join(HOME, "login.lock");
 // --profile-directory=Default: without it Chrome may open the "Who's using
@@ -214,7 +214,7 @@ ${t.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}
 
 RULES (never break these):
 - Read only: never click Save, Publish, Connect, Disconnect, Delete, Uninstall or any switch in CloseBot, and never send any message.
-- If CloseBot shows a sign-in page: type nothing, status "needs_teammate", summary "Mac Mini is not signed in to CloseBot".
+- SIGN-IN RECOVERY (owner, 11/10/2026 — do this yourself, do not stop; same words as src/lib/closebot-signin.ts): if CloseBot shows its sign-in page, Chrome fills the email and password boxes from its saved password — click the email/password Sign In button (signing in is allowed). Never use "Sign in with Google" (it hangs) and never type or make up a password. If the email or password box is empty, status "needs_teammate", summary "Mac Mini: no saved CloseBot password". If CloseBot then asks for a code or still shows the sign-in page, status "needs_teammate", summary "Mac Mini is not signed in to CloseBot". After signing in, open the page you needed again and carry on.
 - If you hit a CAPTCHA: stop, status "needs_teammate", summary "Mac Mini hit a CAPTCHA on CloseBot".
 
 When finished, reply with ONLY this JSON (no other text):
@@ -468,7 +468,7 @@ if (process.argv[2] === "login") {
       "Chrome opened with the worker's profile (four tabs).",
       "  1. GoHighLevel tab: sign in as the agent; if it asks for a security code, read it from the Gmail tab; tick \"remember/trust this device\" if offered.",
       "  2. Gmail tab: make sure the agent's mailbox is signed in (the worker reads future security codes there).",
-      "  3. CloseBot tab: sign in to CloseBot (the weekly read-only CloseBot check uses it).",
+      "  3. CloseBot tab: sign in with email + password (NOT Google) and click Save when Chrome offers to save the password — the worker signs itself back in with it.",
       "  4. Instagram tab: sign in as @pmubookings.ondemand, tick \"Save login info\" (the daily Instagram engagement uses it).",
       "  5. Wait about a minute, then QUIT Chrome with Cmd+Q (not just the red button). Leave this window until it says done.",
     ].join("\n"));
