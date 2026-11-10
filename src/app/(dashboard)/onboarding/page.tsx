@@ -447,7 +447,7 @@ export default function OnboardingPage() {
   return (
     <div className="p-4 sm:p-6">
       {/* The Mac Mini's setup steps + snapshot loads (owner, 2026-10-16). */}
-      <MacMiniTracker scope="onboarding" />
+      <MacMiniTracker />
       {/* Available clean accounts — the first thing you need before a setup. */}
       <div className="max-w-5xl mx-auto mb-4 rounded-xl border border-[#e2e8f0] bg-white p-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
