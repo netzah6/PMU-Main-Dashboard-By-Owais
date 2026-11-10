@@ -4,6 +4,6 @@
 -- save / the fbc_src log field), it just can't use them until applied.
 alter table public.onebox_leads add column if not exists click jsonb;
 comment on column public.onebox_leads.click is
-  'Ad click data at lead time: fbc, fbp, fbclid, utm/ad params, page, ip, ua, at. Server-only (Meta CAPI); never pushed to GHL.';
+  'Ad click data at lead time: fbc, fbp, fbclid, utm/ad params, page, ua, at. Server-only (Meta CAPI); never pushed to GHL.';
 -- Where the server Lead/Purchase got its click id: cookie | lead | url | none.
 alter table public.capi_events add column if not exists fbc_src text;

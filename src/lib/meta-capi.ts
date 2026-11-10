@@ -148,6 +148,13 @@ export function pickFbc(cookieFbc: string | null | undefined, leadFbc: string | 
   return { fbc: "", src: "none" };
 }
 
+/* The exact external_id value the server sends (sha256 of the trimmed,
+   lowercased visitor id) — handed to the pay-link page so its browser
+   events carry the same one; the pixel passes a 64-hex value through. */
+export function externalIdHash(v: string | null | undefined): string {
+  return hash(norm(v)) ?? "";
+}
+
 export function fbclidOf(url: string | null | undefined): string {
   try { return (new URL(String(url ?? "")).searchParams.get("fbclid") ?? "").trim().slice(0, 500); } catch { return ""; }
 }

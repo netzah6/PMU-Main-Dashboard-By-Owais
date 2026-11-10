@@ -468,9 +468,12 @@ async function serverPurchase(
     });
     return;
   }
-  /* The lead's latest survey rows: newest visitor id, first kept click.
-     `click` arrived with supabase/purchase-attribution.sql — read without
-     it if that column isn't there yet. */
+  /* The lead's latest survey rows. The ad click id comes from the newest
+     row that kept one — a later re-survey from another browser keeps only
+     an fbp and must not hide it (review 11/10) — and external_id from that
+     same row, so it equals the one on the server Lead that carried the
+     click. `click` arrived with supabase/purchase-attribution.sql — read
+     without it if that column isn't there yet. */
   type LeadClick = { visitor_id: string | null; click?: Record<string, string> | null };
   let rows: LeadClick[] = [];
   const q = await svc.from("onebox_leads").select("visitor_id, click")
@@ -481,9 +484,10 @@ async function serverPurchase(
       .eq("slug", a.slug).eq("phone", a.phone).order("created_at", { ascending: false }).limit(5);
     rows = (q2.data ?? []) as LeadClick[];
   }
-  const kept = rows.find((r) => r.click?.fbc || r.click?.fbp)?.click ?? null;
-  const fbc = pickFbc(String(body.fbc ?? ""), kept?.fbc, null);
-  const fbp = String(body.fbp ?? "").trim() || String(kept?.fbp ?? "");
+  const fbcRow = rows.find((r) => r.click?.fbc);
+  const fbc = pickFbc(String(body.fbc ?? ""), fbcRow?.click?.fbc, null);
+  const fbp = String(body.fbp ?? "").trim() || String(rows.find((r) => r.click?.fbp)?.click?.fbp ?? "");
+  const ua = rows.find((r) => r.click?.ua)?.click?.ua;
   const amount = parseFloat(String(a.cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
   const res = await sendCapiEvent({
     pixelId, token, eventName: "Purchase", eventId,
@@ -493,9 +497,9 @@ async function serverPurchase(
     user: {
       email: a.email, phone: a.phone, fullName: a.fullName,
       fbp, fbc: fbc.fbc,
-      clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || kept?.ip || undefined,
-      userAgent: req.headers.get("user-agent") || kept?.ua || undefined,
-      externalId: rows.find((r) => r.visitor_id)?.visitor_id ?? null,
+      clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || undefined,
+      userAgent: req.headers.get("user-agent") || ua || undefined,
+      externalId: (fbcRow ?? rows.find((r) => r.visitor_id))?.visitor_id ?? null,
     },
   }).catch(() => ({ ok: false, error: "send threw" }));
   await recordCapi(svc, { slug: a.slug, eventName: "Purchase", eventId, pixelId, phone: a.phone, ok: res.ok, error: res.error, fbcSrc: fbc.src });

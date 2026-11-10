@@ -262,7 +262,8 @@ export async function POST(req: NextRequest) {
       }
       click.page = (u.origin + u.pathname).slice(0, 300);
     } catch { /* no usable page URL */ }
-    if (clickIp) click.ip = clickIp.slice(0, 64);
+    /* The browser's user agent (a server-only website event needs one);
+       no IP kept — Meta gets the IP of the request that sends the event. */
     if (clickUa) click.ua = clickUa;
     click.at = new Date().toISOString();
     await svc.from("onebox_leads").update({ click }).eq("id", leadRow.id).then(

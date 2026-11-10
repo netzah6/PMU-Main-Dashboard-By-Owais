@@ -1987,8 +1987,15 @@
         state.answers.full_name = j.name || state.answers.full_name || "";
         state.answers.phone = j.phone;
         state.answers.email = j.email || state.answers.email || "";
-        /* Before book(): its Schedule and the Purchase carry this person. */
-        pixelStart(pixelUser(state.answers.full_name, j.phone, state.answers.email));
+        /* Before book(): its Schedule and the Purchase carry this person,
+           her original ad click (this browser has no _fbc of its own) and
+           the external_id her server Lead carried. */
+        var pud = pixelUser(state.answers.full_name, j.phone, state.answers.email);
+        if (/^[0-9a-f]{64}$/.test(String(j.xid || ""))) pud.external_id = j.xid;
+        if (/^fb\.\d\.\d+\.[A-Za-z0-9_-]+$/.test(String(j.fbc || "")) && !cookie("_fbc")) {
+          try { document.cookie = "_fbc=" + j.fbc + "; path=/; max-age=7776000; SameSite=Lax"; } catch (e) {}
+        }
+        pixelStart(pud);
         if (j.slotIso) {
           /* book() re-syncs the slot to the server (idempotent) and
              opens the deposit step with the hold + checkout. */
