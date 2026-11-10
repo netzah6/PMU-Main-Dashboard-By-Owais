@@ -379,22 +379,33 @@ async function organizeOnce(svc: SupabaseClient, contactId: string, events: Even
   }
 }
 
-/* Create each section's note, or update ours in place. Pinned so they stay
-   above the notes that keep coming in. Unchanged content = no write. */
+/* Create each section's note, or update ours in place. GHL allows only TWO
+   pinned notes per contact (checked 11/10/2026: "Only 2 notes can be pinned
+   per contact"), so the two latest stages are pinned and an older one
+   (discovery, once she is a client) stays as a normal note. Unpins go first
+   so a pin always has room. Unchanged content and pin = no write. */
 async function writeOrganized(token: string, contactId: string, ours: Partial<Record<Section, RawNote>>, bodies: Partial<Record<Section, string>>): Promise<Partial<Record<Section, { status: string; id?: string }>>> {
   const done: Partial<Record<Section, { status: string; id?: string }>> = {};
   const base = `${GHL}/contacts/${encodeURIComponent(contactId)}/notes`;
-  // Oldest stage first, so a NEW note for the current stage lands on top.
-  for (const k of SECTIONS.filter((s) => bodies[s])) {
-    const body = bodies[k]!, mine = ours[k];
-    if (mine?.body && mine.pinned && fingerprint(mine.body) === fingerprint(body)) { done[k] = { status: "unchanged", id: mine.id }; continue; }
-    let r = mine ? await fetch(`${base}/${mine.id}`, { method: "PUT", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: true }) }) : null;
+  const present = SECTIONS.filter((s) => bodies[s]);
+  const pinned = new Set(present.slice(-2));
+  // Unpins first, oldest stage first (order of the loop below = oldest first too,
+  // so a NEW note for the current stage lands on top).
+  const order = [...present.filter((s) => !pinned.has(s)), ...present.filter((s) => pinned.has(s))];
+  for (const k of order) {
+    const body = bodies[k]!, mine = ours[k], pin = pinned.has(k);
+    if (mine?.body && !!mine.pinned === pin && fingerprint(mine.body) === fingerprint(body)) { done[k] = { status: "unchanged", id: mine.id }; continue; }
+    let r = mine ? await fetch(`${base}/${mine.id}`, { method: "PUT", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: pin }) }) : null;
     let status = mine ? "updated" : "created";
     if (!r || r.status === 404) { // ours was deleted by someone: write a new one
-      r = await fetch(base, { method: "POST", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: true }) });
+      r = await fetch(base, { method: "POST", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: pin }) });
       status = "created";
     }
-    if (!r.ok) { done[k] = { status: `HTTP ${r.status}` }; continue; }
+    if (!r.ok && r.status === 400 && pin) { // pins taken (a closer pinned her own note): save it unpinned
+      const again = mine && status === "updated" ? `${base}/${mine.id}` : base;
+      r = await fetch(again, { method: again === base ? "POST" : "PUT", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: false }) });
+    }
+    if (!r.ok) { done[k] = { status: `HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 120)}` }; continue; }
     const j = (await r.json().catch(() => ({}))) as { note?: { id?: string } };
     done[k] = { status, id: j.note?.id ?? mine?.id };
   }
