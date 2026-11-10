@@ -65,6 +65,9 @@ export const noteText = (html: string) => html
   .replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const us = (iso: string | null | undefined) => {
+  // A bare date ("2026-11-10") is a calendar day: never shift it by time zone.
+  const day = iso?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (day) return `${day[2]}/${day[3]}/${day[1]}`;
   const d = iso ? new Date(iso) : null;
   return d && !isNaN(+d) ? d.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" }) : "";
 };
