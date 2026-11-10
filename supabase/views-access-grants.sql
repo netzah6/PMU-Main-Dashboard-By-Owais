@@ -7,5 +7,6 @@ revoke all on
   public.perf_lead_counts, public.ppa_billing_summary, public.ppa_deposit_appointment,
   public.ppa_deposit_billing, public.ppa_deposit_contacts, public.ppa_deposit_contacts_mv,
   public.ppa_deposit_counts, public.ppa_deposit_facts, public.ppa_deposit_rows,
-  public.ppa_deposit_stage, public.ppa_deposit_stage_counts, public.ppa_stage_counts
+  public.ppa_deposit_stage, public.ppa_deposit_stage_counts, public.ppa_stage_counts,
+  public.ppa_refunded_deposits
 from anon;
