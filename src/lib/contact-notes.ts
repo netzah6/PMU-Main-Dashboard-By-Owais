@@ -237,6 +237,8 @@ function buildSources(notes: RawNote[], events: EventRow[], edits: Partial<Recor
       src.push({ date: e.received_at, kind: "AI call summary", text: (sm || tr).slice(0, 2000) });
     }
   }
+  // Closer edits inside our notes, saved earlier (kept forever) and new ones.
+  for (const e of events.filter((x) => x.source === "closer_edit")) src.push({ date: e.received_at, kind: `closer edit inside the organized ${e.branch ?? ""} note`, text: (e.transcript ?? "").slice(0, 4000) });
   for (const k of SECTIONS) if (edits[k]) src.push({ date: new Date().toISOString(), kind: `closer edit inside the organized ${k} note`, text: edits[k]!.slice(0, 4000) });
   return src.sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
 }
@@ -268,7 +270,6 @@ export async function processContact(svc: SupabaseClient, contactId: string, opt
   let result: ProcessResult = { contactId };
   try {
     for (let round = 0; round < 3; round++) {
-      const startedAt = new Date().toISOString();
       const { data: evs } = await svc.from("sales_note_events").select("id, source, branch, transcript, summary, received_at, processed_at, attempts").eq("contact_id", contactId).order("received_at");
       const events = (evs ?? []) as EventRow[];
       const pending = events.filter((e) => !e.processed_at && e.attempts < MAX_ATTEMPTS);
@@ -281,9 +282,11 @@ export async function processContact(svc: SupabaseClient, contactId: string, opt
         }
       }
       if (result.error) break;
+      // Anything that arrived while we worked (by id, not clock)?
+      const seen = Math.max(0, ...events.map((e) => e.id));
       const { count } = await svc.from("sales_note_events").select("id", { count: "exact", head: true }).eq("contact_id", contactId)
-        .is("processed_at", null).lt("attempts", MAX_ATTEMPTS).gt("received_at", startedAt);
-      if (!count) break; // nothing arrived while we worked
+        .is("processed_at", null).lt("attempts", MAX_ATTEMPTS).neq("source", "closer_edit").gt("id", seen);
+      if (!count) break;
     }
   } finally {
     await svc.from("sales_note_state").update({ lock_until: null }).eq("contact_id", contactId);
@@ -327,13 +330,20 @@ async function organizeOnce(svc: SupabaseClient, contactId: string, events: Even
       if (n?.body && state.bodies_hash[k] && fingerprint(n.body) !== state.bodies_hash[k]) edits[k] = noteText(n.body);
     }
 
+    // Save the edit itself first: even if the AI drops it later, it is never lost.
+    for (const k of Object.keys(edits) as Section[]) {
+      await svc.from("sales_note_events").insert({ contact_id: contactId, source: "closer_edit", branch: k, transcript: edits[k], processed_at: new Date().toISOString() });
+    }
     const lastRun = firstRun ? 0 : Date.parse(state.updated_at);
     const newRaw = notes.some((n) => !!n.body && !isOrganizedNote(n.body) && Date.parse(n.dateUpdated ?? n.dateAdded) > lastRun);
-    const stage = await stageOf(token, contactId, tags);
+    // A stage never goes back (a demo that happened stays happened).
+    const piped = await stageOf(token, contactId, tags);
+    const prev = SECTIONS.includes(state.stage as Section) ? (state.stage as Section) : "discovery";
+    const stage = RANK[prev] > RANK[piped] ? prev : piped;
     const stageMoved = !firstRun && state.stage !== stage;
     if (!pending.length && !newRaw && !Object.keys(edits).length && !stageMoved) return { contactId, skipped: "nothing new" };
 
-    const pr = organizePrompt(buildSources(notes, events, edits), stage);
+    const pr = organizePrompt(buildSources(notes, events, edits), stage); // events = before this run's edit rows
     if (!pr) return { contactId, skipped: "no sources" };
     const o = parseOrganized(await (opts.ask ?? askClaude)(pr), stage);
     if (!o) return { contactId, error: "could not read the AI answer" };
