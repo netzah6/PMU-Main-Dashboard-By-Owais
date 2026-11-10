@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { voidCollectedShow } from "@/lib/credits";
 
 // Mark one appointment charged / not-charged, OR exclude it from billing.
 // PPS model: "charged" = the client showed and we billed the $45; "excluded"
@@ -45,14 +44,33 @@ export async function POST(req: NextRequest) {
       .select("charged, amount, square_payment_id").eq("appt_id", apptId).maybeSingle();
     const collected = !!existing?.charged && (!!existing?.square_payment_id || !apptId.startsWith("chat:"));
     const fee = Number(existing?.amount) || 0;
+    let credited = 0;
 
     if (excluded && collected && fee > 0) {
-      const v = await voidCollectedShow(svc, {
-        apptId, ownerKey, reason: String(reason), fee, actor: auth.email, now,
-        contactName: body.contact_name, clientLabel: body.client_label,
-      });
-      if (v.error) return NextResponse.json({ error: v.error }, { status: 500 });
-      return NextResponse.json({ ok: true, charge: v.row, keptCharge: true, credited: v.credited });
+      const row: Record<string, unknown> = {
+        appt_id: apptId, owner_key: ownerKey,
+        excluded: true, exclude_reason: reason, excluded_at: now, excluded_by: auth.email, updated_at: now,
+      };
+      const { error } = await svc.from("ppa_charges").upsert(row, { onConflict: "appt_id" });
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+      const label = reason === "no_show" ? "No-show" : reason === "cancelled" ? "Cancelled" : "Voided";
+      const lead = String(body.contact_name ?? "").trim() || apptId;
+      const { data: have } = await svc.from("client_credits").select("id, status").eq("appt_id", apptId).maybeSingle();
+      if (!have) {
+        const { error: cErr } = await svc.from("client_credits").insert({
+          owner_key: ownerKey, client_label: body.client_label ?? null, amount: fee, appt_id: apptId,
+          reason: `${label}: ${lead} — fee of $${fee} was already collected, credited back. Comes off the next charge.`,
+          status: "approved", requested_by: auth.email, requested_at: now,
+          decided_by: auth.email, decided_at: now, updated_at: now,
+        });
+        if (cErr) return NextResponse.json({ error: `voided, but the credit failed: ${cErr.message}` }, { status: 500 });
+        credited = fee;
+      } else if (have.status !== "approved") {
+        await svc.from("client_credits").update({ status: "approved", decided_by: auth.email, decided_at: now, updated_at: now }).eq("id", have.id);
+        credited = fee;
+      }
+      return NextResponse.json({ ok: true, charge: row, keptCharge: true, credited });
     }
 
     const row: Record<string, unknown> = excluded
