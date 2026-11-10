@@ -138,7 +138,7 @@ Rules:
 - A call with no real conversation (voicemail, no answer, bad audio, wrong number, "call me back later / in 10 minutes", only small talk) adds NOTHING anywhere. Never write "Not discussed".
 - discovery: answer EVERY question in the given list, in that order. Use the LATEST real answer from any source (transcripts, summaries, typed notes). If an older answer differs, keep the latest and add the older one in brackets with its month, e.g. "$550–$800 (June: $550)". Never invent: null if never answered. Max ~20 words per answer.
 - survey: the LATEST survey only, 4-8 short "label: value" lines, skip empty fields and long marketing text.
-- demos: one entry per demo call (Fathom recaps, or a call where the offer/program was presented). 2-4 recap lines max.
+- demos: one entry per demo call (Fathom recaps, notes titled "... Demo Call ...", or a call where the offer/program was presented). Never put a demo only in follow_ups. 2-4 recap lines max.
   These notes are read again months later to sell to her again, so also keep, in her own words when possible (each max ~30 words, null if not said):
   motivation = why she wants this / what made her interested or sign up (goals, dreams, money she wants, life reasons).
   booking_blockers = what stops her getting bookings today (no leads, no time for marketing, ads failed, slow season, competition, price shoppers...).
@@ -227,7 +227,7 @@ export function renderNotes(o: Organized, today = new Date().toISOString()): Par
 const TRANSCRIPT_MAX = 15_000, BUDGET = 140_000;
 export const rawKind = (n: { body?: string; userId?: string | null }) => {
   const t = noteText(n.body ?? "");
-  return n.userId ? "typed" : /^(data about the lead|one-box application)/i.test(t) ? "survey" : /fathom\.video/i.test(t) ? "fathom" : "ai";
+  return n.userId ? "typed" : /^(data about the lead|one-box application)/i.test(t) ? "survey" : /fathom\.video/i.test(t) || /^title:[^\n]*\bdemo call\b/i.test(t) ? "fathom" : "ai";
 };
 const KIND_LABEL: Record<string, string> = { typed: "note typed by a closer", survey: "survey", fathom: "Fathom demo recap", ai: "older note (AI call summary or form answers)" };
 
@@ -379,22 +379,33 @@ async function organizeOnce(svc: SupabaseClient, contactId: string, events: Even
   }
 }
 
-/* Create each section's note, or update ours in place. Pinned so they stay
-   above the notes that keep coming in. Unchanged content = no write. */
+/* Create each section's note, or update ours in place. GHL allows only TWO
+   pinned notes per contact (checked 11/10/2026: "Only 2 notes can be pinned
+   per contact"), so the two latest stages are pinned and an older one
+   (discovery, once she is a client) stays as a normal note. Unpins go first
+   so a pin always has room. Unchanged content and pin = no write. */
 async function writeOrganized(token: string, contactId: string, ours: Partial<Record<Section, RawNote>>, bodies: Partial<Record<Section, string>>): Promise<Partial<Record<Section, { status: string; id?: string }>>> {
   const done: Partial<Record<Section, { status: string; id?: string }>> = {};
   const base = `${GHL}/contacts/${encodeURIComponent(contactId)}/notes`;
-  // Oldest stage first, so a NEW note for the current stage lands on top.
-  for (const k of SECTIONS.filter((s) => bodies[s])) {
-    const body = bodies[k]!, mine = ours[k];
-    if (mine?.body && mine.pinned && fingerprint(mine.body) === fingerprint(body)) { done[k] = { status: "unchanged", id: mine.id }; continue; }
-    let r = mine ? await fetch(`${base}/${mine.id}`, { method: "PUT", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: true }) }) : null;
+  const present = SECTIONS.filter((s) => bodies[s]);
+  const pinned = new Set(present.slice(-2));
+  // Unpins first, oldest stage first (order of the loop below = oldest first too,
+  // so a NEW note for the current stage lands on top).
+  const order = [...present.filter((s) => !pinned.has(s)), ...present.filter((s) => pinned.has(s))];
+  for (const k of order) {
+    const body = bodies[k]!, mine = ours[k], pin = pinned.has(k);
+    if (mine?.body && !!mine.pinned === pin && fingerprint(mine.body) === fingerprint(body)) { done[k] = { status: "unchanged", id: mine.id }; continue; }
+    let r = mine ? await fetch(`${base}/${mine.id}`, { method: "PUT", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: pin }) }) : null;
     let status = mine ? "updated" : "created";
     if (!r || r.status === 404) { // ours was deleted by someone: write a new one
-      r = await fetch(base, { method: "POST", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: true }) });
+      r = await fetch(base, { method: "POST", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: pin }) });
       status = "created";
     }
-    if (!r.ok) { done[k] = { status: `HTTP ${r.status}` }; continue; }
+    if (!r.ok && r.status === 400 && pin) { // pins taken (a closer pinned her own note): save it unpinned
+      const again = mine && status === "updated" ? `${base}/${mine.id}` : base;
+      r = await fetch(again, { method: again === base ? "POST" : "PUT", headers: ghlHeaders(token), body: JSON.stringify({ body, pinned: false }) });
+    }
+    if (!r.ok) { done[k] = { status: `HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 120)}` }; continue; }
     const j = (await r.json().catch(() => ({}))) as { note?: { id?: string } };
     done[k] = { status, id: j.note?.id ?? mine?.id };
   }
