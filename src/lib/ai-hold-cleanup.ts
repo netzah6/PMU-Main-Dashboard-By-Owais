@@ -42,12 +42,17 @@ const LOOK_AHEAD_MS = 180 * 86_400_000;
 type Ev = { id?: string; contactId?: string; startTime?: string; dateAdded?: string; appointmentStatus?: string; appoinmentStatus?: string; deleted?: boolean; createdBy?: { source?: string }; title?: string };
 export type HoldResult = { location: string; slug: string; contactId: string; appointmentId: string; start: string; title: string; done: boolean };
 
-/* Which accounts: env AI_HOLD_CLEANUP = "all", or a comma list of GHL
-   location ids (the Demo account for tests). Empty = off. */
-export function holdCleanupScope(): "all" | string[] | null {
-  const v = String(process.env.AI_HOLD_CLEANUP ?? "").trim();
-  if (!v) return null;
-  return v.toLowerCase() === "all" ? "all" : v.split(",").map((s) => s.trim()).filter(Boolean);
+/* Which accounts: app_settings "ai_hold_cleanup" = { scope: "all" } or
+   { scope: [GHL location ids] } (env AI_HOLD_CLEANUP as a fallback, same
+   format as a comma list). Missing / empty = off. A DB switch so the
+   rollout can widen without a new deploy. */
+export const SCOPE_KEY = "ai_hold_cleanup";
+export async function holdCleanupScope(svc: SupabaseClient): Promise<"all" | string[] | null> {
+  const { data } = await svc.from("app_settings").select("value").eq("key", SCOPE_KEY).maybeSingle();
+  const raw = (data?.value as { scope?: unknown } | null)?.scope ?? process.env.AI_HOLD_CLEANUP ?? "";
+  if (raw === "all" || (typeof raw === "string" && raw.trim().toLowerCase() === "all")) return "all";
+  const ids = (Array.isArray(raw) ? raw.map(String) : String(raw).split(",")).map((x) => x.trim()).filter(Boolean);
+  return ids.length ? ids : null;
 }
 
 export async function removeAiHolds(

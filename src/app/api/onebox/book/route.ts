@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { cancelAppointmentQuietly } from "@/lib/appointment-cancel";
-import { removedHolds, holdCleanupScope } from "@/lib/ai-hold-cleanup";
+import { removedHolds } from "@/lib/ai-hold-cleanup";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
@@ -213,7 +213,8 @@ export async function POST(req: NextRequest) {
       reused = { id: holds[0].id };
       movedFrom = holds[0].startIso;
     }
-  } else if (!holds.length && tz && holdCleanupScope()) {
+  } else if (!holds.length && tz) {
+    // Only finds anything when the cleanup tagged her (ai-hold-removed).
     /* The AI-hold cleanup cancelled her unpaid hold (lib/ai-hold-cleanup).
        Bring THAT appointment back rather than booking a new one: the
        account's paid-deposit workflow confirms the contact's latest
