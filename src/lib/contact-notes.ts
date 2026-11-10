@@ -138,7 +138,7 @@ Rules:
 - A call with no real conversation (voicemail, no answer, bad audio, wrong number, "call me back later / in 10 minutes", only small talk) adds NOTHING anywhere. Never write "Not discussed".
 - discovery: answer EVERY question in the given list, in that order. Use the LATEST real answer from any source (transcripts, summaries, typed notes). If an older answer differs, keep the latest and add the older one in brackets with its month, e.g. "$550–$800 (June: $550)". Never invent: null if never answered. Max ~20 words per answer.
 - survey: the LATEST survey only, 4-8 short "label: value" lines, skip empty fields and long marketing text.
-- demos: one entry per demo call (Fathom recaps, or a call where the offer/program was presented). 2-4 recap lines max.
+- demos: one entry per demo call (Fathom recaps, notes titled "... Demo Call ...", or a call where the offer/program was presented). Never put a demo only in follow_ups. 2-4 recap lines max.
   These notes are read again months later to sell to her again, so also keep, in her own words when possible (each max ~30 words, null if not said):
   motivation = why she wants this / what made her interested or sign up (goals, dreams, money she wants, life reasons).
   booking_blockers = what stops her getting bookings today (no leads, no time for marketing, ads failed, slow season, competition, price shoppers...).
@@ -227,7 +227,7 @@ export function renderNotes(o: Organized, today = new Date().toISOString()): Par
 const TRANSCRIPT_MAX = 15_000, BUDGET = 140_000;
 export const rawKind = (n: { body?: string; userId?: string | null }) => {
   const t = noteText(n.body ?? "");
-  return n.userId ? "typed" : /^(data about the lead|one-box application)/i.test(t) ? "survey" : /fathom\.video/i.test(t) ? "fathom" : "ai";
+  return n.userId ? "typed" : /^(data about the lead|one-box application)/i.test(t) ? "survey" : /fathom\.video/i.test(t) || /^title:[^\n]*\bdemo call\b/i.test(t) ? "fathom" : "ai";
 };
 const KIND_LABEL: Record<string, string> = { typed: "note typed by a closer", survey: "survey", fathom: "Fathom demo recap", ai: "older note (AI call summary or form answers)" };
 
