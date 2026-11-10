@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { cancelAppointmentQuietly } from "@/lib/appointment-cancel";
-import { AI_HOLD_STATUS } from "@/lib/onebox";
+import { AI_HOLD_STATUS, wallToIso, locationTimezone } from "@/lib/onebox";
 
 /* Remove the AI's unpaid holds (owner, 11/09/2026: "a lot of clients get
    confused… remove it after it's becoming invalid, so it will not confuse
@@ -101,10 +101,45 @@ export async function removeAiHolds(
   return { accounts, removed, skipped, errors };
 }
 
-/* For the paid-heal: she paid but has no live appointment, and we removed
-   her AI hold. The time to book = that hold's start (the newest one we
-   cancelled that is still ahead). Null = nothing of ours to restore. */
-export async function removedHoldTime(token: string, contactId: string, calendarId: string): Promise<string | null> {
+/* The holds this cleanup cancelled for one contact that are still ahead,
+   newest-booked first. Only when the contact carries REMOVED_TAG, and only
+   appointments the AI made (API, "third_party") — never one an artist made
+   and cancelled. The contact list has no "createdBy", so each candidate is
+   read on its own (newest three at most). `tz` turns the list's wall-clock
+   times into real instants. */
+export async function removedHolds(token: string, contactId: string, calendarId: string, tz: string): Promise<Array<{ id: string; startIso: string; startMs: number; wall: string }>> {
+  const H = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+  const [cr, ar] = await Promise.all([
+    fetch(`${GHL}/contacts/${encodeURIComponent(contactId)}`, { headers: { ...H, Version: "2021-07-28" } }).catch(() => null),
+    fetch(`${GHL}/contacts/${encodeURIComponent(contactId)}/appointments`, { headers: { ...H, Version: "2021-07-28" } }).catch(() => null),
+  ]);
+  if (!cr?.ok || !ar?.ok) return [];
+  const tags = (((await cr.json()) as { contact?: { tags?: string[] } }).contact?.tags ?? []).map((t) => t.toLowerCase());
+  if (!tags.includes(REMOVED_TAG)) return [];
+  const st = (e: Record<string, unknown>) => String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase();
+  const now = Date.now();
+  const cands = ((((await ar.json()) as { events?: Array<Record<string, unknown>> }).events) ?? [])
+    .filter((e) => e.id && e.deleted !== true && String(e.calendarId ?? "") === calendarId && st(e) === "cancelled")
+    .map((e) => {
+      const wall = String(e.startTime ?? "").replace(" ", "T");
+      const startIso = tz ? wallToIso(String(e.startTime ?? ""), tz) : "";
+      return { id: String(e.id), wall, startIso, startMs: Date.parse(startIso), added: Date.parse(tz ? wallToIso(String(e.dateAdded ?? ""), tz) : "") };
+    })
+    .filter((e) => Number.isFinite(e.startMs) && e.startMs > now && e.added >= now - 30 * 86_400_000)
+    .sort((a, b) => b.added - a.added).slice(0, 3);
+  const out: Array<{ id: string; startIso: string; startMs: number; wall: string }> = [];
+  for (const c of cands) {
+    const one = await fetch(`${GHL}/calendars/events/appointments/${encodeURIComponent(c.id)}`, { headers: { ...H, Version: "2021-04-15" } }).catch(() => null);
+    const appt = one?.ok ? ((await one.json()) as { appointment?: { createdBy?: { source?: string } } }).appointment : null;
+    if (appt?.createdBy?.source === "third_party") out.push({ id: c.id, startIso: c.startIso, startMs: c.startMs, wall: c.wall });
+  }
+  return out;
+}
+
+/* For the paid-heal: she paid, has no live appointment, and this cleanup
+   removed her AI hold → the time to book = the newest removed hold still
+   ahead. Null = nothing of ours to restore. */
+export async function removedHoldTime(token: string, contactId: string, calendarId: string, locationId: string): Promise<string | null> {
   const r = await fetch(`${GHL}/contacts/${encodeURIComponent(contactId)}/appointments`, {
     headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" },
   }).catch(() => null);
@@ -113,22 +148,9 @@ export async function removedHoldTime(token: string, contactId: string, calendar
   const st = (e: Record<string, unknown>) => String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase();
   // Anything live on her calendar = she is booked; nothing to restore.
   if (events.some((e) => ["confirmed", "new", "invalid", "showed"].includes(st(e)))) return null;
-  const cancelled = events.filter((e) => st(e) === "cancelled")
-    .sort((a, b) => String(b.dateAdded ?? "").localeCompare(String(a.dateAdded ?? "")));
-  /* This list has no "createdBy": read the newest cancelled one on its own
-     and use it only if the AI (API, "third_party") made it — never a
-     booking an artist made and cancelled. */
-  const top = cancelled[0];
-  if (!top?.id) return null;
-  const one = await fetch(`${GHL}/calendars/events/appointments/${encodeURIComponent(String(top.id))}`, {
-    headers: { Authorization: `Bearer ${token}`, Version: "2021-04-15", Accept: "application/json" },
-  }).catch(() => null);
-  const appt = one?.ok ? ((await one.json()) as { appointment?: { createdBy?: { source?: string } } }).appointment : null;
-  if (appt?.createdBy?.source !== "third_party") return null;
-  // Wall-clock "YYYY-MM-DD HH:mm:ss" on the contact list → /book reads it as the studio's time.
-  const start = String(top.startTime ?? "").replace(" ", "T");
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(start)) return null;
-  // Read as UTC the wall clock is off by the studio's offset (up to ~10 h):
-  // only a time safely ahead is booked; a person handles the rest.
-  return Date.parse(start.slice(0, 19) + "Z") > Date.now() + 12 * 3600_000 ? start : null;
+  const tz = await locationTimezone(locationId, token);
+  if (!tz) return null;
+  const held = await removedHolds(token, contactId, calendarId, tz);
+  // Wall clock ("YYYY-MM-DD HH:mm:ss") → /book reads it as the studio's time.
+  return held[0]?.wall ?? null;
 }

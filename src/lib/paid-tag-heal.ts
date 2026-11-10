@@ -143,7 +143,7 @@ async function restoreRemovedHold(svc: Svc, origin: string, r: { loc: string; to
   const { data } = await svc.from("onebox_clients").select("slug, config").eq("location_id", r.loc).neq("status", "draft");
   const oc = ((data ?? []) as Array<{ slug: string; config: { calendarId?: string } | null }>).find((x) => x.config?.calendarId);
   if (!oc) return null;
-  const start = await removedHoldTime(r.token, r.contact.id, oc.config!.calendarId!);
+  const start = await removedHoldTime(r.token, r.contact.id, oc.config!.calendarId!, r.loc);
   if (!start) return null;
   const name = (r.contact.contactName ?? `${r.contact.firstName ?? ""} ${r.contact.lastName ?? ""}`).trim() || "Client";
   const res = await fetch(`${origin}/api/onebox/book`, {
