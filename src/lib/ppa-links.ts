@@ -4,7 +4,7 @@ import { deletePaymentLink, getPaidLinkOrders } from "@/lib/square";
 /* ── PPA payment links that mark themselves paid (owner, 11/10/2026) ─────────
    A link from the PPA Billing tab used to move money without marking a single
    show, so the shows stayed "Ready" and the Monday auto-charge / decline
-   retries could collect them a second time (Brittanie Lee, 11/02 + 11/09).
+   retries could collect them a second time (seen on one client, 11/02 + 11/09).
 
    Now every link is stored with its Square ORDER id and the exact shows it
    covers. settleOpenLinks() asks Square about those order ids only — never a
