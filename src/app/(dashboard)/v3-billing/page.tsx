@@ -76,6 +76,9 @@ const CS: Record<string, { label: string; cls: string }> = {
   // charged for them (user request 2026-09-05). A session that already happened
   // still bills as "served"; a no-show still counts against the show rate.
   declining: { label: "Declining", cls: "bg-[#fdf2f4] text-[#be123c] border-[#f5c2cf]" },
+  // Deposit refunded = the client didn't do the appointment (owner 11/09/2026),
+  // so it never bills — in the Ready count, the Charge button and auto-charge.
+  refunded: { label: "Refunded", cls: "bg-[#fff1f2] text-[#be123c] border-[#fecdd3]" },
   // Booked on the artist's end (no deposit through us) — still our lead, so
   // the show fee applies. Billable since Aug 1, 2026. "Self-booked" = she
   // marked the lead done in the pipeline; "Calendar" = the appointment sits on

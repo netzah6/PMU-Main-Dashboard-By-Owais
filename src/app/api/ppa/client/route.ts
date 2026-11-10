@@ -58,21 +58,20 @@ export async function GET(req: NextRequest) {
     svc.from("ppa_charges").select("*").eq("owner_key", ownerKey),
     svc.from("ppa_deposit_billing").select("*").eq("owner_key", ownerKey),
     svc.from("ppa_config").select("*").eq("owner_key", ownerKey).maybeSingle(),
-    svc.from("deposit_refunds").select("business, contact_name, email, decided_at").eq("status", "refunded"),
+    // Refunded deposits — the SAME rule the Ready count, the Charge button and
+    // the auto-charge use (view ppa_refunded_deposits: business + email +
+    // deposit date), so this list and those numbers always agree.
+    svc.from("ppa_refunded_deposits").select("appt_id, refunded_at"),
     svc.from("ppa_selfbooked").select("appt_id, contact_name, email, stage_name, done_at").eq("owner_key", ownerKey),
     svc.from("ppa_calendar_booked").select("appt_id, contact_name, email, status, title, start_time").eq("owner_key", ownerKey),
   ]);
 
-  // Executed refunds for THIS business, matched by email (fallback: name).
-  const bizNorm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  const refunds = ((refRes.data ?? []) as Array<{ business: string | null; contact_name: string | null; email: string | null; decided_at: string | null }>)
-    .filter((r) => bizNorm(String(r.business ?? "")) === client.bizNorm);
-  const refundByEmail = new Map<string, string | null>();
-  const refundByName = new Map<string, string | null>();
-  for (const r of refunds) {
-    if (r.email) refundByEmail.set(r.email.toLowerCase().trim(), r.decided_at);
-    if (r.contact_name) refundByName.set(r.contact_name.toLowerCase().trim(), r.decided_at);
-  }
+  // Owner 11/09/2026: a refunded deposit means the client didn't do the
+  // appointment, so it is never billed. Fail loudly if the refund check can't
+  // be read — silently showing refunded clients as Ready is the bug we fixed.
+  if (refRes.error) return NextResponse.json({ error: `refund check failed: ${refRes.error.message}` }, { status: 500 });
+  const refundedAtById = new Map<string, string | null>();
+  for (const r of (refRes.data ?? []) as Array<{ appt_id: string; refunded_at: string | null }>) refundedAtById.set(r.appt_id, r.refunded_at);
 
   const chgBy = new Map<string, ChargeRow>();
   for (const r of (chgRes.data ?? []) as ChargeRow[]) chgBy.set(r.appt_id, r);
@@ -90,16 +89,15 @@ export async function GET(req: NextRequest) {
     const charged = c?.charged ?? false;
     const excluded = c?.excluded ?? false;
     const excludeReason = c?.exclude_reason ?? null;
-    // A refunded deposit is never billable — the client gave the money back.
-    const refundedAt = (d.email && refundByEmail.get(d.email.toLowerCase().trim())) ||
-      (d.contact_name && refundByName.get(d.contact_name.toLowerCase().trim())) || null;
-    const refunded = refundedAt !== null || refundedAt === "";
+    // A refunded deposit is never billable — the client didn't come.
+    const refunded = chargeStatus === "refunded" || refundedAtById.has(d.appt_id);
+    const refundedAt = refundedAtById.get(d.appt_id) ?? null;
     summary.deposits++;
     if (chargeStatus === "served") summary.served++;
     else if (chargeStatus === "past_due") summary.pastDue++;
     else if (chargeStatus === "upcoming") summary.upcoming++;
     else if (chargeStatus === "noshow") summary.noshow++;
-    else summary.noAppt++;
+    else if (!refunded) summary.noAppt++; // refunded has its own count below
     if (excluded) summary.excluded++;
     if (refunded) summary.refunded++;
     if (excluded) { if (excludeReason === "no_show") summary.noShowMarked++; }
