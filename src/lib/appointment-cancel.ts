@@ -14,6 +14,7 @@ const BOOKED_WORKFLOW = /customer booked appointment/i;
 
 export async function cancelAppointmentQuietly(
   token: string, locationId: string, contactId: string, appointmentId: string,
+  opts: { alsoLeave?: RegExp[] } = {},
 ): Promise<boolean> {
   const H = { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" };
   let cancelled = false;
@@ -27,7 +28,10 @@ export async function cancelAppointmentQuietly(
   await new Promise((r) => setTimeout(r, 5000));
   const wr = await fetch(`${GHL}/workflows/?locationId=${encodeURIComponent(locationId)}`, { headers: { ...H, Version: "2021-07-28" } }).catch(() => null);
   const wfs = wr?.ok ? ((((await wr.json().catch(() => null)) as { workflows?: Array<{ id?: string; name?: string }> } | null)?.workflows) ?? []) : [];
-  const booked = wfs.filter((w) => w.id && BOOKED_WORKFLOW.test(String(w.name ?? "")));
+  // alsoLeave: other workflows that would act on this appointment later
+  // (the AI-hold cleanup also leaves "Appointment Status Invalid -> Confirm").
+  const leave = [BOOKED_WORKFLOW, ...(opts.alsoLeave ?? [])];
+  const booked = wfs.filter((w) => w.id && leave.some((re) => re.test(String(w.name ?? ""))));
   // No such workflow on the account = nothing can bring the appointment back.
   if (wr?.ok && !booked.length) return true;
   let removed = booked.length > 0;

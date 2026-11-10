@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { resolveClientLocation } from "@/lib/agent-exec";
 import { fileOrAppendAlert, ghlContactUrl } from "@/lib/alerts";
+import { REMOVED_TAG, removedHoldTime } from "@/lib/ai-hold-cleanup";
 
 // ── Paid-deposit safety net (owner, 2026-10-11) ──────────────────────────────
 // A Fanbasis payment reaches the client's GHL through the "FanBasis to GHL
@@ -114,13 +115,14 @@ export async function resolvePaidAlerts(svc: Svc): Promise<number> {
    fallback: a paid contact whose one-box lead holds a picked time with no
    appointment gets booked through the same /api/onebox/book call the browser
    makes, so every automation fires exactly as it should have. */
-async function bookPaidNotBooked(svc: Svc, origin: string | undefined, contactId: string): Promise<string | null> {
+async function bookPaidNotBooked(svc: Svc, origin: string | undefined, contactId: string, restore?: { loc: string; token: string; contact: GContact }): Promise<string | null> {
   if (!origin) return null;
   const { data: lead } = await svc.from("onebox_leads")
     .select("slug, full_name, phone, answers, slot_iso, ghl_status")
     .eq("ghl_contact_id", contactId).not("slot_iso", "is", null).is("ghl_appointment_id", null)
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   const l = lead as { slug: string; full_name: string | null; phone: string | null; answers: { email?: string; tz?: string } | null; slot_iso: string; ghl_status: string | null } | null;
+  if (!l && restore) return restoreRemovedHold(svc, origin, restore);
   if (!l || l.ghl_status === "booked" || !l.full_name || !l.phone) return null;
   if (Date.parse(l.slot_iso) < Date.now()) return null; // her time already passed; nothing sensible to book
   const r = await fetch(`${origin}/api/onebox/book`, {
@@ -130,6 +132,27 @@ async function bookPaidNotBooked(svc: Svc, origin: string | undefined, contactId
   const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
   if (!j.ok) throw new Error(`book: ${j.error ?? r.status}`);
   return l.slot_iso;
+}
+
+/* She agreed a time with the AI, the AI-hold cleanup removed that unpaid
+   hold (tag REMOVED_TAG), and she then paid somewhere that never called
+   /book. Before the cleanup the account's "Invalid -> Confirm" workflow
+   would have confirmed the hold; now the same time is booked fresh. */
+async function restoreRemovedHold(svc: Svc, origin: string, r: { loc: string; token: string; contact: GContact }): Promise<string | null> {
+  if (!(r.contact.tags ?? []).some((t) => t.toLowerCase() === REMOVED_TAG) || !r.contact.phone) return null;
+  const { data } = await svc.from("onebox_clients").select("slug, config").eq("location_id", r.loc).neq("status", "draft");
+  const oc = ((data ?? []) as Array<{ slug: string; config: { calendarId?: string } | null }>).find((x) => x.config?.calendarId);
+  if (!oc) return null;
+  const start = await removedHoldTime(r.token, r.contact.id, oc.config!.calendarId!, r.loc);
+  if (!start) return null;
+  const name = (r.contact.contactName ?? `${r.contact.firstName ?? ""} ${r.contact.lastName ?? ""}`).trim() || "Client";
+  const res = await fetch(`${origin}/api/onebox/book`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug: oc.slug, full_name: name, phone: r.contact.phone, email: "", startTime: start }),
+  });
+  const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!j.ok) throw new Error(`book (removed hold): ${j.error ?? res.status}`);
+  return start;
 }
 
 export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked: number; healed: string[]; notFound: string[]; booked: string[]; errors: string[] }> {
@@ -187,13 +210,13 @@ export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked
       // appointment → book it now, server-side. Once per payment, like the tag.
       const bookNow = async () => {
         try {
-          const slot = await bookPaidNotBooked(svc, origin, c.id);
+          const slot = await bookPaidNotBooked(svc, origin, c.id, { loc, token: tok.token!, contact: c });
           if (!slot) return;
           booked.push(`${name} (${biz})`);
           await fileOrAppendAlert(svc, {
             type: "paid_not_synced", severity: "medium",
             title: `${name} paid ${biz} but her appointment was never created — booked automatically`,
-            detail: `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} cleared, but the booking call from her browser never ran, so GHL had no appointment (no artist notification, no confirmation or reminders). The time she picked (${new Date(slot).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC) is now booked and confirmed, so every automation fires. Resolve this once checked.`,
+            detail: `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} cleared, but the booking call from her browser never ran, so GHL had no appointment (no artist notification, no confirmation or reminders). The time she picked (${/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(slot) ? `${new Date(slot).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC` : `${slot.slice(0, 16).replace("T", " ")} studio time, the AI's removed hold`}) is now booked and confirmed, so every automation fires. Resolve this once checked.`,
             source_key: `paid-booked:${key}`, meta: { location_id: loc, contact_id: c.id, link: ghlContactUrl(loc, c.id) },
           });
         } catch (e) { errors.push(`${biz}: ${e instanceof Error ? e.message.slice(0, 100) : "book error"}`); }
