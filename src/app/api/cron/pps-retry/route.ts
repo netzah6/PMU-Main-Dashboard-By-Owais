@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { buildVerifyReport, executeChargeForRow, ChargeRefused } from "@/lib/ppa-verify";
 import { advanceRetry, resolveRetry, isDeclineError } from "@/lib/ppa-retry";
 import { squareConfigured } from "@/lib/square";
+import { settleOpenLinks } from "@/lib/ppa-links";
 
 export const maxDuration = 300;
 
@@ -48,6 +49,17 @@ export async function GET(req: NextRequest) {
   for (const r of due) {
     const base = { run_at: runAt, owner_key: r.owner_key };
     try {
+      // If Square can't answer about her payment links, skip today — don't
+      // advance the schedule or charge.
+      let settled;
+      try { settled = await settleOpenLinks(r.owner_key); } catch (e) {
+        results.push({ ...base, outcome: "link_check_failed", error: e instanceof Error ? e.message : String(e) });
+        continue;
+      }
+      // A link was just recorded or is paid-but-unrecorded: leave the card
+      // alone today. Tomorrow's run sees the new bill (or resolves the loop
+      // below when nothing is left to collect).
+      if (settled.length) { results.push({ ...base, outcome: "link_activity_skip_today" }); continue; }
       const report = await buildVerifyReport(r.owner_key);
       const row = report.clients[0];
       // Nothing left to collect (voided, or paid another way) — loop is over.

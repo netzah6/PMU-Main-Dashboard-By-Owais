@@ -29,6 +29,8 @@ export interface VRow {
   fee: number; feeSource?: "sheet" | "dashboard"; sheetNotes?: string | null;
   autoCharge: boolean;
   retry?: { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null } | null;
+  /** Payment links waiting to be paid ("open") or paid but needing a check. */
+  links?: Array<{ id: number; url: string; amount: number; shows: Array<{ appt_id: string; name: string | null }>; createdAt: string; status: string; reviewNote: string | null }>;
   readyToCharge: number; amount: number;
   /** Fees before credit, and the approved credit coming off this charge. */
   grossAmount: number; creditApplied: number;
@@ -439,10 +441,13 @@ export function ActionsCell({ v, onMsg, onReload }: {
       if (!res.ok) throw new Error(json.error || "Payment link failed");
       try { await navigator.clipboard.writeText(json.url); } catch { /* copy is best-effort */ }
       setPartialOpen(false);
+      onReload();
       const who = Array.isArray(json.names) && json.names.length ? `: ${json.names.join(", ")}` : "";
       onMsg({
         ok: true,
-        text: `Payment link for ${money(json.amount)} (${json.shows} show${json.shows === 1 ? "" : "s"}${who}) copied to clipboard — text it to ${v.ownerName}. When she pays, mark ${apptIds ? "those" : "the"} shows charged in the drill-down.`,
+        text: json.warning
+          ? `Payment link for ${money(json.amount)} copied to clipboard. ⚠ ${json.warning}`
+          : `Payment link for ${money(json.amount)} (${json.shows} show${json.shows === 1 ? "" : "s"}${who}) copied to clipboard — text it to ${v.ownerName}. When she pays, ${apptIds ? "those" : "the"} shows mark themselves paid within 10 minutes.`,
         receiptUrl: json.url,
       });
     } catch (e) {
@@ -551,12 +556,47 @@ export function ActionsCell({ v, onMsg, onReload }: {
         </span>
       )}
 
+      {/* Payment links: open = waiting for her to pay (click to cancel it);
+          paid_review = paid, but some shows were already charged/voided —
+          a human checks (click once checked). */}
+      {(v.links ?? []).map((l) => {
+        const day = new Date(l.createdAt).toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
+        const names = l.shows.map((s) => s.name ?? "?").join(", ");
+        const review = l.status === "paid_review";
+        return (
+          <button key={l.id} disabled={busy}
+            onClick={async () => {
+              if (!review && !confirm(`Cancel the ${money(l.amount)} payment link sent ${day}? She won't be able to pay it any more.`)) return;
+              setBusy(true); onMsg(null);
+              try {
+                const res = await fetch("/api/ppa/payment-link", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ owner_key: v.ownerKey, action: review ? "reviewed" : "cancel", link_id: l.id }),
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.error || "Failed");
+                onMsg({ ok: true, text: review ? "Marked as checked." : "Payment link cancelled." });
+                onReload();
+              } catch (e) {
+                onMsg({ ok: false, text: `${e}`.replace("Error: ", "") });
+              } finally { setBusy(false); }
+            }}
+            title={review
+              ? `Paid by link — check by hand. ${l.reviewNote ?? ""} Click once checked.`
+              : `Link for ${money(l.amount)} sent ${day} (${names}). Waiting for her to pay — the shows mark themselves paid when she does. Click to cancel the link.`}
+            className={cn("flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold border",
+              review ? "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf]" : "bg-[#eef6ff] text-[#34568a] border-[#cfe0f5] hover:border-[#34568a]")}>
+            <Link2 size={11} /> {review ? "link paid · check" : `link ${money(l.amount)} · ${day}`}
+          </button>
+        );
+      })}
+
       {/* Fallback when the stored card declines (or there is no usable card):
           a Square-hosted checkout link for the exact ready amount — the artist
           pays with any card, no card data touches us. */}
       {v.readyToCharge > 0 && (
         <button onClick={() => makePaymentLink()} disabled={busy}
-          title={`Create a Square payment page for ${money(v.amount)} and copy the link — for when the card on file declines or there is no usable card. Shows stay in Ready until she pays and you mark them charged.`}
+          title={`Create a Square payment page for ${money(v.grossAmount)}${v.creditApplied > 0 ? ` (full fees — her ${money(v.creditApplied)} credit stays for the next card charge)` : ""} and copy the link — for when the card on file declines or there is no usable card. When she pays, the shows mark themselves paid within 10 minutes.`}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold border bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE] hover:text-[#0e8f88]">
           <Link2 size={11} /> Payment link
         </button>

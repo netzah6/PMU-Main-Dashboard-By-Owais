@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import { creditBalances, consumeCredit } from "@/lib/credits";
+import { closeLinksForShows, linksByOwner, type OpenLinkInfo } from "@/lib/ppa-links";
 import { getPpaRoster, type V3Client } from "@/lib/ppa";
 import {
   listCards,
@@ -78,6 +79,9 @@ export interface VerifyRow {
   feeSource: "sheet" | "dashboard";
   sheetNotes: string | null;
   autoCharge: boolean;
+  /** Payment links that are open (waiting to be paid) or paid but need a
+   *  human check — see src/lib/ppa-links.ts. */
+  links: OpenLinkInfo[];
   /** Pending decline-retry loop, if a charge attempt failed on this client. */
   retry: { status: string; attempts: number; nextAttemptAt: string | null; lastError: string | null } | null;
   readyToCharge: number;
@@ -350,13 +354,14 @@ export async function buildVerifyReport(ownerKeyFilter?: string | Set<string>): 
   // One list fetch, matched locally — never a per-client Square search.
   // Recent payments feed each card's "last used"; if that call fails the
   // report still renders, just without last-used info.
-  const [{ customers, truncated }, recentPayments, prefRes, retryRes, linkRes] = await Promise.all([
+  const [{ customers, truncated }, recentPayments, prefRes, retryRes, linkRes, payLinkBy] = await Promise.all([
     listAllCustomers(),
     listRecentPayments().catch(() => []),
     svc.from("ppa_card_prefs").select("owner_key, customer_id, card_id").in("owner_key", ownerKeys),
     svc.from("ppa_charge_retries").select("owner_key, status, attempts, next_attempt_at, last_error")
       .in("owner_key", ownerKeys).in("status", ["active", "exhausted"]),
     svc.from("ppa_customer_links").select("owner_key, customer_id").in("owner_key", ownerKeys),
+    linksByOwner(ownerKeys).catch(() => new Map<string, OpenLinkInfo[]>()),
   ]);
   const index = new CustomerIndex(customers);
 
@@ -620,6 +625,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string | Set<string>): 
       sheetNotes: c.sheetNotes,
       autoCharge: autoBy.get(c.ownerKey) ?? false,
       retry: retryBy.get(c.ownerKey) ?? null,
+      links: payLinkBy.get(c.ownerKey) ?? [],
       readyToCharge: shows.length,
       ...(() => {
         const gross = shows.length * fee;
@@ -810,7 +816,9 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
       );
     }
     await consumeCredit(svcFree, row.ownerKey, row.creditApplied, null);
+    const linkWarnFree = await closeLinksForShows(row.ownerKey, apptIds).catch(() => null);
     return {
+      ...(linkWarnFree ? { warning: linkWarnFree } : {}),
       paymentId: null, receiptUrl: null, amount: 0, shows: row.readyToCharge,
       card: `account credit ($${row.creditApplied})`,
     };
@@ -867,6 +875,11 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
   // The charge was reduced by this much, so the credit is now spent.
   if (row.creditApplied > 0) await consumeCredit(svc, row.ownerKey, row.creditApplied, payment.id);
 
+  // These shows are paid on the card now: delete any open payment link that
+  // covers them, so the artist can't pay the same shows a second time.
+  // Always — even if recording the shows failed, the card DID take the money.
+  const linkWarning = await closeLinksForShows(row.ownerKey, apptIds).catch(() => null);
+
   /* Cash collected beyond the whole shows it settled is money we now hold for
      this client: bank it as APPROVED credit (it is a payment received, not a
      discretionary grant, so it needs no second approval) and the next charge
@@ -914,10 +927,11 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
     // The payment went through — a bookkeeping failure must be loud but must
     // NOT read as "charge failed" (an explicit retry is safe thanks to the
     // idempotency key, but the human needs to know money moved).
-    ...(error || creditWarning ? {
+    ...(error || creditWarning || linkWarning ? {
       warning: [
         error && `CHARGED $${row.amount} (Square ${payment.id}) but recording it in the dashboard failed: ${error.message}. Mark the appointments charged manually.`,
         creditWarning,
+        linkWarning,
       ].filter(Boolean).join(" "),
     } : {}),
   };

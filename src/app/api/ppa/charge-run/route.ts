@@ -3,6 +3,7 @@ import { getAuth } from "@/lib/ppa";
 import { buildVerifyReport, executeChargeForRow, restrictRowToShows, restrictRowToAmount, ChargeRefused } from "@/lib/ppa-verify";
 import { isDeclineError, scheduleRetry, resolveRetry, RETRY_OFFSETS_DAYS } from "@/lib/ppa-retry";
 import { squareConfigured } from "@/lib/square";
+import { settleOpenLinks } from "@/lib/ppa-links";
 
 export const maxDuration = 120;
 
@@ -25,6 +26,21 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { owner_key?: string; expected_amount?: number; appt_ids?: unknown };
   const ownerKey = String(body.owner_key ?? "").trim().toLowerCase();
   if (!ownerKey) return NextResponse.json({ error: "owner_key required" }, { status: 400 });
+
+  // A payment link she paid a minute ago must be recorded before the card is
+  // touched, or the same shows get collected twice. If Square can't tell us,
+  // stop: guessing "not paid" is exactly the double charge we are avoiding.
+  try {
+    const settled = await settleOpenLinks(ownerKey);
+    if (settled.length) {
+      const busy = settled.some((r) => r.status === "pending" || r.status === "busy" || r.status === "error");
+      return NextResponse.json({ error: busy
+        ? "She paid a payment link that isn't recorded yet (bank still processing, or being recorded right now). Nothing was charged — try again in 15 minutes."
+        : "She just paid a payment link — those shows are now marked charged. Refresh and check what is still owed." }, { status: 409 });
+    }
+  } catch (e) {
+    return NextResponse.json({ error: `Could not check her payment links in Square, so nothing was charged: ${e instanceof Error ? e.message : e}` }, { status: 502 });
+  }
 
   const report = await buildVerifyReport(ownerKey);
   const fullRow = report.clients[0];
