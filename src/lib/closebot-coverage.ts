@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dashboardUrl } from "@/lib/agent-notify";
 import { fileAlert } from "@/lib/alerts";
+import { CLOSEBOT_SIGN_IN } from "@/lib/closebot-signin";
 
 /* ── CloseBot ↔ V3 weekly check (owner, 10/24/2026) ─────────────────────────
    Every V3 client needs a CloseBot source with a live job flow, and nobody
@@ -77,10 +78,10 @@ export function sourcesScript(postUrl: string): string {
 
 function checkPlan(postUrl: string): string[] {
   return [
-    `Open https://app.closebot.com/settings/sources and wait until the Sources table shows rows ("Total Sources" at the top). This is a READ-ONLY check: never click Save, Publish, Connect, Disconnect, Delete or any switch.`,
+    `Open https://app.closebot.com/settings/sources and wait until the Sources table shows rows ("Total Sources" at the top). This is a READ-ONLY check: never click Save, Publish, Connect, Disconnect, Delete or any switch (signing in is allowed). ${CLOSEBOT_SIGN_IN}`,
     `Run this exact function with the browser's evaluate tool (browser_evaluate) on that page — copy it unchanged:\n${sourcesScript(postUrl)}`,
     `Screenshot the Sources page as after-1.png.`,
-    `Report. Your summary must be the exact line the function returned (it starts with "CLOSEBOT:"). Status "done" when it says SAVED; "failed" when it says ERROR. If CloseBot shows a sign-in page instead of Sources, type nothing: status "needs_teammate", summary "Mac Mini is not signed in to CloseBot".`,
+    `Report. Your summary must be the exact line the function returned (it starts with "CLOSEBOT:"). Status "done" when it says SAVED; "failed" when it says ERROR. `,
   ];
 }
 

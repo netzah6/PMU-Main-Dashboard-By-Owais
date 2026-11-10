@@ -1,3 +1,5 @@
+import { CLOSEBOT_SIGN_IN } from "@/lib/closebot-signin";
+
 // Password convention: FirstnameLastname1212! (e.g. "IvanAndrosov1212!")
 export function employeePassword(ownerName: string): string {
   const compact = ownerName.trim().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("").replace(/[^a-zA-Z0-9]/g, "");
@@ -383,7 +385,7 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       const biz = f.form.business_name?.trim() || owner;
       const first = owner.split(/\s+/)[0];
       return [
-        `This step works in CloseBot (https://app.closebot.com), for this one client only: ${biz}, GoHighLevel location ${L}. Never change another client's source. If CloseBot shows a sign-in page: type nothing, status "needs_teammate", summary "Mac Mini is not signed in to CloseBot".`,
+        `This step works in CloseBot (https://app.closebot.com), for this one client only: ${biz}, GoHighLevel location ${L}. Never change another client's source. ${CLOSEBOT_SIGN_IN}`,
         `Open https://app.closebot.com/settings/sources and look for ${biz}'s source. If it is there and the slay agent is already on it with SMS, change nothing below that is already right.`,
         `No source yet: Add New Source → HighLevel Sub-Account → "Connect HighLevel Sub-Account Now". On the GoHighLevel page click Login, then Next, search "${biz}" and click it. The source is created even if the dialog's "Add Source" is not pressed. If this account is not in the list, or GoHighLevel asks for a sign-in you can't finish, status "needs_teammate" and say so.`,
         `Open the source → Settings: Bot Auto Shutoff ON. Follow-Up Restrictions: Mon–Fri 08:00–20:00, Sat 09:00–20:00, Sun 10:00–20:00. Reply Restrictions: none. Press the bottom-right "Save changes" (a hidden "Save" does not persist).`,
