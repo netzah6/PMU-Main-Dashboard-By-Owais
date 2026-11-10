@@ -175,6 +175,10 @@
     {
       "path": "/api/cron/funnel-timeline",
       "schedule": "20 */6 * * *"
+    },
+    {
+      "path": "/api/cron/sales-notes",
+      "schedule": "7-59/10 * * * *"
     }
   ],
   "headers": [
