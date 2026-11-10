@@ -4,7 +4,7 @@ import { cancelAppointmentQuietly } from "@/lib/appointment-cancel";
 import { removedHolds } from "@/lib/ai-hold-cleanup";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
+import { sendCapiEvent, capiToken, recordCapi, pickFbc } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso, AI_HOLD_STATUS, AI_HOLD_LIVE_MS, type ContactAppointment } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
 import { cleanTz, calendarDurationMin } from "@/lib/ghl-push";
@@ -49,6 +49,21 @@ export async function POST(req: NextRequest) {
   if (!client || client.status === "draft" || !calendarId) {
     return NextResponse.json({ ok: false, error: "unknown funnel" }, { status: 404 });
   }
+  /* Server-side Purchase, sent first and on its own (audit 11/10/2026): it
+     depends only on the payment, never on the booking, so a GHL hiccup
+     below (no token, contact or appointment failure) no longer loses it.
+     B2B books a free call (no purchase; the agency workflow covers Meta);
+     a free-booking funnel's call is not a purchase either. */
+  {
+    const exAll = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string; freeBooking?: boolean };
+    const hasEventId = Boolean(String(body.eventId ?? ""));
+    if (!isB2B && !(exAll.freeBooking && !hasEventId)) {
+      waitUntil(serverPurchase(svc, req, body, { slug, phone, email, fullName, cfg, extras: exAll }).catch((e) => {
+        console.error("[onebox/book] server Purchase failed:", e instanceof Error ? e.message : e);
+      }));
+    }
+  }
+
   const locationId = client.location_id as string;
   const surveyTag = isB2B ? (extrasAll.b2b?.tag || "b2b-onebox-survey") : "onebox-survey";
 
@@ -271,12 +286,9 @@ export async function POST(req: NextRequest) {
   }
 
   /* The appointment exists — everything left is bookkeeping on
-     independent systems (lead row, reserved-time field, Meta CAPI).
-     Run the three together; each is individually best-effort. */
-  const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string; selfNotifies?: boolean };
-  const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
-  const token = capiToken(ex);
-  const eventId = String(body.eventId ?? "");
+     independent systems (lead row, reserved-time field). Run them
+     together; each is individually best-effort. The Meta Purchase
+     already went out at the top (serverPurchase). */
   const bookedId = aj.id ?? null;
   if (movedFrom) console.info("[onebox/book] moved the AI's hold", bookedId, "from", movedFrom, "to", startIso);
   const extras = appts.filter((a) => a.id !== bookedId && !paidIds.has(a.id) && (a.addedMs || 0) >= recent);
@@ -415,34 +427,6 @@ export async function POST(req: NextRequest) {
           .eq("slug", slug).eq("phone", phone).then(() => {}, () => {});
       }
     })(),
-    // Server-side Purchase — this endpoint only runs once the deposit has
-    // cleared, so it is the honest signal for optimising on paying clients.
-    // B2B books a free call (no purchase); the agency workflow's own
-    // appointment-status CAPI covers Meta, same as the original funnel.
-    (async () => {
-      if (isB2B) return;
-      if (!pixelId || !token || !eventId) {
-        await recordCapi(svc, {
-          slug, eventName: "Purchase", eventId, pixelId, phone, ok: false,
-          error: !pixelId ? "no pixel on funnel" : !token ? "no META_CAPI_TOKEN" : "no event id from browser",
-        });
-        return;
-      }
-      const amount = parseFloat(String(cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
-      const res = await sendCapiEvent({
-        pixelId, token, eventName: "Purchase", eventId,
-        eventSourceUrl: String(body.pageUrl ?? "") || undefined,
-        value: Number.isFinite(amount) ? amount : undefined,
-        currency: "USD",
-        user: {
-          email, phone, fullName,
-          fbp: String(body.fbp ?? ""), fbc: String(body.fbc ?? ""),
-          clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
-          userAgent: req.headers.get("user-agent"),
-        },
-      }).catch(() => ({ ok: false, error: "send threw" }));
-      await recordCapi(svc, { slug, eventName: "Purchase", eventId, pixelId, phone, ok: res.ok, error: res.error });
-    })(),
   ]);
 
   return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
@@ -460,4 +444,59 @@ async function stampPaid(svc: ReturnType<typeof createServiceClient>, slug: stri
     .is("paid_at", null)
     .or(bookedId ? `ghl_appointment_id.is.null,ghl_appointment_id.eq.${bookedId}` : "ghl_appointment_id.is.null")
     .then(() => {}, () => {});
+}
+
+/* The server copy of the browser's Purchase (same event_id, so Meta keeps
+   one). This endpoint is only called once the deposit has cleared. About 6
+   in 10 deposits are paid later from the text link, in another browser with
+   no Facebook cookie (audit 11/10/2026) — so the click id falls back to the
+   one kept with the lead at survey time, and external_id (the lead's
+   visitor id, also on its server Lead) ties the two events to one person. */
+async function serverPurchase(
+  svc: ReturnType<typeof createServiceClient>,
+  req: NextRequest,
+  body: Record<string, string>,
+  a: { slug: string; phone: string; email: string; fullName: string; cfg: Record<string, string>; extras: { metaPixelId?: string; capiToken?: string } },
+) {
+  const pixelId = (a.cfg.metaPixelId || a.extras.metaPixelId || "").replace(/\D/g, "");
+  const token = capiToken(a.extras);
+  const eventId = String(body.eventId ?? "");
+  if (!pixelId || !token || !eventId) {
+    await recordCapi(svc, {
+      slug: a.slug, eventName: "Purchase", eventId, pixelId, phone: a.phone, ok: false,
+      error: !pixelId ? "no pixel on funnel" : !token ? "no META_CAPI_TOKEN" : "no event id from browser",
+    });
+    return;
+  }
+  /* The lead's latest survey rows: newest visitor id, first kept click.
+     `click` arrived with supabase/purchase-attribution.sql — read without
+     it if that column isn't there yet. */
+  type LeadClick = { visitor_id: string | null; click?: Record<string, string> | null };
+  let rows: LeadClick[] = [];
+  const q = await svc.from("onebox_leads").select("visitor_id, click")
+    .eq("slug", a.slug).eq("phone", a.phone).order("created_at", { ascending: false }).limit(5);
+  if (!q.error) rows = (q.data ?? []) as LeadClick[];
+  else {
+    const q2 = await svc.from("onebox_leads").select("visitor_id")
+      .eq("slug", a.slug).eq("phone", a.phone).order("created_at", { ascending: false }).limit(5);
+    rows = (q2.data ?? []) as LeadClick[];
+  }
+  const kept = rows.find((r) => r.click?.fbc || r.click?.fbp)?.click ?? null;
+  const fbc = pickFbc(String(body.fbc ?? ""), kept?.fbc, null);
+  const fbp = String(body.fbp ?? "").trim() || String(kept?.fbp ?? "");
+  const amount = parseFloat(String(a.cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
+  const res = await sendCapiEvent({
+    pixelId, token, eventName: "Purchase", eventId,
+    eventSourceUrl: String(body.pageUrl ?? "") || undefined,
+    value: Number.isFinite(amount) ? amount : undefined,
+    currency: "USD",
+    user: {
+      email: a.email, phone: a.phone, fullName: a.fullName,
+      fbp, fbc: fbc.fbc,
+      clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || kept?.ip || undefined,
+      userAgent: req.headers.get("user-agent") || kept?.ua || undefined,
+      externalId: rows.find((r) => r.visitor_id)?.visitor_id ?? null,
+    },
+  }).catch(() => ({ ok: false, error: "send threw" }));
+  await recordCapi(svc, { slug: a.slug, eventName: "Purchase", eventId, pixelId, phone: a.phone, ok: res.ok, error: res.error, fbcSrc: fbc.src });
 }

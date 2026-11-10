@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { sendCapiEvent, capiToken, recordCapi } from "@/lib/meta-capi";
+import { sendCapiEvent, capiToken, recordCapi, pickFbc, fbclidOf } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { pushLeadToGhl, cleanTz } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
@@ -233,6 +233,44 @@ export async function POST(req: NextRequest) {
   const ghlStatus = contactId ? "created" : "failed";
   if (push.error) console.error("[onebox/submit] GHL upsert failed:", push.error);
 
+  /* Ad click data, kept with the lead (owner 11/10/2026): about 6 in 10
+     deposits are paid later from the text link, in another browser that
+     has no Facebook cookie. The server Purchase then sends this click id,
+     so Meta can still credit the ad. Own column, never in `answers` (that
+     can be re-pushed to the GHL contact). Separate best-effort write: a
+     missing column must never cost the lead. */
+  const clickIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "";
+  const clickUa = (req.headers.get("user-agent") ?? "").slice(0, 400);
+  const pageUrl = String(body.pageUrl ?? "");
+  const leadFbc = pickFbc(String(body.fbc ?? ""), "", pageUrl);
+  if (leadRow?.id && !isB2B) {
+    const click: Record<string, string> = {};
+    if (leadFbc.fbc) click.fbc = leadFbc.fbc.slice(0, 600);
+    const fbp = String(body.fbp ?? "").trim().slice(0, 200);
+    if (fbp) click.fbp = fbp;
+    const fbclid = fbclidOf(pageUrl);
+    if (fbclid) click.fbclid = fbclid;
+    /* Which ad: utm_* and the usual ad-id params, if the ad's URL carries them. */
+    try {
+      const u = new URL(pageUrl);
+      let n = 0;
+      for (const [k, v] of u.searchParams) {
+        if (n >= 15) break;
+        if (/^(utm_[a-z]+|h_ad_id|ad_id|adset_id|campaign_id|ad_name|adset_name|campaign_name|placement|site_source_name)$/i.test(k) && v) {
+          click[k.toLowerCase()] = v.slice(0, 200); n++;
+        }
+      }
+      click.page = (u.origin + u.pathname).slice(0, 300);
+    } catch { /* no usable page URL */ }
+    if (clickIp) click.ip = clickIp.slice(0, 64);
+    if (clickUa) click.ua = clickUa;
+    click.at = new Date().toISOString();
+    await svc.from("onebox_leads").update({ click }).eq("id", leadRow.id).then(
+      (r) => { if (r.error) console.error("[onebox/submit] click save failed:", r.error.message); },
+      () => {},
+    );
+  }
+
   if (leadRow?.id) {
     await svc
       .from("onebox_leads")
@@ -287,12 +325,13 @@ export async function POST(req: NextRequest) {
         eventSourceUrl: String(body.pageUrl ?? "") || undefined,
         user: {
           email, phone, fullName,
-          fbp: String(body.fbp ?? ""), fbc: String(body.fbc ?? ""),
-          clientIp: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
-          userAgent: req.headers.get("user-agent"),
+          fbp: String(body.fbp ?? ""), fbc: leadFbc.fbc,
+          clientIp: clickIp || undefined,
+          userAgent: clickUa || undefined,
+          externalId: visitorId,
         },
       });
-      await recordCapi(svc, { slug, eventName: "Lead", eventId, pixelId, phone, ok: res.ok, error: res.error });
+      await recordCapi(svc, { slug, eventName: "Lead", eventId, pixelId, phone, ok: res.ok, error: res.error, fbcSrc: leadFbc.src });
     } else {
       await recordCapi(svc, {
         slug, eventName: "Lead", eventId, pixelId, phone, ok: false,
