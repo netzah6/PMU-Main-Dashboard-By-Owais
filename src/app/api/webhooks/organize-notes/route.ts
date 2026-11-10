@@ -4,8 +4,9 @@ import { AGENCY_LOCATION_ID, fetchNotes, isOrganizedNote, organizeNotes, renderN
 
 export const maxDuration = 120;
 
-// The agency's note workflows ("AI Phone Call Summarizer -> Notes", "Fathom AI
-// -> Contact Tasks & Notes") call this after they add a note. It rebuilds the
+// The agency's "AI Phone Call Summarizer -> Notes" workflow calls this after it
+// adds a note; "Fathom AI -> Contact Tasks & Notes" calls it on a new recording
+// (Fathom writes the demo note itself). It rebuilds the
 // contact's pinned 📋 DISCOVERY / 🎥 DEMO / 🤝 CLIENT CALLS notes (see
 // lib/contact-notes). No session: it returns no contact data, only touches
 // notes we wrote, and does nothing when no note is newer than ours.
@@ -19,9 +20,18 @@ export async function POST(req: NextRequest) {
     const cr = await fetch(`https://services.leadconnectorhq.com/contacts/${encodeURIComponent(contactId)}`, { headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" } });
     if (!cr.ok) return NextResponse.json({ ok: false, error: `contact HTTP ${cr.status}` }, { status: 404 });
     const tags = (((await cr.json()) as { contact?: { tags?: string[] } }).contact?.tags ?? []);
-    const notes = await fetchNotes(tok.token, contactId);
-    const lastOurs = Math.max(0, ...notes.filter((n) => isOrganizedNote(n.body)).map((n) => Date.parse(n.dateUpdated ?? n.dateAdded)));
-    if (!notes.some((n) => !isOrganizedNote(n.body) && Date.parse(n.dateAdded) > lastOurs)) return NextResponse.json({ ok: true, done: "nothing new" });
+    /* The Fathom workflow fires on the new recording, and Fathom writes its
+       note on its own a little later: wait for it (up to ~80 s). */
+    let notes = await fetchNotes(tok.token, contactId);
+    const fresh = () => {
+      const lastOurs = Math.max(0, ...notes.filter((n) => isOrganizedNote(n.body)).map((n) => Date.parse(n.dateUpdated ?? n.dateAdded)));
+      return notes.some((n) => !isOrganizedNote(n.body) && Date.parse(n.dateAdded) > lastOurs);
+    };
+    for (let i = 0; i < 2 && !fresh(); i++) {
+      await new Promise((r) => setTimeout(r, 40_000));
+      notes = await fetchNotes(tok.token, contactId);
+    }
+    if (!fresh()) return NextResponse.json({ ok: true, done: "nothing new" });
     const o = await organizeNotes(notes, tags);
     if (!o) return NextResponse.json({ ok: true, done: "no notes" });
     return NextResponse.json({ ok: true, stage: o.stage, done: await writeOrganized(tok.token, contactId, notes, renderNotes(o)) });
