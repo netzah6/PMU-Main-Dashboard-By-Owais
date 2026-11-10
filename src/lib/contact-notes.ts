@@ -48,7 +48,7 @@ export type Organized = {
   stage: Section;
   discovery: { q: string; a: string | null; date: string | null }[];
   survey: { date: string; lines: string[] } | null;
-  demos: { date: string; recap: string[]; plan: string | null; objections: string | null; next_step: string | null; recording: string | null }[];
+  demos: { date: string; recap: string[]; motivation: string | null; booking_blockers: string | null; objections: string | null; to_close: string | null; plan: string | null; next_step: string | null; recording: string | null }[];
   follow_ups: { date: string; summary: string }[];
   client_calls: { date: string; summary: string }[];
 };
@@ -56,6 +56,7 @@ type Source = { date: string; kind: string; text: string };
 type EventRow = { id: number; source: string; branch: string | null; transcript: string | null; summary: string | null; received_at: string; processed_at: string | null; attempts: number };
 type StateRow = { contact_id: string; note_ids: Partial<Record<Section, string>>; bodies_hash: Partial<Record<Section, string>>; stage: string | null; updated_at: string };
 type Ask = (pr: { system: string; user: string }) => Promise<string>;
+type ArchivedRow = { note_id: string; kind: string; body: string; date_added: string };
 
 /* ---------- small helpers ---------- */
 
@@ -130,7 +131,7 @@ Return JSON only:
  "stage":"discovery|demo|client",
  "discovery":[{"q":"<question exactly as given>","a":"<short answer or null>","date":"<ISO date of the source it came from or null>"}],
  "survey":{"date":"<ISO>","lines":["<label: value>"]} | null,
- "demos":[{"date":"<ISO>","recap":["<short line>"],"plan":"<plan she picked or null>","objections":"<or null>","next_step":"<or null>","recording":"<url or null>"}],
+ "demos":[{"date":"<ISO>","recap":["<short line>"],"motivation":"<or null>","booking_blockers":"<or null>","objections":"<or null>","to_close":"<or null>","plan":"<plan she picked or null>","next_step":"<or null>","recording":"<url or null>"}],
  "follow_ups":[{"date":"<ISO>","summary":"<1-2 short lines>"}],
  "client_calls":[{"date":"<ISO>","summary":"<1-2 short lines>"}]}
 Rules:
@@ -138,6 +139,11 @@ Rules:
 - discovery: answer EVERY question in the given list, in that order. Use the LATEST real answer from any source (transcripts, summaries, typed notes). If an older answer differs, keep the latest and add the older one in brackets with its month, e.g. "$550–$800 (June: $550)". Never invent: null if never answered. Max ~20 words per answer.
 - survey: the LATEST survey only, 4-8 short "label: value" lines, skip empty fields and long marketing text.
 - demos: one entry per demo call (Fathom recaps, or a call where the offer/program was presented). 2-4 recap lines max.
+  These notes are read again months later to sell to her again, so also keep, in her own words when possible (each max ~30 words, null if not said):
+  motivation = why she wants this / what made her interested or sign up (goals, dreams, money she wants, life reasons).
+  booking_blockers = what stops her getting bookings today (no leads, no time for marketing, ads failed, slow season, competition, price shoppers...).
+  objections = what made her hesitate (price, timing, trust, partner, contract).
+  to_close = anything else that will help close her later: what she cares about most, budget or timing she named, who decides, what would make her say yes, personal details she shared (kids, other job, move).
 - follow_ups: real calls after the first demo and before she became a paying client (payment talks, questions). Oldest first.
 - client_calls: real calls after she became a paying client. Oldest first.
 - Each call goes in ONE list only. Discovery answers heard in a later call still update "discovery".
@@ -200,8 +206,11 @@ export function renderNotes(o: Organized, today = new Date().toISOString()): Par
     out.demo = head("demo", o.stage === "client" ? " · stage done" : "")
       + o.demos.map((d) => p(`<strong>Demo ${us(d.date)}</strong>`)
         + d.recap.map((l) => p("• " + esc(l))).join("")
-        + (d.plan ? p(`<strong>Plan:</strong> ${esc(String(d.plan))}`) : "")
+        + (d.motivation ? p(`<strong>Why she wants it:</strong> ${esc(String(d.motivation))}`) : "")
+        + (d.booking_blockers ? p(`<strong>What stops her bookings:</strong> ${esc(String(d.booking_blockers))}`) : "")
         + (d.objections ? p(`<strong>Objections:</strong> ${esc(String(d.objections))}`) : "")
+        + (d.to_close ? p(`<strong>To close her:</strong> ${esc(String(d.to_close))}`) : "")
+        + (d.plan ? p(`<strong>Plan:</strong> ${esc(String(d.plan))}`) : "")
         + (d.next_step ? p(`<strong>Next step:</strong> ${esc(String(d.next_step))}`) : "")
         + (d.recording && /^https?:\/\/\S+$/.test(d.recording) ? p(`<a href="${esc(d.recording)}">Recording</a>`) : "")).join("")
       + (o.follow_ups.length ? p("<strong>Follow-up calls</strong>") + o.follow_ups.map((c) => p(`• <strong>${us(c.date)}</strong> ${esc(String(c.summary))}`)).join("") : "")
@@ -216,17 +225,21 @@ export function renderNotes(o: Organized, today = new Date().toISOString()): Par
 /* ---------- sources ---------- */
 
 const TRANSCRIPT_MAX = 15_000, BUDGET = 140_000;
-function buildSources(notes: RawNote[], events: EventRow[], edits: Partial<Record<Section, string>>): Source[] {
+export const rawKind = (n: { body?: string; userId?: string | null }) => {
+  const t = noteText(n.body ?? "");
+  return n.userId ? "typed" : /^(data about the lead|one-box application)/i.test(t) ? "survey" : /fathom\.video/i.test(t) ? "fathom" : "ai";
+};
+const KIND_LABEL: Record<string, string> = { typed: "note typed by a closer", survey: "survey", fathom: "Fathom demo recap", ai: "older note (AI call summary or form answers)" };
+
+function buildSources(notes: RawNote[], archived: ArchivedRow[], events: EventRow[], edits: Partial<Record<Section, string>>): Source[] {
   const src: Source[] = [];
   for (const n of notes) {
     if (!n.body || isOrganizedNote(n.body)) continue;
-    const t = noteText(n.body);
-    const kind = n.userId ? "note typed by a closer"
-      : /^data about the lead/i.test(t) ? "survey"
-      : /fathom\.video/i.test(t) ? "Fathom demo recap"
-      : "AI call summary (old)";
-    src.push({ date: n.dateAdded, kind, text: t.slice(0, 4000) });
+    src.push({ date: n.dateAdded, kind: KIND_LABEL[rawKind(n)], text: noteText(n.body).slice(0, 4000) });
   }
+  // Old notes removed from GHL after they were organized: still read from the copy.
+  const live = new Set(notes.map((n) => n.id));
+  for (const a of archived) if (!live.has(a.note_id)) src.push({ date: a.date_added, kind: KIND_LABEL[a.kind] ?? KIND_LABEL.ai, text: noteText(a.body).slice(0, 4000) });
   // Newest calls get their full transcript; older ones fall back to the summary.
   let budget = BUDGET;
   const calls = events.filter((e) => e.source === "call").sort((a, b) => Date.parse(b.received_at) - Date.parse(a.received_at));
@@ -346,7 +359,9 @@ async function organizeOnce(svc: SupabaseClient, contactId: string, events: Even
     const stageMoved = !firstRun && state.stage !== stage;
     if (!pending.length && !newRaw && !Object.keys(edits).length && !stageMoved) return { contactId, skipped: "nothing new" };
 
-    const pr = organizePrompt(buildSources(notes, events, edits), stage); // events = before this run's edit rows
+    const { data: arch, error: archErr } = await svc.from("sales_note_archive").select("note_id, kind, body, date_added").eq("contact_id", contactId);
+    if (archErr) return { contactId, error: `archive: ${archErr.message}` }; // never rebuild without the old notes
+    const pr = organizePrompt(buildSources(notes, (arch ?? []) as ArchivedRow[], events, edits), stage); // events = before this run's edit rows
     if (!pr) return { contactId, skipped: "no sources" };
     const o = parseOrganized(await (opts.ask ?? askClaude)(pr), stage);
     if (!o) return { contactId, error: "could not read the AI answer" };
@@ -395,4 +410,60 @@ export async function sweepPending(svc: SupabaseClient, limit = 6): Promise<Proc
   const out: ProcessResult[] = [];
   for (const id of ids) out.push(await processContact(svc, id));
   return out;
+}
+
+/* ---------- clean-up: old raw notes out of GHL (owner 11/10/2026) ----------
+   "If you already have it in the new notes, I guess we can get rid of all the
+   others." Each old note is copied in full to sales_note_archive FIRST (the
+   organizer keeps reading the copy, so the clean notes never lose anything,
+   and a note can be put back), then deleted from GHL. Only when the contact
+   already has its clean notes, nothing is waiting to be organized, and only
+   notes the last organize run already saw (older than it). */
+export type CleanResult = { contactId: string; archived: number; deleted: number; kept?: number; skipped?: string; error?: string };
+
+export async function archiveRawNotes(svc: SupabaseClient, contactId: string, opts: { dryRun?: boolean } = {}): Promise<CleanResult> {
+  const res: CleanResult = { contactId, archived: 0, deleted: 0 };
+  const { data: locked, error: lockErr } = await svc.rpc("sales_notes_lock", { cid: contactId, secs: 280 });
+  if (lockErr) return { ...res, error: `lock: ${lockErr.message}` };
+  if (!locked) return { ...res, skipped: "busy" };
+  try {
+    const { data: st } = await svc.from("sales_note_state").select("stage, updated_at, note_ids").eq("contact_id", contactId).maybeSingle();
+    if (!st?.stage) return { ...res, skipped: "not organized yet" };
+    const { count: waiting } = await svc.from("sales_note_events").select("id", { count: "exact", head: true })
+      .eq("contact_id", contactId).is("processed_at", null).lt("attempts", MAX_ATTEMPTS);
+    if (waiting) return { ...res, skipped: "calls waiting to be organized" };
+
+    const tok = await getAppLocationToken(AGENCY_LOCATION_ID);
+    if (!tok.token) return { ...res, error: tok.error ?? "no GHL token" };
+    const notes = await fetchNotes(tok.token, contactId);
+    if (!notes.some((n) => isOrganizedNote(n.body))) return { ...res, skipped: "no clean note in GHL" };
+    const lastRun = Date.parse(st.updated_at as string);
+    const raw = notes.filter((n) => n.body && !isOrganizedNote(n.body));
+    const old = raw.filter((n) => Date.parse(n.dateUpdated ?? n.dateAdded) <= lastRun);
+    res.kept = raw.length - old.length; // newer than the clean notes: organized next run, not removed
+    if (!old.length) return res;
+    if (opts.dryRun) return { ...res, archived: old.length };
+
+    const rows = old.map((n) => ({ contact_id: contactId, note_id: n.id, kind: rawKind(n), body: n.body!, user_id: n.userId ?? null, date_added: n.dateAdded, date_updated: n.dateUpdated ?? null }));
+    const { error: insErr } = await svc.from("sales_note_archive").upsert(rows, { onConflict: "note_id", ignoreDuplicates: true });
+    if (insErr) return { ...res, error: `archive: ${insErr.message}` };
+    // Read the copies back: a note is deleted only if its full body is saved.
+    const { data: saved } = await svc.from("sales_note_archive").select("note_id, body").in("note_id", old.map((n) => n.id));
+    const safe = new Map((saved ?? []).map((r) => [r.note_id as string, r.body as string]));
+    res.archived = safe.size;
+    for (const n of old) {
+      if (safe.get(n.id) !== n.body) continue;
+      const r = await fetch(`${GHL}/contacts/${encodeURIComponent(contactId)}/notes/${encodeURIComponent(n.id)}`, { method: "DELETE", headers: ghlHeaders(tok.token) });
+      if (r.ok || r.status === 404) {
+        res.deleted++;
+        await svc.from("sales_note_archive").update({ deleted_at: new Date().toISOString() }).eq("note_id", n.id);
+      }
+    }
+    if (res.deleted < old.length) res.error = `${old.length - res.deleted} not deleted`;
+    return res;
+  } catch (e) {
+    return { ...res, error: e instanceof Error ? e.message.slice(0, 200) : "error" };
+  } finally {
+    await svc.from("sales_note_state").update({ lock_until: null }).eq("contact_id", contactId);
+  }
 }
