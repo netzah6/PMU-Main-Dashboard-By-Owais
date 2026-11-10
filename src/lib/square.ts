@@ -566,6 +566,77 @@ export async function createPaymentLink(args: {
   return { url: j.payment_link.url, id: String(j.payment_link.id), orderId: j.payment_link.order_id ?? null };
 }
 
+// ── Payment-link status (PPA links that mark themselves paid) ────────────────
+// A Square payment link owns exactly one ORDER. We look up that order id and
+// nothing else, so an unrelated payment can never be read as this link's.
+
+export type LinkOrderPayment = { state: "completed" | "pending"; paymentId: string; amountCents: number; paidAt: string | null };
+
+/** Payment per order id: "completed", or "pending" (paid but the bank is
+ *  still processing — treat as paid, never as unpaid). Absent = not paid.
+ *  Throws on an API error so a Square outage never reads as "nobody paid". */
+export async function getPaidLinkOrders(orderIds: string[]): Promise<Map<string, LinkOrderPayment>> {
+  const out = new Map<string, LinkOrderPayment>();
+  for (let i = 0; i < orderIds.length; i += 100) {
+    const batch = orderIds.slice(i, i + 100);
+    const r = await squareFetch(`${BASE}/v2/orders/batch-retrieve`, {
+      method: "POST",
+      body: JSON.stringify({ order_ids: batch }),
+    });
+    const j = (await r.json().catch(() => ({}))) as {
+      orders?: Array<{ id?: string; tenders?: Array<{ payment_id?: string }> }>;
+      errors?: Array<{ code?: string; detail?: string }>;
+    };
+    if (!r.ok) throw new Error(`Square orders lookup failed (${r.status}): ${(j.errors ?? []).map((e) => e.detail || e.code).join("; ") || "unknown"}`);
+    for (const o of j.orders ?? []) {
+      const pid = (o.tenders ?? []).map((t) => t.payment_id).find(Boolean);
+      if (!o.id || !pid) continue;
+      const pr = await squareFetch(`${BASE}/v2/payments/${pid}`);
+      const pj = (await pr.json().catch(() => ({}))) as { payment?: { status?: string; amount_money?: { amount?: number }; updated_at?: string; created_at?: string } };
+      if (!pr.ok) throw new Error(`Square payment lookup failed (${pr.status}) for ${pid}`);
+      const st = pj.payment?.status;
+      if (st === "FAILED" || st === "CANCELED") continue; // no money moved
+      out.set(o.id, {
+        state: st === "COMPLETED" ? "completed" : "pending",
+        paymentId: pid, amountCents: pj.payment?.amount_money?.amount ?? 0,
+        paidAt: pj.payment?.updated_at ?? pj.payment?.created_at ?? null,
+      });
+    }
+  }
+  return out;
+}
+
+/** Delete a payment link so it can no longer be paid. True when gone. */
+export async function deletePaymentLink(linkId: string): Promise<boolean> {
+  const r = await fetch(`${BASE}/v2/online-checkout/payment-links/${encodeURIComponent(linkId)}`, { method: "DELETE", headers: headers() });
+  return r.ok || r.status === 404;
+}
+
+export type SquareLinkListItem = { id: string; url: string; orderId: string | null; note: string | null; createdAt: string | null };
+
+/** Every payment link on the account (for the one-off audit of old links). */
+export async function listPaymentLinks(): Promise<SquareLinkListItem[]> {
+  const out: SquareLinkListItem[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 50; page++) {
+    const url = new URL(`${BASE}/v2/online-checkout/payment-links`);
+    url.searchParams.set("limit", "1000");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const r = await squareFetch(url.toString());
+    const j = (await r.json().catch(() => ({}))) as {
+      payment_links?: Array<{ id?: string; url?: string; order_id?: string; payment_note?: string; created_at?: string }>;
+      cursor?: string; errors?: Array<{ detail?: string }>;
+    };
+    if (!r.ok) throw new Error(`Square payment links list failed (${r.status}): ${(j.errors ?? []).map((e) => e.detail).join("; ")}`);
+    for (const l of j.payment_links ?? []) {
+      if (l.id && l.url) out.push({ id: l.id, url: l.url, orderId: l.order_id ?? null, note: l.payment_note ?? null, createdAt: l.created_at ?? null });
+    }
+    cursor = j.cursor;
+    if (!cursor) break;
+  }
+  return out;
+}
+
 // ── Disputes (chargebacks) ───────────────────────────────────────────────────
 export type SquareDispute = {
   id: string;

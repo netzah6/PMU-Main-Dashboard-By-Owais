@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { buildVerifyReport, executeChargeForRow, ChargeRefused } from "@/lib/ppa-verify";
 import { squareConfigured } from "@/lib/square";
+import { holdOwners, settleOpenLinks } from "@/lib/ppa-links";
 
 export const maxDuration = 300;
 
@@ -37,6 +38,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ skipped: "Not Monday 10:00 Pacific — this firing is the other DST slot." });
   }
 
+  // Links paid since the last 10-minute check are recorded first, so their
+  // shows are no longer "ready" and can't be charged on the card too. If
+  // Square can't answer, charge nobody this run.
+  let held = new Set<string>();
+  try { held = holdOwners(await settleOpenLinks()); } catch (e) {
+    console.error("[pps-autocharge] link check failed — no charges this run:", e);
+    return NextResponse.json({ error: `Payment-link check failed, nothing charged: ${e instanceof Error ? e.message : e}` }, { status: 502 });
+  }
+
   const report = await buildVerifyReport();
   const runAt = new Date().toISOString();
   const svc = createServiceClient();
@@ -53,6 +63,12 @@ export async function GET(req: NextRequest) {
   for (const row of report.clients) {
     if (!row.autoCharge || row.readyToCharge === 0) continue;
     const base = { run_at: runAt, owner_key: row.ownerKey, owner_name: row.ownerName };
+    // A payment link of hers was just recorded, or is paid but not recorded
+    // yet: never touch the card in the same run.
+    if (held.has(row.ownerKey)) {
+      log.push({ ...base, status: "skipped", amount: row.amount, shows: row.readyToCharge, square_payment_id: null, detail: "Payment link just paid / still processing — not charged this week, check her row." });
+      continue;
+    }
 
     // The cron holds a HARDER line than the manual button: any warning at all
     // (multiple cards unpicked, phone-only match, NOT ORGANIZED, paused…)
