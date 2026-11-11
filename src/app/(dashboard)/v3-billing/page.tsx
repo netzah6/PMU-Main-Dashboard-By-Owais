@@ -2,6 +2,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw, Search, ChevronDown, ChevronRight, Check, DollarSign, CalendarClock, Ban, RotateCcw, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CopyOwedButton } from "@/components/billing/CopyOwedButton";
 import { useUser } from "@/lib/hooks/useUser";
 import { CardCell, ActionsCell, PaymentDetails, PayMsg, showSplit, type PayMsgData, type VReport, type VRow } from "@/components/billing/PaymentSection";
 import { CreditsPanel } from "@/components/billing/CreditsPanel";
@@ -362,7 +363,11 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
       {noticeBar}
       {readyCount > 0 && (
         <div className="rounded-lg border border-[#fcd9a8] bg-[#fffdf7] px-2.5 py-2">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-[#b45309] mb-1">🟡 Ready to charge ({readyCount} × {money(client.fee)} = {money(readyCount * client.fee)})</div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[#b45309]">🟡 Ready to charge ({readyCount} × {money(client.fee)} = {money(readyCount * client.fee)})</div>
+            <CopyOwedButton className="ml-auto" fee={client.fee} credit={drill.creditLeft ?? 0}
+              lines={drill.appointments.filter(isReady).map((a) => ({ name: a.contactName || a.email || null, date: a.appointmentDate ?? a.depositDate ?? null, how: a.chargeStatus }))} />
+          </div>
           <div className="space-y-0.5">
             {drill.appointments.filter(isReady).map((a) => (
               <div key={a.apptId} className="flex items-center gap-2 text-[11px] text-[#1f3559] flex-wrap">
