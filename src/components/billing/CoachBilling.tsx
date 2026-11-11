@@ -2,6 +2,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, ExternalLink, Loader2, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CopyOwedButton } from "@/components/billing/CopyOwedButton";
 import { useUser } from "@/lib/hooks/useUser";
 
 // PPS Billing as a Client Success Coach sees it: their own clients, the money
@@ -238,12 +239,13 @@ function StillOwed({ client, card, cardsLoading }: { client: Client; card?: Card
   const owed = card?.owed;
   return (
     <div className="mb-3 rounded-lg border border-[#fcd9a8] bg-[#fffdf7] px-3 py-2">
-      <p className="text-sm font-bold text-[#b45309]">
+      <p className="flex items-center gap-1 flex-wrap text-sm font-bold text-[#b45309]">
         {client.ownerName} owes {money2(owed?.amount ?? client.owes)}
         <span className="ml-1 text-[11px] font-semibold text-[#8a6d3b]">
           ({client.readyToCharge} × {money(client.fee)} = {money(client.readyOwed)}
           {(owed?.creditApplied ?? client.readyOwed - client.owes) > 0 && <> − {money2(owed?.creditApplied ?? client.readyOwed - client.owes)} credit</>})
         </span>
+        {owed && <CopyOwedButton className="ml-auto" lines={owed.shows} fee={owed.fee} credit={owed.creditApplied} />}
       </p>
       {!owed ? (
         <p className="flex items-center gap-1.5 text-[11px] text-[#8595a8] py-1">
