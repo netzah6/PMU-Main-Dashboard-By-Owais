@@ -26,8 +26,9 @@ const CURSOR_KEY = "compliment_ab_cursor";
 const DEMO_LOCATION = "asaIf2fxizaCNJ71iywk";
 const REPLY_MS = 86400_000;
 const WINDOW_MS = 8 * 86400_000;
-const NEW_RX = /i love this|picture your new|going to be obsessed/i;
-const OLD_RX = /so beautiful|can.?t wait to slay/i;
+// Match the photo compliment itself, not any text with "beautiful" (win-back / check-in texts use it too).
+const NEW_RX = /already picture your new|going to be obsessed/i;
+const OLD_RX = /you are so beautiful,? i can.?t wait to slay|can.?t wait to slay your/i;
 const PUTDOWN_RX = /too old|i'?m old|i am old|old lol|old haha|\bnot me\b|that'?s not me|eye ?bags|wrinkle|ugly|not (that |so )?(beautiful|pretty|cute)|no make ?up|excuse (my|the) (face|eyes?|bags|skin|look|mess|messy|pic|picture|photo|hair)|don'?t look (good|great|my best|like)|bad (pic|picture|photo|angle|lighting)|i look (tired|old|bad|terrible|awful|rough)/i;
 const HAPPY_RX = /thank|thx|\bty\b|\baww+|so sweet|(you'?re|your|ur) (so )?(sweet|kind)|so kind|appreciate|\byay\b|you too|❤|♥|💕|💖|🥰|😍|😊|☺|🙏|🤗|😘|😁|🤭/i;
 const LAUGH_RX = /\blol\b|\bhaha|\bomg\b|😂/i; // happy only when she isn't asking something
