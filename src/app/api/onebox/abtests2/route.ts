@@ -142,13 +142,15 @@ export async function GET() {
        digit says the other side (the CloseBot split check). */
     const compRows: { line: string; expected: string | null; reply_at: string | null; reply_kind: string | null; booked: boolean; paid: boolean }[] = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await sb.from("compliment_ab_results").select("line, expected, reply_at, reply_kind, booked, paid").range(from, from + 999);
+      const { data, error } = await sb.from("compliment_ab_results").select("line, expected, reply_at, reply_kind, booked, paid").order("conv_id").range(from, from + 999);
       if (error) throw new Error(error.message);
       compRows.push(...((data ?? []) as typeof compRows));
       if (!data || data.length < 1000) break;
     }
+    /* Only leads with a phone digit count: a lead with no phone (some IG / FB
+       threads) can only ever get the old line, so she'd tilt side A. */
     const compSide = (line: "old" | "new") => {
-      const r = compRows.filter((x) => x.line === line);
+      const r = compRows.filter((x) => x.line === line && x.expected);
       return {
         sent: r.length,
         replied: r.filter((x) => x.reply_at).length,
