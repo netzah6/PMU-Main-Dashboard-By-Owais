@@ -19,7 +19,29 @@ const TOKENS_SINCE = Date.parse("2026-11-11T00:45:00Z");
 const WINDOW_MS = 21 * 864e5;
 const REFUSED = /^\[no token reaches this dataset, tried (\d+)\]/;
 
-export async function fbTrackingBySlug(svc: SupabaseClient): Promise<Record<string, FbTrack>> {
+/* Dataset names (owner, 11/11/2026: "instead of OK mention their dataset
+   name"), read from Meta with the first token that reaches the dataset.
+   Names rarely change → kept 6 hours per server instance (a failed read
+   30 minutes). Never blocks the column: no name → the cell says "OK". */
+const GRAPH = "https://graph.facebook.com/v21.0";
+const nameCache = new Map<string, { at: number; name: string | null }>();
+async function datasetName(px: string, tokens: string[]): Promise<string | null> {
+  const hit = nameCache.get(px);
+  if (hit && Date.now() - hit.at < (hit.name ? 6 * 3600_000 : 30 * 60_000)) return hit.name;
+  let name: string | null = null;
+  for (const t of tokens) {
+    try {
+      const r = await fetch(`${GRAPH}/${encodeURIComponent(px)}?fields=name&access_token=${encodeURIComponent(t)}`, { cache: "no-store", signal: AbortSignal.timeout(5000) });
+      if (!r.ok) continue;
+      const j = (await r.json()) as { name?: string };
+      if (j.name?.trim()) { name = j.name.trim(); break; }
+    } catch { /* next token */ }
+  }
+  nameCache.set(px, { at: Date.now(), name });
+  return name;
+}
+
+export async function fbTrackingBySlug(svc: SupabaseClient): Promise<{ bySlug: Record<string, FbTrack>; nameBySlug: Record<string, string> }> {
   const { data: clients, error: cErr } = await svc.from("onebox_clients")
     .select("slug, status, config, extras").neq("status", "draft");
   if (cErr) throw new Error(cErr.message);
@@ -46,10 +68,21 @@ export async function fbTrackingBySlug(svc: SupabaseClient): Promise<Record<stri
   }
 
   const out: Record<string, FbTrack> = {};
-  for (const c of (clients ?? []) as Array<{ slug: string; config: { metaPixelId?: string } | null; extras: { metaPixelId?: string; template?: string } | null }>) {
+  const tokensByPx = new Map<string, string[]>(); // the funnel's own token first, then the agency ones
+  const pxBySlug = new Map<string, string>();
+  for (const c of (clients ?? []) as Array<{ slug: string; config: { metaPixelId?: string } | null; extras: { metaPixelId?: string; template?: string; capiToken?: string } | null }>) {
     if (c.extras?.template === "b2b") continue; // the agency's own funnel, not a client's ads
     const px = String(c.config?.metaPixelId || c.extras?.metaPixelId || "").replace(/\D/g, "");
     out[c.slug] = !px ? "no_pixel" : latest.get(px) ?? "unchecked";
+    if (out[c.slug] === "ok") {
+      pxBySlug.set(c.slug, px);
+      if (!tokensByPx.has(px)) tokensByPx.set(px, capiTokens(c.extras));
+    }
   }
-  return out;
+
+  const names = new Map<string, string | null>();
+  await Promise.all([...tokensByPx].map(async ([px, tokens]) => { names.set(px, await datasetName(px, tokens)); }));
+  const nameBySlug: Record<string, string> = {};
+  for (const [slug, px] of pxBySlug) { const n = names.get(px); if (n) nameBySlug[slug] = n; }
+  return { bySlug: out, nameBySlug };
 }
