@@ -212,7 +212,9 @@ export async function sendCapiWithTokens(ev: Omit<CapiEvent, "token">, tokens: s
     first ??= r;
     if (!wrongToken(r)) return r;
   }
-  return order.length > 1 && first ? { ...first, error: `${first.error ?? "refused"} [no token reaches this dataset, tried ${order.length}]` } : (first ?? { ok: false, error: "refused" });
+  /* Count first: capi_events.error keeps 200 characters and Meta's message
+     is long, so a suffix was cut off (11/11). */
+  return first ? { ...first, error: `[no token reaches this dataset, tried ${order.length}] ${first.error ?? "refused"}` } : { ok: false, error: "refused" };
 }
 
 /* Every server-side send (or skip) lands in capi_events so the Funnels tab
