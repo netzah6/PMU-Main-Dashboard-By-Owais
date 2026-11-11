@@ -61,6 +61,10 @@
       "schedule": "25 * * * *"
     },
     {
+      "path": "/api/cron/compliment-ab",
+      "schedule": "40 * * * *"
+    },
+    {
       "path": "/api/cron/ppa-appointments",
       "schedule": "0 */12 * * *"
     },

@@ -811,7 +811,8 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   type Side = { leads: number; picked: number; paid: number };
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
   type DepSide = { picked: number; pagePaid: number; reached: number; paid: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number } } | null>(null);
+  type CompSide = { sent: number; replied: number; happy: number; putdown: number; booked: number; paid: number };
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number }; comp?: { a: CompSide; b: CompSide; since: string; accounts?: number; checked: number; wrong: number } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -958,6 +959,44 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
           </table>
         </div>
       : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Deposit ask (AI)</b> (A: today&rsquo;s conversation vs B: confirm the picked time + reservation link) — starts reporting with the first picker.</div>)}
+    {d.comp && (d.comp.a.sent + d.comp.b.sent > 0
+      ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-sm font-medium text-[#1c2b3a]">🧪 Photo compliment (AI) — {d.comp.accounts ?? ""} slay accounts, phone ends 0–3 get the new line</span>
+            <span className="text-xs text-[#697a91]">since {new Date(d.comp.since).toLocaleDateString("en-US")}</span>
+            <span className={`text-[11px] font-semibold rounded-full border px-2 py-0.5 ${d.comp.wrong ? "border-[#f5c2c7] bg-[#fdecee] text-[#b42318]" : "border-[#bfe3cd] bg-[#e7f6ec] text-[#15803d]"}`}
+              title="The side each lead got (the AI's actual text) checked against her phone's last digit">
+              {d.comp.wrong ? `⚠ split check: ${d.comp.wrong} of ${d.comp.checked} on the wrong side` : `✓ split check: ${d.comp.checked} of ${d.comp.checked} right`}
+            </span>
+          </div>
+          <table className="w-full text-xs">
+            <thead><tr className="text-left text-[#697a91]">
+              <th className="py-1 font-medium">Side</th>
+              <th className="py-1 font-medium">Sent</th>
+              <th className="py-1 font-medium" title="She texted back within a day">Replied</th>
+              <th className="py-1 font-medium" title="Reply reads as thanks / happy (by keywords)">Happy</th>
+              <th className="py-1 font-medium" title="Reply puts herself down: too old, eye bags, not me… (by keywords)">Put-down</th>
+              <th className="py-1 font-medium" title="The AI booked her within 8 days">Booked</th>
+              <th className="py-1 font-medium" title="Deposit landed (the &quot;has been confirmed&quot; text) within 8 days">Paid</th>
+              <th className="py-1 font-medium">Replied %</th>
+            </tr></thead>
+            <tbody>
+              {([["A — old line", "\u201COmg you are so beautiful, I can\u2019t wait to slay your Eyebrows! 😍\u201D", d.comp.a], ["B — new line", "\u201COmg I love this!! I can already picture your new Eyebrows, you\u2019re going to be obsessed 😍\u201D", d.comp.b]] as [string, string, CompSide][]).map(([name, note, s]) => (
+                <tr key={name} className="border-t border-[#f0f4f8]">
+                  <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{name}</b><div className="text-[#8595a8] max-w-[380px]">{note}</div></td>
+                  <td className="py-1.5">{s.sent}</td>
+                  <td className="py-1.5">{s.replied}</td>
+                  <td className="py-1.5">{s.happy}</td>
+                  <td className="py-1.5">{s.putdown}</td>
+                  <td className="py-1.5">{s.booked}</td>
+                  <td className="py-1.5">{s.paid}</td>
+                  <td className="py-1.5 font-semibold">{s.sent ? `${Math.round((s.replied / s.sent) * 1000) / 10}%` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Photo compliment (AI)</b> (A: &ldquo;Omg you are so beautiful…&rdquo; vs B: &ldquo;Omg I love this!!…&rdquo;, phone ends 0–3) — starts reporting with the first compliment.</div>)}
   </>);
 }
 
