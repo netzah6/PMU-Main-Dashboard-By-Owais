@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { sendCapiEvent, capiToken, recordCapi, pickFbc, fbclidOf } from "@/lib/meta-capi";
+import { capiTokens, sendCapiWithTokens, recordCapi, pickFbc, fbclidOf } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { pushLeadToGhl, cleanTz } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
@@ -318,11 +318,12 @@ export async function POST(req: NextRequest) {
     const cfg = (client.config ?? {}) as Record<string, string>;
     const ex = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string };
     const pixelId = (cfg.metaPixelId || ex.metaPixelId || "").replace(/\D/g, "");
-    const token = capiToken(ex);
+    const tokens = capiTokens(ex);
+    const token = tokens[0] ?? "";
     const eventId = String(body.eventId ?? "");
     if (pixelId && token && eventId) {
-      const res = await sendCapiEvent({
-        pixelId, token, eventName: "Lead", eventId,
+      const res = await sendCapiWithTokens({
+        pixelId, eventName: "Lead", eventId,
         eventSourceUrl: String(body.pageUrl ?? "") || undefined,
         user: {
           email, phone, fullName,
@@ -331,7 +332,7 @@ export async function POST(req: NextRequest) {
           userAgent: clickUa || undefined,
           externalId: visitorId,
         },
-      });
+      }, tokens);
       await recordCapi(svc, { slug, eventName: "Lead", eventId, pixelId, phone, ok: res.ok, error: res.error, fbcSrc: leadFbc.src });
     } else {
       await recordCapi(svc, {
