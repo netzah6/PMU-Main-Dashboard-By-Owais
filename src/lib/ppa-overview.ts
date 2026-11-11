@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
+import { isChatAwaiting } from "@/lib/ppa-collected";
 import type { V3Client } from "@/lib/ppa";
 
 // One row per PPS client: fee, deposits, what has been charged, what is ready
@@ -25,7 +26,7 @@ export async function buildPpaClients(roster: V3Client[]) {
     svc.from("ppa_billing_summary").select("*").in("owner_key", ownerKeys),
     svc.from("ppa_deposit_counts").select("*").in("biz_norm", bizNorms),
     svc.from("ppa_config").select("*, billing_exempt").in("owner_key", ownerKeys),
-    svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount, square_payment_id, charged_at").in("owner_key", ownerKeys),
+    svc.from("ppa_charges").select("owner_key, appt_id, charged, excluded, amount, square_payment_id, charged_at, note").in("owner_key", ownerKeys),
     svc.from("deposit_refunds").select("business, email, contact_name, amount, decided_at").eq("status", "refunded"),
     svc.from("ppa_selfbooked").select("appt_id, owner_key").in("owner_key", ownerKeys),
     svc.from("ppa_calendar_booked").select("appt_id, owner_key, start_time").in("owner_key", ownerKeys),
@@ -122,7 +123,7 @@ export async function buildPpaClients(roster: V3Client[]) {
   for (const r of (cfgRes.data ?? []) as Array<{ owner_key: string; is_ppa: boolean; fee_per_appt: number; note: string | null; billing_exempt?: boolean; pps_start?: string | null }>)
     cfgBy.set(r.owner_key, { is_ppa: !!r.is_ppa, fee_per_appt: Number(r.fee_per_appt), note: r.note, billing_exempt: !!r.billing_exempt, pps_start: r.pps_start ?? null });
 
-  type ChgRow = { owner_key: string; appt_id: string; charged: boolean; excluded: boolean | null; amount: number | null; square_payment_id: string | null; charged_at: string | null };
+  type ChgRow = { owner_key: string; appt_id: string; charged: boolean; excluded: boolean | null; amount: number | null; square_payment_id: string | null; charged_at: string | null; note: string | null };
   const chgAmtBy = new Map<string, number>();
   const chgByApptId = new Map<string, ChgRow>();
   // Charged count comes from ppa_charges directly (not the deposit-based
@@ -135,7 +136,7 @@ export async function buildPpaClients(roster: V3Client[]) {
   for (const r of (chgRes.data ?? []) as ChgRow[]) {
     chgByApptId.set(r.appt_id, r);
     if (!r.charged) continue;
-    if (r.appt_id.startsWith("chat:") && !r.square_payment_id && !r.excluded) {
+    if (isChatAwaiting(r)) {
       chatReadyBy.set(r.owner_key, (chatReadyBy.get(r.owner_key) ?? 0) + 1);
       continue;
     }

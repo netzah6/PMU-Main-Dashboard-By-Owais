@@ -26,10 +26,23 @@ type Client = {
   shows: number; paid: number; lastChargedAt: string | null; credit: number;
   fee: number; feeSource: "sheet" | "dashboard" | null;
   deposits: number; refundedCount: number; chargedCount: number; chargedAmount: number;
-  upcoming: number; readyToCharge: number; readyOwed: number;
+  upcoming: number; readyToCharge: number; readyOwed: number; owes: number;
   selfBooked: number; selfBookedReady: number; noAppt: number; billingExempt: boolean;
 };
-type Card = { ownerKey: string; hasCard: boolean; brand: string | null; last4: string | null; reason: string | null };
+type OwedShow = { name: string | null; date: string | null; how: string };
+type Card = {
+  ownerKey: string; hasCard: boolean; brand: string | null; last4: string | null; reason: string | null;
+  /** Same list + amount as the admin's Charge button. */
+  owed?: { amount: number; gross: number; creditApplied: number; fee: number; shows: OwedShow[] };
+};
+/* How the show was booked, in plain words (owner, 11/11/2026). */
+const HOW: Record<string, { label: string; cls: string }> = {
+  served: { label: "Deposit booking", cls: "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]" },
+  past_due: { label: "Deposit booking", cls: "bg-[#e6f7ee] text-[#15803d] border-[#c7edd4]" },
+  self_booked: { label: "Self-booked", cls: "bg-[#fff7ed] text-[#b45309] border-[#fcd9a8]" },
+  calendar_booked: { label: "Self-booked (calendar)", cls: "bg-[#fff7ed] text-[#b45309] border-[#fcd9a8]" },
+  chat_booked: { label: "Booked in chat", cls: "bg-[#f3e8ff] text-[#7e22ce] border-[#e9d5ff]" },
+};
 type Credit = { id: string; owner_key: string; amount: number; reason: string; status: "pending" | "approved" | "denied" };
 type Run = {
   day: string;
@@ -218,8 +231,45 @@ function ActivityLog({ ownerKey }: { ownerKey: string }) {
   );
 }
 
-function ClientCharges({ client, runs, runsLoading, runsError, credits, onRequested, preview }: {
-  client: Client; runs: Run[] | null; runsLoading: boolean; runsError: string | null;
+/* Who the client still owes for, and how each was booked — the same list
+   the admin charges from (owner, 11/11/2026). */
+function StillOwed({ client, card, cardsLoading }: { client: Client; card?: Card; cardsLoading: boolean }) {
+  if (client.billingExempt || client.readyToCharge === 0) return null;
+  const owed = card?.owed;
+  return (
+    <div className="mb-3 rounded-lg border border-[#fcd9a8] bg-[#fffdf7] px-3 py-2">
+      <p className="text-sm font-bold text-[#b45309]">
+        {client.ownerName} owes {money2(owed?.amount ?? client.owes)}
+        <span className="ml-1 text-[11px] font-semibold text-[#8a6d3b]">
+          ({client.readyToCharge} × {money(client.fee)} = {money(client.readyOwed)}
+          {(owed?.creditApplied ?? client.readyOwed - client.owes) > 0 && <> − {money2(owed?.creditApplied ?? client.readyOwed - client.owes)} credit</>})
+        </span>
+      </p>
+      {!owed ? (
+        <p className="flex items-center gap-1.5 text-[11px] text-[#8595a8] py-1">
+          {cardsLoading ? <><Loader2 size={11} className="animate-spin" /> Loading the list…</> : "List not available right now."}
+        </p>
+      ) : (
+        <ul className="mt-1">
+          {owed.shows.map((sh, i) => {
+            const how = HOW[sh.how] ?? { label: sh.how, cls: "bg-[#f1f5f9] text-[#475569] border-[#e2e8f0]" };
+            return (
+              <li key={i} className="flex items-center gap-2 py-0.5 text-xs">
+                <span className="font-medium text-[#1f3559] min-w-[140px]">{sh.name ?? "(no name)"}</span>
+                <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-semibold border", how.cls)}>{how.label}</span>
+                <span className="text-[#8595a8]">{sh.how === "chat_booked" ? "billed " : ""}{fmtDate(sh.date)}</span>
+                <span className="ml-auto font-semibold text-[#1f3559]">{money(owed.fee)}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ClientCharges({ client, card, cardsLoading, runs, runsLoading, runsError, credits, onRequested, preview }: {
+  client: Client; card?: Card; cardsLoading: boolean; runs: Run[] | null; runsLoading: boolean; runsError: string | null;
   credits: Credit[]; onRequested: () => Promise<void>; preview: boolean;
 }) {
   const charges = (runs ?? []).flatMap((run) => run.clients
@@ -230,6 +280,7 @@ function ClientCharges({ client, runs, runsLoading, runsError, credits, onReques
 
   return (
     <div className="px-4 py-3 bg-[#f8fafc]">
+      <StillOwed client={client} card={card} cardsLoading={cardsLoading} />
       <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
         <div>
           <p className="text-sm font-bold text-[#1f3559]">Contacts we charged {client.ownerName} for</p>
@@ -481,10 +532,10 @@ export function CoachBilling() {
                       title="Appointments still to happen — nothing is owed for these yet." />
 
                     {/* Ready = shows that happened and are not charged yet, and what they add up to. */}
-                    <NumCell value={c.readyToCharge} sub={money(c.readyOwed)}
+                    <NumCell value={c.readyToCharge} sub={c.readyToCharge > 0 ? `owes ${money(c.owes)}` : undefined}
                       tone={c.readyToCharge > 0 ? "amber" : "gray"}
                       title={c.readyToCharge > 0
-                        ? `${c.readyToCharge} show${c.readyToCharge === 1 ? "" : "s"} × ${money(c.fee)} = ${money(c.readyOwed)} still to charge. An admin runs the charge.`
+                        ? `${c.readyToCharge} show${c.readyToCharge === 1 ? "" : "s"} × ${money(c.fee)} = ${money(c.readyOwed)}${c.readyOwed > c.owes ? ` − ${money(c.readyOwed - c.owes)} credit` : ""} = ${money(c.owes)} still to charge. Click the row to see who.`
                         : "Nothing waiting to be charged."} />
 
                     <NumCell value={c.selfBooked} sub={c.selfBookedReady > 0 ? `${c.selfBookedReady} to charge` : "their end"}
@@ -519,7 +570,7 @@ export function CoachBilling() {
                   {isOpen && (
                     <tr className="border-b border-[#e4ebf2]">
                       <td colSpan={12} className="p-0">
-                        <ClientCharges client={c} runs={runs} runsLoading={runsLoading} runsError={runsError} credits={credits} onRequested={onRequested} preview={preview} />
+                        <ClientCharges client={c} card={card} cardsLoading={cardsLoading} runs={runs} runsLoading={runsLoading} runsError={runsError} credits={credits} onRequested={onRequested} preview={preview} />
                       </td>
                     </tr>
                   )}

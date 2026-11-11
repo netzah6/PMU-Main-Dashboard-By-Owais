@@ -6,6 +6,7 @@ import { buildVerifyReport } from "@/lib/ppa-verify";
 import { squareConfigured } from "@/lib/square";
 import { getCoachScope } from "@/lib/coach";
 import { creditBalances } from "@/lib/credits";
+import { isCollected } from "@/lib/ppa-collected";
 
 // A Client Success Coach's slice of PPS Billing: the pay-per-show clients in
 // THEIR book, what each has paid us, and — since 2026-09-23, at the owner's
@@ -30,6 +31,12 @@ async function cardStatus(ownerKeys: Set<string>) {
     const card = v.cards.find((c) => c.wouldCharge) ?? null;
     return {
       ownerKey: v.ownerKey,
+      // Who she still owes for — the SAME list and amount the admin's Charge
+      // button uses (owner, 11/11/2026), with how each one was booked.
+      owed: {
+        amount: v.amount, gross: v.grossAmount, creditApplied: v.creditApplied, fee: v.fee,
+        shows: v.shows.map((s) => ({ name: s.contactName, date: s.apptDate, how: s.chargeStatus })),
+      },
       hasCard: !!card,
       brand: card?.brand ?? null,
       last4: card?.last4 ?? null,
@@ -66,15 +73,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  type ChargeRow = { owner_key: string; amount: number | null; charged_at: string | null };
+  type ChargeRow = { appt_id: string; owner_key: string; amount: number | null; charged_at: string | null; charged: boolean; excluded: boolean; square_payment_id: string | null; note: string | null };
   const paid = new Map<string, { shows: number; total: number; last: string | null }>();
   if (ownerKeys.length) {
     const { data } = await svc
       .from("ppa_charges")
-      .select("owner_key, amount, charged_at")
+      .select("appt_id, owner_key, amount, charged_at, charged, excluded, square_payment_id, note")
       .eq("charged", true)
       .in("owner_key", ownerKeys);
     for (const r of (data ?? []) as ChargeRow[]) {
+      // Billed in chat but not paid yet is still in Ready — not "paid us".
+      if (!isCollected(r)) continue;
       const p = paid.get(r.owner_key) ?? { shows: 0, total: 0, last: null };
       p.shows++;
       p.total += Number(r.amount) || 0;
@@ -112,6 +121,9 @@ export async function GET(req: NextRequest) {
       upcoming: b?.upcoming ?? 0,
       readyToCharge: b?.readyToCharge ?? 0,
       readyOwed: b?.readyOwed ?? 0,
+      // What the next charge takes: Ready minus account credit — the same
+      // math as the admin's "Charge $X" button.
+      owes: Math.max(0, (b?.readyOwed ?? 0) - Math.min(credits.get(c.ownerKey) ?? 0, b?.readyOwed ?? 0)),
       selfBooked: b?.selfBooked ?? 0,
       selfBookedReady: b?.selfBookedReady ?? 0,
       noAppt: b?.noAppt ?? 0,

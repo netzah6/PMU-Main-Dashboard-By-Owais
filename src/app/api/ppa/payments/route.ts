@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isCollected } from "@/lib/ppa-collected";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { getCoachScope } from "@/lib/coach";
@@ -109,7 +110,7 @@ export async function GET(req: NextRequest) {
 
   let q = svc
     .from("ppa_charges")
-    .select("appt_id, owner_key, amount, charged_at, charged_by, square_payment_id, note")
+    .select("appt_id, owner_key, amount, charged_at, charged_by, square_payment_id, note, charged, excluded")
     .eq("charged", true)
     .not("charged_at", "is", null)
     .gte("charged_at", since)
@@ -130,7 +131,9 @@ export async function GET(req: NextRequest) {
     appt_id: string; owner_key: string; amount: number | null; charged_at: string;
     charged_by: string | null; square_payment_id: string | null; note: string | null;
   };
-  const rows = (data ?? []) as Row[];
+  // Billed in chat but not paid yet is still in Ready, not a charge that
+  // went through (same rule as every PPA screen).
+  const rows = ((data ?? []) as Array<Row & { charged: boolean; excluded: boolean }>).filter((r) => isCollected(r));
   const nameBy = await resolveNames(svc, [...new Set(rows.map((r) => r.appt_id).filter(Boolean))]);
 
   // day → client → one line. The client key includes the payment id so two
