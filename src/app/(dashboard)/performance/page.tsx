@@ -190,16 +190,21 @@ function CampaignsCell({ campaigns, acctKey, onChanged }: { campaigns: PerfRow["
 }
 
 /* "FB Data" cell: can Facebook's server link reach this client's dataset?
-   Short label, the what-to-do on hover (owner: screens short). */
+   Short label, the what-to-do on hover (owner: screens short). When it
+   can, the cell shows the dataset's name instead of "OK" and "No access"
+   is blue, not red (owner, 11/11/2026). */
 const FB_TRACK: Record<FbTrack, { label: string; cls: string; tip: string }> = {
   ok: { label: "OK", cls: "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]", tip: "Facebook gets every lead and deposit from the funnel." },
-  no_access: { label: "No access", cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]", tip: "Facebook refuses our 3 Business Managers for this client's dataset, so it gets browser events only (some are lost). Fix: share the dataset with one of our Business Managers and tick it in that token." },
+  no_access: { label: "No access", cls: "bg-[#e8f0fe] text-[#2563eb] border-[#bfd4fb]", tip: "Facebook refuses our 3 Business Managers for this client's dataset, so it gets browser events only (some are lost). Fix: share the dataset with one of our Business Managers and tick it in that token." },
   no_pixel: { label: "No pixel", cls: "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]", tip: "The funnel has no pixel, so Facebook gets nothing. Fix: add the dataset ID their ads use to the funnel." },
   unchecked: { label: "?", cls: "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]", tip: "Not checked yet: no lead since our tokens went live. It checks itself on the next lead." },
 };
-function FbTrackCell({ status }: { status?: FbTrack }) {
+function FbTrackCell({ status, name }: { status?: FbTrack; name?: string }) {
   if (!status) return <span className="text-[#c3cdd9]" title="No one-box funnel">—</span>;
   const t = FB_TRACK[status];
+  if (status === "ok" && name) {
+    return <span className={cn("inline-block max-w-[140px] truncate align-middle px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-default", t.cls)} title={`Dataset: ${name}. ${t.tip}`}>{name}</span>;
+  }
   return <span className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border cursor-default", t.cls)} title={t.tip}>{t.label}</span>;
 }
 
@@ -263,8 +268,9 @@ export default function PerformancePage() {
   /* one-box slug → can Facebook's server link reach its dataset (owner
      11/11/2026: "show me which clients we don't have the data"). */
   const [fbTrack, setFbTrack] = useState<Record<string, FbTrack>>({});
+  const [fbName, setFbName] = useState<Record<string, string>>({});
   useEffect(() => {
-    fetch("/api/performance/fb-tracking").then((r) => r.json()).then((j) => setFbTrack(j.bySlug ?? {})).catch(() => {});
+    fetch("/api/performance/fb-tracking").then((r) => r.json()).then((j) => { setFbTrack(j.bySlug ?? {}); setFbName(j.nameBySlug ?? {}); }).catch(() => {});
   }, []);
   // "Ask to approve" texts: who may send them, and when each client was last asked.
   const { role } = useUser();
@@ -440,7 +446,7 @@ export default function PerformancePage() {
                       })()}
                     </td>
                     <td className="px-2 sm:px-3 py-1 text-center whitespace-nowrap">
-                      <FbTrackCell status={(() => { const slug = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim())?.slug; return slug ? fbTrack[slug] : undefined; })()} />
+                      {(() => { const slug = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim())?.slug; return <FbTrackCell status={slug ? fbTrack[slug] : undefined} name={slug ? fbName[slug] : undefined} />; })()}
                     </td>
                     <td className="px-2 sm:px-3 py-1 align-top"><PmuServicesCell value={r.pmu_services} /></td>
                     <td className="px-2 sm:px-3 py-1 whitespace-nowrap">
