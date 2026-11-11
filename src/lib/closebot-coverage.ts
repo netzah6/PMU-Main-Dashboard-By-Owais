@@ -49,30 +49,61 @@ export function verifyTask(taskId: string, sig: string): boolean {
 /* Runs inside app.closebot.com/settings/sources (browser_evaluate). Reads
    each page's rows from the table's React props (the only place the GHL
    location id is shown), pages through all of them, then POSTs the list.
-   Returns one line the agent copies into its report. */
+   Returns one line the agent copies into its report.
+
+   11/11/2026 fix: four runs in a row came back 10 or 20 short (103/113,
+   93/113, 104/114, 94/114) — whole pages missing. A row's __reactFiber can be
+   the stale twin of the fiber (React keeps two and the DOM node points at the
+   one it was created with), so its memoizedProps.data was sometimes the page
+   BEFORE. Now: look at both twins at every level and only accept a list whose
+   names are all on the screen; wait for that after each page turn; and if a
+   pass still ends short, rewind and page through again (max 3 passes, the
+   list is merged by source id). A page that never matches the screen is
+   skipped, never filled with the wrong page's data. */
 export function sourcesScript(postUrl: string): string {
   return `async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const text = () => document.body.innerText;
   const label = () => (text().match(/(\\d+)-(\\d+) of (\\d+)/) || [])[0];
-  const rows = () => { const tr = document.querySelector("table tbody tr"); if (!tr) return null; const fk = Object.keys(tr).find((k) => k.startsWith("__reactFiber")); let f = fk && tr[fk], d = 0; while (f && d < 15) { const p = f.memoizedProps; if (p && Array.isArray(p.data)) return p.data; f = f.return; d++; } return null; };
+  const norm = (v) => String(v || "").toLowerCase().replace(/\\s+/g, " ").trim();
+  const rows = () => {
+    const trs = [...document.querySelectorAll("table tbody tr")];
+    if (!trs.length) return null;
+    const fk = Object.keys(trs[0]).find((k) => k.startsWith("__reactFiber"));
+    const seen = norm(trs.map((tr) => tr.innerText).join(" | "));
+    const fits = (d) => d.length > 0 && d.length <= trs.length && d.some((x) => norm(x.name)) && d.every((x) => !norm(x.name) || seen.includes(norm(x.name).slice(0, 12)));
+    let f = fk && trs[0][fk], depth = 0;
+    while (f && depth < 15) {
+      for (const n of [f, f.alternate]) { const p = n && n.memoizedProps; if (p && Array.isArray(p.data) && fits(p.data)) return p.data; }
+      f = f.return; depth++;
+    }
+    return null;
+  };
+  const settle = async (prevFirst) => { for (let k = 0; k < 60; k++) { const d = rows(); if (d && d[0].sourceId !== prevFirst) return d; await sleep(200); } return null; };
   const btn = (re) => [...document.querySelectorAll("button")].find((b) => re.test(b.getAttribute("aria-label") || ""));
   for (let k = 0; k < 75 && !rows(); k++) await sleep(200);
-  if (!rows()) return "CLOSEBOT: ERROR — the Sources table did not load";
+  if (!rows()) return "CLOSEBOT: ERROR — the Sources table did not load (or its rows never matched the screen)";
   const total = Number((text().match(/Total Sources\\s*(\\d+)/) || [])[1] || 0);
-  while (btn(/previous/i) && !btn(/previous/i).disabled) { const l = label(); btn(/previous/i).click(); for (let k = 0; k < 50 && label() === l; k++) await sleep(200); }
+  const rewind = async () => { for (let g = 0; g < 60 && btn(/previous/i) && !btn(/previous/i).disabled; g++) { const l = label(); btn(/previous/i).click(); for (let k = 0; k < 50 && label() === l; k++) await sleep(200); } };
   const all = new Map();
-  for (let i = 0; i < 60; i++) {
-    await sleep(800);
-    for (const s of rows() || []) all.set(s.sourceId, { id: s.sourceId, k: s.key, n: s.name, c: !!s.connected, f: (s.bots || []).map((b) => ({ a: b.botName, on: !!b.enabled, t: (b.tags || []).map((t) => t.name) })) });
-    const nx = btn(/next/i);
-    if (!nx || nx.disabled) break;
-    const l = label(); nx.click(); for (let k = 0; k < 75 && label() === l; k++) await sleep(200);
+  let passes = 0, misses = 0;
+  while (passes < 3 && (passes === 0 || all.size < total)) {
+    passes++;
+    await rewind();
+    let prevFirst = null;
+    for (let i = 0; i < 60; i++) {
+      const d = await settle(prevFirst);
+      if (d) { for (const s of d) all.set(s.sourceId, { id: s.sourceId, k: s.key, n: s.name, c: !!s.connected, f: (s.bots || []).map((b) => ({ a: b.botName, on: !!b.enabled, t: (b.tags || []).map((t) => t.name) })) }); prevFirst = d[0].sourceId; }
+      else misses++;
+      const nx = btn(/next/i);
+      if (!nx || nx.disabled) break;
+      const l = label(); nx.click(); for (let k = 0; k < 75 && label() === l; k++) await sleep(200);
+    }
   }
   const sources = [...all.values()];
   const r = await fetch(${JSON.stringify(postUrl)}, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ total, sources }) });
   const body = await r.text();
-  return "CLOSEBOT: " + (r.ok ? "SAVED " : "ERROR ") + sources.length + "/" + total + " — " + body.slice(0, 200);
+  return "CLOSEBOT: " + (r.ok ? "SAVED " : "ERROR ") + sources.length + "/" + total + " — " + body.slice(0, 200) + " (" + passes + (passes === 1 ? " pass" : " passes") + (misses ? ", " + misses + " page(s) skipped: rows never matched the screen" : "") + ")";
 }`;
 }
 
