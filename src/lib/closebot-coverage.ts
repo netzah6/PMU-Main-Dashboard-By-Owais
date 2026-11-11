@@ -60,18 +60,25 @@ export function verifyTask(taskId: string, sig: string): boolean {
    pass still ends short, rewind and page through again (max 3 passes, the
    list is merged by source id). A page that never matches the screen is
    skipped, never filled with the wrong page's data. */
-export function sourcesScript(postUrl: string): string {
+export function sourcesScript(postUrl: string, opts: { probe?: boolean } = {}): string {
   return `async () => {
+  const PROBE = ${opts.probe ? "true" : "false"};
+  const started = Date.now(), DEADLINE = 8 * 60_000;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const text = () => document.body.innerText;
   const label = () => (text().match(/(\\d+)-(\\d+) of (\\d+)/) || [])[0];
+  const atEnd = () => { const m = text().match(/(\\d+)-(\\d+) of (\\d+)/); return !!m && Number(m[2]) >= Number(m[3]); };
+  const atStart = () => { const m = text().match(/(\\d+)-(\\d+) of (\\d+)/); return !!m && Number(m[1]) <= 1; };
   const norm = (v) => String(v || "").toLowerCase().replace(/\\s+/g, " ").trim();
-  const rows = () => {
+  /* The data of the rows ON SCREEN: both fiber twins at every level, only a
+     list whose names are all visible, and never the list that starts with
+     skipId (the page we just left). */
+  const rows = (skipId) => {
     const trs = [...document.querySelectorAll("table tbody tr")];
     if (!trs.length) return null;
     const fk = Object.keys(trs[0]).find((k) => k.startsWith("__reactFiber"));
     const seen = norm(trs.map((tr) => tr.innerText).join(" | "));
-    const fits = (d) => d.length > 0 && d.length <= trs.length && d.some((x) => norm(x.name)) && d.every((x) => !norm(x.name) || seen.includes(norm(x.name).slice(0, 12)));
+    const fits = (d) => d.length > 0 && d.length <= trs.length && d.some((x) => norm(x.name)) && d.every((x) => !norm(x.name) || seen.includes(norm(x.name).slice(0, 12))) && (skipId == null || d[0].sourceId !== skipId);
     let f = fk && trs[0][fk], depth = 0;
     while (f && depth < 15) {
       for (const n of [f, f.alternate]) { const p = n && n.memoizedProps; if (p && Array.isArray(p.data) && fits(p.data)) return p.data; }
@@ -79,31 +86,39 @@ export function sourcesScript(postUrl: string): string {
     }
     return null;
   };
-  const settle = async (prevFirst) => { for (let k = 0; k < 60; k++) { const d = rows(); if (d && d[0].sourceId !== prevFirst) return d; await sleep(200); } return null; };
+  const firstId = () => { const d = rows(null); return d ? d[0].sourceId : null; };
+  const settle = async (skipId) => { for (let k = 0; k < 60; k++) { const d = rows(skipId); if (d) return d; await sleep(200); } return null; };
   const btn = (re) => [...document.querySelectorAll("button")].find((b) => re.test(b.getAttribute("aria-label") || ""));
-  for (let k = 0; k < 75 && !rows(); k++) await sleep(200);
-  if (!rows()) return "CLOSEBOT: ERROR — the Sources table did not load (or its rows never matched the screen)";
+  const turn = async (b) => { const l = label(), f0 = firstId(); b.click(); for (let k = 0; k < 75 && (label() === l || (f0 != null && firstId() === f0)); k++) await sleep(200); };
+  for (let k = 0; k < 75 && !rows(null); k++) await sleep(200);
+  if (!rows(null)) return "CLOSEBOT: ERROR — the Sources table did not load (or its rows never matched the screen)";
   const total = Number((text().match(/Total Sources\\s*(\\d+)/) || [])[1] || 0);
-  const rewind = async () => { for (let g = 0; g < 60 && btn(/previous/i) && !btn(/previous/i).disabled; g++) { const l = label(); btn(/previous/i).click(); for (let k = 0; k < 50 && label() === l; k++) await sleep(200); } };
+  const rewind = async () => { for (let g = 0; g < 60 && !atStart() && btn(/previous/i) && !btn(/previous/i).disabled; g++) await turn(btn(/previous/i)); };
   const all = new Map();
-  let passes = 0, misses = 0;
-  while (passes < 3 && (passes === 0 || all.size < total)) {
-    passes++;
+  let passes = 0, missed = [], timedOut = false;
+  while (passes < 3 && (passes === 0 || all.size < total) && !timedOut) {
+    passes++; missed = [];
     await rewind();
-    let prevFirst = null;
+    let prev = null;
     for (let i = 0; i < 60; i++) {
-      const d = await settle(prevFirst);
-      if (d) { for (const s of d) all.set(s.sourceId, { id: s.sourceId, k: s.key, n: s.name, c: !!s.connected, f: (s.bots || []).map((b) => ({ a: b.botName, on: !!b.enabled, t: (b.tags || []).map((t) => t.name) })) }); prevFirst = d[0].sourceId; }
-      else misses++;
+      if (Date.now() - started > DEADLINE) { timedOut = true; break; }
+      const d = await settle(prev);
+      if (d) { for (const s of d) all.set(s.sourceId, { id: s.sourceId, k: s.key, n: s.name, c: !!s.connected, f: (s.bots || []).map((b) => ({ a: b.botName, on: !!b.enabled, t: (b.tags || []).map((t) => t.name) })) }); prev = d[0].sourceId; }
+      else missed.push(label() || "page " + (i + 1));
+      if (passes > 1 && all.size >= total) break;
       const nx = btn(/next/i);
-      if (!nx || nx.disabled) break;
-      const l = label(); nx.click(); for (let k = 0; k < 75 && label() === l; k++) await sleep(200);
+      if (!nx || nx.disabled || atEnd()) break;
+      await turn(nx);
     }
   }
+  const totalNow = Number((text().match(/Total Sources\\s*(\\d+)/) || [])[1] || 0);
+  const note = " (" + passes + (passes === 1 ? " pass" : " passes") + (missed.length ? "; pages not read: " + missed.join(", ") : "") + (timedOut ? "; stopped at the 8-minute limit" : "") + ")";
+  if (totalNow && totalNow !== total) return "CLOSEBOT: ERROR — the source count changed during the check (" + total + " → " + totalNow + "), run it again" + note;
   const sources = [...all.values()];
+  if (PROBE) return "CLOSEBOT: PROBE " + sources.length + "/" + total + note;
   const r = await fetch(${JSON.stringify(postUrl)}, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ total, sources }) });
   const body = await r.text();
-  return "CLOSEBOT: " + (r.ok ? "SAVED " : "ERROR ") + sources.length + "/" + total + " — " + body.slice(0, 200) + " (" + passes + (passes === 1 ? " pass" : " passes") + (misses ? ", " + misses + " page(s) skipped: rows never matched the screen" : "") + ")";
+  return "CLOSEBOT: " + (r.ok ? "SAVED " : "ERROR ") + sources.length + "/" + total + " — " + body.slice(0, 200) + note;
 }`;
 }
 
