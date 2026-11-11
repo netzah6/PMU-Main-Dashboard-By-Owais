@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
+import { capiTokens } from "@/lib/meta-capi";
 
 export const fetchCache = "force-no-store";
 
@@ -52,7 +53,7 @@ export async function GET() {
     }
     return NextResponse.json({
       since,
-      tokenConfigured: Boolean((process.env.META_CAPI_TOKEN ?? "").trim()),
+      tokenConfigured: capiTokens({}).length > 0,
       browserPurchases: paidLeads ?? 0,
       purchase: tally("Purchase"),
       lead: tally("Lead"),

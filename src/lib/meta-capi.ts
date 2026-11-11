@@ -62,7 +62,9 @@ export type CapiEvent = {
   testEventCode?: string;
 };
 
-export async function sendCapiEvent(ev: CapiEvent): Promise<{ ok: boolean; error?: string }> {
+export type CapiResult = { ok: boolean; error?: string; status?: number; code?: number; subcode?: number };
+
+export async function sendCapiEvent(ev: CapiEvent): Promise<CapiResult> {
   if (!ev.pixelId || !ev.token) return { ok: false, error: "missing pixel or token" };
 
   const [first, ...rest] = (ev.user.fullName ?? "").trim().split(/\s+/);
@@ -101,7 +103,7 @@ export async function sendCapiEvent(ev: CapiEvent): Promise<{ ok: boolean; error
      (permission, bad pixel) — no retry, and Meta's own reason is kept in
      capi_events.error so a dataset the token can't reach is named, not
      just "capi 400" (audit 11/10/2026). */
-  let last: { ok: boolean; error?: string } = { ok: false, error: "network" };
+  let last: CapiResult = { ok: false, error: "network" };
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt) await new Promise((res) => setTimeout(res, 600));
     try {
@@ -114,7 +116,8 @@ export async function sendCapiEvent(ev: CapiEvent): Promise<{ ok: boolean; error
       if (r.ok) return { ok: true };
       const t = (await r.text()).slice(0, 600);
       console.error("[capi]", ev.eventName, r.status, t);
-      last = { ok: false, error: `capi ${r.status}${metaReason(t)}` };
+      const why = metaError(t);
+      last = { ok: false, error: `capi ${r.status}${metaReason(t)}`, status: r.status, code: why?.code, subcode: why?.error_subcode };
       if (r.status < 500 && r.status !== 429) return last;
     } catch (e) {
       console.error("[capi] send failed:", e);
@@ -124,13 +127,16 @@ export async function sendCapiEvent(ev: CapiEvent): Promise<{ ok: boolean; error
   return last;
 }
 
+function metaError(body: string): { message?: string; code?: number; error_subcode?: number } | null {
+  try { return (JSON.parse(body) as { error?: { message?: string; code?: number; error_subcode?: number } }).error ?? null; }
+  catch { return null; }
+}
+
 /* ": <message> (code N)" from a Graph error body, or "" when unreadable. */
 function metaReason(body: string): string {
-  try {
-    const e = (JSON.parse(body) as { error?: { message?: string; code?: number; error_subcode?: number } }).error;
-    if (!e?.message) return "";
-    return `: ${e.message}${e.code != null ? ` (code ${e.code}${e.error_subcode ? `/${e.error_subcode}` : ""})` : ""}`;
-  } catch { return ""; }
+  const e = metaError(body);
+  if (!e?.message) return "";
+  return `: ${e.message}${e.code != null ? ` (code ${e.code}${e.error_subcode ? `/${e.error_subcode}` : ""})` : ""}`;
 }
 
 /* Click id for a server event, best source first: the browser's own _fbc
@@ -162,7 +168,51 @@ export function fbclidOf(url: string | null | undefined): string {
 // Which token to use for a funnel: its own if the dataset lives in the
 // client's Business Manager, otherwise the agency-wide one.
 export function capiToken(extras: { capiToken?: string } | null | undefined): string {
-  return (extras?.capiToken ?? "").trim() || (process.env.META_CAPI_TOKEN ?? "").trim();
+  return capiTokens(extras)[0] ?? "";
+}
+
+/* Every token that may reach a dataset, in order: the funnel's own, then
+   one per agency Business Manager — META_CAPI_TOKEN (PMU Bookings On
+   Demand), META_CAPI_TOKEN_2, _3 … (the other portfolios). The agency's
+   datasets live in three portfolios and Meta won't let the newest one
+   share datasets yet (owner, 11/11/2026), so each portfolio has its own
+   system-user token instead of one shared one. */
+export function capiTokens(extras: { capiToken?: string } | null | undefined): string[] {
+  const out: string[] = [];
+  const add = (v: string | undefined) => { const t = (v ?? "").trim(); if (t && !out.includes(t)) out.push(t); };
+  add(extras?.capiToken);
+  add(process.env.META_CAPI_TOKEN);
+  for (let i = 2; i <= 9; i++) add(process.env[`META_CAPI_TOKEN_${i}`]);
+  return out;
+}
+
+/* Which token last worked for a pixel (per server instance), so a dataset
+   in the 2nd or 3rd portfolio isn't refused by the 1st token every time. */
+const tokenForPixel = new Map<string, string>();
+
+/* A refusal that another portfolio's token may not get: the dataset is
+   unknown/unreachable for this token (100/33), no permission (10, 200),
+   or the token itself is dead (190). */
+function wrongToken(r: CapiResult): boolean {
+  if (r.ok || !r.status || r.status >= 500 || r.status === 429) return false;
+  return (r.code === 100 && r.subcode === 33) || r.code === 10 || r.code === 200 || r.code === 190;
+}
+
+/* sendCapiEvent across the portfolio tokens: the one that last worked for
+   this pixel first, then the rest until one is accepted. Returns the
+   accepted result, or the first refusal when none can reach the dataset. */
+export async function sendCapiWithTokens(ev: Omit<CapiEvent, "token">, tokens: string[]): Promise<CapiResult> {
+  if (!tokens.length) return { ok: false, error: "no META_CAPI_TOKEN" };
+  const known = tokenForPixel.get(ev.pixelId);
+  const order = known && tokens.includes(known) ? [known, ...tokens.filter((t) => t !== known)] : tokens;
+  let first: CapiResult | null = null;
+  for (const token of order) {
+    const r = await sendCapiEvent({ ...ev, token });
+    if (r.ok) { tokenForPixel.set(ev.pixelId, token); return r; }
+    first ??= r;
+    if (!wrongToken(r)) return r;
+  }
+  return order.length > 1 && first ? { ...first, error: `${first.error ?? "refused"} [no token reaches this dataset, tried ${order.length}]` } : (first ?? { ok: false, error: "refused" });
 }
 
 /* Every server-side send (or skip) lands in capi_events so the Funnels tab

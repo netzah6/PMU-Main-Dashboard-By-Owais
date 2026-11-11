@@ -4,7 +4,7 @@ import { cancelAppointmentQuietly } from "@/lib/appointment-cancel";
 import { removedHolds } from "@/lib/ai-hold-cleanup";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { sendCapiEvent, capiToken, recordCapi, pickFbc } from "@/lib/meta-capi";
+import { capiTokens, sendCapiWithTokens, recordCapi, pickFbc } from "@/lib/meta-capi";
 import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso, AI_HOLD_STATUS, AI_HOLD_LIVE_MS, type ContactAppointment } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
 import { cleanTz, calendarDurationMin } from "@/lib/ghl-push";
@@ -459,7 +459,8 @@ async function serverPurchase(
   a: { slug: string; phone: string; email: string; fullName: string; cfg: Record<string, string>; extras: { metaPixelId?: string; capiToken?: string } },
 ) {
   const pixelId = (a.cfg.metaPixelId || a.extras.metaPixelId || "").replace(/\D/g, "");
-  const token = capiToken(a.extras);
+  const tokens = capiTokens(a.extras);
+  const token = tokens[0] ?? "";
   const eventId = String(body.eventId ?? "");
   if (!pixelId || !token || !eventId) {
     await recordCapi(svc, {
@@ -489,8 +490,8 @@ async function serverPurchase(
   const fbp = String(body.fbp ?? "").trim() || String(rows.find((r) => r.click?.fbp)?.click?.fbp ?? "");
   const ua = rows.find((r) => r.click?.ua)?.click?.ua;
   const amount = parseFloat(String(a.cfg.deposit ?? "").replace(/[^0-9.]/g, ""));
-  const res = await sendCapiEvent({
-    pixelId, token, eventName: "Purchase", eventId,
+  const res = await sendCapiWithTokens({
+    pixelId, eventName: "Purchase", eventId,
     eventSourceUrl: String(body.pageUrl ?? "") || undefined,
     value: Number.isFinite(amount) ? amount : undefined,
     currency: "USD",
@@ -501,6 +502,6 @@ async function serverPurchase(
       userAgent: req.headers.get("user-agent") || ua || undefined,
       externalId: (fbcRow ?? rows.find((r) => r.visitor_id))?.visitor_id ?? null,
     },
-  }).catch(() => ({ ok: false, error: "send threw" }));
+  }, tokens).catch(() => ({ ok: false, error: "send threw" }));
   await recordCapi(svc, { slug: a.slug, eventName: "Purchase", eventId, pixelId, phone: a.phone, ok: res.ok, error: res.error, fbcSrc: fbc.src });
 }
