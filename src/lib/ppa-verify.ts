@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isChatAwaiting } from "@/lib/ppa-collected";
 import { createServiceClient } from "@/lib/supabase/server";
 import { creditBalances, consumeCredit } from "@/lib/credits";
 import { closeLinksForShows, linksByOwner, type OpenLinkInfo } from "@/lib/ppa-links";
@@ -344,7 +345,7 @@ export async function buildVerifyReport(ownerKeyFilter?: string | Set<string>): 
   // recorded as "charged" and never billed to anyone.
   for (const r of (chgRes.data ?? []) as ChargeRow[]) {
     if (!r.appt_id?.startsWith("chat:") || !r.owner_key) continue;
-    if (!r.charged || r.excluded || r.square_payment_id) continue;
+    if (!isChatAwaiting(r)) continue; // paid, voided, or settled from credit
     const name = (r.note ?? "").split("— ").pop()?.trim() || null;
     const list = showsBy.get(r.owner_key) ?? [];
     list.push({ apptId: r.appt_id, contactName: name, apptDate: r.charged_at ?? null, chargeStatus: "chat_booked" });
