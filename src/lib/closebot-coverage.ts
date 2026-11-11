@@ -4,7 +4,7 @@ import { dashboardUrl } from "@/lib/agent-notify";
 import { fileAlert } from "@/lib/alerts";
 import { CLOSEBOT_SIGN_IN } from "@/lib/closebot-signin";
 
-/* ── CloseBot ↔ V3 weekly check (owner, 10/24/2026) ─────────────────────────
+/* ── CloseBot ↔ V3 daily check (owner, 10/24/2026; daily since 11/11/2026) ──
    Every V3 client needs a CloseBot source with a live job flow, and nobody
    else should have one. On 10/24 five Live V3 clients had no working bot
    (About Face, Maria Blanco, Malaroy, Browzandbeauties, Sally Nails — Sally's
@@ -12,11 +12,16 @@ import { CLOSEBOT_SIGN_IN } from "@/lib/closebot-signin";
    accounts still had the slay agent switched on.
 
    CloseBot's API key is dead (401) and the owner keeps it that way, so the
-   list comes from the CloseBot UI: once a week the AI Agent (Mac Mini) opens
+   list comes from the CloseBot UI: once a day the AI Agent (Mac Mini) opens
    Sources, runs SOURCES_SCRIPT, and the page POSTs every source (GHL location
    id + job flows) straight to /api/closebot/coverage — no list ever passes
    through the agent's own words. The comparison then files one alert per
-   client on the Alerts tab and closes the ones that got fixed. */
+   client on the Alerts tab and closes the ones that got fixed.
+
+   11/11/2026 (owner): every client's profile shows a "CloseBot" box —
+   connected to an agent's job flow or not — from the last check
+   (CLIENTS_KEY), and the check runs every day. Paused clients file no
+   alert: "if we have a paused client … that's okay". */
 
 type Svc = SupabaseClient;
 const now = () => new Date().toISOString();
@@ -25,12 +30,17 @@ const usDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { mont
 export const CB_CONV_ID = "closebot:coverage_check";
 export const CB_LOCATION = "closebot"; // not a GHL sub-account — the worker's prompt switches on it
 export const SNAPSHOT_KEY = "closebot_sources";
+export const CLIENTS_KEY = "closebot_clients"; // per-client state for the Clients tab box
 export const isCloseBotCheck = (conversationId: string | null | undefined) => conversationId === CB_CONV_ID;
 const DEMO_LOCATION = "asaIf2fxizaCNJ71iywk"; // Demo (V3) — protected test account, always connected
 
 export type CbFlow = { a: string; on: boolean; t: string[] };
 export type CbSource = { id: string; k: string; n: string; c: boolean; f: CbFlow[] };
 export type CbSnapshot = { at: string; task: string; total: number; sources: CbSource[] };
+/* on = a connected source with a job flow switched on; the rest say why not. */
+export type CbClientState = "on" | "off" | "no_flow" | "disconnected" | "no_source" | "no_account";
+export type CbClientRow = { o: string; b: string; loc: string | null; s: CbClientState; src: string | null; a: string[]; t: string[] };
+export type CbClients = { at: string; clients: CbClientRow[] };
 
 /* The POST is authenticated by a signature of the card id: the link only
    works for the one check card that carries it. */
@@ -137,7 +147,7 @@ const LINK_DAYS = 3; // the signed link (and so the card) is good this long
 
 /* Queue the check; an open card is reused (one check at a time) unless its
    link has expired — a card stuck through a Mini outage would otherwise be
-   reused every week and fail every week. */
+   reused every day and fail every day. */
 export async function queueCloseBotCheck(svc: Svc, by: string): Promise<QueueResult> {
   const { data: open } = await svc.from("agent_proposals").select("id, created_at")
     .eq("conversation_id", CB_CONV_ID).in("status", ["queued_browser", "running"]);
@@ -154,9 +164,9 @@ export async function queueCloseBotCheck(svc: Svc, by: string): Promise<QueueRes
     conversation_id: CB_CONV_ID,
     message_id: `coverage#${(count ?? 0) + 1}`,
     contact_id: null,
-    contact_name: "CloseBot weekly check",
+    contact_name: "CloseBot daily check",
     channel: null,
-    client_message: `Weekly check: which V3 clients have no CloseBot agent, and which non-V3 accounts still have one. Read-only, queued by ${by} on ${usDate(now())}.`,
+    client_message: `Daily check: which V3 clients have no CloseBot agent, and which non-V3 accounts still have one. Read-only, queued by ${by} on ${usDate(now())}.`,
     summary: "CloseBot: read every source and its job flows (read-only)",
     action_type: "account_change",
     proposed_reply: null,
@@ -181,7 +191,7 @@ const RANK: Record<string, number> = { live: 0, paused: 1, onboarding: 2 };
 const rank = (status: string) => RANK[status.toLowerCase()] ?? 3;
 export const isV3 = (version: string) => version.toLowerCase().replace(/[^a-z0-9.]/g, "") === "v3";
 const activeStatus = (status: string) => ["live", "paused", "onboarding"].includes(status.toLowerCase());
-const normBiz = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+export const normBiz = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 const SETUP_DAYS = 60; // a box handed to a client this recently is still "being set up"
 
 // PostgREST caps a read at 1,000 rows (the deposits chart lost rows to it).
@@ -203,7 +213,8 @@ async function readAll<T>(page: (from: number, to: number) => PromiseLike<{ data
    - otherwise ghl_sync_status (what ingest keeps current) ties an owner to
      it; several owners on one box (recycled) → the most alive one;
    - a pool box not handed out belongs to nobody. */
-export async function loadDirectory(svc: Svc): Promise<{ byLocation: Map<string, LocInfo>; v3: Array<ClientRow & { locationId: string | null }> }> {
+type Located = ClientRow & { locationId: string | null };
+export async function loadDirectory(svc: Svc): Promise<{ byLocation: Map<string, LocInfo>; v3: Located[]; clients: Located[] }> {
   const [cm, sync, pool] = await Promise.all([
     readAll<{ business_name: string | null; version: string | null; owner_name: string | null; client_status: string | null }>((a, b) =>
       svc.from("client_program_rows").select("sheet_row, business_name, version, owner_name, client_status").order("sheet_row").range(a, b)),
@@ -270,32 +281,62 @@ export async function loadDirectory(svc: Svc): Promise<{ byLocation: Map<string,
   }
   for (const [loc, name] of poolByLoc) byLocation.set(loc, { label: name, client: null, pool: name, setup: false });
 
-  const v3: Array<ClientRow & { locationId: string | null }> = [];
+  const clients: Located[] = [];
   const seen = new Set<ClientRow>();
   for (const c of [...byOwner.values(), ...byBiz.values()]) {
     if (seen.has(c)) continue;
     seen.add(c);
-    if (!isV3(c.version) || !["live", "paused"].includes(c.status.toLowerCase())) continue;
     // The sub-account this client owns now: the freshest one that resolves back to them.
     const mine = (locsByOwner.get(c.owner.toLowerCase() || normBiz(c.business)) ?? []).sort((a, b) => b.at - a.at);
-    v3.push({ ...c, locationId: mine[0]?.loc ?? null });
+    clients.push({ ...c, locationId: mine[0]?.loc ?? null });
   }
-  return { byLocation, v3 };
+  const v3 = clients.filter((c) => isV3(c.version) && ["live", "paused"].includes(c.status.toLowerCase()));
+  return { byLocation, v3, clients };
 }
 
 /* ── Compare + alerts ────────────────────────────────────────────────────── */
 type Finding = { type: "closebot_missing" | "closebot_not_v3"; key: string; severity: "high" | "medium"; title: string; detail: string; meta: Record<string, unknown> };
 
 const flowNames = (fl: CbFlow[]) => [...new Set(fl.map((f) => f.a))].join(", ");
+const working = (s: CbSource) => s.c && s.f.some((f) => f.on);
+const sourcesByLocation = (snap: CbSnapshot) => {
+  const byLoc = new Map<string, CbSource[]>();
+  for (const s of snap.sources) { if (!byLoc.has(s.k)) byLoc.set(s.k, []); byLoc.get(s.k)!.push(s); }
+  return byLoc;
+};
+// Same order of reasons as the alert text below.
+function stateOf(srcs: CbSource[]): Omit<CbClientRow, "o" | "b" | "loc"> {
+  const on = srcs.filter(working);
+  if (on.length) {
+    const flows = on.flatMap((s) => s.f.filter((f) => f.on));
+    return { s: "on", src: on[0].n, a: [...new Set(flows.map((f) => f.a))], t: [...new Set(flows.flatMap((f) => f.t))] };
+  }
+  const src = srcs[0]?.n ?? null;
+  if (!srcs.length) return { s: "no_source", src, a: [], t: [] };
+  if (srcs.every((s) => !s.c)) return { s: "disconnected", src, a: [], t: [] };
+  if (srcs.every((s) => !s.f.length)) return { s: "no_flow", src, a: [], t: [] };
+  return { s: "off", src, a: [...new Set(srcs.flatMap((s) => s.f.map((f) => f.a)))], t: [] };
+}
+
+/* Every client on the sheet (any version/status) → CloseBot state of the
+   sub-account they own now. The profile box reads this. */
+export function clientStates(snap: CbSnapshot, dir: Awaited<ReturnType<typeof loadDirectory>>): CbClientRow[] {
+  const byLoc = sourcesByLocation(snap);
+  return dir.clients.map((c) => ({
+    o: c.owner.toLowerCase(), b: normBiz(c.business), loc: c.locationId,
+    ...(c.locationId ? stateOf(byLoc.get(c.locationId) ?? []) : { s: "no_account" as const, src: null, a: [], t: [] }),
+  }));
+}
 
 export function compareCoverage(snap: CbSnapshot, dir: Awaited<ReturnType<typeof loadDirectory>>): Finding[] {
   const out: Finding[] = [];
-  const byLoc = new Map<string, CbSource[]>();
-  for (const s of snap.sources) { if (!byLoc.has(s.k)) byLoc.set(s.k, []); byLoc.get(s.k)!.push(s); }
-  const working = (s: CbSource) => s.c && s.f.some((f) => f.on);
+  const byLoc = sourcesByLocation(snap);
 
   for (const c of dir.v3) {
     const live = c.status.toLowerCase() === "live";
+    // Paused clients: no alert (owner 11/11/2026). Their profile box still shows the state,
+    // and the day they go Live again the next check flags them if the bot is missing.
+    if (!live) continue;
     const base = { business: c.business, owner: c.owner, version: c.version, status: c.status, location_id: c.locationId };
     if (!c.locationId) {
       out.push({ type: "closebot_missing", key: `cb-missing:owner:${c.owner.toLowerCase()}`, severity: live ? "high" : "medium",
@@ -322,7 +363,7 @@ export function compareCoverage(snap: CbSnapshot, dir: Awaited<ReturnType<typeof
     }
     out.push({ type: "closebot_missing", key: `cb-missing:${c.locationId}`, severity: live ? "high" : "medium",
       title: `${c.business} (V3, ${c.status}): not connected to a CloseBot agent`,
-      detail: `${c.business} ${why}. ${fix} Clears itself on the next weekly check once fixed.`,
+      detail: `${c.business} ${why}. ${fix} Clears itself on the next daily check once fixed.`,
       meta: { ...base, sources: srcs.map((s) => ({ name: s.n, connected: s.c, flows: s.f })) } });
   }
 
@@ -342,7 +383,7 @@ export function compareCoverage(snap: CbSnapshot, dir: Awaited<ReturnType<typeof
     else what = `${c.business} — ${c.version || "no version"} (${c.status || "no status"}), not V3`;
     out.push({ type: "closebot_not_v3", key: `cb-not-v3:${loc}`, severity,
       title: `CloseBot agent is ON for ${who?.label ?? live[0].n}, which is not a V3 client`,
-      detail: `CloseBot source ${names} has ${flowNames(on)} switched on, but the account is ${what}. Only active V3 clients should have a CloseBot agent. If that's wrong, disconnect the job flow in CloseBot → Sources → ${names}; if the client is really V3, fix the Version / status on the Clients sheet. Clears itself on the next weekly check once fixed.`,
+      detail: `CloseBot source ${names} has ${flowNames(on)} switched on, but the account is ${what}. Only active V3 clients should have a CloseBot agent. If that's wrong, disconnect the job flow in CloseBot → Sources → ${names}; if the client is really V3, fix the Version / status on the Clients sheet. Clears itself on the next daily check once fixed.`,
       meta: { source_names: live.map((s) => s.n), location_id: loc, flows: on, business: c?.business ?? null, version: c?.version ?? null, status: c?.status ?? null, pool: who?.pool ?? null } });
   }
   return out;
@@ -355,6 +396,8 @@ export async function scanCloseBotCoverage(svc: Svc, snap: CbSnapshot): Promise<
   if (!snap.total || snap.sources.length !== snap.total) throw new Error(`incomplete CloseBot list (${snap.sources.length}/${snap.total})`);
   const dir = await loadDirectory(svc);
   const findings = compareCoverage(snap, dir);
+  const box: CbClients = { at: snap.at, clients: clientStates(snap, dir) };
+  await svc.from("app_settings").upsert({ key: CLIENTS_KEY, value: box, updated_by: "closebot check", updated_at: snap.at });
   let filed = 0, updated = 0, resolved = 0;
   for (const f of findings) {
     const { data: open } = await svc.from("alerts").select("id").eq("type", f.type).eq("source_key", f.key).eq("status", "open").limit(1).maybeSingle();
@@ -402,7 +445,7 @@ export async function ingestCloseBotSources(svc: Svc, taskId: string, raw: unkno
 
   const snap: CbSnapshot = { at: now(), task: taskId, total, sources };
   const scan = await scanCloseBotCoverage(svc, snap);
-  // Saved only once the alerts are up to date: onCloseBotCheckClosed reads it as "this week ran".
+  // Saved only once the alerts are up to date: onCloseBotCheckClosed reads it as "today's check ran".
   await svc.from("app_settings").upsert({ key: SNAPSHOT_KEY, value: snap, updated_by: "closebot check", updated_at: snap.at });
   await resolveCheckAlert(svc);
   if (c.status === "queued_browser") {
@@ -420,7 +463,7 @@ async function resolveCheckAlert(svc: Svc): Promise<void> {
 }
 
 /* The Mini closed the card. Done + this card's list arrived = fine; anything
-   else means the week's check didn't happen, which the owner must see
+   else means the day's check didn't happen, which the owner must see
    (otherwise "no alerts" would look like "all synced"). */
 export async function onCloseBotCheckClosed(svc: Svc, p: { id: string; status: string; result: string | null; reason?: string }): Promise<void> {
   const { data } = await svc.from("app_settings").select("value").eq("key", SNAPSHOT_KEY).maybeSingle();
@@ -430,9 +473,9 @@ export async function onCloseBotCheckClosed(svc: Svc, p: { id: string; status: s
   const said = (p.reason || lines[lines.length - 1] || "").replace(/^(?:✓|✗|👤|•)\s*/u, "").slice(0, 200);
   const signedOut = /sign(ed)? ?in|log ?in/i.test(said);
   await fileAlert(svc, {
-    type: "closebot_check", severity: "high", source_key: "closebot-weekly-check", resurfaceAfterDays: 6,
-    title: "The weekly CloseBot check could not run",
-    detail: `The AI Agent could not read CloseBot this week, so the V3 ↔ CloseBot alerts may be out of date. It said: "${said || p.status}". ${signedOut
+    type: "closebot_check", severity: "high", source_key: "closebot-weekly-check", resurfaceAfterDays: 1,
+    title: "The daily CloseBot check could not run",
+    detail: `The AI Agent could not read CloseBot today, so the V3 ↔ CloseBot alerts may be out of date. It said: "${said || p.status}". ${signedOut
       ? "On the Mac Mini, in Terminal: node ~/.pmu-agent/agent-worker.mjs login → sign in to CloseBot in the tab it opens → quit Chrome with Cmd+Q."
       : "Check the card on the AI tab."} ${snap ? `Last good list: ${usDate(snap.at)}.` : ""}`.trim(),
   });

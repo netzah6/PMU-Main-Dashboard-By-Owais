@@ -4,6 +4,7 @@ import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Ch
 import { toast } from "sonner";
 import { Badge, statusVariant } from "@/components/ui/Badge";
 import { StepTracker } from "./StepTracker";
+import { CloseBotBadge } from "./CloseBotBadge";
 import { ActivityTabs, RangePicker, type Range } from "./ActivityTabs";
 import { formatCurrency, formatPercent, userColor, cn } from "@/lib/utils";
 import type { ClientRecord, PaymentRecord, UserRole } from "@/lib/types";
@@ -655,6 +656,8 @@ export function ClientProfile({
                 </strong>
               </Badge>
             )}
+            <CloseBotBadge owner={setupOwner} business={tzBusiness}
+              version={String(localClient.version ?? "")} status={String(localClient.status ?? "")} />
             {/* Was "Campaign" (Campaign Status from the master sheet) — that
                 column is empty for every client, so the badge only ever read
                 "—". Replaced with the plan the client is actually on. */}

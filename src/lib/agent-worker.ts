@@ -92,9 +92,9 @@ export async function claimNext(svc: Svc, host: string, recover = false): Promis
     if (!retry && parseCnamConvId(r.conversation_id)) {
       try { await onCnamProposalClosed(svc, { id: r.id, conversation_id: r.conversation_id, status: "failed", result }); } catch { /* the pool row keeps its last note */ }
     }
-    // The weekly CloseBot check died twice: say so on the Alerts tab.
+    // The daily CloseBot check died twice: say so on the Alerts tab.
     if (!retry && isCloseBotCheck(r.conversation_id)) {
-      try { await onCloseBotCheckClosed(svc, { id: r.id, status: "failed", result, reason: "the AI Agent stopped responding twice" }); } catch { /* next week's check runs anyway */ }
+      try { await onCloseBotCheckClosed(svc, { id: r.id, status: "failed", result, reason: "the AI Agent stopped responding twice" }); } catch { /* tomorrow's check runs anyway */ }
     }
   }
 
@@ -261,10 +261,10 @@ export async function finishTask(svc: Svc, input: FinishInput): Promise<{ ok: bo
     return { ok: true };
   }
 
-  /* Weekly CloseBot check: the Alerts tab is the report — no owner text. */
+  /* Daily CloseBot check: the Alerts tab is the report — no owner text. */
   if (isCloseBotCheck(p.conversation_id)) {
     try { await onCloseBotCheckClosed(svc, { id: p.id, status: input.status, result, reason: input.summary }); }
-    catch { /* next week's check runs anyway */ }
+    catch { /* tomorrow's check runs anyway */ }
     return { ok: true };
   }
 

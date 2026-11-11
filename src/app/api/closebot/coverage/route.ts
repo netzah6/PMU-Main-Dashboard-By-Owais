@@ -4,7 +4,7 @@ import { ingestCloseBotSources, verifyTask } from "@/lib/closebot-coverage";
 
 export const maxDuration = 60;
 
-// The weekly CloseBot check posts its source list here, from inside
+// The daily CloseBot check posts its source list here, from inside
 // app.closebot.com (see sourcesScript). No session: the signed ?task=&sig=
 // link works only for its own open check card. text/plain keeps it a
 // "simple" cross-site request; the CORS header lets the page read the answer.
