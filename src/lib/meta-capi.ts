@@ -60,6 +60,9 @@ export type CapiEvent = {
   value?: number;
   currency?: string;
   testEventCode?: string;
+  /* Unix seconds of the real moment (a payment found later by the
+     safety net); defaults to now. Meta takes up to 7 days back. */
+  eventTime?: number;
 };
 
 export type CapiResult = { ok: boolean; error?: string; status?: number; code?: number; subcode?: number };
@@ -85,7 +88,7 @@ export async function sendCapiEvent(ev: CapiEvent): Promise<CapiResult> {
     data: [
       {
         event_name: ev.eventName,
-        event_time: Math.floor(Date.now() / 1000),
+        event_time: ev.eventTime ?? Math.floor(Date.now() / 1000),
         event_id: ev.eventId,
         action_source: "website",
         ...(ev.eventSourceUrl ? { event_source_url: ev.eventSourceUrl } : {}),
