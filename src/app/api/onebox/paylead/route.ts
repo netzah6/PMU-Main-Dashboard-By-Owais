@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSurveyFieldMap, liveAppointmentsOnCalendar, parseReservedTime, wallToIso } from "@/lib/onebox";
 import { getAppLocationToken } from "@/lib/ghl-app";
+import { externalIdHash } from "@/lib/meta-capi";
 
 // Payment-link lookup: the AI's follow-up message sends the lead
 //   {{custom_values.cc__deposit_funnel_url}}?t={{contact.id}}
@@ -96,8 +97,29 @@ export async function GET(req: NextRequest) {
   const reserved = ghl?.reserved ? (tz ? ahead(wallToIso(ghl.reserved, tz)) : ghl.reserved) : "";
   const slotIso = booked || reserved || ahead(funnelPick);
   const email = String((lead?.answers as { email?: string } | null)?.email ?? "") || ghl?.email || "";
+  /* The ad click kept with her survey (owner 11/10/2026): the pay page
+     opens in a browser with no Facebook cookie, so it gets her original
+     click id and the same hashed external_id the server events send —
+     the browser Purchase (which Meta may keep over the server copy) then
+     still points at the ad. Best-effort: `click` may not exist yet. */
+  let fbc = "", xid = "";
+  try {
+    type Row = { visitor_id: string | null; click?: { fbc?: string } | null };
+    let rows: Row[] = [];
+    const q = await svc.from("onebox_leads").select("visitor_id, click")
+      .eq("slug", slug).eq("ghl_contact_id", t).order("created_at", { ascending: false }).limit(5);
+    if (!q.error) rows = (q.data ?? []) as Row[];
+    else {
+      const q2 = await svc.from("onebox_leads").select("visitor_id")
+        .eq("slug", slug).eq("ghl_contact_id", t).order("created_at", { ascending: false }).limit(5);
+      rows = (q2.data ?? []) as Row[];
+    }
+    const fbcRow = rows.find((r) => /^fb\.\d\.\d+\.[A-Za-z0-9_-]+$/.test(String(r.click?.fbc ?? "")));
+    fbc = String(fbcRow?.click?.fbc ?? "");
+    xid = externalIdHash((fbcRow ?? rows.find((r) => r.visitor_id))?.visitor_id);
+  } catch { /* the page works without them */ }
   return NextResponse.json(
-    { ok: true, name: String(lead?.full_name ?? "") || ghl?.name || "", phone: String(lead?.phone ?? "") || ghl?.phone || "", email, slotIso },
+    { ok: true, name: String(lead?.full_name ?? "") || ghl?.name || "", phone: String(lead?.phone ?? "") || ghl?.phone || "", email, slotIso, fbc, xid },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

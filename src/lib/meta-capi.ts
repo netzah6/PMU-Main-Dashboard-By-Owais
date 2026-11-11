@@ -43,6 +43,11 @@ export type CapiUser = {
   fbc?: string | null;   // _fbc cookie (click id)
   clientIp?: string | null;
   userAgent?: string | null;
+  /* The lead's own stable id (onebox_leads.visitor_id, the page's ob_vid),
+     hashed here. Sent on the server Lead AND the later server Purchase, so
+     Meta can tie a deposit paid days later in another browser back to the
+     same person who clicked the ad (owner 11/10/2026). */
+  externalId?: string | null;
 };
 
 export type CapiEvent = {
@@ -70,6 +75,7 @@ export async function sendCapiEvent(ev: CapiEvent): Promise<{ ok: boolean; error
     fbc: ev.user.fbc || undefined,
     client_ip_address: ev.user.clientIp || undefined,
     client_user_agent: ev.user.userAgent || undefined,
+    external_id: hash(norm(ev.user.externalId)),
   };
   for (const k of Object.keys(user_data)) if (user_data[k] === undefined) delete user_data[k];
 
@@ -90,23 +96,67 @@ export async function sendCapiEvent(ev: CapiEvent): Promise<{ ok: boolean; error
     ...(ev.testEventCode ? { test_event_code: ev.testEventCode } : {}),
   };
 
-  try {
-    const r = await fetch(`${GRAPH}/${encodeURIComponent(ev.pixelId)}/events?access_token=${encodeURIComponent(ev.token)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) {
-      const t = (await r.text()).slice(0, 300);
+  /* One quick retry on a Meta hiccup (5xx / 429 / network) with the same
+     event_id, so Meta still counts it once. A 4xx is a real rejection
+     (permission, bad pixel) — no retry, and Meta's own reason is kept in
+     capi_events.error so a dataset the token can't reach is named, not
+     just "capi 400" (audit 11/10/2026). */
+  let last: { ok: boolean; error?: string } = { ok: false, error: "network" };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise((res) => setTimeout(res, 600));
+    try {
+      const r = await fetch(`${GRAPH}/${encodeURIComponent(ev.pixelId)}/events?access_token=${encodeURIComponent(ev.token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(attempt ? 5000 : 8000),
+      });
+      if (r.ok) return { ok: true };
+      const t = (await r.text()).slice(0, 600);
       console.error("[capi]", ev.eventName, r.status, t);
-      return { ok: false, error: `capi ${r.status}` };
+      last = { ok: false, error: `capi ${r.status}${metaReason(t)}` };
+      if (r.status < 500 && r.status !== 429) return last;
+    } catch (e) {
+      console.error("[capi] send failed:", e);
+      last = { ok: false, error: "network" };
     }
-    return { ok: true };
-  } catch (e) {
-    console.error("[capi] send failed:", e);
-    return { ok: false, error: "network" };
   }
+  return last;
+}
+
+/* ": <message> (code N)" from a Graph error body, or "" when unreadable. */
+function metaReason(body: string): string {
+  try {
+    const e = (JSON.parse(body) as { error?: { message?: string; code?: number; error_subcode?: number } }).error;
+    if (!e?.message) return "";
+    return `: ${e.message}${e.code != null ? ` (code ${e.code}${e.error_subcode ? `/${e.error_subcode}` : ""})` : ""}`;
+  } catch { return ""; }
+}
+
+/* Click id for a server event, best source first: the browser's own _fbc
+   cookie, then the one kept with the lead at survey time (a deposit paid
+   later from the text link, in another browser, has no cookie), then one
+   rebuilt from an fbclid in the page URL. `src` is logged so the share of
+   events reaching Meta with a click id can be measured. */
+export function pickFbc(cookieFbc: string | null | undefined, leadFbc: string | null | undefined, pageUrl?: string | null): { fbc: string; src: "cookie" | "lead" | "url" | "none" } {
+  const c = String(cookieFbc ?? "").trim();
+  if (c) return { fbc: c, src: "cookie" };
+  const l = String(leadFbc ?? "").trim();
+  if (l) return { fbc: l, src: "lead" };
+  const id = fbclidOf(pageUrl);
+  if (id) return { fbc: `fb.1.${Date.now()}.${id}`, src: "url" };
+  return { fbc: "", src: "none" };
+}
+
+/* The exact external_id value the server sends (sha256 of the trimmed,
+   lowercased visitor id) — handed to the pay-link page so its browser
+   events carry the same one; the pixel passes a 64-hex value through. */
+export function externalIdHash(v: string | null | undefined): string {
+  return hash(norm(v)) ?? "";
+}
+
+export function fbclidOf(url: string | null | undefined): string {
+  try { return (new URL(String(url ?? "")).searchParams.get("fbclid") ?? "").trim().slice(0, 500); } catch { return ""; }
 }
 
 // Which token to use for a funnel: its own if the dataset lives in the
@@ -123,13 +173,13 @@ export function capiToken(extras: { capiToken?: string } | null | undefined): st
 type Insertable = { from: (table: string) => { insert: (row: Record<string, unknown>) => PromiseLike<{ error?: { message?: string } | null }> } };
 export async function recordCapi(
   svc: Insertable,
-  row: { slug: string; eventName: CapiEvent["eventName"]; eventId?: string; pixelId?: string; ok: boolean; error?: string; phone?: string },
+  row: { slug: string; eventName: CapiEvent["eventName"]; eventId?: string; pixelId?: string; ok: boolean; error?: string; phone?: string; fbcSrc?: string },
 ): Promise<void> {
   try {
     /* supabase-js resolves DB errors instead of throwing — read them, or a
        dead log would make the Funnels card read "0 sent ✓" (review, Oct 13). */
     const clean = (v?: string) => (v ?? "").replace(/\0/g, "").slice(0, 200) || null;
-    const { error } = await svc.from("capi_events").insert({
+    const base = {
       slug: row.slug,
       event_name: row.eventName,
       event_id: clean(row.eventId),
@@ -137,7 +187,11 @@ export async function recordCapi(
       ok: row.ok,
       error: clean(row.error),
       lead_phone: clean(row.phone),
-    });
+    };
+    let { error } = await svc.from("capi_events").insert(row.fbcSrc ? { ...base, fbc_src: row.fbcSrc } : base);
+    /* fbc_src arrived with supabase/purchase-attribution.sql — if that
+       column isn't there yet, keep the log row without it. */
+    if (error && row.fbcSrc && /fbc_src/.test(error.message ?? "")) ({ error } = await svc.from("capi_events").insert(base));
     if (error) console.error("[capi_events] insert failed:", error.message);
   } catch (e) { console.error("[capi_events] insert threw:", e); /* never costs the lead */ }
 }
