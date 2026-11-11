@@ -125,10 +125,16 @@ export async function settleOpenLinks(ownerKey?: string): Promise<SettleResult[]
       results.push({ linkId: link.id, ownerKey: link.owner_key, status: "error", marked: 0, detail: exErr.message });
       continue;
     }
-    // A show already carrying THIS payment was marked by an earlier run of
-    // this same link (it died before finishing) — that is not a conflict.
+    // "Taken" = the money for this show is already in, or it was voided.
+    // - A show already carrying THIS payment was marked by an earlier run of
+    //   this same link (it died before finishing) — not a conflict.
+    // - A booked-in-chat show (appt_id "chat:…") is saved as charged=true with
+    //   NO Square payment id: billed, but not collected yet. It is still on the
+    //   ready list (same rule as ppa-verify), so the link is what pays it.
     const taken = new Set(((existing ?? []) as Array<{ appt_id: string; charged: boolean; excluded: boolean; square_payment_id: string | null }>)
-      .filter((r) => (r.charged || r.excluded) && r.square_payment_id !== o.paymentId).map((r) => r.appt_id));
+      .filter((r) => r.square_payment_id !== o.paymentId
+        && (r.excluded || (r.charged && (!!r.square_payment_id || !r.appt_id.startsWith("chat:")))))
+      .map((r) => r.appt_id));
     const free = link.shows.filter((s) => !taken.has(s.appt_id));
     const paidAt = o.paidAt ?? now;
 
