@@ -218,7 +218,7 @@ function CopyListButton({ ownerKey, className }: { ownerKey: string; className?:
 }
 
 // ── Drill-down fold ──────────────────────────────────────────────────────────
-// Each block of the open row (Square data, charges that went through, the
+// Each block of the open row (Square data, activity, the
 // contacts) sits behind its own fold, closed by default (owner, 2026-10-20):
 // "sometimes we only want to see that the charge went through, or we just come
 // for the Square data". The header carries the one-line summary so a closed
@@ -391,9 +391,10 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
                   <span className="text-[#8595a8] whitespace-nowrap w-[92px] shrink-0">{when}</span>
                   <span className="flex-1 min-w-[200px] text-[#1f3559]">
                     {e.kind === "credit" && <><strong className="text-[#1d4ed8]">+{money(e.amount)} credit added</strong>{e.reason ? <span className="text-[#697a91]"> — {e.reason}</span> : null}</>}
-                    {e.kind === "credit_used" && <><strong className="text-[#b45309]">−{money(e.amount)} credit used</strong> for {e.names.length} show{e.names.length === 1 ? "" : "s"}{names ? <span className="text-[#697a91]"> — {names}</span> : null}</>}
-                    {e.kind === "card" && <><strong className="text-[#15803d]">{money(e.amount)} charged on card</strong> for {e.names.length} show{e.names.length === 1 ? "" : "s"}{e.creditUsed > 0 ? <span className="text-[#697a91]"> (less {money(e.creditUsed)} credit)</span> : null}{names ? <span className="text-[#697a91]"> — {names}</span> : null}
-                      {e.receiptUrl && <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="ml-1 text-[#15803d] underline">receipt ↗</a>}</>}
+                    {e.kind === "credit_used" && <><strong className="text-[#b45309]">−{money(e.amount)} credit used</strong> for {e.names.length} show{e.names.length === 1 ? "" : "s"}{names ? <span className="text-[#697a91]"> — {names}</span> : null}{e.chargedBy ? <span className="text-[#8595a8]"> · by {e.chargedBy}</span> : null}</>}
+                    {e.kind === "card" && <><strong className="text-[#15803d]">{money(e.amount)} charged on card</strong> for {e.names.length} show{e.names.length === 1 ? "" : "s"}{e.creditUsed > 0 ? <span className="text-[#697a91]"> (less {money(e.creditUsed)} credit)</span> : null}{names ? <span className="text-[#697a91]"> — {names}</span> : null}{e.chargedBy ? <span className="text-[#8595a8]"> · by {e.chargedBy}</span> : null}
+                      {e.receiptUrl ? <a href={e.receiptUrl} target="_blank" rel="noreferrer" className="ml-1 text-[#15803d] underline" title={`Square payment ${e.paymentId}`}>receipt ↗</a>
+                        : <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0]" title="Recorded in the dashboard as collected outside it (e.g. charged directly in Square)">recorded manually</span>}</>}
                   </span>
                   <span className={cn("whitespace-nowrap px-1.5 py-0.5 rounded text-[10px] font-bold border", e.balanceAfter > 0 ? "bg-white text-[#1d4ed8] border-[#c9dbfb]" : "bg-white text-[#8595a8] border-[#e2e8f0]")}
                     title="Unused credit after this step">credit left {money(e.balanceAfter)}</span>
@@ -404,40 +405,10 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
         </Section>
       )}
 
-      {/* Every charge that actually went through — the keep-track trail the
-          user asked for: date, amount, shows covered, who ran it, receipt. */}
-      {(drill.payments?.length ?? 0) > 0 && (() => {
-        const pays = drill.payments!;
-        const total = pays.reduce((n, p) => n + (p.total || 0), 0);
-        const last = pays.map((p) => p.chargedAt).filter(Boolean).sort().at(-1);
-        return (
-        <Section title="✅ Charged & went through" tone="green"
-          summary={`${pays.length} charge${pays.length === 1 ? "" : "s"} · ${money(total)}${last ? ` · last ${fmtDate(last)}` : ""}`}
-          action={<CopyListButton ownerKey={client.ownerKey} />}>
-          <div className="space-y-0.5">
-            {pays.map((p, i) => (
-              <div key={i} className="flex items-center gap-2 text-[11px] text-[#1f3559] flex-wrap">
-                <span className="font-semibold text-[#15803d]">{money(p.total)}</span>
-                {(p.credit ?? 0) > 0 && <span className="text-[10px] text-[#697a91]">({money(p.gross ?? 0)} less {money(p.credit ?? 0)} credit)</span>}
-                <span className="text-[#697a91]">{p.shows} show{p.shows === 1 ? "" : "s"}</span>
-                <span className="text-[#8595a8]">{p.chargedAt ? new Date(p.chargedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</span>
-                {p.chargedBy && <span className="text-[#8595a8]">by {p.chargedBy}</span>}
-                {p.manual ? (
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0]" title="Recorded in the dashboard as collected outside it (e.g. charged directly in Square)">recorded manually</span>
-                ) : (
-                  <a href={p.receiptUrl!} target="_blank" rel="noreferrer"
-                    className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#e6f7ee] text-[#15803d] border border-[#c7edd4] hover:bg-[#d9f2e4]"
-                    title={`Square payment ${p.paymentId}`}>Square receipt ↗</a>
-                )}
-                {(p.contacts?.length ?? 0) > 0 && (
-                  <span className="basis-full text-[10px] text-[#697a91] pl-1">↳ {p.contacts!.join(" · ")}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </Section>
-        );
-      })()}
+      {/* The "✅ Charged & went through" box was removed 11/11/2026 (owner):
+          every charge already shows above in Activity, with the same names,
+          time, who ran it, receipt / "recorded manually". Copy list stays on
+          the client row (Deposits & charged cell). */}
 
       <Section title="👤 Contacts we charge for" tone="teal"
         summary={<>{drill.appointments.length} deposit{drill.appointments.length === 1 ? "" : "s"}{readyCount > 0 && <> · <strong className="text-[#0e8f88]">{readyCount} to review</strong></>}</>}
