@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { DEP_ASK_START, depAskSlugs } from "@/lib/dep-ask";
+import { COMP_AB_START, compAbLocations } from "@/lib/compliment-ab";
 
 export const fetchCache = "force-no-store";
 
@@ -135,6 +136,30 @@ export async function GET() {
       };
     };
     const depSlugs = await depAskSlugs(sb);
+    /* Photo-compliment test (owner, 11/11/2026): one row per slay conversation
+       in compliment_ab_results, filled hourly by /api/cron/compliment-ab. The
+       side is the text the AI actually sent; "wrong" counts leads whose phone
+       digit says the other side (the CloseBot split check). */
+    const compRows: { line: string; expected: string | null; reply_at: string | null; reply_kind: string | null; booked: boolean; paid: boolean }[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from("compliment_ab_results").select("line, expected, reply_at, reply_kind, booked, paid").range(from, from + 999);
+      if (error) throw new Error(error.message);
+      compRows.push(...((data ?? []) as typeof compRows));
+      if (!data || data.length < 1000) break;
+    }
+    const compSide = (line: "old" | "new") => {
+      const r = compRows.filter((x) => x.line === line);
+      return {
+        sent: r.length,
+        replied: r.filter((x) => x.reply_at).length,
+        happy: r.filter((x) => x.reply_kind === "happy").length,
+        putdown: r.filter((x) => x.reply_kind === "putdown").length,
+        booked: r.filter((x) => x.booked).length,
+        paid: r.filter((x) => x.paid).length,
+      };
+    };
+    const compChecked = compRows.filter((x) => x.expected);
+    const compAccounts = (await compAbLocations(sb)).length;
     return NextResponse.json({
       since: TEST_START,
       started: true,
@@ -144,6 +169,7 @@ export async function GET() {
       offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, until: OFFER_END, funnels: offerSlugs.length },
       igw: { a: igwA, b: igwB, since: igwSince ?? undefined, until: IGW_END, funnels: igwFunnels },
       dep: { a: depSide("a"), b: depSide("b"), since: DEP_ASK_START, funnels: depSlugs?.length },
+      comp: { a: compSide("old"), b: compSide("new"), since: COMP_AB_START, accounts: compAccounts, checked: compChecked.length, wrong: compChecked.filter((x) => x.expected !== x.line).length },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e).slice(0, 200) }, { status: 500 });
