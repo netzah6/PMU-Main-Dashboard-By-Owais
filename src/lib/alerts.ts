@@ -963,7 +963,12 @@ export async function scanOneboxNotifyMissing(svc: Svc): Promise<{ checked: numb
    dashboards. Alert once leads have been coming in for 2+ days with the
    status unchanged (owner, 2026-09-21); clears itself when the status
    turns Live. Lead dates come from the sheet's own Date column — synced_at
-   is not a lead date (the Sep-19 migration re-stamped it). */
+   is not a lead date (the Sep-19 migration re-stamped it).
+   3-day grace (owner, 11/11/2026): a coach who just paused a client saw the
+   alert the same day because the leads from BEFORE the pause still counted.
+   client_status_since remembers when the scan first saw the current status;
+   the alert only fires when a lead is dated 3+ days after that — the ads are
+   really still running. It goes to the assigned coach (meta.csm). */
 export async function scanLeadsWhileNotLive(svc: Svc): Promise<{ checked: number; filed: number; resolved: number; error?: string }> {
   const { data: rows, error } = await svc.rpc("ask_ai_query", {
     q: `WITH cm AS (
@@ -991,18 +996,56 @@ export async function scanLeadsWhileNotLive(svc: Svc): Promise<{ checked: number
   const list = (rows ?? []) as R[];
   let filed = 0, resolved = 0;
   const DAY = 86_400_000;
+  const GRACE_DAYS = 3;
+
+  // When did each client get its current non-Live status? Start the clock the
+  // first time the scan sees a status; a new status restarts it; going Live
+  // (or Onboarding) forgets it so the next pause starts fresh.
+  const { data: cmRows, error: cmErr } = await svc.from("clients_master").select("data");
+  if (cmErr) return { checked: 0, filed: 0, resolved: 0, error: cmErr.message };
+  const nowStatus = new Map<string, string>();
+  for (const c of (cmRows ?? []) as Array<{ data: Record<string, unknown> }>) {
+    const biz = String(c.data?.["Business Name"] ?? "").trim().toLowerCase();
+    if (!biz) continue;
+    const st = String(c.data?.["col_1"] ?? "").trim() || "(blank)";
+    if (st === "Live" || st === "Onboarding") continue;
+    nowStatus.set(biz, st);
+  }
+  const { data: seenRows, error: seenErr } = await svc.from("client_status_since").select("biz_key, status, since");
+  if (seenErr) return { checked: 0, filed: 0, resolved: 0, error: seenErr.message };
+  const since = new Map<string, number>();
+  const stamp = new Date().toISOString();
+  const fresh: Array<{ biz_key: string; status: string; since: string; updated_at: string }> = [];
+  const seen = new Map(((seenRows ?? []) as Array<{ biz_key: string; status: string; since: string }>).map((r) => [r.biz_key, r]));
+  for (const [biz, st] of nowStatus) {
+    const old = seen.get(biz);
+    if (old && old.status === st) since.set(biz, new Date(old.since).getTime());
+    else { fresh.push({ biz_key: biz, status: st, since: stamp, updated_at: stamp }); since.set(biz, Date.parse(stamp)); }
+  }
+  if (fresh.length) {
+    const { error: upErr } = await svc.from("client_status_since").upsert(fresh, { onConflict: "biz_key" });
+    if (upErr) return { checked: 0, filed: 0, resolved: 0, error: upErr.message };
+  }
+  const gone = [...seen.keys()].filter((k) => !nowStatus.has(k));
+  if (gone.length) await svc.from("client_status_since").delete().in("biz_key", gone);
   const flagged = new Set<string>();
   for (const r of list) {
     const key = `leads-not-live:${r.biz.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     const daysRunning = Math.floor((Date.now() - new Date(r.first7).getTime()) / DAY);
     const stale = Date.now() - new Date(r.last).getTime() > 3 * DAY; // leads stopped → nothing to chase
     if (daysRunning < 2 || stale) continue;
+    // Grace: the newest lead must be dated 3+ days after the status was set.
+    // Lead dates are whole days, so compare against the day the status began.
+    const from = since.get(r.biz.toLowerCase());
+    if (from == null) continue;
+    const graceEnds = new Date(from); graceEnds.setUTCHours(0, 0, 0, 0);
+    if (new Date(r.last).getTime() < graceEnds.getTime() + GRACE_DAYS * DAY) continue;
     flagged.add(key);
     const ok = await fileAlert(svc, {
       type: "status",
       severity: "high",
       title: `${r.biz}: getting leads but status is ${r.status === "(blank)" ? "EMPTY" : r.status.toUpperCase()}`,
-      detail: `${r.n7} lead${r.n7 === 1 ? "" : "s"} in the last 7 days (since ${r.first7}, latest ${r.last}) while the Clients sheet says "${r.status}". Ads are running for a client nobody marked Live — set the status on the Clients tab (or pause the ads). Clears itself once the status is Live.`,
+      detail: `${r.n7} lead${r.n7 === 1 ? "" : "s"} in the last 7 days (since ${r.first7}, latest ${r.last}) — still coming in ${GRACE_DAYS}+ days after the status became "${r.status}" (${new Date(from).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })}). Ads are running for a client nobody marked Live — set the status on the Clients tab (or pause the ads). Clears itself once the status is Live.`,
       source_key: key,
       meta: { business: r.biz, owner: r.owner || null, status: r.status, leads_7d: r.n7, first_lead: r.first7, last_lead: r.last, csm: r.assigned || null },
       resurfaceAfterDays: 7,

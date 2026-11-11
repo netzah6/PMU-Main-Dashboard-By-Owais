@@ -66,6 +66,32 @@ function onState(v: unknown): boolean | null {
   return null;
 }
 
+/** Name → value lookup that survives accents, case, stray "\r" and extra
+ *  words: "Monique García" (Reports sheet) finds "Monique Garcia" (Clients /
+ *  ad budgets). Exact match first; then a word match, used only when exactly
+ *  ONE name matches — so a short name like "Erin" never grabs a stranger. */
+function nameLookup<T>(pairs: Array<[string, T]>): (name: string) => T | undefined {
+  const plain = (x: string) => x.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
+  const words = (x: string) => plain(x).split(/[^\p{L}\p{N}']+/u).filter((t) => t.length > 1);
+  const exact = new Map<string, T>();
+  const entries: { tokens: string[]; v: T }[] = [];
+  for (const [n, v] of pairs) {
+    const k = plain(n);
+    if (!k) continue;
+    if (!exact.has(k)) exact.set(k, v);
+    entries.push({ tokens: words(n), v });
+  }
+  return (name: string) => {
+    const hit = exact.get(plain(name));
+    if (hit !== undefined) return hit;
+    const toks = words(name);
+    if (!toks.length) return undefined;
+    const found = entries.filter((e) => e.tokens.length > 0 &&
+      (toks.every((t) => e.tokens.includes(t)) || e.tokens.every((t) => toks.includes(t))));
+    return found.length === 1 ? found[0].v : undefined;
+  };
+}
+
 interface Report {
   // `date` is the raw sheet string (written back verbatim on save); `label` is
   // the resolved date actually shown, so an ambiguous D/M row can't read as M/D.
@@ -200,14 +226,11 @@ export default function ReportsPage() {
   }, [rawClients]);
 
   // client name → Google My Business active? (clients_master "GMB" = "true"/"false")
-  const gmbMap = useMemo(() => {
-    const m = new Map<string, boolean>();
-    rawClients.forEach((c) => {
-      const owner = String(c["Owner Full Name"] ?? "").trim().toLowerCase();
-      if (owner) m.set(owner, String(c["GMB"] ?? "").trim().toLowerCase() === "true");
-    });
-    return m;
-  }, [rawClients]);
+  // Same checkbox as the Clients tab's onboarding "GMB" step.
+  const gmbOf = useMemo(() => nameLookup(rawClients.map((c) => [
+    String(c["Owner Full Name"] ?? ""),
+    ["true", "yes", "1"].includes(String(c["GMB"] ?? "").trim().toLowerCase()),
+  ] as [string, boolean])), [rawClients]);
 
   // client name → Business Name (from clients_master, matched on Owner Full Name)
   const businessMap = useMemo(() => {
@@ -222,19 +245,18 @@ export default function ReportsPage() {
 
   // client name → daily budget + ad spend (performance_overview, one row per owner)
   const [aiOpen, setAiOpen] = useState(false);
-  const [budgetMap, setBudgetMap] = useState<Map<string, number>>(new Map());
+  const [budgetPairs, setBudgetPairs] = useState<Array<[string, number]>>([]);
+  const budgetOf = useMemo(() => nameLookup(budgetPairs), [budgetPairs]);
   useEffect(() => {
     const supabase = createClient();
     supabase.from("performance_overview").select("owner_name, daily_budget").then(({ data }) => {
-      const m = new Map<string, number>();
+      const out: Array<[string, number]> = [];
       (data ?? []).forEach((r) => {
         const row = r as { owner_name?: string; daily_budget?: unknown };
-        const k = String(row.owner_name ?? "").trim().toLowerCase();
-        if (!k) return;
-        const b = Number(row.daily_budget);
-        if (!isNaN(b)) m.set(k, b);
+        const b = row.daily_budget == null ? NaN : Number(row.daily_budget);
+        if (row.owner_name && !isNaN(b)) out.push([row.owner_name, b]);
       });
-      setBudgetMap(m);
+      setBudgetPairs(out);
     });
   }, []);
 
@@ -489,8 +511,8 @@ export default function ReportsPage() {
   const todayDates = [...repDates, "Today"];
   const showToday = reps.length > 0;
   const payRow = useMemo(() => (current ? lookupPayment(payments, current.name) : null), [current, payments]);
-  const gmbActive = current ? gmbMap.get(current.name.toLowerCase()) === true : false;
-  const dailyBudget = current ? budgetMap.get(current.name.toLowerCase()) ?? null : null;
+  const gmbActive = current ? gmbOf(current.name) === true : false;
+  const dailyBudget = current ? budgetOf(current.name) ?? null : null;
 
   // ── AI suggestions (rule-based) — each is one of the canonical Action options ──
   const suggestions = useMemo(() => {
