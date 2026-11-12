@@ -68,6 +68,8 @@ export const RUNBOOK: RunbookStep[] = [
   { n: 12, key: "phone_optout", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging Compliance: opt-out footer, sender info and periodic opt-out all OFF (already off = done)", checklist: ["phone_optout", "phone_sms_adv"] },
   // Numbered 45 so the steps after it keep their numbers; it runs here, in the phone batch.
   { n: 45, key: "phone_limit", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Messaging → Messaging limits: daily SMS limit 400 (already 400 or more = done)", how: "New accounts start at 250 a day; hitting it stops every text — AI, workflows, confirmations — until the next day (Janel Lord, 10/28/2026). Owner set every client to 400." },
+  // Numbered 48 for the same reason; it runs here, in the phone batch.
+  { n: 48, key: "phone_recordings", batch: "phone", section: "C · 📞 Phone", who: "mini", label: "Phone System → Voice → Call Recording: auto-delete recordings older than 60 days (already 60 = done)", how: "Stored recordings are billed every day, forever. Owner 11/11/2026: client accounts keep 60 days; all 329 existing client accounts were set that day. New accounts start with it off." },
   // D · GHL user
   // One step since 11/03/2026 (owner): the user is created WITH the team-rule password.
   { n: 14, key: "user_create", batch: "user", section: "D · 👤 GHL user for the client", who: "mini", label: "Create the employee user with the client's name and email, with the password by the team rule (NAME1212!) saved to the card", how: "GHL emails the client an invite. The password is never shown in chat or screenshots.", checklist: ["user_add", "user_password"] },
@@ -128,7 +130,7 @@ const STEP_TITLES: Record<string, string> = {
   account_check: "Check & clean the account", account_take: "Take & rename the account", account_info: "Account info, address & time zone",
   master_row: "Assign team members",
   product: "Commas deposit product", webhook_url: "Payment webhook URL", route_test: "Test payment",
-  phone_buy: "Buy the number & forward calls", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_forward: "Call forwarding",
+  phone_buy: "Buy the number & forward calls", phone_a2p: "A2P check", phone_cnam: "CNAM", phone_optout: "SMS opt-out off", phone_limit: "SMS daily limit 400", phone_recordings: "Call recordings: keep 60 days", phone_forward: "Call forwarding",
   user_create: "Create the client's login & password", user_settings: "Login permissions & calls", user_calendar: "User calendar access",
   wf_survey: "Funnel Survey workflow",
   cal_hours: "Calendar team, location & hours", cal_active: "Calendar on",
@@ -315,6 +317,14 @@ export function miniPlan(step: RunbookStep, f: SetupFacts): string[] {
       `Open ${ghl(L, "settings/phone_system?tab=messaging&childtab=messaging-limits")} (Phone System → "Messaging" tab → "Messaging limits"). Read "Current Limit". Screenshot ("before-1.png").`,
       `If the Current Limit is 400 or MORE: change nothing (never lower it) and report status "done" with the summary "SMS limit already <number>".`,
       `Otherwise click "Update Limit", type 400 in "New Messaging Limit" (keep "Messages" per "Day"), tick "I acknowledge this is a valid account…", click "Update Limit". Reload and confirm Current Limit shows 400. Screenshot ("after-1.png").`,
+    ];
+    case "phone_recordings": return [
+      `Open ${ghl(L, "settings/phone_system?tab=voice&childtab=call-recording-transcriptions&grandchildtab=call-recording")} (Phone System → "Voice" tab → "Call Recording & Transcription" → "Call Recording"). Screenshot ("before-1.png").`,
+      `SAFETY: this is for CLIENT accounts only. If the account name contains "PMU Bookings On Demand" (the agency's own accounts keep recordings forever), change nothing and report status "needs_teammate".`,
+      `If the switch "Automatically Delete Older Recordings?" is already ON and the line under it reads "Delete Call recordings older than 60 days": change nothing and report status "done" with the summary "recordings already auto-delete at 60 days".`,
+      `If the switch is OFF: click it. A box "Automatically Delete Older Recordings?" opens with a "Days" field (it shows 90). Clear the field, type 60, then click the red "Enable Auto-Delete" button.`,
+      `If the switch is ON with a different number of days: click the pencil icon next to the number, type 60 in the "Days" field of "Update Auto-Delete Timing", then click "Update Time Period".`,
+      `Reload and confirm the line reads "Delete Call recordings older than 60 days". Screenshot ("after-1.png").`,
     ];
     case "phone_forward": return [
       `Open ${ghl(L, "settings/phone_number")}, open the account's new number → Edit configuration. Set "Forward calls to" = the client's own phone ${clientPhone}. Save.`,
