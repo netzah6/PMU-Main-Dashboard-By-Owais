@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SHEET_MAP } from "@/lib/sheets";
 import { syncOneSheet } from "@/lib/sync";
+import { createServiceClient } from "@/lib/supabase/server";
+import { notifyFirstDeposits } from "@/lib/first-deposit";
 
 export const maxDuration = 60;
 
@@ -22,5 +24,11 @@ export async function GET(req: NextRequest) {
   }
 
   const result = await syncOneSheet(entry.spreadsheetId, entry.sheetName, entry.table);
-  return NextResponse.json({ timestamp: new Date().toISOString(), result });
+  // A newly live client's first deposit → 🔔 note for their coach. Never
+  // fails the sync.
+  const firstDeposits = await notifyFirstDeposits(createServiceClient()).catch((e) => {
+    console.error("[first-deposit]", e);
+    return null;
+  });
+  return NextResponse.json({ timestamp: new Date().toISOString(), result, firstDeposits });
 }
