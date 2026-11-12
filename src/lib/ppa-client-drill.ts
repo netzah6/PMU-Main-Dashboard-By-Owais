@@ -58,7 +58,7 @@ export async function buildClientDrill(svc: Svc, client: RosterClient) {
   // showedCount / noShowCount are the review decisions that measure show rate:
   // a charged appointment = the client showed; an exclude with reason "no_show"
   // = they didn't. Other exclude reasons void the row without affecting the rate.
-  const summary = { deposits: 0, served: 0, pastDue: 0, upcoming: 0, noshow: 0, noAppt: 0, selfBooked: 0, readyToCharge: 0, excluded: 0, refunded: 0, showed: 0, noShowMarked: 0, showRate: null as number | null };
+  const summary = { deposits: 0, served: 0, pastDue: 0, upcoming: 0, noshow: 0, noAppt: 0, selfBooked: 0, readyToCharge: 0, excluded: 0, refunded: 0, duplicate: 0, showed: 0, noShowMarked: 0, showRate: null as number | null };
   const appointments = ((depRes.data ?? []) as DepRow[]).map((d) => {
     const c = chgBy.get(d.appt_id);
     const b = billBy.get(d.appt_id);
@@ -74,6 +74,8 @@ export async function buildClientDrill(svc: Svc, client: RosterClient) {
     else if (chargeStatus === "past_due") summary.pastDue++;
     else if (chargeStatus === "upcoming") summary.upcoming++;
     else if (chargeStatus === "noshow") summary.noshow++;
+    // A second deposit for a visit another deposit already bills (owner 11/11/2026: one visit = one fee).
+    else if (chargeStatus === "duplicate") summary.duplicate++;
     else if (!refunded) summary.noAppt++; // refunded has its own count below
     if (excluded) summary.excluded++;
     if (refunded) summary.refunded++;
