@@ -5,7 +5,7 @@ import { BookFromChat } from "@/components/client-app/BookFromChat";
 /* One chat, oldest to newest, like a messaging app. Read-only in the demo:
    nobody may send a text to a lead from a link alone — replying arrives
    together with the real sign-in. */
-export default async function ClientAppThread({ params, searchParams }: { params: { token: string; id: string }; searchParams?: { c?: string; from?: string; book?: string } }) {
+export default async function ClientAppThread({ params, searchParams }: { params: { token: string; id: string }; searchParams?: { c?: string; from?: string } }) {
   const app = await loadApp(params.token);
   if (!app) return null;
   // The name comes from her chat list, never from the address bar.
@@ -43,8 +43,7 @@ export default async function ClientAppThread({ params, searchParams }: { params
           </span>
         )}
       </div>
-      {/* "Book appointment" is built (BookFromChat) but stays off until one real booking test — ?book=1 shows it for that test. */}
-      {contactId && searchParams?.book === "1" && <BookFromChat token={params.token} contactId={contactId} name={name} />}
+      {contactId && <BookFromChat token={params.token} contactId={contactId} name={name} />}
       {messages.length === 0 ? (
         <p className="px-1 py-3 text-sm text-[#7b8a9c]">No messages in this chat yet.</p>
       ) : (
