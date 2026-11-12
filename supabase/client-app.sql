@@ -62,3 +62,7 @@ ALTER TABLE public.client_app_expenses ADD CONSTRAINT client_app_expenses_kind_c
 -- Two values per client (owner, 11/12/2026): first treatment (amount) + touch-up; one of the two is enough.
 ALTER TABLE public.client_app_profit_amounts ADD COLUMN IF NOT EXISTS touchup_amount numeric(10,2);
 ALTER TABLE public.client_app_profit_amounts ALTER COLUMN amount DROP NOT NULL;
+
+-- Daily ad budget she picked in the app (owner, 11/12/2026): $25/day to start.
+ALTER TABLE public.client_app_settings ADD COLUMN IF NOT EXISTS ad_budget_daily integer;
+ALTER TABLE public.client_app_settings ADD COLUMN IF NOT EXISTS ad_budget_at timestamptz;
