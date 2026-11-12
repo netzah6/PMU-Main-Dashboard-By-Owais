@@ -25,7 +25,8 @@ export async function POST(req: NextRequest) {
     fee_per_appt: body.fee != null ? Number(body.fee) : (existing?.fee_per_appt ?? 30),
     note: body.note !== undefined ? body.note : (existing?.note ?? null),
     auto_charge: body.auto_charge !== undefined ? !!body.auto_charge : (existing?.auto_charge ?? false),
-    billing_exempt: body.billing_exempt !== undefined ? !!body.billing_exempt : (existing?.billing_exempt ?? false),
+    // No "no fee" clients any more (owner, 11/12/2026): every PPS client pays.
+    billing_exempt: false,
     // PPS start: only appointments from this moment bill. null = all time.
     pps_start: body.pps_start !== undefined
       ? (body.pps_start && !isNaN(Date.parse(body.pps_start)) ? new Date(body.pps_start).toISOString() : null)
