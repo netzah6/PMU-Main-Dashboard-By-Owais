@@ -8,8 +8,8 @@
 --
 -- Rule: deposits of the same lead (same name OR same email) for the same
 -- appointment (same owner + same start_time) bill ONCE. The keeper is, in
--- order: the one already charged, then one not excluded, then the earliest
--- deposit, then the lowest appt_id. The others get charge_status
+-- order: the one already charged, then one not excluded, then one with a
+-- billable status, then the earliest deposit, then the lowest appt_id. The others get charge_status
 -- 'duplicate', which no billing path charges. Refunded and before-start
 -- deposits never take part, so if the keeper is later refunded the next one
 -- takes over and the visit still bills once. Rows already charged keep their
@@ -43,8 +43,12 @@ create or replace view ppa_deposit_billing as
     ORDER BY r.appt_id
  ), cand AS (
    SELECT b.appt_id, b.owner_key, b.start_time, l.nm, l.em,
-          -- keeper rank: lower wins (charged first, then not excluded, then earliest deposit, then appt_id)
+          -- keeper rank: lower wins (charged first, then not excluded, then a
+          -- billable status — two deposits of one visit can land on different
+          -- statuses when the contact has a cancelled hold at the same slot —
+          -- then earliest deposit, then appt_id)
           ROW(NOT COALESCE(ch.charged, false), COALESCE(ch.excluded, false),
+              CASE b.status0 WHEN 'served' THEN 0 WHEN 'past_due' THEN 0 WHEN 'upcoming' THEN 1 ELSE 2 END,
               COALESCE(l.dep_at, 'infinity'::timestamptz), b.appt_id) AS rk
      FROM base b
      JOIN lead l ON l.appt_id = b.appt_id
