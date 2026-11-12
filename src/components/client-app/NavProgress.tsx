@@ -13,8 +13,11 @@ export function NavProgress({ base }: { base: string }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => setBusy(false), [path, query]); // the new screen arrived
   useEffect(() => {
+    /* Listened to on the way DOWN (capture): the app's links stop the browser's
+       own navigation to open the screen themselves, so by the time the tap
+       bubbles back up it looks "already handled" and the sign never showed. */
     const onClick = (e: MouseEvent) => {
-      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = (e.target as HTMLElement | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!a || a.target === "_blank" || a.hasAttribute("download")) return;
       const url = new URL(a.href, window.location.href);
@@ -22,8 +25,8 @@ export function NavProgress({ base }: { base: string }) {
       if (url.pathname === window.location.pathname && url.search === window.location.search) return;
       setBusy(true);
     };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
   }, [base]);
   // Never stay on forever (a tap that was cancelled, the phone went offline…).
   useEffect(() => {
