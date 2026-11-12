@@ -17,7 +17,9 @@ export async function GET() {
       .eq("verdict", "booked").eq("dismissed", false).eq("billed", false)
       .order("last_message_at", { ascending: false }),
     svc.from("ppa_chat_flags").select("scanned_at").order("scanned_at", { ascending: false }).limit(1).maybeSingle(),
-    svc.from("deposit_refunds").select("contact_name, email").eq("status", "refunded"),
+    // select("*"): keep_ppa_fee may not exist yet; a missing column must not
+    // empty this list (that would let refunded leads bill from chat).
+    svc.from("deposit_refunds").select("*").eq("status", "refunded"),
   ]);
 
   // A refunded deposit means the session never happened — that lead must not
@@ -25,7 +27,9 @@ export async function GET() {
   // as "Santos M", chat contact "Santos M Alcocer" — hence containment
   // matching, not equality).
   const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const refundNames = ((refunds ?? []) as Array<{ contact_name: string | null }>)
+  // A "refund but keep the PPA fee" refund (owner, 11/11/2026) still bills.
+  const refundNames = ((refunds ?? []) as Array<{ contact_name: string | null; keep_ppa_fee?: boolean }>)
+    .filter((r) => r.keep_ppa_fee !== true)
     .map((r) => norm(r.contact_name)).filter((n) => n.length >= 6);
   const refunded = (name: string | null) => {
     const n = norm(name);
