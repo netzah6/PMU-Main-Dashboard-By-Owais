@@ -20,28 +20,51 @@ const WINDOW_MS = 21 * 864e5;
 const REFUSED = /^\[no token reaches this dataset, tried (\d+)\]/;
 
 /* Dataset names (owner, 11/11/2026: "instead of OK mention their dataset
-   name"), read from Meta with the first token that reaches the dataset.
-   Names rarely change → kept 6 hours per server instance (a failed read
-   30 minutes). Never blocks the column: no name → the cell says "OK". */
-const GRAPH = "https://graph.facebook.com/v21.0";
-const nameCache = new Map<string, { at: number; name: string | null }>();
-async function datasetName(px: string, tokens: string[]): Promise<string | null> {
+   name"). Two sources, live first:
+   1. Meta: GET /{dataset}?fields=name with the first token that reaches it.
+      On 11/11 every read came back empty with our Events-Manager CAPI
+      tokens (likely send-only; not proven), so each refusal's code and
+      message is now kept (never the token) and returned as nameErrors.
+      Read on v25.0: Marketing API v21.0 is past its end date for reads.
+   2. app_settings "meta_dataset_names" = { datasetId: name }, copied from
+      Events Manager by hand (owner OK 11/12/2026). A new dataset shows
+      "OK" until its name is added there.
+   Names rarely change → a Meta answer is kept 6 hours per server instance,
+   a failed read 30 minutes. Never blocks the column. */
+const GRAPH_READ = "https://graph.facebook.com/v25.0";
+const NAMES_KEY = "meta_dataset_names";
+type NameRead = { name: string | null; reasons: string[] };
+/* Meta has echoed a malformed token inside its error text (code 190):
+   strip every token we hold and anything token-shaped before keeping it. */
+function redact(msg: string, tokens: string[]): string {
+  let out = msg;
+  for (const t of tokens) if (t) out = out.split(t).join("[token]");
+  return out.replace(/EAA[A-Za-z0-9]{10,}/g, "[token]");
+}
+const NAME_DEADLINE_MS = 6000; // the column never waits longer for Meta; late answers still fill the cache
+const nameCache = new Map<string, { at: number } & NameRead>();
+async function datasetName(px: string, tokens: string[]): Promise<NameRead> {
   const hit = nameCache.get(px);
-  if (hit && Date.now() - hit.at < (hit.name ? 6 * 3600_000 : 30 * 60_000)) return hit.name;
+  if (hit && Date.now() - hit.at < (hit.name ? 6 * 3600_000 : 30 * 60_000)) return { name: hit.name, reasons: hit.reasons };
   let name: string | null = null;
-  for (const t of tokens) {
+  const reasons: string[] = [];
+  for (const [i, t] of tokens.entries()) {
     try {
-      const r = await fetch(`${GRAPH}/${encodeURIComponent(px)}?fields=name&access_token=${encodeURIComponent(t)}`, { cache: "no-store", signal: AbortSignal.timeout(5000) });
-      if (!r.ok) continue;
-      const j = (await r.json()) as { name?: string };
-      if (j.name?.trim()) { name = j.name.trim(); break; }
-    } catch { /* next token */ }
+      const r = await fetch(`${GRAPH_READ}/${encodeURIComponent(px)}?fields=name&access_token=${encodeURIComponent(t)}`, { cache: "no-store", signal: AbortSignal.timeout(5000) });
+      const j = (await r.json().catch(() => ({}))) as { name?: string; error?: { code?: number; error_subcode?: number; message?: string } };
+      if (r.ok && j.name?.trim()) { name = j.name.trim(); break; }
+      const e = j.error;
+      reasons.push(`token ${i + 1}: ${r.ok ? "no name in reply" : `HTTP ${r.status}${e ? ` code ${e.code ?? "?"}${e.error_subcode ? `/${e.error_subcode}` : ""} ${redact(String(e.message ?? ""), tokens).slice(0, 120)}` : ""}`}`);
+    } catch (e) {
+      reasons.push(`token ${i + 1}: ${e instanceof Error ? e.name : "error"}`);
+    }
   }
-  nameCache.set(px, { at: Date.now(), name });
-  return name;
+  if (!name && reasons.length) console.warn("[fb-tracking] dataset name not readable", px, reasons.join(" | "));
+  nameCache.set(px, { at: Date.now(), name, reasons });
+  return { name, reasons };
 }
 
-export async function fbTrackingBySlug(svc: SupabaseClient): Promise<{ bySlug: Record<string, FbTrack>; nameBySlug: Record<string, string> }> {
+export async function fbTrackingBySlug(svc: SupabaseClient): Promise<{ bySlug: Record<string, FbTrack>; nameBySlug: Record<string, string>; nameErrors: Record<string, string[]> }> {
   const { data: clients, error: cErr } = await svc.from("onebox_clients")
     .select("slug, status, config, extras").neq("status", "draft");
   if (cErr) throw new Error(cErr.message);
@@ -80,9 +103,21 @@ export async function fbTrackingBySlug(svc: SupabaseClient): Promise<{ bySlug: R
     }
   }
 
+  const { data: saved, error: sErr } = await svc.from("app_settings").select("value").eq("key", NAMES_KEY).maybeSingle();
+  if (sErr) console.warn("[fb-tracking] stored dataset names not readable:", sErr.message);
+  const stored = (saved?.value ?? {}) as Record<string, unknown>;
   const names = new Map<string, string | null>();
-  await Promise.all([...tokensByPx].map(async ([px, tokens]) => { names.set(px, await datasetName(px, tokens)); }));
+  const nameErrors: Record<string, string[]> = {};
+  await Promise.all([...tokensByPx].map(async ([px, tokens]) => {
+    const read = await Promise.race([
+      datasetName(px, tokens),
+      new Promise<NameRead>((res) => setTimeout(() => res({ name: null, reasons: ["Meta read still running"] }), NAME_DEADLINE_MS)),
+    ]);
+    const fallback = typeof stored[px] === "string" ? String(stored[px]).trim() : "";
+    names.set(px, read.name ?? (fallback || null));
+    if (!read.name && read.reasons.length) nameErrors[px] = read.reasons;
+  }));
   const nameBySlug: Record<string, string> = {};
   for (const [slug, px] of pxBySlug) { const n = names.get(px); if (n) nameBySlug[slug] = n; }
-  return { bySlug: out, nameBySlug };
+  return { bySlug: out, nameBySlug, nameErrors };
 }
