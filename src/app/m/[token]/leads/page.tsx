@@ -1,8 +1,9 @@
 import { loadApp, type AppLead } from "@/lib/client-app";
 import { day } from "@/components/client-app/BillingView";
+import { FilterBox } from "@/components/client-app/FilterBox";
 
 /* Leads: who came in, and how far each one got. Names, dates and a status —
-   the conversation itself stays in the messaging app for now. */
+   the conversation itself is on the Chats tab. */
 const STATE: Record<AppLead["state"], { label: string; cls: string }> = {
   paid: { label: "Paid a deposit", cls: "bg-[#e6f7ee] text-[#15803d]" },
   booked: { label: "Picked a time", cls: "bg-[#fff4e5] text-[#b45309]" },
@@ -29,13 +30,14 @@ export default async function ClientAppLeads({ params }: { params: { token: stri
       </section>
       <p className="px-1 text-xs text-[#7b8a9c]">Last 30 days</p>
 
-      <section className="rounded-2xl border border-[#e4ebf2] bg-white px-4 py-1">
+      <FilterBox target="leads-list" placeholder="Search a lead…" />
+      <section id="leads-list" className="rounded-2xl border border-[#e4ebf2] bg-white px-4 py-1">
         {leads.length === 0 ? (
           <p className="py-3 text-sm text-[#7b8a9c]">No leads yet.</p>
         ) : (
           <ul>
             {leads.map((l, i) => (
-              <li key={i} className="flex items-center gap-2 border-b border-[#eef3f8] py-2.5 last:border-0">
+              <li key={i} data-q={`${l.name} ${day(l.at)} ${STATE[l.state].label}`.toLowerCase()} className="flex items-center gap-2 border-b border-[#eef3f8] py-2.5 last:border-0">
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-[#1c2b3a]">{l.name}</p>
                   <p className="text-xs text-[#7b8a9c]">{day(l.at)}</p>

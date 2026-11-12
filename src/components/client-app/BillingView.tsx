@@ -21,7 +21,7 @@ export const HOW: Record<string, { label: string; cls: string }> = {
 export function ShowRow({ s, fee }: { s: PortalShow; fee?: number }) {
   const how = HOW[s.how] ?? { label: "", cls: "" };
   return (
-    <li className="flex items-center gap-2 py-2 border-b border-[#eef3f8] last:border-0">
+    <li data-q={`${s.name} ${day(s.date)} ${how.label}`.toLowerCase()} className="flex items-center gap-2 py-2 border-b border-[#eef3f8] last:border-0">
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-[#1c2b3a] truncate">{s.name}</div>
         <div className="flex items-center gap-1.5 flex-wrap text-xs text-[#7b8a9c]">
@@ -36,7 +36,7 @@ export function ShowRow({ s, fee }: { s: PortalShow; fee?: number }) {
 
 export function Fold({ title, count, children, open }: { title: string; count: string; children: React.ReactNode; open?: boolean }) {
   return (
-    <details className="group rounded-2xl border border-[#e4ebf2] bg-white" open={open}>
+    <details data-qgroup className="group rounded-2xl border border-[#e4ebf2] bg-white" open={open}>
       <summary className="flex items-center gap-2 px-4 py-3 cursor-pointer list-none select-none">
         <span className="text-sm font-bold text-[#1c2b3a]">{title}</span>
         <span className="ml-auto text-sm text-[#7b8a9c]">{count}</span>
@@ -50,31 +50,36 @@ export function Fold({ title, count, children, open }: { title: string; count: s
 export function BillingView({ v, showUpcoming = true }: { v: PortalView; showUpcoming?: boolean }) {
   return (
     <div className="space-y-3">
-      {/* The one number that matters. */}
-      <section className={`rounded-2xl border p-4 ${v.owed.count > 0 ? "border-[#fcd9a8] bg-[#fffdf7]" : "border-[#c7edd4] bg-[#f4fbf7]"}`}>
+      {/* Lead with the win — the clients who came in — then what the next
+          bill for them is (owner, 11/11/2026: frame it so they like opening it). */}
+      <section data-qgroup className="rounded-2xl border border-[#bfe9e5] bg-white p-4">
         {v.owed.count > 0 ? (
           <>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#b45309]">Not charged yet</p>
-            <p className="text-3xl font-extrabold text-[#1c2b3a]">{usd(v.owed.amount)}</p>
-            <p className="text-sm text-[#7b8a9c]">
-              {v.owed.count} show{v.owed.count === 1 ? "" : "s"} × {usd(v.fee)} = {usd(v.owed.gross)}
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#0e8f88]">New clients served</p>
+            <p className="text-3xl font-extrabold text-[#1c2b3a]">{v.owed.count} <span className="text-base font-bold text-[#52627a]">client{v.owed.count === 1 ? "" : "s"} came in</span></p>
+            <div className="mt-2 flex items-baseline gap-2 rounded-xl bg-[#f3fbfa] px-3 py-2">
+              <span className="text-sm font-semibold text-[#52627a]">Your next bill</span>
+              <span className="ml-auto text-xl font-extrabold text-[#1c2b3a]">{usd(v.owed.amount)}</span>
+            </div>
+            <p className="mt-1 text-xs text-[#7b8a9c]">
+              {v.owed.count} × {usd(v.fee)} = {usd(v.owed.gross)}
               {v.owed.credit > 0 && <> − {usd(v.owed.credit)} credit</>}
             </p>
-            <ul className="mt-2 rounded-xl bg-white border border-[#f3e3c7] px-3">
+            <ul className="mt-2 rounded-xl border border-[#e4ebf2] px-3">
               {v.owed.shows.map((s, i) => <ShowRow key={i} s={s} fee={v.fee} />)}
             </ul>
           </>
         ) : (
           <>
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#15803d]">Not charged yet</p>
-            <p className="text-3xl font-extrabold text-[#1c2b3a]">$0</p>
-            <p className="text-sm text-[#7b8a9c]">You&apos;re all paid up.</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#15803d]">You&apos;re all paid up</p>
+            <p className="text-3xl font-extrabold text-[#1c2b3a]">$0 <span className="text-base font-bold text-[#52627a]">on your next bill</span></p>
+            <p className="text-sm text-[#7b8a9c]">New clients show here as soon as they come in.</p>
           </>
         )}
       </section>
 
       {showUpcoming && v.upcoming.length > 0 && (
-        <Fold title="Upcoming appointments" count={`${v.upcoming.length} · nothing owed yet`}>
+        <Fold title="Upcoming appointments" count={`${v.upcoming.length} booked ahead`}>
           <ul>{v.upcoming.map((s, i) => <ShowRow key={i} s={s} />)}</ul>
         </Fold>
       )}
@@ -85,7 +90,7 @@ export function BillingView({ v, showUpcoming = true }: { v: PortalView; showUpc
         ) : (
           <ul>
             {v.payments.map((p, i) => (
-              <li key={i} className="py-2 border-b border-[#eef3f8] last:border-0">
+              <li key={i} data-q={`${p.names.join(" ")} ${day(p.at)}`.toLowerCase()} className="py-2 border-b border-[#eef3f8] last:border-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold text-[#1c2b3a]">{p.creditOnly ? `${usd(p.credit)} credit used` : usd(p.total)}</span>
                   <span className="text-xs text-[#7b8a9c]">{day(p.at)}</span>

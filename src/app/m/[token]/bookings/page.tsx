@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { loadApp } from "@/lib/client-app";
 import { ShowRow } from "@/components/client-app/BillingView";
+import { FilterBox } from "@/components/client-app/FilterBox";
 
 /* Bookings: what is coming up, then the sessions that already happened and
    are waiting to be charged (the detail lives on the Billing tab). */
@@ -11,8 +12,9 @@ export default async function ClientAppBookings({ params }: { params: { token: s
   const upcoming = [...v.upcoming].sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? "")));
   const done = [...v.owed.shows].sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? "")));
   return (
-    <div className="space-y-3">
-      <section className="rounded-2xl border border-[#bfe9e5] bg-white px-4 py-3">
+    <div id="bookings-list" className="space-y-3">
+      <FilterBox target="bookings-list" placeholder="Search an appointment…" />
+      <section data-qgroup className="rounded-2xl border border-[#bfe9e5] bg-white px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-[#0e8f88]">Upcoming</p>
         <p className="text-3xl font-extrabold text-[#1c2b3a]">{upcoming.length}</p>
         {upcoming.length === 0
@@ -21,12 +23,12 @@ export default async function ClientAppBookings({ params }: { params: { token: s
       </section>
 
       {done.length > 0 && (
-        <section className="rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3">
+        <section data-qgroup className="rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3">
           <div className="flex items-center">
             <p className="text-sm font-bold text-[#1c2b3a]">Recent sessions</p>
             <Link href={`/m/${params.token}/billing`} className="ml-auto text-xs font-semibold text-[#0e8f88]">Billing</Link>
           </div>
-          <p className="text-xs text-[#7b8a9c]">Happened already · not charged yet</p>
+          <p className="text-xs text-[#7b8a9c]">Clients who came in · on your next bill</p>
           <ul className="mt-1">{done.map((s, i) => <ShowRow key={i} s={s} />)}</ul>
         </section>
       )}
