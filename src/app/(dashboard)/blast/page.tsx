@@ -65,6 +65,26 @@ async function shrinkPhoto(file: File): Promise<Blob> {
   throw new Error("That photo is too big for a text — try a smaller one");
 }
 
+/* Blasts go out in business hours only (owner, 11/12/2026): the picker offers
+   8 AM – 8 PM, on the hour, instead of the phone's full 24-hour wheel.
+   Value stays "YYYY-MM-DDTHH:00" so the rest of the page is unchanged. */
+const BLAST_HOURS = Array.from({ length: 13 }, (_, i) => i + 8); // 8 … 20
+const hourLabel = (h: number) => `${h % 12 === 0 ? 12 : h % 12}:00 ${h < 12 ? "AM" : "PM"}`;
+function DateHourPicker({ value, onChange, className }: { value: string; onChange: (v: string) => void; className?: string }) {
+  const [date, time] = (value || "").split("T");
+  const hour = time ? Number(time.split(":")[0]) : 10;
+  const h = BLAST_HOURS.includes(hour) ? hour : 10;
+  const set = (d: string, hh: number) => onChange(d ? `${d}T${String(hh).padStart(2, "0")}:00` : "");
+  return (
+    <span className="inline-flex items-center gap-1">
+      <input type="date" value={date ?? ""} onChange={(e) => set(e.target.value, h)} className={className} />
+      <select value={h} onChange={(e) => set(date ?? "", Number(e.target.value))} className={className} disabled={!date}>
+        {BLAST_HOURS.map((x) => <option key={x} value={x}>{hourLabel(x)}</option>)}
+      </select>
+    </span>
+  );
+}
+
 export default function BlastPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [defaultTemplate, setDefaultTemplate] = useState("");
@@ -236,8 +256,8 @@ export default function BlastPage() {
   const [reschedBusy, setReschedBusy] = useState(false);
   const reschedProblem = useMemo(() => templateProblem(reschedTemplate), [reschedTemplate]);
   const openResched = (j: Job) => {
-    const d = new Date(Date.now() + 24 * 3600 * 1000); // default: tomorrow, same time
-    d.setMinutes(0, 0, 0);
+    const d = new Date(Date.now() + 24 * 3600 * 1000); // default: tomorrow 10 AM
+    d.setHours(10, 0, 0, 0);
     const pad = (n: number) => String(n).padStart(2, "0");
     setReschedAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`);
     setReschedTemplate(j.message_template ?? "");
@@ -487,8 +507,8 @@ export default function BlastPage() {
                 </label>
                 {when === "later" && (
                   <>
-                    <input type="datetime-local" value={sendAt} onChange={(e) => setSendAt(e.target.value)}
-                      className="text-xs border border-[#d7e0ea] rounded-lg px-2 py-1 text-[#1f3559]" />
+                    <DateHourPicker value={sendAt} onChange={setSendAt}
+                      className="text-xs border border-[#d7e0ea] rounded-lg px-2 py-1 text-[#1f3559] bg-white" />
                     <span className="text-[10px] font-semibold text-[#0e8f88]">🕒 {clientTz ? `client's time (${tzCity(clientTz)})` : "your computer's time — client zone unknown"}</span>
                   </>
                 )}
@@ -616,7 +636,7 @@ export default function BlastPage() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[10px] font-bold text-[#0e8f88]">Send on ({tzCity(reschedTz)} time):</span>
-                      <input type="datetime-local" value={reschedAt} onChange={(e) => setReschedAt(e.target.value)}
+                      <DateHourPicker value={reschedAt} onChange={setReschedAt}
                         className="px-2 py-1 bg-white border border-[#a7e3df] rounded text-xs text-[#1f3559] focus:outline-none focus:border-[#15B7AE]" />
                       <button onClick={confirmResched} disabled={!reschedAt || !!reschedProblem || reschedBusy}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#15B7AE] hover:bg-[#0e8f88] text-white text-[10px] font-bold disabled:opacity-50">
