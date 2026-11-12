@@ -12,7 +12,8 @@ import { BLAST_TAGS, autoFixTemplate, templateProblem } from "@/lib/blast-templa
    exactly), stays close to the message's length, and keeps its shape:
    greeting → who it is → a few spots → one question. */
 
-const MODEL = process.env.BLAST_TWIST_MODEL || "claude-sonnet-5-5";
+// Same model the client briefs already run on in production (proven on this key).
+const MODEL = process.env.BLAST_TWIST_MODEL || "claude-opus-5-5";
 export const TWIST_MAX_OCCASION = 80;
 /** A twist may be a little longer than the message it starts from — not a new message. */
 const EXTRA_CHARS = 70;
