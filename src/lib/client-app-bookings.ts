@@ -1,5 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
-import { chatAccount, type AppChatAccount } from "@/lib/client-app";
+import { chatAccount, niceName, type AppChatAccount } from "@/lib/client-app";
 import { cancelAppointmentQuietly } from "@/lib/appointment-cancel";
 import { liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
 
@@ -162,22 +162,30 @@ async function liveAppointmentStatus(acct: AppChatAccount, id: string): Promise<
 // ── Her calendars ───────────────────────────────────────────────────────────
 type Cal = { id: string; name: string; slotMin: number; open: Array<{ days: number[]; from: number; to: number }> };
 const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
-async function calendarsOf(acct: AppChatAccount): Promise<Cal[] | null> {
+type OH = { daysOfTheWeek?: number[]; hours?: Array<{ openHour?: number; openMinute?: number; closeHour?: number; closeMinute?: number }> };
+const openOf = (openHours: unknown): Cal["open"] => arr<OH>(openHours).flatMap((o) => arr<NonNullable<OH["hours"]>[number]>(o?.hours).map((h) => ({
+  days: arr<number>(o?.daysOfTheWeek).map(Number),
+  from: (Number(h?.openHour) || 0) * 60 + (Number(h?.openMinute) || 0),
+  to: (Number(h?.closeHour) || 0) * 60 + (Number(h?.closeMinute) || 0),
+}))).filter((x) => x.to > x.from);
+/* `withHours`: the list does not carry the opening hours reliably, so each
+   calendar is read on its own for them (the week view needs them). */
+async function calendarsOf(acct: AppChatAccount, withHours = false): Promise<Cal[] | null> {
   const r = await fetch(`${GHL}/calendars/?locationId=${encodeURIComponent(acct.locationId)}`, { headers: H(acct.token) }).catch(() => null);
   if (!r?.ok) return null;
-  const j = (await r.json().catch(() => null)) as { calendars?: Array<Record<string, unknown>> } | null;
-  return arr<Record<string, unknown>>(j?.calendars).filter((c) => c && c.id && c.isActive !== false).slice(0, 8).map((c) => {
+  const j = (await r.json().catch(() => null)) as { calendars?: unknown } | null;
+  const list = arr<Record<string, unknown>>(j?.calendars).filter((c) => c && c.id && c.isActive !== false).slice(0, 8);
+  const full = withHours ? await Promise.all(list.map(async (c) => {
+    const d = await fetch(`${GHL}/calendars/${encodeURIComponent(String(c.id))}`, { headers: H(acct.token) }).catch(() => null);
+    return d?.ok ? (((await d.json().catch(() => null)) as { calendar?: Record<string, unknown> } | null)?.calendar ?? null) : null;
+  })) : [];
+  return list.map((c, i) => {
     const unit = String(c.slotDurationUnit ?? "mins").toLowerCase();
     const n = Number(c.slotDuration) || 30;
-    type OH = { daysOfTheWeek?: number[]; hours?: Array<{ openHour?: number; openMinute?: number; closeHour?: number; closeMinute?: number }> };
     return {
       id: String(c.id), name: String(c.name ?? "Calendar").trim() || "Calendar",
       slotMin: Math.min(480, Math.max(10, unit.startsWith("hour") ? n * 60 : n)),
-      open: arr<OH>(c.openHours).flatMap((o) => arr<NonNullable<OH["hours"]>[number]>(o?.hours).map((h) => ({
-        days: arr<number>(o?.daysOfTheWeek).map(Number),
-        from: (Number(h.openHour) || 0) * 60 + (Number(h.openMinute) || 0),
-        to: (Number(h.closeHour) || 0) * 60 + (Number(h.closeMinute) || 0),
-      }))).filter((x) => x.to > x.from),
+      open: openOf(full[i]?.openHours ?? c.openHours),
     };
   });
 }
@@ -213,7 +221,7 @@ export async function loadWeek(token: string, w?: string): Promise<WeekView | nu
   if (start < addDays(today, -35) || start > addDays(today, 91)) start = today;
   const keys = Array.from({ length: 7 }, (_, i) => addDays(start, i));
   const weekFrom = Date.parse(wallToIso(`${keys[0]}T00:00:00`, tz)), weekTo = Date.parse(wallToIso(`${addDays(start, 7)}T00:00:00`, tz));
-  const cals = await calendarsOf(acct);
+  const cals = await calendarsOf(acct, true);
   const lists = await Promise.all((cals ?? []).map(async (c) => {
     const r = await fetch(`${GHL}/calendars/events?locationId=${encodeURIComponent(acct.locationId)}&calendarId=${encodeURIComponent(c.id)}&startTime=${weekFrom}&endTime=${weekTo}`, { headers: H(acct.token) }).catch(() => null);
     if (!r?.ok) return null;
@@ -241,7 +249,7 @@ export async function loadWeek(token: string, w?: string): Promise<WeekView | nu
     const startMin = minOf(s), mins = Number.isFinite(en) && en > s ? Math.round((en - s) / 60_000) : 30;
     events.push({
       id, day, startMin, endMin: Math.min(24 * 60, startMin + mins),
-      name: (contactId && nameOf.get(contactId)) || String(e.title ?? "").trim() || "Appointment",
+      name: niceName((contactId && nameOf.get(contactId)) || String(e.title ?? "").trim() || "Appointment"),
       kind: st === "invalid" ? "hold" : st === "showed" ? "done" : "booked",
       when: whenLabel(tz, s), contactId: contactId && nameOf.has(contactId) ? contactId : null,
       canChange: (st === "confirmed" || st === "new") && s > Date.now(),
