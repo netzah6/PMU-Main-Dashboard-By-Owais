@@ -43,7 +43,8 @@ function Steps({ step }: { step: 1 | 2 }) {
 }
 
 /* Add a cost: name, amount, how often. */
-function AddCost({ month, busy, save, d, setErr }: { month: string; busy: string | null; save: Save; d: ProfitData; setErr: (s: string | null) => void }) {
+/* `month` = where a repeating cost starts; `onceMonth` = the month a one-time cost belongs to. */
+function AddCost({ month: startMonth, onceMonth, busy, save, d, setErr }: { month: string; onceMonth: string; busy: string | null; save: Save; d: ProfitData; setErr: (s: string | null) => void }) {
   const [label, setLabel] = useState("");
   const [cost, setCost] = useState("");
   const [kind, setKind] = useState<ExpenseKind>("monthly");
@@ -51,6 +52,7 @@ function AddCost({ month, busy, save, d, setErr }: { month: string; busy: string
     const amount = num(cost);
     if (!label.trim()) { setErr("Give the cost a name, like Rent"); return; }
     if (amount == null || amount <= 0) { setErr("Type the amount as a number, like 120"); return; }
+    const month = kind === "once" ? onceMonth : startMonth;
     const temp: ProfitExpense = { id: `new-${Date.now()}`, label: label.trim(), amount, kind, month, endMonth: null };
     if (await save("add", { action: "expense_add", label, amount, kind, month }, { ...d, expenses: [...d.expenses, temp] })) { setLabel(""); setCost(""); }
   };
@@ -231,7 +233,7 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
             </ul>
           )}
           {/* Costs added here count from her first month with us, so the past months are right too. */}
-          <AddCost month={d.firstMonth} busy={busy} save={save} d={d} setErr={setErr} />
+          <AddCost month={d.firstMonth} onceMonth={d.thisMonth} busy={busy} save={save} d={d} setErr={setErr} />
         </section>
         {Err}
         <button onClick={() => void save("done", { action: "setup_done" }, { ...d, step: 3 })} disabled={busy === "done"} className={MAIN_BTN}>
@@ -347,7 +349,7 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
         )}
         <details className="mt-2">
           <summary className="cursor-pointer list-none text-sm font-bold text-[#0e8f88]">+ Add a cost</summary>
-          <div className="mt-2"><AddCost month={month} busy={busy} save={save} d={d} setErr={setErr} /></div>
+          <div className="mt-2"><AddCost month={month} onceMonth={month} busy={busy} save={save} d={d} setErr={setErr} /></div>
         </details>
       </section>
     </div>
