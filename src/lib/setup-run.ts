@@ -204,6 +204,14 @@ export async function advanceSetup(svc: Svc, onboardingId: string): Promise<Setu
           setStep(ob.setup, s.key, { status: "skipped", note: "this setup was finished when the step was added" }, `${s.n}. skipped`);
           touched = true;
         }
+        // Added 11/11/2026: every existing client account was set to 60-day
+        // recording auto-delete by hand that day, so a setup that was already
+        // finished is not reopened for it.
+        if (s.key === "phone_recordings" && st.status === "todo" && ob.setup.status === "done"
+          && Date.parse(String(ob.setup.finished_at ?? "")) < Date.parse("2026-11-13T00:00:00Z")) {
+          setStep(ob.setup, s.key, { status: "skipped", note: "already set to 60 days for every client account on 11/11/2026" }, `${s.n}. skipped`);
+          touched = true;
+        }
         // V3-only step: not for other versions, and never reopened on a setup
         // that had already passed it when the step was added.
         if (s.v3Only && st.status === "todo") {
@@ -841,7 +849,7 @@ async function ensureMiniCard(svc: Svc, onboardingId: string): Promise<void> {
   if (!next) return;
   // Gates: a browser step cannot start before the API step it builds on.
   const needs: Record<string, string[]> = {
-    webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_limit: ["phone_buy"], phone_forward: ["phone_buy"],
+    webhook_url: ["account_take"], phone_a2p: ["phone_buy"], phone_cnam: ["phone_buy"], phone_optout: ["phone_buy"], phone_limit: ["phone_buy"], phone_recordings: ["phone_buy"], phone_forward: ["phone_buy"],
     user_settings: ["user_create"], user_calendar: ["user_create"], wf_survey: ["user_create"], cal_hours: ["user_create"],
     funnel_ig: ["funnel_create"], funnel_reviews: ["funnel_create"], funnel_redirect: ["funnel_create"], closebot_connect: ["funnel_live"], funnel_test: ["funnel_live", "last_check", "product"], last_profile: ["funnel_live"],
   };
