@@ -89,3 +89,7 @@ CREATE TABLE IF NOT EXISTS public.client_app_booking_log (
 );
 CREATE INDEX IF NOT EXISTS client_app_booking_log_owner ON public.client_app_booking_log (owner_key, created_at);
 ALTER TABLE public.client_app_booking_log ENABLE ROW LEVEL SECURITY; -- service role only
+
+-- "Book appointment" from a chat is logged too (owner, 11/12/2026).
+ALTER TABLE public.client_app_booking_log DROP CONSTRAINT IF EXISTS client_app_booking_log_action_check;
+ALTER TABLE public.client_app_booking_log ADD CONSTRAINT client_app_booking_log_action_check CHECK (action IN ('move', 'cancel', 'book'));

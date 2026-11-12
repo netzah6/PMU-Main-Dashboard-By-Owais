@@ -4,11 +4,13 @@ import { loadApp, loadBookings, niceName, type AppBooking } from "@/lib/client-a
 import { HOW, day } from "@/components/client-app/BillingView";
 import { FilterBox } from "@/components/client-app/FilterBox";
 import { BookingActions } from "@/components/client-app/BookingActions";
+import { WeekCalendar } from "@/components/client-app/WeekCalendar";
+import { loadWeek } from "@/lib/client-app-bookings";
 
 /* Bookings: what is coming up, then the sessions that already happened and
    are waiting to be charged (the detail lives on the Billing tab). Tapping a
-   client opens her chat; an upcoming appointment can be moved or cancelled
-   with "Change" (owner, 11/12/2026). */
+   client opens her chat; an upcoming appointment has its own "Move" and
+   "Cancel" buttons. On top: her week as a calendar (owner, 11/12/2026). */
 /* Upcoming rows show the time too, on the studio's own clock. */
 const whenOf = (iso: string | null, tz: string | null) => {
   if (!iso || !tz || !/T\d{2}:/.test(iso)) return day(iso);
@@ -46,14 +48,15 @@ function Row({ s, token, tz }: { s: AppBooking; token: string; tz?: string | nul
   );
 }
 
-export default async function ClientAppBookings({ params }: { params: { token: string } }) {
+export default async function ClientAppBookings({ params, searchParams }: { params: { token: string }; searchParams?: { w?: string } }) {
   const app = await loadApp(params.token);
   if (!app) return null;
-  const b = await loadBookings(params.token);
+  const [b, week] = await Promise.all([loadBookings(params.token), loadWeek(params.token, searchParams?.w).catch(() => null)]);
   const upcoming = b?.upcoming ?? [];
   const done = b?.done ?? [];
   return (
     <div id="bookings-list" className="space-y-3">
+      {week && <WeekCalendar key={week.title} token={params.token} week={week} />}
       <FilterBox target="bookings-list" placeholder="Search an appointment…" />
       <section data-qgroup className="rounded-2xl border border-[#bfe9e5] bg-white px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-[#0e8f88]">Upcoming</p>
