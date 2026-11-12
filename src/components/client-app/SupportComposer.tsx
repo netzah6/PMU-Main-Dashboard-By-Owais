@@ -23,11 +23,12 @@ export function SupportComposer({ token, coachFirst }: { token: string; coachFir
   const session = useRef(0);
   const teardown = useRef<(() => void) | null>(null);
   const rec = useRef<MediaRecorder | null>(null);
-  const end = useRef<HTMLDivElement | null>(null);
+  // The box is sticky (always "in view"), so the page itself is scrolled down.
+  const toNewest = (smooth = false) => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: smooth ? "smooth" : "auto" });
 
   useEffect(() => { setSupported(canRecord()); }, []);
   // Open on the newest message, like a messaging app.
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, []);
+  useEffect(() => { toNewest(); }, []);
 
   const endAttempt = () => {
     session.current++;
@@ -121,7 +122,7 @@ export function SupportComposer({ token, coachFirst }: { token: string; coachFir
       if (!r.ok) throw new Error(j.error || "That didn't go through. Please try again.");
       setText(""); discard(); setPhase("idle");
       router.refresh();
-      setTimeout(() => end.current?.scrollIntoView({ block: "end", behavior: "smooth" }), 600);
+      setTimeout(() => toNewest(true), 700);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "That didn't go through. Please try again.");
       setPhase(back);
@@ -131,7 +132,7 @@ export function SupportComposer({ token, coachFirst }: { token: string; coachFir
   const busy = phase === "sending";
   const recording = phase === "asking" || phase === "recording" || phase === "encoding";
   return (
-    <div ref={end} className="sticky z-[6] -mx-3 border-t border-[#e4ebf2] bg-[#f3f7fb]/95 px-3 pb-2 pt-2 backdrop-blur"
+    <div className="sticky z-[6] -mx-3 border-t border-[#e4ebf2] bg-[#f3f7fb]/95 px-3 pb-2 pt-2 backdrop-blur"
       style={{ bottom: "calc(env(safe-area-inset-bottom) + 68px)" }}>
       {err && <p className="pb-1.5 text-center text-xs text-[#be123c]">{err}</p>}
 
