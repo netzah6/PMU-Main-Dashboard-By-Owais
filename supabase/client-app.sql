@@ -58,3 +58,7 @@ ALTER TABLE public.client_app_profit_settings ADD COLUMN IF NOT EXISTS clients_d
 ALTER TABLE public.client_app_profit_settings ADD COLUMN IF NOT EXISTS setup_done_at timestamptz;
 ALTER TABLE public.client_app_expenses DROP CONSTRAINT IF EXISTS client_app_expenses_kind_check;
 ALTER TABLE public.client_app_expenses ADD CONSTRAINT client_app_expenses_kind_check CHECK (kind IN ('monthly', 'per_client', 'once'));
+
+-- Two values per client (owner, 11/12/2026): first treatment (amount) + touch-up; one of the two is enough.
+ALTER TABLE public.client_app_profit_amounts ADD COLUMN IF NOT EXISTS touchup_amount numeric(10,2);
+ALTER TABLE public.client_app_profit_amounts ALTER COLUMN amount DROP NOT NULL;

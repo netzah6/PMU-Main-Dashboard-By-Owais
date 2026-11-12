@@ -4,11 +4,12 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Loader2, Plus, X } from "lucide-react";
 import {
   KIND_LABEL, clientsToAdd, monthName, profitFor, shiftMonth,
-  type ExpenseKind, type ProfitData, type ProfitExpense,
+  type ClientPay, type ExpenseKind, type ProfitData, type ProfitExpense,
 } from "@/lib/client-app-profit-math";
 
 /* Profit, in the owner's order (11/12/2026):
-     1. Her clients — what EACH one paid her, all of them → Submit
+     1. Her clients — what EACH one paid her (first treatment + touch-up; one
+        of the two is enough, but on every client) → Submit
      2. Her costs — rent (monthly or per client), equipment, supplies…
      3. Her profit, month by month
    The profit is never shown before steps 1 and 2 are done. Every button
@@ -22,6 +23,7 @@ const shortDay = (iso: string | null) => {
   return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: /^\d{4}-\d{2}-\d{2}$/.test(iso) ? "UTC" : "America/New_York" });
 };
 const INPUT = "w-full rounded-xl border border-[#d7e0ea] bg-white px-3 py-2.5 text-[16px] text-[#1c2b3a] outline-none placeholder:text-[#9aa8b8] focus:border-[#15B7AE]";
+const SMALL = "w-[5.25rem] rounded-xl border border-[#d7e0ea] bg-white px-2 py-2.5 text-right text-[16px] text-[#1c2b3a] outline-none placeholder:text-[#b6c1ce] focus:border-[#15B7AE]";
 const CARD = "rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3";
 const MAIN_BTN = "flex w-full items-center justify-center gap-2 rounded-xl bg-[#15B7AE] px-4 py-3 text-sm font-bold text-white active:opacity-80 disabled:opacity-50";
 // Costs a permanent-makeup artist usually has — one tap fills the name in.
@@ -119,14 +121,18 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
   const Err = err ? <p className="rounded-xl bg-[#fde8ee] px-3 py-2 text-center text-xs font-semibold text-[#be123c]">{err}</p> : null;
 
   // ── Step 1 · her clients, what each one paid ──────────────────────────────
-  const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(data.clients.map((c) => [c.ref, data.amounts[c.ref] != null ? String(data.amounts[c.ref]) : ""])));
+  type Typed = { first: string; touchup: string };
+  const str = (n: number | null | undefined) => (n != null ? String(n) : "");
+  const [vals, setVals] = useState<Record<string, Typed>>(() => Object.fromEntries(data.clients.map((c) => [c.ref, { first: str(data.amounts[c.ref]?.first), touchup: str(data.amounts[c.ref]?.touchup) }])));
+  const typed = (ref: string): Typed => vals[ref] ?? { first: "", touchup: "" };
+  const hasValue = (ref: string) => num(typed(ref).first) != null || num(typed(ref).touchup) != null;
   const [session, setSession] = useState(data.session != null ? String(data.session) : "");
   const [touchup, setTouchup] = useState(data.touchup ? String(data.touchup) : "");
   const usual = (num(session) ?? 0) + (num(touchup) ?? 0);
-  const filled = d.clients.filter((c) => num(vals[c.ref] ?? "") != null).length;
+  const filled = d.clients.filter((c) => hasValue(c.ref)).length;
   const submitClients = async () => {
-    const amounts: Record<string, number> = {};
-    for (const c of d.clients) { const v = num(vals[c.ref] ?? ""); if (v != null) amounts[c.ref] = v; }
+    const amounts: Record<string, ClientPay> = {};
+    for (const c of d.clients) if (hasValue(c.ref)) amounts[c.ref] = { first: num(typed(c.ref).first), touchup: num(typed(c.ref).touchup) };
     if (await save("submit", { action: "clients_submit", amounts, session: num(session) ?? "", touchup: num(touchup) ?? "" }, { ...d, amounts, step: d.step === 1 ? 2 : d.step })) {
       setBack(false);
       window.scrollTo({ top: 0 });
@@ -140,7 +146,7 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
         <Steps step={1} />
         <section className={CARD}>
           <p className="text-base font-extrabold text-[#1c2b3a]">What did each client pay you?</p>
-          <p className="text-sm text-[#7b8a9c]">These are the clients who came in through us. Add the full amount for each one, touch-up included.</p>
+          <p className="text-sm text-[#7b8a9c]">These are the clients we booked for you. Add the first treatment and the touch-up for each one. One of the two is enough to continue.</p>
         </section>
 
         {d.clients.length > 0 && (
@@ -148,7 +154,7 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
             <p className="text-sm font-bold text-[#1c2b3a]">Faster: your usual price</p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-[#52627a]">Session</span>
+                <span className="mb-1 block text-xs font-semibold text-[#52627a]">First treatment</span>
                 <input value={session} onChange={(e) => setSession(e.target.value)} inputMode="decimal" placeholder="$450" className={INPUT} />
               </label>
               <label className="block">
@@ -157,9 +163,9 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
               </label>
             </div>
             <button disabled={usual <= 0}
-              onClick={() => setVals((v) => Object.fromEntries(d.clients.map((c) => [c.ref, (v[c.ref] ?? "").trim() === "" ? String(usual) : v[c.ref]])))}
+              onClick={() => setVals(Object.fromEntries(d.clients.map((c) => [c.ref, hasValue(c.ref) ? typed(c.ref) : { first: str(num(session)), touchup: str(num(touchup)) }])))}
               className="mt-2 w-full rounded-xl border border-[#15B7AE] bg-white px-4 py-2.5 text-sm font-bold text-[#0e8f88] active:opacity-80 disabled:opacity-40">
-              {usual > 0 ? `Fill the empty ones with ${usd(usual)}` : "Fill the empty ones"}
+              {usual > 0 ? `Fill the empty clients with ${usd(usual)}` : "Fill the empty clients"}
             </button>
             <p className="mt-1 text-center text-[11px] text-[#8595a8]">Then change any client who paid a different amount.</p>
           </section>
@@ -174,20 +180,25 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
             <p className="py-2 text-sm text-[#7b8a9c]">No clients came in yet. They will show here as soon as they do.</p>
           ) : (
             <ul className="mt-1">
+              <li className="flex items-center gap-2 text-[11px] font-bold text-[#8595a8]">
+                <span className="flex-1" /><span className="w-[5.25rem] text-right">Treatment</span><span className="w-[5.25rem] text-right">Touch-up</span>
+              </li>
               {d.clients.map((c) => {
                 const head = c.month && c.month !== lastMonth ? monthName(c.month, true) : "";
                 lastMonth = c.month ?? lastMonth;
                 return (
                   <li key={c.ref}>
                     {head && <p className="pt-2 text-[11px] font-bold uppercase tracking-wide text-[#8595a8]">{head}</p>}
-                    <label className="flex items-center gap-2 border-b border-[#eef3f8] py-2">
+                    <div className="flex items-center gap-2 border-b border-[#eef3f8] py-2">
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-[#1c2b3a]">{c.name}</span>
+                        <span className="block truncate text-sm font-semibold text-[#1c2b3a]">{hasValue(c.ref) && <Check size={13} className="mr-1 inline text-[#15803d]" />}{c.name}</span>
                         <span className="block text-xs text-[#7b8a9c]">{shortDay(c.date)}</span>
                       </span>
-                      <input value={vals[c.ref] ?? ""} onChange={(e) => setVals((v) => ({ ...v, [c.ref]: e.target.value }))} inputMode="decimal" placeholder="$"
-                        aria-label={`Amount for ${c.name}`} className={`${INPUT} w-28 text-right ${num(vals[c.ref] ?? "") == null ? "" : "border-[#bfe9e5] bg-[#f6fdfc]"}`} />
-                    </label>
+                      <input value={typed(c.ref).first} onChange={(e) => setVals((v) => ({ ...v, [c.ref]: { ...typed(c.ref), first: e.target.value } }))} inputMode="decimal" placeholder="$"
+                        aria-label={`First treatment for ${c.name}`} className={SMALL} />
+                      <input value={typed(c.ref).touchup} onChange={(e) => setVals((v) => ({ ...v, [c.ref]: { ...typed(c.ref), touchup: e.target.value } }))} inputMode="decimal" placeholder="$"
+                        aria-label={`Touch-up for ${c.name}`} className={SMALL} />
+                    </div>
                   </li>
                 );
               })}
@@ -257,11 +268,11 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
   const waiting = clientsToAdd(d);
   const [editRef, setEditRef] = useState<string | null>(null);
   const [amt, setAmt] = useState("");
-  const usual = (d.session ?? 0) + (d.touchup ?? 0);
+  const [tup, setTup] = useState("");
   const saveAmount = async (ref: string) => {
-    const v = num(amt);
-    if (v == null) { setErr("Type the amount as a number, like 450"); return; }
-    if (await save(`amt:${ref}`, { action: "amount", ref, amount: v }, { ...d, amounts: { ...d.amounts, [ref]: v } })) setEditRef(null);
+    const pay: ClientPay = { first: num(amt), touchup: num(tup) };
+    if (pay.first == null && pay.touchup == null) { setErr("Type the amount as a number, like 450"); return; }
+    if (await save(`amt:${ref}`, { action: "amount", ref, first: pay.first ?? "", touchup: pay.touchup ?? "" }, { ...d, amounts: { ...d.amounts, [ref]: pay } })) setEditRef(null);
   };
   return (
     <div className="space-y-3">
@@ -298,8 +309,15 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
                 {editRef === c.ref ? (
                   <div>
                     <p className="text-sm font-semibold text-[#1c2b3a]">{c.name}</p>
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <input autoFocus value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" placeholder={usual > 0 ? usd(usual) : "$"} className={INPUT} />
+                    <div className="mt-1.5 flex items-end gap-2">
+                      <label className="block min-w-0 flex-1">
+                        <span className="mb-1 block text-xs font-semibold text-[#52627a]">First treatment</span>
+                        <input autoFocus value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" placeholder="$" className={INPUT} />
+                      </label>
+                      <label className="block min-w-0 flex-1">
+                        <span className="mb-1 block text-xs font-semibold text-[#52627a]">Touch-up</span>
+                        <input value={tup} onChange={(e) => setTup(e.target.value)} inputMode="decimal" placeholder="$" className={INPUT} />
+                      </label>
                       <button onClick={() => void saveAmount(c.ref)} disabled={busy === `amt:${c.ref}`}
                         className="flex shrink-0 items-center gap-1.5 rounded-xl bg-[#15B7AE] px-3.5 py-2.5 text-sm font-bold text-white active:opacity-80 disabled:opacity-70">
                         {busy === `amt:${c.ref}` ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Save
@@ -308,10 +326,14 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
                     <button onClick={() => setEditRef(null)} className="mt-1.5 text-xs font-semibold text-[#8595a8]">Cancel</button>
                   </div>
                 ) : (
-                  <button onClick={() => { setEditRef(c.ref); setAmt(c.amount != null ? String(c.amount) : usual > 0 ? String(usual) : ""); setErr(null); }} className="flex w-full items-center gap-2 text-left active:opacity-80">
+                  <button onClick={() => {
+                    setEditRef(c.ref); setErr(null);
+                    setAmt(c.pay?.first != null ? String(c.pay.first) : c.amount == null && d.session != null ? String(d.session) : "");
+                    setTup(c.pay?.touchup != null ? String(c.pay.touchup) : c.amount == null && d.touchup ? String(d.touchup) : "");
+                  }} className="flex w-full items-center gap-2 text-left active:opacity-80">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-[#1c2b3a]">{c.name}</span>
-                      <span className="block text-xs text-[#7b8a9c]">{shortDay(c.date)}</span>
+                      <span className="block text-xs text-[#7b8a9c]">{shortDay(c.date)}{c.pay?.first != null && c.pay?.touchup != null ? ` · ${usd(c.pay.first)} + ${usd(c.pay.touchup)} touch-up` : c.pay?.touchup != null ? " · touch-up" : ""}</span>
                     </span>
                     {c.amount != null
                       ? <><span className="text-sm font-bold text-[#1c2b3a]">{usd(c.amount)}</span><span className="text-xs font-semibold text-[#0e8f88]">Edit</span></>
