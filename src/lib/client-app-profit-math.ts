@@ -2,7 +2,9 @@
    screen and the server count the same way.
 
    Owner, 11/12/2026: she first fills in what EACH client paid her (every
-   client who came in through us, old ones too); only then her costs; only
+   client who came in through us, old ones too) — "one value for the initial
+   treatment and one value for the touch up. As long as there is one value on
+   each client… they will be able to continue". Only then her costs; only
    then the profit. So revenue counts the amounts she typed — a client with no
    amount yet counts as nothing and is shown as "to add".
 
@@ -10,6 +12,11 @@
    per appointment — counted once for each client that month), or one time. */
 
 export type ProfitClient = { ref: string; name: string; date: string | null; month: string | null };
+/** What one client paid her: the first treatment and the touch-up. One of the two is enough. */
+export type ClientPay = { first: number | null; touchup: number | null };
+/** The client's total, or null while she hasn't typed anything for her. */
+export const paidOf = (p: ClientPay | null | undefined): number | null =>
+  p && (p.first != null || p.touchup != null) ? (p.first ?? 0) + (p.touchup ?? 0) : null;
 export type ExpenseKind = "monthly" | "per_client" | "once";
 export type ProfitExpense = {
   id: string; label: string; amount: number;
@@ -23,8 +30,8 @@ export type ProfitData = {
   /** Her usual prices — only a helper to fill amounts in faster. */
   session: number | null; touchup: number | null;
   clients: ProfitClient[];
-  /** What each client paid her (ref → dollars). */
-  amounts: Record<string, number>;
+  /** What each client paid her (ref → treatment + touch-up). */
+  amounts: Record<string, ClientPay>;
   expenses: ProfitExpense[];
   thisMonth: string;
   /** The first month a client came in (repeating costs added in set-up count from here). */
@@ -60,7 +67,7 @@ export const expenseInMonth = (e: ProfitExpense, m: string) =>
 export const KIND_LABEL: Record<ExpenseKind, string> = { monthly: "Every month", per_client: "Per client", once: "One time" };
 
 export function profitFor(d: ProfitData, m: string) {
-  const clients = d.clients.filter((c) => c.month === m).map((c) => ({ ...c, amount: d.amounts[c.ref] ?? null }));
+  const clients = d.clients.filter((c) => c.month === m).map((c) => ({ ...c, pay: d.amounts[c.ref] ?? null, amount: paidOf(d.amounts[c.ref]) }));
   const expenses = d.expenses.filter((e) => expenseInMonth(e, m))
     .map((e) => ({ ...e, cost: e.kind === "per_client" ? e.amount * clients.length : e.amount }));
   const revenue = clients.reduce((n, c) => n + (c.amount ?? 0), 0);
@@ -68,4 +75,4 @@ export function profitFor(d: ProfitData, m: string) {
   return { clients, expenses, revenue, spent, profit: revenue - spent, toAdd: clients.filter((c) => c.amount == null).length };
 }
 /** Clients, in any month, still waiting for an amount. */
-export const clientsToAdd = (d: ProfitData) => d.clients.filter((c) => d.amounts[c.ref] == null).length;
+export const clientsToAdd = (d: ProfitData) => d.clients.filter((c) => paidOf(d.amounts[c.ref]) == null).length;
