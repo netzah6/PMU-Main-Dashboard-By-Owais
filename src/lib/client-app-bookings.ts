@@ -321,7 +321,7 @@ export async function bookForLead(token: string, contactId: string, calendarId: 
   if (has.when) return fail(`She already has a time: ${has.when}. Move it from Bookings instead.`, 409);
   if (!slots.includes(start)) return fail("That time was just taken. Please pick another one.", 409);
   const body = {
-    calendarId: cal.id, locationId: acct.locationId, contactId, title: lead.name || "Appointment", appointmentStatus: "confirmed",
+    calendarId: cal.id, locationId: acct.locationId, contactId, title: lead.name ? niceName(lead.name) : "Appointment", appointmentStatus: "confirmed",
     startTime: new Date(start).toISOString(), endTime: new Date(start + cal.slotMin * 60_000).toISOString(),
   };
   const r = await fetch(`${GHL}/calendars/events/appointments`, { method: "POST", headers: H(acct.token), body: JSON.stringify(body) }).catch(() => null);
