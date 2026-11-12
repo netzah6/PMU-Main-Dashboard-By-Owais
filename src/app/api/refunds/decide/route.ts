@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth, getPpaRoster } from "@/lib/ppa";
 import { refundDepositByProduct, parseAmountCents } from "@/lib/fanbasis";
-import { ppaKeepFeeBizNorms, refundBizNorm } from "@/lib/refund-keep-fee";
+import { exemptOwnerKeys, keepFeeBlocks, ppaKeepFeeBizNorms, refundBizNorm } from "@/lib/refund-keep-fee";
 
 export const maxDuration = 60;
 
@@ -48,10 +48,14 @@ export async function POST(req: NextRequest) {
   // would silently drop the fee from PPA billing).
   const keepPpaFee = b.keepPpaFee === true;
   if (keepPpaFee) {
-    const allowed = new Set(ppaKeepFeeBizNorms((await getPpaRoster()).clients));
-    if (!allowed.has(refundBizNorm(refund.business))) {
+    const [{ clients }, exempt] = await Promise.all([getPpaRoster(), exemptOwnerKeys(svc)]);
+    if (!ppaKeepFeeBizNorms(clients, exempt).includes(refundBizNorm(refund.business))) {
       return NextResponse.json({ error: "Keep-the-fee refunds are only for V3 pay-per-appointment clients. Nothing was refunded." }, { status: 400 });
     }
+    // Never bill one visit twice: if another deposit of this lead already
+    // carries the fee for the same appointment, refuse (nothing refunded).
+    const block = (await keepFeeBlocks(svc, [refund])).get(refund.id);
+    if (block) return NextResponse.json({ error: `${block} Nothing was refunded.` }, { status: 409 });
   }
   if (keepPpaFee || refund.keep_ppa_fee === true) {
     const { error: flagErr } = await svc.from("deposit_refunds")

@@ -77,6 +77,8 @@ export default function DepositsPage() {
   const [refunds, setRefunds] = useState<Refund[]>([]);
   // Businesses (normalized) where a refund may keep the PPA fee: V3 + pay-per-appointment.
   const [keepFeeBiz, setKeepFeeBiz] = useState<Set<string>>(new Set());
+  // Refund id → why keeping the fee must not be used (e.g. the visit is already billed via another deposit).
+  const [keepFeeBlocked, setKeepFeeBlocked] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [requestFor, setRequestFor] = useState<Row | null>(null);
   const [reason, setReason] = useState("");
@@ -89,6 +91,7 @@ export default function DepositsPage() {
         const j = await r.json();
         setRefunds((j.refunds ?? []) as Refund[]);
         setKeepFeeBiz(new Set((j.keepFeeBiz ?? []) as string[]));
+        setKeepFeeBlocked((j.keepFeeBlocked ?? {}) as Record<string, string>);
       }
     } catch { /* ignore */ }
   }, []);
@@ -163,12 +166,16 @@ export default function DepositsPage() {
   }
 
   async function decide(id: string, decision: "approve" | "deny", keepPpaFee = false) {
-    if (keepPpaFee) {
-      const rf = refunds.find((x) => x.id === id);
+    const rf = refunds.find((x) => x.id === id);
+    if (decision === "approve" && keepPpaFee) {
       const ok = window.confirm(
         `Refund ${money(rf?.amount)} to ${rf?.contact_name || rf?.email || "this lead"}, but STILL charge ${rf?.business || "the artist"} the PPA service fee for this appointment?`,
       );
       if (!ok) return;
+    }
+    // The last try kept the fee: a plain retry would drop it — say so first.
+    if (decision === "approve" && !keepPpaFee && rf?.keep_ppa_fee) {
+      if (!window.confirm("The last try kept the PPA fee. A normal refund REMOVES this deposit from PPA Billing. Continue?")) return;
     }
     setBusy((b) => new Set(b).add(id));
     try {
@@ -277,20 +284,22 @@ export default function DepositsPage() {
                   <div className="text-sm font-semibold text-[#1f3559]">{rf.contact_name || rf.email || "—"} · <span className="text-[#0e8f88]">{money(rf.amount)}</span></div>
                   <div className="text-[11px] text-[#8595a8]">{rf.business || "—"}{rf.email ? ` · ${rf.email}` : ""}</div>
                   <div className="text-[11px] text-[#697a91]">requested by {rf.requested_by || "—"}{rf.reason ? ` · “${rf.reason}”` : ""}</div>
-                  {rf.status === "failed" && rf.error && <div className="text-[11px] text-[#e11d48] mt-0.5">Last attempt failed: {rf.error}</div>}
+                  {rf.status === "failed" && rf.error && <div className="text-[11px] text-[#e11d48] mt-0.5">Last attempt failed{rf.keep_ppa_fee ? " (it kept the PPA fee)" : ""}: {rf.error}</div>}
+                  {keepFeeBiz.has(bizNorm(rf.business)) && keepFeeBlocked[rf.id] && <div className="text-[11px] text-[#1d4ed8] mt-0.5">PPA fee: {keepFeeBlocked[rf.id]}</div>}
                 </div>
                 <button disabled={busy.has(rf.id)} onClick={() => decide(rf.id, "approve")}
                   className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#e6f7ee] hover:bg-[#d5f0e0] text-[#15803d] border border-[#86efac]">
                   {busy.has(rf.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                   {rf.status === "failed" ? "Retry refund" : "Approve & refund"}
                 </button>
-                {/* V3 pay-per-appointment clients only: refund the lead, still bill the PPA fee (owner, 11/11/2026). */}
-                {keepFeeBiz.has(bizNorm(rf.business)) && (
+                {/* V3 pay-per-appointment clients only: refund the lead, still bill the PPA fee (owner, 11/11/2026).
+                    Hidden when it would bill one visit twice — the reason shows instead. */}
+                {keepFeeBiz.has(bizNorm(rf.business)) && !keepFeeBlocked[rf.id] && (
                   <button disabled={busy.has(rf.id)} onClick={() => decide(rf.id, "approve", true)}
                     title="The lead gets the deposit back, but PPA Billing still charges the artist the service fee for this appointment."
                     className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#eef4ff] hover:bg-[#dfe9ff] text-[#1d4ed8] border border-[#bfd3fe]">
                     {busy.has(rf.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                    Refund · keep PPA fee
+                    {rf.status === "failed" ? "Retry · keep PPA fee" : "Refund · keep PPA fee"}
                   </button>
                 )}
                 <button disabled={busy.has(rf.id)} onClick={() => decide(rf.id, "deny")}
