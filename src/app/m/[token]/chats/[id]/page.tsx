@@ -9,7 +9,8 @@ export default async function ClientAppThread({ params }: { params: { token: str
   if (!app) return null;
   // The name comes from her chat list, never from the address bar.
   const [data, list] = await Promise.all([loadThread(params.token, params.id), loadChats(params.token)]);
-  const name = list?.chats.find((c) => c.id === params.id)?.name ?? "Chat";
+  const chat = list?.chats.find((c) => c.id === params.id);
+  const name = chat?.name ?? "Chat";
   const back = `/m/${params.token}/chats`;
   if (!data) {
     return (
@@ -25,9 +26,15 @@ export default async function ClientAppThread({ params }: { params: { token: str
   let lastDay = "";
   return (
     <div className="space-y-2">
-      <div className="sticky top-[60px] z-[5] -mx-3 flex items-center gap-2 border-b border-[#e4ebf2] bg-[#f3f7fb]/95 px-3 py-2 backdrop-blur">
+      <div className="sticky top-16 z-[5] -mx-3 flex items-center gap-2 border-b border-[#e4ebf2] bg-[#f3f7fb]/95 px-3 py-2 backdrop-blur">
         <Link href={back} className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-[#0e8f88] border border-[#e4ebf2]">‹ Chats</Link>
         <p className="min-w-0 flex-1 truncate text-sm font-bold text-[#1c2b3a]">{name}</p>
+        {chat?.ai && (
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${chat.ai === "on" ? "bg-[#e6f7ee] text-[#15803d]" : "bg-[#e9eef4] text-[#52627a]"}`}
+            title={chat.ai === "on" ? "The AI assistant is answering this lead" : "The AI assistant is off for this lead"}>
+            AI {chat.ai}
+          </span>
+        )}
       </div>
       {messages.length === 0 ? (
         <p className="px-1 py-3 text-sm text-[#7b8a9c]">No messages in this chat yet.</p>

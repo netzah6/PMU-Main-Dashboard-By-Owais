@@ -48,6 +48,7 @@ export type ConvSummary = {
   channel: string;
   assignedTo: string | null;   // GHL user id the conversation is assigned to
   assignedToName: string;      // resolved to a name by the route (via the roster)
+  tags?: string[];             // the contact's tags, lower-cased, when GHL sends them (e.g. "ai on" / "ai off")
 };
 
 // Recent conversations for the PMU Bookings On Demand account.
@@ -76,6 +77,7 @@ export async function getRecentConversations(
     channel: channelFromType(c.lastMessageType as string | undefined),
     assignedTo: (c.assignedTo as string) ?? null,
     assignedToName: "",
+    tags: Array.isArray(c.tags) ? (c.tags as unknown[]).map((t) => String(t).trim().toLowerCase()) : undefined,
   }));
   // Guard: only keep conversations that actually have unread messages.
   if (opts.unreadOnly) list = list.filter((c) => c.unreadCount > 0);

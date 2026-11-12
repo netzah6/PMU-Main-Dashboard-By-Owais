@@ -102,6 +102,17 @@ export async function fetchPlaceReviews(placeId: string): Promise<GReviews> {
   return { placeId, name: d.displayName?.text ?? "", rating: typeof d.rating === "number" ? d.rating : null, count: typeof d.userRatingCount === "number" ? d.userRatingCount : null, reviews, at: new Date().toISOString().slice(0, 10) };
 }
 
+/* One point per day per funnel in client_review_history — the client app
+   reads it to say "+N reviews" (11/11/2026). Never blocks a refresh. */
+export async function recordReviewPoint(svc: SupabaseClient, slug: string, rating: number | null, count: number | null): Promise<void> {
+  if (count == null) return;
+  try {
+    await svc.from("client_review_history").upsert(
+      { slug, day: new Date().toISOString().slice(0, 10), rating, review_count: count },
+      { onConflict: "slug,day" });
+  } catch { /* history is a nice-to-have */ }
+}
+
 async function patchExtras(svc: SupabaseClient, slug: string, patch: Record<string, unknown>): Promise<string | null> {
   const { data: row } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
   const { error } = await svc.from("onebox_clients").update({ extras: { ...((row?.extras ?? {}) as Record<string, unknown>), ...patch } }).eq("slug", slug);
@@ -152,6 +163,7 @@ export async function refreshReviews(svc: SupabaseClient, slug: string): Promise
     if (!g.reviews.length) { await mark(false, `no ${MIN_STARS}+ star reviews with text on Google`); return { ok: false, why: "no usable reviews" }; }
     const err = await patchExtras(svc, slug, { gReviews: g, gFetch: { at: new Date().toISOString(), ok: true } });
     if (err) return { ok: false, why: err };
+    await recordReviewPoint(svc, slug, g.rating, g.count);
     return { ok: true, reviews: g.reviews.length, rating: g.rating };
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);

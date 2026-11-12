@@ -37,10 +37,19 @@ export default async function ClientAppLayout({ children, params }: { children: 
   return (
     <div className="min-h-screen bg-[#f3f7fb]">
       <header className="sticky top-0 z-10 bg-[#15B7AE] text-white" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-        <div className="mx-auto flex max-w-xl items-center gap-2 px-4 py-3">
+        <div className="mx-auto flex max-w-xl items-center gap-3 px-4 py-3">
+          {/* Her own logo (the one on her funnel) and her name — it is HER app. */}
+          {app.logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={app.logo} alt="" referrerPolicy="no-referrer" className="h-10 w-10 shrink-0 rounded-full bg-white object-contain p-0.5" />
+          ) : (
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/25 text-base font-extrabold">
+              {(v.business || v.ownerName).replace(/[^\p{L}]/gu, "").slice(0, 1).toUpperCase() || "P"}
+            </span>
+          )}
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/80">PMU Bookings On Demand</p>
             <p className="truncate text-base font-bold leading-tight">{v.business || v.ownerName}</p>
+            {v.business && v.ownerName && <p className="truncate text-xs font-semibold text-white/85">{v.ownerName}</p>}
           </div>
           <span className="ml-auto rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">Live</span>
         </div>

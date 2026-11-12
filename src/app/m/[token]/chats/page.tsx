@@ -35,7 +35,7 @@ export default async function ClientAppChats({ params }: { params: { token: stri
         ) : (
           <ul>
             {chats.map((c) => (
-              <li key={c.id} data-q={`${c.name} ${c.preview}`.toLowerCase()} className="border-b border-[#eef3f8] last:border-0">
+              <li key={c.id} data-q={`${c.name} ${c.preview}${c.ai ? ` ai ${c.ai}` : ""}`.toLowerCase()} className="border-b border-[#eef3f8] last:border-0">
                 <Link href={`/m/${params.token}/chats/${c.id}`} prefetch={false}
                   className="flex items-center gap-3 rounded-xl px-2 py-2.5 active:bg-[#f3f7fb]">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e6f7f5] text-sm font-bold text-[#0e8f88]">
@@ -44,6 +44,11 @@ export default async function ClientAppChats({ params }: { params: { token: stri
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
                       <span className={`truncate text-sm text-[#1c2b3a] ${c.unread > 0 ? "font-extrabold" : "font-semibold"}`}>{c.name}</span>
+                      {c.ai && (
+                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${c.ai === "on" ? "bg-[#e6f7ee] text-[#15803d]" : "bg-[#f1f5f9] text-[#64748b]"}`}>
+                          AI {c.ai}
+                        </span>
+                      )}
                       <span className="ml-auto shrink-0 text-[11px] text-[#7b8a9c]">{when(c.at, tz)}</span>
                     </span>
                     <span className="flex items-center gap-2">
