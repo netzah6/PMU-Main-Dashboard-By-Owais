@@ -208,15 +208,19 @@ function CopyListButton({ ownerKey, className }: { ownerKey: string; className?:
     }
     timer.current = setTimeout(() => setState("idle"), 2500);
   };
+  // Small icon button next to the deposit count (owner, 11/12/2026: the full
+  // "Copy list" button made every client row too tall). The icon itself shows
+  // the state: spinner → green check, or red on failure.
+  const label = state === "busy" ? "Copying…" : state === "done" ? "Copied!" : state === "error" ? "Copy failed — click to try again"
+    : "Copy list: who we charged for + upcoming appointments";
   return (
-    <button onClick={copy} disabled={state === "busy"}
-      title="Copy this client's list: who we charged for + upcoming appointments"
-      className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold whitespace-nowrap transition-colors disabled:opacity-60",
+    <button onClick={(e) => { e.stopPropagation(); copy(); }} disabled={state === "busy"}
+      title={label} aria-label={label}
+      className={cn("inline-flex items-center justify-center w-5 h-5 shrink-0 rounded border transition-colors disabled:opacity-60",
         state === "done" ? "bg-[#e6f7ee] border-[#c7edd4] text-[#15803d]"
           : state === "error" ? "bg-[#fde8ee] border-[#f5c2cf] text-[#e11d48]"
           : "bg-white border-[#a7e3df] text-[#0e8f88] hover:bg-[#e6f7f5]", className)}>
-      {state === "busy" ? <Loader2 size={12} className="animate-spin" /> : state === "done" ? <Check size={12} /> : <Copy size={12} />}
-      {state === "busy" ? "Copying…" : state === "done" ? "Copied" : state === "error" ? "Failed" : "Copy list"}
+      {state === "busy" ? <Loader2 size={11} className="animate-spin" /> : state === "done" ? <Check size={11} /> : <Copy size={11} />}
     </button>
   );
 }
@@ -696,14 +700,14 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
             some were refunded, then the service fees charged so far. */}
         <td className="px-2 py-1 text-center align-middle"
           title={`${c.deposits} deposits taken${(c.refundedCount ?? 0) > 0 ? ` · ${c.refundedCount} refunded · ${c.deposits - (c.refundedCount ?? 0)} kept` : ""}\n${c.chargedCount} service fee${c.chargedCount === 1 ? "" : "s"} charged · ${money(c.chargedAmount)}`}>
-          <div className="text-[13px] font-bold leading-none tabular-nums text-[#1f3559]">
-            {c.deposits}{(c.refundedCount ?? 0) > 0 && <span className="text-[#d97706]"> − {c.refundedCount}</span>}
+          <div className="flex items-center justify-center gap-1.5 text-[13px] font-bold leading-none tabular-nums text-[#1f3559]">
+            <span>{c.deposits}{(c.refundedCount ?? 0) > 0 && <span className="text-[#d97706]"> − {c.refundedCount}</span>}</span>
+            <CopyListButton ownerKey={c.ownerKey} />
           </div>
           {(c.refundedCount ?? 0) > 0 && <div className="text-[9px] text-[#d97706] leading-tight whitespace-nowrap">{c.refundedCount} deposit{c.refundedCount === 1 ? "" : "s"} refunded</div>}
           <div className={cn("text-[9px] leading-tight whitespace-nowrap", c.chargedCount > 0 ? "text-[#0e8f88] font-semibold" : "text-[#8595a8]")}>
             {c.chargedCount} charged · {money(c.chargedAmount)}
           </div>
-          <div className="mt-1"><CopyListButton ownerKey={c.ownerKey} /></div>
         </td>
         <NumCell value={c.upcoming} tone="gray" />
         {/* Ready mirrors the payment check's row — the same shows the Charge
