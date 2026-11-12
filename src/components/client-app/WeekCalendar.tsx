@@ -8,7 +8,8 @@ import { BookingActions } from "@/components/client-app/BookingActions";
 /* Her week as a calendar (owner, 11/12/2026: "show our clients like a calendar
    so they will be able to see how their week looks like, when they have
    appointments and their hours"). Seven days side by side on the studio's own
-   clock: white = her opening hours, grey = closed, a block = an appointment.
+   clock: white = times a new client can still book, grey = closed or taken,
+   a block = an appointment.
    A tap on a block opens it underneath: chat, move, cancel. */
 const HOUR = 44; // px per hour
 const KIND: Record<WeekEvent["kind"], { label: string; block: string; chip: string }> = {
@@ -85,7 +86,7 @@ export function WeekCalendar({ token, week }: { token: string; week: WeekView })
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[10.5px] font-semibold text-[#7b8a9c]">
-        <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-[#d7e0ea] bg-white" /> Your hours</span>
+        <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-[#d7e0ea] bg-white" /> Free to book</span>
         <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-[#15B7AE]" /> Booked</span>
         <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border border-dashed border-[#d97706] bg-[#fff4e5]" /> Waiting for deposit</span>
       </div>

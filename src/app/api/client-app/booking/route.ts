@@ -18,17 +18,6 @@ export async function GET(req: NextRequest) {
 }
 async function get(req: NextRequest) {
   const q = req.nextUrl.searchParams;
-  // TEMP (test builds only): look at the raw calendar settings.
-  if (q.get("debug") === "cal" && process.env.VERCEL_ENV !== "production") {
-    const { chatAccount } = await import("@/lib/client-app");
-    const acct = await chatAccount(q.get("token") ?? "");
-    if (!acct) return NextResponse.json({ error: "no" }, { status: 400 });
-    const h = { Authorization: `Bearer ${acct.token}`, Version: "2021-04-15", Accept: "application/json" };
-    const r = await fetch(`https://services.leadconnectorhq.com/calendars/${q.get("id")}`, { headers: h });
-    const j = (await r.json().catch(() => null)) as { calendar?: Record<string, unknown> } | null;
-    const c = j?.calendar ?? {};
-    return NextResponse.json({ status: r.status, keys: Object.keys(c), openHours: c.openHours, availabilityType: c.availabilityType, availabilities: c.availabilities, teamMembers: c.teamMembers, calendarType: c.calendarType, slotDuration: c.slotDuration, slotDurationUnit: c.slotDurationUnit, slotInterval: c.slotInterval, slotBuffer: c.slotBuffer });
-  }
   // ?contact= : the free times for a NEW appointment with this lead (from her chat).
   if (q.get("contact")) {
     const b = await bookOptions(q.get("token") ?? "", q.get("contact") ?? "", q.get("calendar") ?? undefined);

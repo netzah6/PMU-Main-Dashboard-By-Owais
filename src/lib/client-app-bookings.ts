@@ -59,9 +59,10 @@ async function liveAppointment(acct: AppChatAccount, id: string): Promise<{ ok: 
 }
 
 /** The start times her calendar offers from now on (ms, sorted). */
-async function freeSlots(acct: AppChatAccount, calendarId: string): Promise<number[] | null> {
-  const from = Date.now();
-  const r = await fetch(`${GHL}/calendars/${encodeURIComponent(calendarId)}/free-slots?startDate=${from}&endDate=${from + AHEAD_DAYS * 86_400_000}&timezone=${encodeURIComponent(acct.tz)}`, { headers: H(acct.token) }).catch(() => null);
+async function freeSlots(acct: AppChatAccount, calendarId: string, range?: { from: number; to: number }): Promise<number[] | null> {
+  const from = Math.max(Date.now(), range?.from ?? 0), to = range?.to ?? from + AHEAD_DAYS * 86_400_000;
+  if (to <= from) return [];
+  const r = await fetch(`${GHL}/calendars/${encodeURIComponent(calendarId)}/free-slots?startDate=${from}&endDate=${to}&timezone=${encodeURIComponent(acct.tz)}`, { headers: H(acct.token) }).catch(() => null);
   if (!r?.ok) return null;
   const j = (await r.json().catch(() => null)) as Record<string, unknown> | null;
   const out = new Set<number>();
@@ -160,33 +161,16 @@ async function liveAppointmentStatus(acct: AppChatAccount, id: string): Promise<
 }
 
 // ── Her calendars ───────────────────────────────────────────────────────────
-type Cal = { id: string; name: string; slotMin: number; open: Array<{ days: number[]; from: number; to: number }> };
+type Cal = { id: string; name: string; slotMin: number };
 const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
-type OH = { daysOfTheWeek?: number[]; hours?: Array<{ openHour?: number; openMinute?: number; closeHour?: number; closeMinute?: number }> };
-const openOf = (openHours: unknown): Cal["open"] => arr<OH>(openHours).flatMap((o) => arr<NonNullable<OH["hours"]>[number]>(o?.hours).map((h) => ({
-  days: arr<number>(o?.daysOfTheWeek).map(Number),
-  from: (Number(h?.openHour) || 0) * 60 + (Number(h?.openMinute) || 0),
-  to: (Number(h?.closeHour) || 0) * 60 + (Number(h?.closeMinute) || 0),
-}))).filter((x) => x.to > x.from);
-/* `withHours`: the list does not carry the opening hours reliably, so each
-   calendar is read on its own for them (the week view needs them). */
-async function calendarsOf(acct: AppChatAccount, withHours = false): Promise<Cal[] | null> {
+async function calendarsOf(acct: AppChatAccount): Promise<Cal[] | null> {
   const r = await fetch(`${GHL}/calendars/?locationId=${encodeURIComponent(acct.locationId)}`, { headers: H(acct.token) }).catch(() => null);
   if (!r?.ok) return null;
   const j = (await r.json().catch(() => null)) as { calendars?: unknown } | null;
-  const list = arr<Record<string, unknown>>(j?.calendars).filter((c) => c && c.id && c.isActive !== false).slice(0, 8);
-  const full = withHours ? await Promise.all(list.map(async (c) => {
-    const d = await fetch(`${GHL}/calendars/${encodeURIComponent(String(c.id))}`, { headers: H(acct.token) }).catch(() => null);
-    return d?.ok ? (((await d.json().catch(() => null)) as { calendar?: Record<string, unknown> } | null)?.calendar ?? null) : null;
-  })) : [];
-  return list.map((c, i) => {
+  return arr<Record<string, unknown>>(j?.calendars).filter((c) => c && c.id && c.isActive !== false).slice(0, 8).map((c) => {
     const unit = String(c.slotDurationUnit ?? "mins").toLowerCase();
     const n = Number(c.slotDuration) || 30;
-    return {
-      id: String(c.id), name: String(c.name ?? "Calendar").trim() || "Calendar",
-      slotMin: Math.min(480, Math.max(10, unit.startsWith("hour") ? n * 60 : n)),
-      open: openOf(full[i]?.openHours ?? c.openHours),
-    };
+    return { id: String(c.id), name: String(c.name ?? "Calendar").trim() || "Calendar", slotMin: Math.min(480, Math.max(10, unit.startsWith("hour") ? n * 60 : n)) };
   });
 }
 
@@ -221,13 +205,17 @@ export async function loadWeek(token: string, w?: string): Promise<WeekView | nu
   if (start < addDays(today, -35) || start > addDays(today, 91)) start = today;
   const keys = Array.from({ length: 7 }, (_, i) => addDays(start, i));
   const weekFrom = Date.parse(wallToIso(`${keys[0]}T00:00:00`, tz)), weekTo = Date.parse(wallToIso(`${addDays(start, 7)}T00:00:00`, tz));
-  const cals = await calendarsOf(acct, true);
+  const cals = await calendarsOf(acct);
+  /* "Her hours" = the times her calendar offers a new client this week. (Her
+     calendar keeps its opening hours on the team member, not on the calendar
+     — its own openHours is empty — so the offered times are the true picture.) */
+  const freeLists = await Promise.all((cals ?? []).map(async (c) => ({ len: c.slotMin, slots: await freeSlots(acct, c.id, { from: weekFrom, to: weekTo }) })));
   const lists = await Promise.all((cals ?? []).map(async (c) => {
     const r = await fetch(`${GHL}/calendars/events?locationId=${encodeURIComponent(acct.locationId)}&calendarId=${encodeURIComponent(c.id)}&startTime=${weekFrom}&endTime=${weekTo}`, { headers: H(acct.token) }).catch(() => null);
     if (!r?.ok) return null;
     return (((await r.json().catch(() => null)) as { events?: Array<Record<string, unknown>> } | null)?.events ?? []);
   }));
-  const ok = !!cals && lists.every((l) => l !== null);
+  const ok = !!cals && lists.every((l) => l !== null) && freeLists.every((fl) => fl.slots !== null);
   const raw = lists.flatMap((l) => l ?? []);
   const ids = [...new Set(raw.map((e) => String(e.contactId ?? "")).filter(Boolean))];
   const { data: people } = ids.length
@@ -257,8 +245,12 @@ export async function loadWeek(token: string, w?: string): Promise<WeekView | nu
   }
   events.sort((x, y) => x.day - y.day || x.startMin - y.startMin);
   const days = keys.map((key) => {
-    const d = new Date(`${key}T12:00:00Z`), wd = d.getUTCDay();
-    const open = (cals ?? []).flatMap((c) => c.open.filter((o) => o.days.includes(wd)).map((o): [number, number] => [o.from, o.to])).sort((x, y) => x[0] - y[0]);
+    const d = new Date(`${key}T12:00:00Z`);
+    // Free times of this day, joined into blocks.
+    const open: Array<[number, number]> = [];
+    const mine = freeLists.flatMap((fl) => (fl.slots ?? []).filter((ms) => f.dayKey.format(new Date(ms)) === key).map((ms): [number, number] => [minOf(ms), Math.min(24 * 60, minOf(ms) + fl.len)]))
+      .sort((x, y) => x[0] - y[0]);
+    for (const r of mine) { const last = open[open.length - 1]; if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]); else open.push([r[0], r[1]]); }
     return { key, name: d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }), num: String(d.getUTCDate()), today: key === today, open };
   });
   const lows = [...days.flatMap((d) => d.open.map((o) => o[0])), ...events.map((e) => e.startMin)];
