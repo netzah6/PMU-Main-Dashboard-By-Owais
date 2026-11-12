@@ -48,14 +48,18 @@ export async function POST(req: NextRequest) {
   // would silently drop the fee from PPA billing).
   const keepPpaFee = b.keepPpaFee === true;
   if (keepPpaFee) {
-    const [{ clients }, exempt] = await Promise.all([getPpaRoster(), exemptOwnerKeys(svc)]);
-    if (!ppaKeepFeeBizNorms(clients, exempt).includes(refundBizNorm(refund.business))) {
-      return NextResponse.json({ error: "Keep-the-fee refunds are only for V3 pay-per-appointment clients. Nothing was refunded." }, { status: 400 });
+    try {
+      const [{ clients }, exempt] = await Promise.all([getPpaRoster(), exemptOwnerKeys(svc)]);
+      if (!ppaKeepFeeBizNorms(clients, exempt).includes(refundBizNorm(refund.business))) {
+        return NextResponse.json({ error: "Keep-the-fee refunds are only for V3 pay-per-appointment clients. Nothing was refunded." }, { status: 400 });
+      }
+      // Never bill one visit twice: if another deposit of this lead already
+      // carries the fee for the same appointment, refuse (nothing refunded).
+      const block = (await keepFeeBlocks(svc, [refund])).get(refund.id);
+      if (block) return NextResponse.json({ error: `${block} Nothing was refunded.` }, { status: 409 });
+    } catch (e) {
+      return NextResponse.json({ error: `Couldn't check PPA billing (${e instanceof Error ? e.message : "error"}). Nothing was refunded — try again.` }, { status: 500 });
     }
-    // Never bill one visit twice: if another deposit of this lead already
-    // carries the fee for the same appointment, refuse (nothing refunded).
-    const block = (await keepFeeBlocks(svc, [refund])).get(refund.id);
-    if (block) return NextResponse.json({ error: `${block} Nothing was refunded.` }, { status: 409 });
   }
   if (keepPpaFee || refund.keep_ppa_fee === true) {
     const { error: flagErr } = await svc.from("deposit_refunds")

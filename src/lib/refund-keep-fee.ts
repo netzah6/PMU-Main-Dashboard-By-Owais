@@ -38,6 +38,8 @@ const usDate = (d: string) => {
  *    Kelly Winston, 11/11/2026). Keeping this one too would bill the artist
  *    twice for one visit; the normal refund already leaves one fee.
  *  - The deposit is before the client's PPS start date: it is never billed.
+ *  An other deposit that is refunded, before the start date, or voided with
+ *  Exclude on PPA Billing does not count — it never bills.
  *  Matches deposits to a refund the same way the ppa_refunded_deposits view
  *  does (business + email + deposit date). Throws when it can't tell. */
 export async function keepFeeBlocks(svc: SupabaseClient, refunds: KeepFeeRefund[]): Promise<Map<string, string>> {
@@ -55,12 +57,18 @@ export async function keepFeeBlocks(svc: SupabaseClient, refunds: KeepFeeRefund[
 
   type Bill = { appt_id: string; owner_key: string; start_time: string | null; charge_status: string };
   type Appt = { appt_id: string; title: string | null };
-  const [billRes, apptRes] = await Promise.all([
+  const [billRes, apptRes, chgRes] = await Promise.all([
     svc.from("ppa_deposit_billing").select("appt_id, owner_key, start_time, charge_status").in("appt_id", ids),
     svc.from("ppa_deposit_appointment").select("appt_id, title").in("appt_id", ids),
+    svc.from("ppa_charges").select("appt_id, excluded").in("appt_id", ids),
   ]);
   if (billRes.error) throw new Error(billRes.error.message);
   if (apptRes.error) throw new Error(apptRes.error.message);
+  if (chgRes.error) throw new Error(chgRes.error.message);
+  // A deposit voided with Exclude on PPA Billing never bills, so it can't be
+  // "the other deposit that already carries the fee".
+  const excluded = new Set(((chgRes.data ?? []) as Array<{ appt_id: string; excluded: boolean | null }>)
+    .filter((c) => c.excluded === true).map((c) => c.appt_id));
   const bill = new Map(((billRes.data ?? []) as Bill[]).map((b) => [b.appt_id, b]));
   const title = new Map(((apptRes.data ?? []) as Appt[]).map((a) => [a.appt_id, String(a.title ?? "").trim().toLowerCase()]));
   const depById = new Map(deps.map((d) => [d.appt_id, d]));
@@ -81,7 +89,7 @@ export async function keepFeeBlocks(svc: SupabaseClient, refunds: KeepFeeRefund[
       const other = [...bill.values()].find((o) =>
         !myIds.has(o.appt_id) && o.owner_key === b.owner_key && o.start_time === b.start_time
         && title.get(o.appt_id) === title.get(b.appt_id)
-        && o.charge_status !== "refunded" && o.charge_status !== "before_start");
+        && o.charge_status !== "refunded" && o.charge_status !== "before_start" && !excluded.has(o.appt_id));
       if (other) {
         const when = depById.get(other.appt_id)?.deposit_date;
         out.set(r.id, `This visit is already billed through the lead's other deposit${when ? ` (${usDate(when)})` : ""}. Use "Approve & refund": the PPA fee stays once.`);
