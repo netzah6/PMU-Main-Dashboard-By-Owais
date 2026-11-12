@@ -51,3 +51,10 @@ CREATE TABLE IF NOT EXISTS public.client_app_expenses (
 );
 CREATE INDEX IF NOT EXISTS client_app_expenses_owner ON public.client_app_expenses (owner_key, created_at);
 ALTER TABLE public.client_app_expenses ENABLE ROW LEVEL SECURITY; -- service role only
+
+-- Profit set-up steps (owner, 11/12/2026): clients first, then costs, then the
+-- profit. And a cost can be per client (rent paid per appointment).
+ALTER TABLE public.client_app_profit_settings ADD COLUMN IF NOT EXISTS clients_done_at timestamptz;
+ALTER TABLE public.client_app_profit_settings ADD COLUMN IF NOT EXISTS setup_done_at timestamptz;
+ALTER TABLE public.client_app_expenses DROP CONSTRAINT IF EXISTS client_app_expenses_kind_check;
+ALTER TABLE public.client_app_expenses ADD CONSTRAINT client_app_expenses_kind_check CHECK (kind IN ('monthly', 'per_client', 'once'));

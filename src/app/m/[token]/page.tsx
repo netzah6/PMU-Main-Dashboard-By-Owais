@@ -85,8 +85,8 @@ export default async function ClientAppHome({ params, searchParams }: { params: 
       <Card href={`${base}/bookings`} tone="green" label="Clients served" value={String(sessionsDone)}
         sub="Came in through PMU Bookings On Demand" />
 
-      {/* Her own profit (owner, 11/12/2026): a number once she set her price, an invitation before. */}
-      {profit && pm && (profit.session != null ? (
+      {/* Her own profit (owner, 11/12/2026): a number once she filled in her clients and costs, an invitation before. */}
+      {profit && pm && (profit.step === 3 ? (
         <Card href={`${base}/profit`} tone="green" label={`Your profit · ${monthName(profit.thisMonth)}`}
           value={`${pm.profit < 0 ? "−" : ""}$${Math.abs(Math.round(pm.profit)).toLocaleString("en-US")}`}
           sub={`${pm.clients.length} client${pm.clients.length === 1 ? "" : "s"} · $${Math.round(pm.revenue).toLocaleString("en-US")} revenue`} />
@@ -94,7 +94,7 @@ export default async function ClientAppHome({ params, searchParams }: { params: 
         <Link href={`${base}/profit`} className="flex items-center gap-3 rounded-2xl border border-dashed border-[#a9dfbf] bg-[#f6fdf8] p-4 active:opacity-80">
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-bold text-[#1c2b3a]">See your profit</span>
-            <span className="block text-xs text-[#7b8a9c]">Add your price and we count it for you</span>
+            <span className="block text-xs text-[#7b8a9c]">{profit.step === 2 ? "One more step — add your costs" : "Add what your clients paid and we count it for you"}</span>
           </span>
           <span className="text-lg text-[#9aa8b8]">›</span>
         </Link>
