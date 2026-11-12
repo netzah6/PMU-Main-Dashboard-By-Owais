@@ -1,8 +1,8 @@
 import { cache } from "react";
 import { createServiceClient } from "@/lib/supabase/server";
-import { buildPortalView, portalOwnerByToken, type PortalView } from "@/lib/ppa-portal";
+import { buildPortalView, portalOwnerByToken, type PortalShow, type PortalView } from "@/lib/ppa-portal";
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { getRecentConversations, getThread, type ConvSummary, type ThreadMessage } from "@/lib/ghl-conversations";
+import { findConversationByContact, getRecentConversations, getThread, type ConvSummary, type ThreadMessage } from "@/lib/ghl-conversations";
 import { locationTimezone } from "@/lib/onebox";
 import type { GReviews } from "@/lib/g-reviews";
 
@@ -171,18 +171,60 @@ const chatAccount = cache(async (token: string): Promise<ChatAccount | null> => 
  *  "ai off" tags (live from GoHighLevel when it sends them, else our last
  *  sync). null = no tag either way, so we say nothing. */
 export type AiState = "on" | "off" | null;
-export type AppChat = { id: string; name: string; preview: string; at: string | null; fromLead: boolean; unread: number; channel: string; ai: AiState };
+/* Where a lead is on her way to becoming a client (owner, 11/12/2026: "a
+   little update on their status in the client journey"). It is the stage she
+   is in on the client's own pipeline, in the pipeline's own words without the
+   emojis — the same words the client sees in her account — except the two
+   steps the whole app already names: "Paid a deposit" and "Picked a time".
+   From our last sync, so it can be a few minutes behind. */
+export type Journey = { label: string; tone: "green" | "amber" | "red" | "gray" };
+export const JOURNEY_CLS: Record<Journey["tone"], string> = {
+  green: "bg-[#e6f7ee] text-[#15803d]", amber: "bg-[#fff4e5] text-[#b45309]", red: "bg-[#fde8ee] text-[#be123c]", gray: "bg-[#f1f5f9] text-[#52627a]",
+};
+const plainStage = (s: string) => s
+  .replace(/[0-9#*]\uFE0F?\u20E3/g, " ")           // keycap emojis (1️⃣ 2️⃣ …)
+  .replace(/\([^)]*\)/g, " ")                       // "(Filled Survey)"
+  .replace(/[^\p{L}\p{N}\s/&'-]/gu, " ").replace(/\s+/g, " ").trim();
+export function journeyOf(stage: string | null | undefined, f?: { booked?: boolean | null; paid?: boolean | null }): Journey | null {
+  const s = (stage ?? "").toLowerCase();
+  if (/session\s*(done|complete)|(5|five)\s*stars?|google\s*review/.test(s)) return { label: "Session done", tone: "green" };
+  if (f?.paid || /deposit\s*(collected|paid)/.test(s)) return { label: "Paid a deposit", tone: "green" };
+  if (/declin/.test(s)) return { label: plainStage(stage ?? ""), tone: "red" };
+  if (f?.booked || /waiting for deposit|booked/.test(s)) return { label: "Picked a time", tone: "amber" };
+  const label = plainStage(stage ?? "");
+  return label ? { label, tone: "gray" } : null;
+}
+
+export type AppChat = { id: string; name: string; preview: string; at: string | null; fromLead: boolean; unread: number; channel: string; ai: AiState; journey: Journey | null };
 export const loadChats = cache(async (token: string): Promise<{ chats: AppChat[]; tz: string } | null> => {
   const acct = await chatAccount(token);
   if (!acct) return null;
   const svc = createServiceClient();
-  const [list, { data: synced }] = await Promise.all([
-    getRecentConversations(acct, 60).catch(() => [] as ConvSummary[]),
-    svc.from("ghl_lead_status").select("contact_id, ai_on, ai_off").eq("owner_key", acct.ownerKey).limit(2000),
-  ]);
+  const list = await getRecentConversations(acct, 60).catch(() => [] as ConvSummary[]);
+  // Only the people in these chats — never the whole account (a busy client has thousands of leads).
+  const ids = [...new Set(list.map((c) => c.contactId).filter((x): x is string => !!x))];
+  const [{ data: synced }, { data: opps }, { data: stages }] = ids.length ? await Promise.all([
+    svc.from("ghl_lead_status").select("contact_id, ai_on, ai_off, booked, deposit_collected").eq("owner_key", acct.ownerKey).in("contact_id", ids),
+    svc.from("ghl_opportunities").select("contact_id, stage_id, last_stage_change_at").eq("location_id", acct.locationId).in("contact_id", ids),
+    svc.from("ghl_stage_map").select("stage_id, stage_name").eq("location_id", acct.locationId),
+  ]) : [{ data: [] }, { data: [] }, { data: [] }];
   const byContact = new Map<string, AiState>();
-  for (const r of (synced ?? []) as Array<{ contact_id: string | null; ai_on: boolean | null; ai_off: boolean | null }>) {
-    if (r.contact_id) byContact.set(r.contact_id, r.ai_off ? "off" : r.ai_on ? "on" : null);
+  const flags = new Map<string, { booked: boolean; paid: boolean }>();
+  for (const r of (synced ?? []) as Array<{ contact_id: string | null; ai_on: boolean | null; ai_off: boolean | null; booked: boolean | null; deposit_collected: boolean | null }>) {
+    if (!r.contact_id) continue;
+    byContact.set(r.contact_id, r.ai_off ? "off" : r.ai_on ? "on" : null);
+    flags.set(r.contact_id, { booked: !!r.booked, paid: !!r.deposit_collected });
+  }
+  const stageName = new Map<string, string>();
+  for (const r of (stages ?? []) as Array<{ stage_id: string; stage_name: string | null }>) if (r.stage_name) stageName.set(r.stage_id, r.stage_name);
+  // A lead with two pipeline cards: the one that moved last is where she is now.
+  const stageOf = new Map<string, { name: string; at: string }>();
+  for (const r of (opps ?? []) as Array<{ contact_id: string | null; stage_id: string | null; last_stage_change_at: string | null }>) {
+    const name = r.stage_id ? stageName.get(r.stage_id) : undefined;
+    if (!r.contact_id || !name) continue;
+    const at = r.last_stage_change_at ?? "";
+    const cur = stageOf.get(r.contact_id);
+    if (!cur || at > cur.at) stageOf.set(r.contact_id, { name, at });
   }
   const aiOf = (c: ConvSummary): AiState => {
     if (c.tags) return c.tags.includes("ai off") ? "off" : c.tags.includes("ai on") ? "on" : null;
@@ -194,6 +236,7 @@ export const loadChats = cache(async (token: string): Promise<{ chats: AppChat[]
       id: c.id, name: niceName(c.contactName), preview: c.lastMessageBody, at: c.lastMessageDate,
       fromLead: String(c.lastMessageDirection ?? "").toLowerCase() === "inbound", unread: c.unreadCount, channel: c.channel,
       ai: aiOf(c),
+      journey: c.contactId ? journeyOf(stageOf.get(c.contactId)?.name, flags.get(c.contactId)) : null,
     })),
   };
 });
@@ -213,6 +256,49 @@ export async function loadThread(token: string, conversationId: string): Promise
       return { id: m.id, fromLead: m.direction === "inbound", body: m.body, at: m.dateAdded, images, files: att.length - images.length };
     }),
   };
+}
+
+// ── Bookings: who each appointment is with, so a tap opens her chat ─────────
+/* The appointment list is the billing one (names + times). The lead behind a
+   row is found by the appointment's exact start time on the client's own
+   calendar; when two appointments start at the same minute we don't guess —
+   that row simply has no chat link. */
+export type AppBooking = PortalShow & { contactId: string | null };
+const DEAD_APPT = /cancel|invalid|no.?show/i;
+export const loadBookings = cache(async (token: string): Promise<{ upcoming: AppBooking[]; done: AppBooking[] } | null> => {
+  const [app, ownerKey] = await Promise.all([loadApp(token), ownerOf(token)]);
+  if (!app || !ownerKey) return null;
+  const { data } = await createServiceClient().from("ghl_appointments")
+    .select("contact_id, start_time, status").eq("owner_key", ownerKey)
+    .gte("start_time", "2026-08-01T00:00:00Z").order("start_time", { ascending: false }).limit(1000);
+  const at = new Map<number, Set<string>>();
+  for (const r of (data ?? []) as Array<{ contact_id: string | null; start_time: string | null; status: string | null }>) {
+    if (!r.contact_id || !r.start_time || DEAD_APPT.test(r.status ?? "")) continue;
+    const ms = new Date(r.start_time).getTime();
+    at.set(ms, (at.get(ms) ?? new Set()).add(r.contact_id));
+  }
+  const who = (s: PortalShow): AppBooking => {
+    const ms = s.date && /T\d{2}:/.test(s.date) ? new Date(s.date).getTime() : NaN;
+    const hit = at.get(ms);
+    return { ...s, contactId: hit && hit.size === 1 ? [...hit][0] : null };
+  };
+  const v = app.view;
+  return {
+    upcoming: [...v.upcoming].sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? ""))).map(who),
+    done: [...v.owed.shows].sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? ""))).map(who),
+  };
+});
+
+/** The chat with one of her leads (from Bookings): the conversation id + the lead's name. */
+export async function chatWithContact(token: string, contactId: string): Promise<{ id: string | null; name: string | null } | null> {
+  if (!/^[A-Za-z0-9]{10,40}$/.test(contactId)) return null;
+  const acct = await chatAccount(token);
+  if (!acct) return null;
+  // Her own lead only: the contact must be on file under this client.
+  const { data } = await createServiceClient().from("ghl_contacts").select("contact_name").eq("id", contactId).eq("owner_key", acct.ownerKey).maybeSingle();
+  if (!data) return null;
+  const id = await findConversationByContact(acct, contactId).catch(() => null);
+  return { id, name: niceName((data as { contact_name: string | null }).contact_name) };
 }
 
 /** She tapped "ask my team to turn Google Reviews on". Records it once. */

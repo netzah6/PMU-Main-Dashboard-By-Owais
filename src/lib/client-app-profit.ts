@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { createServiceClient } from "@/lib/supabase/server";
 import { appOwner, loadApp, niceName } from "@/lib/client-app";
-import { monthOf, type ClientPay, type ExpenseKind, type ProfitData, type ProfitExpense } from "@/lib/client-app-profit-math";
+import { STATUSES, monthOf, type ClientPay, type ClientStatus, type ExpenseKind, type ProfitData, type ProfitExpense } from "@/lib/client-app-profit-math";
 
 /* Client app · Profit (owner, 11/12/2026). In his words: she first sees her
    own clients "and then update the price for each one of them. After they
@@ -25,6 +25,9 @@ const MONTH_RE = /^20\d{2}-(0[1-9]|1[0-2])$/;
 const REF_RE = /^[a-f0-9]{16}$/;
 const KINDS: ExpenseKind[] = ["monthly", "per_client", "once"];
 
+/** A status other than the normal "done", or null. */
+const offStatus = (v: unknown): ClientStatus | null => STATUSES.find((s) => s === v && s !== "done") ?? null;
+
 const money = (v: unknown): number | null => {
   const n = typeof v === "number" ? v : Number(String(v ?? "").replace(/[$,\s]/g, ""));
   return String(v ?? "").trim() !== "" && Number.isFinite(n) && n >= 0 && n <= MONEY_MAX ? Math.round(n * 100) / 100 : null;
@@ -37,13 +40,16 @@ export const loadProfit = cache(async (token: string): Promise<ProfitData | null
   const svc = createServiceClient();
   const [{ data: s }, { data: am }, { data: ex }] = await Promise.all([
     svc.from("client_app_profit_settings").select("session_price, touchup_price, clients_done_at, setup_done_at").eq("owner_key", ownerKey).maybeSingle(),
-    svc.from("client_app_profit_amounts").select("client_ref, amount, touchup_amount").eq("owner_key", ownerKey).limit(MAX_AMOUNTS),
+    svc.from("client_app_profit_amounts").select("client_ref, amount, touchup_amount, status").eq("owner_key", ownerKey).limit(MAX_AMOUNTS),
     svc.from("client_app_expenses").select("id, label, amount, kind, month, end_month").eq("owner_key", ownerKey).order("created_at", { ascending: true }).limit(MAX_EXPENSES),
   ]);
   const set = s as { session_price?: number | null; touchup_price?: number | null; clients_done_at?: string | null; setup_done_at?: string | null } | null;
   const amounts: Record<string, ClientPay> = {};
-  for (const r of (am ?? []) as Array<{ client_ref: string; amount: number | null; touchup_amount: number | null }>) {
+  const statuses: Record<string, ClientStatus> = {};
+  for (const r of (am ?? []) as Array<{ client_ref: string; amount: number | null; touchup_amount: number | null; status: string | null }>) {
     amounts[r.client_ref] = { first: r.amount != null ? Number(r.amount) : null, touchup: r.touchup_amount != null ? Number(r.touchup_amount) : null };
+    const st = offStatus(r.status);
+    if (st) statuses[r.client_ref] = st;
   }
   const thisMonth = monthOf(new Date().toISOString()) ?? new Date().toISOString().slice(0, 7);
   const clients = app.view.served
@@ -55,6 +61,7 @@ export const loadProfit = cache(async (token: string): Promise<ProfitData | null
     touchup: set?.touchup_price != null ? Number(set.touchup_price) : null,
     clients,
     amounts,
+    statuses,
     expenses: ((ex ?? []) as Array<{ id: string; label: string; amount: number; kind: string; month: string; end_month: string | null }>)
       .map((e): ProfitExpense => ({ id: e.id, label: e.label, amount: Number(e.amount) || 0, kind: KINDS.find((k) => k === e.kind) ?? "monthly", month: e.month, endMonth: e.end_month })),
     thisMonth,
@@ -65,10 +72,10 @@ export const loadProfit = cache(async (token: string): Promise<ProfitData | null
 
 export type ProfitAction =
   // Step 1 · Submit: what every client paid her (+ her usual prices, to fill new ones faster).
-  | { action: "clients_submit"; amounts: unknown; session?: unknown; touchup?: unknown }
+  | { action: "clients_submit"; amounts: unknown; statuses?: unknown; session?: unknown; touchup?: unknown }
   // Step 2 · done: open the profit.
   | { action: "setup_done" }
-  | { action: "amount"; ref: unknown; first: unknown; touchup: unknown }
+  | { action: "amount"; ref: unknown; first: unknown; touchup: unknown; status?: unknown }
   | { action: "expense_add"; label: unknown; amount: unknown; kind: unknown; month: unknown }
   | { action: "expense_stop"; id: unknown; month: unknown };      // one-time: remove; repeating: stop from this month
 
@@ -86,12 +93,15 @@ export async function saveProfit(token: string, a: ProfitAction): Promise<Result
     const data = await loadProfit(token);
     if (!data) return bad("Not available");
     const given = (a.amounts && typeof a.amounts === "object" ? a.amounts : {}) as Record<string, { first?: unknown; touchup?: unknown } | undefined>;
+    const sts = (a.statuses && typeof a.statuses === "object" ? a.statuses : {}) as Record<string, unknown>;
     // Every client needs at least one value — that is the whole point of this step.
-    const rows: Array<{ owner_key: string; client_ref: string; amount: number | null; touchup_amount: number | null; updated_at: string }> = [];
+    // A client whose treatment didn't happen (no-show…) needs none: her status is the answer.
+    const rows: Array<{ owner_key: string; client_ref: string; amount: number | null; touchup_amount: number | null; status: ClientStatus | null; updated_at: string }> = [];
     for (const c of data.clients) {
-      const first = money(given[c.ref]?.first), touchup = money(given[c.ref]?.touchup);
-      if (first == null && touchup == null) return bad(`Add an amount for ${c.name} first`);
-      rows.push({ owner_key: ownerKey, client_ref: c.ref, amount: first, touchup_amount: touchup, updated_at: now });
+      const status = offStatus(sts[c.ref]);
+      const first = status ? null : money(given[c.ref]?.first), touchup = status ? null : money(given[c.ref]?.touchup);
+      if (!status && first == null && touchup == null) return bad(`Add an amount for ${c.name} first`);
+      rows.push({ owner_key: ownerKey, client_ref: c.ref, amount: first, touchup_amount: touchup, status, updated_at: now });
     }
     if (rows.length) {
       const { error } = await svc.from("client_app_profit_amounts").upsert(rows, { onConflict: "owner_key,client_ref" });
@@ -115,12 +125,13 @@ export async function saveProfit(token: string, a: ProfitAction): Promise<Result
   if (a.action === "amount") {
     const ref = String(a.ref ?? "");
     if (!REF_RE.test(ref)) return bad("Not available");
-    const first = money(a.first), touchup = money(a.touchup);
-    if (first == null && touchup == null) return bad("Type the amount as a number, like 450");
+    const status = offStatus(a.status);
+    const first = status ? null : money(a.first), touchup = status ? null : money(a.touchup);
+    if (!status && first == null && touchup == null) return bad("Type the amount as a number, like 450");
     const { count } = await svc.from("client_app_profit_amounts").select("client_ref", { count: "exact", head: true }).eq("owner_key", ownerKey);
     if ((count ?? 0) >= MAX_AMOUNTS) return bad("That's the most we can keep — please tell your coach");
     const { error } = await svc.from("client_app_profit_amounts")
-      .upsert({ owner_key: ownerKey, client_ref: ref, amount: first, touchup_amount: touchup, updated_at: now }, { onConflict: "owner_key,client_ref" });
+      .upsert({ owner_key: ownerKey, client_ref: ref, amount: first, touchup_amount: touchup, status, updated_at: now }, { onConflict: "owner_key,client_ref" });
     return error ? bad(FAILED, 500) : { ok: true };
   }
 

@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import type { Metadata, Viewport } from "next";
 import { loadApp } from "@/lib/client-app";
 import { TabBar } from "@/components/client-app/TabBar";
+import { NavProgress } from "@/components/client-app/NavProgress";
 
 /* Client app shell (owner, 11/11/2026): header, the page, bottom tabs. Added
    to the phone's home screen it opens full-screen like an app — its own
@@ -60,6 +62,7 @@ export default async function ClientAppLayout({ children, params }: { children: 
       <main className="mx-auto max-w-xl px-3 pt-3" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 84px)" }}>
         {children}
       </main>
+      <Suspense fallback={null}><NavProgress base={`/m/${params.token}`} /></Suspense>
       <TabBar base={`/m/${params.token}`} />
     </div>
   );

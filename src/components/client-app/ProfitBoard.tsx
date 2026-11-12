@@ -3,13 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Loader2, Plus, X } from "lucide-react";
 import {
-  KIND_LABEL, clientsToAdd, monthName, profitFor, shiftMonth,
-  type ClientPay, type ExpenseKind, type ProfitData, type ProfitExpense,
+  KIND_LABEL, STATUSES, STATUS_LABEL, clientsToAdd, monthName, profitFor, shiftMonth, statusOf,
+  type ClientPay, type ClientStatus, type ExpenseKind, type ProfitData, type ProfitExpense,
 } from "@/lib/client-app-profit-math";
 
 /* Profit, in the owner's order (11/12/2026):
      1. Her clients — what EACH one paid her (first treatment + touch-up; one
-        of the two is enough, but on every client) → Submit
+        of the two is enough, but on every client) → Submit. Each client also
+        has a status (didn't show up, didn't move forward…): any status other
+        than "Treatment done" needs no amount and counts as $0.
      2. Her costs — rent (monthly or per client), equipment, supplies…
      3. Her profit, month by month
    The profit is never shown before steps 1 and 2 are done. Every button
@@ -25,6 +27,19 @@ const shortDay = (iso: string | null) => {
 const INPUT = "w-full rounded-xl border border-[#d7e0ea] bg-white px-3 py-2.5 text-[16px] text-[#1c2b3a] outline-none placeholder:text-[#9aa8b8] focus:border-[#15B7AE]";
 const SMALL = "w-[5.25rem] rounded-xl border border-[#d7e0ea] bg-white px-2 py-2.5 text-right text-[16px] text-[#1c2b3a] outline-none placeholder:text-[#b6c1ce] focus:border-[#15B7AE]";
 const CARD = "rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3";
+// 16px text so the phone doesn't zoom in when the list opens.
+const SELECT = "w-full appearance-none rounded-xl border border-[#d7e0ea] bg-white bg-no-repeat py-2 pl-3 pr-8 text-[16px] outline-none focus:border-[#15B7AE]";
+const CARET = { backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%237b8a9c' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")", backgroundPosition: "right 0.7rem center" };
+
+/* What happened with this client — a small list to pick from. */
+function StatusPick({ name, value, onChange }: { name: string; value: ClientStatus; onChange: (s: ClientStatus) => void }) {
+  return (
+    <select value={value} onChange={(e) => onChange(STATUSES.find((s) => s === e.target.value) ?? "done")} aria-label={`Status for ${name}`}
+      style={CARET} className={`${SELECT} ${value === "done" ? "text-[#52627a]" : "border-[#fcd9a8] bg-[#fffaf2] font-semibold text-[#92400e]"}`}>
+      {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+    </select>
+  );
+}
 const MAIN_BTN = "flex w-full items-center justify-center gap-2 rounded-xl bg-[#15B7AE] px-4 py-3 text-sm font-bold text-white active:opacity-80 disabled:opacity-50";
 // Costs a permanent-makeup artist usually has — one tap fills the name in.
 const IDEAS = ["Rent", "Supplies", "Equipment", "Insurance", "Numbing cream", "Software", "Ads"];
@@ -125,15 +140,20 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
   const str = (n: number | null | undefined) => (n != null ? String(n) : "");
   const [vals, setVals] = useState<Record<string, Typed>>(() => Object.fromEntries(data.clients.map((c) => [c.ref, { first: str(data.amounts[c.ref]?.first), touchup: str(data.amounts[c.ref]?.touchup) }])));
   const typed = (ref: string): Typed => vals[ref] ?? { first: "", touchup: "" };
-  const hasValue = (ref: string) => num(typed(ref).first) != null || num(typed(ref).touchup) != null;
-  const [session, setSession] = useState(data.session != null ? String(data.session) : "");
-  const [touchup, setTouchup] = useState(data.touchup ? String(data.touchup) : "");
-  const usual = (num(session) ?? 0) + (num(touchup) ?? 0);
+  const [stat, setStat] = useState<Record<string, ClientStatus>>(() => ({ ...data.statuses }));
+  const statusNow = (ref: string): ClientStatus => stat[ref] ?? "done";
+  const hasMoney = (ref: string) => num(typed(ref).first) != null || num(typed(ref).touchup) != null;
+  // A client is "done" here when she has an amount, or a status that needs none.
+  const hasValue = (ref: string) => statusNow(ref) !== "done" || hasMoney(ref);
   const filled = d.clients.filter((c) => hasValue(c.ref)).length;
   const submitClients = async () => {
     const amounts: Record<string, ClientPay> = {};
-    for (const c of d.clients) if (hasValue(c.ref)) amounts[c.ref] = { first: num(typed(c.ref).first), touchup: num(typed(c.ref).touchup) };
-    if (await save("submit", { action: "clients_submit", amounts, session: num(session) ?? "", touchup: num(touchup) ?? "" }, { ...d, amounts, step: d.step === 1 ? 2 : d.step })) {
+    const statuses: Record<string, ClientStatus> = {};
+    for (const c of d.clients) {
+      if (statusNow(c.ref) !== "done") statuses[c.ref] = statusNow(c.ref);
+      else if (hasMoney(c.ref)) amounts[c.ref] = { first: num(typed(c.ref).first), touchup: num(typed(c.ref).touchup) };
+    }
+    if (await save("submit", { action: "clients_submit", amounts, statuses }, { ...d, amounts, statuses, step: d.step === 1 ? 2 : d.step })) {
       setBack(false);
       window.scrollTo({ top: 0 });
     }
@@ -146,30 +166,7 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
         <Steps step={1} />
         <section className={CARD}>
           <p className="text-base font-extrabold text-[#1c2b3a]">What did each client pay you?</p>
-          <p className="text-sm text-[#7b8a9c]">These are the clients we booked for you. Add the first treatment and the touch-up for each one. One of the two is enough to continue.</p>
         </section>
-
-        {d.clients.length > 0 && (
-          <section className={CARD}>
-            <p className="text-sm font-bold text-[#1c2b3a]">Faster: your usual price</p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-[#52627a]">First treatment</span>
-                <input value={session} onChange={(e) => setSession(e.target.value)} inputMode="decimal" placeholder="$450" className={INPUT} />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-[#52627a]">Touch-up</span>
-                <input value={touchup} onChange={(e) => setTouchup(e.target.value)} inputMode="decimal" placeholder="$150" className={INPUT} />
-              </label>
-            </div>
-            <button disabled={usual <= 0}
-              onClick={() => setVals(Object.fromEntries(d.clients.map((c) => [c.ref, hasValue(c.ref) ? typed(c.ref) : { first: str(num(session)), touchup: str(num(touchup)) }])))}
-              className="mt-2 w-full rounded-xl border border-[#15B7AE] bg-white px-4 py-2.5 text-sm font-bold text-[#0e8f88] active:opacity-80 disabled:opacity-40">
-              {usual > 0 ? `Fill the empty clients with ${usd(usual)}` : "Fill the empty clients"}
-            </button>
-            <p className="mt-1 text-center text-[11px] text-[#8595a8]">Then change any client who paid a different amount.</p>
-          </section>
-        )}
 
         <section className={CARD}>
           <div className="flex items-end">
@@ -189,15 +186,24 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
                 return (
                   <li key={c.ref}>
                     {head && <p className="pt-2 text-[11px] font-bold uppercase tracking-wide text-[#8595a8]">{head}</p>}
-                    <div className="flex items-center gap-2 border-b border-[#eef3f8] py-2">
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-[#1c2b3a]">{hasValue(c.ref) && <Check size={13} className="mr-1 inline text-[#15803d]" />}{c.name}</span>
-                        <span className="block text-xs text-[#7b8a9c]">{shortDay(c.date)}</span>
-                      </span>
-                      <input value={typed(c.ref).first} onChange={(e) => setVals((v) => ({ ...v, [c.ref]: { ...typed(c.ref), first: e.target.value } }))} inputMode="decimal" placeholder="$"
-                        aria-label={`First treatment for ${c.name}`} className={SMALL} />
-                      <input value={typed(c.ref).touchup} onChange={(e) => setVals((v) => ({ ...v, [c.ref]: { ...typed(c.ref), touchup: e.target.value } }))} inputMode="decimal" placeholder="$"
-                        aria-label={`Touch-up for ${c.name}`} className={SMALL} />
+                    <div className="border-b border-[#eef3f8] py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-[#1c2b3a]">{hasValue(c.ref) && <Check size={13} className="mr-1 inline text-[#15803d]" />}{c.name}</span>
+                          <span className="block text-xs text-[#7b8a9c]">{shortDay(c.date)}</span>
+                        </span>
+                        {statusNow(c.ref) === "done" ? (
+                          <>
+                            <input value={typed(c.ref).first} onChange={(e) => setVals((v) => ({ ...v, [c.ref]: { ...typed(c.ref), first: e.target.value } }))} inputMode="decimal" placeholder="$"
+                              aria-label={`First treatment for ${c.name}`} className={SMALL} />
+                            <input value={typed(c.ref).touchup} onChange={(e) => setVals((v) => ({ ...v, [c.ref]: { ...typed(c.ref), touchup: e.target.value } }))} inputMode="decimal" placeholder="$"
+                              aria-label={`Touch-up for ${c.name}`} className={SMALL} />
+                          </>
+                        ) : (
+                          <span className="w-[11rem] text-right text-sm font-semibold text-[#8595a8]">$0 · no amount needed</span>
+                        )}
+                      </div>
+                      <div className="mt-1.5"><StatusPick name={c.name} value={statusNow(c.ref)} onChange={(s) => setStat((v) => ({ ...v, [c.ref]: s }))} /></div>
                     </div>
                   </li>
                 );
@@ -269,10 +275,14 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
   const [editRef, setEditRef] = useState<string | null>(null);
   const [amt, setAmt] = useState("");
   const [tup, setTup] = useState("");
+  const [st, setSt] = useState<ClientStatus>("done");
   const saveAmount = async (ref: string) => {
-    const pay: ClientPay = { first: num(amt), touchup: num(tup) };
-    if (pay.first == null && pay.touchup == null) { setErr("Type the amount as a number, like 450"); return; }
-    if (await save(`amt:${ref}`, { action: "amount", ref, first: pay.first ?? "", touchup: pay.touchup ?? "" }, { ...d, amounts: { ...d.amounts, [ref]: pay } })) setEditRef(null);
+    const off = st !== "done";
+    const pay: ClientPay = off ? { first: null, touchup: null } : { first: num(amt), touchup: num(tup) };
+    if (!off && pay.first == null && pay.touchup == null) { setErr("Type the amount as a number, like 450"); return; }
+    const statuses = { ...d.statuses };
+    if (off) statuses[ref] = st; else delete statuses[ref];
+    if (await save(`amt:${ref}`, { action: "amount", ref, first: pay.first ?? "", touchup: pay.touchup ?? "", status: st }, { ...d, amounts: { ...d.amounts, [ref]: pay }, statuses })) setEditRef(null);
   };
   return (
     <div className="space-y-3">
@@ -309,15 +319,22 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
                 {editRef === c.ref ? (
                   <div>
                     <p className="text-sm font-semibold text-[#1c2b3a]">{c.name}</p>
+                    <div className="mt-1.5"><StatusPick name={c.name} value={st} onChange={setSt} /></div>
                     <div className="mt-1.5 flex items-end gap-2">
-                      <label className="block min-w-0 flex-1">
-                        <span className="mb-1 block text-xs font-semibold text-[#52627a]">First treatment</span>
-                        <input autoFocus value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" placeholder="$" className={INPUT} />
-                      </label>
-                      <label className="block min-w-0 flex-1">
-                        <span className="mb-1 block text-xs font-semibold text-[#52627a]">Touch-up</span>
-                        <input value={tup} onChange={(e) => setTup(e.target.value)} inputMode="decimal" placeholder="$" className={INPUT} />
-                      </label>
+                      {st === "done" ? (
+                        <>
+                          <label className="block min-w-0 flex-1">
+                            <span className="mb-1 block text-xs font-semibold text-[#52627a]">First treatment</span>
+                            <input value={amt} onChange={(e) => setAmt(e.target.value)} inputMode="decimal" placeholder="$" className={INPUT} />
+                          </label>
+                          <label className="block min-w-0 flex-1">
+                            <span className="mb-1 block text-xs font-semibold text-[#52627a]">Touch-up</span>
+                            <input value={tup} onChange={(e) => setTup(e.target.value)} inputMode="decimal" placeholder="$" className={INPUT} />
+                          </label>
+                        </>
+                      ) : (
+                        <p className="min-w-0 flex-1 py-2.5 text-sm text-[#7b8a9c]">Counts as $0 — no amount needed.</p>
+                      )}
                       <button onClick={() => void saveAmount(c.ref)} disabled={busy === `amt:${c.ref}`}
                         className="flex shrink-0 items-center gap-1.5 rounded-xl bg-[#15B7AE] px-3.5 py-2.5 text-sm font-bold text-white active:opacity-80 disabled:opacity-70">
                         {busy === `amt:${c.ref}` ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Save
@@ -327,13 +344,13 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
                   </div>
                 ) : (
                   <button onClick={() => {
-                    setEditRef(c.ref); setErr(null);
+                    setEditRef(c.ref); setErr(null); setSt(statusOf(d, c.ref));
                     setAmt(c.pay?.first != null ? String(c.pay.first) : c.amount == null && d.session != null ? String(d.session) : "");
                     setTup(c.pay?.touchup != null ? String(c.pay.touchup) : c.amount == null && d.touchup ? String(d.touchup) : "");
                   }} className="flex w-full items-center gap-2 text-left active:opacity-80">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold text-[#1c2b3a]">{c.name}</span>
-                      <span className="block text-xs text-[#7b8a9c]">{shortDay(c.date)}{c.pay?.first != null && c.pay?.touchup != null ? ` · ${usd(c.pay.first)} + ${usd(c.pay.touchup)} touch-up` : c.pay?.touchup != null ? " · touch-up" : ""}</span>
+                      <span className="block text-xs text-[#7b8a9c]">{shortDay(c.date)}{c.status !== "done" ? ` · ${STATUS_LABEL[c.status]}` : c.pay?.first != null && c.pay?.touchup != null ? ` · ${usd(c.pay.first)} + ${usd(c.pay.touchup)} touch-up` : c.pay?.touchup != null ? " · touch-up" : ""}</span>
                     </span>
                     {c.amount != null
                       ? <><span className="text-sm font-bold text-[#1c2b3a]">{usd(c.amount)}</span><span className="text-xs font-semibold text-[#0e8f88]">Edit</span></>
@@ -357,7 +374,7 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
               <li key={e.id} className="flex items-center gap-2 border-b border-[#eef3f8] py-2">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-[#1c2b3a]">{e.label}</span>
-                  <span className="block text-xs text-[#7b8a9c]">{e.kind === "per_client" ? `${usd(e.amount)} × ${m.clients.length} client${m.clients.length === 1 ? "" : "s"}` : KIND_LABEL[e.kind]}</span>
+                  <span className="block text-xs text-[#7b8a9c]">{e.kind === "per_client" ? `${usd(e.amount)} × ${m.came} client${m.came === 1 ? "" : "s"}` : KIND_LABEL[e.kind]}</span>
                 </span>
                 <span className="text-sm font-bold text-[#1c2b3a]">{usd(e.cost)}</span>
                 <button onClick={() => stopExpense(e.id, month)} disabled={busy === `stop:${e.id}`}
