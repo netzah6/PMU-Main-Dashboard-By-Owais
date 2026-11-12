@@ -64,16 +64,15 @@ export default async function ClientAppHome({ params, searchParams }: { params: 
               </li>
             ))}
           </ol>
-          <Link href={`${base}/support`} className="mt-3 block rounded-xl bg-[#15B7AE] px-4 py-2.5 text-center text-sm font-bold text-white active:opacity-80">Message my coach</Link>
         </section>
       ) : (
-        <Link href={`${base}/support`} className="flex items-center gap-2.5 rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3 active:opacity-80">
+        <div className="flex items-center gap-2.5 rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3">
           <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${camp.tone === "green" ? "bg-[#22c55e]" : "bg-[#94a3b8]"}`} />
           <span className="min-w-0 flex-1">
             <span className="block text-xs font-semibold uppercase tracking-wide text-[#7b8a9c]">Campaign status</span>
             <span className="block text-sm text-[#52627a]"><b className={camp.tone === "green" ? "text-[#15803d]" : "text-[#1c2b3a]"}>{camp.label}</b> · {camp.text}</span>
           </span>
-        </Link>
+        </div>
       ))}
       <Card href={`${base}/bookings`} tone="teal" label="Upcoming appointments" value={String(v.upcoming.length)}
         sub={next ? `Next: ${next.name} · ${day(next.date)}` : "Nothing booked ahead yet"} />

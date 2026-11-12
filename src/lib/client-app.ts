@@ -166,8 +166,6 @@ const chatAccount = cache(async (token: string): Promise<ChatAccount | null> => 
   return { ownerKey: acct.ownerKey, locationId: acct.locationId, token: t.token, tz };
 });
 
-/** Her own time zone (her sub-account's), for showing times anywhere in the app. */
-export const appTz = async (token: string): Promise<string> => (await chatAccount(token))?.tz ?? "America/New_York";
 
 /** Is the AI assistant answering this lead? From the contact's "ai on" /
  *  "ai off" tags (live from GoHighLevel when it sends them, else our last

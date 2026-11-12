@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle, Trash2, Wrench, ImagePlus } from "lucide-react";
+import { Loader2, Megaphone, Users, Clock, Send, X, RefreshCw, AlertTriangle, Trash2, Wrench, ImagePlus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { templateProblem, autoFixTemplate } from "@/lib/blast-template";
@@ -78,6 +78,25 @@ export default function BlastPage() {
   const [template, setTemplate] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  /* ✨ AI twist (owner, 11/12/2026): the same proven message with a light
+     touch for an occasion. The AI only offers options; a person picks one. */
+  const [occasion, setOccasion] = useState("");
+  const [twists, setTwists] = useState<string[]>([]);
+  const [twistBusy, setTwistBusy] = useState(false);
+  const askTwist = useCallback(async (tpl: string, occ: string) => {
+    if (!occ.trim()) { toast.error("Type the occasion first — for example Black Friday"); return; }
+    setTwistBusy(true);
+    try {
+      const r = await fetch("/api/blast/twist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ template: tpl, occasion: occ }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "The AI couldn't write that — please try again");
+      setTwists(j.options ?? []);
+    } catch (e) {
+      toast.error(`${e}`.replace("Error: ", ""));
+    } finally {
+      setTwistBusy(false);
+    }
+  }, []);
   const photoInput = useRef<HTMLInputElement>(null);
   const addPhoto = useCallback(async (file: File | undefined) => {
     if (!file) return;
@@ -357,7 +376,35 @@ export default function BlastPage() {
               </div>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-[10px] text-[#8595a8]">Placeholders: {"{{contact.first_name}}"} · {"{{user.first_name}}"} · {"{{service}}"}</p>
-                <button onClick={() => setTemplate(defaultTemplate)} className="text-[10px] font-semibold text-[#0e8f88] hover:underline">Reset to default</button>
+                <button onClick={() => { setTemplate(defaultTemplate); setTwists([]); }} className="text-[10px] font-semibold text-[#0e8f88] hover:underline">Reset to default</button>
+              </div>
+              {/* ✨ AI twist — same message, a light touch for an occasion. */}
+              <div className="mt-2 rounded-lg border border-[#e3dcfb] bg-[#faf8ff] p-2.5">
+                <p className="text-xs font-bold text-[#5b3fc4] flex items-center gap-1.5"><Sparkles size={13} /> AI twist <span className="font-normal text-[#8595a8]">— same message, a small touch for an occasion</span></p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {["Black Friday", "Christmas", "New Year", "Valentine's Day", "Mother's Day"].map((o) => (
+                    <button key={o} onClick={() => { setOccasion(o); void askTwist(template, o); }} disabled={twistBusy || !!problem}
+                      className="px-2 py-1 rounded-full border border-[#d9cffa] bg-white text-[11px] font-semibold text-[#5b3fc4] hover:border-[#5b3fc4] disabled:opacity-50">{o}</button>
+                  ))}
+                </div>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <input value={occasion} onChange={(e) => setOccasion(e.target.value)} maxLength={80} placeholder="Or type your own — e.g. Summer special"
+                    onKeyDown={(e) => { if (e.key === "Enter" && !twistBusy && !problem) void askTwist(template, occasion); }}
+                    className="min-w-0 flex-1 text-xs border border-[#d7e0ea] rounded-lg px-2.5 py-1.5 text-[#1f3559] bg-white" />
+                  <button onClick={() => void askTwist(template, occasion)} disabled={twistBusy || !!problem || !occasion.trim()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#5b3fc4] text-white text-xs font-bold hover:bg-[#4a32a6] disabled:opacity-50">
+                    {twistBusy ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} {twistBusy ? "Writing…" : "Write"}
+                  </button>
+                </div>
+                {twists.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase text-[#8595a8]">Pick one — it goes into the Message box</p>
+                    {twists.map((t) => (
+                      <button key={t} onClick={() => { setTemplate(t); setTwists([]); toast.success("Message updated — check the preview before sending"); }}
+                        className="block w-full text-left rounded-lg border border-[#e3dcfb] bg-white px-2.5 py-2 text-xs text-[#1f3559] whitespace-pre-wrap hover:border-[#5b3fc4]">{t}</button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </>
