@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { JOURNEY_CLS, chatWithContact, loadApp, loadChats, loadThread } from "@/lib/client-app";
+import { BookFromChat } from "@/components/client-app/BookFromChat";
 
 /* One chat, oldest to newest, like a messaging app. Read-only in the demo:
    nobody may send a text to a lead from a link alone — replying arrives
    together with the real sign-in. */
-export default async function ClientAppThread({ params, searchParams }: { params: { token: string; id: string }; searchParams?: { c?: string; from?: string } }) {
+export default async function ClientAppThread({ params, searchParams }: { params: { token: string; id: string }; searchParams?: { c?: string; from?: string; book?: string } }) {
   const app = await loadApp(params.token);
   if (!app) return null;
   // The name comes from her chat list, never from the address bar.
@@ -14,6 +15,8 @@ export default async function ClientAppThread({ params, searchParams }: { params
   const fromBookings = searchParams?.from === "bookings";
   const lead = !chat && searchParams?.c ? await chatWithContact(params.token, searchParams.c).catch(() => null) : null;
   const name = chat?.name ?? (lead?.id === params.id ? lead.name : null) ?? "Chat";
+  // Who this chat is with — needed to book her an appointment from here.
+  const contactId = chat?.contactId ?? (lead?.id === params.id ? searchParams?.c ?? null : null);
   const back = fromBookings ? `/m/${params.token}/bookings` : `/m/${params.token}/chats`;
   if (!data) {
     return (
@@ -40,6 +43,8 @@ export default async function ClientAppThread({ params, searchParams }: { params
           </span>
         )}
       </div>
+      {/* "Book appointment" is built (BookFromChat) but stays off until one real booking test — ?book=1 shows it for that test. */}
+      {contactId && searchParams?.book === "1" && <BookFromChat token={params.token} contactId={contactId} name={name} />}
       {messages.length === 0 ? (
         <p className="px-1 py-3 text-sm text-[#7b8a9c]">No messages in this chat yet.</p>
       ) : (

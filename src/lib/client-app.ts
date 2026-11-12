@@ -196,7 +196,7 @@ export function journeyOf(stage: string | null | undefined, f?: { booked?: boole
   return label ? { label, tone: "gray" } : null;
 }
 
-export type AppChat = { id: string; name: string; preview: string; at: string | null; fromLead: boolean; unread: number; channel: string; ai: AiState; journey: Journey | null };
+export type AppChat = { id: string; name: string; preview: string; at: string | null; fromLead: boolean; unread: number; channel: string; ai: AiState; journey: Journey | null; contactId: string | null };
 export const loadChats = cache(async (token: string): Promise<{ chats: AppChat[]; tz: string } | null> => {
   const acct = await chatAccount(token);
   if (!acct) return null;
@@ -238,6 +238,7 @@ export const loadChats = cache(async (token: string): Promise<{ chats: AppChat[]
       fromLead: String(c.lastMessageDirection ?? "").toLowerCase() === "inbound", unread: c.unreadCount, channel: c.channel,
       ai: aiOf(c),
       journey: c.contactId ? journeyOf(stageOf.get(c.contactId)?.name, flags.get(c.contactId)) : null,
+      contactId: c.contactId,
     })),
   };
 });
