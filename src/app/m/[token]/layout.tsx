@@ -51,7 +51,10 @@ export default async function ClientAppLayout({ children, params }: { children: 
             <p className="truncate text-base font-bold leading-tight">{v.business || v.ownerName}</p>
             {v.business && v.ownerName && <p className="truncate text-xs font-semibold text-white/85">{v.ownerName}</p>}
           </div>
-          <span className="ml-auto rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">Live</span>
+          {/* Our own mark, top right (owner, 11/11/2026). */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand-logo.png" alt="PMU Bookings On Demand" title="PMU Bookings On Demand"
+            className="ml-auto h-10 w-12 shrink-0 rounded-xl bg-white object-contain px-1.5 py-1" />
         </div>
       </header>
       <main className="mx-auto max-w-xl px-3 pt-3" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 84px)" }}>
