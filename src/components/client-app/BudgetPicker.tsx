@@ -19,13 +19,13 @@ export function BudgetPicker({ token, daily, options, recommended }: { token: st
   };
   return (
     <div>
-      <div className="mt-2 grid grid-cols-4 gap-2">
+      <div className="mt-2 grid gap-1.5" style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
         {options.map((o) => (
           <button key={o} onClick={() => void pick(o)} disabled={busy != null} aria-pressed={value === o}
             className={`relative rounded-xl border px-1 py-2.5 text-center active:opacity-80 disabled:opacity-70 ${value === o ? "border-[#15B7AE] bg-[#e6f7f5]" : "border-[#d7e0ea] bg-white"}`}>
-            <span className={`flex items-center justify-center gap-1 text-base font-extrabold ${value === o ? "text-[#0e8f88]" : "text-[#1c2b3a]"}`}>
-              {busy === o ? <Loader2 size={14} className="animate-spin" /> : value === o ? <Check size={14} /> : null}${o}
-            </span>
+            {/* The tick sits in the corner so five amounts still fit on a small phone. */}
+            {busy === o ? <Loader2 size={11} className="absolute right-1 top-1 animate-spin text-[#0e8f88]" /> : value === o ? <Check size={11} className="absolute right-1 top-1 text-[#0e8f88]" /> : null}
+            <span className={`block text-base font-extrabold ${value === o ? "text-[#0e8f88]" : "text-[#1c2b3a]"}`}>${o}</span>
             <span className="block text-[10px] font-semibold text-[#8595a8]">{o === recommended ? "start here" : "a day"}</span>
           </button>
         ))}

@@ -10,7 +10,8 @@ import { fileAlert } from "@/lib/alerts";
    Facebook or any budget by itself — a person on the team makes the change. */
 
 export const BUDGET_DEFAULT = 25;
-export const BUDGET_OPTIONS = [25, 30, 40, 50] as const;
+// $20 added on the owner's yes (11/12/2026); $25 stays the start.
+export const BUDGET_OPTIONS = [20, 25, 30, 40, 50] as const;
 
 export const loadBudget = cache(async (token: string): Promise<{ daily: number; chosenAt: string | null } | null> => {
   const ownerKey = await appOwner(token);
