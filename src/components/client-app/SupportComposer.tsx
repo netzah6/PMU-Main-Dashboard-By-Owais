@@ -12,7 +12,7 @@ import { VOICE_NOTE_MAX_SECONDS, canRecord, toMp3 } from "@/lib/voice-note-clien
 type Phase = "idle" | "asking" | "recording" | "encoding" | "ready" | "sending";
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export function SupportComposer({ token, coachFirst }: { token: string; coachFirst: string | null }) {
+export function SupportComposer({ token, coachFirst, count }: { token: string; coachFirst: string | null; count: number }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -28,7 +28,7 @@ export function SupportComposer({ token, coachFirst }: { token: string; coachFir
 
   useEffect(() => { setSupported(canRecord()); }, []);
   // Open on the newest message, like a messaging app.
-  useEffect(() => { toNewest(); }, []);
+  useEffect(() => { toNewest(); }, [count]);
 
   const endAttempt = () => {
     session.current++;
@@ -121,8 +121,7 @@ export function SupportComposer({ token, coachFirst }: { token: string; coachFir
       const j = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(j.error || "That didn't go through. Please try again.");
       setText(""); discard(); setPhase("idle");
-      router.refresh();
-      setTimeout(() => toNewest(true), 700);
+      router.refresh(); // the new message arrives with the refreshed list, which scrolls down (count)
     } catch (e) {
       setErr(e instanceof Error ? e.message : "That didn't go through. Please try again.");
       setPhase(back);

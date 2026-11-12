@@ -65,7 +65,7 @@ export default async function ClientAppSupport({ params }: { params: { token: st
           })}
         </ul>
       )}
-      <SupportComposer token={params.token} coachFirst={coach?.first ?? null} />
+      <SupportComposer token={params.token} coachFirst={coach?.first ?? null} count={messages.length} />
     </div>
   );
 }
