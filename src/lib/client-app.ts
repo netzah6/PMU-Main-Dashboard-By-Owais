@@ -28,8 +28,38 @@ export type AppReviews = {
   since: string | null;
   latest: Array<{ name: string; stars: number; text: string; when: string }>;
 };
+/* Her campaign, in her words (owner, 11/12/2026): is it live, and is there
+   anything SHE has to do. From the same row the team's Performance tab shows:
+   the team's own status (Live / Paused) and Facebook's ad-account status.
+   "unknown" = live with us but Facebook's status isn't on file this week, so
+   we say "Live" and claim nothing about the ads. */
+export type CampaignState = "live" | "unsettled" | "grace" | "disabled" | "paused" | "unknown";
+export type AppCampaign = { state: CampaignState; coach: string | null; sheetRow: number | null };
+type PerfRow = { sheet_row: number; owner_name: string | null; client_status: string | null; campaign_status: string | null; campaign_paused: boolean | null; assigned: string | null };
+const stateOf = (r: PerfRow): CampaignState => {
+  const st = (r.campaign_status ?? "").toUpperCase();
+  if ((r.client_status ?? "").trim().toLowerCase() !== "live") return "paused";
+  if (st.includes("UNSETTLED")) return "unsettled";
+  if (st.includes("GRACE")) return "grace";
+  if (st.includes("DISABLE") || st.includes("CLOSED")) return "disabled";
+  if (st.includes("ACTIVE") && r.campaign_paused !== true) return "live";
+  return "unknown";
+};
+// Several businesses under one owner: an action she must take wins, then live.
+const RANK: CampaignState[] = ["unsettled", "grace", "disabled", "live", "unknown", "paused"];
+export const loadCampaign = cache(async (ownerKey: string): Promise<AppCampaign | null> => {
+  const { data } = await createServiceClient().from("performance_overview")
+    .select("sheet_row, owner_name, client_status, campaign_status, campaign_paused, assigned");
+  const mine = ((data ?? []) as PerfRow[]).filter((r) => (r.owner_name ?? "").trim().toLowerCase() === ownerKey);
+  if (!mine.length) return null;
+  const best = [...mine].sort((a, b) => RANK.indexOf(stateOf(a)) - RANK.indexOf(stateOf(b)))[0];
+  return { state: stateOf(best), coach: (best.assigned ?? "").trim() || null, sheetRow: best.sheet_row };
+});
+
 export type AppData = {
   view: PortalView; leads: AppLead[]; leads30: number; booked30: number; paid30: number;
+  /** Campaign status + what she has to do, or null when she isn't on the team's list. */
+  campaign: AppCampaign | null;
   /** Sessions that came in through us, all time: charged + waiting for the next bill. */
   sessionsDone: number;
   logo: string | null;
@@ -95,12 +125,13 @@ export const loadApp = cache(async (token: string): Promise<AppData | null> => {
   const acct = await accountOf(token);
   if (!acct) return null;
   const svc = createServiceClient();
-  const [view, { data: leadRows }, reviews] = await Promise.all([
+  const [view, { data: leadRows }, reviews, campaign] = await Promise.all([
     buildPortalView(svc, acct.ownerKey).catch(() => null),
     svc.from("ghl_lead_status")
       .select("contact_name, date_added, booked, deposit_collected")
       .eq("owner_key", acct.ownerKey).order("date_added", { ascending: false }).limit(300),
     loadReviews(acct),
+    loadCampaign(acct.ownerKey).catch(() => null),
   ]);
   if (!view) return null;
   type Row = { contact_name: string | null; date_added: string | null; booked: boolean | null; deposit_collected: boolean | null };
@@ -117,6 +148,7 @@ export const loadApp = cache(async (token: string): Promise<AppData | null> => {
     sessionsDone: view.owed.count + view.payments.reduce((n, p) => n + p.names.length, 0),
     logo: acct.logo,
     reviews,
+    campaign,
   };
 });
 
@@ -133,6 +165,9 @@ const chatAccount = cache(async (token: string): Promise<ChatAccount | null> => 
   const tz = (await locationTimezone(acct.locationId, t.token)) || "America/New_York";
   return { ownerKey: acct.ownerKey, locationId: acct.locationId, token: t.token, tz };
 });
+
+/** Her own time zone (her sub-account's), for showing times anywhere in the app. */
+export const appTz = async (token: string): Promise<string> => (await chatAccount(token))?.tz ?? "America/New_York";
 
 /** Is the AI assistant answering this lead? From the contact's "ai on" /
  *  "ai off" tags (live from GoHighLevel when it sends them, else our last
