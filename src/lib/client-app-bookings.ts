@@ -47,7 +47,7 @@ async function liveAppointment(acct: AppChatAccount, id: string): Promise<{ ok: 
     status: String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase(),
   };
   if (a.id !== id || !a.contactId || !a.calendarId || !Number.isFinite(a.startMs)) return fail("Not available");
-  if (a.status !== "confirmed" && a.status !== "new") return fail("This appointment was already changed. Pull down to refresh.", 409);
+  if (a.status !== "confirmed" && a.status !== "new") return fail("This appointment was already changed. Please open Bookings again.", 409);
   if (a.startMs <= Date.now()) return fail("This appointment already started.", 409);
   return { ok: true, a };
 }
@@ -127,7 +127,8 @@ export async function changeBooking(token: string, id: string, c: BookingChange)
   for (let attempt = 0; attempt < 3 && !moved; attempt++) {
     if (attempt) await new Promise((r) => setTimeout(r, attempt === 1 ? 400 : 1200));
     moved = await fetch(`${GHL}/calendars/events/appointments/${encodeURIComponent(a.id)}`, {
-      method: "PUT", headers: H(acct.token), body: JSON.stringify({ startTime: startIso, endTime: endIso }),
+      // The status is sent too: without it GoHighLevel puts a moved appointment back to "new" (seen on the 11/12 test).
+      method: "PUT", headers: H(acct.token), body: JSON.stringify({ startTime: startIso, endTime: endIso, appointmentStatus: a.status }),
     }).then((r) => r.ok).catch(() => false);
   }
   if (!moved) { await log(false, start, "move failed"); return fail("We couldn't move it. Please try again.", 502); }
