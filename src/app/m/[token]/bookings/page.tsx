@@ -51,7 +51,7 @@ function Row({ s, token, tz }: { s: AppBooking; token: string; tz?: string | nul
 export default async function ClientAppBookings({ params, searchParams }: { params: { token: string }; searchParams?: { w?: string } }) {
   const app = await loadApp(params.token);
   if (!app) return null;
-  const [b, week] = await Promise.all([loadBookings(params.token), loadWeek(params.token, searchParams?.w).catch(() => null)]);
+  const [b, week] = await Promise.all([loadBookings(params.token), loadWeek(params.token, searchParams?.w).catch((e) => { console.error("[client-app week]", e); return null; })]);
   const upcoming = b?.upcoming ?? [];
   const done = b?.done ?? [];
   return (

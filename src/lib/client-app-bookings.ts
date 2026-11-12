@@ -161,19 +161,20 @@ async function liveAppointmentStatus(acct: AppChatAccount, id: string): Promise<
 
 // ── Her calendars ───────────────────────────────────────────────────────────
 type Cal = { id: string; name: string; slotMin: number; open: Array<{ days: number[]; from: number; to: number }> };
+const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 async function calendarsOf(acct: AppChatAccount): Promise<Cal[] | null> {
   const r = await fetch(`${GHL}/calendars/?locationId=${encodeURIComponent(acct.locationId)}`, { headers: H(acct.token) }).catch(() => null);
   if (!r?.ok) return null;
   const j = (await r.json().catch(() => null)) as { calendars?: Array<Record<string, unknown>> } | null;
-  return (j?.calendars ?? []).filter((c) => c.id && c.isActive !== false).slice(0, 8).map((c) => {
+  return arr<Record<string, unknown>>(j?.calendars).filter((c) => c && c.id && c.isActive !== false).slice(0, 8).map((c) => {
     const unit = String(c.slotDurationUnit ?? "mins").toLowerCase();
     const n = Number(c.slotDuration) || 30;
     type OH = { daysOfTheWeek?: number[]; hours?: Array<{ openHour?: number; openMinute?: number; closeHour?: number; closeMinute?: number }> };
     return {
       id: String(c.id), name: String(c.name ?? "Calendar").trim() || "Calendar",
       slotMin: Math.min(480, Math.max(10, unit.startsWith("hour") ? n * 60 : n)),
-      open: ((c.openHours ?? []) as OH[]).flatMap((o) => (o.hours ?? []).map((h) => ({
-        days: (o.daysOfTheWeek ?? []).map(Number),
+      open: arr<OH>(c.openHours).flatMap((o) => arr<NonNullable<OH["hours"]>[number]>(o?.hours).map((h) => ({
+        days: arr<number>(o?.daysOfTheWeek).map(Number),
         from: (Number(h.openHour) || 0) * 60 + (Number(h.openMinute) || 0),
         to: (Number(h.closeHour) || 0) * 60 + (Number(h.closeMinute) || 0),
       }))).filter((x) => x.to > x.from),
