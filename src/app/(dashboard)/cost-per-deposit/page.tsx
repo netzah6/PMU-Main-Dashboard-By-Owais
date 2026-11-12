@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { DataFreshness } from "@/components/freshness/DataFreshness";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency, userColor, cn } from "@/lib/utils";
-import { Search, ChevronRight, Copy, X, Loader2 } from "lucide-react";
+import { Search, ChevronRight, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ActivityLog } from "@/components/activity/ActivityLog";
 import { LeadBreakdown } from "@/components/clients/LeadBreakdown";
@@ -32,14 +32,6 @@ interface Row {
   d3: number; d7: number; d14: number; d30: number;
   spent7: number | string | null; spent14: number | string | null; spent30: number | string | null;
   cpd7: number | string | null; cpd14: number | string | null; cpd30: number | string | null;
-}
-
-interface Dup {
-  owner_name: string | null;
-  full_name: string | null;
-  email: string | null;
-  deposit_count: number;
-  dates: string | null;
 }
 
 const num = (v: unknown) => {
@@ -149,8 +141,6 @@ export default function CostPerDepositPage() {
   const [versionFilter, setVersionFilter] = useState("All");
   const [sortMode, setSortMode] = useState<"default" | "fh-best" | "fh-worst" | "kill-worst" | "killtext-worst" | "brief-worst">("default");
   const [openRow, setOpenRow] = useState<string | null>(null);
-  const [dups, setDups] = useState<Dup[]>([]);
-  const [dupOpen, setDupOpen] = useState(false);
   // null = unknown (query failed) → show NO orange flags rather than flagging
   // everyone; a Map means we know exactly who has GHL data and whether their
   // leads carry the (v3) tag.
@@ -277,8 +267,6 @@ export default function CostPerDepositPage() {
         console.warn("booking_stats query failed:", bkRes.error.message);
       }
       setLoading(false);
-      const { data: dup } = await supabase.from("deposit_duplicates").select("*");
-      setDups(((dup as Dup[]) ?? []).sort((a, b) => b.deposit_count - a.deposit_count));
     })();
   }, []);
 
@@ -399,42 +387,7 @@ export default function CostPerDepositPage() {
             <option value="brief-worst">🧭 Needs attention first</option>
           </select>
 
-          {/* Duplicate-deposit tracker */}
-          <div className="relative">
-            <button onClick={() => setDupOpen((o) => !o)}
-              className={cn("flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors",
-                dups.length ? "bg-[#fff4ed] border-[#fbcfae] text-[#c2410c] hover:bg-[#ffe9da]" : "bg-white border-[#e4ebf2] text-[#697a91] hover:border-[#cbd5e1]")}>
-              <Copy size={14} />
-              Duplicates
-              {dups.length > 0 && <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#ea580c] text-white">{dups.length}</span>}
-            </button>
-            {dupOpen && (
-              <div className="absolute right-0 mt-1.5 z-40 w-[440px] max-h-[440px] overflow-auto rounded-xl border border-[#e4ebf2] bg-white p-3 space-y-2" style={{ boxShadow: "0 10px 30px -8px rgba(0,0,0,0.25)" }}>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-[#1f3559]">Duplicate deposits ({dups.length})</h3>
-                  <button onClick={() => setDupOpen(false)} className="text-[#94a3b8] hover:text-[#1e2a3a]"><X size={15} /></button>
-                </div>
-                <p className="text-[11px] text-[#697a91] leading-snug">Same contact with more than one deposit for a client. These are <strong>counted once</strong> in the table — remove the extra deposit at the source to clean it up.</p>
-                {dups.length === 0 ? (
-                  <p className="text-xs text-[#8595a8] py-3 text-center">No duplicate deposits 🎉</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {dups.map((d, i) => (
-                      <li key={i} className="rounded-lg border border-[#eef3f8] bg-[#fafcfe] px-2.5 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium text-[#1f3559] truncate">{d.full_name || d.email || "—"}</span>
-                          <span className="shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-[#fde8d6] text-[#c2410c]">{d.deposit_count}×</span>
-                        </div>
-                        <div className="text-[11px] text-[#697a91] truncate">{d.owner_name}{d.email ? ` · ${d.email}` : ""}</div>
-                        {d.dates && <div className="text-[10px] text-[#8595a8] mt-0.5 break-words">{d.dates}</div>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-
+          {/* Duplicates button removed (owner 11/11/2026) — it lives on the Deposits tab only. */}
           <span className="text-xs text-[#697a91]">{filtered.length} clients</span>
         </div>
       </div>
