@@ -157,7 +157,8 @@ export const loadApp = cache(async (token: string): Promise<AppData | null> => {
    it cannot read another client's conversations even if a conversation id
    from elsewhere were pasted into the address. */
 type ChatAccount = { ownerKey: string; locationId: string; token: string; tz: string };
-const chatAccount = cache(async (token: string): Promise<ChatAccount | null> => {
+export type AppChatAccount = ChatAccount;
+export const chatAccount = cache(async (token: string): Promise<ChatAccount | null> => {
   const acct = await accountOf(token);
   if (!acct?.locationId) return null;
   const t = await getAppLocationToken(acct.locationId);
@@ -263,29 +264,54 @@ export async function loadThread(token: string, conversationId: string): Promise
    row is found by the appointment's exact start time on the client's own
    calendar; when two appointments start at the same minute we don't guess —
    that row simply has no chat link. */
-export type AppBooking = PortalShow & { contactId: string | null };
+export type AppBooking = PortalShow & {
+  contactId: string | null;
+  /** Her calendar's id for this appointment — only on upcoming rows she may move or cancel. */
+  apptId: string | null;
+};
 const DEAD_APPT = /cancel|invalid|no.?show/i;
-export const loadBookings = cache(async (token: string): Promise<{ upcoming: AppBooking[]; done: AppBooking[] } | null> => {
+export const loadBookings = cache(async (token: string): Promise<{ upcoming: AppBooking[]; done: AppBooking[]; tz: string | null } | null> => {
   const [app, ownerKey] = await Promise.all([loadApp(token), ownerOf(token)]);
   if (!app || !ownerKey) return null;
-  const { data } = await createServiceClient().from("ghl_appointments")
-    .select("contact_id, start_time, status").eq("owner_key", ownerKey)
-    .gte("start_time", "2026-08-01T00:00:00Z").order("start_time", { ascending: false }).limit(1000);
-  const at = new Map<number, Set<string>>();
-  for (const r of (data ?? []) as Array<{ contact_id: string | null; start_time: string | null; status: string | null }>) {
+  const svc = createServiceClient();
+  const [{ data }, { data: log }, acct] = await Promise.all([
+    svc.from("ghl_appointments").select("id, contact_id, start_time, status").eq("owner_key", ownerKey)
+      .gte("start_time", "2026-08-01T00:00:00Z").order("start_time", { ascending: false }).limit(1000),
+    // What she moved or cancelled from this app in the last days: the billing
+    // list catches up later, so her own changes are laid over it right away.
+    svc.from("client_app_booking_log").select("action, from_start, to_start").eq("owner_key", ownerKey).eq("ok", true)
+      .gte("created_at", new Date(Date.now() - 4 * 86_400_000).toISOString()).order("created_at", { ascending: true }).limit(200),
+    chatAccount(token).catch(() => null),
+  ]);
+  const at = new Map<number, Map<string, string>>(); // start → contact → appointment id
+  for (const r of (data ?? []) as Array<{ id: string; contact_id: string | null; start_time: string | null; status: string | null }>) {
     if (!r.contact_id || !r.start_time || DEAD_APPT.test(r.status ?? "")) continue;
     const ms = new Date(r.start_time).getTime();
-    at.set(ms, (at.get(ms) ?? new Set()).add(r.contact_id));
+    at.set(ms, (at.get(ms) ?? new Map()).set(r.contact_id, r.id));
   }
-  const who = (s: PortalShow): AppBooking => {
-    const ms = s.date && /T\d{2}:/.test(s.date) ? new Date(s.date).getTime() : NaN;
+  const changed = new Map<number, number | null>(); // old start → new start (null = cancelled)
+  for (const r of (log ?? []) as Array<{ action: string; from_start: string | null; to_start: string | null }>) {
+    if (!r.from_start) continue;
+    changed.set(new Date(r.from_start).getTime(), r.action === "move" && r.to_start ? new Date(r.to_start).getTime() : null);
+  }
+  const who = (s: PortalShow, live: boolean): AppBooking | null => {
+    let ms = s.date && /T\d{2}:/.test(s.date) ? new Date(s.date).getTime() : NaN;
+    let date = s.date;
+    for (let hop = 0; live && hop < 6 && changed.has(ms); hop++) {
+      const to = changed.get(ms);
+      if (to == null) return null;                    // she cancelled it here
+      ms = to; date = new Date(to).toISOString();
+    }
     const hit = at.get(ms);
-    return { ...s, contactId: hit && hit.size === 1 ? [...hit][0] : null };
+    const one = hit && hit.size === 1 ? [...hit.entries()][0] : null;
+    return { ...s, date, contactId: one?.[0] ?? null, apptId: live && one && ms > Date.now() ? one[1] : null };
   };
   const v = app.view;
   return {
-    upcoming: [...v.upcoming].sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? ""))).map(who),
-    done: [...v.owed.shows].sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? ""))).map(who),
+    tz: acct?.tz ?? null,
+    upcoming: v.upcoming.map((s) => who(s, true)).filter((x): x is AppBooking => !!x)
+      .sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? ""))),
+    done: [...v.owed.shows].sort((a, b) => String(b.date ?? "").localeCompare(String(a.date ?? ""))).map((s) => who(s, false)!),
   };
 });
 

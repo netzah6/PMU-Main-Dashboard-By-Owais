@@ -72,3 +72,20 @@ ALTER TABLE public.client_app_settings ADD COLUMN IF NOT EXISTS ad_budget_at tim
 -- it never changes her bill.
 ALTER TABLE public.client_app_profit_amounts ADD COLUMN IF NOT EXISTS status text
   CHECK (status IS NULL OR status IN ('no_go', 'no_show', 'rescheduled', 'cancelled'));
+
+-- Every move / cancel a client makes from the app's Bookings tab (owner,
+-- 11/12/2026). Also laid over the billing list so her change shows at once.
+CREATE TABLE IF NOT EXISTS public.client_app_booking_log (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_key text NOT NULL,
+  appt_id text NOT NULL,
+  contact_id text,
+  action text NOT NULL CHECK (action IN ('move', 'cancel')),
+  from_start timestamptz,
+  to_start timestamptz,
+  ok boolean NOT NULL DEFAULT true,
+  note text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS client_app_booking_log_owner ON public.client_app_booking_log (owner_key, created_at);
+ALTER TABLE public.client_app_booking_log ENABLE ROW LEVEL SECURITY; -- service role only
