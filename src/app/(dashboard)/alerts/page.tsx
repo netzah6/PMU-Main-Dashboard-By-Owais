@@ -29,7 +29,6 @@ const TYPE_META: Record<string, { label: string; icon: string; chip: string }> =
   funnel_widgets: { label: "Instagram / reviews broken", icon: "🧩", chip: "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200" },
   pay_date: { label: "Live, no pay date", icon: "🗓️", chip: "bg-red-50 text-red-700 border-red-200" },
   onebox_notify: { label: "No booking texts", icon: "🔕", chip: "bg-orange-50 text-orange-700 border-orange-200" },
-  client_budget: { label: "Client asked for a budget", icon: "💵", chip: "bg-emerald-50 text-emerald-700 border-emerald-200" },
 };
 
 function typeMeta(t: string) {

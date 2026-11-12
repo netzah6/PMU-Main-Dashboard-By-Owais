@@ -84,6 +84,16 @@ export async function getRecentConversations(
   return list;
 }
 
+/** The conversation with one contact in this account, or null when there is none yet. */
+export async function findConversationByContact(acct: PmuAccount, contactId: string): Promise<string | null> {
+  const url = `${GHL_BASE}/conversations/search?locationId=${acct.locationId}&contactId=${encodeURIComponent(contactId)}&limit=1`;
+  const r = await fetch(url, { headers: authHeaders(acct.token, CONV_VERSION) });
+  if (!r.ok) return null;
+  const j = (await r.json()) as { conversations?: Array<{ id?: string; contactId?: string }> };
+  const c = (j.conversations ?? []).find((x) => x.contactId === contactId);
+  return c?.id ? String(c.id) : null;
+}
+
 /* GHL's conversation SEARCH (the list above) lags behind the real chat: a
    reply sent from the GHL app can take hours to reach it, so answered chats
    kept showing as unread on the AI tab while GHL's own Unread tab was right

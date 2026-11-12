@@ -11,8 +11,9 @@ import { day } from "@/components/client-app/BillingView";
 /* Campaign status in her words (owner, 11/12/2026): live or not, and what SHE
    has to do. Only the states with something to do get the big card. */
 const CAMPAIGN: Record<CampaignState, { label: string; tone: "green" | "red" | "amber" | "gray"; text: string; steps?: string[] }> = {
-  live: { label: "Live", tone: "green", text: "Your ads are running." },
-  unknown: { label: "Live", tone: "green", text: "Your campaign is live with us." },
+  // Live: one line, nothing under it (owner, 11/12/2026 — it saves scrolling).
+  live: { label: "Live", tone: "green", text: "" },
+  unknown: { label: "Live", tone: "green", text: "" },
   unsettled: {
     label: "Action needed", tone: "red", text: "Facebook could not charge your card, so your ads are stopped.",
     steps: ["Ask your bank to approve the Facebook charge.", "Message your coach so we check you are live again."],
@@ -29,7 +30,7 @@ const STATES = Object.keys(CAMPAIGN) as CampaignState[];
 export default async function ClientAppHome({ params, searchParams }: { params: { token: string }; searchParams?: { look?: string } }) {
   const app = await loadApp(params.token);
   if (!app) return null; // the layout shows the "not available" card
-  const { view: v, leads, leads30, booked30, paid30, sessionsDone, reviews } = app;
+  const { view: v, leads30, booked30, paid30, sessionsDone, reviews } = app;
   /* ?look=unsettled (or grace / disabled / paused / live) shows how that
      status LOOKS, for reviewing the design — it changes nothing. */
   const look = STATES.find((s) => s === searchParams?.look);
@@ -71,12 +72,14 @@ export default async function ClientAppHome({ params, searchParams }: { params: 
           <Link href={`${base}/card`} className="mt-3 block rounded-xl border border-[#15B7AE] bg-white px-4 py-2.5 text-center text-sm font-bold text-[#0e8f88] active:opacity-80">Update my payment method</Link>
         </section>
       ) : (
-        <div className="flex items-center gap-2.5 rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3">
-          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${camp.tone === "green" ? "bg-[#22c55e]" : "bg-[#94a3b8]"}`} />
-          <span className="min-w-0 flex-1">
-            <span className="block text-xs font-semibold uppercase tracking-wide text-[#7b8a9c]">Campaign status</span>
-            <span className="block text-sm text-[#52627a]"><b className={camp.tone === "green" ? "text-[#15803d]" : "text-[#1c2b3a]"}>{camp.label}</b> · {camp.text}</span>
-          </span>
+        <div className="rounded-2xl border border-[#e4ebf2] bg-white px-4 py-2.5">
+          <p className="flex items-center gap-2 text-sm">
+            <span className="font-semibold text-[#52627a]">Campaign status</span>
+            <span className="text-[#9aa8b8]">–</span>
+            <b className={camp.tone === "green" ? "text-[#15803d]" : "text-[#1c2b3a]"}>{camp.label}</b>
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${camp.tone === "green" ? "bg-[#22c55e]" : "bg-[#94a3b8]"}`} />
+          </p>
+          {camp.text && <p className="mt-0.5 text-xs text-[#7b8a9c]">{camp.text}</p>}
         </div>
       ))}
       <Card href={`${base}/bookings`} tone="teal" label="Upcoming appointments" value={String(v.upcoming.length)}
@@ -122,23 +125,6 @@ export default async function ClientAppHome({ params, searchParams }: { params: 
           </span>
           <span className="text-lg text-[#9aa8b8]">›</span>
         </Link>
-      )}
-
-      {leads.length > 0 && (
-        <section className="rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3">
-          <div className="flex items-center">
-            <p className="text-sm font-bold text-[#1c2b3a]">Latest leads</p>
-            <Link href={`${base}/leads`} className="ml-auto text-xs font-semibold text-[#0e8f88]">See all</Link>
-          </div>
-          <ul>
-            {leads.slice(0, 3).map((l, i) => (
-              <li key={i} className="flex items-center gap-2 border-b border-[#eef3f8] py-2 last:border-0">
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[#1c2b3a]">{l.name}</span>
-                <span className="text-xs text-[#7b8a9c]">{day(l.at)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
       )}
     </div>
   );

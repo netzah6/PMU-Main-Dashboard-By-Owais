@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { loadApp, loadChats } from "@/lib/client-app";
+import { JOURNEY_CLS, loadApp, loadChats } from "@/lib/client-app";
 import { FilterBox } from "@/components/client-app/FilterBox";
 
 /* Chats: the client's own conversations with her leads, read live from her
@@ -28,14 +28,14 @@ export default async function ClientAppChats({ params }: { params: { token: stri
   const { chats, tz } = data;
   return (
     <div className="space-y-3">
-      <FilterBox target="chats-list" placeholder="Search a chat…" />
+      <FilterBox target="chats-list" placeholder="Search a chat…" unread />
       <section id="chats-list" className="rounded-2xl border border-[#e4ebf2] bg-white px-2 py-1">
         {chats.length === 0 ? (
           <p className="px-2 py-3 text-sm text-[#7b8a9c]">No chats yet.</p>
         ) : (
           <ul>
             {chats.map((c) => (
-              <li key={c.id} data-q={`${c.name} ${c.preview}${c.ai ? ` ai ${c.ai}` : ""}`.toLowerCase()} className="border-b border-[#eef3f8] last:border-0">
+              <li key={c.id} data-unread={c.unread > 0 ? "1" : "0"} data-q={`${c.name} ${c.preview}${c.ai ? ` ai ${c.ai}` : ""}${c.journey ? ` ${c.journey.label}` : ""}`.toLowerCase()} className="border-b border-[#eef3f8] last:border-0">
                 <Link href={`/m/${params.token}/chats/${c.id}`} prefetch={false}
                   className="flex items-center gap-3 rounded-xl px-2 py-2.5 active:bg-[#f3f7fb]">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#e6f7f5] text-sm font-bold text-[#0e8f88]">
@@ -59,6 +59,9 @@ export default async function ClientAppChats({ params }: { params: { token: stri
                         <span className="ml-auto shrink-0 rounded-full bg-[#15B7AE] px-1.5 py-0.5 text-[10px] font-bold text-white">{c.unread}</span>
                       )}
                     </span>
+                    {c.journey && (
+                      <span className={`mt-1 inline-block max-w-full truncate rounded px-1.5 py-0.5 align-top text-[10.5px] font-semibold ${JOURNEY_CLS[c.journey.tone]}`}>{c.journey.label}</span>
+                    )}
                   </span>
                 </Link>
               </li>

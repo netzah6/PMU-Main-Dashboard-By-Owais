@@ -16,8 +16,6 @@ import { normalizeOwnerKey } from "@/lib/normalizers";
 //                     agent scan, see src/lib/agent.ts).
 //   make_scenario   — a Make.com scenario is switched off or has incomplete
 //                     executions piling up.
-//   client_budget   — a client picked a daily ad budget in the client app; a
-//                     person on the team sets it in her Facebook campaign.
 // Everything lands in the `alerts` table; the Alerts tab shows open ones.
 
 export type AlertRow = {
@@ -40,7 +38,7 @@ export type AlertRow = {
 type Svc = ReturnType<typeof createServiceClient>;
 
 export type NewAlert = {
-  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking" | "ig_drop" | "closebot_missing" | "closebot_not_v3" | "closebot_check" | "funnel_widgets" | "pay_date" | "onebox_notify" | "client_budget";
+  type: "compliance_text" | "upset_client" | "make_scenario" | "onboarding" | "data_quality" | "agreement" | "status" | "coach_tracker" | "silent_leads" | "paid_not_synced" | "paid_not_booked" | "double_booking" | "ig_drop" | "closebot_missing" | "closebot_not_v3" | "closebot_check" | "funnel_widgets" | "pay_date" | "onebox_notify";
   severity?: "high" | "medium";
   title: string;
   detail?: string;
