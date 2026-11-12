@@ -50,7 +50,7 @@ interface Drill {
   ledger?: LedgerEvent[];
   creditLeft?: number;
   client: { ownerKey: string; ownerName: string; business: string; isPpa: boolean; fee: number; note: string | null };
-  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; readyToCharge: number; excluded: number; refunded?: number; showed: number; noShowMarked: number; showRate: number | null };
+  summary: { deposits: number; served: number; pastDue: number; upcoming: number; noshow: number; noAppt: number; selfBooked?: number; readyToCharge: number; excluded: number; refunded?: number; duplicate?: number; showed: number; noShowMarked: number; showRate: number | null };
   appointments: Appt[];
 }
 
@@ -90,6 +90,9 @@ const CS: Record<string, { label: string; cls: string }> = {
   chat_booked: { label: "Chat", cls: "bg-[#f3e8ff] text-[#7c3aed] border-[#ddd6fe]" },
   // Before the client's PPS start date — retainer era, never billed.
   before_start: { label: "Before PPS", cls: "bg-[#f1f5f9] text-[#94a3b8] border-[#e2e8f0]" },
+  // A second deposit from the same lead for the same visit — the visit bills
+  // once, through the other deposit (owner 11/11/2026). Never charged.
+  duplicate: { label: "Same visit", cls: "bg-[#f1f5f9] text-[#64748b] border-[#e2e8f0]" },
 };
 const isReady = (a: Appt) => !a.charged && !a.excluded && !a.refunded &&
   (a.chargeStatus === "served" || a.chargeStatus === "past_due" || a.chargeStatus === "self_booked" || a.chargeStatus === "calendar_booked" || a.chargeStatus === "chat_booked");
@@ -356,6 +359,7 @@ function AppointmentList({ client, onCharged }: { client: ClientRow; onCharged: 
         {(s.selfBooked ?? 0) > 0 && <Pill label="Self-booked" value={s.selfBooked!} tone="amber" />}
         {s.noshow > 0 && <Pill label="No-show" value={s.noshow} tone="gray" />}
         {s.noAppt > 0 && <Pill label="No appt" value={s.noAppt} tone="gray" />}
+        {(s.duplicate ?? 0) > 0 && <Pill label="Same visit" value={s.duplicate!} tone="gray" />}
       </div>
 
       {/* Exactly WHO is ready to charge — names, path, and date — so the
