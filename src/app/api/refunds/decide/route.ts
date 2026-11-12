@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getAuth } from "@/lib/ppa";
+import { getAuth, getPpaRoster } from "@/lib/ppa";
 import { refundDepositByProduct, parseAmountCents } from "@/lib/fanbasis";
+import { ppaKeepFeeBizNorms, refundBizNorm } from "@/lib/refund-keep-fee";
 
 export const maxDuration = 60;
 
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (auth.role !== "admin") return NextResponse.json({ error: "Only an admin can approve refunds" }, { status: 403 });
 
-  const b = (await req.json().catch(() => ({}))) as { id?: string; decision?: string };
+  const b = (await req.json().catch(() => ({}))) as { id?: string; decision?: string; keepPpaFee?: boolean };
   const id = String(b.id ?? "");
   const decision = String(b.decision ?? "");
   if (!id || !["approve", "deny"].includes(decision)) {
@@ -39,6 +40,23 @@ export async function POST(req: NextRequest) {
   // approve — allowed from pending or a previous failed attempt (retry).
   if (!["pending", "failed"].includes(refund.status)) {
     return NextResponse.json({ error: `Cannot approve a ${refund.status} refund.` }, { status: 409 });
+  }
+
+  // "Refund, but keep the PPA fee" (owner, 11/11/2026): only for V3 clients on
+  // pay-per-appointment. The choice is saved BEFORE any money moves — if it
+  // can't be saved, nothing is refunded (a refund that lands without the flag
+  // would silently drop the fee from PPA billing).
+  const keepPpaFee = b.keepPpaFee === true;
+  if (keepPpaFee) {
+    const allowed = new Set(ppaKeepFeeBizNorms((await getPpaRoster()).clients));
+    if (!allowed.has(refundBizNorm(refund.business))) {
+      return NextResponse.json({ error: "Keep-the-fee refunds are only for V3 pay-per-appointment clients. Nothing was refunded." }, { status: 400 });
+    }
+  }
+  if (keepPpaFee || refund.keep_ppa_fee === true) {
+    const { error: flagErr } = await svc.from("deposit_refunds")
+      .update({ keep_ppa_fee: keepPpaFee, updated_at: now }).eq("id", id);
+    if (flagErr) return NextResponse.json({ error: `Couldn't save the PPA fee choice (${flagErr.message}). Nothing was refunded.` }, { status: 500 });
   }
 
   // Full refund of the collected deposit (amount_cents is a documented field).

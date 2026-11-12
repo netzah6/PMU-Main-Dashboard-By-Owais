@@ -112,13 +112,17 @@ export async function scanChats(deadlineMs = 240_000): Promise<ChatScanSummary> 
   // don't need reading: deposit leads, done-stage leads, calendar-booked leads.
   const covered = new Set<string>();
   const [refRes] = await Promise.all([
-    svc.from("deposit_refunds").select("contact_name").eq("status", "refunded"),
+    // select("*"): keep_ppa_fee may not exist yet; a missing column must not
+    // empty this list (that would let refunded leads bill from chat).
+    svc.from("deposit_refunds").select("*").eq("status", "refunded"),
   ]);
   // Refunded deposit = session never happened; that lead's chats must not
   // produce a billable flag (names matched by containment — refund records
   // often carry a shorter form of the name).
   const normName = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const refundNames = ((refRes.data ?? []) as Array<{ contact_name: string | null }>)
+  // A "refund but keep the PPA fee" refund (owner, 11/11/2026) still bills.
+  const refundNames = ((refRes.data ?? []) as Array<{ contact_name: string | null; keep_ppa_fee?: boolean }>)
+    .filter((r) => r.keep_ppa_fee !== true)
     .map((r) => normName(r.contact_name)).filter((n) => n.length >= 6);
   const isRefundedName = (name: string | null) => {
     const n = normName(name);

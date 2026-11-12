@@ -11,6 +11,7 @@ interface Refund {
   amount: string | null; product_id: string | null; deposit_date: string | null; reason: string | null;
   status: string; requested_by: string | null; requested_at: string; decided_by: string | null;
   fanbasis_transaction_id: string | null; error: string | null;
+  keep_ppa_fee?: boolean; // refunded, but PPA Billing still charges the service fee (owner, 11/11/2026)
 }
 
 // Deposit date lives in `Date`/`f` — mixed ISO timestamps and DD/MM/YYYY.
@@ -25,6 +26,7 @@ const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).pad
 const monthLabel = (key: string) => { const [y, m] = key.split("-").map(Number); return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" }); };
 const dateStr = (r: Row) => String(r["Date"] ?? r["f"] ?? r["date"] ?? "");
 const depDate = (r: Row) => parseDepositDate(dateStr(r));
+const bizNorm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const contactKey = (r: Row) => String(r["Email"] ?? "").trim().toLowerCase() || String(r["Full Name"] ?? "").trim().toLowerCase();
 const fmtDate = (f: string) => { const d = parseDepositDate(f); return d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : f; };
 
@@ -73,13 +75,22 @@ export default function DepositsPage() {
   const [dupOpen, setDupOpen] = useState(false);
 
   const [refunds, setRefunds] = useState<Refund[]>([]);
+  // Businesses (normalized) where a refund may keep the PPA fee: V3 + pay-per-appointment.
+  const [keepFeeBiz, setKeepFeeBiz] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [requestFor, setRequestFor] = useState<Row | null>(null);
   const [reason, setReason] = useState("");
   const [banner, setBanner] = useState<string | null>(null);
 
   const loadRefunds = useCallback(async () => {
-    try { const r = await fetch("/api/refunds"); if (r.ok) setRefunds(((await r.json()).refunds ?? []) as Refund[]); } catch { /* ignore */ }
+    try {
+      const r = await fetch("/api/refunds");
+      if (r.ok) {
+        const j = await r.json();
+        setRefunds((j.refunds ?? []) as Refund[]);
+        setKeepFeeBiz(new Set((j.keepFeeBiz ?? []) as string[]));
+      }
+    } catch { /* ignore */ }
   }, []);
   useEffect(() => { loadRefunds(); }, [loadRefunds]);
 
@@ -151,12 +162,19 @@ export default function DepositsPage() {
     } finally { setBusy((b) => { const n = new Set(b); n.delete("request"); return n; }); }
   }
 
-  async function decide(id: string, decision: "approve" | "deny") {
+  async function decide(id: string, decision: "approve" | "deny", keepPpaFee = false) {
+    if (keepPpaFee) {
+      const rf = refunds.find((x) => x.id === id);
+      const ok = window.confirm(
+        `Refund ${money(rf?.amount)} to ${rf?.contact_name || rf?.email || "this lead"}, but STILL charge ${rf?.business || "the artist"} the PPA service fee for this appointment?`,
+      );
+      if (!ok) return;
+    }
     setBusy((b) => new Set(b).add(id));
     try {
       const res = await fetch("/api/refunds/decide", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, decision }),
+        body: JSON.stringify({ id, decision, keepPpaFee }),
       });
       const j = await res.json();
       if (!res.ok || j.error) setBanner(j.error || "Action failed");
@@ -266,6 +284,15 @@ export default function DepositsPage() {
                   {busy.has(rf.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                   {rf.status === "failed" ? "Retry refund" : "Approve & refund"}
                 </button>
+                {/* V3 pay-per-appointment clients only: refund the lead, still bill the PPA fee (owner, 11/11/2026). */}
+                {keepFeeBiz.has(bizNorm(rf.business)) && (
+                  <button disabled={busy.has(rf.id)} onClick={() => decide(rf.id, "approve", true)}
+                    title="The lead gets the deposit back, but PPA Billing still charges the artist the service fee for this appointment."
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#eef4ff] hover:bg-[#dfe9ff] text-[#1d4ed8] border border-[#bfd3fe]">
+                    {busy.has(rf.id) ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                    Refund · keep PPA fee
+                  </button>
+                )}
                 <button disabled={busy.has(rf.id)} onClick={() => decide(rf.id, "deny")}
                   className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white hover:bg-[#fde8ee] text-[#e11d48] border border-[#f5c2cf]">
                   <Ban size={12} /> Deny
@@ -317,7 +344,7 @@ export default function DepositsPage() {
                     <td className="px-2 sm:px-3 py-0.5 whitespace-nowrap">
                       {rf ? (
                         <div className="flex items-center gap-1.5">
-                          <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold border", (STATUS[rf.status] ?? STATUS.denied).cls)}>{(STATUS[rf.status] ?? STATUS.denied).label}</span>
+                          <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold border", (STATUS[rf.status] ?? STATUS.denied).cls)}>{(STATUS[rf.status] ?? STATUS.denied).label}{rf.status === "refunded" && rf.keep_ppa_fee ? " · fee kept" : ""}</span>
                           {(rf.status === "denied") && canRequest && (
                             <button onClick={() => setRequestFor(r)} className="text-[#8595a8] hover:text-[#0e8f88]" title="Request again"><RotateCcw size={12} /></button>
                           )}
