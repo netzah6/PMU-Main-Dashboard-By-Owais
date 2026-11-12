@@ -68,7 +68,7 @@ export default async function ClientAppHome({ params, searchParams }: { params: 
               </li>
             ))}
           </ol>
-          <Link href={`${base}/card`} className="mt-3 block rounded-xl border border-[#15B7AE] bg-white px-4 py-2.5 text-center text-sm font-bold text-[#0e8f88] active:opacity-80">Send us a new card</Link>
+          <Link href={`${base}/card`} className="mt-3 block rounded-xl border border-[#15B7AE] bg-white px-4 py-2.5 text-center text-sm font-bold text-[#0e8f88] active:opacity-80">Update my payment method</Link>
         </section>
       ) : (
         <div className="flex items-center gap-2.5 rounded-2xl border border-[#e4ebf2] bg-white px-4 py-3">
