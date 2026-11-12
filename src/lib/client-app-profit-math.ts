@@ -98,5 +98,18 @@ export function profitFor(d: ProfitData, m: string) {
   const spent = expenses.reduce((n, e) => n + e.cost, 0);
   return { clients, came, expenses, revenue, spent, profit: revenue - spent, toAdd: clients.filter((c) => c.amount == null).length };
 }
+/* Everything since her first month with us (owner, 11/12/2026: "see all the
+   profits at the top"): the total, and each month for the small chart. */
+export function profitAll(d: ProfitData) {
+  const months: Array<{ month: string; profit: number; revenue: number; spent: number; clients: number }> = [];
+  for (let m = d.firstMonth, i = 0; m <= d.thisMonth && i < 60; m = shiftMonth(m, 1), i++) {
+    const p = profitFor(d, m);
+    months.push({ month: m, profit: p.profit, revenue: p.revenue, spent: p.spent, clients: p.clients.filter((c) => c.status === "done").length });
+  }
+  const sum = (f: (x: (typeof months)[number]) => number) => months.reduce((n, x) => n + f(x), 0);
+  const best = months.reduce<(typeof months)[number] | null>((b, x) => (x.profit > 0 && (!b || x.profit > b.profit) ? x : b), null);
+  return { months, profit: sum((x) => x.profit), revenue: sum((x) => x.revenue), spent: sum((x) => x.spent), clients: sum((x) => x.clients), best };
+}
+
 /** Clients, in any month, still waiting for an amount. */
 export const clientsToAdd = (d: ProfitData) => d.clients.filter((c) => earnedOf(d, c.ref) == null).length;

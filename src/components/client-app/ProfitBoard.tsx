@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Loader2, Plus, X } from "lucide-react";
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Loader2, Plus, Sparkles, Trophy, X } from "lucide-react";
 import {
-  KIND_LABEL, STATUSES, STATUS_LABEL, clientsToAdd, monthName, profitFor, shiftMonth, statusOf,
+  KIND_LABEL, STATUSES, STATUS_LABEL, clientsToAdd, monthName, profitAll, profitFor, shiftMonth, statusOf,
   type ClientPay, type ClientStatus, type ExpenseKind, type ProfitData, type ProfitExpense,
 } from "@/lib/client-app-profit-math";
 
@@ -266,6 +266,72 @@ export function ProfitBoard({ token, data }: { token: string; data: ProfitData }
   return <Board d={d} busy={busy} save={save} stopExpense={stopExpense} setErr={setErr} Err={Err} />;
 }
 
+/* A number that counts up when it appears or changes — a small reward for opening the screen. */
+function CountUp({ value }: { value: number }) {
+  const [shown, setShown] = useState(value);
+  const from = useRef(0);
+  useEffect(() => {
+    if (typeof window === "undefined" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setShown(value); from.current = value; return; }
+    const start = from.current, t0 = performance.now(), ms = 900;
+    let raf = 0;
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - t0) / ms), ease = 1 - Math.pow(1 - k, 3);
+      setShown(Math.round(start + (value - start) * ease));
+      if (k < 1) raf = requestAnimationFrame(tick); else from.current = value;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(raf); from.current = value; };
+  }, [value]);
+  return <>{usd(shown)}</>;
+}
+const short = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(n) >= 1000 ? `${(Math.abs(n) / 1000).toFixed(Math.abs(n) >= 10_000 ? 0 : 1).replace(/\.0$/, "")}k` : Math.round(Math.abs(n))}`;
+
+/* The top of the Profit screen (owner, 11/12/2026: "see all the profits at
+   the top. It will look attractive, and they will always want to check that").
+   One big number — everything she earned with us after her costs — and a bar
+   for each month; a tap on a bar opens that month below. */
+function ProfitHero({ d, month, setMonth }: { d: ProfitData; month: string; setMonth: (m: string) => void }) {
+  const all = useMemo(() => profitAll(d), [d]);
+  const bars = all.months.slice(-6);
+  const top = Math.max(1, ...bars.map((b) => Math.abs(b.profit)));
+  const since = monthName(d.firstMonth, true);
+  return (
+    <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#0b7f79] via-[#12a59d] to-[#22c3a6] p-5 text-white shadow-lg shadow-[#15B7AE]/25">
+      <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-white/85"><Sparkles size={14} /> Your total profit</p>
+      <p className="mt-1 text-[2.9rem] font-extrabold leading-none tracking-tight"><CountUp value={Math.round(all.profit)} /></p>
+      <p className="mt-1.5 text-sm font-medium text-white/85">
+        {all.clients} client{all.clients === 1 ? "" : "s"} · {usd(Math.round(all.revenue))} earned − {usd(Math.round(all.spent))} costs
+      </p>
+      <p className="text-xs text-white/70">{d.firstMonth === d.thisMonth ? `In ${since}` : `Since ${since}`} · with PMU Bookings On Demand</p>
+
+      {bars.length > 1 && (
+        <div className="mt-4 flex items-end gap-2" role="group" aria-label="Profit by month">
+          {bars.map((b) => {
+            const on = b.month === month;
+            return (
+              <button key={b.month} onClick={() => setMonth(b.month)} aria-pressed={on} aria-label={`${monthName(b.month, true)}: ${usd(Math.round(b.profit))}`}
+                className="flex min-w-0 flex-1 flex-col items-center gap-1 active:opacity-80">
+                <span className={`text-[11px] font-bold ${on ? "text-white" : "text-white/75"}`}>{short(b.profit)}</span>
+                <span className="flex h-16 w-full items-end">
+                  <span className={`w-full rounded-t-lg transition-all duration-500 ${b.profit < 0 ? "bg-[#fda4af]" : on ? "bg-white" : "bg-white/45"}`}
+                    style={{ height: `${Math.max(6, Math.round((Math.abs(b.profit) / top) * 100))}%` }} />
+                </span>
+                <span className={`w-full truncate text-center text-[11px] font-semibold ${on ? "rounded-full bg-white/25 text-white" : "text-white/75"}`}>{monthName(b.month).slice(0, 3)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {all.best && all.months.length > 1 && (
+        <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-white/15 px-3 py-2 text-xs font-semibold">
+          <Trophy size={14} className="shrink-0" /> Best month: {monthName(all.best.month)} · {usd(Math.round(all.best.profit))}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function Board({ d, busy, save, stopExpense, setErr, Err }: {
   d: ProfitData; busy: string | null; save: Save; stopExpense: (id: string, month: string) => void; setErr: (s: string | null) => void; Err: React.ReactNode;
 }) {
@@ -286,6 +352,7 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
   };
   return (
     <div className="space-y-3">
+      <ProfitHero d={d} month={month} setMonth={setMonth} />
       <div className="flex items-center justify-between rounded-2xl border border-[#e4ebf2] bg-white px-2 py-1.5">
         <button onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month" className="rounded-full p-2 text-[#52627a] active:opacity-70"><ChevronLeft size={20} /></button>
         <p className="text-sm font-extrabold text-[#1c2b3a]">{monthName(month, true)}</p>
@@ -293,7 +360,7 @@ function Board({ d, busy, save, stopExpense, setErr, Err }: {
       </div>
 
       <section className="rounded-2xl border border-[#c7edd4] bg-white p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[#15803d]">Your profit</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#15803d]">Profit in {monthName(month)}</p>
         <p className={`text-4xl font-extrabold ${m.profit < 0 ? "text-[#be123c]" : "text-[#1c2b3a]"}`}>{usd(m.profit)}</p>
         <p className="text-sm text-[#7b8a9c]">{usd(m.revenue)} from clients − {usd(m.spent)} costs</p>
       </section>
