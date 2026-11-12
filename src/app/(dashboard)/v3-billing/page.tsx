@@ -620,7 +620,7 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
   const owed = v ? v.amount : c.readyOwed;
   const split = v ? showSplit(v) : null;
 
-  const saveConfig = async (patch: { fee?: number; billing_exempt?: boolean; pps_start?: string | null }) => {
+  const saveConfig = async (patch: { fee?: number; pps_start?: string | null }) => {
     try {
       await fetch("/api/ppa/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_key: c.ownerKey, ...patch }) });
       onChange();
@@ -672,22 +672,8 @@ function ClientTableRow({ c, v, verifyLoading, onChange, onVerifyReload, open, o
                 className="w-14 pl-4 pr-1 py-0.5 text-xs text-right rounded-lg border border-[#fcd9a8] focus:outline-none focus:border-[#15B7AE]" />
             </div>
           )}
-          {/* Deposit-only switch (moved here from the removed Status column). */}
-          <div className="mt-0.5">
-            {c.billingExempt ? (
-              <button onClick={() => saveConfig({ billing_exempt: false })}
-                title="Deposit-only client — no per-show service fee, never charged. Click to make billable again."
-                className="px-1.5 py-0.5 rounded-lg text-[9px] font-bold bg-[#f1f5f9] text-[#64748b] border border-[#e2e8f0] hover:border-[#94a3b8]">
-                💤 No fee
-              </button>
-            ) : (
-              <button onClick={() => saveConfig({ billing_exempt: true })}
-                title="Mark as deposit-only: no per-show service fee, excluded from all charging, moved to the bottom section."
-                className="text-[9px] text-[#b6c2d0] hover:text-[#64748b] underline decoration-dotted">
-                no fee?
-              </button>
-            )}
-          </div>
+          {/* "No fee" switch removed (owner, 11/12/2026): every PPS client pays the
+              per-show fee. Clients who are not PPS (Standard) are not on this tab. */}
         </td>
 
         {/* PPS since (owner, 11/02/2026): blank = bill all time; a date/time =
@@ -1106,13 +1092,12 @@ function AdminBilling() {
   }, [clients, search, filter, coach, vBy]);
 
   // Who owes what, in reading order: money to collect first, settled next,
-  // write-offs last (user request 2026-09-05). Deposit-only clients keep their
-  // own group at the very bottom — they are never charged a service fee.
+  // write-offs last (user request 2026-09-05). The "No service fee" group was
+  // removed 11/12/2026 (owner): every PPS client pays.
   const sections = useMemo(() => {
     const need: ClientRow[] = [], charged: ClientRow[] = [], nothing: ClientRow[] = [],
-          voided: ClientRow[] = [], exempt: ClientRow[] = [];
+          voided: ClientRow[] = [];
     for (const c of filtered) {
-      if (c.billingExempt) { exempt.push(c); continue; }
       if (readyOf(c).ready > 0) { need.push(c); continue; }
       if (c.chargedCount > 0 || c.chargedAmount > 0) { charged.push(c); continue; }
       if (c.excludedCount > 0) { voided.push(c); continue; }
@@ -1129,8 +1114,6 @@ function AdminBilling() {
         tone: "bg-[#f1f5f9] text-[#64748b]" },
       { key: "voided",  title: "\ud83d\udeab Voided", hint: "written off \u2014 no-shows, cancellations, refunds", rows: voided,
         tone: "bg-[#fdf2f4] text-[#be123c]" },
-      { key: "exempt",  title: "\ud83d\udca4 No service fee", hint: "deposit-only clients, never charged", rows: exempt,
-        tone: "bg-[#f8fafc] text-[#8595a8]" },
     ].filter((g) => g.rows.length > 0);
   }, [filtered, readyOf]);
 
