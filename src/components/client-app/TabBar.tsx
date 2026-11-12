@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Home, MessageCircle, Receipt, Users } from "lucide-react";
+import { CalendarDays, Home, MessageCircle, PiggyBank, Receipt, Users } from "lucide-react";
 
 /* Bottom tabs of the client app — fixed, thumb-sized, above the phone's
    home-bar (safe-area inset). */
@@ -12,6 +12,7 @@ export function TabBar({ base }: { base: string }) {
     { href: `${base}/chats`, label: "Chats", Icon: MessageCircle, on: path.startsWith(`${base}/chats`) },
     { href: `${base}/bookings`, label: "Bookings", Icon: CalendarDays, on: path.startsWith(`${base}/bookings`) },
     { href: `${base}/leads`, label: "Leads", Icon: Users, on: path.startsWith(`${base}/leads`) },
+    { href: `${base}/profit`, label: "Profit", Icon: PiggyBank, on: path.startsWith(`${base}/profit`) },
     { href: `${base}/billing`, label: "Billing", Icon: Receipt, on: path.startsWith(`${base}/billing`) },
   ];
   return (

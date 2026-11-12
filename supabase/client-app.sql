@@ -19,3 +19,35 @@ CREATE TABLE IF NOT EXISTS public.client_review_history (
   PRIMARY KEY (slug, day)
 );
 ALTER TABLE public.client_review_history ENABLE ROW LEVEL SECURITY; -- service role only
+
+-- Client app · Profit (owner, 11/12/2026): her own prices, her own amount for
+-- a client, and her expenses. Her notes only — nothing here feeds billing.
+CREATE TABLE IF NOT EXISTS public.client_app_profit_settings (
+  owner_key text PRIMARY KEY,
+  session_price numeric(10,2),
+  touchup_price numeric(10,2),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.client_app_profit_settings ENABLE ROW LEVEL SECURITY; -- service role only
+
+CREATE TABLE IF NOT EXISTS public.client_app_profit_amounts (
+  owner_key text NOT NULL,
+  client_ref text NOT NULL,
+  amount numeric(10,2) NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (owner_key, client_ref)
+);
+ALTER TABLE public.client_app_profit_amounts ENABLE ROW LEVEL SECURITY; -- service role only
+
+CREATE TABLE IF NOT EXISTS public.client_app_expenses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_key text NOT NULL,
+  label text NOT NULL,
+  amount numeric(10,2) NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('monthly', 'once')),
+  month text NOT NULL,      -- 'YYYY-MM': the month of a one-time expense, or the first month of a monthly one
+  end_month text,           -- a stopped monthly expense no longer counts from this month on
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS client_app_expenses_owner ON public.client_app_expenses (owner_key, created_at);
+ALTER TABLE public.client_app_expenses ENABLE ROW LEVEL SECURITY; -- service role only

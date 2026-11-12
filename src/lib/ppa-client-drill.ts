@@ -273,7 +273,7 @@ export async function buildClientDrill(svc: Svc, client: RosterClient) {
     credits: Array<{ amount: number; reason: string }>;
     // Each show, so the "Copy list" button can send the artist exactly who
     // she was charged for.
-    items: Array<{ name: string; date: string | null; dateLabel: string | null }>;
+    items: Array<{ id: string; name: string; date: string | null; dateLabel: string | null }>;
   }>();
   for (const r of (chgRes.data ?? []) as ChargeRow[]) {
     if (!r.charged) continue;
@@ -293,7 +293,7 @@ export async function buildClientDrill(svc: Svc, client: RosterClient) {
     g.gross += Number(r.amount) || 0;
     if (!r.square_payment_id && coveredByCredit(r.note)) g.creditOnly = true;
     g.contacts.push(name);
-    g.items.push({ name, ...showDate(r, a) });
+    g.items.push({ id: r.appt_id, name, ...showDate(r, a) });
     if ((r.charged_at ?? "") > (g.chargedAt ?? "")) g.chargedAt = r.charged_at;
     payGroups.set(key, g);
   }

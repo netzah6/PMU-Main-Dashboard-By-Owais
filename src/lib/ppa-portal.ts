@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getV3Roster } from "@/lib/ppa";
 import { buildClientDrill } from "@/lib/ppa-client-drill";
@@ -30,7 +31,12 @@ export type PortalView = {
   paidTotal: number;
   creditLeft: number;
   credits: Array<{ amount: number; left: number; reason: string; at: string | null }>;
+  /** Every client who came in through us (waiting for the next bill + already
+   *  billed), for her own profit screen. `ref` is a one-way code for the
+   *  visit — never our internal id. */
+  served: PortalServed[];
 };
+export type PortalServed = { ref: string; name: string; date: string | null };
 
 /** owner_key for a portal token, or null. Also counts the view. */
 export async function portalOwnerByToken(svc: Svc, token: string): Promise<string | null> {
@@ -59,11 +65,19 @@ export async function buildPortalView(svc: Svc, ownerKey: string): Promise<Porta
   const gross = ready.length * fee;
   const credit = Math.min(drill.creditLeft, gross);
 
+  const refOf = (id: string) => createHash("sha256").update(`${ownerKey}|${id}`).digest("hex").slice(0, 16);
+  const served: PortalServed[] = [
+    ...ready.map((a) => ({ ref: refOf(a.apptId), name: nm(a), date: a.appointmentDate ?? a.depositDate ?? null })),
+    // Already billed: the session date when we know it, else the day it was billed.
+    ...drill.payments.flatMap((p) => p.items.map((it) => ({ ref: refOf(it.id), name: it.name, date: it.date ?? p.chargedAt }))),
+  ];
+
   return {
     business: client.business,
     ownerName: client.ownerName,
     fee,
     exempt,
+    served,
     owed: {
       count: ready.length, gross, credit, amount: Math.max(0, gross - credit),
       shows: ready.map((a) => ({ name: nm(a), date: a.appointmentDate ?? a.depositDate ?? null, how: a.chargeStatus })),
