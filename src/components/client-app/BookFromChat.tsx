@@ -9,10 +9,10 @@ import { BTN, SlotPicker, type SlotDay } from "@/components/client-app/BookingAc
    times come live from her calendar; the server checks again before it books
    and refuses a second appointment for the same lead.
 
-   Real test, 11/12/2026: the booking lands as Confirmed, and 10 minutes later
-   the account's own booking workflow turns it into a hold ("Invalid") when
-   the lead has no deposit — the same as a booking she makes in GoHighLevel.
-   So the words here never promise "confirmed". */
+   A booking she makes here is CONFIRMED, deposit or not (owner, 11/12/2026:
+   artists often take the deposit themselves by Zelle or Venmo). The server
+   takes the lead out of the account's booking workflow, which would turn a
+   booking with no deposit into a hold after 10 minutes. */
 type Options = { calendars: Array<{ id: string; name: string }>; calendarId: string; days: SlotDay[]; already: string | null };
 
 export function BookFromChat({ token, contactId, name }: { token: string; contactId: string; name: string }) {
@@ -41,9 +41,9 @@ export function BookFromChat({ token, contactId, name }: { token: string; contac
     setBusy("book"); setErr(null);
     try {
       const r = await fetch("/api/client-app/booking", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, action: "book", contact: contactId, calendar: opt.calendarId, start: pick.at }) });
-      const j = (await r.json().catch(() => ({}))) as { when?: string; error?: string };
+      const j = (await r.json().catch(() => ({}))) as { when?: string; confirmed?: boolean; error?: string };
       if (!r.ok) throw new Error(j.error || "We couldn't book it. Please try again.");
-      setDone(j.when ?? "Booked"); setOpen(false);
+      setDone(`${j.confirmed ? "Booked and confirmed" : "Booked"}: ${j.when ?? ""}. It is on your calendar.`); setOpen(false);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "We couldn't book it. Please try again.");
     } finally { setBusy(null); }
@@ -51,7 +51,7 @@ export function BookFromChat({ token, contactId, name }: { token: string; contac
   const cur = opt?.days.find((d) => d.day === day) ?? null;
 
   if (done) {
-    return <p className="flex items-center gap-1.5 rounded-xl bg-[#e6f7ee] px-3 py-2 text-xs font-semibold text-[#15803d]"><Check size={14} /> Saved: {done}. It is on your calendar. Without a deposit it stays on hold until she pays.</p>;
+    return <p className="flex items-center gap-1.5 rounded-xl bg-[#e6f7ee] px-3 py-2 text-xs font-semibold text-[#15803d]"><Check size={14} /> {done}</p>;
   }
   return (
     <div>
@@ -62,7 +62,7 @@ export function BookFromChat({ token, contactId, name }: { token: string; contac
       {open && (
         <div className="mt-2 rounded-xl border border-[#e4ebf2] bg-white p-3">
           <p className="text-sm font-bold text-[#1c2b3a]">Book {name}</p>
-          <p className="text-xs text-[#7b8a9c]">If she has not paid a deposit yet, the time is held for her, not confirmed, until she pays.</p>
+          <p className="text-xs text-[#7b8a9c]">A time you book here is confirmed right away.</p>
           {busy === "load" && <p className="flex items-center gap-2 py-4 text-sm font-semibold text-[#7b8a9c]"><Loader2 size={16} className="animate-spin text-[#15B7AE]" /> Reading your calendar…</p>}
           {opt && busy !== "load" && (opt.already ? (
             <p className="mt-1 rounded-xl bg-[#fff4e5] px-3 py-2 text-xs font-semibold text-[#92400e]">She already has a time: {opt.already}. To change it, use Move on the Bookings tab.</p>

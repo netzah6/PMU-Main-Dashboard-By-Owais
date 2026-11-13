@@ -35,7 +35,7 @@ async function post(req: NextRequest) {
   if (!body) return NextResponse.json({ error: "Not available" }, { status: 400 });
   if (body.action === "book") {
     const b = await bookForLead(String(body.token ?? ""), String(body.contact ?? ""), String(body.calendar ?? ""), body.start);
-    return b.ok ? NextResponse.json({ ok: true, when: b.when }) : NextResponse.json({ error: b.error }, { status: b.status });
+    return b.ok ? NextResponse.json({ ok: true, when: b.when, confirmed: b.confirmed }) : NextResponse.json({ error: b.error }, { status: b.status });
   }
   const r = await changeBooking(String(body.token ?? ""), String(body.id ?? ""), body);
   return r.ok ? NextResponse.json({ ok: true, settled: r.settled }) : NextResponse.json({ error: r.error }, { status: r.status });
