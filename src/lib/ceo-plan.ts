@@ -39,10 +39,35 @@ export type PlanSection = {
   /** Where this month stands so far ("October so far: 3 to chase · …"). */
   now?: string;
 };
+/* The numbers game (owner, 2026-11-13: "too much text… just show me the
+   numbers: leads → demos → closed, then three goals — new cash, retention,
+   deposits — each with the goal for the month and on track or not").
+   Status: "hit" = goal reached; "on" = the month's pace reaches the goal;
+   "behind" = it does not; null = nothing to judge yet. */
+export type ScoreStatus = "hit" | "on" | "behind" | null;
+export type FunnelCounts = { leads: number; demos: number; closes: number };
+export type Score = {
+  /** Day of the month the numbers were taken on, and the month's length. */
+  day: number; days: number;
+  /** This month so far, and the last finished month for comparison.
+   *  leads = sign-ups on the Discoveries sheet (booked a discovery call),
+   *  demos = demo calls held that month (Demos sheet), closes = first-time
+   *  retainer payers on the Financing sheet (the same count as "new cash"). */
+  funnel: FunnelCounts & { last: FunnelCounts & { label: string } };
+  cash: { now: number; goal: number; pace: number; closes: number; closesGoal: number; status: ScoreStatus; last: number; lastLabel: string };
+  keep: {
+    /** Clients with something to do this month (the to-do count of section 1). */
+    atRisk: number; lostMax: number; status: ScoreStatus;
+    /** Last finished month: how many of the month before's payers (lastPaying) stopped, and the share kept. */
+    lastLabel: string; lastLost: number | null; lastPaying: number; lastKeptPct: number | null;
+  };
+  deposits: { now: number; goal: number; pace: number; status: ScoreStatus; last: number; lastLabel: string; lastGoal: number | null };
+};
 export type MonthPlan = {
   ym: string; label: string; goalMonth: string;
   profitGoal: number | null; lastLabel: string; lastProfit: number | null;
   sections: PlanSection[];
+  score: Score;
 };
 
 const monthsBetween = (a: string, b: string) => {
@@ -99,6 +124,25 @@ async function depositsByMonth(svc: ReturnType<typeof createServiceClient>, yms:
   return new Map([...acc.entries()].map(([ym, v]) => [ym, { total: Math.round(v.total), count: v.count, clients: v.biz.size }]));
 }
 
+/* Leads per month = rows on the Discoveries sheet (sales_discoveries, the
+   Sales Calls Stats mirror) by "Date Sign Up" — an artist who filled the
+   survey and booked a discovery call. The sheet writes it "15/09/2026 13:08"
+   (day first); the spelled-out "Discovery Date" is the fallback. Survey
+   fills that never booked a call are not on the sheet, so not counted. */
+async function leadsByMonth(svc: ReturnType<typeof createServiceClient>, yms: string[]): Promise<Map<string, number>> {
+  const acc = new Map<string, number>(yms.map((ym) => [ym, 0]));
+  for (let off = 0; ; off += 1000) {
+    const { data } = await svc.from("sales_discoveries").select("data").range(off, off + 999);
+    for (const r of (data ?? []) as Array<{ data: Record<string, unknown> }>) {
+      if (!String(r.data?.["Full Name"] ?? "").trim()) continue;
+      const ym = ddmmyyyy(r.data?.["Date Sign Up"])?.slice(0, 7) ?? demoMonth(r.data?.["Discovery Date"]);
+      if (ym && acc.has(ym)) acc.set(ym, (acc.get(ym) ?? 0) + 1);
+    }
+    if (!data || data.length < 1000) break;
+  }
+  return acc;
+}
+
 type CmRow = Record<string, unknown>;
 type DepRow = { name: string; status: string; coach: string; spent30: number; d30: number; l30: number };
 
@@ -125,7 +169,7 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
   const profitGoal = last.profit == null ? null : Math.min(PROFIT_GOAL,
     Math.round((last.profit + ((PROFIT_GOAL - last.profit) / steps) * Math.max(1, monthsBetween(last.ym, curYm))) / 500) * 500);
 
-  const [{ data: doneRows }, cmRows, { data: killRows }, { data: fixRows }, ppaOwners, deps, liveSeen, depMonths, campaignNames] = await Promise.all([
+  const [{ data: doneRows }, cmRows, { data: killRows }, { data: fixRows }, ppaOwners, deps, liveSeen, depMonths, campaignNames, leadMonths] = await Promise.all([
     svc.from("ceo_plan_done").select("item_key, done_by, done_at").eq("ym", curYm),
     (async () => {
       const out: CmRow[] = [];
@@ -162,6 +206,7 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
     // points at the campaign instead of repeating them as to-dos.
     svc.from("winback_contacts").select("owner_name").eq("active", true).range(0, 999)
       .then(({ data }) => ((data ?? []) as Array<{ owner_name: string | null }>).map((r) => String(r.owner_name ?? "")).filter(Boolean)),
+    leadsByMonth(svc, [last.ym, curYm]),
   ]);
   const done = new Map(((doneRows ?? []) as Array<{ item_key: string; done_by: string | null; done_at: string }>).map((r) => [r.item_key, { by: r.done_by, at: r.done_at }]));
   /* section + action + person: one person can have two different to-dos.
@@ -382,9 +427,38 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
     item("sales", "book", `Book ${demosNeeded}+ demo calls this month`, `${last.demosBooked} booked in ${last.label} · ${nowDemos}; at ${Math.round(closeRate * 100)}% close that gives ${TARGETS.closesMin} clients`),
   ];
 
+  /* The numbers game: goal reached → "hit"; this month's pace (so far ÷ days
+     gone × days in the month) reaches it → "on"; otherwise "behind". */
+  const paceOf = (n: number) => (dayOfMonth ? Math.round((n / dayOfMonth) * daysInMonth) : 0);
+  const judge = (now: number, goalN: number, paceN: number): ScoreStatus =>
+    goalN <= 0 ? null : now >= goalN ? "hit" : paceN >= goalN ? "on" : "behind";
+  const beforeLast = road.months[road.months.indexOf(last) - 1];
+  const lastKeptPct = last.lostClients != null && beforeLast?.payingClients
+    ? Math.max(0, Math.round((1 - last.lostClients / beforeLast.payingClients) * 100)) : null;
+  const score: Score = {
+    day: dayOfMonth, days: daysInMonth,
+    funnel: {
+      leads: leadMonths.get(curYm) ?? 0, demos: curRoad?.demosBooked ?? 0, closes: closes.length,
+      last: { label: last.label, leads: leadMonths.get(last.ym) ?? 0, demos: last.demosBooked, closes: closesOf(lastFin).length },
+    },
+    cash: {
+      now: upfrontTotal, goal: NEW_CASH_GOAL, pace: paceOf(upfrontTotal), closes: closes.length, closesGoal: TARGETS.closesMin,
+      status: judge(upfrontTotal, NEW_CASH_GOAL, paceOf(upfrontTotal)), last: lastNewCash, lastLabel: last.label,
+    },
+    keep: {
+      atRisk: toChase, lostMax: TARGETS.lostMax, status: toChase <= TARGETS.lostMax ? "on" : "behind",
+      lastLabel: last.label, lastLost: last.lostClients, lastPaying: beforeLast?.payingClients ?? 0, lastKeptPct,
+    },
+    deposits: {
+      now: depNow.total, goal, pace, status: judge(depNow.total, goal, pace),
+      last: depLast.total, lastLabel: last.label, lastGoal,
+    },
+  };
+
   return {
     ym: curYm, label: curLabel, goalMonth: GOAL_MONTH,
     profitGoal, lastLabel: last.label, lastProfit: last.profit,
+    score,
     sections: [
       {
         key: "keep", title: "1 · Keep every client",

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { Score } from "@/lib/ceo-plan";
 
 /* This month's plan (owner, 2026-10-04: "a plan every month so I know exactly
    what I need to do"). Built from live data on every open — the profit goal
@@ -13,22 +14,25 @@ import { cn } from "@/lib/utils";
 
 type Item = { key: string; text: string; detail?: string; done: { by: string | null; at: string } | null; info?: boolean };
 type Section = { key: string; title: string; why: string; target: string; last: string; now?: string; ok: boolean | null; items: Item[] };
-type Plan = { ym: string; label: string; goalMonth: string; profitGoal: number | null; lastLabel: string; lastProfit: number | null; sections: Section[] };
+export type Plan = { ym: string; label: string; goalMonth: string; profitGoal: number | null; lastLabel: string; lastProfit: number | null; sections: Section[]; score: Score };
 
 const k = (n: number | null | undefined) => (n == null ? "—" : `$${(n / 1000).toFixed(1)}k`);
 const goalMonthName = (ym: string) => new Date(`${ym}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" });
 
-export function MonthPlan() {
-  const [plan, setPlan] = useState<Plan | null>(null);
+/* `initial`: the plan already fetched by the Scorecard (which shows the
+   numbers and keeps these lists behind a click) — no second request. */
+export function MonthPlan({ initial }: { initial?: Plan } = {}) {
+  const [plan, setPlan] = useState<Plan | null>(initial ?? null);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
+    if (initial) return;
     fetch("/api/ceo/plan").then((r) => r.json()).then((j) => {
       if (j.error) setErr(j.error); else setPlan(j);
     }).catch((e) => setErr(String(e)));
-  }, []);
+  }, [initial]);
 
   const toggle = async (it: Item) => {
     if (!plan || saving) return;
