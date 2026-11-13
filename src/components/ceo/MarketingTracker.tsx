@@ -112,11 +112,6 @@ export function MarketingTracker({ m }: { m: Marketing }) {
           </tbody>
         </table>
       )}
-
-      <p className="text-[10px] text-[#8595a8] leading-snug">
-        Ad spend = the &ldquo;FB ads&rdquo; line on the month&rsquo;s Financing tab (monthly). Calls = discovery calls booked (Discoveries sheet). Demos and closers = the Demos sheet by demo date; held = not a no-show or cancellation;
-        close rate = closed ÷ held, green at 30%+. Cash back = first payments of new retainer clients that month (Financing), so a close that hasn&rsquo;t paid yet counts under Closed but not under Cash back.
-      </p>
     </div>
   );
 }
