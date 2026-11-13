@@ -812,7 +812,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
   type DepSide = { picked: number; pagePaid: number; reached: number; paid: number };
   type CompSide = { sent: number; replied: number; happy: number; putdown: number; booked: number; paid: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number }; comp?: { a: CompSide; b: CompSide; since: string; accounts?: number; checked: number; wrong: number } } | null>(null);
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number }; comp?: { a: CompSide; b: CompSide; since: string; accounts?: number; checked: number; wrong: number; round1?: { a: CompSide; b: CompSide; since: string; until: string } } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -937,6 +937,14 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
       <td className="py-1.5 font-semibold">{pct(depPct(s))}</td>
     </tr>
   );
+  // Round 1 of the photo-compliment test (B = "Omg I love this!!…", 11/11–11/13), kept as one history line.
+  const r1 = d.comp?.round1;
+  const r1Side = (s: CompSide) => `${s.sent} sent · ${s.happy} thanked · ${s.booked} booked · ${s.paid} paid`;
+  const compRound1 = r1 && r1.a.sent + r1.b.sent > 0
+    ? <div className="mt-1.5 text-[11px] text-[#8595a8]" title="Round 1 B line: “Omg I love this!! I can already picture your new Eyebrows, you’re going to be obsessed 😍”. Stopped 11/13: few thank-yous.">
+        Round 1 ({new Date(r1.since).toLocaleDateString("en-US")}–{new Date(r1.until).toLocaleDateString("en-US")}, B = &ldquo;Omg I love this!!…&rdquo;): A {r1Side(r1.a)} &nbsp;|&nbsp; B {r1Side(r1.b)}
+      </div>
+    : null;
   return (<>
     {d.dep && (d.dep.since
       ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
@@ -981,7 +989,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
               <th className="py-1 font-medium">Replied %</th>
             </tr></thead>
             <tbody>
-              {([["A — old line", "\u201COmg you are so beautiful, I can\u2019t wait to slay your Eyebrows! 😍\u201D", d.comp.a], ["B — new line", "\u201COmg I love this!! I can already picture your new Eyebrows, you\u2019re going to be obsessed 😍\u201D", d.comp.b]] as [string, string, CompSide][]).map(([name, note, s]) => (
+              {([["A — old line", "\u201COmg you are so beautiful, I can\u2019t wait to slay your Eyebrows! 😍\u201D", d.comp.a], ["B — new line", "\u201COmg you\u2019re going to look so beautiful with your new Eyebrows, I can\u2019t wait! 😍\u201D", d.comp.b]] as [string, string, CompSide][]).map(([name, note, s]) => (
                 <tr key={name} className="border-t border-[#f0f4f8]">
                   <td className="py-1.5 pr-2"><b className="text-[#1c2b3a]">{name}</b><div className="text-[#8595a8] max-w-[380px]">{note}</div></td>
                   <td className="py-1.5">{s.sent}</td>
@@ -995,8 +1003,9 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
               ))}
             </tbody>
           </table>
+          {compRound1}
         </div>
-      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Photo compliment (AI)</b> (A: &ldquo;Omg you are so beautiful…&rdquo; vs B: &ldquo;Omg I love this!!…&rdquo;, phone ends 0–3) — starts reporting with the first compliment.</div>)}
+      : <div className="mb-4 border border-dashed border-[#cbd5e1] rounded-xl bg-white px-4 py-2.5 text-xs text-[#697a91]">🧪 <b>Photo compliment (AI), round 2</b> (A: &ldquo;Omg you are so beautiful… slay…&rdquo; vs B: &ldquo;Omg you&rsquo;re going to look so beautiful…&rdquo;, phone ends 0–3) — starts reporting with the first compliment.{compRound1}</div>)}
   </>);
 }
 

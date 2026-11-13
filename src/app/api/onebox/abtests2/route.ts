@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { DEP_ASK_START, depAskSlugs } from "@/lib/dep-ask";
-import { COMP_AB_START, compAbLocations } from "@/lib/compliment-ab";
+import { COMP_AB_START, COMP_AB_ROUND1_START, compAbLocations } from "@/lib/compliment-ab";
 
 export const fetchCache = "force-no-store";
 
@@ -140,17 +140,23 @@ export async function GET() {
        in compliment_ab_results, filled hourly by /api/cron/compliment-ab. The
        side is the text the AI actually sent; "wrong" counts leads whose phone
        digit says the other side (the CloseBot split check). */
-    const compRows: { line: string; expected: string | null; reply_at: string | null; reply_kind: string | null; booked: boolean; paid: boolean }[] = [];
+    type CompRow = { line: string; expected: string | null; sent_at: string; reply_at: string | null; reply_kind: string | null; booked: boolean; paid: boolean };
+    const allComp: CompRow[] = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await sb.from("compliment_ab_results").select("line, expected, reply_at, reply_kind, booked, paid").order("conv_id").range(from, from + 999);
+      const { data, error } = await sb.from("compliment_ab_results").select("line, expected, sent_at, reply_at, reply_kind, booked, paid").order("conv_id").range(from, from + 999);
       if (error) throw new Error(error.message);
-      compRows.push(...((data ?? []) as typeof compRows));
+      allComp.push(...((data ?? []) as CompRow[]));
       if (!data || data.length < 1000) break;
     }
+    /* Round 2 (11/13): B changed, so the card counts from COMP_AB_START only;
+       round 1 (B = "Omg I love this!!…") stays as one history line. */
+    const r2Ms = Date.parse(COMP_AB_START);
+    const compRows = allComp.filter((x) => Date.parse(x.sent_at) >= r2Ms);
+    const r1Rows = allComp.filter((x) => Date.parse(x.sent_at) >= Date.parse(COMP_AB_ROUND1_START) && Date.parse(x.sent_at) < r2Ms);
     /* Only leads with a phone digit count: a lead with no phone (some IG / FB
        threads) can only ever get the old line, so she'd tilt side A. */
-    const compSide = (line: "old" | "new") => {
-      const r = compRows.filter((x) => x.line === line && x.expected);
+    const compSide = (line: "old" | "new", rows: CompRow[] = compRows) => {
+      const r = rows.filter((x) => x.line === line && x.expected);
       return {
         sent: r.length,
         replied: r.filter((x) => x.reply_at).length,
@@ -171,7 +177,8 @@ export async function GET() {
       offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, until: OFFER_END, funnels: offerSlugs.length },
       igw: { a: igwA, b: igwB, since: igwSince ?? undefined, until: IGW_END, funnels: igwFunnels },
       dep: { a: depSide("a"), b: depSide("b"), since: DEP_ASK_START, funnels: depSlugs?.length },
-      comp: { a: compSide("old"), b: compSide("new"), since: COMP_AB_START, accounts: compAccounts, checked: compChecked.length, wrong: compChecked.filter((x) => x.expected !== x.line).length },
+      comp: { a: compSide("old"), b: compSide("new"), since: COMP_AB_START, accounts: compAccounts, checked: compChecked.length, wrong: compChecked.filter((x) => x.expected !== x.line).length,
+        round1: { a: compSide("old", r1Rows), b: compSide("new", r1Rows), since: COMP_AB_ROUND1_START, until: COMP_AB_START } },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e).slice(0, 200) }, { status: 500 });
