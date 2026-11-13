@@ -177,7 +177,14 @@ export type AiState = "on" | "off" | null;
    is in on the client's own pipeline, in the pipeline's own words without the
    emojis — the same words the client sees in her account — except the two
    steps the whole app already names: "Paid a deposit" and "Picked a time".
-   From our last sync, so it can be a few minutes behind. */
+   From our last sync, so it can be a few minutes behind.
+
+   "Paid a deposit" needs PROOF of a payment: the paid tag on the lead. The
+   pipeline stage "Deposit Collected" is not proof — the account's
+   confirmation workflow gives it to EVERY confirmed booking, deposit or not
+   (seen in GoHighLevel, 11/13/2026: a test booking with no deposit landed
+   there). Without the tag that stage reads "Booked". */
+export const PAID_TAGS = ["fanbasis buyer", "deposit collected"];
 export type Journey = { label: string; tone: "green" | "amber" | "red" | "gray" };
 export const JOURNEY_CLS: Record<Journey["tone"], string> = {
   green: "bg-[#e6f7ee] text-[#15803d]", amber: "bg-[#fff4e5] text-[#b45309]", red: "bg-[#fde8ee] text-[#be123c]", gray: "bg-[#f1f5f9] text-[#52627a]",
@@ -189,8 +196,9 @@ const plainStage = (s: string) => s
 export function journeyOf(stage: string | null | undefined, f?: { booked?: boolean | null; paid?: boolean | null }): Journey | null {
   const s = (stage ?? "").toLowerCase();
   if (/session\s*(done|complete)|(5|five)\s*stars?|google\s*review/.test(s)) return { label: "Session done", tone: "green" };
-  if (f?.paid || /deposit\s*(collected|paid)/.test(s)) return { label: "Paid a deposit", tone: "green" };
+  if (f?.paid) return { label: "Paid a deposit", tone: "green" };
   if (/declin/.test(s)) return { label: plainStage(stage ?? ""), tone: "red" };
+  if (/deposit\s*(collected|paid)/.test(s)) return { label: "Booked", tone: "amber" };
   if (f?.booked || /waiting for deposit|booked/.test(s)) return { label: "Picked a time", tone: "amber" };
   const label = plainStage(stage ?? "");
   return label ? { label, tone: "gray" } : null;
@@ -237,7 +245,11 @@ export const loadChats = cache(async (token: string): Promise<{ chats: AppChat[]
       id: c.id, name: niceName(c.contactName), preview: c.lastMessageBody, at: c.lastMessageDate,
       fromLead: String(c.lastMessageDirection ?? "").toLowerCase() === "inbound", unread: c.unreadCount, channel: c.channel,
       ai: aiOf(c),
-      journey: c.contactId ? journeyOf(stageOf.get(c.contactId)?.name, flags.get(c.contactId)) : null,
+      journey: c.contactId ? journeyOf(stageOf.get(c.contactId)?.name, {
+        booked: flags.get(c.contactId)?.booked,
+        // Her tags, live from GoHighLevel when it sends them; else our last sync.
+        paid: c.tags ? PAID_TAGS.some((t) => c.tags!.includes(t)) : flags.get(c.contactId)?.paid,
+      }) : null,
       contactId: c.contactId,
     })),
   };
