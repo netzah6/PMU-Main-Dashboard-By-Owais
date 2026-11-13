@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { chatAccount, niceName, type AppChatAccount } from "@/lib/client-app";
-import { cancelAppointmentQuietly } from "@/lib/appointment-cancel";
+import { cancelAppointmentQuietly, leaveBookingWorkflow } from "@/lib/appointment-cancel";
 import { liveAppointmentsOnCalendar, wallToIso } from "@/lib/onebox";
 
 /* Client app · Bookings: move or cancel an appointment (owner, 11/12/2026:
@@ -303,7 +303,15 @@ export async function bookOptions(token: string, contactId: string, calendarId?:
   return { ok: true, calendars: cals.map((c) => ({ id: c.id, name: c.name })), calendarId: cal.id, days: groupDays(acct.tz, slots), already: has.when };
 }
 
-export async function bookForLead(token: string, contactId: string, calendarId: string, startRaw: unknown): Promise<{ ok: true; when: string } | Fail> {
+/* Owner, 11/12/2026: "If they manually book it on the app, it should say
+   confirmed, even without a deposit — sometimes the artists collect the
+   deposit themselves through Zelle or Venmo… When WE book it, it should stay
+   the same: we only confirm appointments with a deposit."
+   So a booking the artist makes here is taken out of the account's booking
+   workflow, which would otherwise turn it into a hold after 10 minutes. The
+   AI's and the funnel's bookings do not come through here and are untouched.
+   `confirmed` = the workflow can no longer change it. */
+export async function bookForLead(token: string, contactId: string, calendarId: string, startRaw: unknown): Promise<{ ok: true; when: string; confirmed: boolean } | Fail> {
   const acct = await chatAccount(token);
   const lead = acct ? await ownLead(acct, contactId) : null;
   if (!acct || !lead) return fail("Not available");
@@ -330,6 +338,12 @@ export async function bookForLead(token: string, contactId: string, calendarId: 
     owner_key: acct.ownerKey, appt_id: j?.id ?? "-", contact_id: contactId, action: "book", ok, note, from_start: null, to_start: new Date(start).toISOString(),
   }).then(() => {}, () => {});
   if (!r?.ok || !j?.id) { await log(false, `book failed (HTTP ${r?.status ?? "?"})`); return fail("We couldn't book it. Please try again.", 502); }
-  await log(true, null);
-  return { ok: true, when: whenLabel(acct.tz, start) };
+  // The workflow picks the booking up within seconds; a second pass catches a late start.
+  let confirmed = false;
+  for (const wait of [4000, 6000]) {
+    await new Promise((res) => setTimeout(res, wait));
+    confirmed = (await leaveBookingWorkflow(acct.token, acct.locationId, contactId).catch(() => false)) || confirmed;
+  }
+  await log(true, confirmed ? null : "booked, but could not leave the booking workflow — it may turn into a hold");
+  return { ok: true, when: whenLabel(acct.tz, start), confirmed };
 }

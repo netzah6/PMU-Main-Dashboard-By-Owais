@@ -26,11 +26,22 @@ export async function cancelAppointmentQuietly(
   }
   if (!cancelled) return false;
   await new Promise((r) => setTimeout(r, 5000));
+  // Cancelled, but the workflow may bring it back: the caller keeps its alert open.
+  return leaveBookingWorkflow(token, locationId, contactId, opts.alsoLeave);
+}
+
+/* Take a contact out of the account's "Customer Booked Appointment" workflow.
+   That workflow waits 10 minutes and then turns a booking with no deposit
+   into a hold ("invalid"). Out of it, the appointment stays as it is.
+   true = nothing can change the appointment any more (the contact was taken
+   out, or the account has no such workflow). */
+export async function leaveBookingWorkflow(token: string, locationId: string, contactId: string, alsoLeave: RegExp[] = []): Promise<boolean> {
+  const H = { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" };
   const wr = await fetch(`${GHL}/workflows/?locationId=${encodeURIComponent(locationId)}`, { headers: { ...H, Version: "2021-07-28" } }).catch(() => null);
   const wfs = wr?.ok ? ((((await wr.json().catch(() => null)) as { workflows?: Array<{ id?: string; name?: string }> } | null)?.workflows) ?? []) : [];
   // alsoLeave: other workflows that would act on this appointment later
   // (the AI-hold cleanup also leaves "Appointment Status Invalid -> Confirm").
-  const leave = [BOOKED_WORKFLOW, ...(opts.alsoLeave ?? [])];
+  const leave = [BOOKED_WORKFLOW, ...alsoLeave];
   const booked = wfs.filter((w) => w.id && leave.some((re) => re.test(String(w.name ?? ""))));
   // No such workflow on the account = nothing can bring the appointment back.
   if (wr?.ok && !booked.length) return true;
@@ -41,6 +52,5 @@ export async function cancelAppointmentQuietly(
     }).then((r) => r.ok).catch(() => false);
     if (!ok) removed = false;
   }
-  // Cancelled, but the workflow may bring it back: the caller keeps its alert open.
   return removed;
 }
