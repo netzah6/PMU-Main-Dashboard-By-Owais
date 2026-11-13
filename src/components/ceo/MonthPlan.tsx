@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Score } from "@/lib/ceo-plan";
+import type { Marketing } from "@/lib/ceo-marketing";
 
 /* This month's plan (owner, 2026-10-04: "a plan every month so I know exactly
    what I need to do"). Built from live data on every open — the profit goal
@@ -14,7 +15,7 @@ import type { Score } from "@/lib/ceo-plan";
 
 type Item = { key: string; text: string; detail?: string; done: { by: string | null; at: string } | null; info?: boolean };
 type Section = { key: string; title: string; why: string; target: string; last: string; now?: string; ok: boolean | null; items: Item[] };
-export type Plan = { ym: string; label: string; goalMonth: string; profitGoal: number | null; lastLabel: string; lastProfit: number | null; sections: Section[]; score: Score };
+export type Plan = { ym: string; label: string; goalMonth: string; profitGoal: number | null; lastLabel: string; lastProfit: number | null; sections: Section[]; score: Score; marketing: Marketing };
 
 const k = (n: number | null | undefined) => (n == null ? "—" : `$${(n / 1000).toFixed(1)}k`);
 const goalMonthName = (ym: string) => new Date(`${ym}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" });
