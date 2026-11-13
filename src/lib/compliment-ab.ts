@@ -18,16 +18,29 @@ type Svc = ReturnType<typeof createServiceClient>;
    compliment after the launch, the lead's first reply within a day (sorted
    happy / put-down by keywords), and whether the AI booked her or the deposit
    landed ("has been confirmed") within 8 days. compliment_ab_seen remembers
-   threads already read, so a thread is fetched again only once it moves. */
+   threads already read, so a thread is fetched again only once it moves.
 
-export const COMP_AB_START = "2026-11-11T21:25:00Z";
+   Round 2 (owner, 11/13/2026): CloseBot's AI can't see the photo (demo test:
+   a banana photo got "you're so beautiful"), and round 1's B line drew far
+   fewer thank-yous (1 of 19 vs 11 of 37). The owner kept the "slay" line as
+   A and B became "Omg you're going to look so beautiful with your new
+   Eyebrows, I can't wait! 😍" (slay v0.0.246a, published ~15:46 UTC) — future
+   tense, so it never reads as a lie on a half-eyebrow photo. Same split.
+   The card counts only compliments sent from COMP_AB_START; round-1 rows stay
+   in the table and show as one history line. A lead's FIRST compliment in the
+   thread decides her row, so a round-1 (or older) lead who gets a second
+   compliment later is never counted in round 2. */
+
+export const COMP_AB_ROUND1_START = "2026-11-11T21:25:00Z";
+export const COMP_AB_START = "2026-11-13T15:46:00Z";
 export const COMP_AB_LOCATIONS_KEY = "compliment_ab_locations"; // { locations: string[] } read off the slay agent's Sources
 const CURSOR_KEY = "compliment_ab_cursor";
 const DEMO_LOCATION = "asaIf2fxizaCNJ71iywk";
 const REPLY_MS = 86400_000;
 const WINDOW_MS = 8 * 86400_000;
 // Match the photo compliment itself, not any text with "beautiful" (win-back / check-in texts use it too).
-const NEW_RX = /already picture your new|going to be obsessed/i;
+const NEW_RX = /look so beautiful with your new/i; // round 2 B
+const NEW1_RX = /already picture your new|going to be obsessed/i; // round 1 B
 const OLD_RX = /you are so beautiful,? i can.?t wait to slay|can.?t wait to slay your/i;
 const PUTDOWN_RX = /too old|i'?m old|i am old|old lol|old haha|\bnot me\b|that'?s not me|eye ?bags|wrinkle|ugly|not (that |so )?(beautiful|pretty|cute)|no make ?up|excuse (my|the) (face|eyes?|bags|skin|look|mess|messy|pic|picture|photo|hair)|don'?t look (good|great|my best|like)|bad (pic|picture|photo|angle|lighting)|i look (tired|old|bad|terrible|awful|rough)/i;
 const HAPPY_RX = /thank|thx|\bty\b|\baww+|so sweet|(you'?re|your|ur) (so )?(sweet|kind)|so kind|appreciate|\byay\b|you too|❤|♥|💕|💖|🥰|😍|😊|☺|🙏|🤗|😘|😁|🤭/i;
@@ -63,6 +76,7 @@ async function allRows<T>(q: (from: number, to: number) => PromiseLike<{ data: T
 export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
   const started = Date.now();
   const startMs = Date.parse(COMP_AB_START);
+  const round1Ms = Date.parse(COMP_AB_ROUND1_START);
   if (started < startMs) return { skipped: "not started" };
   const locations = await compAbLocations(svc);
   const { data: cur } = await svc.from("app_settings").select("value").eq("key", CURSOR_KEY).maybeSingle();
@@ -163,17 +177,58 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
       try {
         const tok = await tokenFor(it.loc);
         if (!tok) { await touch(tooOld); continue; }
+        type Page = { messages?: Record<string, unknown>[]; nextPage?: boolean; lastMessageId?: string };
+        const toMsgs = (pg: Page | undefined): Msg[] => (pg?.messages ?? [])
+          .map((m) => ({ t: Date.parse(String(m.dateAdded)), dir: String(m.direction ?? ""), type: String(m.messageType ?? ""), body: String(m.body ?? "") }))
+          .filter((m) => Number.isFinite(m.t));
         const mr = await ghl(tok, `/conversations/${it.conv}/messages?limit=100`);
         if (!mr) { await touch(tooOld); continue; }
         checked++;
-        const raw = ((mr.messages as { messages?: Record<string, unknown>[] } | undefined)?.messages ?? []);
-        const msgs: Msg[] = raw.map((m) => ({ t: Date.parse(String(m.dateAdded)), dir: String(m.direction ?? ""), type: String(m.messageType ?? ""), body: String(m.body ?? "") }))
-          .filter((m) => Number.isFinite(m.t)).sort((a, b) => a.t - b.t);
-        const comp = msgs.find((m) => m.dir === "outbound" && m.t >= startMs && (NEW_RX.test(m.body) || OLD_RX.test(m.body)));
-        if (!comp) {
-          if (prev) await touch(tooOld);
-          else if (it.lastMs) await svc.from("compliment_ab_seen").upsert({ conv_id: it.conv, last_message_at: new Date(it.lastMs).toISOString(), checked_at: new Date().toISOString() });
-          continue;
+        let page = mr.messages as Page | undefined;
+        const msgs: Msg[] = toMsgs(page).sort((x, y) => x.t - y.t);
+        const isComp = (m: Msg) => m.dir === "outbound" && (NEW_RX.test(m.body) || NEW1_RX.test(m.body) || OLD_RX.test(m.body));
+        let first = msgs.find(isComp);
+        let compT: number;
+        let line: string;
+        if (prev) {
+          /* A saved row's compliment never moves: its sent_at / line stay, only
+             the outcome is re-read. One exception: a round-2 row the pre-round-2
+             code saved for a lead whose first compliment is older than the test. */
+          compT = Date.parse(prev.sent_at);
+          line = prev.line;
+          if (first && first.t < round1Ms && compT >= startMs) {
+            await svc.from("compliment_ab_results").delete().eq("conv_id", it.conv);
+            continue;
+          }
+          if (page?.nextPage && !msgs.some((m) => m.t <= compT)) {
+            /* The compliment scrolled out of the newest 100 messages: her reply
+               may be out of view too, so only add a late booking / deposit. */
+            const later = msgs.filter((m) => m.dir === "outbound" && m.t > compT && m.t < compT + WINDOW_MS);
+            const paidNow = later.some((m) => PAID_RX.test(m.body));
+            const bookedNow = paidNow || later.some((m) => BOOKED_RX.test(m.body));
+            await svc.from("compliment_ab_results").update({
+              checked_at: new Date().toISOString(), ...(bookedNow ? { booked: true } : {}), ...(paidNow ? { paid: true } : {}), ...(paidNow || tooOld ? { final: true } : {}),
+            }).eq("conv_id", it.conv);
+            continue;
+          }
+        } else {
+          /* Her FIRST compliment decides the row (see round 2 above). Long
+             thread: look up to 2 pages further back for an earlier one. */
+          for (let pg = 0; first && page?.nextPage && page.lastMessageId && pg < 2; pg++) {
+            const older = await ghl(tok, `/conversations/${it.conv}/messages?limit=100&lastMessageId=${page.lastMessageId}`);
+            page = older?.messages as Page | undefined;
+            msgs.unshift(...toMsgs(page));
+            msgs.sort((x, y) => x.t - y.t);
+            first = msgs.find(isComp) ?? first;
+          }
+          // Not counted: sent before the test began, or a B text from the other round (a run that began just before the publish).
+          const stray = first && !OLD_RX.test(first.body) && (NEW_RX.test(first.body) ? first.t < startMs : first.t >= startMs);
+          if (!first || first.t < round1Ms || stray) {
+            if (it.lastMs) await svc.from("compliment_ab_seen").upsert({ conv_id: it.conv, last_message_at: new Date(it.lastMs).toISOString(), checked_at: new Date().toISOString() });
+            continue;
+          }
+          compT = first.t;
+          line = OLD_RX.test(first.body) ? "old" : "new";
         }
         let phoneLast = prev?.phone_last ?? null;
         if (!prev) {
@@ -184,21 +239,20 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
           const digits = String(c.phone ?? "").replace(/\D/g, "");
           phoneLast = digits ? digits.slice(-1) : null;
         }
-        const line = NEW_RX.test(comp.body) ? "new" : "old";
         const expected = phoneLast == null ? null : /[0-3]/.test(phoneLast) ? "new" : "old";
         /* Replied = any message back within a day (a photo counts); the kind
            comes from her first message WITH text, so a second photo landing
            after the compliment never hides her "thank you" / "excuse my bags". */
-        const inbound = msgs.filter((m) => m.dir === "inbound" && !/REACTION/i.test(m.type) && m.t > comp.t && m.t < comp.t + REPLY_MS);
+        const inbound = msgs.filter((m) => m.dir === "inbound" && !/REACTION/i.test(m.type) && m.t > compT && m.t < compT + REPLY_MS);
         const reply = inbound[0];
         const replyText = inbound.find((m) => m.body.trim());
-        const after = msgs.filter((m) => m.dir === "outbound" && m.t > comp.t && m.t < comp.t + WINDOW_MS);
+        const after = msgs.filter((m) => m.dir === "outbound" && m.t > compT && m.t < compT + WINDOW_MS);
         const paid = after.some((m) => PAID_RX.test(m.body));
         const booked = paid || after.some((m) => BOOKED_RX.test(m.body));
-        const final = paid || now - comp.t > WINDOW_MS;
+        const final = paid || now - compT > WINDOW_MS;
         const { error } = await svc.from("compliment_ab_results").upsert({
           conv_id: it.conv, location_id: it.loc, contact_id: it.contact, line, phone_last: phoneLast, expected,
-          sent_at: new Date(comp.t).toISOString(), reply_at: reply ? new Date(reply.t).toISOString() : null,
+          sent_at: new Date(compT).toISOString(), reply_at: reply ? new Date(reply.t).toISOString() : null,
           reply_kind: reply ? (replyText ? replyKind(replyText.body) : "other") : null, booked, paid, checked_at: new Date().toISOString(), final,
         });
         if (error) { failed++; console.error("[compliment-ab] save failed:", error.message); } else saved++;
