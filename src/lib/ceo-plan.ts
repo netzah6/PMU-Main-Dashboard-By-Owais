@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getRoadWithFinance, PROFIT_GOAL, TARGETS, nk, sameClient, coverageOf, demoMonth, type SquarePlans } from "@/lib/ceo-growth";
 import type { FinanceRow, MonthFinance } from "@/lib/ceo-finance";
+import { buildMarketingTracker, type Marketing } from "@/lib/ceo-marketing";
 
 /* "A plan every month so I know exactly what I need to do" (owner,
    2026-10-04). Built fresh from the data each time it opens — never typed by
@@ -68,6 +69,7 @@ export type MonthPlan = {
   profitGoal: number | null; lastLabel: string; lastProfit: number | null;
   sections: PlanSection[];
   score: Score;
+  marketing: Marketing;
 };
 
 const monthsBetween = (a: string, b: string) => {
@@ -129,16 +131,20 @@ async function depositsByMonth(svc: ReturnType<typeof createServiceClient>, yms:
    survey and booked a discovery call. The sheet writes it "15/09/2026 13:08"
    (day first); the spelled-out "Discovery Date" is the fallback. Survey
    fills that never booked a call are not on the sheet, so not counted. */
-async function leadsByMonth(svc: ReturnType<typeof createServiceClient>, yms: string[]): Promise<Map<string, number>> {
-  const acc = new Map<string, number>(yms.map((ym) => [ym, 0]));
+async function loadDiscoveries(svc: ReturnType<typeof createServiceClient>): Promise<Array<Record<string, unknown>>> {
+  const out: Array<Record<string, unknown>> = [];
   for (let off = 0; ; off += 1000) {
     const { data } = await svc.from("sales_discoveries").select("data").range(off, off + 999);
-    for (const r of (data ?? []) as Array<{ data: Record<string, unknown> }>) {
-      if (!String(r.data?.["Full Name"] ?? "").trim()) continue;
-      const ym = ddmmyyyy(r.data?.["Date Sign Up"])?.slice(0, 7) ?? demoMonth(r.data?.["Discovery Date"]);
-      if (ym && acc.has(ym)) acc.set(ym, (acc.get(ym) ?? 0) + 1);
-    }
+    for (const r of (data ?? []) as Array<{ data: Record<string, unknown> }>) if (String(r.data?.["Full Name"] ?? "").trim()) out.push(r.data);
     if (!data || data.length < 1000) break;
+  }
+  return out;
+}
+function leadsByMonth(rows: Array<Record<string, unknown>>, yms: string[]): Map<string, number> {
+  const acc = new Map<string, number>(yms.map((ym) => [ym, 0]));
+  for (const r of rows) {
+    const ym = ddmmyyyy(r["Date Sign Up"])?.slice(0, 7) ?? demoMonth(r["Discovery Date"]);
+    if (ym && acc.has(ym)) acc.set(ym, (acc.get(ym) ?? 0) + 1);
   }
   return acc;
 }
@@ -169,7 +175,7 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
   const profitGoal = last.profit == null ? null : Math.min(PROFIT_GOAL,
     Math.round((last.profit + ((PROFIT_GOAL - last.profit) / steps) * Math.max(1, monthsBetween(last.ym, curYm))) / 500) * 500);
 
-  const [{ data: doneRows }, cmRows, { data: killRows }, { data: fixRows }, ppaOwners, deps, liveSeen, depMonths, campaignNames, leadMonths] = await Promise.all([
+  const [{ data: doneRows }, cmRows, { data: killRows }, { data: fixRows }, ppaOwners, deps, liveSeen, depMonths, campaignNames, discRows] = await Promise.all([
     svc.from("ceo_plan_done").select("item_key, done_by, done_at").eq("ym", curYm),
     (async () => {
       const out: CmRow[] = [];
@@ -206,8 +212,9 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
     // points at the campaign instead of repeating them as to-dos.
     svc.from("winback_contacts").select("owner_name").eq("active", true).range(0, 999)
       .then(({ data }) => ((data ?? []) as Array<{ owner_name: string | null }>).map((r) => String(r.owner_name ?? "")).filter(Boolean)),
-    leadsByMonth(svc, [last.ym, curYm]),
+    loadDiscoveries(svc),
   ]);
+  const leadMonths = leadsByMonth(discRows, [last.ym, curYm]);
   const done = new Map(((doneRows ?? []) as Array<{ item_key: string; done_by: string | null; done_at: string }>).map((r) => [r.item_key, { by: r.done_by, at: r.done_at }]));
   /* section + action + person: one person can have two different to-dos.
      `keyText` pins the key when the visible text carries a moving number
@@ -455,10 +462,20 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
     },
   };
 
+  /* Marketing tracker: the scorecard's "closed" (first-time retainer payers)
+     per month for the last 7 months, then spend / calls / demos per month. */
+  const closesByYm = new Map<string, { count: number; cash: number }>();
+  for (const m of finance) {
+    if (m.ym > curYm || monthsBetween(m.ym, curYm) > 6) continue;
+    const names = closesOf(m);
+    closesByYm.set(m.ym, { count: names.length, cash: sum(names.map((n) => m.payers.find((p) => sameClient(p.name, n))?.amount ?? 0)) });
+  }
+  const marketing = buildMarketingTracker({ finance, closesByYm, demoRows, discRows, curYm });
+
   return {
     ym: curYm, label: curLabel, goalMonth: GOAL_MONTH,
     profitGoal, lastLabel: last.label, lastProfit: last.profit,
-    score,
+    score, marketing,
     sections: [
       {
         key: "keep", title: "1 · Keep every client",
