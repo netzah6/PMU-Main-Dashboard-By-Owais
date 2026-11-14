@@ -116,10 +116,10 @@ export default function PowerDialer() {
     if (!confirm(`Send ${ids.length} leads to ${who ?? "your"} dialer in GHL?`)) return;
     setSending(true); setMsg(null);
     try {
-      const r = await fetch("/api/dialer/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contactIds: ids, userId: sendTo }) });
+      const r = await fetch("/api/dialer/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contactIds: ids, userId: sendTo, list: listKey }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "failed");
-      setMsg(`✅ ${j.sent} sent to ${who ?? "your"} dialer${j.failed?.length ? ` · ${j.failed.length} failed` : ""}. Open GHL → Manual Actions → Let's Start.`);
+      setMsg(`✅ ${j.sent} sent to ${who ?? "your"} dialer${j.failed?.length ? ` · ${j.failed.length} failed` : ""}. Open GHL → Manual Actions → Let's Start. No answer: wait 10 sec, call again, then send the text.`);
       setPicked(new Set());
     } catch (e) { setMsg(`❌ ${e instanceof Error ? e.message : "failed"}`); }
     setSending(false);
