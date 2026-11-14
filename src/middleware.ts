@@ -154,7 +154,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   // Client "My Billing" page: read-only, opened by the client's secret link.
   // Client app (/m/<token>) and the standalone My Billing page: read-only,
   // opened by the client's secret link (demo stage — real sign-in comes next).
-  const isPublicBilling = p.startsWith("/my-billing/") || p.startsWith("/m/");
+  const isPublicBilling = p.startsWith("/my-billing/") || p.startsWith("/m/") || p === "/m"; // "/m" = the client app's sign-in screen
 
   if (!user && !isAuthRoute && !isApiRoute && !isAuthCallback && !isPublicMeta && !isPublicFunnel && !isPublicDeck && !isPublicIntake && !isPublicBilling) {
     const url = request.nextUrl.clone();
