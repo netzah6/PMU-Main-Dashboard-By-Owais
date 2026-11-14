@@ -1,4 +1,5 @@
 "use client";
+import PowerDialer from "@/components/sales/PowerDialer";
 import { Loader2 } from "lucide-react";
 
 import { useCallback, useEffect, useState } from "react";
@@ -231,7 +232,7 @@ function CoachTracker() {
 }
 
 export default function SalesPage() {
-  const [view, setView] = useState<"board" | "demos" | "coaches">("board");
+  const [view, setView] = useState<"board" | "dialer" | "demos" | "coaches">("board");
   // Sales seats (setter / closer / both) get the board only — the Demo
   // Checker and Coach Tracker are salary tools for admins.
   const { role } = useUser();
@@ -335,16 +336,18 @@ export default function SalesPage() {
       {/* Title and the three views on ONE line (owner, 2026-10-12 / 10-31: save space). */}
       <div className="flex items-center gap-2 sm:gap-4 flex-nowrap overflow-x-auto">
       <h1 className="text-lg sm:text-2xl font-bold text-[#1f3559] tracking-tight whitespace-nowrap shrink-0">💼 Sales</h1>
-      {isAdmin && <div className="flex gap-0.5 rounded-lg bg-[#eef2f7] p-0.5 w-fit flex-nowrap shrink-0">
-        {([["board", "Sales board"], ["demos", "Demo Checker"], ["coaches", "Coach Tracker"]] as const).map(([k, label]) => (
+      <div className="flex gap-0.5 rounded-lg bg-[#eef2f7] p-0.5 w-fit flex-nowrap shrink-0">
+        {(isAdmin
+          ? [["board", "Sales board"], ["dialer", "📞 Dialer"], ["demos", "Demo Checker"], ["coaches", "Coach Tracker"]] as const
+          : [["board", "Sales board"], ["dialer", "📞 Dialer"]] as const).map(([k, label]) => (
           <button key={k} onClick={() => setView(k)}
             className={`px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-md text-xs sm:text-sm font-semibold whitespace-nowrap ${view === k ? "bg-white text-[#0e8f88] shadow-sm" : "text-[#697a91]"}`}>
             {label}
           </button>
         ))}
-      </div>}
       </div>
-      {view === "board" || !isAdmin ? <SalesBoardView /> : view === "coaches" ? <CoachTracker /> : (<>
+      </div>
+      {view === "dialer" ? <PowerDialer /> : view === "board" || !isAdmin ? <SalesBoardView /> : view === "coaches" ? <CoachTracker /> : (<>
       <p className="mt-4 text-sm text-[#697a91]">
         Paste contact names (one per line). Each is checked against its sales-pipeline stage — the stage is what proves
         whether the demo actually happened, since a past demo stays &ldquo;confirmed&rdquo; on the calendar either way.
