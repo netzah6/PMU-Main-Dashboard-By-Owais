@@ -58,7 +58,7 @@ export type DialerData = {
 };
 
 type Opp = {
-  contactId?: string; assignedTo?: string; lastStageChangeAt?: string; status?: string;
+  contactId?: string; assignedTo?: string; lastStageChangeAt?: string | null; updatedAt?: string; createdAt?: string; status?: string;
   contact?: { id?: string; name?: string; phone?: string; email?: string; tags?: string[] };
 };
 
@@ -200,7 +200,8 @@ export async function buildDialerData(force = false): Promise<DialerData> {
         email: o.contact?.email || undefined,
         zone,
         tz: zone ? ZONE_TZ[zone] : undefined,
-        stageAt: o.lastStageChangeAt,
+        // Old cards have no lastStageChangeAt — fall back to the card's dates.
+        stageAt: o.lastStageChangeAt || o.updatedAt || o.createdAt || undefined,
         demoAt: demoAt?.replace("T", " ").slice(0, 19),
         assignedTo: o.assignedTo ? userName.get(o.assignedTo) ?? undefined : undefined,
         lastCallAt: ci?.lastCallAt,
