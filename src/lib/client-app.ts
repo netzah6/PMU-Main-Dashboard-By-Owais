@@ -5,6 +5,7 @@ import { getAppLocationToken } from "@/lib/ghl-app";
 import { findConversationByContact, getRecentConversations, getThread, type ConvSummary, type ThreadMessage } from "@/lib/ghl-conversations";
 import { locationTimezone } from "@/lib/onebox";
 import type { GReviews } from "@/lib/g-reviews";
+import { appGate } from "@/lib/client-app-auth";
 
 /* Client app (owner, 11/11/2026): the "PMU Bookings On Demand" app a client
    keeps on her phone — Home, Chats, Bookings, Leads, Billing (+ Google
@@ -76,8 +77,19 @@ export const niceName = (raw: string | null | undefined) => {
     : s;
 };
 
-/** Token → client, once per request (also counts the view once). */
-const ownerOf = cache(async (token: string): Promise<string | null> => portalOwnerByToken(createServiceClient(), token));
+/** Token → client, once per request (also counts the view once).
+ *  A client on the sign-in beta list must be signed in (or it is the team
+ *  looking) — otherwise the link opens nothing. Every screen and every app API
+ *  goes through here, so this is the one door. */
+const gateOf = cache(async (token: string): Promise<{ ownerKey: string | null; needsSignIn: boolean }> => {
+  const ownerKey = await portalOwnerByToken(createServiceClient(), token);
+  if (!ownerKey) return { ownerKey: null, needsSignIn: false };
+  const gate = await appGate(ownerKey).catch(() => "signin" as const);
+  return gate === "ok" ? { ownerKey, needsSignIn: false } : { ownerKey: null, needsSignIn: true };
+});
+const ownerOf = async (token: string): Promise<string | null> => (await gateOf(token)).ownerKey;
+/** True when the link is real but its client has to sign in first. */
+export const appNeedsSignIn = async (token: string): Promise<boolean> => (await gateOf(token)).needsSignIn;
 export const appOwner = ownerOf;
 
 /* Her GoHighLevel sub-account and her funnel (logo, Google reviews). */
@@ -343,7 +355,7 @@ export async function chatWithContact(token: string, contactId: string): Promise
 /** She tapped "ask my team to turn Google Reviews on". Records it once. */
 export async function requestReviews(token: string): Promise<boolean> {
   const svc = createServiceClient();
-  const ownerKey = await portalOwnerByToken(svc, token);
+  const ownerKey = await ownerOf(token);
   if (!ownerKey) return false;
   const { data: cur } = await svc.from("client_app_settings").select("reviews_requested_at").eq("owner_key", ownerKey).maybeSingle();
   if ((cur as { reviews_requested_at?: string | null } | null)?.reviews_requested_at) return true;
