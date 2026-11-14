@@ -18,7 +18,9 @@ export async function dialerSeat(users: Array<{ id: string; name: string }>) {
   const salesName = String(me?.sales_name ?? "").trim().toLowerCase();
   // Sales seats dial as the GHL user whose name starts with their sales name
   // ("Jennifer" → Jennifer Roman). Admins pick who the list goes to.
-  const ghlUser = salesName ? users.find((u) => u.name.toLowerCase().startsWith(salesName)) ?? null : null;
+  // Admins without a sales name match by email ("nicolas@…" → Nicolas Mizrahi).
+  const key = salesName || String(auth.email ?? "").split("@")[0].toLowerCase();
+  const ghlUser = key ? users.find((u) => u.name.toLowerCase().startsWith(key)) ?? null : null;
   const settings = (st?.value ?? {}) as DialerSettings;
   return {
     role,

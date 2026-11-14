@@ -90,7 +90,7 @@ export default function PowerDialer() {
     if (!list) return [];
     const now = Date.now(), needle = q.trim().toLowerCase();
     return list.rows.filter((r) => {
-      if (since && r.stageAt && now - Date.parse(r.stageAt) > since * DAY) return false;
+      if (since && (!r.stageAt || now - Date.parse(r.stageAt) > since * DAY)) return false;
       if (quiet && r.lastCallAt && now - Date.parse(r.lastCallAt) < quiet * DAY) return false;
       if (zone && r.zone !== zone) return false;
       if (owner && (r.assignedTo ?? "") !== owner) return false;
