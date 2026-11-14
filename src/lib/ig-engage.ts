@@ -285,6 +285,37 @@ export function nextRunText(s: EngageSettings): string {
   return "—";
 }
 
+/* The UTC instant of hh:mm Pacific on a Pacific calendar day (PST or PDT). */
+function pacificToUtc(day: string, hour: number, minute: number): Date | null {
+  const [y, mo, d] = day.split("-").map(Number);
+  for (const off of [8, 7]) {
+    const t = new Date(Date.UTC(y, mo - 1, d, hour + off, minute));
+    if (pacificDay(t) === day && pacificHour(t) === hour) return t;
+  }
+  return null;
+}
+
+/* When the cron (hourly at :15) will file the next daily run — the Mac Mini
+   tracker's "coming up" list (owner 11/10/2026). null when switched off. */
+export function nextRunAt(s: EngageSettings, from = new Date()): string | null {
+  if (!s.enabled) return null;
+  for (let i = 0; i < 8; i++) {
+    const day = pacificDay(new Date(from.getTime() + i * 86_400_000));
+    if (isRestDay(day) || day === s.lastQueuedDay) continue;
+    const at = pacificToUtc(day, plannedHour(day), 15);
+    if (!at) continue;
+    if (at.getTime() > from.getTime()) return at.toISOString();
+    // Today's hour already passed but nothing filed yet: the next :15 tick files it.
+    if (i === 0) {
+      const next = new Date(from);
+      next.setUTCMinutes(15, 0, 0);
+      if (next.getTime() <= from.getTime()) next.setUTCHours(next.getUTCHours() + 1);
+      return next.toISOString();
+    }
+  }
+  return null;
+}
+
 const LOOKUPS_PER_RUN = 3; // searching is normal app use, but it still counts as activity
 
 export type QueueOutcome = { queued: boolean; why?: string; taskId?: string; clients?: number };

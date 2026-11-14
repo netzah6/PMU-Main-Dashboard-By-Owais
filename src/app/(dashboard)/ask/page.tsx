@@ -712,7 +712,7 @@ export default function AskPage() {
   return (
     <div className="flex h-full w-full">
       {/* What the Mac Mini is doing with the tasks you approve here (owner, 2026-10-16). */}
-      <MacMiniTracker scope="agent" />
+      <MacMiniTracker />
       {/* Chats sidebar — desktop (wider so client names + assignee fit) */}
       <aside className="hidden md:flex flex-col w-80 xl:w-96 shrink-0 border-r border-[#e4ebf2] bg-white">
         {chatList}
