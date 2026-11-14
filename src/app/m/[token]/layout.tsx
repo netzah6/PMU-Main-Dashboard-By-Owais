@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata, Viewport } from "next";
-import { loadApp } from "@/lib/client-app";
+import Link from "next/link";
+import { appNeedsSignIn, loadApp } from "@/lib/client-app";
 import { TabBar } from "@/components/client-app/TabBar";
 import { NavProgress } from "@/components/client-app/NavProgress";
 
@@ -25,6 +26,16 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, view
 
 export default async function ClientAppLayout({ children, params }: { children: React.ReactNode; params: { token: string } }) {
   const app = await loadApp(params.token);
+  if (!app && (await appNeedsSignIn(params.token))) {
+    return (
+      <div className="min-h-screen bg-[#f3f7fb] px-4 py-16">
+        <div className="mx-auto max-w-sm rounded-2xl border border-[#e4ebf2] bg-white p-6 text-center">
+          <p className="text-base font-bold text-[#1c2b3a]">Please sign in to open your app.</p>
+          <Link href="/m" className="mt-3 inline-block rounded-xl bg-[#15B7AE] px-5 py-2.5 text-sm font-bold text-white">Sign in</Link>
+        </div>
+      </div>
+    );
+  }
   if (!app) {
     return (
       <div className="min-h-screen bg-[#f3f7fb] px-4 py-16">

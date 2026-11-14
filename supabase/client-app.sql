@@ -93,3 +93,28 @@ ALTER TABLE public.client_app_booking_log ENABLE ROW LEVEL SECURITY; -- service 
 -- "Book appointment" from a chat is logged too (owner, 11/12/2026).
 ALTER TABLE public.client_app_booking_log DROP CONSTRAINT IF EXISTS client_app_booking_log_action_check;
 ALTER TABLE public.client_app_booking_log ADD CONSTRAINT client_app_booking_log_action_check CHECK (action IN ('move', 'cancel', 'book'));
+
+-- Client sign-in (owner, 11/14/2026): phone number + a texted code. Beta list
+-- of the clients the owner named, and the codes. Nothing is texted unless
+-- app_settings key client_app_signin has sendEnabled = true (OFF by default).
+CREATE TABLE IF NOT EXISTS public.client_app_users (
+  owner_key text PRIMARY KEY,
+  phone text NOT NULL,            -- +1XXXXXXXXXX: the number the code is texted to
+  active boolean NOT NULL DEFAULT true,
+  added_by text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS client_app_users_phone ON public.client_app_users (phone);
+ALTER TABLE public.client_app_users ENABLE ROW LEVEL SECURITY; -- service role only
+
+CREATE TABLE IF NOT EXISTS public.client_app_login_codes (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_key text NOT NULL,
+  code_hash text NOT NULL,        -- never the code itself
+  expires_at timestamptz NOT NULL,
+  attempts integer NOT NULL DEFAULT 0,
+  used_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS client_app_login_codes_owner ON public.client_app_login_codes (owner_key, created_at);
+ALTER TABLE public.client_app_login_codes ENABLE ROW LEVEL SECURITY; -- service role only
