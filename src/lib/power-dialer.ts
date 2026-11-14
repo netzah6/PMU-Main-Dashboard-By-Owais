@@ -236,3 +236,79 @@ export async function enrollInWorkflow(workflowId: string, contactIds: string[])
   }
   return { ok, failed };
 }
+
+// ── No-answer text ──────────────────────────────────────────────────────────
+// Owner 11/14/2026: call → no answer → wait 10 s → call again → still no
+// answer → text. The text is written per lead into the contact field
+// "Dialer SMS" just before enrolling; the workflow's Manual SMS step sends
+// {{contact.dialer_sms}} with one click. Any missing survey answer drops out
+// of the sentence instead of leaving a blank.
+const CF_KEYS = {
+  area: "contact.what_area_do_you_serve",
+  bookings: "contact.how_many_brows_bookings_can_you_handle_every_week",
+  goal: "contact.goal_desire",
+  sms: "contact.dialer_sms",
+};
+
+function cleanFirst(first: string): string {
+  const f = first.trim().split(/\s+/)[0] ?? "";
+  if (!f || f.length < 2 || /[0-9@/:.]/.test(f)) return "";
+  return f[0].toUpperCase() + f.slice(1).toLowerCase();
+}
+function cleanArea(a: string): string {
+  const x = a.trim().replace(/\s+/g, " ");
+  if (!x || /^\d{5}/.test(x) || x.length > 30) return "";
+  // "lancaster ca" → "Lancaster CA"
+  return x.split(" ").map((w) => (/^[a-z]{2}$/i.test(w) && /^(ca|ny|nj|tx|fl|ga|wa|or|nv|az|co|il|mi|oh|pa|va|nc|sc|tn|md|ma|ct|mn|wi|mo|la|al|ky|ut|ok|ks|ne|ia|ar|ms|nm|id|mt|wy|sd|nd|me|nh|vt|ri|de|dc|hi|ak|wv|in)$/i.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1))).join(" ");
+}
+function cleanBookings(b: string): string {
+  const m = b.match(/(\d+)\s*[-–]\s*(\d+)|(\d+)\+/);
+  if (!m) return "";
+  return m[3] ? `${m[3]}+ bookings` : `${m[1]}-${m[2]} bookings`;
+}
+function cleanGoal(g: string): string {
+  // Only clear goals: a number + clients/bookings ("2/3 clients Daily" →
+  // "2-3 clients daily"). Anything else ("5 week") uses the no-goal text.
+  const x = g.trim().replace(/\s+/g, " ").replace(/\.$/, "").replace(/(\d)\s*\/\s*(\d)/g, "$1-$2").toLowerCase();
+  return x && x.length <= 30 && /\d/.test(x) && /client|booking/.test(x) ? x : "";
+}
+
+export function dialerText(list: DialerListKey, caller: string, f: { first: string; area: string; bookings: string; goal: string }): string {
+  const hi = f.first ? `Hi ${f.first}` : "Hi there";
+  const area = cleanArea(f.area), bookings = cleanBookings(f.bookings), goal = cleanGoal(f.goal);
+  if (list === "discovery_noshow")
+    return `${hi}, it's ${caller} from PMU Bookings On Demand. Just tried calling about more brow clients ${area ? `in ${area}` : "in your area"}. Today or tomorrow for a quick 10-min call?`;
+  if (list === "demo_noshow")
+    return `${hi}, it's ${caller} from PMU Bookings On Demand. We missed you on the demo. Your plan${bookings ? ` for ${bookings} a week` : ""} is still ready. Want 2 new times?`;
+  return `${hi}, it's ${caller} from the demo. Just tried calling. ${goal ? `Still aiming for ${goal}?` : `Still want more brow clients ${area ? `in ${area}` : "in your area"}?`} I can hold a spot this week. When's good to talk?`;
+}
+
+/** Write each lead's no-answer text, then enroll them in the caller's
+ *  Power Dialer workflow. A lead whose text can't be written is NOT enrolled
+ *  (it would get an empty text). */
+export async function startDialer(workflowId: string, caller: string, items: Array<{ id: string; list: DialerListKey }>) {
+  const H = await token();
+  const cfRes = await getJson<{ customFields?: Array<{ id: string; fieldKey: string }> }>(`${BASE}/locations/${LOC}/customFields`, H);
+  const idOf = (k: string) => cfRes.customFields?.find((f) => f.fieldKey === k)?.id;
+  const smsId = idOf(CF_KEYS.sms);
+  if (!smsId) throw new Error('GHL custom field "Dialer SMS" is missing');
+  const ok: string[] = [], failed: Array<{ id: string; error: string }> = [];
+  const callerFirst = caller.split(" ")[0] || caller;
+  for (const it of items) {
+    try {
+      const c = (await getJson<{ contact?: { firstName?: string; customFields?: Array<{ id: string; value?: unknown }> } }>(`${BASE}/contacts/${it.id}`, H)).contact ?? {};
+      const val = (k: string) => { const id = idOf(k); return String(c.customFields?.find((f) => f.id === id)?.value ?? ""); };
+      const text = dialerText(it.list, callerFirst, { first: cleanFirst(c.firstName ?? ""), area: val(CF_KEYS.area), bookings: val(CF_KEYS.bookings), goal: val(CF_KEYS.goal) });
+      let put: Response | null = null;
+      for (let i = 0; i < 3; i++) {
+        put = await fetch(`${BASE}/contacts/${it.id}`, { method: "PUT", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ customFields: [{ id: smsId, field_value: text }] }) });
+        if (put.status !== 429) break;
+        await new Promise((x) => setTimeout(x, 1500 * (i + 1)));
+      }
+      if (!put?.ok) { failed.push({ id: it.id, error: `text not saved (${put?.status})` }); continue; }
+      const r = await enrollInWorkflow(workflowId, [it.id]);
+      if (r.ok.length) ok.push(it.id); else failed.push(r.failed[0]);
+    } catch (e) { failed.push({ id: it.id, error: e instanceof Error ? e.message : "failed" }); }
+  }
+  return { ok, failed };
+}
