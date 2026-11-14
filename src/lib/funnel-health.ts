@@ -128,7 +128,7 @@ export async function runFunnelHealth(svc: Svc, opts: { dry?: boolean; slug?: st
   if (opts.slug) q = q.eq("slug", opts.slug);
   const { data: rows, error } = await q;
   if (error) throw new Error(error.message);
-  const clients = ((rows ?? []) as Row[]).filter((r) => (r.extras as { template?: string } | null)?.template !== "b2b");
+  const clients = ((rows ?? []) as Row[]).filter((r) => (r.extras as { template?: string } | null)?.template !== "b2b" && r.slug !== "demo-v3"); // demo-v3 = our test page (owner, 11/14/2026)
 
   const since = new Date(Date.now() - 24 * 3600_000).toISOString();
   const reports: Report[] = [];

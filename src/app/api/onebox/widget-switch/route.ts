@@ -120,7 +120,7 @@ export async function GET() {
   const verBySlug = new Map((act ?? []).map((a) => [String(a.slug), verByOwner.get(String(a.owner_name ?? "").toLowerCase().trim()) ?? "other"]));
   const eligible = new Set(
     (clients ?? [])
-      .filter((c) => { const ex = (c.extras ?? {}) as { template?: string; freeBooking?: boolean }; return ex.template !== "b2b" && !ex.freeBooking; })
+      .filter((c) => { const ex = (c.extras ?? {}) as { template?: string; freeBooking?: boolean }; return ex.template !== "b2b" && !ex.freeBooking && c.slug !== "demo-v3"; })
       .map((c) => String(c.slug)),
   );
 
