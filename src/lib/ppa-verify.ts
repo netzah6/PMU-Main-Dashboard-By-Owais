@@ -4,11 +4,13 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { creditBalances, consumeCredit } from "@/lib/credits";
 import { closeLinksForShows, linksByOwner, type OpenLinkInfo } from "@/lib/ppa-links";
 import { getPpaRoster, type V3Client } from "@/lib/ppa";
+import { failureGeneration, noteFailedAttempt } from "@/lib/ppa-retry";
 import {
   listCards,
   listAllCustomers,
   listRecentPayments,
   createCardPayment,
+  SquarePaymentError,
   searchCustomersByEmail,
   searchCustomersByPhone,
   type SquareCard,
@@ -835,21 +837,34 @@ export async function executeChargeForRow(row: VerifyRow, chargedBy: string): Pr
   // they cover, and a key that ignored that would make the second one silently
   // return the first payment — money never collected, shows marked charged.
   // Max 45 chars for Square.
+  // …and after a failure Square ANSWERED, the key moves on (failureGeneration):
+  // otherwise Square replays that old failure forever and the bank never sees
+  // the retry. A double-click still shares one key; a network timeout does not
+  // move it (the payment may have gone through).
+  const generation = await failureGeneration(row.ownerKey);
   const idempotencyKey = createHash("sha256")
-    .update(`pps:${row.ownerKey}:${apptIds.join(",")}:${row.amount}:${row.idempotencyBasis ?? ""}`)
+    .update(`pps:${row.ownerKey}:${apptIds.join(",")}:${row.amount}:${row.idempotencyBasis ?? ""}${generation ? `:f${generation}` : ""}`)
     .digest("hex")
     .slice(0, 45);
 
-  const payment = await createCardPayment({
-    customerId: row.match.customerId,
-    cardId: card.id,
-    amountCents: Math.round(row.amount * 100),
-    idempotencyKey,
-    note: row.amountOnly
-      ? `PPS part payment $${row.amount}${row.readyToCharge ? ` — settles ${row.readyToCharge} of ${row.partialOfShows} show${row.partialOfShows === 1 ? "" : "s"} × $${row.fee}` : ""}${(row.overpayCredit ?? 0) > 0 ? `, $${row.overpayCredit} to account credit` : ""} — ${row.ownerName} (${row.business})`
-      : `PPS ${row.readyToCharge}${row.partialOfShows ? ` of ${row.partialOfShows}` : ""} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee}${row.creditApplied > 0 ? ` less $${row.creditApplied} credit` : ""}${row.partialOfShows ? " (partial)" : ""} — ${row.ownerName} (${row.business})`,
-    referenceId: row.ownerKey,
-  });
+  let payment: Awaited<ReturnType<typeof createCardPayment>>;
+  try {
+    payment = await createCardPayment({
+      customerId: row.match.customerId,
+      cardId: card.id,
+      amountCents: Math.round(row.amount * 100),
+      idempotencyKey,
+      note: row.amountOnly
+        ? `PPS part payment $${row.amount}${row.readyToCharge ? ` — settles ${row.readyToCharge} of ${row.partialOfShows} show${row.partialOfShows === 1 ? "" : "s"} × $${row.fee}` : ""}${(row.overpayCredit ?? 0) > 0 ? `, $${row.overpayCredit} to account credit` : ""} — ${row.ownerName} (${row.business})`
+        : `PPS ${row.readyToCharge}${row.partialOfShows ? ` of ${row.partialOfShows}` : ""} show${row.readyToCharge === 1 ? "" : "s"} × $${row.fee}${row.creditApplied > 0 ? ` less $${row.creditApplied} credit` : ""}${row.partialOfShows ? " (partial)" : ""} — ${row.ownerName} (${row.business})`,
+      referenceId: row.ownerKey,
+    });
+  } catch (e) {
+    if (e instanceof SquarePaymentError && e.httpStatus >= 400 && e.httpStatus < 500) {
+      await noteFailedAttempt(row.ownerKey, e.message).catch(() => {});
+    }
+    throw e;
+  }
 
   // Mark every included appointment charged, carrying the Square payment id so
   // any later dispute can be traced back to the exact shows it covered.
