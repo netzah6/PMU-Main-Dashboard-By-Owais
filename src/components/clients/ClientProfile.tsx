@@ -458,6 +458,21 @@ export function ClientProfile({
             <div className="flex items-center gap-1.5 min-w-0">
               <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
               {localClient.business_name && <span className="shrink-0"><CopyButton value={String(localClient.business_name)} title="Copy business name" /></span>}
+              <div className="hidden md:flex items-center gap-x-2 ml-2 min-w-0">
+          <span className="text-sm text-[#697a91] inline-flex items-center gap-1.5 min-w-0 max-w-full">
+            <span className="truncate">{localClient.owner_name || "—"}</span>
+            {localClient.owner_name && <span className="shrink-0"><CopyButton value={String(localClient.owner_name)} title="Copy client full name" /></span>}
+          </span>
+          {tz && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap"
+              title={`Client time zone (from GoHighLevel): ${tz}${tzOffset ? ` (${tzOffset})` : ""}`}>
+              <Clock size={11} />
+              {tzTime ? <>{tzTime}<span className="hidden sm:inline"> local</span> · </> : null}
+              {tz.split("/").pop()?.replace(/_/g, " ")}
+              <span className="hidden sm:inline">{tzOffset ? ` (${tzOffset})` : ""}</span>
+            </span>
+          )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -501,9 +516,9 @@ export function ClientProfile({
           </div>
         </div>
 
-        {/* Full width (not squeezed beside the buttons) so the owner name and
-           the local time fit on one line on a phone. */}
-        <div className="flex items-center gap-x-2 gap-y-1 flex-wrap mt-0.5">
+        {/* Phone: owner + local time on their own full-width line. Desktop shows
+           them beside the business name instead (owner 11/15/2026: one line). */}
+        <div className="md:hidden flex items-center gap-x-2 gap-y-1 flex-wrap mt-0.5">
           <span className="text-sm text-[#697a91] inline-flex items-center gap-1.5 min-w-0 max-w-full">
             <span className="truncate">{localClient.owner_name || "—"}</span>
             {localClient.owner_name && <span className="shrink-0"><CopyButton value={String(localClient.owner_name)} title="Copy client full name" /></span>}
