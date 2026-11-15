@@ -1,0 +1,16 @@
+{
+  "name": "pmu-bookings-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "PMU Bookings On Demand — the client phone app (native shell around the web app at /m).",
+  "scripts": {
+    "sync": "cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2"
+  }
+}
