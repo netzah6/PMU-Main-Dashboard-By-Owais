@@ -9,7 +9,7 @@ export function GET(_req: Request, { params }: { params: { token: string } }) {
   const start = token ? `/m/${token}` : "/";
   return NextResponse.json({
     name: "PMU Bookings On Demand",
-    short_name: "PMU Bookings",
+    short_name: "PMU Bookings On Demand",
     description: "Your bookings, leads and billing",
     id: start,
     start_url: start,

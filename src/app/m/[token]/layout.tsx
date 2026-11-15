@@ -14,10 +14,10 @@ export const maxDuration = 60;
 
 export function generateMetadata({ params }: { params: { token: string } }): Metadata {
   return {
-    title: "PMU Bookings",
-    applicationName: "PMU Bookings",
+    title: "PMU Bookings On Demand",
+    applicationName: "PMU Bookings On Demand",
     manifest: `/m/${params.token}/manifest.webmanifest`,
-    appleWebApp: { capable: true, statusBarStyle: "default", title: "PMU Bookings" },
+    appleWebApp: { capable: true, statusBarStyle: "default", title: "PMU Bookings On Demand" },
     robots: { index: false, follow: false },
     referrer: "no-referrer", // the link is the key during the demo
   };

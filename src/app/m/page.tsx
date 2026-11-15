@@ -5,7 +5,7 @@ import { SignInForm } from "@/components/client-app/SignInForm";
    code (owner, 11/14/2026). Beta: only the clients the owner named can get a
    code; everyone else sees the same screen and nothing is sent. */
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: "PMU Bookings · Sign in", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "PMU Bookings On Demand · Sign in", robots: { index: false, follow: false } };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#15B7AE" };
 
 export default function ClientAppSignIn() {

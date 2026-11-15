@@ -1,4 +1,4 @@
-# PMU Bookings — iPhone app
+# PMU Bookings On Demand — iPhone app
 
 The client app is the web app at `/m` (sign-in, bookings, chats, profit, billing).
 This folder is the native iPhone "shell" around it (Capacitor 8): it opens
