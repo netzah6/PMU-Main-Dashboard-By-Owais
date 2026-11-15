@@ -455,18 +455,25 @@ export function ClientProfile({
                 the screen is too narrow). The ad-account name used to follow —
                 it is nearly always the business name again, so it's gone
                 (user, 2026-09-13). */}
-            <div className="flex items-baseline gap-x-2 gap-y-0.5 flex-wrap">
+            {/* Phones (owner 11/15/2026): two lines, not four — the business
+                name keeps its copy icon on its own line, and the owner name,
+                its copy icon and the local time share the second one. */}
+            <div className="flex items-center gap-1.5 min-w-0">
               <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
-              {localClient.business_name && <CopyButton value={String(localClient.business_name)} title="Copy business name" />}
-              <span className="text-sm text-[#697a91] inline-flex items-center gap-1.5 min-w-0">
+              {localClient.business_name && <span className="shrink-0"><CopyButton value={String(localClient.business_name)} title="Copy business name" /></span>}
+            </div>
+            <div className="flex items-center gap-x-2 gap-y-1 flex-wrap mt-0.5">
+              <span className="text-sm text-[#697a91] inline-flex items-center gap-1.5 min-w-0 max-w-full">
                 <span className="truncate">{localClient.owner_name || "—"}</span>
-                {localClient.owner_name && <CopyButton value={String(localClient.owner_name)} title="Copy client full name" />}
+                {localClient.owner_name && <span className="shrink-0"><CopyButton value={String(localClient.owner_name)} title="Copy client full name" /></span>}
               </span>
               {tz && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap self-center"
-                  title={`Client time zone (from GoHighLevel): ${tz}`}>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap"
+                  title={`Client time zone (from GoHighLevel): ${tz}${tzOffset ? ` (${tzOffset})` : ""}`}>
                   <Clock size={11} />
-                  {tz.split("/").pop()?.replace(/_/g, " ")}{tzOffset ? ` (${tzOffset})` : ""}{tzTime ? ` · ${tzTime} local` : ""}
+                  {tzTime ? <>{tzTime}<span className="hidden sm:inline"> local</span> · </> : null}
+                  {tz.split("/").pop()?.replace(/_/g, " ")}
+                  <span className="hidden sm:inline">{tzOffset ? ` (${tzOffset})` : ""}</span>
                 </span>
               )}
             </div>
@@ -485,13 +492,15 @@ export function ClientProfile({
               <button onClick={() => void startSetup()} disabled={setupBusy}
                 title={setupInfo.card ? "Open this client's Onboarding card and setup run" : "No GoHighLevel account yet — open the Onboarding card, approve, and the dashboard + AI Agent set it up"}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#4f46e5] hover:bg-[#4338ca] text-white transition-colors disabled:opacity-60">
-                {setupBusy ? <Loader2 size={12} className="animate-spin" /> : "🧩"} {setupInfo.card ? (setupInfo.card.approved ? "Setup run" : "Continue setup") : "Set up account"}
+                {setupBusy ? <Loader2 size={12} className="animate-spin" /> : "🧩"}
+                {/* Icon only on a phone — the words pushed the name onto extra lines. */}
+                <span className="hidden sm:inline">{setupInfo.card ? (setupInfo.card.approved ? "Setup run" : "Continue setup") : "Set up account"}</span>
               </button>
             )}
             {canEdit && !editMode && (
-              <button onClick={openEdit}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e4ebf2] hover:bg-[#dbe5ef] text-[#1e2a3a] border border-[#d7e0ea] transition-colors">
-                <Edit2 size={12} /> Edit Profile
+              <button onClick={openEdit} title="Edit Profile" aria-label="Edit Profile"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e4ebf2] hover:bg-[#dbe5ef] text-[#1e2a3a] border border-[#d7e0ea] transition-colors">
+                <Edit2 size={12} /> <span className="hidden sm:inline">Edit Profile</span>
               </button>
             )}
             {canEdit && editMode && (
