@@ -71,6 +71,9 @@ const TABS: Tab[] = [
 ];
 
 // Strict per-role allowlists — these roles see ONLY the listed tabs.
+const TAB_OPENS_KEY = "pmu-tab-opens-v1";
+const MIN_OPENS_TO_SORT = 20;
+
 const VA_TABS = new Set(["/clients", "/onboarding"]);
 const MEDIA_BUYER_TABS = new Set([
   // Clients dropped 2026-09-08 — a media buyer works from Performance and the
@@ -129,6 +132,29 @@ export function TabNav() {
     .map((t) => (allow ? { ...t, collapsed: false } : t));
 
   const isActive = (t: Tab) => pathname === t.href || pathname.startsWith(t.href + "/");
+
+  /* Most-used tabs first (owner, 11/15/2026: "organize my tabs according to
+     the tabs I use more often"). Each open is counted in this browser; once
+     there are enough opens the main tabs sort by count (ties keep the list
+     order). The "⋯ More" group stays at the right. */
+  const [opens, setOpens] = useState<Record<string, number>>({});
+  useEffect(() => {
+    try { setOpens(JSON.parse(localStorage.getItem(TAB_OPENS_KEY) || "{}")); } catch { /* storage blocked */ }
+  }, []);
+  useEffect(() => {
+    const hit = TABS.find((t) => pathname === t.href || pathname.startsWith(t.href + "/"));
+    if (!hit) return;
+    setOpens((prev) => {
+      const next = { ...prev, [hit.href]: (prev[hit.href] ?? 0) + 1 };
+      try { localStorage.setItem(TAB_OPENS_KEY, JSON.stringify(next)); } catch { /* storage blocked */ }
+      return next;
+    });
+  }, [pathname]);
+  const totalOpens = Object.values(opens).reduce((a, b) => a + b, 0);
+  const mainTabs = tabs.filter((t) => !t.collapsed);
+  const orderedMain = totalOpens >= MIN_OPENS_TO_SORT
+    ? mainTabs.map((t, i) => ({ t, i })).sort((a, b) => (opens[b.t.href] ?? 0) - (opens[a.t.href] ?? 0) || a.i - b.i).map((x) => x.t)
+    : mainTabs;
   const collapsedTabs = tabs.filter((t) => t.collapsed);
   // Being ON one of the hidden pages keeps the group visible — otherwise the
   // active tab would have no highlight anywhere on the bar.
@@ -166,7 +192,7 @@ export function TabNav() {
       className="flex overflow-x-auto border-b border-[#e4ebf2] bg-white px-2 gap-0 flex-shrink-0"
       style={{ scrollbarWidth: "none" }}
     >
-      {tabs.filter((t) => !t.collapsed).map((tab) => (
+      {orderedMain.map((tab) => (
         <Link key={tab.href} href={tab.href} className={linkCls(isActive(tab))}>
           {tab.label}
           {tab.href === "/alerts" && alertCount > 0 && (

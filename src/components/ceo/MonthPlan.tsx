@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Check, ChevronDown, ChevronRight, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { Score } from "@/lib/ceo-plan";
+import type { GoalPath, Score } from "@/lib/ceo-plan";
 import type { Marketing } from "@/lib/ceo-marketing";
 
 /* This month's plan (owner, 2026-10-04: "a plan every month so I know exactly
@@ -15,7 +15,7 @@ import type { Marketing } from "@/lib/ceo-marketing";
 
 type Item = { key: string; text: string; detail?: string; done: { by: string | null; at: string } | null; info?: boolean };
 type Section = { key: string; title: string; why: string; target: string; last: string; now?: string; ok: boolean | null; items: Item[] };
-export type Plan = { ym: string; label: string; goalMonth: string; profitGoal: number | null; lastLabel: string; lastProfit: number | null; sections: Section[]; score: Score; marketing: Marketing };
+export type Plan = { ym: string; label: string; goalMonth: string; profitGoal: number | null; lastLabel: string; lastProfit: number | null; sections: Section[]; score: Score; marketing: Marketing; goalPath: GoalPath | null };
 
 const k = (n: number | null | undefined) => (n == null ? "—" : `$${(n / 1000).toFixed(1)}k`);
 const goalMonthName = (ym: string) => new Date(`${ym}-15T12:00:00`).toLocaleString("en-US", { month: "long", year: "numeric" });
