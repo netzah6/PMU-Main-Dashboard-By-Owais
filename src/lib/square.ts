@@ -504,6 +504,16 @@ export type ChargeResult = {
   amountCents: number;
 };
 
+/** Square ANSWERED the payment request with an error (a decline, a bad card,
+ *  a limit…). Distinct from a network failure, where we can't know whether the
+ *  payment happened — only an answered failure is safe to retry on a NEW key. */
+export class SquarePaymentError extends Error {
+  constructor(message: string, readonly httpStatus: number, readonly codes: string[]) {
+    super(message);
+    this.name = "SquarePaymentError";
+  }
+}
+
 export async function createCardPayment(args: {
   customerId: string;
   cardId: string;
@@ -534,7 +544,11 @@ export async function createCardPayment(args: {
   };
   if (!r.ok || !j.payment) {
     const detail = (j.errors ?? []).map((e) => e.detail || e.code).filter(Boolean).join("; ");
-    throw new Error(`Square payment failed (${r.status}): ${detail || "unknown error"}`);
+    throw new SquarePaymentError(
+      `Square payment failed (${r.status}): ${detail || "unknown error"}`,
+      r.status,
+      (j.errors ?? []).map((e) => e.code ?? "").filter(Boolean),
+    );
   }
   const p = j.payment;
   const amt = p.amount_money as { amount?: number } | undefined;
