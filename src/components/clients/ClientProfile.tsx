@@ -451,31 +451,13 @@ export function ClientProfile({
       <div className="sticky top-0 z-10 px-3 sm:px-6 pt-3 sm:pt-5 pb-2.5 sm:pb-4 border-b border-[#e4ebf2] bg-[#eef2f7]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            {/* Business, owner and their local time on ONE line (wraps only when
-                the screen is too narrow). The ad-account name used to follow —
-                it is nearly always the business name again, so it's gone
-                (user, 2026-09-13). */}
-            {/* Phones (owner 11/15/2026): two lines, not four — the business
-                name keeps its copy icon on its own line, and the owner name,
-                its copy icon and the local time share the second one. */}
+            {/* Business name + copy beside the buttons; owner + local time on
+                the full-width line below (owner 11/15/2026: 3 header lines on a
+                phone, not 5). The ad-account name used to follow — nearly
+                always the business name again, so it's gone (2026-09-13). */}
             <div className="flex items-center gap-1.5 min-w-0">
               <h2 className="text-xl font-bold text-[#1f3559] truncate">{localClient.business_name || "—"}</h2>
               {localClient.business_name && <span className="shrink-0"><CopyButton value={String(localClient.business_name)} title="Copy business name" /></span>}
-            </div>
-            <div className="flex items-center gap-x-2 gap-y-1 flex-wrap mt-0.5">
-              <span className="text-sm text-[#697a91] inline-flex items-center gap-1.5 min-w-0 max-w-full">
-                <span className="truncate">{localClient.owner_name || "—"}</span>
-                {localClient.owner_name && <span className="shrink-0"><CopyButton value={String(localClient.owner_name)} title="Copy client full name" /></span>}
-              </span>
-              {tz && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap"
-                  title={`Client time zone (from GoHighLevel): ${tz}${tzOffset ? ` (${tzOffset})` : ""}`}>
-                  <Clock size={11} />
-                  {tzTime ? <>{tzTime}<span className="hidden sm:inline"> local</span> · </> : null}
-                  {tz.split("/").pop()?.replace(/_/g, " ")}
-                  <span className="hidden sm:inline">{tzOffset ? ` (${tzOffset})` : ""}</span>
-                </span>
-              )}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -517,6 +499,24 @@ export function ClientProfile({
               </>
             )}
           </div>
+        </div>
+
+        {/* Full width (not squeezed beside the buttons) so the owner name and
+           the local time fit on one line on a phone. */}
+        <div className="flex items-center gap-x-2 gap-y-1 flex-wrap mt-0.5">
+          <span className="text-sm text-[#697a91] inline-flex items-center gap-1.5 min-w-0 max-w-full">
+            <span className="truncate">{localClient.owner_name || "—"}</span>
+            {localClient.owner_name && <span className="shrink-0"><CopyButton value={String(localClient.owner_name)} title="Copy client full name" /></span>}
+          </span>
+          {tz && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#e6f7f5] text-[#0e8f88] border border-[#a7e3df] whitespace-nowrap"
+              title={`Client time zone (from GoHighLevel): ${tz}${tzOffset ? ` (${tzOffset})` : ""}`}>
+              <Clock size={11} />
+              {tzTime ? <>{tzTime}<span className="hidden sm:inline"> local</span> · </> : null}
+              {tz.split("/").pop()?.replace(/_/g, " ")}
+              <span className="hidden sm:inline">{tzOffset ? ` (${tzOffset})` : ""}</span>
+            </span>
+          )}
         </div>
 
         {/* Status badges row — or edit panel */}
