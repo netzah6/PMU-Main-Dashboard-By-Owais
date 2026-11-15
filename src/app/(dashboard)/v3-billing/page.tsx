@@ -941,31 +941,76 @@ function AutoRunBanner({ onSummary }: { onSummary?: (s: { failed: number; charge
 // The boxes that used to stack above the client table; one opens at a time.
 type PanelKey = "auto" | "billing" | "credit" | "chat" | "missing" | "charge";
 
-/** One dropdown in the PPS Billing panel bar. The badge carries the number
- *  that decides whether it is worth opening, so a shut panel still speaks. */
-function PanelChip({ k, panel, onClick, label, icon, badge, alert }: {
-  k: PanelKey; panel: PanelKey | null; onClick: (k: PanelKey) => void;
-  label: string; icon: string; badge?: string; alert?: boolean;
-}) {
-  const open = panel === k;
+type PanelItem = { k: PanelKey; label: string; icon: string; badge?: string; alert?: boolean };
+
+/** One small "Panels" dropdown next to the title (owner 11/15/2026: the row of
+ *  boxes took too much of the phone screen). Tick any panels to show them —
+ *  several at once is fine; the badge on each row still says what is inside,
+ *  and a red dot on the button means something needs a look. */
+function PanelMenu({ items, open, onToggle }: { items: PanelItem[]; open: Set<PanelKey>; onToggle: (k: PanelKey) => void }) {
+  const [show, setShow] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!show) return;
+    const close = (e: Event) => {
+      const t = e.target as Node;
+      if (btn.current?.contains(t) || menu.current?.contains(t)) return;
+      setShow(false);
+    };
+    const shut = () => setShow(false);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("touchstart", close);
+    window.addEventListener("resize", shut);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("touchstart", close);
+      window.removeEventListener("resize", shut);
+    };
+  }, [show]);
+  const toggleMenu = () => {
+    if (!show && btn.current) {
+      // Fixed position, kept on screen: on a phone the button can sit near
+      // either edge once the header wraps.
+      const r = btn.current.getBoundingClientRect();
+      const width = Math.min(288, window.innerWidth - 16);
+      setPos({ top: r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)), width });
+    }
+    setShow((v) => !v);
+  };
+  const alerts = items.filter((i) => i.alert).length;
+  const shown = items.filter((i) => open.has(i.k)).length;
   return (
-    <button onClick={() => onClick(k)} aria-expanded={open}
-      className={cn(
-        "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors",
-        open ? "bg-[#e6f7f5] text-[#0e8f88] border-[#15B7AE]"
-          : alert ? "bg-[#fde8ee] text-[#be123c] border-[#f5c2cf] hover:border-[#be123c]"
-            : "bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE]",
-      )}>
-      <span aria-hidden>{icon}</span>
-      {label}
-      {badge && (
-        <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold",
-          open ? "bg-white text-[#0e8f88]" : alert ? "bg-white text-[#be123c]" : "bg-[#eef2f7] text-[#697a91]")}>
-          {badge}
-        </span>
+    <>
+      <button ref={btn} onClick={toggleMenu} aria-expanded={show} aria-haspopup="true"
+        title={alerts ? `${alerts} panel${alerts === 1 ? "" : "s"} need a look` : "Show or hide the panels"}
+        className={cn(
+          "relative flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors",
+          show ? "bg-[#e6f7f5] text-[#0e8f88] border-[#15B7AE]" : "bg-white text-[#34568a] border-[#e4ebf2] hover:border-[#15B7AE]",
+        )}>
+        Panels
+        {shown > 0 && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#e6f7f5] text-[#0e8f88]">{shown}</span>}
+        <ChevronDown size={12} className={cn("transition-transform", show && "rotate-180")} />
+        {alerts > 0 && <span aria-hidden className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#e11d48] ring-2 ring-white" />}
+      </button>
+      {show && pos && (
+        <div ref={menu} role="menu" style={{ top: pos.top, left: pos.left, width: pos.width }}
+          className="fixed z-40 rounded-xl border border-[#e4ebf2] bg-white shadow-lg py-1">
+          {items.map((i) => (
+            <label key={i.k} className="flex items-center gap-2 px-3 py-2.5 text-xs cursor-pointer hover:bg-[#f5f8fb]">
+              <input type="checkbox" checked={open.has(i.k)} onChange={() => onToggle(i.k)} className="w-4 h-4 accent-[#15B7AE]" />
+              <span aria-hidden>{i.icon}</span>
+              <span className={cn("font-semibold flex-1", i.alert ? "text-[#be123c]" : "text-[#34568a]")}>{i.label}</span>
+              {i.badge && (
+                <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap",
+                  i.alert ? "bg-[#fde8ee] text-[#be123c]" : "bg-[#eef2f7] text-[#697a91]")}>{i.badge}</span>
+              )}
+            </label>
+          ))}
+        </div>
       )}
-      <ChevronDown size={12} className={cn("transition-transform", open && "rotate-180")} />
-    </button>
+    </>
   );
 }
 
@@ -995,11 +1040,26 @@ function AdminBilling() {
   const [filter, setFilter] = useState<Filter>("all");
   // One client expanded at a time — every dropdown open at once was unreadable.
   const [openKey, setOpenKey] = useState<string | null>(null);
-  // One panel open at a time, none by default — the client table is what the
-  // tab is for, so the boxes above it live behind a single row of dropdowns
-  // (owner request 2026-09-22: "keep all the drop-downs in one line").
-  const [panel, setPanel] = useState<PanelKey | null>(null);
-  const togglePanel = useCallback((k: PanelKey) => setPanel((p) => (p === k ? null : k)), []);
+  // The panels above the client table live behind ONE "Panels" dropdown next
+  // to the title (owner 11/15/2026 — the row of boxes ate the phone screen).
+  // Any mix can be ticked; none by default. Remembered on this device only.
+  const [openPanels, setOpenPanels] = useState<Set<PanelKey>>(() => new Set());
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("ppaBilling.openPanels") ?? "[]");
+      if (Array.isArray(saved)) setOpenPanels(new Set(saved as PanelKey[]));
+    } catch { /* storage blocked — start closed */ }
+  }, []);
+  const setPanelOpen = useCallback((k: PanelKey, on: boolean) => {
+    setOpenPanels((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(k); else next.delete(k);
+      try { localStorage.setItem("ppaBilling.openPanels", JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+  const togglePanel = useCallback((k: PanelKey) => setPanelOpen(k, !openPanels.has(k)), [openPanels, setPanelOpen]);
+  const isOpen = (k: PanelKey) => openPanels.has(k);
   // Headline numbers the collapsed panels report up, so a chip can say what is
   // inside without being opened.
   const [autoRun, setAutoRun] = useState<{ failed: number; charged: number; runAt: string } | null>(null);
@@ -1119,58 +1179,49 @@ function AdminBilling() {
 
   return (
     <div className="p-3 sm:p-4 space-y-3">
-      {/* One line: title, the two counters, then every dropdown chip and
-          Refresh — nothing stacks above the client table any more. */}
+      {/* One short line: title, the two counters, the Panels dropdown and a
+          Refresh icon — nothing stacks above the client table. */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <h1 className="text-xl font-bold text-[#1f3559] mr-1.5">PPA Billing</h1>
         <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#eef2f7] text-[#34568a] border border-[#e4ebf2]">{totals.count} clients</span>
         {verify && verify.totals.blocked > 0 && <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[#fde8ee] text-[#be123c] border border-[#f5c2cf]" title="Money waiting but something needs your eyes first">{verify.totals.blocked} need review</span>}
-        {autoRun && (
-          <PanelChip k="auto" panel={panel} onClick={togglePanel} label="Auto-charge run"
-            icon="⚡" alert={autoRun.failed > 0}
-            badge={autoRun.failed > 0 ? `${autoRun.failed} failed` : `${autoRun.charged} charged`} />
-        )}
-        <PanelChip k="billing" panel={panel} onClick={togglePanel} label="Recent billing" icon="💵" />
-        {(creditSummary.unused > 0 || creditSummary.pending > 0) && (
-          <PanelChip k="credit" panel={panel} onClick={togglePanel} label="Account credit" icon="💳"
-            alert={creditSummary.pending > 0}
-            badge={creditSummary.pending > 0 ? `${creditSummary.pending} to approve` : money(creditSummary.unused)} />
-        )}
-        {chatToReview > 0 && (
-          <PanelChip k="chat" panel={panel} onClick={togglePanel} label="Booked in chat" icon="💬"
-            badge={`${chatToReview} to review`} />
-        )}
-        {missing.length > 0 && (
-          <PanelChip k="missing" panel={panel} onClick={togglePanel} label="No GHL account found" icon="⚠️"
-            alert badge={String(missing.length)} />
-        )}
-        <PanelChip k="charge" panel={panel} onClick={togglePanel} label="To charge" icon="🗓️"
-          badge={totals.ready > 0 ? `${totals.ready} · ${money(totals.readyUsd)}` : "all caught up"} />
-        <button onClick={() => { load(true); loadVerify(); }} disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
-          <RefreshCw size={12} className={loading || verifyLoading ? "animate-spin" : ""} /> Refresh
+        <PanelMenu open={openPanels} onToggle={togglePanel} items={[
+          ...(autoRun ? [{ k: "auto" as const, label: "Auto-charge run", icon: "⚡", alert: autoRun.failed > 0,
+            badge: autoRun.failed > 0 ? `${autoRun.failed} failed` : `${autoRun.charged} charged` }] : []),
+          { k: "charge", label: "To charge", icon: "🗓️",
+            badge: totals.ready > 0 ? `${totals.ready} · ${money(totals.readyUsd)}` : "all caught up" },
+          { k: "billing", label: "Recent billing", icon: "💵" },
+          ...(creditSummary.unused > 0 || creditSummary.pending > 0 ? [{ k: "credit" as const, label: "Account credit", icon: "💳",
+            alert: creditSummary.pending > 0,
+            badge: creditSummary.pending > 0 ? `${creditSummary.pending} to approve` : money(creditSummary.unused) }] : []),
+          ...(chatToReview > 0 ? [{ k: "chat" as const, label: "Booked in chat", icon: "💬", badge: `${chatToReview} to review` }] : []),
+          ...(missing.length > 0 ? [{ k: "missing" as const, label: "No GHL account found", icon: "⚠️", alert: true, badge: String(missing.length) }] : []),
+        ]} />
+        <button onClick={() => { load(true); loadVerify(); }} disabled={loading} title="Refresh" aria-label="Refresh"
+          className="flex items-center px-2 py-1.5 text-xs font-semibold rounded-lg bg-[#f1f5f9] hover:bg-[#e6f7f5] text-[#34568a] border border-[#e4ebf2]">
+          <RefreshCw size={13} className={loading || verifyLoading ? "animate-spin" : ""} />
         </button>
       </div>
 
       {/* The panels themselves. They stay mounted so their chips keep showing
           live numbers, and only the open one is on screen. */}
-      <div className={cn(panel !== "auto" && "hidden")}>
+      <div className={cn(!isOpen("auto") && "hidden")}>
         <AutoRunBanner onSummary={setAutoRun} />
       </div>
-      <div className={cn(panel !== "billing" && "hidden")}>
+      <div className={cn(!isOpen("billing") && "hidden")}>
         {/* History is fetched only while its panel is open — it is long. */}
         <RecentBilling coach={coach || undefined} refreshKey={billingKey}
-          open={panel === "billing"} onOpenChange={(o) => setPanel(o ? "billing" : null)} />
+          open={isOpen("billing")} onOpenChange={(o) => setPanelOpen("billing", o)} />
       </div>
-      <div className={cn(panel !== "credit" && "hidden")}>
+      <div className={cn(!isOpen("credit") && "hidden")}>
         <CreditsPanel
           clients={clients.map((c) => ({ ownerKey: c.ownerKey, label: `${c.ownerName}${c.business ? ` — ${c.business}` : ""}` }))}
           onChanged={() => { load(); loadVerify(); }}
-          open={panel === "credit"} onOpenChange={(o) => setPanel(o ? "credit" : null)}
+          open={isOpen("credit")} onOpenChange={(o) => setPanelOpen("credit", o)}
           onSummary={setCreditSummary}
         />
       </div>
-      <div className={cn(panel !== "chat" && "hidden")}>
+      <div className={cn(!isOpen("chat") && "hidden")}>
         <ChatFlagsPanel feeByOwner={feeByOwner} nameByOwner={nameByOwner}
           onBilled={() => { load(); loadVerify(); }} onSummary={setChatToReview} />
       </div>
@@ -1183,14 +1234,14 @@ function AdminBilling() {
 
       {/* PPA names in the financing sheet with no Clients Master row — they
           can't be tracked until they're added to the Master sheet. */}
-      {missing.length > 0 && panel === "missing" && (
+      {missing.length > 0 && isOpen("missing") && (
         <div className="rounded-xl border border-[#f5c2cf] bg-[#fde8ee] px-3 py-2 text-sm text-[#be123c]">
           <strong>No GHL account found:</strong> {missing.join(", ")} — marked PPA in the financing sheet, but no Clients Master row links them to a GHL sub-account, so their appointments can&apos;t be read. Add a Clients Master row with the same name (a nickname in parentheses is fine) to include them.
         </div>
       )}
 
-      {/* Monday worklist — opened from the panel bar above. */}
-      {panel === "charge" && (
+      {/* Monday worklist — opened from the Panels dropdown. */}
+      {isOpen("charge") && (
       <div className="rounded-xl border border-[#fcd9a8] bg-[#fffdf7]">
         <div className="w-full flex items-center gap-2 px-3 py-2 text-left">
           <CalendarClock size={15} className="text-[#d97706] shrink-0" />
