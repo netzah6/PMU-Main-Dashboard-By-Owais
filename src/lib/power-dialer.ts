@@ -9,8 +9,8 @@ import { AREA_ZONE, ZONE_TZ } from "@/lib/dialer-areacodes";
 // therefore go out from our GHL numbers, are recorded, and fire the existing
 // call workflows exactly like a normal call.
 
-const LOC = process.env.GHL_LOCATION_ID || "SfpNMJ5YU9lBkxss47lK";
-const BASE = "https://services.leadconnectorhq.com";
+export const LOC = process.env.GHL_LOCATION_ID || "SfpNMJ5YU9lBkxss47lK";
+export const BASE = "https://services.leadconnectorhq.com";
 const DEMO_CALENDARS = ["8N5925C8NxX7E0Cbw1oF", "RP7VFqOadCAfpKAfwM9F"];
 
 export type DialerListKey = "discovery_noshow" | "demo_noshow" | "showed_no_close" | "followup" | "demo_no_update";
@@ -70,13 +70,13 @@ export function zoneForPhone(phone: string): string | undefined {
   return AREA_ZONE[d.slice(1, 4)];
 }
 
-async function token(): Promise<Record<string, string>> {
+export async function token(): Promise<Record<string, string>> {
   const { token, error } = await getAppLocationToken(LOC);
   if (!token) throw new Error(error || "Could not mint a GHL location token");
   return { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" };
 }
 
-async function getJson<T>(url: string, H: Record<string, string>): Promise<T> {
+export async function getJson<T>(url: string, H: Record<string, string>): Promise<T> {
   for (let i = 0; i < 3; i++) {
     const r = await fetch(url, { headers: H, cache: "no-store" });
     if (r.status === 429) { await new Promise((ok) => setTimeout(ok, 1500 * (i + 1))); continue; }
@@ -143,6 +143,19 @@ function nowPacific(): string {
 }
 
 let cache: { at: number; data: DialerData } | null = null;
+
+/** Just the GHL users of the agency account (id + name), cached 10 min —
+ *  for routes that need to know who is who without building every list. */
+let usersCache: { at: number; users: Array<{ id: string; name: string }> } | null = null;
+export async function dialerUsers(): Promise<Array<{ id: string; name: string }>> {
+  if (cache && Date.now() - cache.at < 10 * 60_000) return cache.data.users;
+  if (usersCache && Date.now() - usersCache.at < 10 * 60_000) return usersCache.users;
+  const H = await token();
+  const r = await getJson<{ users?: Array<{ id: string; name?: string; firstName?: string; lastName?: string }> }>(`${BASE}/users/?locationId=${LOC}`, H);
+  const users = (r.users ?? []).map((u) => ({ id: u.id, name: u.name || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() }));
+  usersCache = { at: Date.now(), users };
+  return users;
+}
 
 export async function buildDialerData(force = false): Promise<DialerData> {
   if (!force && cache && Date.now() - cache.at < 5 * 60_000) return cache.data;
@@ -293,6 +306,7 @@ export async function startDialer(workflowId: string, caller: string, items: Arr
   const smsId = idOf(CF_KEYS.sms);
   if (!smsId) throw new Error('GHL custom field "Dialer SMS" is missing');
   const ok: string[] = [], failed: Array<{ id: string; error: string }> = [];
+  const texts: Record<string, string> = {}; // contact id → the no-answer text written for it (kept in the dialer log)
   const callerFirst = caller.split(" ")[0] || caller;
   for (const it of items) {
     try {
@@ -307,8 +321,8 @@ export async function startDialer(workflowId: string, caller: string, items: Arr
       }
       if (!put?.ok) { failed.push({ id: it.id, error: `text not saved (${put?.status})` }); continue; }
       const r = await enrollInWorkflow(workflowId, [it.id]);
-      if (r.ok.length) ok.push(it.id); else failed.push(r.failed[0]);
+      if (r.ok.length) { ok.push(it.id); texts[it.id] = text; } else failed.push(r.failed[0]);
     } catch (e) { failed.push({ id: it.id, error: e instanceof Error ? e.message : "failed" }); }
   }
-  return { ok, failed };
+  return { ok, failed, texts };
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildDialerData, startDialer, type DialerListKey } from "@/lib/power-dialer";
 import { dialerSeat } from "@/lib/power-dialer-seat";
+import { createServiceClient } from "@/lib/supabase/server";
+import { getAuth } from "@/lib/ppa";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -28,5 +30,18 @@ export async function POST(req: NextRequest) {
   const use = ids.filter((id) => listOf.has(id));
   const caller = data.users.find((u) => u.id === userId)?.name ?? "";
   const res = await startDialer(wf, caller, use.map((id) => ({ id, list: listOf.get(id)! })));
+  /* Dialer log (owner 11/15/2026): one row per lead that went in, with its
+     text, so Sales → Dialer → Activity can match GHL's call/text log to it.
+     A failed log write never undoes the send. */
+  if (res.ok.length) {
+    const auth = await getAuth();
+    const rowOf = new Map(Object.values(data.lists).flat().map((r) => [r.contactId, r]));
+    const { error } = await createServiceClient().from("dialer_sends").insert(res.ok.map((id) => ({
+      contact_id: id, contact_name: rowOf.get(id)?.name ?? null, phone: rowOf.get(id)?.phone ?? null,
+      list: listOf.get(id) ?? null, caller_id: userId, caller_name: caller || null,
+      sent_by: auth?.email ?? null, sms_text: res.texts[id] ?? null,
+    })));
+    if (error) console.error("dialer_sends insert failed:", error.message);
+  }
   return NextResponse.json({ sent: res.ok.length, failed: res.failed, skipped: ids.length - use.length });
 }
