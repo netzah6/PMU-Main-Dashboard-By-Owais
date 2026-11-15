@@ -64,12 +64,31 @@ export type Score = {
   };
   deposits: { now: number; goal: number; pace: number; status: ScoreStatus; last: number; lastLabel: string; lastGoal: number | null };
 };
+/* Road to the goal (owner, 11/15/2026: "a chart that shows the existing
+   situation and the goal — ad spend, leads, demos — and how much I need
+   every month to get to the goal").
+   Goal line: last finished month's profit → $100k by GOAL_MONTH, straight.
+   "Now" = the average of the last 3 finished months that have an ad spend.
+   "Needed" per month = new clients that replace the ones who stop paying
+   plus enough extra monthly payments to climb that month's step of the
+   goal line; leads, demos and spend scale from today's rates per new
+   client. Assumes the whole climb comes from new retainer clients —
+   deposit growth is extra cushion, not counted. */
+export type GoalPath = {
+  history: { ym: string; label: string; profit: number }[];
+  months: { ym: string; label: string; profitGoal: number; current: boolean }[];
+  basis: string[];
+  now: { spend: number; leads: number; demos: number; newClients: number; lost: number; avgPay: number };
+  need: { spend: number; leads: number; demos: number; newClients: number };
+  thisMonth: { label: string; spend: number | null; leads: number; demos: number; newClients: number } | null;
+};
 export type MonthPlan = {
   ym: string; label: string; goalMonth: string;
   profitGoal: number | null; lastLabel: string; lastProfit: number | null;
   sections: PlanSection[];
   score: Score;
   marketing: Marketing;
+  goalPath: GoalPath | null;
 };
 
 const monthsBetween = (a: string, b: string) => {
@@ -472,10 +491,47 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
   }
   const marketing = buildMarketingTracker({ finance, closesByYm, demoRows, discRows, curYm });
 
+  const goalPath: GoalPath | null = (() => {
+    const done = marketing.months.filter((m) => !m.partial && m.spend != null).slice(0, 3);
+    if (!done.length || last.profit == null) return null;
+    const n = done.length;
+    const tot = (f: (m: (typeof done)[number]) => number) => done.reduce((t, m) => t + f(m), 0);
+    const spend = tot((m) => m.spend ?? 0), leads = tot((m) => m.calls), demos = tot((m) => m.demosBooked), clients = tot((m) => m.newClients);
+    const roadDone = done.map((d) => road.months.find((r) => r.ym === d.ym)).filter(Boolean) as typeof road.months;
+    const lostVals = roadDone.map((r) => r.lostClients).filter((x): x is number => x != null);
+    const payVals = roadDone.map((r) => r.avgPerClient).filter((x): x is number => x != null && x > 0);
+    if (!clients || !payVals.length) return null;
+    const lost = lostVals.length ? lostVals.reduce((a, b) => a + b, 0) / lostVals.length : 0;
+    const avgPay = payVals.reduce((a, b) => a + b, 0) / payVals.length;
+    const steps = Math.max(1, monthsBetween(last.ym, GOAL_MONTH));
+    const step = (PROFIT_GOAL - last.profit) / steps;
+    const needClients = Math.ceil(lost + Math.max(0, step) / avgPay);
+    const months: GoalPath["months"] = [];
+    for (let i = 1; i <= steps; i++) {
+      const d = new Date(Date.UTC(Number(last.ym.slice(0, 4)), Number(last.ym.slice(5, 7)) - 1 + i, 1));
+      const ym = d.toISOString().slice(0, 7);
+      months.push({ ym, label: monthName(ym), profitGoal: Math.round((last.profit + step * i) / 500) * 500, current: ym === curYm });
+    }
+    const cur = marketing.months.find((m) => m.ym === curYm);
+    return {
+      history: road.months.filter((r) => r.ym <= last.ym && r.profit != null).slice(-6).map((r) => ({ ym: r.ym, label: monthName(r.ym), profit: Math.round(r.profit as number) })),
+      months,
+      basis: done.map((m) => m.label).reverse(),
+      now: { spend: Math.round(spend / n), leads: Math.round(leads / n), demos: Math.round(demos / n), newClients: Math.round((clients / n) * 10) / 10, lost: Math.round(lost * 10) / 10, avgPay: Math.round(avgPay) },
+      need: {
+        newClients: needClients,
+        leads: Math.ceil((needClients * leads) / clients),
+        demos: Math.ceil((needClients * demos) / clients),
+        spend: Math.round((needClients * spend) / clients / 100) * 100,
+      },
+      thisMonth: cur ? { label: monthName(cur.ym), spend: cur.spend, leads: cur.calls, demos: cur.demosBooked, newClients: cur.newClients } : null,
+    };
+  })();
+
   return {
     ym: curYm, label: curLabel, goalMonth: GOAL_MONTH,
     profitGoal, lastLabel: last.label, lastProfit: last.profit,
-    score, marketing,
+    score, marketing, goalPath,
     sections: [
       {
         key: "keep", title: "1 · Keep every client",

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { MonthPlan, type Plan } from "@/components/ceo/MonthPlan";
 import type { ScoreStatus } from "@/lib/ceo-plan";
 import { MarketingTracker } from "@/components/ceo/MarketingTracker";
+import { GoalPathChart } from "@/components/ceo/GoalPathChart";
 
 /* The numbers game (owner, 2026-11-13: the month plan "has too much text…
    just show me leads → demos → closed, then three goals — new cash,
@@ -69,6 +70,7 @@ export function Scorecard() {
 
   return (
     <>
+    {plan.goalPath && <GoalPathChart g={plan.goalPath} />}
     <div className="rounded-xl border border-[#a7e3df] bg-white p-3 space-y-2.5" style={{ boxShadow: "var(--shadow-sm)" }}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-sm font-semibold text-[#1f3559]">📊 {plan.label} so far</h2>
