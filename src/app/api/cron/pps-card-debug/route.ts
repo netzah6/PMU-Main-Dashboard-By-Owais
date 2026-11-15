@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getPpaRoster } from "@/lib/ppa";
+import { buildVerifyReport } from "@/lib/ppa-verify";
 import {
   listAllCustomers,
   listCards,
+  listPaymentsAnyStatus,
   listRecentPayments,
   searchCustomersByEmail,
   searchCustomersByPhone,
@@ -103,11 +105,40 @@ export async function GET(req: NextRequest) {
       card: cardFor(p) ? `${cardFor(p)!.brand} ••${cardFor(p)!.last4}` : null,
     }));
 
+  // Every attempt in the window, failed ones included, fetched fresh (no
+  // cache): which card each one used and the bank's decline code. A payment
+  // run by hand in Square's own screen may carry no customer id, so it is
+  // also matched by card fingerprint.
+  const fps = new Set(allCards.map((c) => c.fingerprint).filter(Boolean) as string[]);
+  const allAttempts = (await listPaymentsAnyStatus(new Date(since).toISOString()).catch((e) => `payments error: ${e instanceof Error ? e.message : "?"}`));
+  const attempts = Array.isArray(allAttempts)
+    ? allAttempts
+        .filter((p) => (p.customerId && ids.has(p.customerId)) || (p.cardFingerprint && fps.has(p.cardFingerprint)))
+        .map((p) => ({ ...p, amount: p.amountCents / 100, matchedCardId: cardFor(p)?.id ?? null }))
+    : allAttempts;
+
+  // What PPA Billing would charge right now (read-only).
+  let billing: unknown = null;
+  if (clients.some((c) => c.ownerKey === ownerKey)) {
+    try {
+      const r = (await buildVerifyReport(ownerKey)).clients[0];
+      billing = r ? {
+        amount: r.amount, readyToCharge: r.readyToCharge, fee: r.fee, creditApplied: r.creditApplied,
+        customerId: r.match?.customerId ?? null,
+        wouldCharge: r.cards.find((c) => c.wouldCharge) ?? null,
+        flags: r.flags.map((f) => `${f.level}:${f.key}: ${f.message}`),
+        shows: r.shows.map((s) => ({ apptId: s.apptId, contactName: s.contactName })),
+      } : null;
+    } catch (e) { billing = `report error: ${e instanceof Error ? e.message : "?"}`; }
+  }
+
   return NextResponse.json({
     ownerKey,
     sheet: { email, phone, name: client.ownerName, business: client.business, onPpsRoster: clients.some((c) => c.ownerKey === ownerKey) },
     bulkList: { size: customers.length, truncated },
     candidates: out,
     recentPayments,
+    attempts,
+    billing,
   });
 }

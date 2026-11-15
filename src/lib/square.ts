@@ -454,6 +454,46 @@ async function fetchPayments(begin: string, end?: string): Promise<RecentPayment
   return list;
 }
 
+// Every payment (any status) since `begin` — FAILED ones carry the bank's
+// decline code in card_details.errors. Read-only; used by the card debug route
+// to answer "why did the dashboard charge fail when Square's own screen worked".
+export type AnyPayment = {
+  id: string; status: string; customerId: string | null; createdAt: string; amountCents: number;
+  cardId: string | null; cardFingerprint: string | null; last4: string | null; brand: string | null;
+  cardStatus: string | null; errors: string[]; note: string | null; sourceType: string | null; appName: string | null;
+};
+export async function listPaymentsAnyStatus(begin: string): Promise<AnyPayment[]> {
+  const out: AnyPayment[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const url = new URL(`${BASE}/v2/payments`);
+    url.searchParams.set("begin_time", begin);
+    url.searchParams.set("sort_order", "DESC");
+    url.searchParams.set("limit", "100");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const r = await squareFetch(url.toString());
+    if (!r.ok) throw new Error(`Square payments ${r.status}: ${(await r.text()).slice(0, 300)}`);
+    const j = (await r.json()) as { payments?: Array<Record<string, unknown>>; cursor?: string };
+    for (const p of j.payments ?? []) {
+      const cd = p.card_details as { status?: string; errors?: Array<{ code?: string; detail?: string }>; card?: { id?: string; fingerprint?: string; last_4?: string; card_brand?: string } } | undefined;
+      const amt = p.amount_money as { amount?: number } | undefined;
+      const app = p.application_details as { square_product?: string } | undefined;
+      out.push({
+        id: String(p.id), status: String(p.status ?? ""), customerId: (p.customer_id as string) ?? null,
+        createdAt: String(p.created_at ?? ""), amountCents: amt?.amount ?? 0,
+        cardId: cd?.card?.id ?? null, cardFingerprint: cd?.card?.fingerprint ?? null,
+        last4: cd?.card?.last_4 ?? null, brand: cd?.card?.card_brand ?? null,
+        cardStatus: cd?.status ?? null,
+        errors: (cd?.errors ?? []).map((e) => [e.code, e.detail].filter(Boolean).join(": ")),
+        note: (p.note as string) ?? null, sourceType: (p.source_type as string) ?? null, appName: app?.square_product ?? null,
+      });
+    }
+    cursor = j.cursor;
+    if (!cursor) break;
+  }
+  return out;
+}
+
 // ── Charging a card on file ──────────────────────────────────────────────────
 // The ONLY Square write in this codebase. Guarded by the idempotency key: the
 // same key can never produce two payments, so a retry or double-click is safe.
