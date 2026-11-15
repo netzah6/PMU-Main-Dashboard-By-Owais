@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import DialerActivity from "./DialerActivity";
 
 // Sales tab → Dialer (owner 11/14/2026). Lists come live from the GHL sales
 // pipeline; "Start dialer" sends the ticked leads to the caller's GHL Power
@@ -68,6 +69,7 @@ export default function PowerDialer() {
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [, tick] = useState(0);
+  const [mode, setMode] = useState<"list" | "activity">("list"); // owner 11/15: call list, or what the caller did
 
   async function load(fresh = false) {
     setLoading(true); setErr(null);
@@ -131,6 +133,14 @@ export default function PowerDialer() {
 
   return (
     <div className="mt-4">
+      {/* Call list, or the caller's activity (owner 11/15/2026) */}
+      <div className="mb-3 flex gap-2">
+        <button onClick={() => setMode("list")} className={chip(mode === "list")}>📞 Call list</button>
+        <button onClick={() => setMode("activity")} className={chip(mode === "activity")}>📋 Activity</button>
+      </div>
+      {mode === "activity" ? (
+        <DialerActivity />
+      ) : (<>
       {/* When to call */}
       <div className={`rounded-xl border px-4 py-3 ${open ? "bg-[#e9f8f1] border-[#bfe8d4]" : "bg-[#f6f8fb] border-[#e4ebf2]"}`}>
         <div className="text-sm font-bold text-[#1f3559]">
@@ -241,6 +251,7 @@ export default function PowerDialer() {
           <a href={`https://app.gohighlevel.com/v2/location/${LOC}/conversations/manual_actions`} target="_blank" rel="noreferrer" className="text-xs text-[#34568a] underline">Open GHL dialer</a>
           {msg && <span className="text-xs text-[#1f3559] w-full">{msg}</span>}
         </div>
+      </>)}
       </>)}
     </div>
   );
