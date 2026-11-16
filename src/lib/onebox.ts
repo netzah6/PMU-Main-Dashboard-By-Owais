@@ -30,6 +30,11 @@ const pickers: [key: string, ...names: string[]][] = [
   ["businessHours", "CC - Business Hours (V3)🔵"],
   ["services", "CC - Permanent Makeup Services (V3 ONLY)🔵"],
   ["firstTouchup", "CC - When is the first touch-up? (V3)🔵"],
+  /* How long results last (owner, 2026-11-16): the slay AI used to say a
+     fixed "2-3 years" for every client; Alluring wanted "up to 5 years".
+     The AI's global prompt + price reply now read this value (empty =
+     2-3 years), so one field per account changes what the AI says. */
+  ["resultsLast", "CC - How Long Results Last (V3)🔵"],
   ["otherLocations", "CC - Other Locations (V3)🔵"],
   /* Per-service prices (owner, 2026-10-08). The two brows values were
      renamed "… New Brows …" in every sub-account (GHL kept their keys, so
@@ -360,6 +365,8 @@ export const ONEBOX_NEW_CVS = [
   "CC - Discounted Price Lips - (V3)🔵",
   "CC - Original Price Eyeliner - (V3)🔵",
   "CC - Discounted Price Eyeliner - (V3)🔵",
+  // Created under this exact name, so GHL gives it the key the AI reads (cc__how_long_results_last_v3).
+  "CC - How Long Results Last (V3)🔵",
 ];
 
 export async function ensureOneboxCustomValues(locationId: string): Promise<{ created: string[]; error?: string }> {
@@ -451,6 +458,7 @@ export const ONEBOX_EDITABLE_CVS: Record<string, string> = {
   businessHours: "CC - Business Hours (V3)🔵",
   services: "CC - Permanent Makeup Services (V3 ONLY)🔵",
   firstTouchup: "CC - When is the first touch-up? (V3)🔵",
+  resultsLast: "CC - How Long Results Last (V3)🔵",
   otherLocations: "CC - Other Locations (V3)🔵",
   discountedPrice: "CC - Discounted Price New Brows - (V3)🔵",
   originalPrice: "CC - Original Price New Brows - (V3)🔵",

@@ -237,7 +237,7 @@ function ProgTag({ v3only, clientIsV1 }: { v3only: boolean; clientIsV1: boolean 
    2026-09-24): "always" = every client, "v23" = V2.3 and V3, "v3" = V3 only.
    Anything absent (widgets, GMB, touch-up price, notes, photos, …) is
    optional — photos and empty optionals are pulled from the sub-account
-   automatically. firstTouchup and depositFunnelUrl get V3 defaults at save
+   automatically. firstTouchup, resultsLast and depositFunnelUrl get V3 defaults at save
    time (see the Step-3 handler). */
 const REQ_RULES: Record<string, "always" | "v23" | "v3"> = {
   biz: "always", address: "always", phone: "always", fbLink: "always",
@@ -2799,6 +2799,7 @@ export default function FunnelsPage() {
                         {T("yearsInBusiness", "Years in business", "5")}
                         {T("businessHours", "Business hours", "Mon–Fri 9 AM–6 PM, Sat 10 AM–3 PM")}
                         {T("firstTouchup", "When is the first touch-up?", "6–8 weeks after the first session")}
+                        {T("resultsLast", "How long results last (the AI says exactly this)", "2-3 years")}
                         {T("otherLocations", "Other locations", "none")}
                         <label className="grid gap-0.5 md:col-span-2">
                           {Lbl("extraNotes", "Extra notes for the AI")}
@@ -2913,6 +2914,11 @@ export default function FunnelsPage() {
                            form was filled as, not only the sheet. */
                         if (setupVer === "V3") {
                           if (!(cvForm.firstTouchup ?? "").trim() && !(f.cv.firstTouchup ?? "").trim()) changed.firstTouchup = "6-8 weeks after the first session";
+                          /* How long results last (owner, 2026-11-16): every V3
+                             client says "2-3 years" unless the team types another
+                             answer (Alluring: "up to 5 years"). Counted as edited,
+                             so an account whose snapshot lacks the value gets it. */
+                          if (!(cvForm.resultsLast ?? "").trim() && !(f.cv.resultsLast ?? "").trim()) { changed.resultsLast = "2-3 years"; edited.push("resultsLast"); }
                           if (!(cvForm.depositFunnelUrl ?? "").trim() && !(f.cv.depositFunnelUrl ?? "").trim()) changed.depositFunnelUrl = f.url;
                           /* Brows "had PMU before" prices default to the new-brows
                              prices until the client gives separate ones (owner,
