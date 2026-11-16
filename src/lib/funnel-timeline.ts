@@ -34,7 +34,7 @@ const DETAIL_TEXT: Record<string, string> = {
   originalPriceBrowsHadPmu: "Original price, brows had PMU", discountedPriceBrowsHadPmu: "Discounted price, brows had PMU",
   originalPriceEyeliner: "Original price, eyeliner", discountedPriceEyeliner: "Discounted price, eyeliner",
   originalPriceLips: "Original price, lips", discountedPriceLips: "Discounted price, lips",
-  touchupPrice: "Touch-up price", firstTouchup: "First touch-up", services: "Services", businessHours: "Business hours",
+  touchupPrice: "Touch-up price", firstTouchup: "First touch-up", resultsLast: "How long results last", services: "Services", businessHours: "Business hours",
   ownerName: "Owner name", otherLocations: "Other locations", yearsInBusiness: "Years in business", extraNotes: "Extra notes for the AI",
 };
 const DETAIL_HIDDEN: Record<string, string> = { calendarId: "Calendar", fanbasisProductId: "Checkout product" };
