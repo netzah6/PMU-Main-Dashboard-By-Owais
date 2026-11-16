@@ -29,11 +29,21 @@ type Svc = ReturnType<typeof createServiceClient>;
    The card counts only compliments sent from COMP_AB_START; round-1 rows stay
    in the table and show as one history line. A lead's FIRST compliment in the
    thread decides her row, so a round-1 (or older) lead who gets a second
-   compliment later is never counted in round 2. */
+   compliment later is never counted in round 2.
+
+   50/50 (owner, 11/16/2026): the split was 40% new / 60% old; the owner asked
+   for half and half, so the CloseBot switch also sends phones ending 4 to the
+   NEW line. The moment that version went live is kept in app_settings
+   `compliment_ab_5050_start` ({ at: ISO }) — set by hand right after the
+   CloseBot publish, so the split check never needs a deploy. Until the key
+   exists the rule stays 0-3. (0-4 holds three even digits and two odd ones, so
+   the two sides no longer carry exactly the same share of the deposit-ask
+   test; that test was a tie on 11/16 and ends 11/25.) */
 
 export const COMP_AB_ROUND1_START = "2026-11-11T21:25:00Z";
 export const COMP_AB_START = "2026-11-13T15:46:00Z";
 export const COMP_AB_LOCATIONS_KEY = "compliment_ab_locations"; // { locations: string[] } read off the slay agent's Sources
+export const COMP_AB_5050_KEY = "compliment_ab_5050_start"; // { at: ISO } — when phones ending 4 moved to the NEW line
 const CURSOR_KEY = "compliment_ab_cursor";
 const DEMO_LOCATION = "asaIf2fxizaCNJ71iywk";
 const REPLY_MS = 86400_000;
@@ -58,6 +68,21 @@ export function replyKind(body: string): "happy" | "putdown" | "other" {
   return "other";
 }
 
+/** When the 50/50 split went live in CloseBot (null = still 0-3 only). */
+export async function compAbFiftyFrom(svc: Svc): Promise<string | null> {
+  const { data } = await svc.from("app_settings").select("value").eq("key", COMP_AB_5050_KEY).maybeSingle();
+  const at = (data?.value as { at?: string } | null)?.at;
+  return at && Number.isFinite(Date.parse(at)) ? at : null;
+}
+
+/** The side the CloseBot switch should pick for this phone at this moment (null = no phone digit, so no check). */
+export function compExpected(phoneLast: string | null, sentAt: string | number, fiftyFrom: string | null): "old" | "new" | null {
+  if (phoneLast == null || phoneLast === "") return null;
+  if (/[0-3]/.test(phoneLast)) return "new";
+  if (phoneLast === "4" && fiftyFrom && new Date(sentAt).getTime() >= Date.parse(fiftyFrom)) return "new";
+  return "old";
+}
+
 export async function compAbLocations(svc: Svc): Promise<string[]> {
   const { data } = await svc.from("app_settings").select("value").eq("key", COMP_AB_LOCATIONS_KEY).maybeSingle();
   return ((data?.value as { locations?: string[] } | null)?.locations ?? []).filter((l) => l !== DEMO_LOCATION);
@@ -79,6 +104,7 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
   const round1Ms = Date.parse(COMP_AB_ROUND1_START);
   if (started < startMs) return { skipped: "not started" };
   const locations = await compAbLocations(svc);
+  const fiftyFrom = await compAbFiftyFrom(svc);
   const { data: cur } = await svc.from("app_settings").select("value").eq("key", CURSOR_KEY).maybeSingle();
   const scannedTo = Date.parse(((cur?.value as { scannedTo?: string } | null)?.scannedTo) ?? COMP_AB_START);
   const scanFrom = Math.max(startMs, scannedTo - 2 * 3600_000); // overlap so a slow hour is never skipped
@@ -239,7 +265,7 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
           const digits = String(c.phone ?? "").replace(/\D/g, "");
           phoneLast = digits ? digits.slice(-1) : null;
         }
-        const expected = phoneLast == null ? null : /[0-3]/.test(phoneLast) ? "new" : "old";
+        const expected = compExpected(phoneLast, compT, fiftyFrom);
         /* Replied = any message back within a day (a photo counts); the kind
            comes from her first message WITH text, so a second photo landing
            after the compliment never hides her "thank you" / "excuse my bags". */
