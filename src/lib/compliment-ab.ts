@@ -70,9 +70,12 @@ export function replyKind(body: string): "happy" | "putdown" | "other" {
 
 /** When the 50/50 split went live in CloseBot (null = still 0-3 only). */
 export async function compAbFiftyFrom(svc: Svc): Promise<string | null> {
-  const { data } = await svc.from("app_settings").select("value").eq("key", COMP_AB_5050_KEY).maybeSingle();
+  const { data, error } = await svc.from("app_settings").select("value").eq("key", COMP_AB_5050_KEY).maybeSingle();
+  // A failed read must not look like "no 50/50 yet": that would flag every phone-ending-4 lead as on the wrong side.
+  if (error) throw new Error(error.message);
   const at = (data?.value as { at?: string } | null)?.at;
-  return at && Number.isFinite(Date.parse(at)) ? at : null;
+  // Only a full time with a zone (Z or +hh:mm) counts, so a hand-typed date can't shift the start by hours.
+  return at && /(Z|[+-]\d{2}:?\d{2})$/.test(at) && Number.isFinite(Date.parse(at)) ? at : null;
 }
 
 /** The side the CloseBot switch should pick for this phone at this moment (null = no phone digit, so no check). */
