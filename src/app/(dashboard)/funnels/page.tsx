@@ -986,7 +986,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
               <th className="py-1 font-medium" title="Reply puts herself down: too old, eye bags, not me… (by keywords)">Put-down</th>
               <th className="py-1 font-medium" title="The AI booked her within 8 days">Booked</th>
               <th className="py-1 font-medium" title="Deposit landed (the &quot;has been confirmed&quot; text) within 8 days">Paid</th>
-              <th className="py-1 font-medium">Replied %</th>
+              <th className="py-1 font-medium" title="Paid ÷ Sent. A lead has 8 days to pay, so recent leads can still add to it (same for both sides).">Deposit %</th>
             </tr></thead>
             <tbody>
               {([["A — old line", "\u201COmg you are so beautiful, I can\u2019t wait to slay your Eyebrows! 😍\u201D", d.comp.a], ["B — new line", "\u201COmg you\u2019re going to look so beautiful with your new Eyebrows, I can\u2019t wait! 😍\u201D", d.comp.b]] as [string, string, CompSide][]).map(([name, note, s]) => (
@@ -998,7 +998,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
                   <td className="py-1.5">{s.putdown}</td>
                   <td className="py-1.5">{s.booked}</td>
                   <td className="py-1.5">{s.paid}</td>
-                  <td className="py-1.5 font-semibold">{s.sent ? `${Math.round((s.replied / s.sent) * 1000) / 10}%` : "—"}</td>
+                  <td className="py-1.5 font-semibold">{s.sent ? `${Math.round((s.paid / s.sent) * 1000) / 10}%` : "—"}</td>
                 </tr>
               ))}
             </tbody>
