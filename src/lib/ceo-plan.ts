@@ -81,6 +81,8 @@ export type GoalPath = {
   now: { spend: number; leads: number; demos: number; newClients: number; lost: number; avgPay: number };
   need: { spend: number; leads: number; demos: number; newClients: number };
   thisMonth: { label: string; spend: number | null; leads: number; demos: number; newClients: number } | null;
+  /** Who closed (first-time retainer payers): the "now" months, then this month so far. */
+  closed: { label: string; current: boolean; clients: { name: string; amount: number; closer: string }[] }[];
 };
 export type MonthPlan = {
   ym: string; label: string; goalMonth: string;
@@ -525,6 +527,17 @@ export async function buildMonthPlan(): Promise<MonthPlan | { error: string }> {
         spend: Math.round((needClients * spend) / clients / 100) * 100,
       },
       thisMonth: cur ? { label: monthName(cur.ym), spend: cur.spend, leads: cur.calls, demos: cur.demosBooked, newClients: cur.newClients } : null,
+      closed: [...done.map((m) => m.ym).reverse(), curYm].map((ym) => {
+        const fin = finance.find((f) => f.ym === ym);
+        return {
+          label: monthName(ym), current: ym === curYm,
+          clients: closesOf(fin).map((n) => ({
+            name: n,
+            amount: Math.round(fin?.payers.find((p) => sameClient(p.name, n))?.amount ?? 0),
+            closer: String(bestDemo(n)?.["Assigned Person"] ?? "").trim(),
+          })),
+        };
+      }),
     };
   })();
 

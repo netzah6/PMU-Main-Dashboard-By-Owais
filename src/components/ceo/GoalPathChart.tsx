@@ -1,4 +1,6 @@
 "use client";
+import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { GoalPath } from "@/lib/ceo-plan";
 
@@ -11,15 +13,24 @@ import type { GoalPath } from "@/lib/ceo-plan";
 const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const k = (n: number) => `$${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`;
 
-function Compare({ label, now, need, fmt, sofar }: { label: string; now: number; need: number; fmt: (n: number) => string; sofar?: string }) {
+function Compare({ label, now, nowLabel, need, fmt, sofar, onClick, open }: {
+  label: string; now: number; nowLabel: string; need: number; fmt: (n: number) => string; sofar?: string;
+  onClick?: () => void; open?: boolean;
+}) {
   const max = Math.max(now, need, 1);
   const short = now < need;
+  const Box = onClick ? "button" : "div";
   return (
-    <div className="rounded-lg border border-[#e4ebf2] bg-[#fbfdfe] px-3 py-2.5 min-w-0">
-      <p className="text-[12px] font-semibold uppercase tracking-wide text-[#8595a8]">{label}</p>
+    <Box onClick={onClick} aria-expanded={onClick ? open : undefined}
+      className={cn("rounded-lg border bg-[#fbfdfe] px-3 py-2.5 min-w-0 text-left w-full",
+        onClick ? "border-[#a7e3df] hover:bg-[#eefaf9] cursor-pointer" : "border-[#e4ebf2]", open && "bg-[#eefaf9]")}>
+      <p className="text-[12px] font-semibold uppercase tracking-wide text-[#8595a8] flex items-center gap-1">
+        {label}
+        {onClick && (open ? <ChevronDown size={13} className="text-[#0f8f88]" /> : <ChevronRight size={13} className="text-[#0f8f88]" />)}
+      </p>
       <div className="mt-1.5 space-y-1.5">
         <div>
-          <div className="flex justify-between text-[11px] text-[#697a91]"><span>Now</span><b className="text-[#1f3559] tabular-nums">{fmt(now)}</b></div>
+          <div className="flex justify-between text-[11px] text-[#697a91]"><span>{nowLabel}</span><b className="text-[#1f3559] tabular-nums">{fmt(now)}</b></div>
           <div className="h-2 rounded-full bg-[#eef2f6]"><div className="h-2 rounded-full bg-[#94a3b8]" style={{ width: `${(now / max) * 100}%` }} /></div>
         </div>
         <div>
@@ -28,7 +39,8 @@ function Compare({ label, now, need, fmt, sofar }: { label: string; now: number;
         </div>
       </div>
       {sofar && <p className="mt-1.5 text-[11px] text-[#8595a8]">{sofar}</p>}
-    </div>
+      {onClick && <p className="mt-1 text-[11px] font-semibold text-[#0f8f88]">{open ? "Hide names" : "See who closed"}</p>}
+    </Box>
   );
 }
 
@@ -40,6 +52,9 @@ export function GoalPathChart({ g }: { g: GoalPath }) {
   const top = Math.max(...bars.map((b) => b.value), 1);
   const t = g.thisMonth;
   const times = g.now.newClients > 0 ? Math.round((g.need.newClients / g.now.newClients) * 10) / 10 : null;
+  const [showClosed, setShowClosed] = useState(false);
+  const avgLabel = `Avg month (${g.basis[0]?.slice(0, 3)}–${g.basis[g.basis.length - 1]?.slice(0, 3)})`;
+  const usdOrDash = (n: number) => (n > 0 ? usd(n) : "—");
   return (
     <div className="rounded-xl border border-[#a7e3df] bg-white p-3 space-y-3" style={{ boxShadow: "var(--shadow-sm)" }}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -72,11 +87,36 @@ export function GoalPathChart({ g }: { g: GoalPath }) {
           {times ? <> — {times}× what a month brings now</> : null}.
         </p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          <Compare label="Ad spend" now={g.now.spend} need={g.need.spend} fmt={usd} sofar={t ? `${t.label}: ${t.spend == null ? "not entered yet" : usd(t.spend)}` : undefined} />
-          <Compare label="Leads" now={g.now.leads} need={g.need.leads} fmt={(n) => String(n)} sofar={t ? `${t.label} so far: ${t.leads}` : undefined} />
-          <Compare label="Demos booked" now={g.now.demos} need={g.need.demos} fmt={(n) => String(n)} sofar={t ? `${t.label} so far: ${t.demos}` : undefined} />
-          <Compare label="New clients" now={g.now.newClients} need={g.need.newClients} fmt={(n) => String(n)} sofar={t ? `${t.label} so far: ${t.newClients}` : undefined} />
+          <Compare label="Ad spend" nowLabel={avgLabel} now={g.now.spend} need={g.need.spend} fmt={usd} sofar={t ? `${t.label}: ${t.spend == null ? "not entered yet" : usd(t.spend)}` : undefined} />
+          <Compare label="Leads" nowLabel={avgLabel} now={g.now.leads} need={g.need.leads} fmt={(n) => String(n)} sofar={t ? `${t.label} so far: ${t.leads}` : undefined} />
+          <Compare label="Demos booked" nowLabel={avgLabel} now={g.now.demos} need={g.need.demos} fmt={(n) => String(n)} sofar={t ? `${t.label} so far: ${t.demos}` : undefined} />
+          <Compare label="New clients" nowLabel={avgLabel} now={g.now.newClients} need={g.need.newClients} fmt={(n) => String(n)} sofar={t ? `${t.label} so far: ${t.newClients}` : undefined}
+            onClick={g.closed.length ? () => setShowClosed((v) => !v) : undefined} open={showClosed} />
         </div>
+        {showClosed && (
+          <div className="mt-2 rounded-lg border border-[#a7e3df] bg-white p-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[...g.closed].reverse().map((m) => (
+              <div key={m.label} className="min-w-0">
+                <p className="text-[12px] font-semibold text-[#1f3559]">
+                  {m.label}{m.current ? " so far" : ""} · {m.clients.length} new
+                </p>
+                {m.clients.length === 0 ? <p className="text-[11px] text-[#8595a8]">None yet</p> : (
+                  <ul className="mt-1 space-y-0.5">
+                    {m.clients.map((c) => (
+                      <li key={c.name} className="flex justify-between gap-2 text-[11px]">
+                        <span className="truncate text-[#34568a]">{c.name}{c.closer ? <span className="text-[#8595a8]"> · {c.closer}</span> : null}</span>
+                        <span className="shrink-0 tabular-nums text-[#1f3559]">{usdOrDash(c.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+            <p className="sm:col-span-2 lg:col-span-4 text-[10px] text-[#8595a8]">
+              New client = first payment ever for a monthly plan on the Financing sheet that month (pay-per-show switches and deposits are not counted). Closer = from the Demos sheet; blank when no demo row matches.
+            </p>
+          </div>
+        )}
       </div>
 
       <details className="text-[11px] text-[#697a91]">
