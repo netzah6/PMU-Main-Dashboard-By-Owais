@@ -563,10 +563,14 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        value but never create a new one (a fresh one gets a key nothing reads). */
     let edited: string[] | null = null;
     try { const e = JSON.parse(String(body.edited ?? "null")); if (Array.isArray(e)) edited = e.map(String); } catch { /* old client: all edited */ }
-    const entries: { name: string; value: string; noCreate?: boolean }[] = [];
+    /* `defaults` = keys the form filled in by itself (nobody typed them).
+       They are written only where GHL holds nothing yet. */
+    let defaults: string[] = [];
+    try { const d = JSON.parse(String(body.defaults ?? "[]")); if (Array.isArray(d)) defaults = d.map(String); } catch { /* none */ }
+    const entries: { name: string; value: string; noCreate?: boolean; onlyIfEmpty?: boolean }[] = [];
     for (const [key, cvName] of Object.entries(ONEBOX_EDITABLE_CVS)) {
       if (key in values && typeof values[key] === "string") {
-        entries.push({ name: cvName, value: (values[key] as string).trim().slice(0, 2000), ...(edited && !edited.includes(key) ? { noCreate: true } : {}) });
+        entries.push({ name: cvName, value: (values[key] as string).trim().slice(0, 2000), ...(edited && !edited.includes(key) ? { noCreate: true } : {}), ...(defaults.includes(key) ? { onlyIfEmpty: true } : {}) });
       }
     }
     if (!entries.length) return NextResponse.json({ error: "no values" }, { status: 400 });
@@ -585,7 +589,7 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        photo slots) are rebuilt in the same request. */
     const justWritten = Object.fromEntries(entries.filter((e) => writtenNames.has(e.name)).map((e) => [e.name, e.value]));
     const cfg = (await refreshOneboxConfig(svc, slug, row.location_id as string, justWritten)) ?? { ...((row.config ?? {}) as Record<string, string>), ...Object.fromEntries(Object.entries(ONEBOX_EDITABLE_CVS).filter(([, n]) => n in justWritten).map(([k, n]) => [k, justWritten[n]])) };
-    const failed = entries.filter((e) => !writtenNames.has(e.name) && !e.noCreate).map((e) => e.name);
+    const failed = entries.filter((e) => !writtenNames.has(e.name) && !e.noCreate && !e.onlyIfEmpty).map((e) => e.name);
     warmFunnel(slug);
     /* Only what really stays behind on a frozen page gets the warning: the
        deposit, calendar and checkout are live, so those saves are just saved. */
