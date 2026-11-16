@@ -1,0 +1,17 @@
+{
+  "appId": "com.pmubookingsondemand.app",
+  "appName": "PMU Bookings On Demand",
+  "webDir": "www",
+  "server": {
+    "url": "https://pmu-main-dashboard-by-owais1.vercel.app/m",
+    "allowNavigation": [
+      "pmu-main-dashboard-by-owais1.vercel.app",
+      "api.leadconnectorhq.com",
+      "link.msgsndr.com"
+    ]
+  },
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#15B7AE"
+  }
+}
