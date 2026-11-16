@@ -196,6 +196,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
 export const config = {
   matcher: [
     // lead-pixel.js + the onebox engines are loaded by anonymous funnel visitors — they must bypass auth.
-    "/((?!_next/static|_next/image|favicon.ico|lead-pixel.js|onebox.js|onebox-b2b.js|onebox-frozen/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // dialer-autopilot.js is loaded inside GHL by a bookmark (no dashboard cookie there).
+    "/((?!_next/static|_next/image|favicon.ico|lead-pixel.js|dialer-autopilot.js|onebox.js|onebox-b2b.js|onebox-frozen/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

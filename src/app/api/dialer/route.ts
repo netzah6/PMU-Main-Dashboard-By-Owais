@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildDialerData, CALL_WINDOWS, DIALER_LISTS, LOCAL_OK_FROM, LOCAL_OK_TO, type DialerListKey } from "@/lib/power-dialer";
 import { dialerSeat } from "@/lib/power-dialer-seat";
+import { autopilotKey } from "@/lib/power-dialer-autopilot";
 
 export const maxDuration = 90;
 export const dynamic = "force-dynamic";
@@ -21,6 +22,9 @@ export async function GET(req: NextRequest) {
       localOk: [LOCAL_OK_FROM, LOCAL_OK_TO],
       me: seat.ghlUser,
       isAdmin: seat.isAdmin,
+      // Key for the Autopilot bookmark (only when this person has a dialer set up).
+      // Admins only until the owner has tried it on a real call (11/16/2026).
+      autopilotKey: seat.isAdmin && seat.ghlUser && seat.workflows[seat.ghlUser.id] ? autopilotKey(seat.ghlUser.id) : null,
       // Who a list can be sent to: anyone with a Power Dialer workflow set up.
       dialers: data.users.filter((u) => seat.workflows[u.id]).map((u) => ({ id: u.id, name: u.name })),
     });
