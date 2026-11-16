@@ -250,6 +250,32 @@ export async function enrollInWorkflow(workflowId: string, contactIds: string[])
   return { ok, failed };
 }
 
+/** Take one contact out of a Power Dialer workflow (the lead answered:
+ *  no second call, no text). */
+export async function removeFromWorkflow(workflowId: string, contactId: string): Promise<{ ok: boolean; error?: string }> {
+  const H = await token();
+  for (let i = 0; i < 3; i++) {
+    const r = await fetch(`${BASE}/contacts/${contactId}/workflow/${workflowId}`, { method: "DELETE", headers: { ...H, "Content-Type": "application/json" }, body: "{}" });
+    if (r.status === 429) { await new Promise((x) => setTimeout(x, 1200 * (i + 1))); continue; }
+    return r.ok ? { ok: true } : { ok: false, error: `${r.status} ${(await r.text()).slice(0, 120)}` };
+  }
+  return { ok: false, error: "rate limit" };
+}
+
+let smsFieldId: string | null = null;
+/** The no-answer text we wrote for this lead ("Dialer SMS"). The Autopilot
+ *  helper only presses Send when GHL's text box holds exactly this text. */
+export async function dialerSmsOf(contactId: string): Promise<string> {
+  const H = await token();
+  if (!smsFieldId) {
+    const r = await getJson<{ customFields?: Array<{ id: string; fieldKey: string }> }>(`${BASE}/locations/${LOC}/customFields`, H);
+    smsFieldId = r.customFields?.find((f) => f.fieldKey === "contact.dialer_sms")?.id ?? null;
+  }
+  if (!smsFieldId) return "";
+  const c = (await getJson<{ contact?: { customFields?: Array<{ id: string; value?: unknown }> } }>(`${BASE}/contacts/${contactId}`, H)).contact;
+  return String(c?.customFields?.find((f) => f.id === smsFieldId)?.value ?? "").trim();
+}
+
 // ── No-answer text ──────────────────────────────────────────────────────────
 // Owner 11/14/2026: call → no answer → wait 10 s → call again → still no
 // answer → text. The text is written per lead into the contact field

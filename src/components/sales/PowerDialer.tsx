@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DialerActivity from "./DialerActivity";
 
 // Sales tab → Dialer (owner 11/14/2026). Lists come live from the GHL sales
@@ -16,7 +16,7 @@ type List = { key: string; label: string; side: "setter" | "closer"; rows: Row[]
 type Api = {
   builtAt: string; lists: List[]; windows: Array<{ label: string; start: string; end: string }>;
   localOk: [number, number]; me: { id: string; name: string } | null; isAdmin: boolean;
-  dialers: Array<{ id: string; name: string }>; error?: string;
+  dialers: Array<{ id: string; name: string }>; autopilotKey?: string | null; error?: string;
 };
 
 const LOC = "SfpNMJ5YU9lBkxss47lK";
@@ -111,6 +111,16 @@ export default function PowerDialer() {
   const open = wins.find((w) => nowM >= w.s && nowM < w.e);
   const next = wins.find((w) => nowM < w.s);
 
+  // Autopilot bookmark: a javascript: link the rep drags to the bookmarks bar.
+  // React refuses javascript: hrefs, so it is set on the element directly.
+  const apRef = useRef<HTMLAnchorElement>(null);
+  const apKey = data?.autopilotKey ?? null;
+  useEffect(() => {
+    if (!apRef.current || !apKey) return;
+    const o = window.location.origin;
+    apRef.current.setAttribute("href", `javascript:(function(){if(!/\\/v2\\/location\\//.test(location.pathname)){alert('Open GHL first (Conversations > Manual Actions), then click Autopilot.');return;}window.__pmuAutopilotCfg={api:${JSON.stringify(o)},key:${JSON.stringify(apKey)},autostart:true};var s=document.createElement('script');s.src=${JSON.stringify(o + "/dialer-autopilot.js")}+'?v='+Date.now();document.body.appendChild(s);})();`);
+  }, [apKey]);
+
   async function start() {
     const ids = rows.filter((r) => picked.has(r.contactId)).map((r) => r.contactId);
     if (!ids.length) return;
@@ -121,7 +131,7 @@ export default function PowerDialer() {
       const r = await fetch("/api/dialer/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contactIds: ids, userId: sendTo, list: listKey }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "failed");
-      setMsg(`✅ ${j.sent} sent to ${who ?? "your"} dialer${j.failed?.length ? ` · ${j.failed.length} failed` : ""}. Open GHL → Manual Actions → Let's Start. No answer: wait 10 sec, call again, then send the text.`);
+      setMsg(`✅ ${j.sent} sent to ${who ?? "your"} dialer${j.failed?.length ? ` · ${j.failed.length} failed` : ""}. Open GHL → Manual Actions and click your 📞 Autopilot bookmark. It calls one by one, calls again, then sends the text.`);
       setPicked(new Set());
     } catch (e) { setMsg(`❌ ${e instanceof Error ? e.message : "failed"}`); }
     setSending(false);
@@ -151,6 +161,14 @@ export default function PowerDialer() {
           Every day: {wins.map((w) => `${fmtMin(w.s)}–${fmtMin(w.e)}`).join(" and ")} PT · we only show people whose own time is {okFrom} AM–{okTo - 12} PM
         </div>
       </div>
+
+      {apKey && (
+        <div className="mt-2 rounded-xl border border-[#e4ebf2] bg-white px-4 py-2 text-xs text-[#697a91] flex items-center gap-2 flex-wrap">
+          <a ref={apRef} onClick={(e) => { e.preventDefault(); alert("Drag this button to your bookmarks bar. Then open GHL → Manual Actions and click it there."); }}
+            className="px-2.5 py-1 rounded-full bg-[#111827] text-white font-semibold cursor-grab whitespace-nowrap" draggable>📞 Autopilot</a>
+          <span>One-time setup: drag this button to your bookmarks bar. In GHL → Manual Actions, click it once. It calls each lead, waits 10 sec, calls again, then sends the text.</span>
+        </div>
+      )}
 
       {err && <div className="mt-3 text-sm text-red-600">{err}</div>}
       {!data && !err && <div className="mt-4 text-sm text-[#697a91]">Loading lists from GHL… (about 30 seconds)</div>}
