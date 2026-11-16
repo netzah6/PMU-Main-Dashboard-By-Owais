@@ -31,24 +31,42 @@ const SETTINGS_KEY = "discovery_call_check";
 const ALERT_TYPE = "discovery_no_call" as const;
 
 type Svc = SupabaseClient;
-// app_settings.discovery_call_check: { enabled, text, contactId? }. Missing = on.
-// contactId = who gets the text; defaults to the owner's contact from the
-// Agent panel settings (agent_notify) — but NOT its on/off switch, which is
-// about the AI agent's texts, not this alert.
-export type CheckSettings = { enabled: boolean; text: boolean; contactId: string | null };
+// app_settings.discovery_call_check: { enabled, text, phone? }. Missing = on.
+// phone = who gets the text; defaults to the owner's phone from the Agent
+// panel settings (agent_notify) — but NOT its on/off switch, which is about
+// the AI agent's texts, not this alert.
+// We send by PHONE NUMBER, not a saved contact id (owner, 11/16/2026: "just
+// send it to my number, because sometimes I change the contact on the
+// system"). The first real alert (11/16) never reached him: the saved contact
+// id did not exist in the agency account.
+export type CheckSettings = { enabled: boolean; text: boolean; phone: string | null };
 
 export async function getCheckSettings(svc: Svc): Promise<CheckSettings> {
   const { data } = await svc.from("app_settings").select("key, value").in("key", [SETTINGS_KEY, "agent_notify"]);
   const rows = (data ?? []) as { key: string; value: Record<string, unknown> | null }[];
-  const v = (rows.find((r) => r.key === SETTINGS_KEY)?.value ?? {}) as { enabled?: boolean; text?: boolean; contactId?: string };
-  const owner = (rows.find((r) => r.key === "agent_notify")?.value ?? {}) as { contactId?: string };
-  return { enabled: v.enabled !== false, text: v.text !== false, contactId: v.contactId || owner.contactId || null };
+  const v = (rows.find((r) => r.key === SETTINGS_KEY)?.value ?? {}) as { enabled?: boolean; text?: boolean; phone?: string };
+  const owner = (rows.find((r) => r.key === "agent_notify")?.value ?? {}) as { phone?: string };
+  return { enabled: v.enabled !== false, text: v.text !== false, phone: v.phone || owner.phone || null };
 }
 
-async function textTheOwner(contactId: string | null, message: string): Promise<string | null> {
-  if (!contactId) return "no owner contact set";
+// The owner's contact in the agency account, found by phone at send time.
+// If no contact has that phone any more, one is made (phone only).
+async function ownerContactId(acct: { locationId: string; token: string }, phone: string): Promise<string | null> {
+  const h = { Authorization: `Bearer ${acct.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" };
+  const digits = phone.replace(/\D/g, "").slice(-10);
+  const r = await fetch(`${BASE}/contacts/search/duplicate?locationId=${acct.locationId}&number=${encodeURIComponent(phone)}`, { headers: h, cache: "no-store" }).catch(() => null);
+  const hit = r?.ok ? ((await r.json().catch(() => null)) as { contact?: { id?: string; phone?: string } | null } | null)?.contact : null;
+  if (hit?.id && String(hit.phone ?? "").replace(/\D/g, "").endsWith(digits)) return hit.id;
+  const u = await fetch(`${BASE}/contacts/upsert`, { method: "POST", headers: h, body: JSON.stringify({ locationId: acct.locationId, phone }) }).catch(() => null);
+  return u?.ok ? (((await u.json().catch(() => null)) as { contact?: { id?: string } } | null)?.contact?.id ?? null) : null;
+}
+
+export async function textTheOwner(phone: string | null, message: string): Promise<string | null> {
+  if (!phone) return "no owner phone set";
   const acct = await getReplyAccount();
   if (!acct) return "main account token unavailable";
+  const contactId = await ownerContactId(acct, phone);
+  if (!contactId) return `no contact for the owner's phone ${phone.slice(-4)}`;
   const r = await sendConversationMessage(acct, { contactId, message: message.slice(0, 900), channel: "SMS" });
   return r.ok ? null : `text failed: ${r.error}`;
 }
@@ -195,7 +213,7 @@ export async function runDiscoveryCallCheck(svc: Svc, opts: { now?: number; dry?
         meta: { contactId: ev.contactId, calendarId: calId, eventId: ev.id, start: ev.startTime, assignedUserId: ev.assignedUserId ?? null },
       });
       if (filed && settings.text) {
-        const err = await textTheOwner(settings.contactId, `📞 ${who} hasn't called ${leadName} yet. ${calName} call was at ${ptTime(start)} PT (now ${ptTime(now)}). Call ${who}.\n${ghlContactUrl(LOC, ev.contactId)}`);
+        const err = await textTheOwner(settings.phone, `📞 ${who} hasn't called ${leadName} yet. ${calName} call was at ${ptTime(start)} PT (now ${ptTime(now)}). Call ${who}.\n${ghlContactUrl(LOC, ev.contactId)}`);
         if (err) res.errors.push(`text: ${err}`);
       }
     }
