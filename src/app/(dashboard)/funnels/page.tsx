@@ -2907,6 +2907,8 @@ export default function FunnelsPage() {
                         }
                         // Only values typed here may create a missing custom value.
                         const edited = Object.keys(changed).filter((k) => (f.cv[k] ?? "") !== changed[k]);
+                        // Filled in by the form itself: the server writes these only where GHL holds nothing.
+                        const defaults: string[] = [];
                         /* V3 defaults (owner, 2026-09-24): an empty first-touch-up
                            answer becomes the standard line, and an empty deposit
                            funnel URL becomes this client's own one-box link.
@@ -2917,8 +2919,10 @@ export default function FunnelsPage() {
                           /* How long results last (owner, 2026-11-16): every V3
                              client says "2-3 years" unless the team types another
                              answer (Alluring: "up to 5 years"). Counted as edited,
-                             so an account whose snapshot lacks the value gets it. */
-                          if (!(cvForm.resultsLast ?? "").trim() && !(f.cv.resultsLast ?? "").trim()) { changed.resultsLast = "2-3 years"; edited.push("resultsLast"); }
+                             so an account whose snapshot lacks the value gets it;
+                             sent as a default, so it never replaces an answer GHL
+                             already holds when this form's copy is behind. */
+                          if (!(cvForm.resultsLast ?? "").trim() && !(f.cv.resultsLast ?? "").trim()) { changed.resultsLast = "2-3 years"; edited.push("resultsLast"); defaults.push("resultsLast"); }
                           if (!(cvForm.depositFunnelUrl ?? "").trim() && !(f.cv.depositFunnelUrl ?? "").trim()) changed.depositFunnelUrl = f.url;
                           /* Brows "had PMU before" prices default to the new-brows
                              prices until the client gives separate ones (owner,
@@ -2951,7 +2955,7 @@ export default function FunnelsPage() {
                         setSaveNote((n) => ({ ...n, [f.slug]: "" }));
                         lastRejected.current[f.slug] = [];
                         const saved = await Promise.all([
-                          Object.keys(changed).length ? act("cvs", f.slug, { values: JSON.stringify(changed), edited: JSON.stringify(edited) }) : Promise.resolve(true),
+                          Object.keys(changed).length ? act("cvs", f.slug, { values: JSON.stringify(changed), edited: JSON.stringify(edited), defaults: JSON.stringify(defaults) }) : Promise.resolve(true),
                           Object.keys(extras).length ? act("extras", f.slug, extras) : Promise.resolve(true),
                         ]);
                         if (!switchVer || saved.includes(false)) return;

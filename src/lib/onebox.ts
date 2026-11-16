@@ -543,7 +543,7 @@ export async function setDepositFunnelUrl(locationId: string, url: string): Prom
 
 export async function setOneboxCustomValues(
   locationId: string,
-  entries: { name: string; value: string; noCreate?: boolean }[]
+  entries: { name: string; value: string; noCreate?: boolean; onlyIfEmpty?: boolean }[]
 ): Promise<{ written: string[]; error?: string }> {
   try {
     const tok = await getAppLocationToken(locationId);
@@ -580,7 +580,7 @@ export async function setOneboxCustomValues(
       idsByNorm.set(norm(name), [...(idsByNorm.get(norm(name)) ?? []), id]);
     }
     const written: string[] = [];
-    for (const { name, value, noCreate } of entries) {
+    for (const { name, value, noCreate, onlyIfEmpty } of entries) {
       /* A renamed value (2026-10-08 "… New Brows …") must be written onto
          the account's existing old-name value — the PUT renames it — never
          created fresh: a fresh one gets a NEW key that CloseBot and the
@@ -592,6 +592,11 @@ export async function setOneboxCustomValues(
         if (await createCustomValue(locationId, H, name, value)) written.push(name);
         continue;
       }
+      /* A default nobody typed never replaces what GHL already holds. The
+         dashboard's copy can lag GHL, so a save from a stale form would
+         otherwise put "2-3 years" over a client's own answer (Alluring's
+         "up to 5 years", 2026-11-16). */
+      if (onlyIfEmpty && ids.some((id) => (valueById.get(id) ?? "").trim())) continue;
       // Save now sends every filled value; skip the ones GHL already holds.
       if (ids.every((id) => valueById.get(id) === value)) { written.push(name); continue; }
       let anyOk = false;
