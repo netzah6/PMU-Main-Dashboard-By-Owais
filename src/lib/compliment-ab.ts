@@ -20,14 +20,16 @@ type Svc = ReturnType<typeof createServiceClient>;
    days. compliment_ab_seen remembers threads already read, so a thread is
    fetched again only once it moves.
 
-   Paid = a REAL payment (owner, 11/17/2026): the lead carries the "fanbasis
-   buyer" tag, which only the payment itself adds (checked live: every tagged
-   lead had a succeeded payment on her contact). The "has been confirmed" text
-   and the "deposit collected" tag are NOT proof — an artist who confirms a
+   Paid = a REAL payment (owner, 11/17/2026): the "has been confirmed" text
+   after the compliment, inside 8 days, AND the "fanbasis buyer" tag on the
+   lead — the tag only the payment itself adds (checked live: every tagged
+   lead had a succeeded payment on her contact). The text alone is NOT proof,
+   and neither is the "deposit collected" tag: an artist who confirms a
    booking by hand (Venmo, Zelle, pay on the day) triggers both with no
    payment. Those leads count as Booked, not Paid; that is the artist's own
-   call and fine with the owner. The tag is language-proof too: a translated
-   confirmation text never matched the old rule.
+   call and fine with the owner. The tag alone is not enough either — it
+   carries no date, so a lead who paid on an earlier visit would count; the
+   text gives the payment its place in time.
 
    Round 2 (owner, 11/13/2026): CloseBot's AI can't see the photo (demo test:
    a banana photo got "you're so beautiful"), and round 1's B line drew far
@@ -213,15 +215,19 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
         await svc.from("compliment_ab_results").update({ checked_at: new Date().toISOString(), ...(final ? { final: true } : {}) }).eq("conv_id", it.conv);
       };
       const tooOld = prev ? now - Date.parse(prev.sent_at) > WINDOW_MS : false;
+      /* A read that failed (token, thread or contact) is no verdict: the row
+         stays open and is tried again, and is only closed unread two days past
+         the window (a deleted contact would otherwise loop forever). */
+      const giveUp = prev ? now - Date.parse(prev.sent_at) > WINDOW_MS + 2 * 86400_000 : false;
       try {
         const tok = await tokenFor(it.loc);
-        if (!tok) { await touch(tooOld); continue; }
+        if (!tok) { await touch(giveUp); continue; }
         type Page = { messages?: Record<string, unknown>[]; nextPage?: boolean; lastMessageId?: string };
         const toMsgs = (pg: Page | undefined): Msg[] => (pg?.messages ?? [])
           .map((m) => ({ t: Date.parse(String(m.dateAdded)), dir: String(m.direction ?? ""), type: String(m.messageType ?? ""), body: String(m.body ?? "") }))
           .filter((m) => Number.isFinite(m.t));
         const mr = await ghl(tok, `/conversations/${it.conv}/messages?limit=100`);
-        if (!mr) { await touch(tooOld); continue; }
+        if (!mr) { await touch(giveUp); continue; }
         checked++;
         let page = mr.messages as Page | undefined;
         const msgs: Msg[] = toMsgs(page).sort((x, y) => x.t - y.t);
@@ -246,17 +252,16 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
             await svc.from("compliment_ab_results").delete().eq("conv_id", it.conv);
             continue;
           }
-          /* The paid tag lives on the contact, so every re-check reads it. No
-             read = no verdict: try again next time, and only give up two days
-             past the window (a deleted contact would otherwise loop forever). */
+          // The paid tag lives on the contact, so every re-check reads it.
           contact = await readContact();
-          if (!contact) { await touch(now - compT > WINDOW_MS + 2 * 86400_000); continue; }
+          if (!contact) { await touch(giveUp); continue; }
           if (page?.nextPage && !msgs.some((m) => m.t <= compT)) {
             /* The compliment scrolled out of the newest 100 messages: her reply
                may be out of view too, so only add a late booking / deposit. */
             const later = msgs.filter((m) => m.dir === "outbound" && m.t > compT && m.t < compT + WINDOW_MS);
-            const paidNow = contact.tags.includes(PAID_TAG);
-            const bookedNow = paidNow || later.some((m) => CONFIRMED_RX.test(m.body) || BOOKED_RX.test(m.body));
+            const confirmedNow = later.some((m) => CONFIRMED_RX.test(m.body));
+            const paidNow = confirmedNow && contact.tags.includes(PAID_TAG);
+            const bookedNow = confirmedNow || later.some((m) => BOOKED_RX.test(m.body));
             await svc.from("compliment_ab_results").update({
               checked_at: new Date().toISOString(), ...(bookedNow ? { booked: true } : {}), ...(paidNow ? { paid: true } : {}), ...(paidNow || tooOld ? { final: true } : {}),
             }).eq("conv_id", it.conv);
@@ -297,8 +302,9 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
         const reply = inbound[0];
         const replyText = inbound.find((m) => m.body.trim());
         const after = msgs.filter((m) => m.dir === "outbound" && m.t > compT && m.t < compT + WINDOW_MS);
-        const paid = contact?.tags.includes(PAID_TAG) ?? false;
-        const booked = paid || after.some((m) => CONFIRMED_RX.test(m.body) || BOOKED_RX.test(m.body));
+        const confirmed = after.some((m) => CONFIRMED_RX.test(m.body));
+        const paid = confirmed && (contact?.tags.includes(PAID_TAG) ?? false);
+        const booked = confirmed || after.some((m) => BOOKED_RX.test(m.body));
         const final = paid || now - compT > WINDOW_MS;
         const { error } = await svc.from("compliment_ab_results").upsert({
           conv_id: it.conv, location_id: it.loc, contact_id: it.contact, line, phone_last: phoneLast, expected,

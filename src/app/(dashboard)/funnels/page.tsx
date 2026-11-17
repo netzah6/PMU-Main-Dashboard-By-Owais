@@ -985,7 +985,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
               <th className="py-1 font-medium" title="Reply reads as thanks / happy (by keywords)">Happy</th>
               <th className="py-1 font-medium" title="Reply puts herself down: too old, eye bags, not me… (by keywords)">Put-down</th>
               <th className="py-1 font-medium" title="Booked or confirmed within 8 days (a booking the artist confirmed by hand counts here)">Booked</th>
-              <th className="py-1 font-medium" title="A real payment within 8 days: the lead has the &quot;fanbasis buyer&quot; tag. A booking confirmed by hand with no payment is not counted.">Paid</th>
+              <th className="py-1 font-medium" title="A real payment within 8 days: the appointment was confirmed after the compliment and the lead has the &quot;fanbasis buyer&quot; tag. A booking confirmed by hand with no payment is not counted.">Paid</th>
               <th className="py-1 font-medium" title="Paid ÷ Sent. A lead has 8 days to pay, so recent leads can still add to it (same for both sides).">Deposit %</th>
             </tr></thead>
             <tbody>
