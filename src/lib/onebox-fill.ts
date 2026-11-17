@@ -97,12 +97,11 @@ async function readRow(svc: SupabaseClient, slug: string): Promise<FillRow | nul
    in GHL while the first fetch ran (a dashboard save starts its own fill),
    skipping what this fill just tried and what a newer fill already runs.
    Then one visit refreshes the page's edge copy. Returns what was stored. */
-export async function fillFunnelMedia(svc: SupabaseClient, slug: string, first: Need, opts: { claimAt: string; startedAt?: number }): Promise<{ ig?: string; reviews?: string }> {
+export async function fillFunnelMedia(svc: SupabaseClient, slug: string, first: Need, opts: { startedAt?: number } = {}): Promise<{ ig?: string; reviews?: string }> {
   const deadline = (opts.startedAt ?? Date.now()) + DEADLINE_MS;
   const out: { ig?: string; reviews?: string } = {};
   let stored = false;
   let need = first;
-  let myAt = opts.claimAt;
   for (let pass = 0; pass < 2; pass++) {
     if (pass) {
       if (deadline - Date.now() < SECOND_PASS_ROOM_MS) break;
@@ -110,12 +109,12 @@ export async function fillFunnelMedia(svc: SupabaseClient, slug: string, first: 
       if (!row) break;
       const now = fillNeeds(row);
       let next: Need = { ig: now.ig === need.ig ? "" : now.ig, reviews: now.reviews === need.reviews ? "" : now.reviews };
+      /* Also when the claim is this fill's own: it may carry a part another
+         fill is still running (claims are merged while fresh). */
       const c = claimOf(row);
-      if (c?.at !== myAt) next = unclaimed(next, c);
+      next = unclaimed(next, c);
       if (!next.ig && !next.reviews) break;
-      const at = await claim(svc, slug, next, c);
-      if (!at) break;
-      myAt = at;
+      if (!(await claim(svc, slug, next, c))) break;
       need = next;
     }
     if (need.reviews) {
@@ -150,9 +149,8 @@ export async function startFunnelFill(svc: SupabaseClient, slug: string, started
     const current = claimOf(row);
     const run = unclaimed(fillNeeds(row), current);
     if (!run.ig && !run.reviews) return undefined;
-    const claimAt = await claim(svc, slug, run, current);
-    if (!claimAt) return undefined;
-    waitUntil(fillFunnelMedia(svc, slug, run, { claimAt, startedAt }).then(() => undefined).catch((e) => { console.error("[onebox-fill]", slug, e instanceof Error ? e.message : e); }));
+    if (!(await claim(svc, slug, run, current))) return undefined;
+    waitUntil(fillFunnelMedia(svc, slug, run, { startedAt }).then(() => undefined).catch((e) => { console.error("[onebox-fill]", slug, e instanceof Error ? e.message : e); }));
     return run.ig && run.reviews ? "Fetching the Instagram pictures and Google reviews now (about a minute)"
       : run.ig ? "Fetching the Instagram pictures now (about a minute)" : "Fetching the Google reviews now";
   } catch {

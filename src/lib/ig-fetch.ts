@@ -482,7 +482,12 @@ export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<
     return { ok: false, why };
   }
   const r = await snapshotFunnel(svc, slug, prof, posts, igLink);
-  if (!r.ok && !r.superseded) { await markFetch(svc, slug, false, r.why, username); await refreshHeader(svc, slug, igLink); }
+  if (!r.ok && !r.superseded) {
+    // Same guard as above: a failure for a handle replaced meanwhile marks nothing.
+    if (!(await stillAsked(svc, slug, username))) return { ok: false, why: "Instagram link changed during the fetch", superseded: true };
+    await markFetch(svc, slug, false, r.why, username);
+    await refreshHeader(svc, slug, igLink);
+  }
   return r;
 }
 
