@@ -107,6 +107,18 @@ function statusTone(s: string | null): string {
   return "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]";
 }
 
+// Program version from the Clients Master "Version" column ("(V3)" → "V3").
+function VersionCell({ value }: { value: string | undefined }) {
+  const v = String(value ?? "").replace(/[()]/g, "").trim();
+  if (!v) return <span className="text-[#a6b3c4]">—</span>;
+  const u = v.toUpperCase();
+  const cls = u.startsWith("V3") ? "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]"
+    : u.startsWith("V2") ? "bg-[#e8f0fe] text-[#2563eb] border-[#bfd4fb]"
+    : u.startsWith("V1") ? "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
+    : "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]";
+  return <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${cls}`}>{v}</span>;
+}
+
 function UserCell({ name }: { name: string | null }) {
   if (!name) return <span className="text-[#a6b3c4]">—</span>;
   const c = userColor(name);
@@ -208,7 +220,7 @@ function FbTrackCell({ status, name }: { status?: FbTrack; name?: string }) {
   return <span className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border cursor-default", t.cls)} title={t.tip}>{t.label}</span>;
 }
 
-const HEADERS = ["Owner Name", "Business Name", "Daily Budget", "Assigned", "Media Buyer", "1-Box", "FB Data", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Campaigns"];
+const HEADERS = ["Owner Name", "Business Name", "Version", "Daily Budget", "Assigned", "Media Buyer", "1-Box", "FB Data", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Campaigns"];
 
 /* UNSETTLED ad account → one click texts the client, from PMU Bookings On
    Demand (the teammate's own number there when they have one), to ask their
@@ -268,6 +280,8 @@ export default function PerformancePage() {
   /* one-box slug → can Facebook's server link reach its dataset (owner
      11/11/2026: "show me which clients we don't have the data"). */
   const [fbTrack, setFbTrack] = useState<Record<string, FbTrack>>({});
+  // Clients Master row → "Version" ((V3), (V2.3), (V1)…), same row as performance_overview.sheet_row.
+  const [versions, setVersions] = useState<Map<number, string>>(new Map());
   const [fbName, setFbName] = useState<Record<string, string>>({});
   useEffect(() => {
     fetch("/api/performance/fb-tracking").then((r) => r.json()).then((j) => { setFbTrack(j.bySlug ?? {}); setFbName(j.nameBySlug ?? {}); }).catch(() => {});
@@ -282,12 +296,16 @@ export default function PerformancePage() {
   }, [canNudge]);
   const load = useCallback(async () => {
     const supabase = createClient();
-    const [{ data, error }, obRes] = await Promise.all([
+    const [{ data, error }, obRes, verRes] = await Promise.all([
       supabase.from("performance_overview").select("*"),
       supabase.from("onebox_active_clients").select("owner_name, business_name, onebox_status, slug"),
+      supabase.from("clients_master").select("sheet_row, version:data->>Version"),
     ]);
     if (error) { setError(error.message); setLoading(false); return; }
     setRows((data as PerfRow[]) ?? []);
+    if (!verRes.error && verRes.data) {
+      setVersions(new Map((verRes.data as { sheet_row: number; version: string | null }[]).map((v) => [v.sheet_row, v.version ?? ""])));
+    }
     if (!obRes.error && obRes.data) {
       const m = new Map<string, { status: string; business: string; slug?: string }>();
       for (const o of obRes.data as { owner_name: string; business_name: string; onebox_status: string; slug?: string }[]) {
@@ -374,7 +392,7 @@ export default function PerformancePage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 9 || idx === 13 || idx === 16; // after Booking %, L 3, CPL 7 (+1 for 1-Box, +1 for FB Data)
+                  const divider = idx === 10 || idx === 14 || idx === 17; // after Booking %, L 3, CPL 7 (+1 for Version, 1-Box, FB Data)
                   return (
                     <th
                       key={h}
@@ -418,6 +436,7 @@ export default function PerformancePage() {
                     </td>
                     <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
                       style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name && r.ad_account_name !== r.business_name ? `Ad account: ${r.ad_account_name}` : (r.business_name ?? "")}>{r.business_name || r.ad_account_name || "—"}</td>
+                    <td className="px-2 sm:px-3 py-1 text-center"><VersionCell value={versions.get(r.sheet_row)} /></td>
                     <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
                     <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
                     <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>
