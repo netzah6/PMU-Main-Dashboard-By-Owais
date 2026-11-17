@@ -16,9 +16,20 @@ type Svc = ReturnType<typeof createServiceClient>;
    wrong side means the CloseBot switch broke). One row per conversation in
    compliment_ab_results, filled hourly by /api/cron/compliment-ab: the first
    compliment after the launch, the lead's first reply within a day (sorted
-   happy / put-down by keywords), and whether the AI booked her or the deposit
-   landed ("has been confirmed") within 8 days. compliment_ab_seen remembers
-   threads already read, so a thread is fetched again only once it moves.
+   happy / put-down by keywords), and whether she was booked or paid within 8
+   days. compliment_ab_seen remembers threads already read, so a thread is
+   fetched again only once it moves.
+
+   Paid = a REAL payment (owner, 11/17/2026): the "has been confirmed" text
+   after the compliment, inside 8 days, AND the "fanbasis buyer" tag on the
+   lead — the tag only the payment itself adds (checked live: every tagged
+   lead had a succeeded payment on her contact). The text alone is NOT proof,
+   and neither is the "deposit collected" tag: an artist who confirms a
+   booking by hand (Venmo, Zelle, pay on the day) triggers both with no
+   payment. Those leads count as Booked, not Paid; that is the artist's own
+   call and fine with the owner. The tag alone is not enough either — it
+   carries no date, so a lead who paid on an earlier visit would count; the
+   text gives the payment its place in time.
 
    Round 2 (owner, 11/13/2026): CloseBot's AI can't see the photo (demo test:
    a banana photo got "you're so beautiful"), and round 1's B line drew far
@@ -56,7 +67,8 @@ const PUTDOWN_RX = /too old|i'?m old|i am old|old lol|old haha|\bnot me\b|that'?
 const HAPPY_RX = /thank|thx|\bty\b|\baww+|so sweet|(you'?re|your|ur) (so )?(sweet|kind)|so kind|appreciate|\byay\b|you too|❤|♥|💕|💖|🥰|😍|😊|☺|🙏|🤗|😘|😁|🤭/i;
 const LAUGH_RX = /\blol\b|\bhaha|\bomg\b|😂/i; // happy only when she isn't asking something
 const BOOKED_RX = /i have you (down|booked|scheduled)|you'?re (all set|booked)|booked you|got you (down|booked|scheduled)|see you (on|then)/i;
-const PAID_RX = /has been confirmed/i;
+const CONFIRMED_RX = /has been confirmed/i; // appointment confirmed (by a payment OR by hand) = booked, not proof of a deposit
+const PAID_TAG = "fanbasis buyer"; // added only by a real payment
 
 type Msg = { t: number; dir: string; type: string; body: string };
 type Row = { conv_id: string; location_id: string; contact_id: string; line: string; phone_last: string | null; expected: string | null; sent_at: string; checked_at: string; final: boolean };
@@ -203,15 +215,19 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
         await svc.from("compliment_ab_results").update({ checked_at: new Date().toISOString(), ...(final ? { final: true } : {}) }).eq("conv_id", it.conv);
       };
       const tooOld = prev ? now - Date.parse(prev.sent_at) > WINDOW_MS : false;
+      /* A read that failed (token, thread or contact) is no verdict: the row
+         stays open and is tried again, and is only closed unread two days past
+         the window (a deleted contact would otherwise loop forever). */
+      const giveUp = prev ? now - Date.parse(prev.sent_at) > WINDOW_MS + 2 * 86400_000 : false;
       try {
         const tok = await tokenFor(it.loc);
-        if (!tok) { await touch(tooOld); continue; }
+        if (!tok) { await touch(giveUp); continue; }
         type Page = { messages?: Record<string, unknown>[]; nextPage?: boolean; lastMessageId?: string };
         const toMsgs = (pg: Page | undefined): Msg[] => (pg?.messages ?? [])
           .map((m) => ({ t: Date.parse(String(m.dateAdded)), dir: String(m.direction ?? ""), type: String(m.messageType ?? ""), body: String(m.body ?? "") }))
           .filter((m) => Number.isFinite(m.t));
         const mr = await ghl(tok, `/conversations/${it.conv}/messages?limit=100`);
-        if (!mr) { await touch(tooOld); continue; }
+        if (!mr) { await touch(giveUp); continue; }
         checked++;
         let page = mr.messages as Page | undefined;
         const msgs: Msg[] = toMsgs(page).sort((x, y) => x.t - y.t);
@@ -219,6 +235,13 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
         let first = msgs.find(isComp);
         let compT: number;
         let line: string;
+        const readContact = async (): Promise<{ phone?: string; tags: string[] } | null> => {
+          const ct = await ghl(tok, `/contacts/${it.contact}`);
+          if (!ct) return null;
+          const c = (ct.contact ?? {}) as { phone?: string; tags?: string[] };
+          return { phone: c.phone, tags: (c.tags ?? []).map((t) => String(t).toLowerCase()) };
+        };
+        let contact: { phone?: string; tags: string[] } | null = null;
         if (prev) {
           /* A saved row's compliment never moves: its sent_at / line stay, only
              the outcome is re-read. One exception: a round-2 row the pre-round-2
@@ -229,12 +252,16 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
             await svc.from("compliment_ab_results").delete().eq("conv_id", it.conv);
             continue;
           }
+          // The paid tag lives on the contact, so every re-check reads it.
+          contact = await readContact();
+          if (!contact) { await touch(giveUp); continue; }
           if (page?.nextPage && !msgs.some((m) => m.t <= compT)) {
             /* The compliment scrolled out of the newest 100 messages: her reply
                may be out of view too, so only add a late booking / deposit. */
             const later = msgs.filter((m) => m.dir === "outbound" && m.t > compT && m.t < compT + WINDOW_MS);
-            const paidNow = later.some((m) => PAID_RX.test(m.body));
-            const bookedNow = paidNow || later.some((m) => BOOKED_RX.test(m.body));
+            const confirmedNow = later.some((m) => CONFIRMED_RX.test(m.body));
+            const paidNow = confirmedNow && contact.tags.includes(PAID_TAG);
+            const bookedNow = confirmedNow || later.some((m) => BOOKED_RX.test(m.body));
             await svc.from("compliment_ab_results").update({
               checked_at: new Date().toISOString(), ...(bookedNow ? { booked: true } : {}), ...(paidNow ? { paid: true } : {}), ...(paidNow || tooOld ? { final: true } : {}),
             }).eq("conv_id", it.conv);
@@ -261,11 +288,10 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
         }
         let phoneLast = prev?.phone_last ?? null;
         if (!prev) {
-          const ct = await ghl(tok, `/contacts/${it.contact}`);
-          if (!ct) continue; // try again next hour rather than store a row with no phone check
-          const c = (ct.contact ?? {}) as { phone?: string; tags?: string[] };
-          if ((c.tags ?? []).includes("claude-test")) continue;
-          const digits = String(c.phone ?? "").replace(/\D/g, "");
+          contact = await readContact();
+          if (!contact) continue; // try again next hour rather than store a row with no phone check
+          if (contact.tags.includes("claude-test")) continue;
+          const digits = String(contact.phone ?? "").replace(/\D/g, "");
           phoneLast = digits ? digits.slice(-1) : null;
         }
         const expected = compExpected(phoneLast, compT, fiftyFrom);
@@ -276,8 +302,9 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
         const reply = inbound[0];
         const replyText = inbound.find((m) => m.body.trim());
         const after = msgs.filter((m) => m.dir === "outbound" && m.t > compT && m.t < compT + WINDOW_MS);
-        const paid = after.some((m) => PAID_RX.test(m.body));
-        const booked = paid || after.some((m) => BOOKED_RX.test(m.body));
+        const confirmed = after.some((m) => CONFIRMED_RX.test(m.body));
+        const paid = confirmed && (contact?.tags.includes(PAID_TAG) ?? false);
+        const booked = confirmed || after.some((m) => BOOKED_RX.test(m.body));
         const final = paid || now - compT > WINDOW_MS;
         const { error } = await svc.from("compliment_ab_results").upsert({
           conv_id: it.conv, location_id: it.loc, contact_id: it.contact, line, phone_last: phoneLast, expected,
