@@ -27,8 +27,31 @@ export type FillRow = { slug: string; config: Record<string, string> | null; ext
 type Need = { ig: string; reviews: string }; // what to fetch: the handle / the lookup key ("" = nothing)
 
 const CLAIM_MS = 4 * 60_000;
-const SECOND_PASS_MS = 110_000; // a second pass only starts this early, so the function ends inside its 300 s
-const PING_BUDGET_MS = 215_000;
+/* Budgets count from the start of the request (route maxDuration 300 s).
+   A second pass needs room for a full Instagram run (Apify ≤ 140 s plus the
+   picture copies); the cache ping waits 65 s first. */
+const DEADLINE_MS = 290_000;
+const SECOND_PASS_ROOM_MS = 190_000;
+const PING_ROOM_MS = 70_000;
+
+type Claim = { at?: string; ig?: string; reviews?: string };
+const claimOf = (row: FillRow): Claim | undefined => ((row.extras ?? {}) as { mediaFill?: Claim }).mediaFill;
+const isFresh = (c: Claim | undefined): c is Claim => !!c?.at && Date.now() - Date.parse(c.at) < CLAIM_MS;
+
+/* `need` minus what a running fill (a fresh claim) already fetches. */
+function unclaimed(need: Need, c: Claim | undefined): Need {
+  if (!isFresh(c)) return need;
+  return { ig: need.ig && c.ig === need.ig ? "" : need.ig, reviews: need.reviews && c.reviews === need.reviews ? "" : need.reviews };
+}
+
+/* Claim `run` on top of whatever a running fill still holds, so a save made
+   meanwhile starts neither part again. Returns the claim's time. */
+async function claim(svc: SupabaseClient, slug: string, run: Need, current: Claim | undefined): Promise<string | null> {
+  const at = new Date().toISOString();
+  const keep = isFresh(current) ? current : undefined;
+  const err = await patchExtras(svc, slug, { mediaFill: { at, ig: run.ig || keep?.ig || "", reviews: run.reviews || keep?.reviews || "" } });
+  return err ? null : at;
+}
 
 export function fillNeeds(row: FillRow): Need {
   const cfg = row.config ?? {};
@@ -69,19 +92,32 @@ async function readRow(svc: SupabaseClient, slug: string): Promise<FillRow | nul
   return (data as FillRow | null) ?? null;
 }
 
-/* Fetch what the funnel needs, reviews first (a second or two), then the
-   pictures (up to a couple of minutes). A second look afterwards catches a
-   link corrected while the first fetch was running, so the page never ends
-   on the old handle. Returns what was stored. */
-export async function fillFunnelMedia(svc: SupabaseClient, slug: string, first?: Need): Promise<{ ig?: string; reviews?: string }> {
-  const t0 = Date.now();
+/* Fetch `first` — reviews first (a second or two), then the pictures (up to
+   a couple of minutes). A second look afterwards catches a link corrected
+   in GHL while the first fetch ran (a dashboard save starts its own fill),
+   skipping what this fill just tried and what a newer fill already runs.
+   Then one visit refreshes the page's edge copy. Returns what was stored. */
+export async function fillFunnelMedia(svc: SupabaseClient, slug: string, first: Need, opts: { claimAt: string; startedAt?: number }): Promise<{ ig?: string; reviews?: string }> {
+  const deadline = (opts.startedAt ?? Date.now()) + DEADLINE_MS;
   const out: { ig?: string; reviews?: string } = {};
   let stored = false;
+  let need = first;
+  let myAt = opts.claimAt;
   for (let pass = 0; pass < 2; pass++) {
-    if (pass && Date.now() - t0 > SECOND_PASS_MS) break;
-    let need = first;
-    if (pass || !need) { const row = await readRow(svc, slug); if (!row) break; need = fillNeeds(row); }
-    if (!need.ig && !need.reviews) break;
+    if (pass) {
+      if (deadline - Date.now() < SECOND_PASS_ROOM_MS) break;
+      const row = await readRow(svc, slug);
+      if (!row) break;
+      const now = fillNeeds(row);
+      let next: Need = { ig: now.ig === need.ig ? "" : now.ig, reviews: now.reviews === need.reviews ? "" : now.reviews };
+      const c = claimOf(row);
+      if (c?.at !== myAt) next = unclaimed(next, c);
+      if (!next.ig && !next.reviews) break;
+      const at = await claim(svc, slug, next, c);
+      if (!at) break;
+      myAt = at;
+      need = next;
+    }
     if (need.reviews) {
       const r = await refreshReviews(svc, slug).catch((e) => ({ ok: false as const, why: e instanceof Error ? e.message : String(e) }));
       out.reviews = r.ok ? `${r.reviews} reviews` : r.why;
@@ -95,32 +131,30 @@ export async function fillFunnelMedia(svc: SupabaseClient, slug: string, first?:
   }
   /* Show it: after the page's fresh minute has passed, one visit makes the
      edge copy pick the new sections up (same idea as warmFunnel). */
-  if (stored && Date.now() - t0 < PING_BUDGET_MS) {
+  if (stored && deadline - Date.now() > PING_ROOM_MS) {
     await new Promise((r) => setTimeout(r, 65_000));
     await pingFunnel(slug);
   }
   return out;
 }
 
-/* Called at the end of a dashboard action. Decides from the stored row,
-   starts the fetch in the background (the answer never waits for it) and
-   returns a line for the toast — undefined when there is nothing to fetch.
-   A fetch already running for the same handle / place is not started twice.
-   Never throws: a save must not fail over this. */
-export async function startFunnelFill(svc: SupabaseClient, slug: string): Promise<string | undefined> {
+/* Called at the end of a dashboard action, with the time the request
+   started. Decides from the stored row, starts what is not already running
+   in the background (the answer never waits for it) and returns a line for
+   the toast — undefined when there is nothing to start. Never throws: a
+   save must not fail over this. */
+export async function startFunnelFill(svc: SupabaseClient, slug: string, startedAt?: number): Promise<string | undefined> {
   try {
     const row = await readRow(svc, slug);
     if (!row) return undefined;
-    const need = fillNeeds(row);
-    if (!need.ig && !need.reviews) return undefined;
-    const claim = ((row.extras ?? {}) as { mediaFill?: { at?: string; ig?: string; reviews?: string } }).mediaFill;
-    const fresh = !!claim?.at && Date.now() - Date.parse(claim.at) < CLAIM_MS;
-    if (fresh && (!need.ig || claim!.ig === need.ig) && (!need.reviews || claim!.reviews === need.reviews)) return undefined;
-    const err = await patchExtras(svc, slug, { mediaFill: { at: new Date().toISOString(), ig: need.ig, reviews: need.reviews } });
-    if (err) return undefined;
-    waitUntil(fillFunnelMedia(svc, slug, need).then(() => undefined).catch((e) => { console.error("[onebox-fill]", slug, e instanceof Error ? e.message : e); }));
-    return need.ig && need.reviews ? "Fetching the Instagram pictures and Google reviews now (about a minute)"
-      : need.ig ? "Fetching the Instagram pictures now (about a minute)" : "Fetching the Google reviews now";
+    const current = claimOf(row);
+    const run = unclaimed(fillNeeds(row), current);
+    if (!run.ig && !run.reviews) return undefined;
+    const claimAt = await claim(svc, slug, run, current);
+    if (!claimAt) return undefined;
+    waitUntil(fillFunnelMedia(svc, slug, run, { claimAt, startedAt }).then(() => undefined).catch((e) => { console.error("[onebox-fill]", slug, e instanceof Error ? e.message : e); }));
+    return run.ig && run.reviews ? "Fetching the Instagram pictures and Google reviews now (about a minute)"
+      : run.ig ? "Fetching the Instagram pictures now (about a minute)" : "Fetching the Google reviews now";
   } catch {
     return undefined;
   }

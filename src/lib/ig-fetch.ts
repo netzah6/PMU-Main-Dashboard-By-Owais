@@ -128,6 +128,17 @@ export async function patchExtras(svc: SupabaseClient, slug: string, patch: Reco
   return error ? error.message : null;
 }
 
+/* False only when the funnel's Instagram link now names ANOTHER handle than
+   the one this fetch asked for — it was corrected while the fetch ran, and
+   the fetch for the new handle decides what is stored (lib/onebox-fill.ts).
+   A failed read counts as "still the same", so it never blocks a write. */
+export async function stillAsked(svc: SupabaseClient, slug: string, asked: string): Promise<boolean> {
+  if (!asked) return true;
+  const { data, error } = await svc.from("onebox_clients").select("config").eq("slug", slug).maybeSingle();
+  if (error || !data) return true;
+  return usernameFromLink((data.config as Record<string, string> | null)?.igLink).toLowerCase() === asked.toLowerCase();
+}
+
 export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, why?: string, user?: string) {
   const mark: IgFetchMark = { at: new Date().toISOString(), ok, ...(why ? { why } : {}), ...(user ? { user: user.toLowerCase() } : {}) };
   await patchExtras(svc, slug, { igFetch: mark });
@@ -209,7 +220,7 @@ async function download(url: string): Promise<Buffer | null> {
    mirror into extras. */
 export async function snapshotFunnel(
   svc: SupabaseClient, slug: string, scraped: ApifyProfile | undefined, latest: ApifyPost[], igLink: string,
-): Promise<{ ok: true; imgs: number; results: number } | { ok: false; why: string }> {
+): Promise<{ ok: true; imgs: number; results: number } | { ok: false; why: string; superseded?: boolean }> {
   const posts = orderPosts(latest.filter((p) => postImage(p))).slice(0, MAX_POSTS);
   if (posts.length < 3) return { ok: false, why: `only ${posts.length} posts returned` };
   const prof = await completeProfile(scraped, posts[0].ownerUsername || usernameFromLink(igLink));
@@ -301,12 +312,15 @@ export async function snapshotFunnel(
     verified: !!(prof?.verified ?? prev?.verified),
   };
   const feed: IgFeed = { imgs: ordered.map((p) => p.img), posts: ordered, profile, at: today };
+  const asked = usernameFromLink(igLink).toLowerCase();
+  /* The link was corrected while this fetch ran: store nothing (no snapshot,
+     no feed, no mark) — the fetch for the new handle does. */
+  if (!(await stillAsked(svc, slug, asked))) return { ok: false, why: "Instagram link changed during the fetch", superseded: true };
   await svc.from("ig_snapshots").delete().eq("slug", slug).eq("taken_at", today);
   const { error: insErr } = await svc.from("ig_snapshots").insert({
     slug, taken_at: today, imgs: feed.imgs, posts_count: profile.posts, followers: profile.followers, source: "apify", profile, posts: ordered,
   });
   if (insErr) return { ok: false, why: `insert: ${insErr.message}` };
-  const asked = usernameFromLink(igLink).toLowerCase();
   const mark: IgFetchMark = { at: new Date().toISOString(), ok: true, ...(asked ? { user: asked } : {}) };
   const upErr = await patchExtras(svc, slug, { igFeed: feed, igFetch: mark });
   /* Still no post count from any source: the Mac Mini reads it off the
@@ -323,7 +337,12 @@ export async function snapshotFunnel(
     if (cls.size) {
       for (const p of ordered) { const c = cls.get(p.img); if (c) { p.kind = c.kind; p.pmu = c.pmu; p.q = c.q; } }
       const re = rankPosts(ordered);
-      await patchExtras(svc, slug, { igFeed: { ...feed, posts: re, imgs: re.map((p) => p.img) } });
+      /* Only while the feed stored above is still the funnel's: a newer
+         fetch (a corrected link) may have stored its own since. */
+      const { data: cur } = await svc.from("onebox_clients").select("extras").eq("slug", slug).maybeSingle();
+      if (((cur?.extras ?? {}) as { igFetch?: IgFetchMark }).igFetch?.at === mark.at) {
+        await patchExtras(svc, slug, { igFeed: { ...feed, posts: re, imgs: re.map((p) => p.img) } });
+      }
     }
   }
   return { ok: true, imgs: saved.length, results: saved.filter((p) => p.result).length };
@@ -437,7 +456,7 @@ export async function dueFunnels(svc: SupabaseClient, limit: number, minAgeDays 
 
 /* Fetch + classify one funnel right now (the dashboard's "Refresh from
    Instagram" button). Marks the attempt like the cron does. */
-export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<{ ok: true; imgs: number; results: number } | { ok: false; why: string }> {
+export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<{ ok: true; imgs: number; results: number } | { ok: false; why: string; superseded?: boolean }> {
   const { data: row } = await svc.from("onebox_clients").select("slug, config").eq("slug", slug).maybeSingle();
   const igLink = String((row?.config as Record<string, string> | null)?.igLink ?? "").trim();
   const username = usernameFromLink(igLink);
@@ -456,12 +475,14 @@ export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<
   }
   if (!posts.length) {
     const why = prof?.private ? "private account" : "no posts returned (private, renamed, or blocked)";
+    // A handle replaced while this ran leaves the newer fetch's mark alone.
+    if (!(await stillAsked(svc, slug, username))) return { ok: false, why: "Instagram link changed during the fetch", superseded: true };
     await markFetch(svc, slug, false, why, username);
     await refreshHeader(svc, slug, igLink);
     return { ok: false, why };
   }
   const r = await snapshotFunnel(svc, slug, prof, posts, igLink);
-  if (!r.ok) { await markFetch(svc, slug, false, r.why, username); await refreshHeader(svc, slug, igLink); }
+  if (!r.ok && !r.superseded) { await markFetch(svc, slug, false, r.why, username); await refreshHeader(svc, slug, igLink); }
   return r;
 }
 

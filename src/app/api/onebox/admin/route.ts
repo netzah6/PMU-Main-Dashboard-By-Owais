@@ -302,6 +302,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const reqStart = Date.now(); // background fills (lib/onebox-fill.ts) budget the 300 s from here
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -338,7 +339,7 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     if ("error" in r) return NextResponse.json({ error: r.error, ...(r.conflict ? { conflict: r.conflict } : {}) }, { status: r.status });
     /* A new funnel fills its Instagram grid and Google reviews by itself
        (lib/onebox-fill.ts) — a draft is not on the scheduled jobs' list. */
-    const mediaNote = await startFunnelFill(svc, r.slug);
+    const mediaNote = await startFunnelFill(svc, r.slug, reqStart);
     return NextResponse.json({ ...r, ...(mediaNote ? { mediaNote } : {}) });
   }
 
@@ -393,7 +394,7 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     const seeded = frozen ? { config: healed.config, seeded: false, note: "" } : await seedSurveyFromAccount(svc, slug, row.location_id as string, healed.config);
     warmFunnel(slug);
     // A link that just arrived from GHL (or was corrected there) is fetched now, live or draft.
-    const mediaNote = await startFunnelFill(svc, slug);
+    const mediaNote = await startFunnelFill(svc, slug, reqStart);
     return NextResponse.json({ ok: !!seeded.config, config: seeded.config, pixelNote, photoNote: healed.note || undefined, surveyNote: seeded.seeded ? seeded.note : undefined, mediaNote });
   }
 
@@ -434,7 +435,7 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
       }
     }
     // Going live with pictures or reviews still missing: fetch now instead of waiting for the hourly / daily job.
-    const mediaNote = status === "live" ? await startFunnelFill(svc, slug) : undefined;
+    const mediaNote = status === "live" ? await startFunnelFill(svc, slug, reqStart) : undefined;
     return NextResponse.json({ ok: true, status, depositUrlNote, mediaNote });
   }
 
@@ -604,7 +605,7 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        deposit, calendar and checkout are live, so those saves are just saved. */
     const held = row.frozen_engine != null ? frozenDrift({ ...row, config: cfg } as OneboxRow) : [];
     // An Instagram or Google link saved just now is fetched now (lib/onebox-fill.ts).
-    const mediaNote = await startFunnelFill(svc, slug);
+    const mediaNote = await startFunnelFill(svc, slug, reqStart);
     return NextResponse.json({
       ok: true, written: res.written.length, failed, config: cfg, mediaNote,
       frozenNote: held.length
@@ -661,22 +662,24 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
 
     let pixelNote: string | undefined;
     if (redirectLive) {
-      const extras = { ...(row.extras as Extras) };
-      extras.oldFunnelUrl = au.toString();
-      extras.adRedirect = "yes";
-      extras.redirectVerifiedAt = new Date().toISOString();
+      /* Only this action's keys, merged into the extras as they are when it
+         writes: the checks above take seconds, and a background fill (lib/
+         onebox-fill.ts) may have stored pictures or reviews meanwhile. */
+      const known = (row.extras ?? {}) as Extras;
+      const extras: Partial<Extras> & Record<string, unknown> = { oldFunnelUrl: au.toString(), adRedirect: "yes", redirectVerifiedAt: new Date().toISOString() };
       /* This is often the first moment the funnel learns the client's REAL
          GHL URL — Add client runs without it and its slug guesses miss any
          path that differs from the slug (GlamourEyes, Skinsation, custom
          domains…: all left pixel-less, 2026-09-29). Harvest now, -old page
          first, whenever the pixel is still missing. */
       const cfgPixel = String(((row.config ?? {}) as Record<string, string>).metaPixelId ?? "");
-      if (!isB2BRow && !(cfgPixel || extras.metaPixelId || "").replace(/\D/g, "")) {
-        const h = await harvestFirstPixel(slug, extras.oldFunnelUrl);
+      if (!isB2BRow && !(cfgPixel || known.metaPixelId || "").replace(/\D/g, "")) {
+        const h = await harvestFirstPixel(slug, au.toString());
         if (h.id) { extras.metaPixelId = h.id; pixelNote = `Meta pixel ${h.id} picked up from the original page`; }
         else pixelNote = "no Meta pixel found on the original pages — pick one in Step 1";
       }
-      await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
+      await patchExtras(svc, slug, extras);
+      await svc.from("onebox_clients").update({ updated_at: new Date().toISOString() }).eq("slug", slug);
     }
     return NextResponse.json({
       ok: redirectLive, adUrl: au.toString(), target, landsOn, pixelNote,
