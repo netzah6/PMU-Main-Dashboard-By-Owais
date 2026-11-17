@@ -23,8 +23,8 @@ export async function GET(req: NextRequest) {
       me: seat.ghlUser,
       isAdmin: seat.isAdmin,
       // Key for the Autopilot bookmark (only when this person has a dialer set up).
-      // Admins only until the owner has tried it on a real call (11/16/2026).
-      autopilotKey: seat.isAdmin && seat.ghlUser && seat.workflows[seat.ghlUser.id] ? autopilotKey(seat.ghlUser.id) : null,
+      // Open to setter + closer seats (owner OK 11/17/2026).
+      autopilotKey: seat.ghlUser && seat.workflows[seat.ghlUser.id] ? autopilotKey(seat.ghlUser.id) : null,
       // Who a list can be sent to: anyone with a Power Dialer workflow set up.
       dialers: data.users.filter((u) => seat.workflows[u.id]).map((u) => ({ id: u.id, name: u.name })),
     });
