@@ -1200,17 +1200,42 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
 // lead, with GHL's reason; it closes itself once the appointment exists.
 export async function filePaidNotBookedAlert(
   svc: Svc,
-  a: { slug: string; locationId: string; contactId: string | null; name: string; slotIso: string; error: string; business?: string | null },
+  a: {
+    slug: string; locationId: string; contactId: string | null; name: string; slotIso: string; error: string; business?: string | null;
+    /** What went wrong, in a few words. Default: GoHighLevel refused the booking. */
+    what?: string;
+    /** false = no automatic retry will follow (a person has to decide). */
+    retrying?: boolean;
+  },
 ): Promise<"filed" | "appended" | "skipped"> {
-  const when = (() => { try { return new Date(a.slotIso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return a.slotIso; } })();
+  /* The studio's wall clock, straight off the ISO text ("2026-11-18T13:00:00-06:00"
+     → Nov 18, 1:00 PM). Formatting the instant on the server printed UTC:
+     Rosario Ramos's 10:00 AM Hawaii appointment read "8:00 PM" on the card
+     (11/15/2026). Every one-box slot carries the studio's offset. */
+  const when = (() => {
+    const m = a.slotIso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+    return m
+      ? `${new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, ${((+m[4] + 11) % 12) + 1}:${m[5]} ${+m[4] < 12 ? "AM" : "PM"} studio time`
+      : a.slotIso;
+  })();
   const biz = a.business ?? a.slug;
+  const next = a.retrying === false
+    ? "It will NOT be booked automatically: check with the artist which time is right, then book her by hand."
+    : "The dashboard retries every 30 min; if this box is still open, book her by hand on the calendar at that time.";
   return fileOrAppendAlert(svc, {
     type: "paid_not_booked", severity: "high",
     title: `${a.name} paid ${biz} but is NOT on the calendar (${when})`,
-    detail: `GoHighLevel refused the booking: "${a.error}". She paid the deposit and picked ${when}. The dashboard retries every 30 min; if this box is still open, book her by hand on the calendar at that time.`,
+    detail: `${a.what ?? "GoHighLevel refused the booking"}: "${a.error}". She paid the deposit and picked ${when}. ${next}`,
     source_key: `paid-not-booked:${a.slug}:${a.contactId ?? a.name}`,
     meta: { slug: a.slug, location_id: a.locationId, contact_id: a.contactId, slot_iso: a.slotIso, link: a.contactId ? ghlContactUrl(a.locationId, a.contactId) : null },
-  }, `— Still failing (${new Date().toISOString().slice(0, 16).replace("T", " ")}): "${a.error}"`);
+    /* A box someone closed must come back if she is still not booked a day
+       later; without this a closed box silenced that lead for good. */
+    ...(a.retrying === false ? {} : { resurfaceAfterDays: 1 }),
+    /* The error goes on its own line: fileOrAppendAlert skips a note whose
+       quoted line is already in the box, so the same error is written once
+       and only a NEW error adds a line (the old one-line note carried the
+       minute, so every retry added a line until the box was full). */
+  }, a.retrying === false ? undefined : `— Still failing (${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC):\n"${a.error}"`);
 }
 
 // Close the box once the lead has an appointment (retry healed it, or the

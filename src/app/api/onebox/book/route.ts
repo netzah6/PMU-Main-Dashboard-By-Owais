@@ -57,7 +57,10 @@ export async function POST(req: NextRequest) {
   {
     const exAll = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string; freeBooking?: boolean };
     const hasEventId = Boolean(String(body.eventId ?? ""));
-    if (!isB2B && !(exAll.freeBooking && !hasEventId)) {
+    /* A call from the paid-deposit safety net (via "heal") carries no
+       browser event id, so this would only log a failed Purchase row; the
+       purchase safety net (lib/purchase-safety-net) owns that Purchase. */
+    if (!isB2B && !(exAll.freeBooking && !hasEventId) && String(body.via ?? "") !== "heal") {
       waitUntil(serverPurchase(svc, req, body, { slug, phone, email, fullName, cfg, extras: exAll }).catch((e) => {
         console.error("[onebox/book] server Purchase failed:", e instanceof Error ? e.message : e);
       }));

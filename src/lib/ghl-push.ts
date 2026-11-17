@@ -1,5 +1,6 @@
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
+import { lookBeforePaidBooking } from "@/lib/paid-booking";
 
 /* The one-box → GHL contact push (upsert + custom fields + tag + survey
    note), extracted from /api/onebox/submit so the ghl-retry cron can re-run
@@ -178,24 +179,25 @@ export function calendarDurationMin(cal: { slotDuration?: number; slotDurationUn
    the same call /api/onebox/book makes (confirmed status, calendar's own
    duration + title, reserved-time custom field), so all appointment
    automations (confirmations, reminders) fire exactly as if the booking
-   had worked live. Skips contacts that already have an upcoming
-   appointment, so a manual booking by the team is never duplicated. */
+   had worked live. Looks at her calendar first (lib/paid-booking): a lead
+   who already has an upcoming appointment is never booked again, and one
+   whose appointment was made and then removed after she picked is handed
+   to a person instead of being re-booked. A calendar that cannot be read is
+   an error — it used to count as "no appointments" and book blind. */
 export async function bookAppointmentForLead(inp: {
   locationId: string; calendarId: string; contactId: string; slotIso: string;
-}): Promise<{ appointmentId?: string; alreadyBooked?: boolean; error?: string }> {
+  /** When she picked the time; without it the last 21 days count. */
+  pickedAt?: string | null;
+}): Promise<{ appointmentId?: string; alreadyBooked?: boolean; needsPerson?: string; error?: string }> {
   try {
     const tok = await getAppLocationToken(inp.locationId);
     if (!tok.token) throw new Error(tok.error ?? "no location token");
     const H = { Authorization: `Bearer ${tok.token}`, "Content-Type": "application/json", Accept: "application/json" };
 
-    const existing = await fetch(`https://services.leadconnectorhq.com/contacts/${inp.contactId}/appointments`, {
-      headers: { ...H, Version: "2021-07-28" },
-    }).then((r) => (r.ok ? r.json() : { events: [] })).catch(() => ({ events: [] })) as { events?: { startTime?: string; appointmentStatus?: string }[] };
-    const hasUpcoming = (existing.events ?? []).some((e) => {
-      const ms = Date.parse(String(e.startTime ?? ""));
-      return Number.isFinite(ms) && ms > Date.now() && String(e.appointmentStatus ?? "") !== "cancelled";
-    });
-    if (hasUpcoming) return { alreadyBooked: true };
+    const look = await lookBeforePaidBooking({ locationId: inp.locationId, token: tok.token, contactId: inp.contactId, slotIso: inp.slotIso, pickedAt: inp.pickedAt });
+    if (!look.ok) throw new Error(`her calendar could not be read (${look.error})`);
+    if (look.state === "same_time" || look.state === "other_time") return { alreadyBooked: true };
+    if (look.state === "needs_person") return { needsPerson: look.note };
 
     let durationMin = 30;
     let title = "Appointment";

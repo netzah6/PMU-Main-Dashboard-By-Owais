@@ -157,14 +157,25 @@ async function healMissedArtistNotifications(svc: ReturnType<typeof createServic
    already went by would fire nonsense confirmations) — the team handles
    those by hand. */
 async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
+  /* Only the broken rows, newest first. Until 11/17/2026 this read the 60
+     OLDEST paid leads of the week and looked for broken ones among them:
+     with 128 paid leads in 7 days, anything newer than 4 days was never
+     seen (Rosario Ramos sat "paid-not-booked" with an open card for 2 days
+     although she had a confirmed appointment; Alma Martínez was never
+     looked at). Newest first also means that when she went through the
+     funnel twice, her latest pick is the one that gets booked. */
   const { data: paidLeads } = await svc
     .from("onebox_leads")
-    .select("id, slug, location_id, full_name, phone, ghl_status, ghl_contact_id, ghl_appointment_id, slot_iso, answers, created_at")
+    .select("id, slug, location_id, full_name, phone, ghl_status, ghl_contact_id, ghl_appointment_id, slot_iso, picked_time_at, answers, created_at")
     .in("ghl_status", [...PAID])
-    .gte("created_at", new Date(Date.now() - 7 * 86400_000).toISOString())
-    .order("created_at")
-    .limit(60);
-  const broken = (paidLeads ?? []).filter((l) => !l.ghl_contact_id || (!l.ghl_appointment_id && l.slot_iso));
+    .gte("created_at", new Date(Date.now() - 21 * 86400_000).toISOString())
+    .or("ghl_contact_id.is.null,and(ghl_appointment_id.is.null,slot_iso.not.is.null)")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  const weekAgo = Date.now() - 7 * 86400_000;
+  // A lead with no contact is re-pushed for a week (as before); a paid lead
+  // with an unbooked picked time is retried for as long as that time is ahead.
+  const broken = (paidLeads ?? []).filter((l) => (!l.ghl_contact_id && Date.parse(String(l.created_at)) >= weekAgo) || (!l.ghl_appointment_id && l.slot_iso));
   if (!broken.length) return { healed: 0 };
 
   const { data: clients } = await svc
@@ -173,9 +184,11 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
     .in("slug", [...new Set(broken.map((l) => l.slug))]);
   const bySlug = new Map((clients ?? []).map((c) => [c.slug as string, c]));
 
-  let contactsFixed = 0, apptsCreated = 0, alreadyBooked = 0;
+  let contactsFixed = 0, apptsCreated = 0, alreadyBooked = 0, stale = 0;
   const pastSlot: string[] = [];
+  const needsPerson: string[] = [];
   const errors: string[] = [];
+  const settled = new Set<string>();
   for (const lead of broken) {
     const client = bySlug.get(lead.slug as string);
     if (!client) continue;
@@ -203,13 +216,35 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
     }
 
     if (contactId && !lead.ghl_appointment_id && lead.slot_iso && !isB2B) {
+      /* Her other row was settled a moment ago in this same run (she went
+         through the funnel twice). GHL can take a few seconds to list a new
+         appointment, so a second look could miss it and book her again. */
+      if (settled.has(contactId)) continue;
+      /* Only her NEWEST pick is ever booked. An older row is a wish she has
+         since replaced (Alma Martínez, 11/16: an old pick for 12/11 next to
+         a paid, booked 12/19): close it without touching GHL. */
+      const { data: newer } = await svc.from("onebox_leads").select("id")
+        .eq("slug", lead.slug as string).eq("ghl_contact_id", contactId).not("slot_iso", "is", null)
+        .gt("created_at", lead.created_at as string).limit(1);
+      if (newer?.length) {
+        stale++;
+        await svc.from("onebox_leads").update({ ghl_appointment_id: "manual" }).eq("id", lead.id);
+        continue;
+      }
       const ms = Date.parse(String(lead.slot_iso));
       if (!Number.isFinite(ms) || ms <= Date.now()) { pastSlot.push(`${lead.full_name} (${lead.slug}) ${lead.slot_iso}`); continue; }
       const calendarId = String(((client.config ?? {}) as Record<string, string>).calendarId ?? "").trim();
       if (!calendarId) { errors.push(`${lead.full_name}: no calendarId`); continue; }
       const booked = await bookAppointmentForLead({
         locationId: client.location_id as string, calendarId, contactId, slotIso: String(lead.slot_iso),
+        pickedAt: (lead.picked_time_at as string | null) ?? (lead.created_at as string),
       });
+      if (booked.appointmentId || booked.alreadyBooked || booked.needsPerson) {
+        settled.add(contactId);
+        // Every unbooked row of hers on this funnel, not just this one.
+        await svc.from("onebox_leads").update({ ghl_appointment_id: booked.appointmentId ?? "manual" })
+          .eq("slug", lead.slug as string).eq("ghl_contact_id", contactId).is("ghl_appointment_id", null).neq("id", lead.id);
+      }
       if (booked.appointmentId) {
         apptsCreated++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: booked.appointmentId }).eq("id", lead.id);
@@ -232,6 +267,16 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
         alreadyBooked++;
         await svc.from("onebox_leads").update({ ghl_appointment_id: "manual" }).eq("id", lead.id);
         await resolvePaidNotBookedAlert(svc, lead.slug as string, contactId, lead.full_name as string).catch(() => {});
+      } else if (booked.needsPerson) {
+        /* An appointment was made for her after she picked and is gone now
+           (cancelled or deleted). Booking the old pick again could undo what
+           the artist decided — a person looks, and this row is not retried. */
+        needsPerson.push(`${lead.full_name} (${lead.slug})`);
+        await svc.from("onebox_leads").update({ ghl_appointment_id: "manual" }).eq("id", lead.id);
+        await filePaidNotBookedAlert(svc, {
+          slug: lead.slug as string, locationId: client.location_id as string, contactId, name: lead.full_name as string,
+          slotIso: String(lead.slot_iso), error: booked.needsPerson, what: "She was NOT booked automatically", retrying: false,
+        }).catch(() => {});
       } else {
         errors.push(`${lead.full_name}: ${booked.error ?? "booking failed"}`);
         // Owner (2026-10-12): a paid lead still not booked must be on the Alerts tab.
@@ -242,5 +287,5 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       }
     }
   }
-  return { healed: contactsFixed + apptsCreated, contactsFixed, apptsCreated, alreadyBooked, pastSlot, errors: errors.slice(0, 10) };
+  return { healed: contactsFixed + apptsCreated, contactsFixed, apptsCreated, alreadyBooked, stale, needsPerson, pastSlot: pastSlot.slice(0, 20), errors: errors.slice(0, 10) };
 }

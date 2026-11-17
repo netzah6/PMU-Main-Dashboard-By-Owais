@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { runInsightScan } from "@/lib/onebox-insights";
+import { selfOrigin } from "@/lib/self-origin";
 
 export const maxDuration = 300;
 
@@ -13,6 +14,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const svc = createServiceClient();
-  const result = await runInsightScan(svc, req.nextUrl.origin).catch((e) => ({ error: String(e) }));
+  const result = await runInsightScan(svc, selfOrigin(req)).catch((e) => ({ error: String(e) }));
   return NextResponse.json({ timestamp: new Date().toISOString(), ...result });
 }
