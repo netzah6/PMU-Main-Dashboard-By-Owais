@@ -80,6 +80,27 @@ export function serviceWords(area: string | null | undefined): string {
   if (/permanent\s*make/.test(a)) return "permanent makeup";
   return "";
 }
+/** The lead's newest PICK (her time): latest pick first, then the newest
+    survey. Picking a time stamps the same pick time on every row of her
+    phone, so the second key breaks the tie; rows without a pick come last. */
+export function newestRow<T extends { picked_time_at: string | null; created_at: string | null }>(rows: T[]): T {
+  return [...rows].sort((a, b) =>
+    String(b.picked_time_at ?? "").localeCompare(String(a.picked_time_at ?? "")) ||
+    String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))[0];
+}
+
+/** The service she asked for LAST: the "which area" answer of her newest
+    survey row that has one — the same answer GHL shows on her contact (each
+    survey overwrites it). A later survey without a new pick still counts.
+    Owner, 11/17/2026: a lead who chose scalp, then eyebrows two minutes
+    later, got two emails naming "scalp micropigmentation" — the pick time is
+    stamped on every row of her phone, so "latest pick" could not tell her
+    two answers apart. */
+export function lastArea(rows: { created_at: string | null; answers: Record<string, unknown> | null }[]): string {
+  const withArea = rows.filter((r) => String(r.answers?.area ?? "").trim());
+  if (!withArea.length) return "";
+  return String([...withArea].sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))[0].answers?.area ?? "");
+}
 export type Email = { subject: string; html: string };
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
@@ -255,7 +276,7 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
   const queue: Person[] = [];
   for (const [contactId, rows] of byContact) {
     if (known.has(contactId)) continue;
-    const latest = [...rows].sort((a, b) => String(b.picked_time_at).localeCompare(String(a.picked_time_at)))[0];
+    const latest = newestRow(rows);
     const firstPick = rows.map((r) => Date.parse(String(r.picked_time_at))).filter(Number.isFinite).reduce((a, b) => Math.min(a, b));
     const pickedAt = new Date(Math.max(firstPick, Date.parse(startAt)));
     const arm = pickEmailArm(latest.phone ?? "");
@@ -393,7 +414,7 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
         reserved = wall && locTz ? wallToIso(wall, locTz) : wall;
       }
       const ahead = (iso: string) => (iso && Date.parse(iso) > now.getTime() ? iso : "");
-      const latest = [...rows].sort((a, b) => String(b.picked_time_at).localeCompare(String(a.picked_time_at)))[0];
+      const latest = newestRow(rows);
       const slotIso = booked || ahead(reserved) || ahead(String(latest.slot_iso ?? p.slot_iso ?? ""));
       // No time ahead, or it's about to start → nothing left to finish.
       if (!slotIso || Date.parse(slotIso) - now.getTime() < SLOT_MARGIN_MS) { await stop(p, "slot_passed"); continue; }
@@ -413,7 +434,7 @@ export async function runPickEmail(svc: Svc, opts: { dryRun?: boolean; sinceIso?
         when: fmtWhen(slotIso),
         deposit: String(cfg.deposit ?? "").trim() || "$50",
         link: confirmLink(p.slug, p.contact_id, "email"),
-        service: serviceWords(String((latest.answers as Record<string, unknown> | null)?.area ?? "")),
+        service: serviceWords(lastArea(rows)),
       });
       if (dryRun) {
         res.preview!.push({ contactId: p.contact_id, slug: p.slug, step, to: email.replace(/^(.).*(@.*)$/, "$1…$2"), dueAt: sendAt.toISOString(), subject: msg.subject });
