@@ -190,20 +190,22 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
      although she had a confirmed appointment; Alma Martínez was never
      looked at). Newest first also means that when she went through the
      funnel twice, her latest pick is the one that gets booked. */
-  const windowStart = new Date(Date.now() - 21 * 86400_000).toISOString();
+  const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
   const { data: paidLeads } = await svc
     .from("onebox_leads")
     .select("id, slug, location_id, full_name, phone, ghl_status, ghl_contact_id, ghl_appointment_id, slot_iso, picked_time_at, answers, created_at")
     .in("ghl_status", [...PAID])
-    // Recent by the row OR by the pick: a lead from weeks ago who picks and pays today counts too.
-    .or(`created_at.gte.${windowStart},picked_time_at.gte.${windowStart}`)
-    .or("ghl_contact_id.is.null,and(ghl_appointment_id.is.null,slot_iso.not.is.null)")
+    /* A lead with no contact is re-pushed for a week (as before). A paid
+       lead with an unbooked picked time has no date floor: she is retried
+       for as long as that time is ahead, however old her row is (40 such
+       rows exist all-time, 3 with a time still ahead). */
+    .or(`and(ghl_contact_id.is.null,created_at.gte.${weekAgo}),and(ghl_appointment_id.is.null,slot_iso.not.is.null)`)
     .order("created_at", { ascending: false })
-    .limit(200);
-  const weekAgo = Date.now() - 7 * 86400_000;
-  // A lead with no contact is re-pushed for a week (as before); a paid lead
-  // with an unbooked picked time is retried for as long as that time is ahead.
-  const broken = (paidLeads ?? []).filter((l) => (!l.ghl_contact_id && Date.parse(String(l.created_at)) >= weekAgo) || (!l.ghl_appointment_id && l.slot_iso));
+    .limit(300);
+  const nowMs = Date.now();
+  const broken = (paidLeads ?? []).filter((l) => (!l.ghl_contact_id && Date.parse(String(l.created_at)) >= nowMs - 7 * 86400_000)
+    // A time that passed long ago is not listed on every run forever: only recent picks are reported as "past".
+    || (!l.ghl_appointment_id && l.slot_iso && (Date.parse(String(l.slot_iso)) > nowMs || Date.parse(String(l.picked_time_at ?? l.created_at)) >= nowMs - 21 * 86400_000)));
   if (!broken.length) return { healed: 0 };
 
   const { data: clients } = await svc

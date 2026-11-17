@@ -1,4 +1,4 @@
-import { AI_HOLD_LIVE_MS, AI_HOLD_STATUS, locationTimezone, wallToIso } from "@/lib/onebox";
+import { AI_HOLD_STATUS, locationTimezone, wallToIso } from "@/lib/onebox";
 import { REMOVED_TAG } from "@/lib/ai-hold-cleanup";
 
 const GHL = "https://services.leadconnectorhq.com";
@@ -25,8 +25,8 @@ const TIMEOUT_MS = 8_000; // per GHL read; a hung read is an error, never "nothi
                    made or changed after she picked and is gone now
                    (cancelled, or deleted — a deleted appointment is invisible
                    to the appointments API, so the conversation's own
-                   appointment activity is read too), or only an old
-                   unconfirmed hold is left.
+                   appointment activity is read too), or only an unconfirmed
+                   hold at another time is left.
    - none          nothing was ever booked for her: book the picked time
 
    Fails closed: any unreadable piece is an error, never "no appointments"
@@ -83,14 +83,14 @@ export async function lookBeforePaidBooking(a: {
        it cannot see another calendar at all. Hands off. */
     const elsewhere = ahead.filter((r) => !atHerTime(r));
     if (elsewhere.length) {
-      /* Only the AI's old unpaid holds ("invalid"): the account's workflow
-         usually confirms a hold once the paid tag lands, even a week-old one
-         (Martina Ybarra, 11/06: an 8-day-old hold was confirmed 5 s after
-         the tag). One that is STILL a hold by the time a net looks may never
-         be confirmed, and booking her pick next to it could leave her with
-         two — a person decides. */
-      const oldHoldsOnly = elsewhere.every((r) => r.status === AI_HOLD_STATUS && Number.isFinite(r.addedMs) && r.addedMs < now - AI_HOLD_LIVE_MS);
-      if (oldHoldsOnly) return { ok: true, state: "needs_person", note: "she only has an old unconfirmed hold at another time" };
+      /* Only the AI's unpaid holds ("invalid") elsewhere. The account's
+         workflow confirms a hold seconds after the paid tag lands, even a
+         week-old one (Martina Ybarra, 11/06: an 8-day-old hold was confirmed
+         5 s after the tag). A net looks 10+ minutes after the tag, so a hold
+         that is STILL unconfirmed was not picked up by the workflow: she
+         paid and has nothing confirmed, and booking her pick next to the
+         hold could leave her with two. A person decides. */
+      if (elsewhere.every((r) => r.status === AI_HOLD_STATUS)) return { ok: true, state: "needs_person", note: "she paid, but her only appointment is an unconfirmed hold at another time" };
       const madeBeforePick = elsewhere.every((r) => (!!a.calendarId && r.calendarId !== a.calendarId) || !(Number.isFinite(r.addedMs) && r.addedMs >= since));
       return { ok: true, state: "other_time", madeBeforePick, note: madeBeforePick
         ? "she has an appointment at another time that is older than this pick, or on another calendar"

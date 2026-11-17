@@ -168,7 +168,7 @@ async function postBook(origin: string, body: Record<string, unknown>): Promise<
 // Worst case 4 x (4 GHL reads of 8 s + a 25 s booking call) stays inside the cron's 300 s.
 const MAX_TRIES_PER_RUN = 4;
 
-async function bookPaidNotBooked(svc: Svc, origin: string | undefined, a: { loc: string; contactId: string; token?: string; contact?: GContact; paidAtMs?: number; budget: { left: number } }): Promise<BookTry> {
+async function bookPaidNotBooked(svc: Svc, origin: string | undefined, a: { loc: string; contactId: string; token?: string; contact?: GContact; /** no contact in hand: read it (one GET) when she has no pick */ readContact?: boolean; paidAtMs?: number; budget: { left: number } }): Promise<BookTry> {
   if (!origin) return { kind: "none" };
   /* Her newest picks, booked or not. Taking the newest UNBOOKED row picked a
      stale one whenever a later pick was already booked: Alma Martínez
@@ -182,10 +182,19 @@ async function bookPaidNotBooked(svc: Svc, origin: string | undefined, a: { loc:
   const l = mine[0] ?? null;
   if (!l) {
     // No pick on the funnel. Only a contact whose AI hold the cleanup removed has anything to bring back (rare: 3 pilot accounts).
-    if (!a.contact || !(a.contact.tags ?? []).some((t) => t.toLowerCase() === REMOVED_TAG)) return { kind: "none" };
-    const token = a.token ?? (await getAppLocationToken(a.loc)).token;
+    let contact = a.contact;
+    let token = a.token;
+    if (!contact && a.readContact) {
+      // The run that added the paid tag did not book (it waits for the account's workflow): this is the look that follows it.
+      token = token ?? (await getAppLocationToken(a.loc)).token ?? undefined;
+      if (!token) return { kind: "none" };
+      const cr = await fetch(`${GHL}/contacts/${encodeURIComponent(a.contactId)}`, { headers: { Authorization: `Bearer ${token}`, Version: "2021-07-28", Accept: "application/json" }, signal: AbortSignal.timeout(8_000) }).catch(() => null);
+      contact = cr?.ok ? ((await cr.json()) as { contact?: GContact }).contact : undefined;
+    }
+    if (!contact || !(contact.tags ?? []).some((t) => t.toLowerCase() === REMOVED_TAG)) return { kind: "none" };
+    token = token ?? (await getAppLocationToken(a.loc)).token ?? undefined;
     if (!token) return { kind: "none" };
-    return restoreRemovedHold(svc, origin, { loc: a.loc, token, contact: a.contact });
+    return restoreRemovedHold(svc, origin, { loc: a.loc, token, contact });
   }
   if (l.ghl_appointment_id) return { kind: "none" }; // her latest pick is booked (or was settled by hand)
   /* One owner per lead, so the two nets can never book her at the same
@@ -209,6 +218,12 @@ async function bookPaidNotBooked(svc: Svc, origin: string | undefined, a: { loc:
     return look.madeBeforePick ? { kind: "person", lead: l, note: look.note, otherTime: true } : { kind: "left", lead: l, note: look.note };
   }
   if (look.state === "needs_person") return { kind: "person", lead: l, note: look.note };
+  /* Her appointment at this time is still the AI's unpaid hold, 10+ minutes
+     after the paid tag: the account's workflow did not confirm it. The
+     booking step would leave a young hold to that workflow and record her as
+     booked — a person sets it to Confirmed instead (same rule as the
+     30-minute retry). */
+  if (look.state === "same_time" && look.unconfirmedHold) return { kind: "person", lead: l, note: "her appointment at this time is still an unconfirmed hold: open it in GHL and set it to Confirmed" };
   if (look.state === "none") {
     /* Nothing on her calendar. Book only when the payment is clearly FOR
        this pick. Of 270 payments made on the page, 267 came within 30
@@ -232,7 +247,10 @@ async function bookPaidNotBooked(svc: Svc, origin: string | undefined, a: { loc:
   const claim = svc.from("onebox_leads").update({ ghl_status: "paid-not-booked" }).eq("id", l.id).is("ghl_appointment_id", null);
   const { data: claimed } = await (l.ghl_status === null ? claim.is("ghl_status", null) : claim.eq("ghl_status", l.ghl_status)).select("id");
   if (!claimed?.length) return { kind: "none" }; // another run or her own browser got there first
-  const r = await postBook(origin, { slug: l.slug, full_name: l.full_name, phone: l.phone, email: l.answers?.email ?? "", startTime: l.slot_iso, ...(l.answers?.tz ? { tz: l.answers.tz } : {}) });
+  const r = await postBook(origin, {
+    slug: l.slug, full_name: l.full_name, phone: l.phone, email: l.answers?.email ?? "", startTime: l.slot_iso, ...(l.answers?.tz ? { tz: l.answers.tz } : {}),
+    ...(a.paidAtMs ? { paidAt: new Date(a.paidAtMs).toISOString() } : {}), // when she really paid, not when this job ran
+  });
   return r.ok ? { kind: "booked", slot: l.slot_iso, slug: l.slug } : { kind: "failed", lead: l, error: r.error };
 }
 
@@ -277,11 +295,11 @@ export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked
   const herRows = (contactId: string, slug: string, patch: Record<string, unknown>) =>
     svc.from("onebox_leads").update(patch).eq("ghl_contact_id", contactId).eq("slug", slug).is("ghl_appointment_id", null).not("slot_iso", "is", null);
   const budget = { left: MAX_TRIES_PER_RUN };
-  const bookNow = async (p: { key: string; name: string; biz: string; row: Record<string, unknown>; paidAt: string; loc: string; contactId: string; token?: string; contact?: GContact }) => {
+  const bookNow = async (p: { key: string; name: string; biz: string; row: Record<string, unknown>; paidAt: string; loc: string; contactId: string; token?: string; contact?: GContact; readContact?: boolean }) => {
     const who = `${p.name} (${p.biz})`;
     try {
       const paidAtMs = Date.parse(p.paidAt);
-      const t = await bookPaidNotBooked(svc, origin, { loc: p.loc, contactId: p.contactId, token: p.token, contact: p.contact, paidAtMs: Number.isFinite(paidAtMs) ? paidAtMs : undefined, budget });
+      const t = await bookPaidNotBooked(svc, origin, { loc: p.loc, contactId: p.contactId, token: p.token, contact: p.contact, readContact: p.readContact, paidAtMs: Number.isFinite(paidAtMs) ? paidAtMs : undefined, budget });
       if (t.kind === "none") return;
       if (t.kind === "booked") {
         booked.push(who);
@@ -345,7 +363,9 @@ export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked
          (one small read; GHL is only called when a picked time is still
          unbooked). Until 11/17/2026 a payment was looked at exactly once. */
       if ((p.result === "ok" || p.result === "healed") && p.location_id && p.contact_id) {
-        await bookNow({ key, name, biz, row: r.data, paidAt, loc: p.location_id, contactId: p.contact_id });
+        // The first look after a tag heal (which never books in its own run) also checks for a removed AI hold.
+        const justHealed = p.result === "healed" && !!p.checked_at && Date.now() - Date.parse(p.checked_at) < 25 * 60_000;
+        await bookNow({ key, name, biz, row: r.data, paidAt, loc: p.location_id, contactId: p.contact_id, readContact: justHealed });
       }
       continue;
     }
@@ -353,7 +373,29 @@ export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked
     try {
       let loc = locByBiz.get(normBiz(biz)) ?? null;
       if (!loc && ownerByBiz.get(normBiz(biz))) loc = (await resolveClientLocation(svc, null, ownerByBiz.get(normBiz(biz))!).catch(() => null))?.locationId ?? null;
-      if (!loc) { await svc.from("paid_tag_checks").upsert({ key, result: "no_location", checked_at: new Date().toISOString() }); continue; }
+      /* Blank or unknown business name on the sheet row (10 of 341 payments
+         in 30 days, 8 of them blank): the payer's own one-box lead says
+         which funnel she paid on. Until 11/17/2026 such a payment was never
+         looked at again — no tag check, no booking net, no card. */
+      if (!loc) {
+        const { data: byEmail } = await svc.from("onebox_leads").select("location_id")
+          .ilike("answers->>email", email.replace(/[\\%_]/g, "\\$&")).not("location_id", "is", null)
+          .gte("created_at", new Date(Date.now() - 60 * 86_400_000).toISOString())
+          .order("created_at", { ascending: false }).limit(20);
+        // Only when every lead with that email belongs to ONE account: a paid tag on the wrong client's contact would confirm an unpaid hold there.
+        const locs = [...new Set(((byEmail ?? []) as Array<{ location_id: string | null }>).map((x) => x.location_id).filter(Boolean))];
+        loc = locs.length === 1 ? locs[0] : null;
+      }
+      if (!loc) {
+        await svc.from("paid_tag_checks").upsert({ key, result: "no_location", checked_at: new Date().toISOString() });
+        await fileOrAppendAlert(svc, {
+          type: "paid_not_synced", severity: "medium",
+          title: `${name} paid a deposit, but the payment names no client${biz ? ` ("${biz}")` : ""}`,
+          detail: `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} (${email}) has ${biz ? "a business name that matches no client" : "no business name"} on the Deposits sheet, and no one-box lead uses that email. The paid tag and her appointment were NOT checked. Find her by name and make sure she is tagged "fanbasis buyer" and on the calendar.`,
+          source_key: `paid-nolocation:${key}`, meta: { email },
+        });
+        continue;
+      }
       const tok = await getAppLocationToken(loc);
       if (!tok.token) { errors.push(`${biz}: ${tok.error}`); continue; }
       const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json", "Content-Type": "application/json" };

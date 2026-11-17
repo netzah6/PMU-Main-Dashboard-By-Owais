@@ -41,6 +41,8 @@ export async function POST(req: NextRequest) {
      move or cancel another appointment: "the last booking wins" is only true
      for the booking the lead herself just made in her browser. */
   const fromNet = String(body.via ?? "") === "heal";
+  // The net knows about when she paid; "now" would stamp the minute the job ran.
+  const paidAtIso = fromNet && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(body.paidAt ?? "")) && Date.parse(String(body.paidAt)) <= Date.now() ? new Date(String(body.paidAt)).toISOString() : null;
 
   const svc = createServiceClient();
   const { data: client } = await svc
@@ -287,7 +289,7 @@ export async function POST(req: NextRequest) {
       .eq("phone", phone)
       .is("ghl_appointment_id", null) // a returning client's earlier paid session stays recorded
       .then(() => {});
-    await stampPaid(svc, slug, phone, null);
+    await stampPaid(svc, slug, phone, null, paidAtIso);
     // Owner (2026-10-12): any booking glitch must reach the Alerts tab.
     await filePaidNotBookedAlert(svc, { slug, locationId, contactId, name: fullName, slotIso: startIso, error: aj.message ?? `appointment ${ar.status}` }).catch(() => {});
     return NextResponse.json(
@@ -392,7 +394,7 @@ export async function POST(req: NextRequest) {
       .eq("slug", slug)
       .eq("phone", phone)
       .or(bookedId ? `ghl_appointment_id.is.null,ghl_appointment_id.eq.${bookedId}` : "ghl_appointment_id.is.null")
-      .then(() => stampPaid(svc, slug, phone, bookedId)),
+      .then(() => stampPaid(svc, slug, phone, bookedId, paidAtIso)),
     /* The template's workflows read the booked slot from the contact's
        "CC - Reserved Appointment Time" field — keep it filled here too.
        (B2C only: the agency's B2B workflows read the appointment itself.)
@@ -452,10 +454,10 @@ export async function POST(req: NextRequest) {
 /* When the deposit was paid (owner, 10/29/2026: the deposit-ask test must
    tell a lead who paid right on the page from one who paid after texting
    the AI). First payment only — a retry of the same booking keeps it. */
-async function stampPaid(svc: ReturnType<typeof createServiceClient>, slug: string, phone: string, bookedId: string | null) {
+async function stampPaid(svc: ReturnType<typeof createServiceClient>, slug: string, phone: string, bookedId: string | null, paidAtIso: string | null = null) {
   await svc
     .from("onebox_leads")
-    .update({ paid_at: new Date().toISOString() })
+    .update({ paid_at: paidAtIso ?? new Date().toISOString() })
     .eq("slug", slug)
     .eq("phone", phone)
     .is("paid_at", null)
