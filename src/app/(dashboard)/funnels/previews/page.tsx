@@ -22,8 +22,10 @@ import { ExternalLink, Loader2, Search } from "lucide-react";
 
 const BASE = "https://book.pmu-care.com";
 const PAGE = 12;
-/* v1Flow = the funnel page itself is survey → thank-you only: the Clients
-   Master program is "(V1)" exactly, the same test the page makes. */
+/* v1Flow = the Clients Master program is "(V1)" exactly. The page itself is
+   survey → thank-you only when that holds AND the funnel is not frozen (a
+   frozen funnel keeps the full flow it was frozen on) — the same test the
+   funnel page makes. */
 type Row = { slug: string; owner: string; business: string; version: "V3" | "V2.3" | "V1" | "other"; status: string; v1Flow: boolean };
 const VER_CLS: Record<Row["version"], string> = {
   V3: "bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]",
@@ -39,6 +41,7 @@ export default function BookingPreviewsPage() {
   const [ver, setVer] = useState<"all" | "V3" | "V2.3" | "V1" | "reels">("all");
   const [view, setView] = useState<"booking" | "thankyou">("booking");
   const [reelSlugs, setReelSlugs] = useState<Set<string>>(new Set());
+  const [frozenSlugs, setFrozenSlugs] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(PAGE);
   const [stamp] = useState(() => Date.now()); // fresh page per visit, past the CDN copy
 
@@ -48,7 +51,10 @@ export default function BookingPreviewsPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/onebox/reel-funnels").then((r) => r.json()).then((j: { slugs?: string[] }) => setReelSlugs(new Set(j.slugs ?? []))).catch(() => {});
+    fetch("/api/onebox/reel-funnels").then((r) => r.json()).then((j: { slugs?: string[]; frozen?: string[] }) => {
+      setReelSlugs(new Set(j.slugs ?? []));
+      setFrozenSlugs(new Set(j.frozen ?? []));
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -123,7 +129,8 @@ export default function BookingPreviewsPage() {
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(262px,1fr))]">
             {list.slice(0, shown).map((r) => {
               // V1 = survey → thank-you only: no booking page to show.
-              const mode = r.v1Flow ? "thankyou" : view;
+              const v1 = r.v1Flow && !frozenSlugs.has(r.slug);
+              const mode = v1 ? "thankyou" : view;
               return (
               <div key={r.slug} className="rounded-xl border border-[#e4ebf2] bg-white p-2.5 flex flex-col gap-2 min-w-0">
                 <div className="flex items-start gap-2 min-w-0">
@@ -144,7 +151,7 @@ export default function BookingPreviewsPage() {
                   />
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
-                  {r.v1Flow
+                  {v1
                     ? <span className="text-[#8595a8]" title="A V1 funnel is survey → thank-you only">No booking page (V1)</span>
                     : <a href={`${BASE}/f/${r.slug}?preview=booking`} target="_blank" rel="noopener" className={cn("inline-flex items-center gap-1 hover:underline", mode === "booking" ? "text-[#0e9c9c] font-semibold" : "text-[#34568a]")}>Booking page <ExternalLink className="w-3 h-3" /></a>}
                   <a href={`${BASE}/f/${r.slug}?preview=thankyou`} target="_blank" rel="noopener" className={cn("inline-flex items-center gap-1 hover:underline", mode === "thankyou" ? "text-[#0e9c9c] font-semibold" : "text-[#34568a]")}>Thank-you page <ExternalLink className="w-3 h-3" /></a>
