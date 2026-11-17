@@ -297,7 +297,7 @@ export default function ReplyPage() {
                     <span className="text-xs text-[#697a91] truncate flex-1 min-w-0">{c.lastMessageBody || "—"}</span>
                     {c.assignedToName && (
                       <span className="shrink-0 text-[10px] font-semibold" title={`Assigned to ${c.assignedToName}`}
-                        style={{ color: userColor(c.assignedToName)?.text ?? "#8595a8" }}>
+                        style={{ color: userColor(c.assignedToName)?.ink ?? "#8595a8" }}>
                         {c.assignedToName.split(" ")[0]}
                       </span>
                     )}

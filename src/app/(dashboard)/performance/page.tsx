@@ -1,4 +1,5 @@
 "use client";
+import { VersionChip } from "@/components/ui/VersionChip";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { DataFreshness } from "@/components/freshness/DataFreshness";
 import { createClient } from "@/lib/supabase/client";
@@ -105,18 +106,6 @@ function statusTone(s: string | null): string {
   if (u.includes("GRACE") || u.includes("PENDING") || u.includes("REVIEW")) return "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]";
   if (u.includes("UNSETTLED") || u.includes("DISABLE") || u.includes("CLOSED")) return "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]";
   return "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]";
-}
-
-// Program version from the Clients Master "Version" column ("(V3)" → "V3").
-function VersionCell({ value }: { value: string | undefined }) {
-  const v = String(value ?? "").replace(/[()]/g, "").trim();
-  if (!v) return <span className="text-[#a6b3c4]">—</span>;
-  const u = v.toUpperCase();
-  const cls = u.startsWith("V3") ? "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]"
-    : u.startsWith("V2") ? "bg-[#e8f0fe] text-[#2563eb] border-[#bfd4fb]"
-    : u.startsWith("V1") ? "bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
-    : "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]";
-  return <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap ${cls}`}>{v}</span>;
 }
 
 function UserCell({ name }: { name: string | null }) {
@@ -436,7 +425,7 @@ export default function PerformancePage() {
                     </td>
                     <td className={cn("sticky z-10 px-3 py-1 text-[#34568a] whitespace-nowrap overflow-hidden text-ellipsis group-hover:bg-[#a7e3df]", rowBgClass)}
                       style={{ left: 180, width: 160, minWidth: 160, maxWidth: 160, boxShadow: "2px 0 0 0 #cbd5e1, 6px 0 8px -6px rgba(0,0,0,0.20)" }} title={r.ad_account_name && r.ad_account_name !== r.business_name ? `Ad account: ${r.ad_account_name}` : (r.business_name ?? "")}>{r.business_name || r.ad_account_name || "—"}</td>
-                    <td className="px-2 sm:px-3 py-1 text-center"><VersionCell value={versions.get(r.sheet_row)} /></td>
+                    <td className="px-2 sm:px-3 py-1 text-center"><VersionChip version={versions.get(r.sheet_row)} /></td>
                     <td className="px-2 sm:px-3 py-1 text-[#1e2a3a] whitespace-nowrap">{money0(r.daily_budget)}</td>
                     <td className="px-3 py-1"><UserCell name={r.assigned} /></td>
                     <td className="px-3 py-1"><UserCell name={r.media_buyer} /></td>

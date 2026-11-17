@@ -1,4 +1,5 @@
 "use client";
+import { versionStyle } from "@/lib/version-style";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTableData } from "@/lib/hooks/useTableData";
 import { usePayments, lookupPayment, programOf } from "@/lib/hooks/usePayments";
@@ -48,14 +49,6 @@ function strategyLabel(index: Map<string, number>, raw: string): string {
   if (!s) return "—";
   const ms = msFromIndex(index, s);
   return isNaN(ms) ? formatDate(s, true) : dateLabel(ms);
-}
-function versionStyle(v: string): { bg: string; text: string; border: string } {
-  const u = v.toLowerCase();
-  if (u.includes("not interested")) return { bg: "#fde8ee", text: "#e11d48", border: "#f5c2cf" };
-  if (u.includes("v2.3") || u.includes("v2.2")) return { bg: "#f3e8ff", text: "#7e22ce", border: "#e3cffb" };
-  if (u.includes("v3")) return { bg: "#1d4ed8", text: "#ffffff", border: "#1d4ed8" };
-  if (u.includes("v2")) return { bg: "#dcf5e0", text: "#15803d", border: "#bce6c8" };
-  return { bg: "#f1f5f9", text: "#64748b", border: "#d7e0ea" };
 }
 
 function onState(v: unknown): boolean | null {

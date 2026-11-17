@@ -225,7 +225,7 @@ function v23Missing(cv: Record<string, string>): [string, string][] {
 function ProgTag({ v3only, clientIsV1 }: { v3only: boolean; clientIsV1: boolean }) {
   return v3only ? (
     <span className={cn("ml-1 text-[9px] font-bold rounded px-1 py-px border align-middle",
-      clientIsV1 ? "border-[#e4ebf2] text-[#97a5b8] line-through" : "border-[#93c5fd] text-[#1d4ed8] bg-[#eff6ff]")}
+      clientIsV1 ? "border-[#e4ebf2] text-[#97a5b8] line-through" : "border-[#1d4ed8] text-white bg-[#1d4ed8]")}
       title={clientIsV1 ? "Not needed for a V1 client" : "Needed for V3 (booking page, deposit or the AI)"}>V3</span>
   ) : (
     <span className="ml-1 text-[9px] font-bold rounded px-1 py-px border border-[#bfe3cd] text-[#15803d] bg-[#e7f6ec] align-middle"

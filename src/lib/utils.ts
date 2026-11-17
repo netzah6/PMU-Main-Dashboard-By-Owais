@@ -67,48 +67,53 @@ export function formatPercent(val: string | number | undefined | null): string {
   return `${pct.toFixed(1)}%`;
 }
 
-// A curated palette of visually DISTINCT colors (no two similar hues, so e.g.
-// two greens never appear). Each entry: strong text on a light bg.
-type ColorTrio = { text: string; bg: string; border: string };
-const USER_PALETTE: ColorTrio[] = [
-  { text: "#1d4ed8", bg: "#e7edff", border: "#c2d2ff" }, // blue
-  { text: "#c2410c", bg: "#fff0e6", border: "#ffd5b8" }, // orange
-  { text: "#be185d", bg: "#ffe9f2", border: "#fbc6dc" }, // pink
-  { text: "#6d28d9", bg: "#f1e9ff", border: "#ddc9fb" }, // purple
-  { text: "#0f766e", bg: "#e0f5f2", border: "#b3e3dd" }, // teal
-  { text: "#b91c1c", bg: "#fde7e7", border: "#f7c2c2" }, // red
-  { text: "#a16207", bg: "#fdf4d8", border: "#f1dfa0" }, // amber
-  { text: "#4338ca", bg: "#e9e9ff", border: "#cccbf7" }, // indigo
-  { text: "#0e7490", bg: "#e0f4fa", border: "#b3e2ef" }, // cyan
-  { text: "#15803d", bg: "#e6f6ea", border: "#bce6c8" }, // green
-];
-
-// Pinned team colors (match the owner's sheet color scheme).
-const KNOWN_USERS: Record<string, number> = {
-  stephanie: 0, // blue
-  nicolas: 6,   // yellow/amber
-  francisco: 9, // green
-  marie: 3,     // purple
-  natassa: 4,   // teal
-  owais: 5,     // red
+// ONE color per team member, the same on every tab (owner, 11/17/2026: "in any
+// of the dashboard that there is the name Nicolas it will have the same color
+// in every tab ... I want the colors between the team members to show a color
+// difference, not like 2 colors that look close to each other").
+//
+// Every person is PINNED — no hashing. (The old hash gave Dana = Natassa,
+// Jennifer = Francisco, Diego = Stephanie and Mayela = Marie.) People who work
+// in the same column get the most different hues:
+//   Assigned coaches: Stephanie blue · Nicolas yellow · Francisco green ·
+//                     Viridiana pink · Dana orange
+//   Media buyer:      Marie purple
+//   Sales:            Jennifer charcoal · Diego crimson · Maria brown
+// A NEW team member shows neutral gray until pinned here — add them with a hue
+// nobody else has. Chips are SOLID fills: pastel tints all looked alike (they
+// measured 3–5× closer than solid colors).
+//   bg/text/border = the chip;  ink = the same color as plain text on white.
+type ColorTrio = { text: string; bg: string; border: string; ink: string };
+const solid = (bg: string, ink: string, dark = false): ColorTrio => ({ bg, border: bg, text: dark ? "#1f2937" : "#ffffff", ink });
+const TEAM_COLORS: Record<string, ColorTrio> = {
+  stephanie: solid("#2563eb", "#1d4ed8"),       // blue
+  nicolas:   solid("#facc15", "#a16207", true), // yellow
+  francisco: solid("#16a34a", "#15803d"),       // green
+  marie:     solid("#9333ea", "#7e22ce"),       // purple
+  viridiana: solid("#ec4899", "#be185d"),       // pink
+  dana:      solid("#ea580c", "#c2410c"),       // orange
+  jennifer:  solid("#1f2937", "#1f2937"),       // charcoal
+  diego:     solid("#be123c", "#be123c"),       // crimson
+  maria:     solid("#92400e", "#78350f"),       // brown
+  mayela:    solid("#0d9488", "#0f766e"),       // teal
+  natassa:   solid("#a3e635", "#4d7c0f", true), // lime
+  owais:     solid("#38bdf8", "#0369a1", true), // sky
 };
+const UNKNOWN_PERSON: ColorTrio = { text: "#475569", bg: "#f1f5f9", border: "#cbd5e1", ink: "#64748b" }; // not pinned yet
+
+/** The person's key: first name, lowercase. "Nicolas", "nicolas@x.com", "Jennifer Roman" → "nicolas" / "jennifer". */
+export function teamKey(name: string | undefined | null): string {
+  return String(name ?? "").trim().toLowerCase().split("@")[0].split(/[\s._-]+/)[0] ?? "";
+}
 
 /**
- * Deterministic, visually-distinct color for a person's name. Known team
- * members get pinned colors; everyone else hashes into the curated palette.
+ * The team member's color — the same on every tab. Pinned per person;
+ * someone not pinned yet gets neutral gray (never a look-alike of a teammate).
  */
 export function userColor(name: string | undefined | null): ColorTrio | null {
-  const s = String(name ?? "").trim();
-  if (!s) return null;
-  const key = s.toLowerCase();
-  const first = key.split(/\s+/)[0];
-  if (key in KNOWN_USERS) return USER_PALETTE[KNOWN_USERS[key]];
-  if (first in KNOWN_USERS) return USER_PALETTE[KNOWN_USERS[first]];
-  // Hash on the FIRST name only, so the same person gets the same color whether
-  // a tab shows "Dana" or "Dana Figueroa" (consistent across the dashboard).
-  let hash = 0;
-  for (let i = 0; i < first.length; i++) hash = (hash * 31 + first.charCodeAt(i)) >>> 0;
-  return USER_PALETTE[hash % USER_PALETTE.length];
+  const k = teamKey(name);
+  if (!k) return null;
+  return TEAM_COLORS[k] ?? UNKNOWN_PERSON;
 }
 
 /**

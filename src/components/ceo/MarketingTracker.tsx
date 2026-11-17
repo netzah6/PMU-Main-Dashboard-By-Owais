@@ -1,4 +1,5 @@
 "use client";
+import { TeamChip } from "@/components/ui/TeamChip";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { Marketing, MarketingMonth } from "@/lib/ceo-marketing";
@@ -101,7 +102,7 @@ export function MarketingTracker({ m }: { m: Marketing }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.name} className="border-t border-[#f1f5f9]">
-                <td className="py-1.5 px-2 text-left text-[13px] font-semibold text-[#1f3559]">{r.name}</td>
+                <td className="py-1.5 px-2 text-left text-[13px] font-semibold text-[#1f3559]"><TeamChip name={r.name} /></td>
                 <td className={TD}>{r.demos}</td>
                 <td className={TD}>{r.held}</td>
                 <td className={TD}>{r.closed}</td>

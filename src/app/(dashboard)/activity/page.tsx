@@ -1,4 +1,5 @@
 "use client";
+import { TeamChip } from "@/components/ui/TeamChip";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/hooks/useUser";
@@ -87,7 +88,7 @@ export default function ActivityPage() {
               <span className="text-xs text-[#8595a8] whitespace-nowrap w-36">
                 {new Date(r.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
               </span>
-              <span className="text-sm font-medium text-[#1f3559]">{r.user_email.split("@")[0]}</span>
+              <TeamChip name={r.user_email.split("@")[0]} label={r.user_email.split("@")[0].replace(/^./, (x) => x.toUpperCase())} />
               <span className="text-sm text-[#34568a]">{describe(r)}</span>
               <span className="text-[11px] text-[#b9c3d0] font-mono truncate">{r.method} {r.path}{r.query ?? ""}</span>
             </div>

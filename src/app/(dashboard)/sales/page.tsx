@@ -1,4 +1,5 @@
 "use client";
+import { TeamChip, TeamName } from "@/components/ui/TeamChip";
 import PowerDialer from "@/components/sales/PowerDialer";
 import { Loader2 } from "lucide-react";
 
@@ -111,7 +112,7 @@ function CoachTracker() {
                 <td className="px-4 py-2.5 font-semibold text-[#1f3559]">
                   <button onClick={() => (detail?.coach === c.coach ? setDetail(null) : openDetail(c.coach, "current"))}
                     title="Click for the client-by-client breakdown"
-                    className="hover:underline text-left">{c.coach}</button>
+                    className="hover:underline text-left">{c.coach === "(unassigned)" ? c.coach : <TeamChip name={c.coach} />}</button>
                   {c.coach !== "(unassigned)" && (
                     <button onClick={() => setCoachHidden(c.coach, true)}
                       title="Hide from the tracker (former coach / not a coach) — reversible below"
@@ -166,7 +167,7 @@ function CoachTracker() {
           {detail && !detailBusy && (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold text-[#1f3559]">{detail.coach} — client breakdown</span>
+                <span className="font-semibold text-[#1f3559]"><TeamChip name={detail.coach} /> — client breakdown</span>
                 <div className="flex flex-wrap gap-1 ml-2">
                   {["current", ...detail.dates].map((d) => (
                     <button key={d} onClick={() => openDetail(detail.coach, d)}
@@ -194,7 +195,7 @@ function CoachTracker() {
                       <span className="ml-auto shrink-0 text-[10px] font-semibold text-[#7c3aed]">{cl.prevStatus || "new"} &rarr; {cl.status}</span>
                     )}
                     {cl.prevStatus === null && detail.prevDate && (
-                      <span className="ml-auto shrink-0 text-[10px] font-semibold text-[#0e8f88]">new to {detail.coach}</span>
+                      <span className="ml-auto shrink-0 text-[10px] font-semibold text-[#0e8f88]">new to <TeamName name={detail.coach} /></span>
                     )}
                   </div>
                 ))}
@@ -217,7 +218,7 @@ function CoachTracker() {
           <ul className="mt-2 grid gap-1">
             {hiddenRows.map((c) => (
               <li key={c.coach} className="flex items-center gap-2 border border-[#e4ebf2] rounded-lg px-3 py-1.5 bg-[#f9fbfd] text-xs">
-                <span className="font-semibold text-[#1f3559]">{c.coach}</span>
+                <TeamChip name={c.coach} />
                 <span>{c.live} live client{c.live === 1 ? "" : "s"} still assigned</span>
                 {c.live > 0 && <span className="text-[#b4485c] font-medium">&#9888; reassign them</span>}
                 <button onClick={() => setCoachHidden(c.coach, false)}

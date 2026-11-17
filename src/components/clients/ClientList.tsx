@@ -1,4 +1,5 @@
 "use client";
+import { VersionChip } from "@/components/ui/VersionChip";
 import { useState, useMemo } from "react";
 import { Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
@@ -224,12 +225,12 @@ export function ClientList({ clients, selectedId, onSelect, programOf }: ClientL
                   {(c.assigned || c.version || programOf?.(c)) && (
                     <p className="text-xs mt-0.5 truncate flex items-center gap-1">
                       {c.assigned && (
-                        <span className="font-medium" style={{ color: userColor(String(c.assigned))?.text ?? "#a6b3c4" }}>
+                        <span className="font-medium" style={{ color: userColor(String(c.assigned))?.ink ?? "#a6b3c4" }}>
                           {String(c.assigned)}
                         </span>
                       )}
                       {c.assigned && c.version && <span className="text-[#a6b3c4]"> · </span>}
-                      {c.version && <span className="text-[#a6b3c4]">{String(c.version)}</span>}
+                      {c.version && <VersionChip version={String(c.version)} />}
                       {/* Program chip — PPS blue, Standard purple: the old
                           yellow was the exact Paused-status palette and read
                           as a status (user, 2026-09-23). */}
