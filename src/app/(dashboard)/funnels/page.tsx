@@ -1773,7 +1773,7 @@ export default function FunnelsPage() {
         <h1 className="text-base sm:text-lg font-semibold text-[#1c2b3a] truncate">🧪 One-Box Funnels</h1>
         <div className="flex gap-2 shrink-0">
           {/* Every client's booking page without filling the survey (owner, 10/28/2026). */}
-          <a href="/funnels/previews" title="See every client's booking page" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
+          <a href="/funnels/previews" title="See every client's booking page or thank-you page" className="flex items-center gap-1.5 text-sm border border-[#e4ebf2] rounded-lg px-2.5 sm:px-3 py-1.5 hover:bg-[#f6f9fc]">
             👁 <span className="hidden sm:inline">Booking pages</span>
           </a>
           {isAdmin && (
@@ -2240,11 +2240,22 @@ export default function FunnelsPage() {
                     <a href={f.url} target="_blank" rel="noopener" className="text-xs text-[#0e9c9c] hover:underline inline-flex items-center gap-1">
                       {f.url} <ExternalLink className="w-3 h-3" />
                     </a>
-                    {/* Read-only preview: no lead, no notification, nothing booked. */}
-                    <a href={`${f.url}?preview=booking`} target="_blank" rel="noopener" title="Open the booking page without filling the survey (no lead is created)"
-                      className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-white text-[#34568a] border-[#cbd5e1] hover:bg-[#f1f5f9]">
-                      👁 Booking page
-                    </a>
+                    {/* Read-only previews: no lead, no notification, nothing booked. A V1
+                        funnel is survey → thank-you only, so it has no booking page to
+                        show (a frozen funnel keeps the page it was frozen on). */}
+                    {(f.template === "b2b" || f.program?.version !== "(V1)" || !!f.frozenAt) && (
+                      <a href={`${f.url}?preview=booking`} target="_blank" rel="noopener" title="Open the booking page without filling the survey (no lead is created)"
+                        className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-white text-[#34568a] border-[#cbd5e1] hover:bg-[#f1f5f9]">
+                        👁 Booking page
+                      </a>
+                    )}
+                    {/* The thank-you page in one click (owner, 11/17/2026), every program: V1, V2.3, V3. */}
+                    {f.template !== "b2b" && (
+                      <a href={`${f.url}?preview=thankyou`} target="_blank" rel="noopener" title="Open the thank-you page without filling the survey or booking (no lead is created, nothing is booked)"
+                        className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-white text-[#34568a] border-[#cbd5e1] hover:bg-[#f1f5f9]">
+                        🎉 Thank-you page
+                      </a>
+                    )}
                     {f.frozenAt && (
                       <span title={`This funnel's page is locked: edits reach GHL and the AI but not the page, except the calendar, checkout, deposit, phone, address and Meta pixel, which stay live.${isAdmin ? " Take new values or undo on the Freeze screen." : ""}`} className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]">
                         🧊 Frozen since {new Date(f.frozenAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" })}
