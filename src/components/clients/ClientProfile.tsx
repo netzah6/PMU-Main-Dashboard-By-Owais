@@ -1,4 +1,5 @@
 "use client";
+import { versionStyle } from "@/lib/version-style";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Edit2, Save, X, MessageSquare, TrendingUp, ChevronDown, Clock, Copy, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -1025,14 +1026,6 @@ function DetailEditField({
   );
 }
 
-function versionStyle(v: string): { bg: string; text: string; border: string } {
-  const u = v.toLowerCase();
-  if (u.includes("not interested")) return { bg: "#fde8ee", text: "#e11d48", border: "#f5c2cf" };
-  if (u.includes("v2.3") || u.includes("v2.2")) return { bg: "#f3e8ff", text: "#7e22ce", border: "#e3cffb" }; // purple
-  if (u.includes("v3")) return { bg: "#1d4ed8", text: "#ffffff", border: "#1d4ed8" }; // blue
-  if (u.includes("v2")) return { bg: "#dcf5e0", text: "#15803d", border: "#bce6c8" }; // green
-  return { bg: "#f1f5f9", text: "#64748b", border: "#d7e0ea" }; // V1 / other / empty
-}
 
 function paymentStatusColor(status: string | undefined): string {
   const s = (status ?? "").toLowerCase();

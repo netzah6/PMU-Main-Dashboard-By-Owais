@@ -1,4 +1,5 @@
 "use client";
+import { TeamName } from "@/components/ui/TeamChip";
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, ListTodo, CheckCircle2, Circle } from "lucide-react";
 
@@ -106,7 +107,7 @@ export function ClientTasks({ clientLabel }: { clientLabel: string }) {
                 <p className="text-[13px] text-[#1f3559] break-words">{t.title}</p>
                 <p className="text-[10px] text-[#8595a8]">
                   {prettyDue(t.dueDate) ? `due ${prettyDue(t.dueDate)}` : ""}
-                  {t.assignedToName ? `${t.dueDate ? " · " : ""}${t.assignedToName}` : ""}
+                  {t.assignedToName ? <>{t.dueDate ? " · " : ""}<TeamName name={t.assignedToName} /></> : ""}
                 </p>
               </div>
             </li>
@@ -118,7 +119,7 @@ export function ClientTasks({ clientLabel }: { clientLabel: string }) {
               </button>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] text-[#697a91] line-through break-words">{t.title}</p>
-                {t.assignedToName && <p className="text-[10px] text-[#8595a8]">{t.assignedToName}</p>}
+                {t.assignedToName && <p className="text-[10px] text-[#8595a8]"><TeamName name={t.assignedToName} /></p>}
               </div>
             </li>
           ))}

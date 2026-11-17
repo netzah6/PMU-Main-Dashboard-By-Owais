@@ -4,11 +4,9 @@
 // it is marked (owner, 2026-09-26: "wherever there is the V3 or V2.3 mark it
 // with the same blue / purple color that we have on the clients main menu tab").
 //
-// This is a copy, not yet the single source: src/components/clients/
-// ClientProfile.tsx keeps its own identical versionStyle() because an
-// unrelated PR (#581) owns that file, and reports/page.tsx has a third copy
-// that can switch over to this one later. Keep the hexes identical in all
-// three until they can be folded into this module.
+// The ONLY version palette (11/17/2026): ClientProfile, Reports, Performance,
+// Funnel previews, Client Health, Onboarding and the Clients list all use it
+// (directly or through <VersionChip>). Never copy these hexes elsewhere.
 
 export function versionStyle(v: string): { bg: string; text: string; border: string } {
   const u = v.toLowerCase();

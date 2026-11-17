@@ -1,7 +1,8 @@
 "use client";
+import { TeamChip, TeamName } from "@/components/ui/TeamChip";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Copy, Check, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, userColor } from "@/lib/utils";
 import type { SalesBoard as Board, SetterStats, CloserStats, Todo, Win } from "@/lib/sales-board";
 import { TARGETS, WINDOWS, FORMER } from "@/lib/sales-board";
 import { CloserPayments } from "@/components/sales/CloserPayments";
@@ -91,7 +92,7 @@ function TodoList({ todos, who, kinds, win }: { todos: Todo[]; who: string; kind
               <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold border whitespace-nowrap", KIND[t.kind].cls)} title={KIND[t.kind].hint}>{KIND[t.kind].icon} {KIND[t.kind].label}</span>
               <a href={GHL_CONTACTS} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#1f3559] hover:underline" title="Open GHL contacts (name copied with the button)">{t.name}</a>
               <CopyName name={t.name} />
-              {(who === "ALL" || t.who === FORMER) && <span className="text-[#697a91]">· {t.who === FORMER ? `sheet says ${t.sheetWho}` : t.who}</span>}
+              {(who === "ALL" || t.who === FORMER) && <span className="text-[#697a91]">· {t.who === FORMER ? `sheet says ${t.sheetWho}` : <TeamName name={t.who} />}</span>}
               <span className="text-[#697a91] whitespace-nowrap">· {fmtWhen(t.when)}{t.kind !== "upcoming" && t.ageDays > 0 ? ` · ${t.ageDays}d ago` : ""}</span>
               {t.kind === "booked" && t.demo && (() => {
                 const o = t.demo.outcome;
@@ -169,7 +170,7 @@ function TeamTable({ b, win }: { b: Board; win: Win }) {
         <table className="w-full text-[12px]">
           <thead><tr className="text-left text-[10px] uppercase text-[#697a91]"><th className="px-3 py-1.5">Setter</th><th className="px-2 py-1.5 text-right">Disc.</th><th className="px-2 py-1.5 text-right">Show-up</th><th className="px-2 py-1.5 text-right">Demos</th><th className="px-2 py-1.5 text-right">Book rate</th><th className="px-2 py-1.5 text-right">No status</th></tr></thead>
           <tbody>{b.setters.map((n) => { const s = b.setterStats[n][win]; return (
-            <tr key={n} className={cn("border-t border-[#eef3f8]", n === FORMER && "text-[#8595a8] italic")}><td className="px-3 py-1.5 font-semibold text-[#1f3559]">{n === FORMER ? "⚠ Former reps (sheet)" : n}</td><td className="px-2 py-1.5 text-right">{s.total}</td>
+            <tr key={n} className={cn("border-t border-[#eef3f8]", n === FORMER && "text-[#8595a8] italic")}><td className="px-3 py-1.5 font-semibold text-[#1f3559]">{n === FORMER ? "⚠ Former reps (sheet)" : <TeamChip name={n} />}</td><td className="px-2 py-1.5 text-right">{s.total}</td>
               <td className={cn("px-2 py-1.5 text-right font-semibold", TONE[grade(s.showUp, TARGETS.discShowUp)].split(" ")[1])}>{p(s.showUp)}</td><td className="px-2 py-1.5 text-right">{s.demoScheduled}</td>
               <td className={cn("px-2 py-1.5 text-right font-semibold", TONE[grade(s.bookRate, TARGETS.bookRate)].split(" ")[1])}>{p(s.bookRate)}</td><td className={cn("px-2 py-1.5 text-right", s.noStatus > 0 && "text-[#d97706] font-semibold")}>{s.noStatus}</td></tr>); })}</tbody>
         </table>
@@ -179,7 +180,7 @@ function TeamTable({ b, win }: { b: Board; win: Win }) {
         <table className="w-full text-[12px]">
           <thead><tr className="text-left text-[10px] uppercase text-[#697a91]"><th className="px-3 py-1.5">Closer</th><th className="px-2 py-1.5 text-right">Demos</th><th className="px-2 py-1.5 text-right">Show-up</th><th className="px-2 py-1.5 text-right">Closed</th><th className="px-2 py-1.5 text-right">Close rate</th><th className="px-2 py-1.5 text-right">Upfront</th></tr></thead>
           <tbody>{b.closers.map((n) => { const s = b.closerStats[n][win]; return (
-            <tr key={n} className={cn("border-t border-[#eef3f8]", n === FORMER && "text-[#8595a8] italic")}><td className="px-3 py-1.5 font-semibold text-[#1f3559]">{n === FORMER ? "⚠ Former reps (sheet)" : n}</td><td className="px-2 py-1.5 text-right">{s.total}</td>
+            <tr key={n} className={cn("border-t border-[#eef3f8]", n === FORMER && "text-[#8595a8] italic")}><td className="px-3 py-1.5 font-semibold text-[#1f3559]">{n === FORMER ? "⚠ Former reps (sheet)" : <TeamChip name={n} />}</td><td className="px-2 py-1.5 text-right">{s.total}</td>
               <td className={cn("px-2 py-1.5 text-right font-semibold", TONE[grade(s.showUp, TARGETS.demoShowUp)].split(" ")[1])}>{p(s.showUp)}</td><td className="px-2 py-1.5 text-right">{s.closed}</td>
               <td className={cn("px-2 py-1.5 text-right font-semibold", TONE[grade(s.closeRate, TARGETS.closeRate)].split(" ")[1])}>{p(s.closeRate)}</td><td className="px-2 py-1.5 text-right font-semibold text-[#0e8f88]">${s.upfront.toLocaleString()}</td></tr>); })}</tbody>
         </table>
@@ -247,7 +248,8 @@ export function SalesBoardView() {
         </div>
         {seat !== "team" && (
           <div className="flex gap-1 flex-nowrap">
-            {[...(scope && people.length <= 1 ? [] : ["ALL"]), ...people].map((n) => <button key={n} onClick={() => setWho(n)} title={n === FORMER ? "Leads whose sheet row still names a rep who left — see the note below" : undefined} className={cn("px-2 py-1 rounded-lg text-xs font-semibold border", who === n ? "bg-[#1f3559] text-white border-[#1f3559]" : n === FORMER ? "bg-white text-[#8595a8] border-dashed border-[#c3cdd9]" : "bg-white text-[#34568a] border-[#d7e0ea] hover:bg-[#f6f9fc]")}>{n === "ALL" ? "Everyone" : n === FORMER ? "⚠ Former" : n}</button>)}
+            {[...(scope && people.length <= 1 ? [] : ["ALL"]), ...people].map((n) => <button key={n} onClick={() => setWho(n)} title={n === FORMER ? "Leads whose sheet row still names a rep who left — see the note below" : undefined} className={cn("px-2 py-1 rounded-lg text-xs font-semibold border", who === n ? (n === "ALL" || n === FORMER ? "bg-[#1f3559] text-white border-[#1f3559]" : "ring-2 ring-offset-1 ring-[#1f3559]") : n === FORMER ? "bg-white text-[#8595a8] border-dashed border-[#c3cdd9]" : n === "ALL" ? "bg-white text-[#34568a] border-[#d7e0ea] hover:bg-[#f6f9fc]" : "opacity-70 hover:opacity-100")}
+              style={n !== "ALL" && n !== FORMER ? { background: userColor(n)!.bg, color: userColor(n)!.text, borderColor: userColor(n)!.border } : undefined}>{n === "ALL" ? "Everyone" : n === FORMER ? "⚠ Former" : n}</button>)}
           </div>
         )}
         <button onClick={refreshFollowUps} disabled={syncing || loading} className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-[#9fe0dc] bg-[#e9f9f8] text-[#0e8f88] hover:bg-[#d8f3f1] disabled:opacity-60" title="Re-read the GHL call/text log for every lead on the lists (also runs every hour)">

@@ -1,4 +1,5 @@
 "use client";
+import { VersionChip } from "@/components/ui/VersionChip";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -27,12 +28,6 @@ const PAGE = 12;
    frozen funnel keeps the full flow it was frozen on) — the same test the
    funnel page makes. */
 type Row = { slug: string; owner: string; business: string; version: "V3" | "V2.3" | "V1" | "other"; status: string; v1Flow: boolean };
-const VER_CLS: Record<Row["version"], string> = {
-  V3: "bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]",
-  "V2.3": "bg-[#f5f3ff] text-[#6d28d9] border-[#ddd6fe]",
-  V1: "bg-[#f1f5f9] text-[#475569] border-[#cbd5e1]",
-  other: "bg-[#f5f3ff] text-[#6d28d9] border-[#ddd6fe]",
-};
 
 export default function BookingPreviewsPage() {
   const [supabase] = useState(() => createClient());
@@ -138,7 +133,7 @@ export default function BookingPreviewsPage() {
                     <div className="text-[13px] font-semibold text-[#1c2b3a] truncate" title={r.business}>{r.business}</div>
                     <div className="text-[11px] text-[#697a91] truncate">{r.owner}</div>
                   </div>
-                  <span className={cn("shrink-0 rounded-full border px-1.5 py-px text-[10px] font-bold", VER_CLS[r.version])}>{r.version}</span>
+                  <VersionChip version={r.version === "other" ? "" : r.version} className="shrink-0" />
                 </div>
                 {/* A 390 × 780 phone, drawn at 62% so a row fits several clients. */}
                 <div className="mx-auto overflow-hidden rounded-[18px] border-4 border-[#1f2937] bg-white" style={{ width: 250, height: 490 }}>

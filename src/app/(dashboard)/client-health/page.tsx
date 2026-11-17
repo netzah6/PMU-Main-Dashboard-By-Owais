@@ -1,4 +1,6 @@
 "use client";
+import { TeamName } from "@/components/ui/TeamChip";
+import { VersionChip } from "@/components/ui/VersionChip";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, RefreshCw, Search } from "lucide-react";
 import { useUser } from "@/lib/hooks/useUser";
@@ -187,7 +189,7 @@ function ClientRow({ c, open, onToggle }: { c: ClientHealth; open: boolean; onTo
             <div className="flex flex-wrap items-baseline gap-x-2">
               <span className="text-[13px] font-semibold text-[#1f3559] break-words">{c.owner}</span>
               <span className="text-[11px] text-[#697a91] break-words">{c.business}</span>
-              <span className="text-[10px] text-[#a6b3c4]">{[c.version || null, c.live.firstLead ? `live since ${fmtDate(c.live.firstLead)}${c.live.days != null ? ` (day ${c.live.days})` : ""}` : "no lead yet", c.coach || null].filter(Boolean).join(" · ")}</span>
+              <span className="text-[10px] text-[#a6b3c4]">{c.version ? <><VersionChip version={c.version} /> · </> : null}{c.coach ? <><TeamName name={c.coach} /> · </> : null}{[c.live.firstLead ? `live since ${fmtDate(c.live.firstLead)}${c.live.days != null ? ` (day ${c.live.days})` : ""}` : "no lead yet"].join(" · ")}</span>
             </div>
             {issues.length > 0 ? (
               <ul className="mt-0.5 space-y-0.5">

@@ -73,3 +73,6 @@ html, body {
   96% { transform: rotate(-0.5deg) scale(1.01); }
 }
 .ob-golive { animation: ob-golive 3s ease-in-out infinite; }
+
+/* Team-colored selects (solid fills, white text) — keep the open list readable. */
+select option { color: #1f2937; background: #ffffff; }

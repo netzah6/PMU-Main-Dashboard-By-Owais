@@ -1,4 +1,5 @@
 "use client";
+import { TeamName } from "@/components/ui/TeamChip";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ScreenshotGallery from "@/components/agent/ScreenshotGallery";
 import { Loader2, Send, Sparkles, ChevronDown, ChevronRight, Copy, Check, MessageCircle, RefreshCw, X, Pencil } from "lucide-react";
@@ -1542,7 +1543,7 @@ function ScheduledList({ contactId, refreshKey }: { contactId: string; refreshKe
           <li key={m.id} className="flex items-start gap-2 text-[12px]">
             <div className="flex-1 min-w-0">
               <span className="font-semibold text-[#1f3559]">{whenText(m.scheduled_for)}</span>
-              <span className="text-[#8595a8]"> · by {m.created_by.split("@")[0]}</span>
+              <span className="text-[#8595a8]"> · by <TeamName name={m.created_by} label={m.created_by.split("@")[0]} /></span>
               <p className="text-[#697a91] whitespace-pre-wrap break-words">{m.message}</p>
             </div>
             <button onClick={() => void cancel(m)} disabled={busy === m.id}

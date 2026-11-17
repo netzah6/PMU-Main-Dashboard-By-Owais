@@ -1,4 +1,5 @@
 "use client";
+import { TeamChip } from "@/components/ui/TeamChip";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw, Check, X, Search, ChevronDown, ChevronRight, Plus, Trash2, Undo2 } from "lucide-react";
@@ -391,7 +392,7 @@ function CoachShare({ data, decided, q, onShares, onError }: {
               return [
                 <tr key={g.coach} className="hover:bg-[#f9fbfd] cursor-pointer" onClick={() => setOpen(isOpen ? null : g.coach)}>
                   <td className="px-3 py-2 font-semibold text-[#1f3559] whitespace-nowrap">
-                    {isOpen ? <ChevronDown className="w-3.5 h-3.5 inline mr-1" /> : <ChevronRight className="w-3.5 h-3.5 inline mr-1" />}{g.coach}
+                    {isOpen ? <ChevronDown className="w-3.5 h-3.5 inline mr-1" /> : <ChevronRight className="w-3.5 h-3.5 inline mr-1" />}<TeamChip name={g.coach} />
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">{g.items.length}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{g.paying}</td>

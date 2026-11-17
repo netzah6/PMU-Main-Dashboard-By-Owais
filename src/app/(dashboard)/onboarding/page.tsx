@@ -1,4 +1,5 @@
 "use client";
+import { VersionChip } from "@/components/ui/VersionChip";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, ChevronLeft, ChevronRight, Trash2, ExternalLink, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -289,7 +290,7 @@ export default function OnboardingPage() {
               <ChevronLeft size={13} /> All onboardings
             </button>
             <h1 className="text-xl font-bold text-[#1f3559] flex items-baseline gap-2 flex-wrap"><span>{open.form.business_name}</span>
-            <span className="text-sm font-normal text-[#697a91]">{open.form.owner_name} · {open.form.version || "—"} · started {new Date(open.created_at).toLocaleDateString("en-US")}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}
+            <span className="text-sm font-normal text-[#697a91]">{open.form.owner_name} · <VersionChip version={open.form.version} /> · started {new Date(open.created_at).toLocaleDateString("en-US")}{open.created_by ? ` by ${open.created_by.split("@")[0]}` : ""}
               {/* The setup run puts its account line here (Clean New Account N → business · GHL · funnel). */}
               <span id="setup-meta-slot" /></span></h1>
           </div>

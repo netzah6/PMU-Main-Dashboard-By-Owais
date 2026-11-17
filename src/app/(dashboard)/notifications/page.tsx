@@ -1,4 +1,5 @@
 "use client";
+import { TeamChip } from "@/components/ui/TeamChip";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -34,7 +35,7 @@ export default function NotificationsPage() {
                 <p className="text-sm font-semibold text-[#1c2b3a]">{r.title}</p>
                 {r.body && <p className="text-xs text-[#56678a] mt-0.5">{r.body}</p>}
                 <p className="text-[11px] text-[#8595a8] mt-1">
-                  {new Date(r.created_at).toLocaleString()} {r.coach ? <>· coach: <b>{r.coach}</b></> : null}
+                  {new Date(r.created_at).toLocaleString()} {r.coach ? <>· coach: <TeamChip name={r.coach} size="xs" /></> : null}
                 </p>
               </div>
               {!r.read_at && (

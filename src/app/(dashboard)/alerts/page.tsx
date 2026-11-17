@@ -1,4 +1,5 @@
 "use client";
+import { TeamName } from "@/components/ui/TeamChip";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
 import { Loader2, RefreshCw } from "lucide-react";
@@ -95,7 +96,7 @@ function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, 
           );
         })()}
         <span className="text-[11px] text-[#8595a8] ml-auto whitespace-nowrap">
-          {open ? ago(a.created_at) : `${a.muted ? "muted" : "resolved"} ${a.resolved_at ? ago(a.resolved_at) : ""}${a.resolved_by ? ` by ${a.resolved_by.split("@")[0]}` : ""}`}
+          {open ? ago(a.created_at) : <>{`${a.muted ? "muted" : "resolved"} ${a.resolved_at ? ago(a.resolved_at) : ""}`}{a.resolved_by ? <> by {a.resolved_by.startsWith("system") ? a.resolved_by : <TeamName name={a.resolved_by} label={a.resolved_by.split("@")[0]} />}</> : ""}</>}
         </span>
       </div>
       <div className="mt-2 text-sm font-semibold text-[#1c2f4a]">{a.title}</div>

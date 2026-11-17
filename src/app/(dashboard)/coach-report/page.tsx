@@ -1,4 +1,5 @@
 "use client";
+import { TeamChip } from "@/components/ui/TeamChip";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useUser } from "@/lib/hooks/useUser";
 import { ChevronDown, ChevronRight, Loader2, RefreshCw, Send } from "lucide-react";
@@ -167,7 +168,7 @@ export default function CoachReportPage() {
         <>
           <div className="border border-[#e4ebf2] rounded-xl bg-white p-4">
             <div className="flex flex-wrap items-center gap-3 mb-3">
-              <span className="text-sm font-semibold text-[#1c2b3a]">{coach}&rsquo;s clients ({roster.length})</span>
+              <span className="text-sm font-semibold text-[#1c2b3a]"><TeamChip name={coach} />&rsquo;s clients ({roster.length})</span>
               <label className="flex items-center gap-1.5 text-xs text-[#697a91]">
                 Month:
                 <select value={month} onChange={(e) => setMonth(e.target.value)} className="border border-[#e4ebf2] rounded-lg px-2 py-1 text-xs bg-white">
@@ -281,7 +282,7 @@ export default function CoachReportPage() {
                     className="w-full flex flex-wrap items-center gap-2 text-xs px-2.5 py-1.5 text-left hover:bg-[#f6f9fc] rounded-lg">
                     {open ? <ChevronDown className="w-3.5 h-3.5 text-[#697a91]" /> : <ChevronRight className="w-3.5 h-3.5 text-[#697a91]" />}
                     <b className="text-[#1c2b3a]">{monthLabel}</b>
-                    {isAdmin && !coach ? <span className="text-[#697a91]">{s.coach}</span> : null}
+                    {isAdmin && !coach ? <TeamChip name={s.coach} /> : null}
                     <span className="text-[#697a91]">{n("active")} active · {n("paused_resuming")} resuming · {n("churned")} churned</span>
                     {(s.referrals?.length ?? 0) > 0 && (
                       <span className="font-semibold text-[#b45309]">🎁 {s.referrals!.length} referral{s.referrals!.length === 1 ? "" : "s"} (${s.referrals!.length * REFERRAL_BONUS})</span>
