@@ -173,14 +173,16 @@ async function savePaidRetryStatus(svc: ReturnType<typeof createServiceClient>, 
    that payment for her contact (15-25 minutes after), and the stamp the
    booking step writes. The newest one counts. A Deposits row that was
    synced again later is capped by its own date. */
-async function paymentMoment(svc: ReturnType<typeof createServiceClient>, a: { email: string; paidAt: string | null; contactId: string }): Promise<number | null> {
+async function paymentMoment(svc: ReturnType<typeof createServiceClient>, a: { email: string; paidAt: string | null; contactId: string }): Promise<{ ms: number | null; error?: string }> {
   const email = a.email.trim();
   const [dep, chk] = await Promise.all([
     email
       ? svc.from("deposits").select("synced_at, data").ilike("data->>Email", email.replace(/[\\%_]/g, "\\$&")).order("synced_at", { ascending: false }).limit(3)
-      : Promise.resolve({ data: [] as Array<{ synced_at: string; data: Record<string, unknown> }> }),
+      : Promise.resolve({ data: [] as Array<{ synced_at: string; data: Record<string, unknown> }>, error: null }),
     svc.from("paid_tag_checks").select("checked_at").eq("contact_id", a.contactId).in("result", ["ok", "healed"]).order("checked_at", { ascending: false }).limit(1),
   ]);
+  const readErr = dep.error ?? chk.error;
+  if (readErr) return { ms: null, error: readErr.message.slice(0, 100) };
   const moments: number[] = [];
   for (const d of ((dep.data ?? []) as Array<{ synced_at: string; data: Record<string, unknown> }>)) {
     const m = String(d.data?.["Date"] ?? "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // sheet dates are DD/MM/YYYY
@@ -190,7 +192,7 @@ async function paymentMoment(svc: ReturnType<typeof createServiceClient>, a: { e
   for (const c of ((chk.data ?? []) as Array<{ checked_at: string | null }>)) moments.push(Date.parse(String(c.checked_at ?? "")));
   moments.push(Date.parse(String(a.paidAt ?? "")));
   const known = moments.filter((x) => Number.isFinite(x) && x <= Date.now());
-  return known.length ? Math.max(...known) : null;
+  return { ms: known.length ? Math.max(...known) : null };
 }
 
 /* Has she had (or does she have) any appointment since she paid? true / false,
@@ -242,10 +244,11 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
     || (!l.ghl_appointment_id && l.slot_iso && (Date.parse(String(l.slot_iso)) > nowMs || Date.parse(String(l.picked_time_at ?? l.created_at)) >= nowMs - 21 * 86400_000)));
   if (!broken.length) return { healed: 0 };
 
-  const { data: clients } = await svc
+  const { data: clients, error: clientsErr } = await svc
     .from("onebox_clients")
     .select("slug, location_id, config, extras")
     .in("slug", [...new Set(broken.map((l) => l.slug))]);
+  if (clientsErr) return { healed: 0, errors: [`funnels could not be read: ${clientsErr.message.slice(0, 120)}`] };
   const bySlug = new Map((clients ?? []).map((c) => [c.slug as string, c]));
 
   let contactsFixed = 0, apptsCreated = 0, alreadyBooked = 0, stale = 0, notProven = 0;
@@ -308,7 +311,9 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
          on every row of hers, also on a row that was paid weeks ago (56 such
          rows sit unbooked), and this job would then book a time nobody paid
          for. No payment in the last 4 days = not ours to touch. */
-      const paidMs = await paymentMoment(svc, { email: String(a.email ?? ""), paidAt: lead.paid_at as string | null, contactId });
+      const paid = await paymentMoment(svc, { email: String(a.email ?? ""), paidAt: lead.paid_at as string | null, contactId });
+      if (paid.error) { errors.push(`${lead.full_name}: payment records could not be read (${paid.error})`); continue; } // an error, not "no payment"
+      const paidMs = paid.ms;
       if (paidMs === null || Date.now() - paidMs > 4 * 86400_000) { notProven++; continue; }
       const pickedMs = Date.parse(String(lead.picked_time_at ?? lead.created_at));
       /* Of 270 payments made on the page, 267 came within 30 minutes of the
@@ -321,7 +326,7 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       });
       if (res.wait) continue; // the paid tag is not on her contact yet: the next run looks again
       let booked: typeof res = res;
-      if (!forThisPick) {
+      if (!forThisPick && !res.alreadyBooked) { // "already booked" needs no proof: her rows are settled and an open card closed, below
         /* She paid lately, but this time was picked long before or after the
            payment. Something already on her calendar: leave everything as it
            is. Nothing on it, and nothing since she paid: she may be an unbooked
@@ -377,7 +382,7 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
         // Owner (2026-10-12): a paid lead still not booked must be on the Alerts tab.
         await filePaidNotBookedAlert(svc, {
           slug: lead.slug as string, locationId: client.location_id as string, contactId, name: lead.full_name as string,
-          slotIso: String(lead.slot_iso), error: booked.error ?? "booking failed",
+          slotIso: String(lead.slot_iso), error: booked.error ?? "booking failed", what: "The automatic booking failed",
         }).catch(() => {});
       }
     }

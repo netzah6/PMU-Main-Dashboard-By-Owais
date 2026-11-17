@@ -175,22 +175,23 @@ const MAX_TRIES_PER_RUN = 4;
    booked, so no harm that day). Exactly one such lead, picked around the
    payment: a person is told. Never booked blind, no tag moved. */
 async function pickUnderAnotherContact(svc: Svc, a: { loc: string; contactId: string; name: string; paidAtMs?: number }): Promise<BookTry | null> {
-  const want = normName(a.name);
+  // The sheet (and GHL) often double the last name: "First Last Last". Only that is forgiven; the match stays exact otherwise.
+  const tidy = (v: unknown) => { const w = normName(v).split(" ").filter(Boolean); while (w.length > 2 && w[w.length - 1] === w[w.length - 2]) w.pop(); return w.join(" "); };
+  const want = tidy(a.name);
   if (!want.includes(" ")) return null;
   const { data } = await svc.from("onebox_leads")
     .select("id, slug, full_name, phone, answers, slot_iso, ghl_status, ghl_appointment_id, picked_time_at, created_at, ghl_contact_id")
-    .eq("location_id", a.loc).ilike("full_name", a.name.trim().replace(/[\\%_]/g, "\\$&"))
-    .not("slot_iso", "is", null).is("ghl_appointment_id", null).neq("ghl_contact_id", a.contactId)
+    .eq("location_id", a.loc).not("slot_iso", "is", null).is("ghl_appointment_id", null).neq("ghl_contact_id", a.contactId)
     .gte("picked_time_at", new Date(Date.now() - 3 * 86_400_000).toISOString())
-    .order("created_at", { ascending: false }).limit(6);
+    .order("created_at", { ascending: false }).limit(200);
   const rows = ((data ?? []) as Array<UnbookedLead & { ghl_contact_id: string | null }>).filter((r) => {
     const pickedMs = Date.parse(String(r.picked_time_at ?? r.created_at));
-    return normName(r.full_name) === want && r.ghl_contact_id && Date.parse(r.slot_iso) > Date.now()
+    return tidy(r.full_name) === want && r.ghl_contact_id && Date.parse(r.slot_iso) > Date.now()
       && (!a.paidAtMs || (pickedMs >= a.paidAtMs - 24 * 3600_000 && pickedMs <= a.paidAtMs + 10 * 60_000));
   });
   const contacts = [...new Set(rows.map((r) => r.ghl_contact_id as string))];
   if (contacts.length !== 1) return null;
-  return { kind: "person", lead: rows[0], contactId: contacts[0], note: "the payment came in under another contact of hers (a different e-mail), so her lead with the picked time was never booked" };
+  return { kind: "person", lead: rows[0], contactId: contacts[0], note: "the payment came in under another contact of hers (a different e-mail), so her lead with the picked time may not be booked: check her calendar" };
 }
 
 async function bookPaidNotBooked(svc: Svc, origin: string | undefined, a: { loc: string; contactId: string; name: string; token?: string; contact?: GContact; /** no contact in hand: read it (one GET) when she has no pick */ readContact?: boolean; paidAtMs?: number; budget: { left: number } }): Promise<BookTry> {
@@ -255,7 +256,7 @@ async function bookPaidNotBooked(svc: Svc, origin: string | undefined, a: { loc:
     if (!ever.ok) return { kind: "none" }; // unreadable: the next run looks again
     return ever.booked
       ? { kind: "left", lead: l, note: "her picked time has passed; she was on the calendar" }
-      : { kind: "person", lead: l, note: "her picked time has already passed and no appointment was ever made for her" };
+      : { kind: "person", lead: l, note: "her picked time has already passed and she was not booked for it (nothing at that time, nothing made since she picked); check if she has an older appointment at another time" };
   }
   if (a.budget.left <= 0) return { kind: "none" }; // next run
   a.budget.left--;
@@ -332,7 +333,10 @@ export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked
     && String(r.data["Email"] ?? "").includes("@"));
   if (!deps.length) return { checked: 0, healed, notFound, booked, left, needsPerson, errors };
 
-  const { data: ob } = await svc.from("onebox_clients").select("location_id, client_name");
+  const { data: ob, error: obErr } = await svc.from("onebox_clients").select("location_id, client_name");
+  // Without the client list every new payment would be filed as "names no client" for good.
+  if (obErr) return { checked: 0, healed, notFound, booked, left, needsPerson, errors: [`funnels could not be read: ${obErr.message.slice(0, 120)}`] };
+  const nameByLoc = new Map(((ob ?? []) as Array<{ location_id: string; client_name: string }>).map((o) => [o.location_id, o.client_name]));
   const locByBiz = new Map(((ob ?? []) as Array<{ location_id: string; client_name: string }>).map((o) => [normBiz(o.client_name), o.location_id]));
   const { data: cm } = await svc.from("clients_master").select("data");
   const ownerByBiz = new Map(((cm ?? []) as Array<{ data: Record<string, unknown> }>).map((r) => [normBiz(r.data["Business Name"]), String(r.data["Owner Full Name"] ?? "")]));
@@ -345,6 +349,8 @@ export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked
     svc.from("onebox_leads").update(patch).eq("ghl_contact_id", contactId).eq("slug", slug).is("ghl_appointment_id", null).not("slot_iso", "is", null);
   const budget = { left: MAX_TRIES_PER_RUN };
   const bookNow = async (p: { key: string; name: string; biz: string; row: Record<string, unknown>; paidAt: string; loc: string; contactId: string; token?: string; contact?: GContact; readContact?: boolean }) => {
+    // The sheet row may carry no business name (the account was then found through her lead).
+    p = { ...p, biz: p.biz || nameByLoc.get(p.loc) || "her studio" };
     const who = `${p.name} (${p.biz})`;
     try {
       const paidAtMs = Date.parse(p.paidAt);
@@ -446,7 +452,7 @@ export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked
         await fileOrAppendAlert(svc, {
           type: "paid_not_synced", severity: "medium",
           title: `${name} paid a deposit, but the payment names no client${biz ? ` ("${biz}")` : ""}`,
-          detail: `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} (${email}) has ${biz ? "a business name that matches no client" : "no business name"} on the Deposits sheet, and no one-box lead uses that email. The paid tag and her appointment were NOT checked. Find her by name and make sure she is tagged "fanbasis buyer" and on the calendar.`,
+          detail: `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} (${email}) has ${biz ? "a business name that matches no client" : "no business name"} on the Deposits sheet, and no single client could be matched through that email. The paid tag and her appointment were NOT checked. Find her by name and make sure she is tagged "fanbasis buyer" and on the calendar.`,
           source_key: `paid-nolocation:${key}`, meta: { email },
         });
         continue;
@@ -482,7 +488,7 @@ export async function healPaidTags(svc: Svc, origin?: string): Promise<{ checked
       healed.push(`${name} (${biz})`);
       await fileOrAppendAlert(svc, {
         type: "paid_not_synced", severity: "medium",
-        title: `${name} paid ${biz} but GHL missed it — fixed automatically`,
+        title: `${name} paid ${biz || nameByLoc.get(loc) || "her studio"} but GHL missed it — fixed automatically`,
         detail: t.byName
           ? `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} was made with ${email}, which isn't on her lead, so GHL filed it on a blank new contact. Her real lead (found by name, with her phone) got the "fanbasis buyer" tag, so the paid-deposit workflow now confirms her appointment. Resolve this once checked.`
           : `Payment ${r.data["Amount"] ?? ""} on ${usDate(r.data["Date"])} reached the Deposits sheet but not her GHL contact. The "fanbasis buyer" tag was added, so the paid-deposit workflow now confirms her appointment. Resolve this once checked.`,

@@ -46,7 +46,7 @@
     },
     {
       "path": "/api/cron/ghl-retry",
-      "schedule": "9,39 * * * *"
+      "schedule": "6,36 * * * *"
     },
     {
       "path": "/api/cron/call-kill",
