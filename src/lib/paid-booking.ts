@@ -2,6 +2,7 @@ import { AI_HOLD_LIVE_MS, AI_HOLD_STATUS, locationTimezone, wallToIso } from "@/
 import { REMOVED_TAG } from "@/lib/ai-hold-cleanup";
 
 const GHL = "https://services.leadconnectorhq.com";
+const TIMEOUT_MS = 8_000; // per GHL read; a hung read is an error, never "nothing there"
 
 /* Look before a server job books a PAID lead's picked time (11/17/2026).
 
@@ -11,26 +12,39 @@ const GHL = "https://services.leadconnectorhq.com";
    her calendar since she picked. Everything else is left alone or handed to
    a person through an Alerts card.
 
-   - same_time     a live appointment already sits at her picked time
-   - other_time    she has a live appointment at ANOTHER time (the artist or
-                   the AI set it): leave it; /api/onebox/book would cancel it
-   - needs_person  no live appointment, but one was made or changed after she
-                   picked and is gone now (cancelled, or deleted: a deleted
-                   appointment is invisible to the appointments API, so the
-                   conversation's own appointment activity is read too)
+   - other_time    she has a live appointment at ANOTHER time or on another
+                   calendar: leave everything alone (/api/onebox/book would
+                   cancel it, or double-book next to a calendar it cannot
+                   see). `madeBeforePick` says it is older than her pick, or
+                   on another calendar — she may have paid for a different
+                   time than the one she is booked for, so a person is told.
+   - same_time     her only live appointment sits at her picked time, on the
+                   funnel's calendar. `unconfirmedHold`: it is still the AI's
+                   unpaid hold ("invalid").
+   - needs_person  no usable appointment, and the case is not clean: one was
+                   made or changed after she picked and is gone now
+                   (cancelled, or deleted — a deleted appointment is invisible
+                   to the appointments API, so the conversation's own
+                   appointment activity is read too), or only an old
+                   unconfirmed hold is left.
    - none          nothing was ever booked for her: book the picked time
 
    Fails closed: any unreadable piece is an error, never "no appointments"
    (a failed lookup that read as "nothing there" is how the double bookings
    of 10/19 happened). */
 export type PaidBookingLook =
-  | { ok: true; state: "none" | "same_time" | "other_time" | "needs_person"; note: string }
+  | { ok: true; state: "none"; note: string }
+  | { ok: true; state: "same_time"; note: string; unconfirmedHold: boolean }
+  | { ok: true; state: "other_time"; note: string; madeBeforePick: boolean }
+  | { ok: true; state: "needs_person"; note: string }
   | { ok: false; error: string };
 
-type Ev = { id?: string; startTime?: string; dateAdded?: string; appointmentStatus?: string; appoinmentStatus?: string; deleted?: boolean };
+type Ev = { id?: string; calendarId?: string; startTime?: string; dateAdded?: string; appointmentStatus?: string; appoinmentStatus?: string; deleted?: boolean };
 
 export async function lookBeforePaidBooking(a: {
   locationId: string; token: string; contactId: string; slotIso: string;
+  /** The funnel's calendar. Without it any calendar counts as "her time". */
+  calendarId?: string | null;
   /** When she picked the time (onebox_leads.picked_time_at, else created_at). */
   pickedAt?: string | null;
 }): Promise<PaidBookingLook> {
@@ -39,7 +53,7 @@ export async function lookBeforePaidBooking(a: {
     const cid = encodeURIComponent(a.contactId);
     const [tz, ar] = await Promise.all([
       locationTimezone(a.locationId, a.token),
-      fetch(`${GHL}/contacts/${cid}/appointments`, { headers: { ...H, Version: "2021-07-28" } }),
+      fetch(`${GHL}/contacts/${cid}/appointments`, { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(TIMEOUT_MS) }),
     ]);
     if (!ar.ok) return { ok: false, error: `appointments HTTP ${ar.status}` };
     if (!tz) return { ok: false, error: "location timezone unknown" };
@@ -51,31 +65,51 @@ export async function lookBeforePaidBooking(a: {
     const offsetLess = !/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(a.slotIso);
     const slotMs = Date.parse(offsetLess ? wallToIso(a.slotIso, tz) : a.slotIso);
     if (!Number.isFinite(slotMs)) return { ok: false, error: "picked time unreadable" };
-    const rows = events.filter((e) => e.id).map((e) => {
-      const status = String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase(); // GHL ships both spellings
-      return { startMs: ms(e.startTime), addedMs: ms(e.dateAdded), status, gone: e.deleted === true || status === "cancelled" };
-    });
-    const ahead = rows.filter((r) => !r.gone && r.status !== "noshow" && r.status !== "showed" && Number.isFinite(r.startMs) && r.startMs > now);
-    if (ahead.some((r) => Math.abs(r.startMs - slotMs) < 60_000)) {
-      return { ok: true, state: "same_time", note: "an appointment already sits at her picked time" };
-    }
-    /* "invalid" is the AI's unpaid hold: the account's own workflow confirms
-       it once the paid tag lands, but only for a few days. An older hold at
-       another time is dead (nothing will ever confirm it) and must not count
-       as "she has an appointment", or a paying lead is left with nothing. */
-    const live = ahead.filter((r) => !(r.status === AI_HOLD_STATUS && Number.isFinite(r.addedMs) && r.addedMs < now - AI_HOLD_LIVE_MS));
-    if (live.length) return { ok: true, state: "other_time", note: "she already has an appointment at another time" };
-
-    // Nothing live. Was anything made for her after she picked?
     const pickedMs = Date.parse(String(a.pickedAt ?? ""));
     const since = Number.isFinite(pickedMs) ? pickedMs - 5 * 60_000 : now - 21 * 86_400_000;
-    const cr = await fetch(`${GHL}/contacts/${cid}`, { headers: { ...H, Version: "2021-07-28" } });
+    const rows = events.filter((e) => e.id).map((e) => {
+      const status = String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase(); // GHL ships both spellings
+      return { startMs: ms(e.startTime), addedMs: ms(e.dateAdded), status, calendarId: String(e.calendarId ?? ""), gone: e.deleted === true || status === "cancelled" };
+    });
+    type Row = (typeof rows)[number];
+    // "At her time" means the same minute on the funnel's own calendar: that is
+    // the only appointment the booking step can see and reuse.
+    const atHerTime = (r: Row) => Math.abs(r.startMs - slotMs) < 60_000 && (!a.calendarId || r.calendarId === a.calendarId);
+    const ahead = rows.filter((r) => !r.gone && r.status !== "noshow" && r.status !== "showed" && Number.isFinite(r.startMs) && r.startMs > now);
+
+    /* Anything live that is NOT her picked time comes first, even when an
+       appointment also sits at her time: /api/onebox/book cancels other
+       fresh appointments ("last booking wins"), by-hand ones included, and
+       it cannot see another calendar at all. Hands off. */
+    const elsewhere = ahead.filter((r) => !atHerTime(r));
+    if (elsewhere.length) {
+      /* Only the AI's old unpaid holds ("invalid"): the account's workflow
+         usually confirms a hold once the paid tag lands, even a week-old one
+         (Martina Ybarra, 11/06: an 8-day-old hold was confirmed 5 s after
+         the tag). One that is STILL a hold by the time a net looks may never
+         be confirmed, and booking her pick next to it could leave her with
+         two — a person decides. */
+      const oldHoldsOnly = elsewhere.every((r) => r.status === AI_HOLD_STATUS && Number.isFinite(r.addedMs) && r.addedMs < now - AI_HOLD_LIVE_MS);
+      if (oldHoldsOnly) return { ok: true, state: "needs_person", note: "she only has an old unconfirmed hold at another time" };
+      const madeBeforePick = elsewhere.every((r) => (!!a.calendarId && r.calendarId !== a.calendarId) || !(Number.isFinite(r.addedMs) && r.addedMs >= since));
+      return { ok: true, state: "other_time", madeBeforePick, note: madeBeforePick
+        ? "she has an appointment at another time that is older than this pick, or on another calendar"
+        : "an appointment at another time was made for her after she picked" };
+    }
+    const here = ahead.filter(atHerTime);
+    if (here.length) return { ok: true, state: "same_time", unconfirmedHold: here.every((r) => r.status === AI_HOLD_STATUS), note: "an appointment already sits at her picked time" };
+
+    // Nothing live. Was anything made for her after she picked?
+    const cr = await fetch(`${GHL}/contacts/${cid}`, { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (!cr.ok) return { ok: false, error: `contact HTTP ${cr.status}` };
     const tags = (((await cr.json()) as { contact?: { tags?: string[] } }).contact?.tags ?? []).map((t) => String(t).toLowerCase());
-    /* The AI-hold cleanup cancelled her unpaid hold and she paid afterwards:
-       that is the one "gone" appointment the booking step knows how to bring
-       back (see /api/onebox/book, removedHolds). */
-    if (tags.includes(REMOVED_TAG)) return { ok: true, state: "none", note: "the AI's unpaid hold was removed by the cleanup" };
+    /* The AI-hold cleanup cancelled her unpaid hold AT THIS TIME and she paid
+       afterwards: the one "gone" appointment the booking step brings back
+       (see /api/onebox/book, removedHolds). The tag is never taken off a
+       contact, so it only counts together with that cancelled hold. */
+    if (tags.includes(REMOVED_TAG) && rows.some((r) => r.status === "cancelled" && atHerTime(r))) {
+      return { ok: true, state: "none", note: "the AI's unpaid hold at her time was removed by the cleanup" };
+    }
     if (rows.some((r) => r.gone && Number.isFinite(r.addedMs) && r.addedMs >= since)) {
       return { ok: true, state: "needs_person", note: "an appointment made after she picked this time was cancelled" };
     }
@@ -90,19 +124,31 @@ export async function lookBeforePaidBooking(a: {
 
 /* GHL writes every appointment change into the contact's conversation as an
    activity line ("New appointment created", "Appointment Cancelled", …) and
-   keeps it even when the appointment itself is deleted. */
+   keeps it even when the appointment itself is deleted. Messages come newest
+   first, 100 a page: read back until the page reaches the moment she picked
+   (a lead the AI keeps texting passes 100 messages in two days). If that
+   moment is still not reached after 10 pages, the answer is "could not
+   read", never "nothing happened". */
 async function appointmentActivitySince(token: string, locationId: string, contactId: string, sinceMs: number): Promise<{ ok: true; touched: boolean } | { ok: false; error: string }> {
   const H = { Authorization: `Bearer ${token}`, Version: "2021-04-15", Accept: "application/json" };
-  const sr = await fetch(`${GHL}/conversations/search?locationId=${encodeURIComponent(locationId)}&contactId=${encodeURIComponent(contactId)}`, { headers: H });
+  const sr = await fetch(`${GHL}/conversations/search?locationId=${encodeURIComponent(locationId)}&contactId=${encodeURIComponent(contactId)}`, { headers: H, signal: AbortSignal.timeout(TIMEOUT_MS) });
   if (!sr.ok) return { ok: false, error: `conversations HTTP ${sr.status}` };
   const convs = ((await sr.json()) as { conversations?: { id?: string }[] }).conversations ?? [];
   for (const cv of convs.slice(0, 3)) {
     if (!cv.id) continue;
-    const mr = await fetch(`${GHL}/conversations/${encodeURIComponent(cv.id)}/messages?limit=100`, { headers: H });
-    if (!mr.ok) return { ok: false, error: `messages HTTP ${mr.status}` };
-    const msgs = ((await mr.json()) as { messages?: { messages?: { messageType?: string; dateAdded?: string }[] } }).messages?.messages ?? [];
-    if (msgs.some((m) => String(m.messageType ?? "") === "TYPE_ACTIVITY_APPOINTMENT" && Date.parse(String(m.dateAdded ?? "")) >= sinceMs)) {
-      return { ok: true, touched: true };
+    let last = "";
+    for (let page = 0; ; page++) {
+      if (page >= 10) return { ok: false, error: "her message thread is too long to read back to when she picked" };
+      const mr = await fetch(`${GHL}/conversations/${encodeURIComponent(cv.id)}/messages?limit=100${last ? `&lastMessageId=${encodeURIComponent(last)}` : ""}`, { headers: H, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      if (!mr.ok) return { ok: false, error: `messages HTTP ${mr.status}` };
+      const box = ((await mr.json()) as { messages?: { messages?: { messageType?: string; dateAdded?: string }[]; nextPage?: boolean; lastMessageId?: string } }).messages;
+      const msgs = box?.messages ?? [];
+      if (msgs.some((m) => String(m.messageType ?? "") === "TYPE_ACTIVITY_APPOINTMENT" && Date.parse(String(m.dateAdded ?? "")) >= sinceMs)) {
+        return { ok: true, touched: true };
+      }
+      const oldest = Math.min(...msgs.map((m) => Date.parse(String(m.dateAdded ?? ""))).filter(Number.isFinite));
+      if (!msgs.length || !box?.nextPage || !box.lastMessageId || oldest < sinceMs) break; // read back far enough
+      last = box.lastMessageId;
     }
   }
   return { ok: true, touched: false };

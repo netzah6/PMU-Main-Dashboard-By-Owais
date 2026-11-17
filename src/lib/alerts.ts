@@ -1206,6 +1206,8 @@ export async function filePaidNotBookedAlert(
     what?: string;
     /** false = no automatic retry will follow (a person has to decide). */
     retrying?: boolean;
+    /** She IS on the calendar, but at another time than the one she picked and paid for. */
+    otherTime?: boolean;
   },
 ): Promise<"filed" | "appended" | "skipped"> {
   /* The studio's wall clock, straight off the ISO text ("2026-11-18T13:00:00-06:00"
@@ -1219,23 +1221,32 @@ export async function filePaidNotBookedAlert(
       : a.slotIso;
   })();
   const biz = a.business ?? a.slug;
-  const next = a.retrying === false
-    ? "It will NOT be booked automatically: check with the artist which time is right, then book her by hand."
+  const person = a.retrying === false;
+  const next = person
+    ? "It will NOT be booked automatically: check with the artist which time is right, then fix the calendar by hand."
     : "The dashboard retries every 30 min; if this box is still open, book her by hand on the calendar at that time.";
+  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
   return fileOrAppendAlert(svc, {
     type: "paid_not_booked", severity: "high",
-    title: `${a.name} paid ${biz} but is NOT on the calendar (${when})`,
+    title: a.otherTime
+      ? `${a.name} paid ${biz} for ${when}, but her appointment is at another time`
+      : `${a.name} paid ${biz} but is NOT on the calendar (${when})`,
     detail: `${a.what ?? "GoHighLevel refused the booking"}: "${a.error}". She paid the deposit and picked ${when}. ${next}`,
     source_key: `paid-not-booked:${a.slug}:${a.contactId ?? a.name}`,
     meta: { slug: a.slug, location_id: a.locationId, contact_id: a.contactId, slot_iso: a.slotIso, link: a.contactId ? ghlContactUrl(a.locationId, a.contactId) : null },
     /* A box someone closed must come back if she is still not booked a day
-       later; without this a closed box silenced that lead for good. */
-    ...(a.retrying === false ? {} : { resurfaceAfterDays: 1 }),
+       later (without this a closed box silenced that lead for good). A
+       "needs a person" box is filed once per case, so an old closed box for
+       the same lead must not swallow it. */
+    resurfaceAfterDays: person ? 0.02 : 1,
     /* The error goes on its own line: fileOrAppendAlert skips a note whose
        quoted line is already in the box, so the same error is written once
        and only a NEW error adds a line (the old one-line note carried the
-       minute, so every retry added a line until the box was full). */
-  }, a.retrying === false ? undefined : `— Still failing (${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC):\n"${a.error}"`);
+       minute, so every retry added a line until the box was full). A "needs
+       a person" note replaces the promise of retries in an open box. */
+  }, person
+    ? `— Needs a person now (${stamp} UTC). Automatic retries have stopped:\n"${a.error}"`
+    : `— Still failing (${stamp} UTC):\n"${a.error}"`);
 }
 
 // Close the box once the lead has an appointment (retry healed it, or the
