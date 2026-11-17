@@ -165,6 +165,13 @@ export async function POST(req: NextRequest) {
     svc.from("onebox_leads").select("ghl_appointment_id").eq("slug", slug).eq("phone", phone),
     svc.from("onebox_leads").select("ghl_appointment_id").eq("slug", slug).eq("ghl_contact_id", contactId),
   ]);
+  /* A safety-net call never books blind: with her calendar unreadable this
+     route would create a new appointment (it must, for the lead who just
+     paid in her browser). The net is told no, files its card and the
+     30-minute retry looks again. */
+  if (fromNet && !lookedUp) {
+    return NextResponse.json({ ok: false, error: `her calendar could not be read (${lookupError ?? "no response"})` }, { status: 503 });
+  }
   const mine = [...(byPhone ?? []), ...(byContact ?? [])];
   // A slot with no offset (the reserved-time path) is the studio's wall
   // clock: give it the studio's offset, or — timezone unknown — keep the end

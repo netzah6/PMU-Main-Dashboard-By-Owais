@@ -27,6 +27,9 @@ const TIMEOUT_MS = 8_000; // per GHL read; a hung read is an error, never "nothi
                    to the appointments API, so the conversation's own
                    appointment activity is read too), or only an unconfirmed
                    hold at another time is left.
+   - wait          the only thing in the way is an unconfirmed hold and the
+                   paid tag is not on her contact yet: the account's workflow
+                   has had no chance to confirm it — look again next run
    - none          nothing was ever booked for her: book the picked time
 
    Fails closed: any unreadable piece is an error, never "no appointments"
@@ -37,7 +40,10 @@ export type PaidBookingLook =
   | { ok: true; state: "same_time"; note: string; unconfirmedHold: boolean }
   | { ok: true; state: "other_time"; note: string; madeBeforePick: boolean }
   | { ok: true; state: "needs_person"; note: string }
+  | { ok: true; state: "wait"; note: string }
   | { ok: false; error: string };
+
+const PAID_TAGS = ["fanbasis buyer", "deposit collected"];
 
 type Ev = { id?: string; calendarId?: string; startTime?: string; dateAdded?: string; appointmentStatus?: string; appoinmentStatus?: string; deleted?: boolean };
 
@@ -77,32 +83,58 @@ export async function lookBeforePaidBooking(a: {
     const atHerTime = (r: Row) => Math.abs(r.startMs - slotMs) < 60_000 && (!a.calendarId || r.calendarId === a.calendarId);
     const ahead = rows.filter((r) => !r.gone && r.status !== "noshow" && r.status !== "showed" && Number.isFinite(r.startMs) && r.startMs > now);
 
-    /* Anything live that is NOT her picked time comes first, even when an
-       appointment also sits at her time: /api/onebox/book cancels other
+    // Her contact's tags, read at most once.
+    let tagsMemo: string[] | null | undefined;
+    const readTags = async (): Promise<string[] | null> => {
+      if (tagsMemo !== undefined) return tagsMemo;
+      const cr = await fetch(`${GHL}/contacts/${cid}`, { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
+      tagsMemo = cr?.ok ? (((await cr.json()) as { contact?: { tags?: string[] } }).contact?.tags ?? []).map((t) => String(t).toLowerCase()) : null;
+      return tagsMemo;
+    };
+
+    const elsewhere = ahead.filter((r) => !atHerTime(r));
+    const here = ahead.filter(atHerTime);
+    const isHold = (r: Row) => r.status === AI_HOLD_STATUS;
+    /* A real (not hold) appointment that is NOT her picked time comes first,
+       even when one also sits at her time: /api/onebox/book cancels other
        fresh appointments ("last booking wins"), by-hand ones included, and
        it cannot see another calendar at all. Hands off. */
-    const elsewhere = ahead.filter((r) => !atHerTime(r));
-    if (elsewhere.length) {
-      /* Only the AI's unpaid holds ("invalid") elsewhere. The account's
-         workflow confirms a hold seconds after the paid tag lands, even a
-         week-old one (Martina Ybarra, 11/06: an 8-day-old hold was confirmed
-         5 s after the tag). A net looks 10+ minutes after the tag, so a hold
-         that is STILL unconfirmed was not picked up by the workflow: she
-         paid and has nothing confirmed, and booking her pick next to the
-         hold could leave her with two. A person decides. */
-      if (elsewhere.every((r) => r.status === AI_HOLD_STATUS)) return { ok: true, state: "needs_person", note: "she paid, but her only appointment is an unconfirmed hold at another time" };
-      const madeBeforePick = elsewhere.every((r) => (!!a.calendarId && r.calendarId !== a.calendarId) || !(Number.isFinite(r.addedMs) && r.addedMs >= since));
+    const realElsewhere = elsewhere.filter((r) => !isHold(r));
+    if (realElsewhere.length) {
+      // "Before her pick" uses the pick itself, no slack: the AI books time A, two minutes later she picks B and pays for B.
+      const edge = Number.isFinite(pickedMs) ? pickedMs : since;
+      const madeBeforePick = realElsewhere.every((r) => (!!a.calendarId && r.calendarId !== a.calendarId) || !(Number.isFinite(r.addedMs) && r.addedMs >= edge));
       return { ok: true, state: "other_time", madeBeforePick, note: madeBeforePick
         ? "she has an appointment at another time that is older than this pick, or on another calendar"
         : "an appointment at another time was made for her after she picked" };
     }
-    const here = ahead.filter(atHerTime);
-    if (here.length) return { ok: true, state: "same_time", unconfirmedHold: here.every((r) => r.status === AI_HOLD_STATUS), note: "an appointment already sits at her picked time" };
+    /* From here on, anything elsewhere is only the AI's unpaid holds
+       ("invalid"). The account's workflow confirms a hold seconds after the
+       paid tag lands, even a week-old one (Martina Ybarra, 11/06: an
+       8-day-old hold was confirmed 5 s after the tag). So a hold that is
+       still unconfirmed minutes after the tag was not picked up by the
+       workflow — unless the tag is not there yet, then the answer is "wait". */
+    const tagIsOn = async (): Promise<boolean | null> => { const t = await readTags(); return t ? t.some((x) => PAID_TAGS.includes(x)) : null; };
+    if (here.length) {
+      const unconfirmedHold = here.every(isHold);
+      if (unconfirmedHold) {
+        const on = await tagIsOn();
+        if (on === null) return { ok: false, error: "contact could not be read" };
+        if (!on) return { ok: true, state: "wait", note: "the paid tag is not on her contact yet" };
+      }
+      // A stray hold at another time does not hide a real appointment at her time (the booking step flags the hold).
+      return { ok: true, state: "same_time", unconfirmedHold, note: "an appointment already sits at her picked time" };
+    }
+    if (elsewhere.length) {
+      const on = await tagIsOn();
+      if (on === null) return { ok: false, error: "contact could not be read" };
+      if (!on) return { ok: true, state: "wait", note: "the paid tag is not on her contact yet" };
+      return { ok: true, state: "needs_person", note: "she paid, but her only appointment is an unconfirmed hold at another time" };
+    }
 
     // Nothing live. Was anything made for her after she picked?
-    const cr = await fetch(`${GHL}/contacts/${cid}`, { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (!cr.ok) return { ok: false, error: `contact HTTP ${cr.status}` };
-    const tags = (((await cr.json()) as { contact?: { tags?: string[] } }).contact?.tags ?? []).map((t) => String(t).toLowerCase());
+    const tags = await readTags();
+    if (!tags) return { ok: false, error: "contact could not be read" };
     /* The AI-hold cleanup cancelled her unpaid hold AT THIS TIME and she paid
        afterwards: the one "gone" appointment the booking step brings back
        (see /api/onebox/book, removedHolds). The tag is never taken off a
@@ -117,6 +149,38 @@ export async function lookBeforePaidBooking(a: {
     if (!act.ok) return { ok: false, error: act.error };
     if (act.touched) return { ok: true, state: "needs_person", note: "an appointment was made or changed after she picked this time, and none is on the calendar now" };
     return { ok: true, state: "none", note: "no appointment was ever made for her" };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message.slice(0, 140) : "lookup failed" };
+  }
+}
+
+/* Her picked time is already in the past. Was she ever on the calendar for
+   it — an appointment at that minute (it may have taken place), or anything
+   made for her since she picked? Only when the answer is a clear "no" is a
+   person told that a paying lead was never booked. */
+export async function everBookedSincePick(a: {
+  locationId: string; token: string; contactId: string; slotIso: string; pickedAt?: string | null;
+  /** Also counts: a kept (not cancelled) appointment that starts after this moment, whenever it was made. */
+  servedAfterMs?: number;
+}): Promise<{ ok: true; booked: boolean } | { ok: false; error: string }> {
+  try {
+    const [tz, ar] = await Promise.all([
+      locationTimezone(a.locationId, a.token),
+      fetch(`${GHL}/contacts/${encodeURIComponent(a.contactId)}/appointments`, { headers: { Authorization: `Bearer ${a.token}`, Accept: "application/json", Version: "2021-07-28" }, signal: AbortSignal.timeout(TIMEOUT_MS) }),
+    ]);
+    if (!ar.ok) return { ok: false, error: `appointments HTTP ${ar.status}` };
+    if (!tz) return { ok: false, error: "location timezone unknown" };
+    const events = ((await ar.json()) as { events?: Ev[] }).events ?? [];
+    const slotMs = Date.parse(a.slotIso);
+    const pickedMs = Date.parse(String(a.pickedAt ?? ""));
+    const since = Number.isFinite(pickedMs) ? pickedMs - 5 * 60_000 : slotMs - 21 * 86_400_000;
+    const ms = (wall: unknown) => Date.parse(wallToIso(String(wall ?? ""), tz));
+    const kept = (e: Ev) => e.deleted !== true && String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase() !== "cancelled";
+    const booked = events.some((e) => e.id && (Math.abs(ms(e.startTime) - slotMs) < 60_000 || ms(e.dateAdded) >= since
+      || (a.servedAfterMs !== undefined && kept(e) && ms(e.startTime) >= a.servedAfterMs)));
+    if (booked) return { ok: true, booked: true };
+    const act = await appointmentActivitySince(a.token, a.locationId, a.contactId, since);
+    return act.ok ? { ok: true, booked: act.touched } : { ok: false, error: act.error };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message.slice(0, 140) : "lookup failed" };
   }

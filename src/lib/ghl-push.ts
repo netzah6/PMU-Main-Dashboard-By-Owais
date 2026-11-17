@@ -191,7 +191,7 @@ export async function bookAppointmentForLead(inp: {
   pickedAt?: string | null;
   /** Look at her calendar and stop: `wouldBook` says a booking would follow. */
   lookOnly?: boolean;
-}): Promise<{ appointmentId?: string; alreadyBooked?: boolean; needsPerson?: string; otherTime?: boolean; wouldBook?: boolean; error?: string }> {
+}): Promise<{ appointmentId?: string; alreadyBooked?: boolean; needsPerson?: string; otherTime?: boolean; wouldBook?: boolean; /** the paid tag is not on her contact yet: look again next run */ wait?: boolean; error?: string }> {
   try {
     const tok = await getAppLocationToken(inp.locationId);
     if (!tok.token) throw new Error(tok.error ?? "no location token");
@@ -199,6 +199,7 @@ export async function bookAppointmentForLead(inp: {
 
     const look = await lookBeforePaidBooking({ locationId: inp.locationId, token: tok.token, contactId: inp.contactId, slotIso: inp.slotIso, calendarId: inp.calendarId, pickedAt: inp.pickedAt });
     if (!look.ok) throw new Error(`her calendar could not be read (${look.error})`);
+    if (look.state === "wait") return { wait: true };
     if (look.state === "same_time") {
       /* Still the AI's unpaid hold, long after the payment: the account's
          workflow did not confirm it, so she has no confirmed appointment and

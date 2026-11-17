@@ -1236,9 +1236,10 @@ export async function filePaidNotBookedAlert(
     meta: { slug: a.slug, location_id: a.locationId, contact_id: a.contactId, slot_iso: a.slotIso, link: a.contactId ? ghlContactUrl(a.locationId, a.contactId) : null },
     /* A box someone closed must come back if she is still not booked a day
        later (without this a closed box silenced that lead for good). A
-       "needs a person" box is filed once per case, so an old closed box for
-       the same lead must not swallow it. */
-    resurfaceAfterDays: person ? 0.02 : 1,
+       "needs a person" box is filed once per case (her rows are closed to
+       retries as soon as it is on the board), so an old closed box for the
+       same lead must not swallow it. */
+    resurfaceAfterDays: person ? 0.001 : 1,
     /* The error goes on its own line: fileOrAppendAlert skips a note whose
        quoted line is already in the box, so the same error is written once
        and only a NEW error adds a line (the old one-line note carried the
@@ -1247,6 +1248,55 @@ export async function filePaidNotBookedAlert(
   }, person
     ? `— Needs a person now (${stamp} UTC). Automatic retries have stopped:\n"${a.error}"`
     : `— Still failing (${stamp} UTC):\n"${a.error}"`);
+}
+
+/* Is a "Paid but not booked" box for her really in front of people: open,
+   or switched off on purpose ("don't show again")? A box closed a moment ago
+   does not count — the next run files it again. */
+export async function paidCardOnBoard(svc: Svc, slug: string, contactId: string | null, name: string): Promise<boolean> {
+  const { data } = await svc.from("alerts").select("status, muted")
+    .eq("type", "paid_not_booked").eq("source_key", `paid-not-booked:${slug}:${contactId ?? name}`)
+    .order("created_at", { ascending: false }).limit(5);
+  return ((data ?? []) as Array<{ status: string; muted: boolean | null }>).some((r) => r.status === "open" || r.muted === true);
+}
+
+/* Watch the two paid-booking safety nets themselves (11/17/2026: the first
+   one had been dead for ten days and nothing said so). Each run saves when
+   it finished in app_settings; a net that has not finished a run for far
+   longer than its schedule gets a card. Runs first in the 30-minute alerts
+   scan. Before the nets' first run after a deploy there is nothing to read
+   and nothing is filed. */
+export async function scanPaidNets(svc: Svc): Promise<{ checked: number; stalled: string[] }> {
+  const { data } = await svc.from("app_settings").select("key, value").in("key", ["paid_heal_status", "paid_retry_status"]);
+  const stalled: string[] = [];
+  const nets = [
+    { key: "paid_heal_status", label: "10-minute paid-deposit check", every: 10, limit: 45 },
+    { key: "paid_retry_status", label: "30-minute paid-lead retry", every: 30, limit: 100 },
+  ];
+  let checked = 0;
+  for (const n of nets) {
+    const v = (((data ?? []) as Array<{ key: string; value: unknown }>).find((r) => r.key === n.key)?.value ?? null) as { at?: string } | null;
+    const at = Date.parse(String(v?.at ?? ""));
+    if (!Number.isFinite(at)) continue;
+    checked++;
+    const source_key = `paid-not-booked:net-stalled:${n.key}`;
+    const mins = Math.round((Date.now() - at) / 60_000);
+    if (mins > n.limit) {
+      stalled.push(`${n.label}: ${mins} min`);
+      await fileOrAppendAlert(svc, {
+        type: "paid_not_booked", severity: "high",
+        title: `The ${n.label} has not finished a run for ${mins >= 120 ? `${Math.round(mins / 60)} hours` : `${mins} minutes`}`,
+        detail: `It should run every ${n.every} minutes; its last finished run was at ${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC. While it is down, a lead who pays but whose page never sends the booking is not booked by it and gets no card. Check the cron in Vercel (is it running, does it time out). This box closes by itself when a run finishes again.`,
+        source_key, meta: { key: n.key, last_run: v?.at ?? null },
+        resurfaceAfterDays: 0.02,
+      });
+    } else {
+      await svc.from("alerts")
+        .update({ status: "resolved", resolved_by: "system (the job runs again)", resolved_at: new Date().toISOString() })
+        .eq("type", "paid_not_booked").eq("source_key", source_key).eq("status", "open");
+    }
+  }
+  return { checked, stalled };
 }
 
 // Close the box once the lead has an appointment (retry healed it, or the

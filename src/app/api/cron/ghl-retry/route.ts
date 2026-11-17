@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { bookAppointmentForLead, pushLeadToGhl } from "@/lib/ghl-push";
 import { addOneboxBookedTag, ensureContactOwner } from "@/lib/artist-notify";
-import { filePaidNotBookedAlert, resolvePaidNotBookedAlert } from "@/lib/alerts";
+import { filePaidNotBookedAlert, paidCardOnBoard, resolvePaidNotBookedAlert } from "@/lib/alerts";
+import { getAppLocationToken } from "@/lib/ghl-app";
+import { everBookedSincePick } from "@/lib/paid-booking";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 300;
@@ -166,10 +168,40 @@ async function savePaidRetryStatus(svc: ReturnType<typeof createServiceClient>, 
   }
 }
 
-// Is there a "Paid but not booked" box for her (open, muted or closed)? Then people know.
-async function paidCardExists(svc: ReturnType<typeof createServiceClient>, slug: string, contactId: string): Promise<boolean> {
-  const { data } = await svc.from("alerts").select("id").eq("type", "paid_not_booked").eq("source_key", `paid-not-booked:${slug}:${contactId}`).limit(1);
-  return (data ?? []).length > 0;
+/* About when she paid, from every record we keep: the Deposits row with her
+   e-mail (it lands about a minute after the payment), our first check of
+   that payment for her contact (15-25 minutes after), and the stamp the
+   booking step writes. The newest one counts. A Deposits row that was
+   synced again later is capped by its own date. */
+async function paymentMoment(svc: ReturnType<typeof createServiceClient>, a: { email: string; paidAt: string | null; contactId: string }): Promise<number | null> {
+  const email = a.email.trim();
+  const [dep, chk] = await Promise.all([
+    email
+      ? svc.from("deposits").select("synced_at, data").ilike("data->>Email", email.replace(/[\\%_]/g, "\\$&")).order("synced_at", { ascending: false }).limit(3)
+      : Promise.resolve({ data: [] as Array<{ synced_at: string; data: Record<string, unknown> }> }),
+    svc.from("paid_tag_checks").select("checked_at").eq("contact_id", a.contactId).in("result", ["ok", "healed"]).order("checked_at", { ascending: false }).limit(1),
+  ]);
+  const moments: number[] = [];
+  for (const d of ((dep.data ?? []) as Array<{ synced_at: string; data: Record<string, unknown> }>)) {
+    const m = String(d.data?.["Date"] ?? "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // sheet dates are DD/MM/YYYY
+    const dayEnd = m ? Date.UTC(+m[3], +m[2] - 1, +m[1]) + 48 * 3600_000 : Infinity;
+    moments.push(Math.min(Date.parse(d.synced_at), dayEnd));
+  }
+  for (const c of ((chk.data ?? []) as Array<{ checked_at: string | null }>)) moments.push(Date.parse(String(c.checked_at ?? "")));
+  moments.push(Date.parse(String(a.paidAt ?? "")));
+  const known = moments.filter((x) => Number.isFinite(x) && x <= Date.now());
+  return known.length ? Math.max(...known) : null;
+}
+
+/* Has she had (or does she have) any appointment since she paid? true / false,
+   or null when her calendar could not be read. */
+async function paidLeadWasServed(a: { locationId: string; contactId: string; slotIso: string; paidMs: number }): Promise<boolean | null> {
+  const tok = await getAppLocationToken(a.locationId);
+  if (!tok.token) return null;
+  // "Since she paid": anything made from half a day before the payment on, or any kept appointment that takes place after it (the AI may have booked her days before she paid).
+  const from = a.paidMs - 12 * 3600_000;
+  const ever = await everBookedSincePick({ locationId: a.locationId, token: tok.token, contactId: a.contactId, slotIso: a.slotIso, pickedAt: new Date(from).toISOString(), servedAfterMs: from });
+  return ever.ok ? ever.booked : null;
 }
 
 /* Phase 2 — PAID leads the outage (or an off-page payment) left broken:
@@ -191,9 +223,9 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
      looked at). Newest first also means that when she went through the
      funnel twice, her latest pick is the one that gets booked. */
   const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
-  const { data: paidLeads } = await svc
+  const { data: paidLeads, error: readErr } = await svc
     .from("onebox_leads")
-    .select("id, slug, location_id, full_name, phone, ghl_status, ghl_contact_id, ghl_appointment_id, slot_iso, picked_time_at, answers, created_at")
+    .select("id, slug, location_id, full_name, phone, ghl_status, ghl_contact_id, ghl_appointment_id, slot_iso, picked_time_at, paid_at, answers, created_at")
     .in("ghl_status", [...PAID])
     /* A lead with no contact is re-pushed for a week (as before). A paid
        lead with an unbooked picked time has no date floor: she is retried
@@ -202,6 +234,8 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
     .or(`and(ghl_contact_id.is.null,created_at.gte.${weekAgo}),and(ghl_appointment_id.is.null,slot_iso.not.is.null)`)
     .order("created_at", { ascending: false })
     .limit(300);
+  // A failed read is an error in the saved status, never "nothing to heal".
+  if (readErr) return { healed: 0, errors: [`paid leads could not be read: ${readErr.message.slice(0, 120)}`] };
   const nowMs = Date.now();
   const broken = (paidLeads ?? []).filter((l) => (!l.ghl_contact_id && Date.parse(String(l.created_at)) >= nowMs - 7 * 86400_000)
     // A time that passed long ago is not listed on every run forever: only recent picks are reported as "past".
@@ -214,7 +248,7 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
     .in("slug", [...new Set(broken.map((l) => l.slug))]);
   const bySlug = new Map((clients ?? []).map((c) => [c.slug as string, c]));
 
-  let contactsFixed = 0, apptsCreated = 0, alreadyBooked = 0, stale = 0;
+  let contactsFixed = 0, apptsCreated = 0, alreadyBooked = 0, stale = 0, notProven = 0;
   const pastSlot: string[] = [];
   const needsPerson: string[] = [];
   const errors: string[] = [];
@@ -269,27 +303,42 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       }
       const calendarId = String(((client.config ?? {}) as Record<string, string>).calendarId ?? "").trim();
       if (!calendarId) { errors.push(`${lead.full_name}: no calendarId`); continue; }
-      /* A pick from days ago is weak proof of what she paid for (of 270
-         payments made on the page, 267 came within 30 minutes of the pick
-         and none after 24 hours): it is never booked blind. */
+      /* Proof of a payment for THIS pick comes before anything else. A paid
+         status alone is not proof: picking a time again re-stamps the slot
+         on every row of hers, also on a row that was paid weeks ago (56 such
+         rows sit unbooked), and this job would then book a time nobody paid
+         for. No payment in the last 4 days = not ours to touch. */
+      const paidMs = await paymentMoment(svc, { email: String(a.email ?? ""), paidAt: lead.paid_at as string | null, contactId });
+      if (paidMs === null || Date.now() - paidMs > 4 * 86400_000) { notProven++; continue; }
       const pickedMs = Date.parse(String(lead.picked_time_at ?? lead.created_at));
-      const oldPick = Number.isFinite(pickedMs) && Date.now() - pickedMs > 3 * 86400_000;
+      /* Of 270 payments made on the page, 267 came within 30 minutes of the
+         pick and none after 24 hours. The payment moment can be our first
+         check of it (about 20 minutes late), hence the half hour of slack. */
+      const forThisPick = Number.isFinite(pickedMs) && pickedMs >= paidMs - 24.5 * 3600_000 && pickedMs <= paidMs + 30 * 60_000;
+      const pickedAt = (lead.picked_time_at as string | null) ?? (lead.created_at as string);
       const res = await bookAppointmentForLead({
-        locationId: client.location_id as string, calendarId, contactId, slotIso: String(lead.slot_iso),
-        pickedAt: (lead.picked_time_at as string | null) ?? (lead.created_at as string),
-        lookOnly: oldPick,
+        locationId: client.location_id as string, calendarId, contactId, slotIso: String(lead.slot_iso), pickedAt, lookOnly: !forThisPick,
       });
-      const booked: typeof res = oldPick && res.wouldBook
-        ? { needsPerson: "she picked this time more than 3 days ago and nothing is on the calendar: check it is the time she paid for" }
-        : res;
+      if (res.wait) continue; // the paid tag is not on her contact yet: the next run looks again
+      let booked: typeof res = res;
+      if (!forThisPick) {
+        /* She paid lately, but this time was picked long before or after the
+           payment. Something already on her calendar: leave everything as it
+           is. Nothing on it, and nothing since she paid: she may be an unbooked
+           payer (she opened her pay link again), so a person is told. */
+        if (!res.wouldBook) { notProven++; continue; }
+        const ever = await paidLeadWasServed({ locationId: client.location_id as string, contactId, slotIso: String(lead.slot_iso), paidMs });
+        if (ever !== false) { notProven++; continue; } // she has had an appointment since she paid, or it could not be read
+        booked = { needsPerson: "this time was picked long before or after she paid, and nothing has been on her calendar since she paid: check it is the time she paid for" };
+      }
       if (booked.needsPerson) {
         /* Not a clean case (see lib/paid-booking): a person looks. The row is
            closed to retries only once the card is really on the board. */
-        const filed = await filePaidNotBookedAlert(svc, {
+        await filePaidNotBookedAlert(svc, {
           slug: lead.slug as string, locationId: client.location_id as string, contactId, name: lead.full_name as string,
           slotIso: String(lead.slot_iso), error: booked.needsPerson, what: "She was NOT booked automatically", retrying: false, otherTime: booked.otherTime,
-        }).catch(() => "skipped" as const);
-        const onBoard = filed !== "skipped" || await paidCardExists(svc, lead.slug as string, contactId);
+        }).catch(() => {});
+        const onBoard = await paidCardOnBoard(svc, lead.slug as string, contactId, lead.full_name as string).catch(() => false);
         needsPerson.push(`${lead.full_name} (${lead.slug})${onBoard ? "" : " — card not filed, will try again"}`);
         if (!onBoard) continue;
       }
@@ -333,5 +382,5 @@ async function healPaidLeads(svc: ReturnType<typeof createServiceClient>) {
       }
     }
   }
-  return { healed: contactsFixed + apptsCreated, contactsFixed, apptsCreated, alreadyBooked, stale, needsPerson, pastSlot: pastSlot.slice(0, 20), errors: errors.slice(0, 10) };
+  return { healed: contactsFixed + apptsCreated, contactsFixed, apptsCreated, alreadyBooked, stale, notProven, needsPerson, pastSlot: pastSlot.slice(0, 20), errors: errors.slice(0, 10) };
 }
