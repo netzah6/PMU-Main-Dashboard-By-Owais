@@ -39,8 +39,12 @@
     if (!next) return null;
     var root = next, g = 0;
     while (root.parentElement && g++ < 10 && !/Call Summary/.test(txt(root))) root = root.parentElement;
-    var m = txt(root).match(/(\d+)\s*Min\s*(\d+)\s*Sec/);
-    return { next: next, pause: q("button.pause-call-btn").filter(vis)[0] || null, secs: m ? Number(m[1]) * 60 + Number(m[2]) : -1 };
+    var t = txt(root), m = t.match(/(\d+)\s*Min\s*(\d+)\s*Sec/);
+    // Status chip right after "Call Ended" (e.g. "Failed"). A failed call can show "00 Min 01 Sec" (seen 11/17/2026).
+    var status = ((t.match(/Call Ended\s+(.*?)\s*\d+\s*Min/) || [])[1] || "").trim();
+    var secs = m ? Number(m[1]) * 60 + Number(m[2]) : -1;
+    return { next: next, pause: q("button.pause-call-btn").filter(vis)[0] || null, secs: secs,
+      noAnswer: secs === 0 || (secs >= 0 && secs <= 3 && /^(Failed|No Answer|Busy|Cancel)/i.test(status)) };
   }
   function composer() {
     var send = document.getElementById("conv-send-button-simple");
@@ -82,7 +86,7 @@
           if (sum.pause) sum.pause.click();         // we do the timing, not GHL's 40 s countdown
         }
         if (s.nexted) { if (now - s.nextAt > 20000) say("Waiting for GHL… (if stuck, click Next)"); return; }
-        if (sum.secs !== 0 || cfg.askAll) {         // connected (or unreadable) → never guess (askAll = test switch)
+        if (!sum.noAnswer || cfg.askAll) {         // connected (or unreadable) → never guess (askAll = test switch)
           ask = { id: id, cid: contactId(), secs: sum.secs };
           say(sum.secs > 0 ? "Call was " + sum.secs + "s. Did you talk to them?" : "Did you talk to them?"); render();
           return;
