@@ -7,6 +7,7 @@ import {
 import { getReplyKb } from "@/lib/reply-kb";
 import { waitUntil } from "@vercel/functions";
 import { callViolation, clientAskedForCall, stripCallInvites } from "@/lib/call-guard";
+import { DEMO_BLAST_CLOSE, DEMO_BLAST_RATE, demoBlastRule, inDemoBlast } from "@/lib/demo-blast";
 import { getWinbackForContact, PPS_MAX_INITIAL, PPS_RATE_LATER, PPS_RATE_NOW, rateHoldUntil, winbackContext, winbackInstructions, type WinbackContext } from "@/lib/winback";
 import {
   getClientMemory, getLearnedExamples, matchSentReplies, recordDraft, refreshClientMemory, withoutSecrets,
@@ -31,6 +32,8 @@ export type DraftInput = {
   revise?: boolean; // editing an earlier draft: keep all of it, length may grow
   /** 🔁 A win-back chat: the former client we texted first, the approved offer and where the flow stands. */
   winback?: WinbackContext;
+  /** 🖤 A demo no-closer who got the Black Friday $65 pay-per-show text (11/17/2026). */
+  demoBlast?: boolean;
 };
 
 // The invite carries the SENDER's own booking page (owner, 2026-10-01) —
@@ -267,7 +270,9 @@ function buildSystemPrompt(input: DraftInput): string {
     `2. VOICE — sound exactly like ${agentName} in the real replies below: same greeting style, length, punctuation and capitalization. Lines marked "Automated" are workflow texts, NOT ${agentName} — never copy their wording, emojis or calls to action. Lines marked "Agency" were really sent to the client — treat them as already said.`,
     `3. COMPLETE MIRRORING — the reply must match the CLIENT's latest message in vibe and form, measured from what they wrote: ${clientVibe(input.thread, agentName)} This rule beats ${agentName}'s own habits (${emojiRule(agentName, voiceSamples).replace(/^Do not use emojis\.$/, "no emojis by default")}) whenever they differ: an excited client with emojis gets emojis back; a formal "Regards, Sara" gets a formal "Regards, ${agentName.split(" ")[0]}" back; a plain one-liner gets a plain one-liner with no name at the end.`,
     "4. FACTS — only use information from the KNOWLEDGE BASE below for prices, the offer, policies, and the booking process. Never invent a price, a discount, a date, or a policy. If the knowledge base does not cover what the client asked, say what you safely can and stop.",
-    input.winback
+    input.demoBlast
+      ? demoBlastRule(input.contactName)
+      : input.winback
       ? winbackRule(input.winback, input.inviteCall ? callInviteText(agentName) : null)
       : input.inviteCall
       ? `5. CALL INVITE — the team switched ON "invite to a strategy call" for this reply: answer what the client said, then end with ONE short, natural invite to book ${callInviteText(agentName)} (no emoji arrows). Never promise a fix, a name change or a setting you don't know is right.`
@@ -276,6 +281,8 @@ function buildSystemPrompt(input: DraftInput): string {
       // A revision must never lose a point the team asked for just to stay
       // short (owner, 2026-10-04: the 9–5 hours vanished on an edit).
       ? "6. LENGTH — this is a REVISION of an earlier draft: keep every point the earlier notes asked for and every sentence the change doesn't touch. It may be longer than usual; still no filler."
+      : input.demoBlast
+      ? "6. LENGTH — when rule 5 gives the approved message, send it whole (checklist included); otherwise 1–3 short lines."
       : input.winback && input.winback.stage !== "declined"
       ? `6. LENGTH — this reply carries the offer: 2–5 short lines, under ${input.winback.offer === "pps" && input.winback.stage === "offer_presented" && !input.winback.termsShown ? 120 : input.winback.offer === "pps" && (input.winback.price || input.winback.stage !== "opener_answered") ? 100 : 70} words, no lists. Still a text message, not an email.`
       : `6. LENGTH — ${lengthRule(agentName, voiceSamples, clientBurst(input.thread))}`,
@@ -412,6 +419,16 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
   const setupCallOk = !input.inviteCall && !!wb && wb.offer === "pps" && !!wb.price
     && (wb.lowPrice ?? wb.price) <= PPS_MAX_INITIAL
     && (wb.stage === "wants_details" || wb.stage === "offer_presented");
+  /* Owner, 11/17/2026: the Black Friday $65 message ends with its own
+     quick setup call question — keep it, no link. */
+  const blastCallOk = !input.inviteCall && !!input.demoBlast;
+  if (blastCallOk && draft) {
+    if (/https?:\/\/|www\./i.test(draft)) draft = (await ask("\n\nIMPORTANT: do NOT include any link.")) || draft;
+    if (new RegExp(`\\$${DEMO_BLAST_RATE}\\b`).test(draft) && !/quick call/i.test(draft)) {
+      const body = draft.trim().replace(/\n*\s*What day works best this week\?\s*$/i, "").trim();
+      draft = `${body}\n\n${DEMO_BLAST_CLOSE}`;
+    }
+  }
   if (setupCallOk && draft) {
     const hasLink = /https?:\/\/|www\./i.test(draft);
     if (hasLink) draft = (await ask("\n\nIMPORTANT: do NOT include any link.")) || draft;
@@ -422,7 +439,7 @@ export async function generateDraft(input: DraftInput): Promise<DraftResult> {
       draft = `${body}\n\n${SETUP_CALL_QUESTION}`;
     }
   }
-  if (!input.inviteCall && !setupCallOk) {
+  if (!input.inviteCall && !setupCallOk && !blastCallOk) {
     // The switch is off: no call link ever; no invite unless the client
     // asked for a call themselves (then a plain acknowledgement is fine).
     const asked = clientAskedForCall(input.thread);
@@ -524,6 +541,7 @@ export async function draftReplyFor(opts: {
   const ctx = prospect ? winbackContext(wbRow!, thread) : null;
   const winback = ctx?.inFlow ? ctx : undefined;
   const instructions = wbRow ? winbackInstructions(wbRow) : undefined;
+  const demoBlast = !winback && inDemoBlast(thread);
 
   const { draft, model } = await generateDraft({
     thread,
@@ -533,6 +551,7 @@ export async function draftReplyFor(opts: {
     instructions,
     note: opts.instructions?.trim() || undefined,
     winback,
+    demoBlast,
     standingNotes: notesRow.data?.content ?? "",
     nameByUserId,
     inviteCall: !!opts.inviteCall,
