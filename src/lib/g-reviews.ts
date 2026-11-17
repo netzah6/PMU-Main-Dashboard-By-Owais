@@ -13,7 +13,9 @@ const REFRESH_DAYS = 13;
 
 export type GReview = { name: string; pic: string; stars: number; text: string; when: string; at: string };
 export type GReviews = { placeId: string; fromLink?: string; name: string; rating: number | null; count: number | null; reviews: GReview[]; at: string };
-export type GFetchMark = { at: string; ok: boolean; why?: string };
+/* `q` = what that attempt looked the place up by (reviewLookupKey), so a
+   save can tell a corrected link / address from one already tried. */
+export type GFetchMark = { at: string; ok: boolean; why?: string; q?: string };
 
 export function placesReady(): boolean {
   return !!process.env.GOOGLE_PLACES_API_KEY;
@@ -33,6 +35,17 @@ export function placeIdFromLink(link: string | null | undefined): string {
   const s = String(link ?? "").trim();
   const m = s.match(/[?&]placeid=\s*([A-Za-z0-9_-]{10,})/i) || s.match(/place_id:([A-Za-z0-9_-]{10,})/i) || s.match(/!1s(ChIJ[A-Za-z0-9_-]+)/) || s.match(/\/place\/[^/]+\/.*?\/(ChIJ[A-Za-z0-9_-]+)/);
   return m ? m[1] : "";
+}
+
+/* What a funnel's place is looked up by: its Google link when it has one,
+   else business name + address. "" = nothing to look up. Same rule as
+   dueForReviews. */
+export function reviewLookupKey(cfg: Record<string, string>, ex: { gLinkFromForm?: string }): string {
+  const link = cleanLink(cfg.gmbLink) || cleanLink(ex.gLinkFromForm);
+  if (link) return `link:${link}`.slice(0, 400);
+  const name = String(cfg.biz ?? cfg.businessName ?? cfg.name ?? "").trim();
+  const address = String(cfg.address ?? "").trim();
+  return name && address ? `q:${name}|${address}`.toLowerCase().slice(0, 400) : "";
 }
 
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !/^(the|and|llc|inc|spa|studio|beauty|brows|brow|pmu|permanent|makeup|salon|by)$/.test(w));
@@ -133,7 +146,8 @@ export async function refreshReviews(svc: SupabaseClient, slug: string): Promise
   const prev = ex.gReviews;
   const link = cleanLink(cfg.gmbLink) || cleanLink(ex.gLinkFromForm);
   const name = String(cfg.biz ?? cfg.businessName ?? cfg.name ?? "").trim();
-  const mark = async (ok: boolean, why?: string) => patchExtras(svc, slug, { gFetch: { at: new Date().toISOString(), ok, ...(why ? { why } : {}) } as GFetchMark });
+  const q = reviewLookupKey(cfg, ex);
+  const mark = async (ok: boolean, why?: string) => patchExtras(svc, slug, { gFetch: { at: new Date().toISOString(), ok, ...(why ? { why } : {}), ...(q ? { q } : {}) } as GFetchMark });
   try {
     const reuse = prev?.placeId && (prev.fromLink ?? "") === link;
     const found = reuse ? { id: prev!.placeId, via: "stored" } : await resolvePlaceId(link, name, cfg.address ?? "");
@@ -154,14 +168,14 @@ export async function refreshReviews(svc: SupabaseClient, slug: string): Promise
       if (reuse && /places (400|404)/.test(why)) {
         /* Google retired the stored id: forget it (keep the reviews showing)
            and resolve afresh next time. */
-        await patchExtras(svc, slug, { gReviews: { ...prev!, placeId: "" }, gFetch: { at: new Date().toISOString(), ok: false, why } });
+        await patchExtras(svc, slug, { gReviews: { ...prev!, placeId: "" }, gFetch: { at: new Date().toISOString(), ok: false, why, ...(q ? { q } : {}) } });
         return { ok: false, why: `${why} — stored place id dropped, re-resolving next run` };
       }
       throw e;
     }
     g.fromLink = link;
     if (!g.reviews.length) { await mark(false, `no ${MIN_STARS}+ star reviews with text on Google`); return { ok: false, why: "no usable reviews" }; }
-    const err = await patchExtras(svc, slug, { gReviews: g, gFetch: { at: new Date().toISOString(), ok: true } });
+    const err = await patchExtras(svc, slug, { gReviews: g, gFetch: { at: new Date().toISOString(), ok: true, ...(q ? { q } : {}) } });
     if (err) return { ok: false, why: err };
     await recordReviewPoint(svc, slug, g.rating, g.count);
     return { ok: true, reviews: g.reviews.length, rating: g.rating };

@@ -1607,7 +1607,7 @@ export default function FunnelsPage() {
       else if (j.error) setToast(`Error: ${j.error}`);
       else if (Array.isArray(j.failed) && j.failed.length) setToast(`Saved, but GHL rejected: ${j.failed.join(", ")}`);
       else if (j.frozenNote) setToast(j.frozenNote);
-      else setToast(action === "resync" ? `Synced from GHL ✓${j.pixelNote ? ` · ${j.pixelNote}` : ""}${j.photoNote ? ` · ${j.photoNote}` : ""}${j.surveyNote ? ` · ${j.surveyNote}` : ""}` : j.depositUrlNote ? `Saved ✓ · ${j.depositUrlNote}` : "Saved ✓");
+      else setToast((action === "resync" ? `Synced from GHL ✓${j.pixelNote ? ` · ${j.pixelNote}` : ""}${j.photoNote ? ` · ${j.photoNote}` : ""}${j.surveyNote ? ` · ${j.surveyNote}` : ""}` : j.depositUrlNote ? `Saved ✓ · ${j.depositUrlNote}` : "Saved ✓") + (j.mediaNote ? ` · ${j.mediaNote}` : ""));
       if (!j.error && (action === "cvs" || action === "extras")) {
         setSavedFlash(slug);
         window.setTimeout(() => setSavedFlash((cur) => (cur === slug ? null : cur)), 2500);
@@ -1739,6 +1739,8 @@ export default function FunnelsPage() {
       const j = await r.json();
       if (j.error) { setAddNote(`Error: ${j.error}`); return; }
       // Success needs no prose — the new funnel card appears in the list below.
+      // One line when its Instagram pictures / Google reviews are being fetched, so an empty preview is no surprise.
+      if (j.mediaNote) setToast(`Funnel added ✓ · ${j.mediaNote}`);
       setAddForm({ clientName: "", slug: "", locationId: "", oldFunnelUrl: "" });
       setSlugTouched(false);
       await load();

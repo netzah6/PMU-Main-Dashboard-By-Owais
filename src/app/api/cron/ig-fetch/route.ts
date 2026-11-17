@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { queueIgPostsSweep } from "@/lib/ig-posts-check";
-import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, fingerprintFeeds, markFetch, refreshHeader, snapshotFunnel, unclassifiedFunnels, usernameFromLink, type ApifyPost } from "@/lib/ig-fetch";
+import { classifyStoredFeed, dueFunnels, fetchDetails, fetchPosts, fetchProfiles, fingerprintFeeds, markFetch, refreshHeader, snapshotFunnel, stillAsked, unclassifiedFunnels, usernameFromLink, type ApifyPost } from "@/lib/ig-fetch";
 
 export const maxDuration = 300;
 /* Stop starting new funnels after this; Vercel kills the function at 300 s
@@ -120,10 +120,12 @@ export async function GET(req: NextRequest) {
     else {
       const r = await snapshotFunnel(svc, f.slug, p, ps, f.igLink);
       if (r.ok) { results[f.slug] = `ok (${r.imgs} images, ${r.results} results posts)`; continue; }
+      if (r.superseded) { results[f.slug] = r.why; continue; } // the link was corrected meanwhile: its own fetch marks it
       why = r.why;
     }
     results[f.slug] = why;
-    await markFetch(svc, f.slug, false, why);
+    if (!(await stillAsked(svc, f.slug, f.username))) { results[f.slug] += " — link changed meanwhile, not marked"; continue; }
+    await markFetch(svc, f.slug, false, why, f.username);
     // Kept pictures still show: give them a full header (owner 11/03/2026).
     if (await refreshHeader(svc, f.slug, f.igLink).catch(() => false)) results[f.slug] += " — header refreshed";
   }

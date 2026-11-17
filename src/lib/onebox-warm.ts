@@ -8,6 +8,14 @@ import { waitUntil } from "@vercel/functions";
    route's scraper list: on A/B-test clients (always no-store) the ping is
    a harmless no-op that mints no assignment row. */
 
+/* One visit as the cache-refresh visitor (never throws). */
+export async function pingFunnel(slug: string): Promise<void> {
+  await fetch(`https://book.pmu-care.com/${slug}`, {
+    cache: "no-store",
+    headers: { "user-agent": "ob-warm/1 (cache refresh after dashboard save)" },
+  }).catch(() => {});
+}
+
 export function warmFunnel(slug: string) {
   waitUntil((async () => {
     /* Two pings: an in-flight pre-save render can be stored by the CDN
@@ -16,10 +24,7 @@ export function warmFunnel(slug: string) {
        +150s is past any such window. */
     for (const delayMs of [75_000, 150_000]) {
       await new Promise((r) => setTimeout(r, delayMs === 75_000 ? delayMs : delayMs - 75_000));
-      await fetch(`https://book.pmu-care.com/${slug}`, {
-        cache: "no-store",
-        headers: { "user-agent": "ob-warm/1 (cache refresh after dashboard save)" },
-      }).catch(() => {});
+      await pingFunnel(slug);
     }
   })());
 }
