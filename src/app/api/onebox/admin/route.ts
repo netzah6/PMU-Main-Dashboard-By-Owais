@@ -6,6 +6,8 @@ import { addOneboxFunnel, seedSurveyFromAccount } from "@/lib/onebox-add";
 import { computeFunnelStats, countHitsBySlug, fetchAllRows, PAGE1_TEST_NAME, type StatsWindow } from "@/lib/onebox-insights";
 import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/client-program";
 import { warmFunnel } from "@/lib/onebox-warm";
+import { startFunnelFill } from "@/lib/onebox-fill";
+import { patchExtras } from "@/lib/ig-fetch";
 import { frozenDrift, type OneboxRow } from "@/lib/onebox-page";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 import { isValidHookUrlForLocation, clientHookUrl, buildReplayPayload, replayToClientHook } from "@/lib/payment-router";
@@ -334,7 +336,10 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
   if (action === "add") {
     const r = await addOneboxFunnel(svc, { slug, locationId: String(body.locationId ?? ""), clientName: String(body.clientName ?? ""), oldFunnelUrl: String(body.oldFunnelUrl ?? "") });
     if ("error" in r) return NextResponse.json({ error: r.error, ...(r.conflict ? { conflict: r.conflict } : {}) }, { status: r.status });
-    return NextResponse.json(r);
+    /* A new funnel fills its Instagram grid and Google reviews by itself
+       (lib/onebox-fill.ts) — a draft is not on the scheduled jobs' list. */
+    const mediaNote = await startFunnelFill(svc, r.slug);
+    return NextResponse.json({ ...r, ...(mediaNote ? { mediaNote } : {}) });
   }
 
   if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
@@ -366,10 +371,10 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     if (!havePixel) {
       const { id } = await harvestFirstPixel(slug, ex.oldFunnelUrl);
       if (id) {
-        await svc
-          .from("onebox_clients")
-          .update({ extras: { ...(row.extras ?? {}), metaPixelId: id } })
-          .eq("slug", slug);
+        /* Merge into the extras as they are NOW: the harvest above can take
+           a while, and a background fill (lib/onebox-fill.ts) may have stored
+           pictures or reviews since this request read the row. */
+        await patchExtras(svc, slug, { metaPixelId: id });
         pixelNote = `pixel found (${id})`;
       } else pixelNote = "pixel still not found on the original pages";
     }
@@ -387,7 +392,9 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        accounts, so those showed "Lips; Eyebrows" — The Wellness Place). */
     const seeded = frozen ? { config: healed.config, seeded: false, note: "" } : await seedSurveyFromAccount(svc, slug, row.location_id as string, healed.config);
     warmFunnel(slug);
-    return NextResponse.json({ ok: !!seeded.config, config: seeded.config, pixelNote, photoNote: healed.note || undefined, surveyNote: seeded.seeded ? seeded.note : undefined });
+    // A link that just arrived from GHL (or was corrected there) is fetched now, live or draft.
+    const mediaNote = await startFunnelFill(svc, slug);
+    return NextResponse.json({ ok: !!seeded.config, config: seeded.config, pixelNote, photoNote: healed.note || undefined, surveyNote: seeded.seeded ? seeded.note : undefined, mediaNote });
   }
 
   /* Permanently delete a funnel row (admin only — the general gate above
@@ -426,7 +433,9 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
         depositUrlNote = `⚠ Deposit funnel URL not updated (${res.error ?? "GHL error"}) — set it in Start Setup`;
       }
     }
-    return NextResponse.json({ ok: true, status, depositUrlNote });
+    // Going live with pictures or reviews still missing: fetch now instead of waiting for the hourly / daily job.
+    const mediaNote = status === "live" ? await startFunnelFill(svc, slug) : undefined;
+    return NextResponse.json({ ok: true, status, depositUrlNote, mediaNote });
   }
 
   /* Info-request link (owner request 2026-10-07): mint (or reuse) the
@@ -594,8 +603,10 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
     /* Only what really stays behind on a frozen page gets the warning: the
        deposit, calendar and checkout are live, so those saves are just saved. */
     const held = row.frozen_engine != null ? frozenDrift({ ...row, config: cfg } as OneboxRow) : [];
+    // An Instagram or Google link saved just now is fetched now (lib/onebox-fill.ts).
+    const mediaNote = await startFunnelFill(svc, slug);
     return NextResponse.json({
-      ok: true, written: res.written.length, failed, config: cfg,
+      ok: true, written: res.written.length, failed, config: cfg, mediaNote,
       frozenNote: held.length
         ? `Saved in GHL. This funnel is frozen, so its page keeps the old ${held.map((d) => d.label.toLowerCase()).join(", ")}. ${auth.role === "admin" ? "You can" : "An admin can"} take the new values on the Freeze screen.`
         : undefined,

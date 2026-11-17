@@ -123,7 +123,7 @@ export async function GET(req: NextRequest) {
       why = r.why;
     }
     results[f.slug] = why;
-    await markFetch(svc, f.slug, false, why);
+    await markFetch(svc, f.slug, false, why, f.username);
     // Kept pictures still show: give them a full header (owner 11/03/2026).
     if (await refreshHeader(svc, f.slug, f.igLink).catch(() => false)) results[f.slug] += " — header refreshed";
   }

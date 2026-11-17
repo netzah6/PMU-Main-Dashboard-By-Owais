@@ -35,7 +35,7 @@ const DOWNLOAD_TIMEOUT_MS = 20_000;
    has to copy the images after the run comes back. */
 const APIFY_RUN_TIMEOUT_S = 120;
 /* Agency-owned demo funnels — no client Instagram behind them. */
-const SKIP_SLUGS = new Set(["demo-v3", "pmu-bookings"]);
+export const SKIP_SLUGS = new Set(["demo-v3", "pmu-bookings"]);
 
 
 /* Results posts first (caption says before/after, brows, lips…), then the
@@ -51,7 +51,9 @@ export function orderPosts(latest: ApifyPost[]): ApifyPost[] {
 }
 /* Last fetch attempt, success or not — the due list is ordered by it so a
    funnel that keeps failing never blocks the others. */
-export type IgFetchMark = { at: string; ok: boolean; why?: string };
+/* `user` = the Instagram handle that attempt asked for, so a save can tell
+   a corrected link from one already tried (lib/onebox-fill.ts). */
+export type IgFetchMark = { at: string; ok: boolean; why?: string; user?: string };
 
 /* "https://www.instagram.com/blossom.pmu/" or "@blossom.pmu" → "blossom.pmu".
    Anything else (a form link, "Instagram Page Link.", a Facebook URL) → ""
@@ -126,8 +128,8 @@ export async function patchExtras(svc: SupabaseClient, slug: string, patch: Reco
   return error ? error.message : null;
 }
 
-export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, why?: string) {
-  const mark: IgFetchMark = { at: new Date().toISOString(), ok, ...(why ? { why } : {}) };
+export async function markFetch(svc: SupabaseClient, slug: string, ok: boolean, why?: string, user?: string) {
+  const mark: IgFetchMark = { at: new Date().toISOString(), ok, ...(why ? { why } : {}), ...(user ? { user: user.toLowerCase() } : {}) };
   await patchExtras(svc, slug, { igFetch: mark });
 }
 
@@ -304,7 +306,8 @@ export async function snapshotFunnel(
     slug, taken_at: today, imgs: feed.imgs, posts_count: profile.posts, followers: profile.followers, source: "apify", profile, posts: ordered,
   });
   if (insErr) return { ok: false, why: `insert: ${insErr.message}` };
-  const mark: IgFetchMark = { at: new Date().toISOString(), ok: true };
+  const asked = usernameFromLink(igLink).toLowerCase();
+  const mark: IgFetchMark = { at: new Date().toISOString(), ok: true, ...(asked ? { user: asked } : {}) };
   const upErr = await patchExtras(svc, slug, { igFeed: feed, igFetch: mark });
   /* Still no post count from any source: the Mac Mini reads it off the
      public profile page (owner 10/27/2026: a header without "posts" looks
@@ -453,12 +456,12 @@ export async function refreshFunnel(svc: SupabaseClient, slug: string): Promise<
   }
   if (!posts.length) {
     const why = prof?.private ? "private account" : "no posts returned (private, renamed, or blocked)";
-    await markFetch(svc, slug, false, why);
+    await markFetch(svc, slug, false, why, username);
     await refreshHeader(svc, slug, igLink);
     return { ok: false, why };
   }
   const r = await snapshotFunnel(svc, slug, prof, posts, igLink);
-  if (!r.ok) { await markFetch(svc, slug, false, r.why); await refreshHeader(svc, slug, igLink); }
+  if (!r.ok) { await markFetch(svc, slug, false, r.why, username); await refreshHeader(svc, slug, igLink); }
   return r;
 }
 
