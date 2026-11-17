@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { selfOrigin } from "@/lib/self-origin";
 
 export const maxDuration = 120;
 export const fetchCache = "force-no-store";
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
     .order("picked_time_at")
     .range(0, 199);
 
-  const base = req.nextUrl.origin;
+  const base = selfOrigin(req); // never this request's own host: Vercel walls it off for crons (lib/self-origin)
   const results: { name: string; ok: boolean; note?: string }[] = [];
   for (const l of leads ?? []) {
     if (PAID.includes(String(l.ghl_status))) continue; // paid flow owns these

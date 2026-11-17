@@ -1200,17 +1200,103 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
 // lead, with GHL's reason; it closes itself once the appointment exists.
 export async function filePaidNotBookedAlert(
   svc: Svc,
-  a: { slug: string; locationId: string; contactId: string | null; name: string; slotIso: string; error: string; business?: string | null },
+  a: {
+    slug: string; locationId: string; contactId: string | null; name: string; slotIso: string; error: string; business?: string | null;
+    /** What went wrong, in a few words. Default: GoHighLevel refused the booking. */
+    what?: string;
+    /** false = no automatic retry will follow (a person has to decide). */
+    retrying?: boolean;
+    /** She IS on the calendar, but at another time than the one she picked and paid for. */
+    otherTime?: boolean;
+  },
 ): Promise<"filed" | "appended" | "skipped"> {
-  const when = (() => { try { return new Date(a.slotIso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return a.slotIso; } })();
+  /* The studio's wall clock, straight off the ISO text ("2026-11-18T13:00:00-06:00"
+     → Nov 18, 1:00 PM). Formatting the instant on the server printed UTC:
+     Rosario Ramos's 10:00 AM Hawaii appointment read "8:00 PM" on the card
+     (11/15/2026). Every one-box slot carries the studio's offset. */
+  const when = (() => {
+    const m = a.slotIso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+    return m
+      ? `${new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}, ${((+m[4] + 11) % 12) + 1}:${m[5]} ${+m[4] < 12 ? "AM" : "PM"} studio time`
+      : a.slotIso;
+  })();
   const biz = a.business ?? a.slug;
+  const person = a.retrying === false;
+  const next = person
+    ? "It will NOT be booked automatically: check with the artist which time is right, then fix the calendar by hand."
+    : "The dashboard retries every 30 min; if this box is still open, book her by hand on the calendar at that time.";
+  const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
   return fileOrAppendAlert(svc, {
     type: "paid_not_booked", severity: "high",
-    title: `${a.name} paid ${biz} but is NOT on the calendar (${when})`,
-    detail: `GoHighLevel refused the booking: "${a.error}". She paid the deposit and picked ${when}. The dashboard retries every 30 min; if this box is still open, book her by hand on the calendar at that time.`,
+    title: a.otherTime
+      ? `${a.name} paid ${biz} for ${when}, but her appointment is at another time`
+      : `${a.name} paid ${biz} but is NOT on the calendar (${when})`,
+    detail: `${a.what ?? "GoHighLevel refused the booking"}: "${a.error}". She paid the deposit and picked ${when}. ${next}`,
     source_key: `paid-not-booked:${a.slug}:${a.contactId ?? a.name}`,
     meta: { slug: a.slug, location_id: a.locationId, contact_id: a.contactId, slot_iso: a.slotIso, link: a.contactId ? ghlContactUrl(a.locationId, a.contactId) : null },
-  }, `— Still failing (${new Date().toISOString().slice(0, 16).replace("T", " ")}): "${a.error}"`);
+    /* A box someone closed must come back if she is still not booked a day
+       later (without this a closed box silenced that lead for good). A
+       "needs a person" box is filed once per case (her rows are closed to
+       retries as soon as it is on the board), so an old closed box for the
+       same lead must not swallow it. */
+    resurfaceAfterDays: person ? 0.001 : 1,
+    /* The error goes on its own line: fileOrAppendAlert skips a note whose
+       quoted line is already in the box, so the same error is written once
+       and only a NEW error adds a line (the old one-line note carried the
+       minute, so every retry added a line until the box was full). A "needs
+       a person" note replaces the promise of retries in an open box. */
+  }, person
+    ? `— Needs a person now (${stamp} UTC). Automatic retries have stopped:\n"${a.error}"`
+    : `— Still failing (${stamp} UTC):\n"${a.error}"`);
+}
+
+/* Is a "Paid but not booked" box for her really in front of people: open,
+   or switched off on purpose ("don't show again")? A box closed a moment ago
+   does not count — the next run files it again. */
+export async function paidCardOnBoard(svc: Svc, slug: string, contactId: string | null, name: string): Promise<boolean> {
+  const { data } = await svc.from("alerts").select("status, muted")
+    .eq("type", "paid_not_booked").eq("source_key", `paid-not-booked:${slug}:${contactId ?? name}`)
+    .order("created_at", { ascending: false }).limit(5);
+  return ((data ?? []) as Array<{ status: string; muted: boolean | null }>).some((r) => r.status === "open" || r.muted === true);
+}
+
+/* Watch the two paid-booking safety nets themselves (11/17/2026: the first
+   one had been dead for ten days and nothing said so). Each run saves when
+   it finished in app_settings; a net that has not finished a run for far
+   longer than its schedule gets a card. Runs first in the 30-minute alerts
+   scan. Before the nets' first run after a deploy there is nothing to read
+   and nothing is filed. */
+export async function scanPaidNets(svc: Svc): Promise<{ checked: number; stalled: string[] }> {
+  const { data } = await svc.from("app_settings").select("key, value").in("key", ["paid_heal_status", "paid_retry_status"]);
+  const stalled: string[] = [];
+  const nets = [
+    { key: "paid_heal_status", label: "10-minute paid-deposit check", every: 10, limit: 45 },
+    { key: "paid_retry_status", label: "30-minute paid-lead retry", every: 30, limit: 100 },
+  ];
+  let checked = 0;
+  for (const n of nets) {
+    const v = (((data ?? []) as Array<{ key: string; value: unknown }>).find((r) => r.key === n.key)?.value ?? null) as { at?: string } | null;
+    const at = Date.parse(String(v?.at ?? ""));
+    if (!Number.isFinite(at)) continue;
+    checked++;
+    const source_key = `paid-not-booked:net-stalled:${n.key}`;
+    const mins = Math.round((Date.now() - at) / 60_000);
+    if (mins > n.limit) {
+      stalled.push(`${n.label}: ${mins} min`);
+      await fileOrAppendAlert(svc, {
+        type: "paid_not_booked", severity: "high",
+        title: `The ${n.label} has not finished a run for ${mins >= 120 ? `${Math.round(mins / 60)} hours` : `${mins} minutes`}`,
+        detail: `It should run every ${n.every} minutes; its last finished run was at ${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC. While it is down, a lead who pays but whose page never sends the booking is not booked by it and gets no card. Check the cron in Vercel (is it running, does it time out). This box closes by itself when a run finishes again.`,
+        source_key, meta: { key: n.key, last_run: v?.at ?? null },
+        resurfaceAfterDays: 0.02,
+      });
+    } else {
+      await svc.from("alerts")
+        .update({ status: "resolved", resolved_by: "system (the job runs again)", resolved_at: new Date().toISOString() })
+        .eq("type", "paid_not_booked").eq("source_key", source_key).eq("status", "open");
+    }
+  }
+  return { checked, stalled };
 }
 
 // Close the box once the lead has an appointment (retry healed it, or the

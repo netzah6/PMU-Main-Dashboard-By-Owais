@@ -8,7 +8,7 @@ import { capiTokens, sendCapiWithTokens, recordCapi, pickFbc } from "@/lib/meta-
 import { getSurveyFieldMap, fmtReservedTime, liveAppointmentsOnCalendar, wallToIso, AI_HOLD_STATUS, AI_HOLD_LIVE_MS, type ContactAppointment } from "@/lib/onebox";
 import { ensureContactOwner } from "@/lib/artist-notify";
 import { cleanTz, calendarDurationMin } from "@/lib/ghl-push";
-import { fileDoubleBookingAlert, filePaidNotBookedAlert } from "@/lib/alerts";
+import { fileDoubleBookingAlert, filePaidNotBookedAlert, resolvePaidNotBookedAlert } from "@/lib/alerts";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -34,6 +34,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
   }
 
+  /* The paid-deposit safety net (lib/paid-tag-heal) calls this route minutes
+     or hours after she paid, with the time stored on her lead. It has already
+     looked at her calendar and only calls when nothing else is live, so here
+     it may reuse the appointment at that exact time or create one — never
+     move or cancel another appointment: "the last booking wins" is only true
+     for the booking the lead herself just made in her browser. */
+  const fromNet = String(body.via ?? "") === "heal";
+  // The net knows about when she paid; "now" would stamp the minute the job ran.
+  const paidAtIso = fromNet && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(body.paidAt ?? "")) && Date.parse(String(body.paidAt)) <= Date.now() ? new Date(String(body.paidAt)).toISOString() : null;
+
   const svc = createServiceClient();
   const { data: client } = await svc
     .from("onebox_clients")
@@ -57,7 +67,10 @@ export async function POST(req: NextRequest) {
   {
     const exAll = (client.extras ?? {}) as { metaPixelId?: string; capiToken?: string; freeBooking?: boolean };
     const hasEventId = Boolean(String(body.eventId ?? ""));
-    if (!isB2B && !(exAll.freeBooking && !hasEventId)) {
+    /* A call from the paid-deposit safety net carries no browser event id,
+       so this would only log a failed Purchase row; the purchase safety net
+       (lib/purchase-safety-net) owns that Purchase. */
+    if (!isB2B && !(exAll.freeBooking && !hasEventId) && !fromNet) {
       waitUntil(serverPurchase(svc, req, body, { slug, phone, email, fullName, cfg, extras: exAll }).catch((e) => {
         console.error("[onebox/book] server Purchase failed:", e instanceof Error ? e.message : e);
       }));
@@ -152,6 +165,13 @@ export async function POST(req: NextRequest) {
     svc.from("onebox_leads").select("ghl_appointment_id").eq("slug", slug).eq("phone", phone),
     svc.from("onebox_leads").select("ghl_appointment_id").eq("slug", slug).eq("ghl_contact_id", contactId),
   ]);
+  /* A safety-net call never books blind: with her calendar unreadable this
+     route would create a new appointment (it must, for the lead who just
+     paid in her browser). The net is told no, files its card and the
+     30-minute retry looks again. */
+  if (fromNet && !lookedUp) {
+    return NextResponse.json({ ok: false, error: `her calendar could not be read (${lookupError ?? "no response"})` }, { status: 503 });
+  }
   const mine = [...(byPhone ?? []), ...(byContact ?? [])];
   // A slot with no offset (the reserved-time path) is the studio's wall
   // clock: give it the studio's offset, or — timezone unknown — keep the end
@@ -222,7 +242,7 @@ export async function POST(req: NextRequest) {
     const workflowWillConfirm = same.status === AI_HOLD_STATUS && (same.addedMs || 0) >= Date.now() - 3 * 86400_000;
     if (same.status !== "confirmed" && !workflowWillConfirm
       && !(await putAppointment(same.id, { appointmentStatus: "confirmed" }))) needsReview = true;
-  } else if (holds.length === 1) {
+  } else if (holds.length === 1 && !fromNet) {
     // A refused move falls through to a new booking; the hold is flagged below.
     if (await putAppointment(holds[0].id, { startTime: startIso, endTime, appointmentStatus: "confirmed" })) {
       reused = { id: holds[0].id };
@@ -237,7 +257,7 @@ export async function POST(req: NextRequest) {
        booking here plus the old hold would be two (Demo test, 11/09/2026). */
     const removed = await removedHolds(tok.token, contactId, calendarId, tz).catch(() => []);
     const atPaid = removed.find((a) => Math.abs(a.startMs - Date.parse(startIso)) < 60_000);
-    const pick = atPaid ?? (removed.length === 1 ? removed[0] : null);
+    const pick = atPaid ?? (!fromNet && removed.length === 1 ? removed[0] : null);
     if (pick && await putAppointment(pick.id, atPaid ? { appointmentStatus: "confirmed" } : { startTime: startIso, endTime, appointmentStatus: "confirmed" })) {
       reused = { id: pick.id };
       if (!atPaid) movedFrom = pick.startIso;
@@ -276,7 +296,7 @@ export async function POST(req: NextRequest) {
       .eq("phone", phone)
       .is("ghl_appointment_id", null) // a returning client's earlier paid session stays recorded
       .then(() => {});
-    await stampPaid(svc, slug, phone, null);
+    await stampPaid(svc, slug, phone, null, paidAtIso);
     // Owner (2026-10-12): any booking glitch must reach the Alerts tab.
     await filePaidNotBookedAlert(svc, { slug, locationId, contactId, name: fullName, slotIso: startIso, error: aj.message ?? `appointment ${ar.status}` }).catch(() => {});
     return NextResponse.json(
@@ -336,7 +356,8 @@ export async function POST(req: NextRequest) {
        AI's hold at another time) are cancelled — off her clock. The box
        above closes itself when every cancel held; a failed one leaves it
        for a person. */
-    const toCancel = [...new Set([...twins, ...otherHolds.map((a) => a.id)])].filter((id) => id !== bookedId && !paidIds.has(id));
+    // From the safety net only a twin at the same minute is cancelled; an appointment at another time is a person's call.
+    const toCancel = [...new Set([...twins, ...(fromNet ? [] : otherHolds.map((a) => a.id))])].filter((id) => id !== bookedId && !paidIds.has(id));
     if (bookedId && toCancel.length && lookedUp && !verifyNote && !needsReview) {
       const token = tok.token;
       waitUntil((async () => {
@@ -380,7 +401,7 @@ export async function POST(req: NextRequest) {
       .eq("slug", slug)
       .eq("phone", phone)
       .or(bookedId ? `ghl_appointment_id.is.null,ghl_appointment_id.eq.${bookedId}` : "ghl_appointment_id.is.null")
-      .then(() => stampPaid(svc, slug, phone, bookedId)),
+      .then(() => stampPaid(svc, slug, phone, bookedId, paidAtIso)),
     /* The template's workflows read the booked slot from the contact's
        "CC - Reserved Appointment Time" field — keep it filled here too.
        (B2C only: the agency's B2B workflows read the appointment itself.)
@@ -429,16 +450,21 @@ export async function POST(req: NextRequest) {
     })(),
   ]);
 
+  /* She is on the calendar: an open "Paid but not booked" box for her is no
+     longer true, whoever filed it (an earlier refused try, or a safety net
+     whose call timed out while this one was still running). */
+  if (bookedId && !needsReview) await resolvePaidNotBookedAlert(svc, slug, contactId, fullName).catch(() => {});
+
   return NextResponse.json({ ok: true, appointmentId: aj.id ?? null });
 }
 
 /* When the deposit was paid (owner, 10/29/2026: the deposit-ask test must
    tell a lead who paid right on the page from one who paid after texting
    the AI). First payment only — a retry of the same booking keeps it. */
-async function stampPaid(svc: ReturnType<typeof createServiceClient>, slug: string, phone: string, bookedId: string | null) {
+async function stampPaid(svc: ReturnType<typeof createServiceClient>, slug: string, phone: string, bookedId: string | null, paidAtIso: string | null = null) {
   await svc
     .from("onebox_leads")
-    .update({ paid_at: new Date().toISOString() })
+    .update({ paid_at: paidAtIso ?? new Date().toISOString() })
     .eq("slug", slug)
     .eq("phone", phone)
     .is("paid_at", null)

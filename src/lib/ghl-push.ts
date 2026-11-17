@@ -1,5 +1,6 @@
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
+import { lookBeforePaidBooking } from "@/lib/paid-booking";
 
 /* The one-box → GHL contact push (upsert + custom fields + tag + survey
    note), extracted from /api/onebox/submit so the ghl-retry cron can re-run
@@ -178,24 +179,38 @@ export function calendarDurationMin(cal: { slotDuration?: number; slotDurationUn
    the same call /api/onebox/book makes (confirmed status, calendar's own
    duration + title, reserved-time custom field), so all appointment
    automations (confirmations, reminders) fire exactly as if the booking
-   had worked live. Skips contacts that already have an upcoming
-   appointment, so a manual booking by the team is never duplicated. */
+   had worked live. Looks at her calendar first (lib/paid-booking): a lead
+   who already has an upcoming appointment is never booked again, and every
+   case that is not clean (an appointment made and removed after she picked,
+   a hold that never got confirmed, an older appointment at another time)
+   is handed to a person instead. A calendar that cannot be read is an
+   error — it used to count as "no appointments" and book blind. */
 export async function bookAppointmentForLead(inp: {
   locationId: string; calendarId: string; contactId: string; slotIso: string;
-}): Promise<{ appointmentId?: string; alreadyBooked?: boolean; error?: string }> {
+  /** When she picked the time; without it the last 21 days count. */
+  pickedAt?: string | null;
+  /** Look at her calendar and stop: `wouldBook` says a booking would follow. */
+  lookOnly?: boolean;
+}): Promise<{ appointmentId?: string; alreadyBooked?: boolean; needsPerson?: string; otherTime?: boolean; wouldBook?: boolean; /** the paid tag is not on her contact yet: look again next run */ wait?: boolean; error?: string }> {
   try {
     const tok = await getAppLocationToken(inp.locationId);
     if (!tok.token) throw new Error(tok.error ?? "no location token");
     const H = { Authorization: `Bearer ${tok.token}`, "Content-Type": "application/json", Accept: "application/json" };
 
-    const existing = await fetch(`https://services.leadconnectorhq.com/contacts/${inp.contactId}/appointments`, {
-      headers: { ...H, Version: "2021-07-28" },
-    }).then((r) => (r.ok ? r.json() : { events: [] })).catch(() => ({ events: [] })) as { events?: { startTime?: string; appointmentStatus?: string }[] };
-    const hasUpcoming = (existing.events ?? []).some((e) => {
-      const ms = Date.parse(String(e.startTime ?? ""));
-      return Number.isFinite(ms) && ms > Date.now() && String(e.appointmentStatus ?? "") !== "cancelled";
-    });
-    if (hasUpcoming) return { alreadyBooked: true };
+    const look = await lookBeforePaidBooking({ locationId: inp.locationId, token: tok.token, contactId: inp.contactId, slotIso: inp.slotIso, calendarId: inp.calendarId, pickedAt: inp.pickedAt });
+    if (!look.ok) throw new Error(`her calendar could not be read (${look.error})`);
+    if (look.state === "wait") return { wait: true };
+    if (look.state === "same_time") {
+      /* Still the AI's unpaid hold, long after the payment: the account's
+         workflow did not confirm it, so she has no confirmed appointment and
+         gets no confirmation or reminders. A person sets it to Confirmed. */
+      return look.unconfirmedHold
+        ? { needsPerson: "her appointment at this time is still an unconfirmed hold: open it in GHL and set it to Confirmed" }
+        : { alreadyBooked: true };
+    }
+    if (look.state === "other_time") return look.madeBeforePick ? { needsPerson: look.note, otherTime: true } : { alreadyBooked: true };
+    if (look.state === "needs_person") return { needsPerson: look.note };
+    if (inp.lookOnly) return { wouldBook: true };
 
     let durationMin = 30;
     let title = "Appointment";
