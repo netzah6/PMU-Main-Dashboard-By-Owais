@@ -403,9 +403,15 @@ export default function ReportsPage() {
       const startMs = si?.ms ?? null;
       // Old reports stay on the sheet and in the table (before a divider);
       // charts, totals and the live numbers only use the ones from the fresh start.
-      const oldReports = startMs != null && !showOld ? reps.filter((r) => r.ms < startMs) : [];
+      // A report is new only if it is dated on/after the fresh start AND sits
+      // below every older report on the sheet: old blocks carry year typos
+      // (Sharmila's 2024 block has "10/24/2026"), which must stay old.
+      const rowOf = (r: Report) => Number(r.raw["_row_number"] ?? r.raw["row_number"]) || 0;
+      const lastOldRow = startMs == null ? 0 : Math.max(0, ...reps.filter((r) => r.ms < startMs).map(rowOf));
+      const isOld = (r: Report) => startMs != null && (r.ms < startMs || rowOf(r) <= lastOldRow);
+      const oldReports = startMs != null && !showOld ? reps.filter(isOld) : [];
       const hiddenOld = oldReports.length;
-      if (hiddenOld) reps = reps.filter((r) => r.ms >= startMs!);
+      if (hiddenOld) reps = reps.filter((r) => !isOld(r));
       const first = reps[0] as Report | undefined, last = (reps[reps.length - 1] ?? null) as Report | null;
       // "amount we got" = highest recorded value (the latest report can reset to 0)
       const leadsTotal = Math.max(0, ...reps.map((r) => r.leads ?? 0));
