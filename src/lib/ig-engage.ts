@@ -89,6 +89,8 @@ const FORMER_WARM_DAYS = 56;       // 8 weeks of weekly visits for a former clie
 const FORMER_STOP_DAYS = 150;      // …then monthly; ~5 months with no follow-back = stop
 const QUIET_ACCOUNT_DAYS = 30;     // no post in 30 days = visit monthly
 const FORMER_SHARE = 0.4;
+const COMMENT_GAP_DAYS = 7;        // owner 11/17/2026: at most one comment per account per week
+const postKey = (u: string) => { const m = u.match(/\/(?:p|reel|reels|tv)\/([^/?#]+)/); return m ? m[1] : u.trim(); };
 
 /* Days until this client is due again. */
 export function revisitDays(c: EngageClient): number {
@@ -315,21 +317,50 @@ export async function queueRun(svc: Svc, by: string): Promise<QueueOutcome> {
   ]);
   const clients = (cl ?? []) as EngageClient[];
   const active = new Set(clients.filter((c) => c.status === "engage").map((c) => c.username));
-  const approved = ((appr ?? []) as Array<{ id: string; username: string; kind: string; text: string; post_url: string | null }>).filter((a) => active.has(a.username));
-  const must = new Set(approved.map((a) => a.username));
-  const batch = pickDue(clients, dailyQuota(s.startedAt), must);
+  const approvedAll = ((appr ?? []) as Array<{ id: string; username: string; kind: string; text: string; post_url: string | null }>).filter((a) => active.has(a.username));
+  /* Owner 11/17/2026: never too many comments on one account. A waiting
+     comment no longer pulls an account into today's run (that made the Mini
+     go back almost daily); accounts are visited only when due (weekly). */
+  const batch = pickDue(clients, dailyQuota(s.startedAt));
+  const inBatch = new Set(batch.map((c) => c.username));
+  const { data: recent } = inBatch.size
+    ? await svc.from("ig_engage_actions").select("username, post_url, done_at").eq("kind", "comment").eq("status", "done").in("username", [...inBatch])
+    : { data: [] };
+  const lastComment = new Map<string, number>();
+  const commentedPosts = new Map<string, Set<string>>();
+  for (const r of (recent ?? []) as Array<{ username: string; post_url: string | null; done_at: string | null }>) {
+    const at = r.done_at ? Date.parse(r.done_at) : 0;
+    if (at > (lastComment.get(r.username) ?? 0)) lastComment.set(r.username, at);
+    if (r.post_url) { const set = commentedPosts.get(r.username) ?? new Set<string>(); set.add(postKey(r.post_url)); commentedPosts.set(r.username, set); }
+  }
+  const mayComment = (u: string) => Date.now() - (lastComment.get(u) ?? 0) >= COMMENT_GAP_DAYS * DAY;
+  // At most ONE comment per visit: the oldest waiting one, if it is not on a post we already commented on.
+  const approved = batch.flatMap((c) => {
+    if (!mayComment(c.username)) return [];
+    const done = commentedPosts.get(c.username) ?? new Set<string>();
+    const a = approvedAll.find((x) => x.username === c.username && !(x.post_url && done.has(postKey(x.post_url))));
+    return a ? [a] : [];
+  });
   const finds = (lk ?? []) as Array<{ owner_name: string; business: string | null; city: string | null }>;
   if (!batch.length && !finds.length) return { queued: false, why: "nobody is due today" };
 
   const ts = now();
   const lines = batch.map((c, i) => {
     const posts = approved.filter((a) => a.username === c.username);
+    const done = [...(commentedPosts.get(c.username) ?? [])];
+    const commentStep = !mayComment(c.username)
+      ? "do NOT comment on anything this time (we commented on their account in the last 7 days)"
+      : posts.length
+        ? null
+        : s.approveComments
+          ? "write ONE comment idea for their newest post (do NOT post it) — it goes to the owner for approval"
+          : `write and POST ONE short comment on their newest post — only ONE comment on this whole account today${done.length ? `; NEVER comment on a post we already commented on (${done.slice(-5).join(", ")}) — if their newest post is one of these, do not comment` : ""}`;
     const todo = [
       c.followed_at ? "we already follow them (check; follow if not)" : "FOLLOW them (we don't yet)",
       "watch their stories if they have any (let each play a few seconds) and tap the heart on one",
       "like their newest post or reel",
-      ...posts.map((a) => `POST this approved comment (action id ${a.id}) on ${a.post_url ?? "their newest post"}: """${a.text}"""`),
-      s.approveComments ? "write ONE comment idea for their newest post (do NOT post it) — it goes to the owner for approval" : "write and POST one short comment on their newest post",
+      ...posts.map((a) => `POST this approved comment (action id ${a.id}) on ${a.post_url ?? "their newest post"}: """${a.text}""" — this is the ONLY comment on this account today; do not write another`),
+      ...(commentStep ? [commentStep] : []),
       "note how many days ago their newest post was made (report it as last_post_days)",
     ];
     const who = [c.owner_name, c.client_name].filter(Boolean).join(", ");
@@ -415,11 +446,23 @@ export async function onIgEngageClosed(svc: Svc, p: { id: string; status: string
     if (c.followed && !(prev as { followed_at: string | null }).followed_at) actions.push({ username, kind: "follow", status: "done", task_id: p.id, done_at: t });
     if (c.story_viewed) actions.push({ username, kind: "story_view", status: "done", task_id: p.id, done_at: t, note: c.story_liked ? "liked a story" : null });
     if (c.liked_url) actions.push({ username, kind: "like", post_url: String(c.liked_url).slice(0, 300), status: "done", task_id: p.id, done_at: t });
-    if (c.comment_posted?.text) actions.push({ username, kind: "comment", text: String(c.comment_posted.text).slice(0, 500), post_url: c.comment_posted.post_url ?? null, status: "done", task_id: p.id, done_at: t });
+    // The Mini sometimes reports an approved comment it posted ALSO as comment_posted — log it once.
+    const postedIds = (c.posted ?? []).map(String);
+    let postedTexts: string[] = [];
+    if (postedIds.length) {
+      const { data: pa } = await svc.from("ig_engage_actions").select("text").in("id", postedIds);
+      postedTexts = ((pa ?? []) as Array<{ text: string | null }>).map((x) => String(x.text ?? "").trim());
+    }
+    if (c.comment_posted?.text && !postedTexts.includes(String(c.comment_posted.text).trim())) actions.push({ username, kind: "comment", text: String(c.comment_posted.text).slice(0, 500), post_url: c.comment_posted.post_url ?? null, status: "done", task_id: p.id, done_at: t });
+    const commentedNow = postedIds.length > 0 || !!c.comment_posted?.text;
     // A fresh comment idea replaces the client's older one nobody decided on.
     if (c.draft?.text && !blocked) await svc.from("ig_engage_actions").update({ status: "skipped", note: "replaced by a newer idea", decided_at: t }).eq("username", username).eq("status", "draft");
+    // With approval off, an idea brought back after a comment was already posted today is NOT kept
+    // (it made the Mini come back the next day — owner 11/17/2026: too many comments).
     if (c.draft?.text && !blocked) actions.push({ username, kind: "comment", text: String(c.draft.text).slice(0, 500), post_url: c.draft.post_url ?? null, context: c.draft.context ? String(c.draft.context).slice(0, 300) : null, task_id: p.id,
-      ...(autoApprove ? { status: "approved", decided_at: t, decided_by: "auto (owner: no approval needed)" } : { status: "draft" }) });
+      ...(autoApprove
+        ? (commentedNow ? { status: "skipped", decided_at: t, note: "already commented on this visit" } : { status: "approved", decided_at: t, decided_by: "auto (owner: no approval needed)" })
+        : { status: "draft" }) });
     for (const id of c.posted ?? []) {
       await svc.from("ig_engage_actions").update({ status: "done", done_at: t, task_id: p.id }).eq("id", id).eq("status", "approved");
     }
