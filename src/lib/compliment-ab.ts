@@ -49,12 +49,21 @@ type Svc = ReturnType<typeof createServiceClient>;
    CloseBot publish, so the split check never needs a deploy. Until the key
    exists the rule stays 0-3. (0-4 holds three even digits and two odd ones, so
    the two sides no longer carry exactly the same share of the deposit-ask
-   test; that test was a tie on 11/16 and ends 11/25.) */
+   test; that test was a tie on 11/16 and ends 11/25.)
+
+   70/30 (owner, 11/18/2026): the new line was ahead on deposits (9 of 67 vs
+   6 of 108, not proof yet), so most leads should get it while the test
+   finishes: phones ending 5 and 6 join the NEW line too (0-6 new, 7-9 old).
+   Same idea: the moment that CloseBot version went live is kept in
+   app_settings `compliment_ab_7030_start` ({ at: ISO }); until it exists the
+   rule stays 0-4. A firm answer takes a few days longer at 70/30 (the old
+   side fills more slowly). */
 
 export const COMP_AB_ROUND1_START = "2026-11-11T21:25:00Z";
 export const COMP_AB_START = "2026-11-13T15:46:00Z";
 export const COMP_AB_LOCATIONS_KEY = "compliment_ab_locations"; // { locations: string[] } read off the slay agent's Sources
 export const COMP_AB_5050_KEY = "compliment_ab_5050_start"; // { at: ISO } — when phones ending 4 moved to the NEW line
+export const COMP_AB_7030_KEY = "compliment_ab_7030_start"; // { at: ISO } — when phones ending 5 and 6 moved to the NEW line
 const CURSOR_KEY = "compliment_ab_cursor";
 const DEMO_LOCATION = "asaIf2fxizaCNJ71iywk";
 const REPLY_MS = 86400_000;
@@ -80,21 +89,33 @@ export function replyKind(body: string): "happy" | "putdown" | "other" {
   return "other";
 }
 
-/** When the 50/50 split went live in CloseBot (null = still 0-3 only). */
-export async function compAbFiftyFrom(svc: Svc): Promise<string | null> {
-  const { data, error } = await svc.from("app_settings").select("value").eq("key", COMP_AB_5050_KEY).maybeSingle();
-  // A failed read must not look like "no 50/50 yet": that would flag every phone-ending-4 lead as on the wrong side.
+async function splitStart(svc: Svc, key: string): Promise<string | null> {
+  const { data, error } = await svc.from("app_settings").select("value").eq("key", key).maybeSingle();
+  // A failed read must not look like "not switched yet": that would flag every lead the switch moved as on the wrong side.
   if (error) throw new Error(error.message);
   const at = (data?.value as { at?: string } | null)?.at;
   // Only a full time with a zone (Z or +hh:mm) counts, so a hand-typed date can't shift the start by hours.
   return at && /(Z|[+-]\d{2}:?\d{2})$/.test(at) && Number.isFinite(Date.parse(at)) ? at : null;
 }
 
+/** When the 50/50 split went live in CloseBot (null = still 0-3 only). */
+export async function compAbFiftyFrom(svc: Svc): Promise<string | null> {
+  return splitStart(svc, COMP_AB_5050_KEY);
+}
+
+/** When the 70/30 split went live in CloseBot (null = not yet). */
+export async function compAbSeventyFrom(svc: Svc): Promise<string | null> {
+  return splitStart(svc, COMP_AB_7030_KEY);
+}
+
 /** The side the CloseBot switch should pick for this phone at this moment (null = no phone digit, so no check). */
-export function compExpected(phoneLast: string | null, sentAt: string | number, fiftyFrom: string | null): "old" | "new" | null {
+export function compExpected(phoneLast: string | null, sentAt: string | number, fiftyFrom: string | null, seventyFrom: string | null = null): "old" | "new" | null {
   if (phoneLast == null || phoneLast === "") return null;
+  const t = new Date(sentAt).getTime();
+  const since = (at: string | null) => !!at && t >= Date.parse(at);
   if (/[0-3]/.test(phoneLast)) return "new";
-  if (phoneLast === "4" && fiftyFrom && new Date(sentAt).getTime() >= Date.parse(fiftyFrom)) return "new";
+  if (phoneLast === "4" && (since(fiftyFrom) || since(seventyFrom))) return "new";
+  if (/[56]/.test(phoneLast) && since(seventyFrom)) return "new";
   return "old";
 }
 
@@ -120,6 +141,7 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
   if (started < startMs) return { skipped: "not started" };
   const locations = await compAbLocations(svc);
   const fiftyFrom = await compAbFiftyFrom(svc);
+  const seventyFrom = await compAbSeventyFrom(svc);
   const { data: cur } = await svc.from("app_settings").select("value").eq("key", CURSOR_KEY).maybeSingle();
   const scannedTo = Date.parse(((cur?.value as { scannedTo?: string } | null)?.scannedTo) ?? COMP_AB_START);
   const scanFrom = Math.max(startMs, scannedTo - 2 * 3600_000); // overlap so a slow hour is never skipped
@@ -294,7 +316,7 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
           const digits = String(contact.phone ?? "").replace(/\D/g, "");
           phoneLast = digits ? digits.slice(-1) : null;
         }
-        const expected = compExpected(phoneLast, compT, fiftyFrom);
+        const expected = compExpected(phoneLast, compT, fiftyFrom, seventyFrom);
         /* Replied = any message back within a day (a photo counts); the kind
            comes from her first message WITH text, so a second photo landing
            after the compliment never hides her "thank you" / "excuse my bags". */

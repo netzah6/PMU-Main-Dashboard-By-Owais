@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { DEP_ASK_START, depAskSlugs } from "@/lib/dep-ask";
-import { COMP_AB_START, COMP_AB_ROUND1_START, compAbLocations, compAbFiftyFrom, compExpected } from "@/lib/compliment-ab";
+import { COMP_AB_START, COMP_AB_ROUND1_START, compAbLocations, compAbFiftyFrom, compAbSeventyFrom, compExpected } from "@/lib/compliment-ab";
 
 export const fetchCache = "force-no-store";
 
@@ -146,10 +146,11 @@ export async function GET() {
        time (not read from the saved column), so the day the split moved to
        50/50 — phones ending 4 join the new line — needs no row fix. */
     const fiftyFrom = await compAbFiftyFrom(sb);
+    const seventyFrom = await compAbSeventyFrom(sb); // 70/30 (11/18): phones ending 5 and 6 join the new line
     for (let from = 0; ; from += 1000) {
       const { data, error } = await sb.from("compliment_ab_results").select("line, phone_last, sent_at, reply_at, reply_kind, booked, paid").order("conv_id").range(from, from + 999);
       if (error) throw new Error(error.message);
-      allComp.push(...((data ?? []) as Omit<CompRow, "expected">[]).map((x) => ({ ...x, expected: compExpected(x.phone_last, x.sent_at, fiftyFrom) })));
+      allComp.push(...((data ?? []) as Omit<CompRow, "expected">[]).map((x) => ({ ...x, expected: compExpected(x.phone_last, x.sent_at, fiftyFrom, seventyFrom) })));
       if (!data || data.length < 1000) break;
     }
     /* Round 2 (11/13): B changed, so the card counts from COMP_AB_START only;
@@ -181,7 +182,7 @@ export async function GET() {
       offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, until: OFFER_END, funnels: offerSlugs.length },
       igw: { a: igwA, b: igwB, since: igwSince ?? undefined, until: IGW_END, funnels: igwFunnels },
       dep: { a: depSide("a"), b: depSide("b"), since: DEP_ASK_START, funnels: depSlugs?.length },
-      comp: { a: compSide("old"), b: compSide("new"), since: COMP_AB_START, fifty: fiftyFrom ?? undefined, accounts: compAccounts, checked: compChecked.length, wrong: compChecked.filter((x) => x.expected !== x.line).length,
+      comp: { a: compSide("old"), b: compSide("new"), since: COMP_AB_START, fifty: fiftyFrom ?? undefined, seventy: seventyFrom ?? undefined, accounts: compAccounts, checked: compChecked.length, wrong: compChecked.filter((x) => x.expected !== x.line).length,
         round1: { a: compSide("old", r1Rows), b: compSide("new", r1Rows), since: COMP_AB_ROUND1_START, until: COMP_AB_START } },
     });
   } catch (e) {
