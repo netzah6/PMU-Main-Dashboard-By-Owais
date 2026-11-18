@@ -186,6 +186,37 @@ export default function ReportsPage() {
   const [adding, setAdding] = useState(false);
   // Mobile-only: whether the user has tapped into a report (list → detail flow).
   const [mobilePicked, setMobilePicked] = useState(false);
+  /* Fresh start (owner 11/18/2026): a returning client on a new sub-account,
+     or one who moved to Pay Per Appointment, only counts from that day on —
+     older reports, deposits and leads are left out (admins can show them). */
+  const [starts, setStarts] = useState<Record<string, string>>({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showOld, setShowOld] = useState(false);
+  // A client with no report yet, picked from the client list (＋ New client).
+  const [extraName, setExtraName] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  useEffect(() => {
+    fetch("/api/reports/fresh-start").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (j?.starts) setStarts(j.starts);
+      setIsAdmin(!!j?.isAdmin);
+    }).catch(() => { /* no fresh starts → everything shows as before */ });
+  }, []);
+  const startOf = useMemo(() => {
+    const look = nameLookup(Object.entries(starts));
+    return (name: string): number | null => {
+      const d = look(name);
+      const m = d ? d.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+      return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : null;
+    };
+  }, [starts]);
+  const saveStart = useCallback(async (name: string, date: string | null) => {
+    const res = await fetch("/api/reports/fresh-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, date }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.success) { toast.error(`Couldn't save: ${j.error || "failed"}`); return; }
+    setStarts(j.starts);
+    toast.success(date ? "Fresh start saved" : "Fresh start removed");
+  }, []);
+
   // local optimistic overrides for the editable Action column, keyed by sheet row
   const [actionEdits, setActionEdits] = useState<Record<number, string>>({});
 
@@ -304,7 +335,10 @@ export default function ReportsPage() {
       const biz = String(c["Business Name"] ?? "").trim();
       if (!biz) return;
       const owner = String(c["Owner Full Name"] ?? "");
-      if (plain(owner)) { m.set(plain(owner), biz); entries.push({ tokens: words(owner), biz }); }
+      if (!plain(owner)) return;
+      const had = m.get(plain(owner));
+      if (!had || biz.length > had.length) m.set(plain(owner), biz);
+      entries.push({ tokens: words(owner), biz });
     });
     return (name: string): string => {
       const exact = m.get(plain(name));
@@ -348,7 +382,9 @@ export default function ReportsPage() {
       }
       (map.get(key) ?? map.set(key, []).get(key)!).push(rep);
     });
-    return Array.from(map.values()).map((reps) => {
+    type Client = { name: string; reports: Report[]; leadsTotal: number; sessionsTotal: number; bookingRate: number; count: number; growth: number; last: Report | null; hiddenOld: number; startMs: number | null };
+    const out: Client[] = Array.from(map.values()).map((all): Client => {
+      let reps = all;
       reps.forEach((r) => {
         const ms = dateIndex.get(r.date) ?? NaN;
         r.ms = ms;
@@ -359,17 +395,27 @@ export default function ReportsPage() {
       // being dumped at the front (the old parse returned 0 = Jan 1970).
       reps.forEach((r, i) => { if (isNaN(r.ms)) r.ms = i > 0 ? reps[i - 1].ms : 0; });
       reps.sort((a, b) => a.ms - b.ms);
-      const first = reps[0], last = reps[reps.length - 1];
-      const name = String(last.raw["Name"] ?? "").trim();
+      const name = String(reps[reps.length - 1].raw["Name"] ?? "").trim();
+      // Fresh start: reports from before that day belong to the old account / program.
+      const startMs = startOf(name);
+      const hiddenOld = startMs != null && !showOld ? reps.filter((r) => r.ms < startMs).length : 0;
+      if (hiddenOld) reps = reps.filter((r) => r.ms >= startMs!);
+      const first = reps[0] as Report | undefined, last = (reps[reps.length - 1] ?? null) as Report | null;
       // "amount we got" = highest recorded value (the latest report can reset to 0)
       const leadsTotal = Math.max(0, ...reps.map((r) => r.leads ?? 0));
       const sessionsTotal = Math.max(0, ...reps.map((r) => r.sessions ?? 0));
       const bvals = reps.map((r) => r.booking).filter((b): b is number => b != null);
       const bookingRate = bvals.length ? (bvals.reduce((s, b) => s + b, 0) / bvals.length) * 100 : 0;
-      const growth = first.leads && last.leads != null ? ((last.leads - first.leads) / first.leads) * 100 : 0;
-      return { name, reports: reps, leadsTotal, sessionsTotal, bookingRate, count: reps.length, growth, last };
+      const growth = first?.leads && last?.leads != null ? ((last.leads - first.leads) / first.leads) * 100 : 0;
+      return { name, reports: reps, leadsTotal, sessionsTotal, bookingRate, count: reps.length, growth, last, hiddenOld, startMs };
     });
-  }, [data, dateIndex, bizResolve]);
+    // A client picked with ＋ New client (no report on the sheet yet).
+    const plainName = (x: string) => x.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
+    if (extraName && !out.some((c) => plainName(c.name) === plainName(extraName))) {
+      out.push({ name: extraName, reports: [], leadsTotal: 0, sessionsTotal: 0, bookingRate: 0, count: 0, growth: 0, last: null, hiddenOld: 0, startMs: startOf(extraName) });
+    }
+    return out;
+  }, [data, dateIndex, bizResolve, startOf, showOld, extraName]);
 
   const listed = useMemo(() => {
     let list = clients;
@@ -382,6 +428,19 @@ export default function ReportsPage() {
   }, [clients, search, sort]);
 
   const current = useMemo(() => clients.find((c) => c.name === selected) ?? listed[0], [clients, listed, selected]);
+  // Clients on the Clients sheet with no report yet (for ＋ New client).
+  const newClientOptions = useMemo(() => {
+    const plain = (x: string) => x.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
+    const have = new Set(clients.filter((c) => c.count > 0 || c.hiddenOld > 0).map((c) => plain(c.name)));
+    const seen = new Set<string>();
+    const out: string[] = [];
+    rawClients.forEach((c) => {
+      const o = String(c["Owner Full Name"] ?? "").trim();
+      if (!o || have.has(plain(o)) || seen.has(plain(o))) return;
+      seen.add(plain(o)); out.push(o);
+    });
+    return out.sort((a, b) => a.localeCompare(b));
+  }, [clients, rawClients]);
   const reps = current?.reports ?? [];
 
   // business name (lowercased) → its deposits, from the real Deposits sheet —
@@ -437,12 +496,13 @@ export default function ReportsPage() {
   const depositCum = useMemo(() => {
     if (!current) return [] as number[];
     const biz = bizResolve(current.name).trim().toLowerCase();
-    const deps = depositsByBiz.get(biz) ?? [];
+    const from = showOld ? null : current.startMs;
+    const deps = (depositsByBiz.get(biz) ?? []).filter((d) => from == null || d.at >= from);
     return current.reports.map((r) => {
       const end = r.ms + 86399999;
       return deps.filter((d) => d.at <= end && !(d.refundedAt != null && d.refundedAt <= end)).length;
     });
-  }, [current, bizResolve, depositsByBiz]);
+  }, [current, bizResolve, depositsByBiz, showOld]);
   // Business Name (lowercased) → owner key as GHL lead status files it.
   const ownerByBiz = useMemo(() => {
     const m = new Map<string, string>();
@@ -462,9 +522,11 @@ export default function ReportsPage() {
   useEffect(() => {
     const last = current?.reports[current.reports.length - 1];
     const biz = current ? bizResolve(current.name) : "";
-    if (!current || !last || isNaN(last.ms) || !biz) { setLive(null); return; }
+    if (!current || (last && isNaN(last.ms)) || !biz) { setLive(null); return; }
     const owner = ownerByBiz.get(biz.toLowerCase()) ?? "";
-    const after = last.ms + 86399999;
+    // After the last report's day; with no report, from the fresh start (or all time).
+    const from = showOld ? null : current.startMs;
+    const after = last ? last.ms + 86399999 : from != null ? from - 1 : -Infinity;
     const dmy = (v: unknown) => {
       const m = String(v ?? "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
       return m ? new Date(+m[3], +m[2] - 1, +m[1]).getTime() : NaN;
@@ -479,27 +541,31 @@ export default function ReportsPage() {
         if (error) throw error;
         (data ?? []).forEach((r) => {
           const d = (r as { data: Record<string, unknown> }).data;
-          if (dmy(d["col_6"] ?? d["Date"]) > after) phones.add(String(d["Phone Number"] ?? d["Full Name"] ?? ""));
+          const at = dmy(d["col_6"] ?? d["Date"]);
+          if (last ? at > after : (after === -Infinity || at > after)) phones.add(String(d["Phone Number"] ?? d["Full Name"] ?? ""));
         });
         if (!data || data.length < 1000) break;
       }
       let booked = 0;
       if (owner) {
-        const { count, error } = await supabase.from("ghl_lead_status").select("id", { count: "exact", head: true })
-          .eq("owner_key", owner).eq("booked", true).gt("date_added", new Date(after).toISOString());
+        let q = supabase.from("ghl_lead_status").select("id", { count: "exact", head: true })
+          .eq("owner_key", owner).eq("booked", true);
+        if (after !== -Infinity) q = q.gt("date_added", new Date(after).toISOString());
+        const { count, error } = await q;
         if (error) throw error;
         booked = count ?? 0;
       }
-      if (!dead) setLive({ key: current.name, leads: (last.leads ?? 0) + phones.size, sessions: (last.sessions ?? 0) + booked });
+      if (!dead) setLive({ key: current.name, leads: (last?.leads ?? 0) + phones.size, sessions: (last?.sessions ?? 0) + booked });
     })().catch(() => { if (!dead) setLive(null); });
     return () => { dead = true; };
-  }, [current, bizResolve, ownerByBiz]);
+  }, [current, bizResolve, ownerByBiz, showOld]);
   const liveNow = live && current && live.key === current.name ? live : null;
   const depositsNow = useMemo(() => {
     if (!current) return 0;
+    const from = showOld ? null : current.startMs;
     const deps = depositsByBiz.get(bizResolve(current.name).trim().toLowerCase()) ?? [];
-    return deps.filter((d) => d.refundedAt == null).length;
-  }, [current, bizResolve, depositsByBiz]);
+    return deps.filter((d) => d.refundedAt == null && (from == null || d.at >= from)).length;
+  }, [current, bizResolve, depositsByBiz, showOld]);
   const repDates = reps.map((r) => r.short);
   const todayDates = [...repDates, "Today"];
   const showToday = reps.length > 0;
@@ -625,6 +691,20 @@ export default function ReportsPage() {
             ))}
           </div>
         </div>
+        <div className="px-2.5 py-1.5 border-b border-[#e4ebf2]">
+          {!picking ? (
+            <button onClick={() => setPicking(true)} className="w-full py-1.5 rounded-lg text-xs font-semibold border border-dashed border-[#15B7AE] text-[#0e8f88] hover:bg-[#e6f7f5]">
+              ＋ New client (no report yet)
+            </button>
+          ) : (
+            <select autoFocus defaultValue="" onBlur={() => setPicking(false)}
+              onChange={(e) => { const v = e.target.value; if (!v) return; setExtraName(v); setSelected(v); setMobilePicked(true); setPicking(false); }}
+              className="w-full rounded-lg border border-[#d7e0ea] px-2 py-1.5 text-sm bg-white">
+              <option value="">Pick a client…</option>
+              {newClientOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          )}
+        </div>
         <div className="flex-1 overflow-y-auto">
           {listed.map((c) => {
             const active = current?.name === c.name;
@@ -656,6 +736,22 @@ export default function ReportsPage() {
           <div className="p-10 text-center text-[#697a91]">Loading reports…</div>
         ) : !current ? (
           <div className="p-10 text-center text-[#8595a8]">No tracking data found.</div>
+        ) : !current.last ? (
+          /* No report yet (new client) or none since the fresh start. */
+          <div className="p-2 sm:p-3 space-y-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-xl font-bold text-[#1f3559]">{current.name}</h1>
+              {bizResolve(current.name) && <span className="text-sm font-medium text-[#697a91]">· {bizResolve(current.name)}</span>}
+              <FreshStartChip name={current.name} startMs={current.startMs} hidden={current.hiddenOld} isAdmin={isAdmin}
+                showOld={showOld} onShowOld={setShowOld} onSave={saveStart} />
+            </div>
+            <p className="text-sm text-[#697a91]">
+              {current.startMs != null ? `No report since the fresh start (${formatUs(current.startMs)}) yet.` : "No report for this client yet."}{" "}
+              Numbers below are counted live{current.startMs != null ? ` from ${formatUs(current.startMs)}` : ""}. Check them, then save the first report.
+            </p>
+            <AddReportPanel key={`${current.name}|${current.startMs ?? ""}|${liveNow ? "live" : "wait"}`} last={null} name={current.name} live={liveNow} deposits={depositsNow}
+              onDone={() => { setExtraName(null); setSelected(current.name); refetch(); }} />
+          </div>
         ) : (
           <div className="p-2 sm:p-3 space-y-2 md:min-w-[900px]">
             {/* Header */}
@@ -665,8 +761,10 @@ export default function ReportsPage() {
                 const biz = businessMap.get(current.name.toLowerCase());
                 return biz ? <span className="text-sm font-medium text-[#697a91]">· {biz}</span> : null;
               })()}
+              <FreshStartChip name={current.name} startMs={current.startMs} hidden={current.hiddenOld} isAdmin={isAdmin}
+                showOld={showOld} onShowOld={setShowOld} onSave={saveStart} />
               {(() => {
-                const r = current.last.raw;
+                const r = current.last!.raw;
                 const badge = (label: string, on: boolean | null) => (
                   <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold border",
                     on === true ? "bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df]" : on === false ? "bg-[#fde8ee] text-[#e11d48] border-[#f5c2cf]" : "bg-[#f1f5f9] text-[#64748b] border-[#d7e0ea]")}>
@@ -710,7 +808,7 @@ export default function ReportsPage() {
                       const vs = versionStyle(ver);
                       return <span className="px-2 py-0.5 rounded-full text-xs font-semibold border" style={{ background: vs.bg, color: vs.text, borderColor: vs.border }}>Version: {ver}</span>;
                     })()}
-                    <span className="text-xs text-[#697a91]">{current.count} reports · {reps[0].label} – {current.last.label}</span>
+                    <span className="text-xs text-[#697a91]">{current.count} reports · {reps[0].label} – {current.last!.label}</span>
                     <button onClick={() => setAdding((a) => !a)}
                       className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#15B7AE] text-white hover:bg-[#0e8f88]">
                       {adding ? "Close" : "＋ Add report"}
@@ -726,7 +824,7 @@ export default function ReportsPage() {
             </div>
 
             {adding && current && (
-              <AddReportPanel key={current.name} last={current.last} name={current.name} live={liveNow} deposits={depositsNow}
+              <AddReportPanel key={current.name} last={current.last!} name={current.name} live={liveNow} deposits={depositsNow}
                 onDone={() => { setAdding(false); refetch(); }} />
             )}
 
@@ -804,6 +902,56 @@ export default function ReportsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+const formatUs = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+const isoDay = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+
+/* "Fresh start" chip: shows the day this client's numbers count from, how many
+   older reports are hidden, and lets an admin set or clear the day. */
+function FreshStartChip({ name, startMs, hidden, isAdmin, showOld, onShowOld, onSave }: {
+  name: string; startMs: number | null; hidden: number; isAdmin: boolean; showOld: boolean;
+  onShowOld: (v: boolean) => void; onSave: (name: string, date: string | null) => Promise<void>;
+}) {
+  const [edit, setEdit] = useState(false);
+  const [val, setVal] = useState(startMs != null ? isoDay(startMs) : "");
+  const [busy, setBusy] = useState(false);
+  if (startMs == null && !isAdmin) return null;
+  if (edit) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs">
+        <span className="font-semibold text-[#1f3559]">Count from</span>
+        <input type="date" value={val} onChange={(e) => setVal(e.target.value)} className="rounded border border-[#d7e0ea] px-1 py-0.5" />
+        <button disabled={busy || !val} onClick={async () => { setBusy(true); await onSave(name, val); setBusy(false); setEdit(false); }}
+          className="px-2 py-0.5 rounded-full bg-[#15B7AE] text-white font-semibold disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
+        {startMs != null && (
+          <button disabled={busy} onClick={async () => { setBusy(true); await onSave(name, null); setBusy(false); setEdit(false); }}
+            className="px-2 py-0.5 rounded-full border border-[#f5c2cf] text-[#e11d48] font-semibold">Remove</button>
+        )}
+        <button onClick={() => setEdit(false)} className="px-1 text-[#697a91]">Cancel</button>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      {startMs != null ? (
+        <span title="Reports, leads and deposits before this day are left out (old sub-account or old program)."
+          className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fff1f2] text-[#be123c] border border-[#fecdd3]">
+          🔄 Fresh start {formatUs(startMs)}{hidden > 0 ? ` · ${hidden} old report${hidden === 1 ? "" : "s"} hidden` : ""}
+        </span>
+      ) : null}
+      {startMs != null && (hidden > 0 || showOld) && (
+        <button onClick={() => onShowOld(!showOld)} className="text-xs font-semibold text-[#0e8f88] underline">
+          {showOld ? "Hide old" : "Show old"}
+        </button>
+      )}
+      {isAdmin && (
+        <button onClick={() => setEdit(true)} className="text-xs font-semibold text-[#697a91] underline">
+          {startMs != null ? "Change" : "Set fresh start"}
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -960,9 +1108,9 @@ const REPORT_BEHAVIOURS = BEHAVIOURS.filter((b) => b.key !== "Happy?" && b.key !
 const todayUs = () => new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 
 function AddReportPanel({ name, last, live, deposits, onDone }: {
-  name: string; last: Report; live: { leads: number; sessions: number } | null; deposits: number; onDone: () => void;
+  name: string; last: Report | null; live: { leads: number; sessions: number } | null; deposits: number; onDone: () => void;
 }) {
-  const lr = last.raw;
+  const lr = last?.raw ?? {};
   const str = (k: string) => String(lr[k] ?? "").trim();
   // Prefilled from the live numbers and the last report — the coach only fixes what changed.
   const [v, setV] = useState<Record<string, string>>(() => ({
@@ -972,8 +1120,8 @@ function AddReportPanel({ name, last, live, deposits, onDone }: {
     "Happy?": str("Happy?") || "Yes",
     "Last Strategy?": str("Last Strategy?"),
     "Deposits?": deposits > 0 ? "YES" : str("Deposits?") || "NO",
-    "Total Leads": String(live?.leads ?? last.leads ?? ""),
-    "Sessions Done?": String(live?.sessions ?? last.sessions ?? ""),
+    "Total Leads": String(live?.leads ?? last?.leads ?? ""),
+    "Sessions Done?": String(live?.sessions ?? last?.sessions ?? ""),
     "Total Declining": str("Total Declining"),
     ...Object.fromEntries(REPORT_BEHAVIOURS.map((b) => [b.key, str(b.key) || "NOT"])),
     "Action": "",
