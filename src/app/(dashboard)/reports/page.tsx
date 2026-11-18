@@ -189,7 +189,7 @@ export default function ReportsPage() {
   /* Fresh start (owner 11/18/2026): a returning client on a new sub-account,
      or one who moved to Pay Per Appointment, only counts from that day on —
      older reports, deposits and leads are left out (admins can show them). */
-  const [starts, setStarts] = useState<Record<string, string>>({});
+  const [starts, setStarts] = useState<Record<string, FreshStart>>({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [showOld, setShowOld] = useState(false);
   // A client with no report yet, picked from the client list (＋ New client).
@@ -201,16 +201,18 @@ export default function ReportsPage() {
       setIsAdmin(!!j?.isAdmin);
     }).catch(() => { /* no fresh starts → everything shows as before */ });
   }, []);
-  const startOf = useMemo(() => {
+  const startInfo = useMemo(() => {
     const look = nameLookup(Object.entries(starts));
-    return (name: string): number | null => {
-      const d = look(name);
+    return (name: string): { ms: number; label: string } | null => {
+      const v = look(name);
+      const d = typeof v === "string" ? v : v?.date;
       const m = d ? d.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
-      return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : null;
+      if (!m) return null;
+      return { ms: new Date(+m[1], +m[2] - 1, +m[3]).getTime(), label: (typeof v === "object" && v?.label?.trim()) || "Fresh start" };
     };
   }, [starts]);
-  const saveStart = useCallback(async (name: string, date: string | null) => {
-    const res = await fetch("/api/reports/fresh-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, date }) });
+  const saveStart = useCallback(async (name: string, date: string | null, label?: string) => {
+    const res = await fetch("/api/reports/fresh-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, date, label }) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || !j.success) { toast.error(`Couldn't save: ${j.error || "failed"}`); return; }
     setStarts(j.starts);
@@ -382,7 +384,7 @@ export default function ReportsPage() {
       }
       (map.get(key) ?? map.set(key, []).get(key)!).push(rep);
     });
-    type Client = { name: string; reports: Report[]; leadsTotal: number; sessionsTotal: number; bookingRate: number; count: number; growth: number; last: Report | null; hiddenOld: number; startMs: number | null };
+    type Client = { name: string; reports: Report[]; oldReports: Report[]; leadsTotal: number; sessionsTotal: number; bookingRate: number; count: number; growth: number; last: Report | null; hiddenOld: number; startMs: number | null; startLabel: string };
     const out: Client[] = Array.from(map.values()).map((all): Client => {
       let reps = all;
       reps.forEach((r) => {
@@ -397,8 +399,12 @@ export default function ReportsPage() {
       reps.sort((a, b) => a.ms - b.ms);
       const name = String(reps[reps.length - 1].raw["Name"] ?? "").trim();
       // Fresh start: reports from before that day belong to the old account / program.
-      const startMs = startOf(name);
-      const hiddenOld = startMs != null && !showOld ? reps.filter((r) => r.ms < startMs).length : 0;
+      const si = startInfo(name);
+      const startMs = si?.ms ?? null;
+      // Old reports stay on the sheet and in the table (before a divider);
+      // charts, totals and the live numbers only use the ones from the fresh start.
+      const oldReports = startMs != null && !showOld ? reps.filter((r) => r.ms < startMs) : [];
+      const hiddenOld = oldReports.length;
       if (hiddenOld) reps = reps.filter((r) => r.ms >= startMs!);
       const first = reps[0] as Report | undefined, last = (reps[reps.length - 1] ?? null) as Report | null;
       // "amount we got" = highest recorded value (the latest report can reset to 0)
@@ -407,15 +413,16 @@ export default function ReportsPage() {
       const bvals = reps.map((r) => r.booking).filter((b): b is number => b != null);
       const bookingRate = bvals.length ? (bvals.reduce((s, b) => s + b, 0) / bvals.length) * 100 : 0;
       const growth = first?.leads && last?.leads != null ? ((last.leads - first.leads) / first.leads) * 100 : 0;
-      return { name, reports: reps, leadsTotal, sessionsTotal, bookingRate, count: reps.length, growth, last, hiddenOld, startMs };
+      return { name, reports: reps, oldReports, leadsTotal, sessionsTotal, bookingRate, count: reps.length, growth, last, hiddenOld, startMs, startLabel: si?.label ?? "Fresh start" };
     });
     // A client picked with ＋ New client (no report on the sheet yet).
     const plainName = (x: string) => x.normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
     if (extraName && !out.some((c) => plainName(c.name) === plainName(extraName))) {
-      out.push({ name: extraName, reports: [], leadsTotal: 0, sessionsTotal: 0, bookingRate: 0, count: 0, growth: 0, last: null, hiddenOld: 0, startMs: startOf(extraName) });
+      const si = startInfo(extraName);
+      out.push({ name: extraName, reports: [], oldReports: [], leadsTotal: 0, sessionsTotal: 0, bookingRate: 0, count: 0, growth: 0, last: null, hiddenOld: 0, startMs: si?.ms ?? null, startLabel: si?.label ?? "Fresh start" });
     }
     return out;
-  }, [data, dateIndex, bizResolve, startOf, showOld, extraName]);
+  }, [data, dateIndex, bizResolve, startInfo, showOld, extraName]);
 
   const listed = useMemo(() => {
     let list = clients;
@@ -567,6 +574,8 @@ export default function ReportsPage() {
     return deps.filter((d) => d.refundedAt == null && (from == null || d.at >= from)).length;
   }, [current, bizResolve, depositsByBiz, showOld]);
   const repDates = reps.map((r) => r.short);
+  const tableReps = useMemo(() => [...(current?.oldReports ?? []), ...(current?.reports ?? [])], [current]);
+  const divAt = current?.oldReports.length ?? 0;
   const todayDates = [...repDates, "Today"];
   const showToday = reps.length > 0;
   const payRow = useMemo(() => (current ? lookupPayment(payments, current.name) : null), [current, payments]);
@@ -742,7 +751,7 @@ export default function ReportsPage() {
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl font-bold text-[#1f3559]">{current.name}</h1>
               {bizResolve(current.name) && <span className="text-sm font-medium text-[#697a91]">· {bizResolve(current.name)}</span>}
-              <FreshStartChip name={current.name} startMs={current.startMs} hidden={current.hiddenOld} isAdmin={isAdmin}
+              <FreshStartChip name={current.name} startMs={current.startMs} label={current.startLabel} hidden={current.hiddenOld} isAdmin={isAdmin}
                 showOld={showOld} onShowOld={setShowOld} onSave={saveStart} />
             </div>
             <p className="text-sm text-[#697a91]">
@@ -761,7 +770,7 @@ export default function ReportsPage() {
                 const biz = businessMap.get(current.name.toLowerCase());
                 return biz ? <span className="text-sm font-medium text-[#697a91]">· {biz}</span> : null;
               })()}
-              <FreshStartChip name={current.name} startMs={current.startMs} hidden={current.hiddenOld} isAdmin={isAdmin}
+              <FreshStartChip name={current.name} startMs={current.startMs} label={current.startLabel} hidden={current.hiddenOld} isAdmin={isAdmin}
                 showOld={showOld} onShowOld={setShowOld} onSave={saveStart} />
               {(() => {
                 const r = current.last!.raw;
@@ -867,9 +876,10 @@ export default function ReportsPage() {
                   <thead>
                     <tr style={{ background: "linear-gradient(180deg,#34568a,#26416b)" }} className="text-white">
                       <th className="px-3 py-0.5 text-left text-[10px] font-bold uppercase tracking-wider sticky left-0 z-10" style={{ background: "#2d4c79" }}>Metric</th>
-                      {reps.map((r, i) => (
-                        <th key={i} className="px-3 py-0.5 text-center text-[10px] font-bold uppercase whitespace-nowrap">
-                          #{i + 1}<br /><span className="font-medium opacity-80" title={r.date === r.label ? undefined : `Sheet value: ${r.date}`}>{r.label}</span>
+                      {tableReps.map((r, i) => (
+                        <th key={i} className={cn("px-3 py-0.5 text-center text-[10px] font-bold uppercase whitespace-nowrap", i < divAt && "opacity-60", i === divAt && divAt > 0 && "border-l-4 border-l-[#fb7185]")}>
+                          {i === divAt && divAt > 0 && <span className="block normal-case text-[10px] font-bold text-[#fecdd3]">🔄 {current.startLabel} · {formatUs(current.startMs!)}</span>}
+                          #{i < divAt ? i + 1 : i - divAt + 1}<br /><span className="font-medium opacity-80" title={r.date === r.label ? undefined : `Sheet value: ${r.date}`}>{r.label}</span>
                         </th>
                       ))}
                       {showToday && (
@@ -880,18 +890,18 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    <ContextRow label="Call or Chat" reps={reps} today={showToday} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
-                    <ContextRow label="Last Strategy" reps={reps} today={showToday} get={(r) => strategyLabel(dateIndex, String(r.raw["Last Strategy?"] ?? ""))} />
-                    <ActionRow reps={reps} today={showToday} edits={actionEdits} onSave={saveAction} />
+                    <ContextRow label="Call or Chat" reps={tableReps} divAt={divAt} today={showToday} get={(r) => String(r.raw["Call or Chat?"] ?? "—")} />
+                    <ContextRow label="Last Strategy" reps={tableReps} divAt={divAt} today={showToday} get={(r) => strategyLabel(dateIndex, String(r.raw["Last Strategy?"] ?? ""))} />
+                    <ActionRow reps={tableReps} divAt={divAt} today={showToday} edits={actionEdits} onSave={saveAction} />
 
-                    <NumRow label="Total Leads" reps={reps} today={showToday ? liveNow?.leads ?? null : undefined} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
-                    <NumRow label="Booking %" reps={reps} today={showToday ? (liveNow && liveNow.leads ? (liveNow.sessions / liveNow.leads) * 100 : null) : undefined} get={(r) => (r.booking == null ? null : r.booking * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter />
-                    <NumRow label="Sessions Booked" reps={reps} today={showToday ? liveNow?.sessions ?? null : undefined} get={(r) => r.sessions} fmt={(v) => String(v)} higherBetter />
-                    <NumRow label="Deposits (total, after refunds)" reps={reps} today={showToday ? depositsNow : undefined} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
-                    <NumRow label="Declining %" reps={reps} today={showToday ? null : undefined} get={(r) => (r.declining == null ? null : r.declining * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter={false} />
+                    <NumRow label="Total Leads" reps={tableReps} divAt={divAt} today={showToday ? liveNow?.leads ?? null : undefined} get={(r) => r.leads} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Booking %" reps={tableReps} divAt={divAt} today={showToday ? (liveNow && liveNow.leads ? (liveNow.sessions / liveNow.leads) * 100 : null) : undefined} get={(r) => (r.booking == null ? null : r.booking * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter />
+                    <NumRow label="Sessions Booked" reps={tableReps} divAt={divAt} today={showToday ? liveNow?.sessions ?? null : undefined} get={(r) => r.sessions} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Deposits (total, after refunds)" reps={tableReps} divAt={divAt} today={showToday ? depositsNow : undefined} get={(r) => depositCum[reps.indexOf(r)] ?? null} fmt={(v) => String(v)} higherBetter />
+                    <NumRow label="Declining %" reps={tableReps} divAt={divAt} today={showToday ? null : undefined} get={(r) => (r.declining == null ? null : r.declining * 100)} fmt={(v) => `${v.toFixed(2)}%`} higherBetter={false} />
 
-                    <SectionRow label="Behaviours & Process" span={reps.length + (showToday ? 1 : 0)} />
-                    {BEHAVIOURS.map((b) => <BehaviourRow key={b.key} label={b.label} bkey={b.key} reps={reps} today={showToday} />)}
+                    <SectionRow label="Behaviours & Process" span={tableReps.length + (showToday ? 1 : 0)} />
+                    {BEHAVIOURS.map((b) => <BehaviourRow key={b.key} label={b.label} bkey={b.key} reps={tableReps} divAt={divAt} today={showToday} />)}
                   </tbody>
                 </table>
               </div>
@@ -905,17 +915,19 @@ export default function ReportsPage() {
   );
 }
 
+type FreshStart = string | { date: string; label?: string };
 const formatUs = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
 const isoDay = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
 /* "Fresh start" chip: shows the day this client's numbers count from, how many
    older reports are hidden, and lets an admin set or clear the day. */
-function FreshStartChip({ name, startMs, hidden, isAdmin, showOld, onShowOld, onSave }: {
-  name: string; startMs: number | null; hidden: number; isAdmin: boolean; showOld: boolean;
-  onShowOld: (v: boolean) => void; onSave: (name: string, date: string | null) => Promise<void>;
+function FreshStartChip({ name, startMs, label, hidden, isAdmin, showOld, onShowOld, onSave }: {
+  name: string; startMs: number | null; label: string; hidden: number; isAdmin: boolean; showOld: boolean;
+  onShowOld: (v: boolean) => void; onSave: (name: string, date: string | null, label?: string) => Promise<void>;
 }) {
   const [edit, setEdit] = useState(false);
   const [val, setVal] = useState(startMs != null ? isoDay(startMs) : "");
+  const [lab, setLab] = useState(label === "Fresh start" ? "" : label);
   const [busy, setBusy] = useState(false);
   if (startMs == null && !isAdmin) return null;
   if (edit) {
@@ -923,7 +935,8 @@ function FreshStartChip({ name, startMs, hidden, isAdmin, showOld, onShowOld, on
       <span className="inline-flex items-center gap-1 text-xs">
         <span className="font-semibold text-[#1f3559]">Count from</span>
         <input type="date" value={val} onChange={(e) => setVal(e.target.value)} className="rounded border border-[#d7e0ea] px-1 py-0.5" />
-        <button disabled={busy || !val} onClick={async () => { setBusy(true); await onSave(name, val); setBusy(false); setEdit(false); }}
+        <input value={lab} onChange={(e) => setLab(e.target.value)} placeholder="Why (e.g. Started Pay Per Appointment)" className="w-56 rounded border border-[#d7e0ea] px-1 py-0.5" />
+        <button disabled={busy || !val} onClick={async () => { setBusy(true); await onSave(name, val, lab.trim() || undefined); setBusy(false); setEdit(false); }}
           className="px-2 py-0.5 rounded-full bg-[#15B7AE] text-white font-semibold disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
         {startMs != null && (
           <button disabled={busy} onClick={async () => { setBusy(true); await onSave(name, null); setBusy(false); setEdit(false); }}
@@ -938,12 +951,12 @@ function FreshStartChip({ name, startMs, hidden, isAdmin, showOld, onShowOld, on
       {startMs != null ? (
         <span title="Reports, leads and deposits before this day are left out (old sub-account or old program)."
           className="px-2 py-0.5 rounded-full text-xs font-semibold bg-[#fff1f2] text-[#be123c] border border-[#fecdd3]">
-          🔄 Fresh start {formatUs(startMs)}{hidden > 0 ? ` · ${hidden} old report${hidden === 1 ? "" : "s"} hidden` : ""}
+          🔄 {label} {formatUs(startMs)}{hidden > 0 ? ` · ${hidden} older report${hidden === 1 ? "" : "s"} before the line` : ""}
         </span>
       ) : null}
       {startMs != null && (hidden > 0 || showOld) && (
         <button onClick={() => onShowOld(!showOld)} className="text-xs font-semibold text-[#0e8f88] underline">
-          {showOld ? "Hide old" : "Show old"}
+          {showOld ? "Back to new numbers" : "Count old numbers too"}
         </button>
       )}
       {isAdmin && (
@@ -966,6 +979,9 @@ function ChartCard({ title, color, values, dates, yFmt }: { title: string; color
 
 const TodayBlank = () => <td className="px-3 py-0.5 text-center text-[#a6b3c4] bg-[#f2fbfa]">–</td>;
 
+// Old reports (before the fresh start) look muted; the first new one gets the divider.
+const divCls = (i: number, divAt?: number) => cn(divAt != null && divAt > 0 && i < divAt && "opacity-50", divAt != null && divAt > 0 && i === divAt && "border-l-4 border-l-[#fb7185]");
+
 function SectionRow({ label, span }: { label: string; span: number }) {
   return (
     <tr className="bg-[#eef2f7]">
@@ -974,8 +990,8 @@ function SectionRow({ label, span }: { label: string; span: number }) {
   );
 }
 
-function NumRow({ label, reps, get, fmt, higherBetter, today }: {
-  label: string; reps: Report[]; get: (r: Report) => number | null; fmt: (v: number) => string; higherBetter: boolean;
+function NumRow({ label, reps, get, fmt, higherBetter, today, divAt }: {
+  label: string; reps: Report[]; get: (r: Report) => number | null; fmt: (v: number) => string; higherBetter: boolean; divAt?: number;
   // undefined = no Today column; null = Today column with nothing to show
   today?: number | null;
 }) {
@@ -986,11 +1002,11 @@ function NumRow({ label, reps, get, fmt, higherBetter, today }: {
       <td className="px-3 py-0.5 font-medium text-[#1f3559] whitespace-nowrap sticky left-0 bg-white">{label}</td>
       {reps.map((r, i) => {
         const v = get(r);
-        const prev = i > 0 ? get(reps[i - 1]) : null;
+        const prev = i > 0 && i !== divAt ? get(reps[i - 1]) : null;
         const d = v != null && prev != null ? v - prev : null;
         const good = d == null ? null : higherBetter ? d >= 0 : d <= 0;
         return (
-          <td key={i} className="px-3 py-0.5 text-center whitespace-nowrap text-[#1e2a3a]">
+          <td key={i} className={cn("px-3 py-0.5 text-center whitespace-nowrap text-[#1e2a3a]", divCls(i, divAt))}>
             {v == null ? <span className="text-[#a6b3c4]">–</span> : fmt(v)}
             {d != null && Math.abs(d) > 0.001 && (
               <span className={cn("ml-1 text-[10px] font-semibold", good ? "text-[#0e8f88]" : "text-[#e11d48]")}>
@@ -1014,7 +1030,7 @@ function NumRow({ label, reps, get, fmt, higherBetter, today }: {
   );
 }
 
-function BehaviourRow({ label, bkey, reps, today }: { label: string; bkey: string; reps: Report[]; today?: boolean }) {
+function BehaviourRow({ label, bkey, reps, today, divAt }: { label: string; bkey: string; reps: Report[]; today?: boolean; divAt?: number }) {
   return (
     <tr className="border-b border-[#eef3f8]">
       <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
@@ -1027,7 +1043,7 @@ function BehaviourRow({ label, bkey, reps, today }: { label: string; bkey: strin
         return (
           <td key={i} className={cn("px-3 py-1 text-center text-xs font-semibold",
             on === true ? "bg-[#e6f7f5] text-[#0e8f88]" : on === false ? "bg-[#fde8ee] text-[#e11d48]" : "text-[#a6b3c4]",
-            flipped && (on === true ? "border-l-4 border-l-[#0e8f88]" : "border-l-4 border-l-[#e11d48]"))}>
+            flipped && i !== divAt && (on === true ? "border-l-4 border-l-[#0e8f88]" : "border-l-4 border-l-[#e11d48]"), divCls(i, divAt))}>
             {txt}
           </td>
         );
@@ -1037,19 +1053,19 @@ function BehaviourRow({ label, bkey, reps, today }: { label: string; bkey: strin
   );
 }
 
-function ContextRow({ label, reps, get, today }: { label: string; reps: Report[]; get: (r: Report) => string; today?: boolean }) {
+function ContextRow({ label, reps, get, today, divAt }: { label: string; reps: Report[]; get: (r: Report) => string; today?: boolean; divAt?: number }) {
   return (
     <tr className="border-b border-[#eef3f8]">
       <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">{label}</td>
-      {reps.map((r, i) => <td key={i} className="px-3 py-0.5 text-center whitespace-nowrap text-[#34568a]">{get(r)}</td>)}
+      {reps.map((r, i) => <td key={i} className={cn("px-3 py-0.5 text-center whitespace-nowrap text-[#34568a]", divCls(i, divAt))}>{get(r)}</td>)}
       {today && <TodayBlank />}
     </tr>
   );
 }
 
 // Editable "Action" row (col T of "Add Data - Tracking") — writes back to the sheet.
-function ActionRow({ reps, edits, onSave, today }: {
-  reps: Report[];
+function ActionRow({ reps, edits, onSave, today, divAt }: {
+  reps: Report[]; divAt?: number;
   today?: boolean;
   edits: Record<number, string>;
   onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
@@ -1057,14 +1073,14 @@ function ActionRow({ reps, edits, onSave, today }: {
   return (
     <tr className="border-b border-[#eef3f8]">
       <td className="px-3 py-0.5 font-medium text-[#34568a] whitespace-nowrap sticky left-0 bg-white">Action</td>
-      {reps.map((r, i) => <ActionCell key={i} report={r} edits={edits} onSave={onSave} />)}
+      {reps.map((r, i) => <ActionCell key={i} report={r} edits={edits} onSave={onSave} cls={divCls(i, divAt)} />)}
       {today && <TodayBlank />}
     </tr>
   );
 }
 
-function ActionCell({ report, edits, onSave }: {
-  report: Report;
+function ActionCell({ report, edits, onSave, cls }: {
+  report: Report; cls?: string;
   edits: Record<number, string>;
   onSave: (rowNumber: number, raw: Record<string, unknown>, value: string) => Promise<void>;
 }) {
@@ -1089,7 +1105,7 @@ function ActionCell({ report, edits, onSave }: {
   const options = value && !ACTION_OPTIONS.includes(value) ? [value, ...ACTION_OPTIONS] : ACTION_OPTIONS;
 
   return (
-    <td className="px-3 py-0.5 text-center min-w-[150px]">
+    <td className={cn("px-3 py-0.5 text-center min-w-[150px]", cls)}>
       <div className="inline-flex items-center gap-1">
         <select value={value} onChange={(e) => change(e.target.value)} disabled={saving} title="Set the action (synced to the sheet)"
           className="max-w-[170px] text-xs rounded border border-[#d7e0ea] bg-white px-2 py-1 text-[#34568a] cursor-pointer focus:outline-none focus:border-[#15B7AE] disabled:opacity-60">
