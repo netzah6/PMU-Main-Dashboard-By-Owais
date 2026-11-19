@@ -596,15 +596,14 @@
       tz: visitorTz(),
     };
   }
-  function sendPartial() {
-    if (S.partialSent || !S.name || S.phone.replace(/\D/g, "").length < 10) return;
-    S.partialSent = true;
-    var b = leadBase();
-    b.stage = "partial";
-    post("submit", b).catch(function () {});
-  }
-  function sendComplete() {
-    var b = leadBase();
+  /* The partial (name + valid phone on the last step) adds the survey tag,
+     which starts the agency's "1.1 New Hot Leads" workflow at once. Its
+     ChatGPT step reads "What area do you serve?" seconds later, so every
+     answer rides on the partial too — before 11/19/2026 the partial
+     carried only name + phone and the first text said "No location
+     provided" (Fatema Urmi, 11/15). All answers are known by then: the
+     contact step is the last one. */
+  function addAnswers(b) {
     if (PPS) {
       b.services = (S.answers.services || []).join(", ");
       b.browprice = S.answers.browprice || "";
@@ -615,7 +614,6 @@
       b.reviews = S.answers.reviews || "";
       b.program = "PPS";
     }
-    b.email = S.email;
     b.area = S.answers.area || "";
     b.spots = S.answers.spots || "";
     b.weekly = S.answers.weekly || "";
@@ -626,6 +624,18 @@
     b.edge = S.answers.edge || "";
     b.utm_ad = S.utm_ad;
     b.utm_adset = S.utm_adset;
+    return b;
+  }
+  function sendPartial() {
+    if (S.partialSent || !S.name || S.phone.replace(/\D/g, "").length < 10) return;
+    S.partialSent = true;
+    var b = addAnswers(leadBase());
+    b.stage = "partial";
+    post("submit", b).catch(function () {});
+  }
+  function sendComplete() {
+    var b = addAnswers(leadBase());
+    b.email = S.email;
     b.pageUrl = location.href;
     post("submit", b).catch(function () {});
   }
