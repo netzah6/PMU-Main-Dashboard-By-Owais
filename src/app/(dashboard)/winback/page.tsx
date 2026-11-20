@@ -119,7 +119,31 @@ function Thread({ contactId }: { contactId: string }) {
   );
 }
 
-function PeopleTable({ rows, texts, busy, onPick }: { rows: TrackerPerson[]; texts: Data["followupTexts"]; busy: Set<string>; onPick: (keys: string[], picked: boolean) => void }) {
+/* Owner sets where she stands by hand (11/20/2026). "Automatic" clears it and
+   the page goes back to what the texts show. Saved to winback_contacts.outcome. */
+const OUTCOMES: { value: "won" | "lost" | null; label: string }[] = [
+  { value: null, label: "Automatic" },
+  { value: "won", label: "🎉 Came back" },
+  { value: "lost", label: "🚫 Said no" },
+];
+
+function StatusPicker({ p, busy, onSet }: { p: TrackerPerson; busy: boolean; onSet: (outcome: "won" | "lost" | null) => void }) {
+  const cur = p.status === "joined" ? "won" : p.outcome === "lost" ? "lost" : null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mb-2 text-xs">
+      <span className="font-semibold text-[#1f3559]">Set her status:</span>
+      {OUTCOMES.map((o) => (
+        <button key={String(o.value)} disabled={busy || cur === o.value} onClick={(e) => { e.stopPropagation(); onSet(o.value); }}
+          className={cn("px-2 py-1 rounded-full border font-semibold disabled:cursor-default", cur === o.value ? "bg-[#1f3559] text-white border-[#1f3559]" : "bg-white text-[#4a5a6e] border-[#e4ebf2] hover:bg-[#f6f9fc] disabled:opacity-60")}>
+          {o.label}
+        </button>
+      ))}
+      {busy && <span className="inline-flex items-center gap-1 text-[#697a91]"><Loader2 className="w-3 h-3 animate-spin" /> Saving…</span>}
+    </div>
+  );
+}
+
+function PeopleTable({ rows, texts, busy, onPick, onStatus }: { rows: TrackerPerson[]; texts: Data["followupTexts"]; busy: Set<string>; onPick: (keys: string[], picked: boolean) => void; onStatus: (sheetRow: number, outcome: "won" | "lost" | null) => void }) {
   const [open, setOpen] = useState<number | null>(null);
   if (!rows.length) return <p className="text-sm text-[#697a91] px-3 py-4">Nobody here.</p>;
   return (
@@ -158,6 +182,7 @@ function PeopleTable({ rows, texts, busy, onPick }: { rows: TrackerPerson[]; tex
               {open === p.sheetRow && (
                 <tr className="border-b border-[#eef3f8] bg-[#f8fbfd]">
                   <td colSpan={7} className="px-4 py-3">
+                    <StatusPicker p={p} busy={busy.has(`s${p.sheetRow}`)} onSet={(o) => onStatus(p.sheetRow, o)} />
                     {p.contactId ? <Thread contactId={p.contactId} /> : <div className="text-xs text-[#8595a8]">She was not found in GHL, so there are no messages to show.</div>}
                   </td>
                 </tr>
@@ -259,6 +284,23 @@ export default function WinbackTrackerPage() {
     }
   }, [load]);
 
+  // Set her status by hand: saved right away, then the numbers reload.
+  const setStatus = useCallback(async (sheetRow: number, outcome: "won" | "lost" | null) => {
+    const tag = `s${sheetRow}`;
+    setBusy((b) => new Set([...b, tag]));
+    setError(null);
+    try {
+      const r = await fetch("/api/winback", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sheetRow, outcome }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error ?? "Couldn't save");
+      await load(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't save");
+    } finally {
+      setBusy((b) => { const n = new Set(b); n.delete(tag); return n; });
+    }
+  }, [load]);
+
   const needle = q.trim().toLowerCase();
   const people = useMemo(() => {
     const rows = (data?.people ?? []).filter((p) => (filter === "all" ? true : filter === "texted" ? !!p.batchNo : p.status === filter));
@@ -345,13 +387,13 @@ export default function WinbackTrackerPage() {
 
               <div className="border border-[#e4ebf2] rounded-xl bg-white">
                 <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs text-[#8595a8] border-b border-[#eef3f8]">
-                  <span>{people.length} {people.length === 1 ? "person" : "people"} · click a person to read the latest messages · a tick puts her in the next blast (nothing is sent from here)</span>
+                  <span>{people.length} {people.length === 1 ? "person" : "people"} · click a person to read the latest messages and set her status · a tick puts her in the next blast (nothing is sent from here)</span>
                   <span className="ml-auto flex gap-2">
                     {bulkBtn(`Pick all ${pickablePeople.filter((p) => p.status !== "picked").length} shown`, () => pick("former", pickablePeople.filter((p) => p.status !== "picked").map((p) => String(p.sheetRow)), true), pickablePeople.some((p) => p.status !== "picked"))}
                     {bulkBtn("Untick all shown", () => pick("former", pickablePeople.filter((p) => p.status === "picked").map((p) => String(p.sheetRow)), false), pickablePeople.some((p) => p.status === "picked"))}
                   </span>
                 </div>
-                <PeopleTable rows={people} texts={data.followupTexts} busy={busy} onPick={(k, v) => pick("former", k, v)} />
+                <PeopleTable rows={people} texts={data.followupTexts} busy={busy} onPick={(k, v) => pick("former", k, v)} onStatus={setStatus} />
               </div>
             </>
           ) : (

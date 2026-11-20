@@ -544,7 +544,8 @@ async function inSequenceRows(svc: Svc): Promise<SequenceRow[]> {
   const out: SequenceRow[] = [];
   for (let off = 0; ; off += 1000) {
     const { data, error } = await svc.from("winback_contacts").select("*")
-      .not("batch_started_at", "is", null).is("stopped_reason", null).lt("step", 4)
+      // outcome set (owner marked Came back / Said no) = no more automatic texts.
+      .not("batch_started_at", "is", null).is("stopped_reason", null).is("outcome", null).lt("step", 4)
       .order("next_due_at").order("sheet_row").range(off, off + 999);
     if (error) throw new Error(error.message);
     out.push(...((data ?? []) as SequenceRow[]));
