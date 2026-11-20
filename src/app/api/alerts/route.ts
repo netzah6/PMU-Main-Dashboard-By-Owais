@@ -13,6 +13,12 @@ async function requireAdmin() {
   return { user, svc };
 }
 
+// Kept off the Alerts tab (the rows still exist for dedupe and self-closing):
+//   ig_drop — deposit-rate drops live on the Freeze screen;
+//   discovery_no_call — owner (11/20/2026) wants "Jennifer hasn't called …"
+//   only as the text to his phone, not on the Alerts tab.
+const HIDDEN_TYPES = "(ig_drop,discovery_no_call)";
+
 export async function GET(req: NextRequest) {
   const gate = await requireAdmin();
   if ("error" in gate) return gate.error;
@@ -20,15 +26,15 @@ export async function GET(req: NextRequest) {
 
   // ?count=1 → just the open count, for the nav badge.
   if (req.nextUrl.searchParams.get("count") === "1") {
-    const { count } = await svc.from("alerts").select("id", { count: "exact", head: true }).eq("status", "open").neq("type", "ig_drop");
+    const { count } = await svc.from("alerts").select("id", { count: "exact", head: true }).eq("status", "open").not("type", "in", HIDDEN_TYPES);
     return NextResponse.json({ open: count ?? 0 });
   }
 
   const { data: open } = await svc
-    .from("alerts").select("*").eq("status", "open").neq("type", "ig_drop") // deposit-rate drops live on the Freeze screen
+    .from("alerts").select("*").eq("status", "open").not("type", "in", HIDDEN_TYPES)
     .order("created_at", { ascending: false }).limit(200);
   const { data: resolved } = await svc
-    .from("alerts").select("*").eq("status", "resolved")
+    .from("alerts").select("*").eq("status", "resolved").neq("type", "discovery_no_call")
     .order("resolved_at", { ascending: false }).limit(50);
   return NextResponse.json({ open: (open ?? []) as AlertRow[], resolved: (resolved ?? []) as AlertRow[] });
 }

@@ -39,14 +39,18 @@ type Svc = SupabaseClient;
 // send it to my number, because sometimes I change the contact on the
 // system"). The first real alert (11/16) never reached him: the saved contact
 // id did not exist in the agency account.
-export type CheckSettings = { enabled: boolean; text: boolean; phone: string | null };
+// pushWebhook = the inbound-webhook URL of the agency workflow "Discovery
+// no-call push to Nicolas (dashboard webhook)". It sends a LeadConnector app
+// notification that opens the lead's chat when tapped (owner, 11/20/2026: the
+// web link in the text does not open the contact on his phone; tested OK).
+export type CheckSettings = { enabled: boolean; text: boolean; phone: string | null; pushWebhook: string | null };
 
 export async function getCheckSettings(svc: Svc): Promise<CheckSettings> {
   const { data } = await svc.from("app_settings").select("key, value").in("key", [SETTINGS_KEY, "agent_notify"]);
   const rows = (data ?? []) as { key: string; value: Record<string, unknown> | null }[];
-  const v = (rows.find((r) => r.key === SETTINGS_KEY)?.value ?? {}) as { enabled?: boolean; text?: boolean; phone?: string };
+  const v = (rows.find((r) => r.key === SETTINGS_KEY)?.value ?? {}) as { enabled?: boolean; text?: boolean; phone?: string; pushWebhook?: string };
   const owner = (rows.find((r) => r.key === "agent_notify")?.value ?? {}) as { phone?: string };
-  return { enabled: v.enabled !== false, text: v.text !== false, phone: v.phone || owner.phone || null };
+  return { enabled: v.enabled !== false, text: v.text !== false, phone: v.phone || owner.phone || null, pushWebhook: v.pushWebhook || null };
 }
 
 // The owner's contact in the agency account, found by phone at send time.
@@ -69,6 +73,13 @@ export async function textTheOwner(phone: string | null, message: string): Promi
   if (!contactId) return `no contact for the owner's phone ${phone.slice(-4)}`;
   const r = await sendConversationMessage(acct, { contactId, message: message.slice(0, 900), channel: "SMS" });
   return r.ok ? null : `text failed: ${r.error}`;
+}
+
+// App notification to the owner through the GHL workflow (see CheckSettings).
+export async function pushTheOwner(webhook: string | null, p: { contactId: string; title: string; message: string }): Promise<string | null> {
+  if (!webhook) return null; // not set up — the text still goes out
+  const r = await fetch(webhook, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contact_id: p.contactId, title: p.title.slice(0, 120), message: p.message.slice(0, 500) }) }).catch(() => null);
+  return r?.ok ? null : `push failed (${r ? r.status : "network"})`;
 }
 
 class GhlError extends Error {}
@@ -212,6 +223,14 @@ export async function runDiscoveryCallCheck(svc: Svc, opts: { now?: number; dry?
         source_key: `${ev.id}@${ev.startTime}`,
         meta: { contactId: ev.contactId, calendarId: calId, eventId: ev.id, start: ev.startTime, assignedUserId: ev.assignedUserId ?? null },
       });
+      if (filed) {
+        const err = await pushTheOwner(settings.pushWebhook, {
+          contactId: ev.contactId,
+          title: `📞 ${who} hasn't called ${leadName} yet`,
+          message: `${calName} call was at ${ptTime(start)} PT (now ${ptTime(now)}). Tap to open the chat.`,
+        });
+        if (err) res.errors.push(`push: ${err}`);
+      }
       if (filed && settings.text) {
         const err = await textTheOwner(settings.phone, `📞 ${who} hasn't called ${leadName} yet. ${calName} call was at ${ptTime(start)} PT (now ${ptTime(now)}). Call ${who}.\n${ghlContactUrl(LOC, ev.contactId)}`);
         if (err) res.errors.push(`text: ${err}`);
