@@ -76,7 +76,8 @@ export async function GET(
       : Promise.resolve({ data: null }),
   ]);
   const row = clientRes.data as Row | null;
-  if (!row || row.status === "draft") {
+  // "offboarded" = the client's sub-account was cleaned into the pool.
+  if (!row || row.status === "draft" || row.status === "offboarded") {
     return new Response("Not found", { status: 404 });
   }
   const saved = savedRes.data as { engine: number; page: FrozenPage } | null;
