@@ -394,13 +394,12 @@ export default function BlastPage() {
                   </button>
                 )}
               </div>
-              <div className="flex items-center justify-between mt-1">
-                <p className="text-[10px] text-[#8595a8]">Placeholders: {"{{contact.first_name}}"} · {"{{user.first_name}}"} · {"{{service}}"}</p>
+              <div className="flex items-center justify-end mt-1">
                 <button onClick={() => { setTemplate(defaultTemplate); setTwists([]); }} className="text-[10px] font-semibold text-[#0e8f88] hover:underline">Reset to default</button>
               </div>
               {/* ✨ AI twist — same message, a light touch for an occasion. */}
               <div className="mt-2 rounded-lg border border-[#e3dcfb] bg-[#faf8ff] p-2.5">
-                <p className="text-xs font-bold text-[#5b3fc4] flex items-center gap-1.5"><Sparkles size={13} /> AI twist <span className="font-normal text-[#8595a8]">— same message, a small touch for an occasion</span></p>
+                <p className="text-xs font-bold text-[#5b3fc4] flex items-center gap-1.5"><Sparkles size={13} /> AI twist</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {["Black Friday", "Christmas", "New Year", "Valentine's Day", "Mother's Day"].map((o) => (
                     <button key={o} onClick={() => { setOccasion(o); void askTwist(template, o); }} disabled={twistBusy || !!problem}
@@ -465,21 +464,18 @@ export default function BlastPage() {
               <input type="number" min={0} max={90} value={excludeDays}
                 onChange={(e) => { setExcludeDays(Math.max(0, Math.min(90, Number(e.target.value) || 0))); setPreview(null); }}
                 className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 text-[#1f3559]" />
-              <p className="text-[10px] text-[#8595a8] mt-0.5">Any message in the conversation (theirs or ours) counts as engagement.</p>
             </div>
             <div>
               <label className="block text-xs font-bold text-[#34568a] mb-1">Max contacts (up to {maxAllowed})</label>
               <input type="number" min={1} max={maxAllowed} value={maxContacts}
                 onChange={(e) => { setMaxContacts(Math.max(1, Math.min(maxAllowed, Number(e.target.value) || 1))); setPreview(null); }}
                 className="w-full text-sm border border-[#d7e0ea] rounded-lg px-3 py-2 text-[#1f3559]" />
-              <p className="text-[10px] text-[#8595a8] mt-0.5">If more are eligible, the most recently engaged (outside the skip window) are kept.</p>
             </div>
           </div>
           <button onClick={loadPreview} disabled={selStages.size === 0 || previewLoading}
             className="px-3 py-2 rounded-lg bg-[#34568a] hover:bg-[#1f3559] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50">
             {previewLoading ? <Loader2 size={13} className="animate-spin" /> : <Users size={13} />} Preview exact recipient list
           </button>
-          <p className="text-[10px] text-[#8595a8]">Only contacts with a phone number are included (no-phone = IG bookings). Duplicated phones are sent once.</p>
 
           {preview && (
             <div className="rounded-lg border border-[#a7e3df] bg-[#f7fdfc] p-3 space-y-2">
