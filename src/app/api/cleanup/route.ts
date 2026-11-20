@@ -19,6 +19,7 @@ export const maxDuration = 300;
 //   POST {action:"clean", locationId, confirmName}    → wipe via API
 //   POST {action:"finalize", locationId}              → rename into pool +
 //        flip the client's Clients Master status "Paused" → "Offboarded" +
+//        mark the client's one-box funnel(s) on this account "offboarded" +
 //        queue the Mac Mini to load the Demo snapshot back (the account is
 //        offered for a setup only once that task is done)
 //   POST {action:"snapshotLoad", locationId}          → queue that task again
@@ -243,6 +244,24 @@ export async function POST(req: NextRequest) {
         notes.push(q.reused ? "CNAM reset already queued" : "CNAM reset queued for the AI Agent (asks GHL support if old names are there)");
       } catch (e) {
         notes.push(`✗ CNAM task not queued (${e instanceof Error ? e.message : "error"})`);
+      }
+      // The old client's one-box funnel(s) still point at this account. Owner
+      // 11/20/2026: Paused = the client still has a sub-account; Offboarded =
+      // it was cleaned and is no longer theirs. "offboarded" stops the page
+      // and its booking/submit routes (no lead lands in a pool account) and
+      // drops it from every "live" check (no false "artist gets NO text"
+      // alerts — 15 were filed the day after the 11/19 cleanup).
+      {
+        const { data: off, error: offErr } = await svc.from("onebox_clients")
+          .update({ status: "offboarded", updated_at: new Date().toISOString() })
+          .eq("location_id", locationId).neq("status", "offboarded").select("slug");
+        if (offErr) notes.push(`✗ funnel not offboarded (${offErr.message})`);
+        else if (off?.length) {
+          notes.push(`funnel offboarded: ${off.map((r) => `/${r.slug}`).join(", ")}`);
+          await svc.from("alerts")
+            .update({ status: "resolved", resolved_by: "system (account cleaned; funnel offboarded)", resolved_at: new Date().toISOString() })
+            .eq("type", "onebox_notify").eq("source_key", `onebox-notify:${locationId}`).eq("status", "open");
+        }
       }
       const ready = false; // the pool row turns Ready on its own once A2P is approved
       const readyNote = notes.join(" · ");

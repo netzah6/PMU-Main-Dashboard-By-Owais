@@ -608,7 +608,9 @@ const API_STEPS: Record<string, StepFn> = {
     const biz = ob.form.business_name.trim();
     const slug = slugify(biz);
     const locationId = ob.setup!.location_id;
-    const { data: have } = await svc.from("onebox_clients").select("slug, status").eq("location_id", locationId).maybeSingle();
+    // A pool account still carries the OLD client's funnel row, marked
+    // "offboarded" by the cleanup — never reuse that for the new client.
+    const { data: have } = await svc.from("onebox_clients").select("slug, status").eq("location_id", locationId).neq("status", "offboarded").limit(1).maybeSingle();
     let note: string;
     let finalSlug = slug;
     if (have?.slug) { finalSlug = String(have.slug); note = `funnel already exists: /${finalSlug} (${have.status})`; }

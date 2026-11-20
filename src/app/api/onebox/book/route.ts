@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   const extrasAll = (client?.extras ?? {}) as { template?: string; b2b?: { tag?: string; calendarId?: string } };
   const isB2B = extrasAll.template === "b2b";
   const calendarId = isB2B ? (extrasAll.b2b?.calendarId ?? "") : cfg.calendarId;
-  if (!client || client.status === "draft" || !calendarId) {
+  if (!client || client.status === "draft" || client.status === "offboarded" || !calendarId) {
     return NextResponse.json({ ok: false, error: "unknown funnel" }, { status: 404 });
   }
   /* Server-side Purchase, sent first and on its own (audit 11/10/2026): it

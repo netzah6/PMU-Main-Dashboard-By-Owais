@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
        same field later. B2B has no deposit step, so nothing to mark. */
     const slotExtras = (slotClient?.extras ?? {}) as { template?: string };
     const slotDisqualified = Boolean((slotLead?.answers as { disqualified?: boolean } | null)?.disqualified);
-    if (slotClient && slotClient.status !== "draft" && slotExtras.template !== "b2b" && !slotDisqualified && slotIso) {
+    if (slotClient && slotClient.status !== "draft" && slotClient.status !== "offboarded" && slotExtras.template !== "b2b" && !slotDisqualified && slotIso) {
       try {
         const loc = slotClient.location_id as string;
         const tok = await getAppLocationToken(loc);
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
     .select("slug, client_name, location_id, status, config, extras")
     .eq("slug", slug)
     .single();
-  if (!client || client.status === "draft") {
+  if (!client || client.status === "draft" || client.status === "offboarded") {
     return NextResponse.json({ ok: false, error: "unknown funnel" }, { status: 404 });
   }
   const locationId = client.location_id as string;
