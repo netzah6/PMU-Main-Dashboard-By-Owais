@@ -450,7 +450,9 @@ export async function ingestCloseBotSources(svc: Svc, taskId: string, raw: unkno
   await resolveCheckAlert(svc);
   if (c.status === "queued_browser") {
     await svc.from("agent_proposals").update({
-      status: "done", executed_at: snap.at,
+      // browser_claimed_at too: the Mac Mini tracker lists only cards that
+      // left the Mini's queue (lib/mini-tracker), and this one did, by hand.
+      status: "done", executed_at: snap.at, browser_claimed_at: snap.at,
       result: `✓ CLOSEBOT: SAVED ${sources.length}/${total} (sent by hand) — ${scan.findings} problem${scan.findings === 1 ? "" : "s"} on the Alerts tab`,
     }).eq("id", taskId).eq("status", "queued_browser");
   }

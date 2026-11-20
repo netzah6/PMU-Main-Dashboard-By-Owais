@@ -43,7 +43,7 @@ export type WorkerTask = {
 
 /* Queue lanes: 0 = a client setup (setup-run steps, pool snapshot loads),
    1 = approved client account changes, 2 = background pool / CloseBot checks. */
-function queueLane(conversationId: string | null | undefined): 0 | 1 | 2 {
+export function queueLane(conversationId: string | null | undefined): 0 | 1 | 2 {
   if (parseSetupConvId(conversationId) || parseSnapshotConvId(conversationId)) return 0;
   if (parseA2pConvId(conversationId) || parseCnamConvId(conversationId) || isCloseBotCheck(conversationId) || parseIgPostsConvId(conversationId) || isIgEngageTask(conversationId)) return 2;
   return 1;
@@ -121,8 +121,12 @@ export async function claimNext(svc: Svc, host: string, recover = false): Promis
   const loc = setupRef || isCloseBotCheck(p.conversation_id) || parseIgPostsConvId(p.conversation_id) || isIgEngageTask(p.conversation_id) ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
   if (loc) { locationId = locationId || loc.locationId; business = loc.businessName || null; }
   if (!locationId) {
+    // Claim + finish times stamped: the Mac Mini tracker's "Done" list (and
+    // its ❌ pop-up) only shows cards that left the Mini's queue this way.
+    const ts = new Date().toISOString();
     await svc.from("agent_proposals").update({
-      status: "failed", result: `✗ Could not find ${p.contact_name}'s sub-account (no Clients Master match) — do it by hand`,
+      status: "failed", browser_claimed_at: ts, executed_at: ts,
+      result: `✗ Could not find ${p.contact_name}'s sub-account (no Clients Master match) — do it by hand`,
     }).eq("id", p.id).eq("status", "queued_browser");
     return claimNext(svc, host);
   }
