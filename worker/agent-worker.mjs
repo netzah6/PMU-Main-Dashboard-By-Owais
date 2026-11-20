@@ -52,7 +52,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 //    shutdown, never a kill);
 //  • Chrome-level Google sign-in is switched off in the profile (web Gmail still
 //    works), so Chrome's account reconcilor can never log the mailbox out.
-const WORKER_VERSION = 10; // self-update refuses to downgrade below this
+const WORKER_VERSION = 11; // self-update refuses to downgrade below this
 const CHROME_BIN = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const LOGIN_LOCK = join(HOME, "login.lock");
 // --profile-directory=Default: without it Chrome may open the "Who's using
@@ -426,6 +426,46 @@ async function doTask(t) {
   log(`task ${t.id} → ${status} (${screenshots.length} screenshots, ${files.length} files)`);
 }
 
+// ── Saved-login health (owner, 11/20/2026) ───────────────────────────────────
+// On 11/19–20 the worker's Chrome lost its CloseBot AND GoHighLevel sign-ins
+// and saved passwords overnight; nobody knew until the daily check failed.
+// Every hour, while no Chrome has the profile open, read (never decrypt) the
+// profile's saved-password and cookie lists and report only COUNTS per site,
+// plus whether the Keychain item Chrome encrypts them with still exists, the
+// Mac's boot time and the Chrome version. The dashboard alerts the same day a
+// count drops to 0. Passwords, usernames and cookie values are never read.
+const LOGIN_SITES = { closebot: /closebot\.com/i, ghl: /(gohighlevel|leadconnectorhq|msgsndr)\.com/i, gmail: /(google|gmail)\.com/i };
+let lastLoginHealth = 0;
+function sqliteRows(file, sql) {
+  if (!existsSync(file)) return null;
+  const tmp = join(HOME, `health-${Date.now()}.db`);
+  try {
+    writeFileSync(tmp, readFileSync(file)); // copy: never touch Chrome's own file
+    const r = spawnSync("/usr/bin/sqlite3", ["-readonly", tmp, sql], { encoding: "utf8", timeout: 20_000 });
+    return r.status === 0 ? (r.stdout || "").split("\n").filter(Boolean) : null;
+  } catch { return null; } finally { try { unlinkSync(tmp); } catch { /* fine */ } }
+}
+function countBySite(hosts) {
+  const out = {};
+  for (const [k, re] of Object.entries(LOGIN_SITES)) out[k] = hosts ? hosts.filter((h) => re.test(h)).length : null;
+  return out;
+}
+function loginHealth() {
+  const pw = sqliteRows(join(PROFILE, "Default", "Login Data"), "select signon_realm from logins where blacklisted_by_user = 0 and length(password_value) > 0;");
+  const ck = sqliteRows(join(PROFILE, "Default", "Cookies"), "select host_key from cookies;");
+  const kc = spawnSync("/usr/bin/security", ["find-generic-password", "-s", "Chrome Safe Storage"], { encoding: "utf8", timeout: 10_000 });
+  const boot = Number(((spawnSync("/usr/sbin/sysctl", ["-n", "kern.boottime"], { encoding: "utf8" }).stdout || "").match(/sec = (\d+)/) || [])[1] || 0);
+  const chrome = (spawnSync("/usr/bin/plutil", ["-extract", "CFBundleShortVersionString", "raw", "/Applications/Google Chrome.app/Contents/Info.plist"], { encoding: "utf8" }).stdout || "").trim();
+  return {
+    at: new Date().toISOString(),
+    passwords: countBySite(pw),
+    cookies: countBySite(ck),
+    keychainItem: kc.status === 0,
+    bootAt: boot ? new Date(boot * 1000).toISOString() : null,
+    chrome: chrome || null,
+  };
+}
+
 async function loop(once) {
   if (!SECRET) { console.error(`Missing AGENT_WORKER_SECRET in ${envFile}`); process.exit(1); }
   log(`worker on ${hostname()} → ${BASE}`);
@@ -437,6 +477,11 @@ async function loop(once) {
         await api("ping", { host: hostname() }); // still alive, just waiting for Chrome to be quit
         if (once) { log("profile busy"); return; }
       } else {
+        // Hourly saved-login report, only while the profile is free (no Chrome open).
+        if (Date.now() - lastLoginHealth > 60 * 60_000) {
+          lastLoginHealth = Date.now();
+          try { await api("ping", { host: hostname(), logins: loginHealth() }); } catch (e) { log("login health: skipped —", e.message); }
+        }
         // First claim after a (re)start: hand back any task the previous
         // process left "running" (watchdog / self-update / crash) right away.
         const { task } = await api("claim", { host: hostname(), ...(firstClaim ? { recover: true } : {}) });
