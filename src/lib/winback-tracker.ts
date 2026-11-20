@@ -6,7 +6,8 @@
        and what it says;
      - people who had a demo (sales_demos): who closed and who did not — the
        next group to reach out to.
-   Nothing here sends or changes anything. */
+   Nothing here sends anything. Changes: ticks for the next blast, and the
+   owner can set a person's status by hand (Came back / Said no). */
 import { createServiceClient } from "@/lib/supabase/server";
 import { messageFor, firstNameOf, type SequenceRow } from "@/lib/winback-sequence";
 import { FOLLOWUP_TEXT } from "@/lib/winback-followup";
@@ -36,6 +37,8 @@ export type TrackerPerson = {
   /** The extra "answered but didn't come back" follow-up, if one was sent. */
   followupAt: string | null; followupKind: "price" | "spots" | null; followupUntil: string | null;
   note: string | null;
+  /** Status the owner set by hand ("won" / "lost"), or null = automatic. */
+  outcome: "won" | "lost" | null;
   /** What the AI review said about how the old chat ended. */
   reviewNote: string | null;
   /** The owner may tick her for the next blast (she can be texted and isn't in a batch). */
@@ -114,6 +117,7 @@ export function toPerson(r: Row): TrackerPerson {
     followupAt: r.followup_sent_at ?? null, followupKind: kind, followupUntil: r.followup_until ?? null,
     note: status === "held" || status === "removed" ? heldNote(r) : status === "not_yet" || status === "picked" ? r.send_error ?? null : null,
     reviewNote: r.review_note ?? null,
+    outcome: r.outcome === "won" || r.outcome === "lost" ? r.outcome : null,
     canPick: canPick(r),
   };
 }
