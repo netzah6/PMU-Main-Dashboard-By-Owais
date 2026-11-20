@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { queueCloseBotOff } from "@/lib/pool-closebot";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dashboardUrl } from "@/lib/agent-notify";
 import { fileAlert } from "@/lib/alerts";
@@ -407,6 +408,14 @@ export async function scanCloseBotCoverage(svc: Svc, snap: CbSnapshot): Promise<
       continue;
     }
     if (await fileAlert(svc, { type: f.type, severity: f.severity, title: f.title, detail: f.detail, source_key: f.key, meta: f.meta, resurfaceAfterDays: 1 })) filed++;
+  }
+  // Safety net (owner 11/20/2026): a wiped pool account must not keep the AI.
+  // Re-queue the "CloseBot off" task for it (at most once every 3 days).
+  for (const f of findings) {
+    const m = f.meta as { pool?: string | null; location_id?: string; source_names?: string[] };
+    if (f.type !== "closebot_not_v3" || !m.pool || !m.location_id) continue;
+    try { await queueCloseBotOff(svc, { locationId: m.location_id, poolName: m.pool, oldNames: m.source_names ?? [], by: "CloseBot daily check", minDaysSinceLast: 3 }); }
+    catch { /* the alert stays open; tomorrow's check tries again */ }
   }
   const keep = new Set(findings.map((f) => `${f.type}|${f.key}`));
   const { data: openAll } = await svc.from("alerts").select("id, type, source_key").in("type", ["closebot_missing", "closebot_not_v3"]).eq("status", "open");

@@ -8,6 +8,7 @@ import {
 import { clearSnapshotMark, queueSnapshotLoad } from "@/lib/pool-snapshot";
 import { queueA2pCheck, queueA2pSweep } from "@/lib/pool-a2p";
 import { queueCnamCheck } from "@/lib/pool-cnam";
+import { queueCloseBotOff } from "@/lib/pool-closebot";
 import { readSheetValues, writeRowToSheet, rowsToObjects } from "@/lib/sheets";
 
 export const maxDuration = 300;
@@ -244,6 +245,16 @@ export async function POST(req: NextRequest) {
         notes.push(q.reused ? "CNAM reset already queued" : "CNAM reset queued for the AI Agent (asks GHL support if old names are there)");
       } catch (e) {
         notes.push(`✗ CNAM task not queued (${e instanceof Error ? e.message : "error"})`);
+      }
+      // Owner 11/20/2026: cleaning includes CloseBot. The old source stays on
+      // the agents with the AI on (16 accounts cleaned on 11/19 still had it);
+      // the next client on this account would get the old setup. The AI
+      // Agent removes it from every agent (matched by location id) + publishes.
+      try {
+        const q = await queueCloseBotOff(svc, { locationId, poolName, oldNames: [oldName, client?.business ?? "", priorClient ?? ""], by: auth.email ?? "admin" });
+        notes.push("skipped" in q ? `✗ CloseBot off not queued (${q.skipped})` : q.reused ? "CloseBot off already queued" : "CloseBot AI off queued for the AI Agent");
+      } catch (e) {
+        notes.push(`✗ CloseBot-off task not queued (${e instanceof Error ? e.message : "error"})`);
       }
       // The old client's one-box funnel(s) still point at this account. Owner
       // 11/20/2026: Paused = the client still has a sub-account; Offboarded =
