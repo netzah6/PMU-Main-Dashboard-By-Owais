@@ -60,9 +60,11 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
          the clean confirm link) — the only way the test card can tell a
          payment that followed the email from one that would have come
          anyway (11/08/2026). Slug + contact ride request headers: params
-         added during a rewrite never reach the handler. */
-      if (request.nextUrl.searchParams.get("via") === "email") {
-        url.pathname = "/api/onebox/pick-email/click";
+         added during a rewrite never reach the handler. The pick-time TEXT
+         does the same with ?via=sms, counted on its own (11/21/2026). */
+      const via = request.nextUrl.searchParams.get("via");
+      if (via === "email" || via === "sms") {
+        url.pathname = via === "sms" ? "/api/onebox/pick-sms/click" : "/api/onebox/pick-email/click";
         url.search = "";
         const ch = new Headers(request.headers);
         ch.set("x-ob-slug", pt[1].toLowerCase());
