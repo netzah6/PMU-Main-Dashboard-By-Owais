@@ -53,7 +53,9 @@ export type CapiUser = {
 export type CapiEvent = {
   pixelId: string;
   token: string;
-  eventName: "Lead" | "Schedule" | "Purchase";
+  /* "RealClient" = a lead the artist's team moved to Deposit Collected,
+     Session Done or 5-star review in GHL (lib/stage-conversion). */
+  eventName: "Lead" | "Schedule" | "Purchase" | "RealClient";
   eventId: string;          // must match the browser event for dedup
   eventSourceUrl?: string;
   user: CapiUser;
@@ -63,6 +65,8 @@ export type CapiEvent = {
   /* Unix seconds of the real moment (a payment found later by the
      safety net); defaults to now. Meta takes up to 7 days back. */
   eventTime?: number;
+  /* Extra plain fields for custom_data (e.g. which stage). */
+  customData?: Record<string, string | number>;
 };
 
 export type CapiResult = { ok: boolean; error?: string; status?: number; code?: number; subcode?: number };
@@ -93,8 +97,8 @@ export async function sendCapiEvent(ev: CapiEvent): Promise<CapiResult> {
         action_source: "website",
         ...(ev.eventSourceUrl ? { event_source_url: ev.eventSourceUrl } : {}),
         user_data,
-        ...(ev.value != null
-          ? { custom_data: { value: ev.value, currency: ev.currency ?? "USD" } }
+        ...(ev.value != null || ev.customData
+          ? { custom_data: { ...(ev.customData ?? {}), ...(ev.value != null ? { value: ev.value, currency: ev.currency ?? "USD" } : {}) } }
           : {}),
       },
     ],
