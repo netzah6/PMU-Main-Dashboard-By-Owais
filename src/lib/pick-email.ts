@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServiceClient } from "@/lib/supabase/server";
+import { INTERNAL_FUNNELS } from "@/lib/funnel-freeze-server";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { getSurveyFieldMap, liveAppointmentsOnCalendar, locationTimezone, parseReservedTime, wallToIso } from "@/lib/onebox";
 
@@ -223,8 +224,9 @@ const paidForThisPick = (l: Lead, pickMs: number) =>
   l.paid_at ? Date.parse(l.paid_at) >= pickMs - 3600_000 : Date.parse(l.created_at) >= pickMs - 2 * 86400_000;
 const STEP_MAX_AGE_MS = { 1: 24 * 3600_000, 2: 72 * 3600_000 } as const; // never "an hour ago" days later
 
-/** Funnels whose picks get the reminder: live, a deposit to finish, not the agency's B2B pages,
-    and none of the given per-funnel off switches set (extras.noPickEmail for the email). */
+/** Funnels whose picks get the reminder: live, a deposit to finish, not the agency's B2B pages
+    or its own internal funnels (the Demo template, the agency's booking page, PPS), and none of
+    the given per-funnel off switches set (extras.noPickEmail for the email). */
 export async function eligibleFunnels(svc: Svc, offSwitches: string[] = ["noPickEmail"]): Promise<Map<string, Funnel>> {
   const { data, error } = await svc.from("onebox_clients").select("slug, location_id, client_name, status, config, extras");
   if (error) throw new Error(error.message);
@@ -232,7 +234,7 @@ export async function eligibleFunnels(svc: Svc, offSwitches: string[] = ["noPick
   for (const f of (data ?? []) as Funnel[]) {
     const x = f.extras ?? {};
     // extras.noPickEmail: the artist asked for no deposit email (Beauty Marked PMU, 11/21/2026).
-    if (f.status !== "live" || x.template === "b2b" || x.freeBooking || offSwitches.some((k) => x[k])) continue;
+    if (f.status !== "live" || x.template === "b2b" || INTERNAL_FUNNELS.has(f.slug) || x.freeBooking || offSwitches.some((k) => x[k])) continue;
     out.set(f.slug, f);
   }
   return out;

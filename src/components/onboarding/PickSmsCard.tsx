@@ -68,26 +68,27 @@ export function PickSmsCard() {
 
   const on = d.settings.enabled;
   const s = d.sides.sms, h = d.sides.hold, g = d.gate;
+  const started = s.enrolled + h.enrolled > 0; // switched off after a test period still has a result to read
   const enoughPeople = s.matured.open >= g.minPerSide && h.matured.open >= g.minPerSide;
   /* A REAL gate: no % and no winner until each side has enough people past
      their 7 days AND enough payments between them — the server only sends
-     the % once that's true. */
-  const verdict = !on
-    ? "Off — no texts are going out."
-    : g.ready && s.paidPct != null && h.paidPct != null
-      ? `Result: ${s.paidPct}% paid with the text, ${h.paidPct}% without.`
-      : enoughPeople
-        ? `Too early to decide — only ${s.matured.paid + h.matured.paid} payments so far, we need ${g.minPaid}.`
-        : s.matured.open + h.matured.open > 0
-          ? `Too early to decide — we need ${n(g.minPerSide)} people on each side who picked 7+ days ago (now ${n(s.matured.open)} and ${n(h.matured.open)}).`
-          : `Too early to decide — the first people reach 7 days on ${d.firstMatureOn ? usDay(d.firstMatureOn) : "—"}.`;
+     the % once that's true. The result comes from the gate alone, never from
+     the switch: switching off (a pause, or the end of the test) keeps it readable. */
+  const result = g.ready && s.paidPct != null && h.paidPct != null
+    ? `Result: ${s.paidPct}% paid with the text, ${h.paidPct}% without.`
+    : enoughPeople
+      ? `Too early to decide — only ${s.matured.paid + h.matured.paid} payments so far, we need ${g.minPaid}.`
+      : s.matured.open + h.matured.open > 0
+        ? `Too early to decide — we need ${n(g.minPerSide)} people on each side who picked 7+ days ago (now ${n(s.matured.open)} and ${n(h.matured.open)}).`
+        : `Too early to decide — the first people reach 7 days on ${d.firstMatureOn ? usDay(d.firstMatureOn) : "—"}.`;
+  const verdict = on ? result : started ? `Off — no texts are going out. ${result}` : "Off — no texts are going out.";
 
   return (
     <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white">
       <button onClick={() => setOpen((x) => !x)} className="w-full flex flex-wrap items-center gap-2 px-4 py-2.5 text-left">
         <span className="text-sm font-medium text-[#1c2b3a]">💬 Pick-time text — 50/50</span>
         <span className="ml-auto text-xs text-[#4a5a6e]">
-          {on ? `With text: ${s.paid} paid · Without: ${h.paid} paid · ${g.ready ? "result is in" : "too early to decide"}` : "Off"}
+          {on || started ? `${on ? "" : "Off · "}With text: ${s.paid} paid · Without: ${h.paid} paid · ${g.ready ? "result is in" : "too early to decide"}` : "Off"}
         </span>
         <span className={cn("rounded-full border px-1.5 py-px text-[10px] font-semibold",
           on ? "bg-[#e7f6ec] text-[#15803d] border-[#86efac]" : "bg-[#f1f5f9] text-[#475569] border-[#cbd5e1]")}>
@@ -119,7 +120,7 @@ export function PickSmsCard() {
 
           <p className={cn("rounded-lg px-3 py-2 font-semibold", g.ready ? "bg-[#e7f6ec] text-[#15803d]" : "bg-[#f6f9fc] text-[#1c2b3a]")}>{verdict}</p>
 
-          {on && s.sent > 0 && <p>{n(s.sent)} texts sent so far · {s.clicked} people opened the link · {s.paidAfterClick} paid after opening</p>}
+          {s.sent > 0 && <p>{n(s.sent)} texts sent so far · {s.clicked} people opened the link · {s.paidAfterClick} paid after opening</p>}
 
           <div className="flex flex-wrap items-center gap-2">
             {on ? (
@@ -128,7 +129,7 @@ export function PickSmsCard() {
               </button>
             ) : confirming ? (
               <>
-                <span className="text-[#1c2b3a]">Start texting new quiet pickers now?</span>
+                <span className="text-[#1c2b3a]">Start texting new quiet pickers now? <span className="text-[#9a3412]">Test on the Demo phone first: after the text, the AI must still answer a reply.</span></span>
                 <button disabled={busy} onClick={() => toggle(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#15B7AE] px-3 py-1.5 font-semibold text-white disabled:opacity-60">
                   {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Yes, switch on
                 </button>

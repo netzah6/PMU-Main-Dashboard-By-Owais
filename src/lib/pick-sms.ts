@@ -388,6 +388,12 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
         .update({ status: "sent", decided_at: decidedAt, sent_at: now.toISOString(), slot_at: asTs(slotIso), updated_at: stamp() })
         .eq("contact_id", p.contact_id).eq("status", "pending").select("contact_id");
       if (!claimed?.length) continue;
+      /* NOT VERIFIED YET (check before switch-on): CloseBot's "Bot Auto Shutoff"
+         adds "ai off" when it sees an outbound text it didn't write, and the
+         AI never answers a reply that came in while "ai off" was on. If the
+         Demo test (test hook below) shows "ai off" after this text, the owner's
+         recipe — ~2 min later remove "ai off", add "ai on" + "(v3)", V3 funnels
+         only, only if "ai off" wasn't there before — must be added here first. */
       const sent = await postSms(tok, p.contact_id, text);
       if (sent.ok) {
         res.sent++;
@@ -421,8 +427,12 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
 /* For the owner's own test phone (Demo account): the real text, with a fake
    pick 2 days out at 1 PM studio time, to exactly the contact named — works
    while the switch is off, never reads or writes pick_sms_people, never
-   texts anyone else. The cron route gates it behind CRON_SECRET + ?testContact=. */
-export async function sendPickSmsTest(svc: Svc, o: { contactId: string; locationId: string; slug?: string | null; area?: string | null; dryRun?: boolean }): Promise<{ ok: boolean; sent: boolean; text?: string; messageId?: string | null; error?: string }> {
+   texts anyone else. The cron route gates it behind CRON_SECRET + ?testContact=.
+   aiTags = her AI tags as read just before the send; calling it again with
+   ?dry=1 a couple of minutes later (no text) reads them again — the
+   "does CloseBot switch the AI off after our text?" check before switch-on. */
+const AI_TAGS = ["ai on", "ai off", "(v3)"];
+export async function sendPickSmsTest(svc: Svc, o: { contactId: string; locationId: string; slug?: string | null; area?: string | null; dryRun?: boolean }): Promise<{ ok: boolean; sent: boolean; text?: string; aiTags?: string[]; messageId?: string | null; error?: string }> {
   if (!/^[A-Za-z0-9]{8,40}$/.test(o.contactId) || !/^[A-Za-z0-9]{8,40}$/.test(o.locationId)) return { ok: false, sent: false, error: "testContact and testLocation must be GHL ids" };
   let q = svc.from("onebox_clients").select("slug, location_id, status").eq("location_id", o.locationId);
   if (o.slug) q = q.eq("slug", o.slug.toLowerCase());
@@ -436,6 +446,7 @@ export async function sendPickSmsTest(svc: Svc, o: { contactId: string; location
   if (cr.kind !== "ok") return { ok: false, sent: false, error: cr.kind === "gone" ? "contact not found in that location" : cr.why };
   const c = cr.c;
   if (c.locationId && String(c.locationId) !== o.locationId) return { ok: false, sent: false, error: "that contact belongs to another location" };
+  const aiTags = ((c.tags as string[] | undefined) ?? []).map((t) => String(t).toLowerCase()).filter((t) => AI_TAGS.includes(t));
   if (!String(c.phone ?? "").trim()) return { ok: false, sent: false, error: "the contact has no phone" };
   const smsDnd = String(((c.dndSettings ?? {}) as Record<string, { status?: string } | undefined>).SMS?.status ?? "").toLowerCase();
   if (smsDnd === "active" || smsDnd === "permanent") return { ok: false, sent: false, error: "the contact has SMS do-not-disturb on" };
@@ -448,9 +459,9 @@ export async function sendPickSmsTest(svc: Svc, o: { contactId: string; location
     service: serviceWords(o.area ?? "Eyebrows"),
     link: confirmLink(f.slug, o.contactId, "sms"),
   });
-  if (o.dryRun) return { ok: true, sent: false, text };
+  if (o.dryRun) return { ok: true, sent: false, text, aiTags };
   const s = await postSms(tok, o.contactId, text);
-  return s.ok ? { ok: true, sent: true, text, messageId: s.messageId } : { ok: false, sent: false, text, error: s.error ?? `HTTP ${s.status}` };
+  return s.ok ? { ok: true, sent: true, text, aiTags, messageId: s.messageId } : { ok: false, sent: false, text, aiTags, error: s.error ?? `HTTP ${s.status}` };
 }
 
 // ─── Readout (Funnels card) ─────────────────────────────────────────────────
