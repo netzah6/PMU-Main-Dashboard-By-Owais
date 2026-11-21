@@ -36,7 +36,7 @@ const GHL = "https://services.leadconnectorhq.com";
 const AFTER_MS = 60 * 60_000;             // about an hour after the pick
 const ENROLL_LOOKBACK_MS = 24 * 3600_000; // older picks are never enrolled late
 const MAX_AGE_MS = 24 * 3600_000;         // never "you picked a time" a day later
-const QUIET_LOOKBACK_MS = 24 * 3600_000;  // "since this visit began" never reaches further back than this
+const QUIET_LOOKBACK_MS = 30 * 86400_000; // any text from her in the 30 days before the pick = the AI already talked to her (review 11/21)
 const SMS_DAY = { from: 9, to: 20, resume: 9 }; // the lead's clock
 const MAX_ATTEMPTS = 3;
 const MAX_PER_RUN = 40;                   // decisions per run, both sides together
@@ -46,7 +46,7 @@ const MAX_PER_RUN = 40;                   // decisions per run, both sides toget
    {day}/{time} = the time she picked, as the booking page showed it;
    {service} = the area she asked for ("appointment" when unknown); {link} = her confirm link. */
 export const PICK_SMS_TEXT =
-  "Hi {first}! You picked {day} at {time} for your {service} 💕 It's still open. Finish your booking here to lock it in: {link}";
+  "Hi {first}! You picked {day} at {time} for your {service}. Finish your booking here to lock it in: {link}";
 
 export type PickSmsSettings = { enabled: boolean; startAt: string | null; updatedBy?: string | null };
 const DEFAULTS: PickSmsSettings = { enabled: false, startAt: null };
@@ -157,6 +157,138 @@ async function postSms(tok: string, contactId: string, message: string): Promise
   return { ok: false, status: r.status, messageId: null, error: `HTTP ${r.status}: ${(await r.text().catch(() => "")).slice(0, 180)}` };
 }
 
+/* ── Keep the AI on after our text ──────────────────────────────────────────
+   PROVEN on the Demo test (11/21/2026, contact audit log): CloseBot's "Bot
+   Auto Shutoff" added "ai off" the same minute our text went out — it treats
+   any text it didn't write as the artist taking over. CloseBot answers only
+   when the lead has "(v3)" + "ai on" and NOT "ai off", and it never answers a
+   text that came in while "ai off" was on (proven 11/09). Without this step
+   her reply to our text got no answer at all (12 min, nobody). So right
+   after the text: wait for the shutoff, take "ai off" off, put "ai on" +
+   "(v3)" on — before she can reply — then check it stuck. Only for leads who
+   had "(v3)" and no "ai off" before the text (checked before sending), so an
+   artist's own takeover is never undone. Same recipe the owner approved for
+   the 11/04 text-back round. */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const lowerTags = (c: Record<string, unknown>) => ((c.tags as string[] | undefined) ?? []).map((t) => String(t).toLowerCase());
+async function editTags(tok: string, contactId: string, method: "POST" | "DELETE", tags: string[]): Promise<string | null> {
+  try {
+    const r = await fetch(`${GHL}/contacts/${encodeURIComponent(contactId)}/tags`, {
+      method, headers: { Authorization: `Bearer ${tok}`, Version: "2021-07-28", "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ tags }), signal: AbortSignal.timeout(15_000),
+    });
+    return r.ok ? null : `tags ${method} HTTP ${r.status}`;
+  } catch (e) {
+    return `tags ${method}: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+/** Her tags now, or null when GHL can't be read this moment (never throws). */
+async function tagsNow(tok: string, contactId: string): Promise<string[] | null> {
+  try {
+    const cr = await readContact(tok, contactId);
+    return cr.kind === "ok" ? lowerTags(cr.c) : null;
+  } catch {
+    return null;
+  }
+}
+type ThreadMsg = { id: string; direction: string; source: string; body: string; at: number; type: string };
+/** Her messages on every conversation, newest first (first page of each — enough for the last few minutes). Null = can't read. */
+async function recentThread(tok: string, locationId: string, contactId: string): Promise<ThreadMsg[] | null> {
+  const H = { Authorization: `Bearer ${tok}`, Version: "2021-04-15", Accept: "application/json" };
+  try {
+    const sr = await fetch(`${GHL}/conversations/search?locationId=${encodeURIComponent(locationId)}&contactId=${encodeURIComponent(contactId)}`, { headers: H, signal: AbortSignal.timeout(15_000) });
+    if (!sr.ok) return null;
+    const convs = ((await sr.json()) as { conversations?: { id?: string }[] }).conversations ?? [];
+    const out: ThreadMsg[] = [];
+    for (const cv of convs.slice(0, 3)) {
+      if (!cv.id) continue;
+      const mr = await fetch(`${GHL}/conversations/${encodeURIComponent(cv.id)}/messages?limit=50`, { headers: H, signal: AbortSignal.timeout(15_000) });
+      if (!mr.ok) return null;
+      const msgs = ((await mr.json()) as { messages?: { messages?: Record<string, unknown>[] } }).messages?.messages ?? [];
+      for (const m of msgs) {
+        const type = String(m.messageType ?? "");
+        if (/ACTIVITY/i.test(type)) continue;
+        out.push({ id: String(m.id ?? ""), direction: String(m.direction ?? "").toLowerCase(), source: String(m.source ?? "").toLowerCase(), body: String(m.body ?? ""), at: Date.parse(String(m.dateAdded ?? "")), type });
+      }
+    }
+    return out.sort((a, b) => b.at - a.at);
+  } catch {
+    return null;
+  }
+}
+/* GHL's clock and ours differ by up to a minute (seen 11/21), so every
+   thread comparison uses GHL's own time of OUR message as the zero point. */
+const AUTOMATED_SOURCES = ["workflow", "campaign", "bulk_actions", "trigger", "automation"];
+
+export type AiRestore = {
+  result: "ok" | "ok_no_shutoff_seen" | "artist_took_over" | "replied_during_restore" | "failed";
+  tagsAfter: string[]; error?: string;
+};
+/* After our text: CloseBot's shutoff lands within about a minute. Watch for
+   80 s; each time "ai off" shows up, first make sure nobody else texted her
+   by hand in the 2 minutes around our text (any outbound that isn't ours and
+   isn't an automation = the artist or the AI talking — never undo that), then
+   take "ai off" off and put "ai on" + "(v3)" on. The last check comes after
+   the 80 s, so a late shutoff is still caught. Never throws. */
+export async function keepAiOn(tok: string, locationId: string, contactId: string, ours: { messageId: string | null; text: string }, watchMs = 80_000): Promise<AiRestore> {
+  const start = Date.now();
+  let removed = false, lastErr = "";
+  let tags: string[] = [];
+  const isOurs = (m: ThreadMsg) => (ours.messageId && m.id === ours.messageId) || m.body.trim() === ours.text.trim();
+  const someoneElseTexted = async (): Promise<boolean | null> => {
+    const th = await recentThread(tok, locationId, contactId);
+    if (!th) return null;
+    const mine = th.find((m) => m.direction === "outbound" && isOurs(m));
+    const zero = mine?.at ?? Date.now();
+    // Emails don't count (the deposit email goes out by API in the same run); texts and calls do.
+    return th.some((m) => m.direction === "outbound" && !isOurs(m) && Number.isFinite(m.at) && m.at >= zero - 120_000
+      && !AUTOMATED_SOURCES.includes(m.source) && !/EMAIL/i.test(m.type));
+  };
+  const putAiOn = async (): Promise<boolean> => {
+    for (let t = 0; t < 3; t++) {
+      const e1 = await editTags(tok, contactId, "DELETE", ["ai off"]);
+      const e2 = await editTags(tok, contactId, "POST", ["ai on", "(v3)"]);
+      if (!e1 && !e2) return true;
+      lastErr = [e1, e2].filter(Boolean).join("; ");
+      await sleep(3_000 * (t + 1));
+    }
+    return false;
+  };
+  // Watch until 80 s after the send; then one last look.
+  for (;;) {
+    if (Date.now() - start > watchMs + 45_000) break; // hard stop
+    const last = Date.now() - start >= watchMs;
+    await sleep(last ? 6_000 : 5_000);
+    const t = await tagsNow(tok, contactId);
+    if (!t) { if (last) break; continue; }
+    tags = t;
+    if (t.includes("ai off")) {
+      const other = await someoneElseTexted();
+      if (other === true) return { result: "artist_took_over", tagsAfter: t };
+      if (other === null) { lastErr = "couldn't read her messages to rule out an artist takeover"; if (last) break; continue; }
+      if (!(await putAiOn())) break;
+      removed = true;
+      continue; // check again on the next tick
+    }
+    if (!t.includes("ai on") || !t.includes("(v3)")) {
+      const e = await editTags(tok, contactId, "POST", ["ai on", "(v3)"]);
+      if (e) lastErr = e;
+      continue;
+    }
+    if (last) break;
+  }
+  const clean = tags.includes("ai on") && tags.includes("(v3)") && !tags.includes("ai off");
+  if (!clean) return { result: "failed", tagsAfter: tags, error: lastErr || "the AI is not on after 80 s" };
+  // Did she answer before the AI was back on? CloseBot never answers that message — flag it for a person.
+  const th = await recentThread(tok, locationId, contactId);
+  const mine = th?.find((m) => m.direction === "outbound" && isOurs(m));
+  if (th && mine && th.some((m) => m.direction === "inbound" && m.at > mine.at)) {
+    const answered = th.some((m) => m.direction === "outbound" && !isOurs(m) && m.at > mine.at);
+    if (!answered) return { result: "replied_during_restore", tagsAfter: tags, error: "she replied while the AI was switching back on — check that someone answers her" };
+  }
+  return { result: removed ? "ok" : "ok_no_shutoff_seen", tagsAfter: tags };
+}
+
 /* Did she send ANYTHING since `sinceMs` — a text, Facebook / Instagram /
    WhatsApp message, email, call, on any of her conversations? GHL's own
    activity lines (appointment created, form submitted…) don't count.
@@ -201,6 +333,7 @@ export type PickSmsRun = {
   enabled: boolean; dryRun: boolean; tableMissing?: boolean;
   enrolled: { sms: number; hold: number };
   sent: number; held: number; deferred: number;
+  aiRestored: Record<string, number>; // after each text: AI back on? (ok / ok_no_shutoff_seen / failed)
   skipped: { sms: Record<string, number>; hold: Record<string, number> };
   errors: string[]; partial: boolean;
   // Dry run only:
@@ -225,7 +358,7 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
   const dryRun = !!opts.dryRun;
   const settings = await getPickSmsSettings(svc);
   const res: PickSmsRun = {
-    enabled: settings.enabled, dryRun, enrolled: { sms: 0, hold: 0 }, sent: 0, held: 0, deferred: 0,
+    enabled: settings.enabled, dryRun, enrolled: { sms: 0, hold: 0 }, sent: 0, held: 0, deferred: 0, aiRestored: {},
     skipped: { sms: {}, hold: {} }, errors: [], partial: false,
   };
   // Nothing may send while off: no switch-on moment → nothing to do (a dry run brings its own).
@@ -299,6 +432,22 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
     }).eq("contact_id", p.contact_id).eq("status", "pending");
   };
 
+  const restores: Promise<void>[] = [];
+  // Runs alongside the next decisions; awaited before the run ends. Never throws.
+  const restoreAi = async (p: SmsPerson, tok: string, messageId: string | null, text: string) => {
+    let r: AiRestore;
+    try {
+      r = await keepAiOn(tok, p.location_id, p.contact_id, { messageId, text });
+    } catch (e) {
+      r = { result: "failed", tagsAfter: [], error: e instanceof Error ? e.message : String(e) };
+    }
+    res.aiRestored[r.result] = (res.aiRestored[r.result] ?? 0) + 1;
+    const warn = r.result === "failed" ? `AI not back on: ${r.error ?? ""}` : r.result === "replied_during_restore" ? r.error ?? null : null;
+    if (warn) res.errors.push(`${p.slug}: ${warn}`);
+    await svc.from(TABLE).update({
+      ai_restore: r.result, ai_restore_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...(warn ? { error: warn.slice(0, 300) } : {}),
+    }).eq("contact_id", p.contact_id).then(() => undefined, () => undefined);
+  };
   const batch = due.slice(0, limit);
   if (dryRun) res.unchecked = due.length - batch.length;
   for (const p of batch) {
@@ -326,6 +475,12 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
       // dndSettings.SMS only — the contact-level `dnd` flag is unreliable (owner, 11/21/2026).
       const smsDnd = String(((c.dndSettings ?? {}) as Record<string, { status?: string } | undefined>).SMS?.status ?? "").toLowerCase();
       if (smsDnd === "active" || smsDnd === "permanent") { await skip(p, "sms_dnd"); continue; }
+      /* The AI can only take over her reply on the V3 setup ("(v3)" tag), and
+         "ai off" before our text means the artist (or a handoff) already took
+         over — never undo that. Both sides skip, so the split stays fair. */
+      const tags0 = lowerTags(c);
+      if (!tags0.includes("(v3)")) { await skip(p, "not_v3"); continue; }
+      if (tags0.includes("ai off")) { await skip(p, "ai_off"); continue; }
 
       const cfg = funnel.config ?? {};
       const co = await paidOnCheckout(svc, String(c.email ?? "").trim(), String(cfg.fanbasisProductId ?? "").trim(), p.picked_at);
@@ -349,13 +504,12 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
         continue;
       }
 
-      /* Quiet = nothing from her since this visit began: the pick, or her
-         newest survey of this visit if that came first (a re-pick stamps the
-         same pick time on every row, so the pick alone can move later than a
-         text she sent in between) — never more than a day before the pick. */
+      /* Quiet = nothing from her in the 30 days before the pick, nor since.
+         The AI only sends its pay link once she has texted — a lead who texted
+         earlier (and then picked from the AI's own link, which re-stamps the
+         pick) is one the AI is already working, never "quiet". */
       const pickMs = Date.parse(p.picked_at);
-      const newestSurvey = Math.max(...rows.map((r) => Date.parse(r.created_at)).filter(Number.isFinite));
-      const visitStart = Math.max(Math.min(pickMs, Number.isFinite(newestSurvey) ? newestSurvey : pickMs), pickMs - QUIET_LOOKBACK_MS);
+      const visitStart = pickMs - QUIET_LOOKBACK_MS;
       const q = await inboundSince(tok, p.location_id, p.contact_id, visitStart);
       if (!q.ok) { await later(p, q.why); continue; }
       if (q.inbound) {
@@ -363,6 +517,12 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
         await skip(p, "replied");
         continue;
       }
+
+      // Tags again, right before the decision (the checks above take a while; an artist may have just taken over).
+      const tags1 = await tagsNow(tok, p.contact_id);
+      if (!tags1) { await later(p, "couldn't re-read her tags"); continue; }
+      if (tags1.includes("ai off")) { await skip(p, "ai_off"); continue; }
+      if (!tags1.includes("(v3)")) { await skip(p, "not_v3"); continue; }
 
       const text = pickSmsText({
         first: firstName(String(c.firstName ?? ""), newestRow(rows).full_name),
@@ -383,21 +543,21 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
         continue;
       }
 
+      // Switched off (or restarted) while this run was working → stop now, send nothing more.
+      const live = await getPickSmsSettings(svc);
+      if (!live.enabled || live.startAt !== startAt) { res.partial = true; break; }
       // Claim before sending — a crash can lose one text, never send it twice.
       const { data: claimed } = await svc.from(TABLE)
         .update({ status: "sent", decided_at: decidedAt, sent_at: now.toISOString(), slot_at: asTs(slotIso), updated_at: stamp() })
         .eq("contact_id", p.contact_id).eq("status", "pending").select("contact_id");
       if (!claimed?.length) continue;
-      /* NOT VERIFIED YET (check before switch-on): CloseBot's "Bot Auto Shutoff"
-         adds "ai off" when it sees an outbound text it didn't write, and the
-         AI never answers a reply that came in while "ai off" was on. If the
-         Demo test (test hook below) shows "ai off" after this text, the owner's
-         recipe — ~2 min later remove "ai off", add "ai on" + "(v3)", V3 funnels
-         only, only if "ai off" wasn't there before — must be added here first. */
+      // Our text makes CloseBot switch the AI off — keepAiOn (below) puts it back on before she can reply.
       const sent = await postSms(tok, p.contact_id, text);
       if (sent.ok) {
         res.sent++;
         await svc.from(TABLE).update({ message_id: sent.messageId, attempts: 0, error: null, updated_at: stamp() }).eq("contact_id", p.contact_id);
+        // AI back on before she can reply (runs alongside the next decisions; awaited before the run ends).
+        restores.push(restoreAi(p, tok, sent.messageId, text));
         continue;
       }
       const err = sent.error ?? `HTTP ${sent.status}`;
@@ -407,6 +567,7 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
          double. Only a clear refusal hands it back for a retry. */
       if (sent.status >= 500) {
         await svc.from(TABLE).update({ error: err, updated_at: stamp() }).eq("contact_id", p.contact_id);
+        restores.push(restoreAi(p, tok, null, text)); // it may have gone out — then CloseBot switches off too
         continue;
       }
       const attempts = p.attempts + 1;
@@ -420,6 +581,7 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
       await later(p, e instanceof Error ? e.message : String(e)).catch(() => {});
     }
   }
+  await Promise.allSettled(restores);
   return res;
 }
 
@@ -432,7 +594,7 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
    ?dry=1 a couple of minutes later (no text) reads them again — the
    "does CloseBot switch the AI off after our text?" check before switch-on. */
 const AI_TAGS = ["ai on", "ai off", "(v3)"];
-export async function sendPickSmsTest(svc: Svc, o: { contactId: string; locationId: string; slug?: string | null; area?: string | null; dryRun?: boolean }): Promise<{ ok: boolean; sent: boolean; text?: string; aiTags?: string[]; messageId?: string | null; error?: string }> {
+export async function sendPickSmsTest(svc: Svc, o: { contactId: string; locationId: string; slug?: string | null; area?: string | null; dryRun?: boolean }): Promise<{ ok: boolean; sent: boolean; text?: string; aiTags?: string[]; messageId?: string | null; aiRestore?: AiRestore; error?: string }> {
   if (!/^[A-Za-z0-9]{8,40}$/.test(o.contactId) || !/^[A-Za-z0-9]{8,40}$/.test(o.locationId)) return { ok: false, sent: false, error: "testContact and testLocation must be GHL ids" };
   let q = svc.from("onebox_clients").select("slug, location_id, status").eq("location_id", o.locationId);
   if (o.slug) q = q.eq("slug", o.slug.toLowerCase());
@@ -460,8 +622,12 @@ export async function sendPickSmsTest(svc: Svc, o: { contactId: string; location
     link: confirmLink(f.slug, o.contactId, "sms"),
   });
   if (o.dryRun) return { ok: true, sent: false, text, aiTags };
+  const t0 = lowerTags(c);
+  if (!t0.includes("(v3)") || t0.includes("ai off")) return { ok: false, sent: false, text, aiTags, error: "the real run skips this contact: it needs \"(v3)\" and no \"ai off\"" };
   const s = await postSms(tok, o.contactId, text);
-  return s.ok ? { ok: true, sent: true, text, aiTags, messageId: s.messageId } : { ok: false, sent: false, text, aiTags, error: s.error ?? `HTTP ${s.status}` };
+  if (!s.ok) return { ok: false, sent: false, text, aiTags, error: s.error ?? `HTTP ${s.status}` };
+  const ai = await keepAiOn(tok, o.locationId, o.contactId, { messageId: s.messageId, text });
+  return { ok: ai.result !== "failed", sent: true, text, aiTags, messageId: s.messageId, aiRestore: ai };
 }
 
 // ─── Readout (Funnels card) ─────────────────────────────────────────────────
@@ -482,15 +648,17 @@ export type PickSmsSummary = {
   sides: { sms: PickSmsSide; hold: PickSmsSide };
   gate: { minPerSide: number; minPaid: number; ready: boolean };
   firstMatureOn: string | null; errors: number; lastError: string | null;
+  // After each text: was the AI put back on? (null = still running / never finished)
+  aiRestore: Record<string, number>;
 };
 
 export async function pickSmsSummary(svc: Svc): Promise<PickSmsSummary> {
   const settings = await getPickSmsSettings(svc);
-  type Row = SmsPerson & { sent_at: string | null; clicked_at: string | null; error: string | null; updated_at: string };
+  type Row = SmsPerson & { sent_at: string | null; clicked_at: string | null; error: string | null; updated_at: string; ai_restore: string | null };
   const people: Row[] = [];
   let tableMissing = false;
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await svc.from(TABLE).select(`${PERSON_COLS}, sent_at, clicked_at, error, updated_at`).order("contact_id").range(from, from + 999);
+    const { data, error } = await svc.from(TABLE).select(`${PERSON_COLS}, sent_at, clicked_at, error, updated_at, ai_restore`).order("contact_id").range(from, from + 999);
     if (isMissingTable(error)) { tableMissing = true; break; }
     if (error) throw new Error(error.message);
     people.push(...((data ?? []) as Row[]));
@@ -536,7 +704,16 @@ export async function pickSmsSummary(svc: Svc): Promise<PickSmsSummary> {
     settings, tableMissing,
     sides: { sms: { ...s, paidPct: pct(s) }, hold: { ...h, paidPct: pct(h) } },
     gate: { minPerSide: READ_MIN_PER_SIDE, minPaid: READ_MIN_PAID, ready },
-    firstMatureOn: settings.startAt ? new Date(Date.parse(settings.startAt) + MATURE_MS).toISOString() : null,
+    // From the earliest person in the readout (a pause + resume moves startAt, not them).
+    firstMatureOn: (() => {
+      const first = Math.min(...decided.map((p) => Date.parse(p.picked_at)).filter(Number.isFinite));
+      const base = Number.isFinite(first) ? first : settings.startAt ? Date.parse(settings.startAt) : NaN;
+      return Number.isFinite(base) ? new Date(base + MATURE_MS).toISOString() : null;
+    })(),
     errors: errs.length, lastError: errs[0]?.error ?? null,
+    aiRestore: people.filter((p) => p.sent_at).reduce<Record<string, number>>((acc, p) => {
+      const k = p.ai_restore ?? (Date.now() - Date.parse(p.sent_at as string) > 5 * 60_000 ? "never_finished" : "running");
+      acc[k] = (acc[k] ?? 0) + 1; return acc;
+    }, {}),
   };
 }

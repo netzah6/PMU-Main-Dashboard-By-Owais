@@ -15,12 +15,14 @@ create table if not exists public.pick_sms_people (
   arm          text not null check (arm in ('sms', 'hold')),
   picked_at    timestamptz not null,
   slot_at      timestamptz,                       -- the picked time (the one the text names, once decided)
-  status       text not null default 'pending',   -- pending | sent | held | paid | paid_earlier | replied | sms_dnd | no_phone | slot_passed | booked | contact_gone | funnel_off | too_late | no_lead_row | send_failed | check_failed | paused
+  status       text not null default 'pending',   -- pending | sent | held | paid | paid_earlier | replied | sms_dnd | no_phone | slot_passed | booked | contact_gone | funnel_off | too_late | no_lead_row | not_v3 | ai_off | send_failed | check_failed | paused
   due_at       timestamptz,                       -- next check (pending only)
   attempts     int not null default 0,
   decided_at   timestamptz,                       -- passed every check: the moment the text went (or, hold side, would have)
   sent_at      timestamptz,
   message_id   text,                              -- GHL message id of the text
+  ai_restore   text,                              -- after the text: AI back on? ok | ok_no_shutoff_seen | failed (CloseBot switches itself off on our text)
+  ai_restore_at timestamptz,
   clicked_at   timestamptz,                       -- first open of the ?via=sms link
   error        text,
   created_at   timestamptz not null default now(),

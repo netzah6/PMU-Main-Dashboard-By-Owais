@@ -9,7 +9,7 @@ export const maxDuration = 300;
 
 /* Each pass gets its own share of the 300 s: the email first, then the
    pick-time text with whatever is left (never more than 90 s). */
-const EMAIL_BUDGET_MS = 180_000, SMS_BUDGET_MS = 90_000, TOTAL_BUDGET_MS = 275_000;
+const EMAIL_BUDGET_MS = 150_000, SMS_BUDGET_MS = 90_000, TOTAL_BUDGET_MS = 275_000, AI_RESTORE_MS = 110_000;
 
 /* Every 10 minutes: the "finish your deposit" email (src/lib/pick-email.ts),
    then the pick-time text to quiet pickers (src/lib/pick-sms.ts — it has no
@@ -63,7 +63,8 @@ export async function GET(req: NextRequest) {
   let sms: PickSmsRun | { error: string };
   try {
     const left = TOTAL_BUDGET_MS - (Date.now() - t0);
-    sms = await runPickSms(svc, { dryRun, sinceIso: since ?? undefined, budgetMs: Math.min(SMS_BUDGET_MS, Math.max(15_000, left)) });
+    // After each text the AI is put back on (watched ~80 s, up to ~2 min, in parallel) — leave room before the 300 s limit.
+    sms = await runPickSms(svc, { dryRun, sinceIso: since ?? undefined, budgetMs: Math.min(SMS_BUDGET_MS, Math.max(10_000, left - AI_RESTORE_MS)) });
   } catch (e) {
     sms = { error: e instanceof Error ? e.message : String(e) };
   }

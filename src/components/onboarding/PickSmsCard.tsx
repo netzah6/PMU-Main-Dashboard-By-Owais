@@ -20,6 +20,7 @@ type Data = {
   sides: { sms: Side; hold: Side };
   gate: { minPerSide: number; minPaid: number; ready: boolean };
   firstMatureOn: string | null;
+  aiRestore?: Record<string, number>;
   errors: number; lastError: string | null;
   preview: { text: string; template: string; chars: number; unicode: boolean; segments: number };
 };
@@ -28,6 +29,7 @@ const usDay = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month
 const n = (x: number) => x.toLocaleString("en-US");
 const SKIP_LABEL: Record<string, string> = {
   paid: "paid before the text", paid_earlier: "already paid on an earlier visit", replied: "texted back (not quiet)",
+  not_v3: "not on the V3 AI setup", ai_off: "AI already off (artist took over)",
   sms_dnd: "texts turned off (DND)", no_phone: "no phone", slot_passed: "time passed or under 3 h away", booked: "booked in chat",
   contact_gone: "contact deleted", funnel_off: "client paused or opted out", too_late: "too late to send", no_lead_row: "lead record gone",
   send_failed: "send failed 3×", check_failed: "couldn't check 3×", paused: "switched off mid-way",
@@ -113,7 +115,7 @@ export function PickSmsCard() {
                 <div className="text-[10px] uppercase tracking-wide text-[#8595a8]">{label}</div>
                 <div className="text-xl font-bold text-[#1c2b3a]">{side.paid} paid</div>
                 <div className="text-[#697a91]">out of {n(side.open)} people</div>
-                <div className="mt-1 text-[10px] text-[#8595a8]">{n(side.enrolled)} picked · {n(side.decided)} {verb} · {n(side.pending)} waiting</div>
+                <div className="mt-1 text-[10px] text-[#8595a8]">{n(side.enrolled)} picked · {n(verb === "texted" ? side.sent : side.decided)} {verb} · {n(side.pending)} waiting</div>
               </div>
             ))}
           </div>
@@ -156,12 +158,26 @@ export function PickSmsCard() {
               <p>Why people on the text side got no text: {skipLine(s.skipped) || "—"}</p>
               <p>Same checks on the no-text side: {skipLine(h.skipped) || "—"}</p>
               {d.errors > 0 && <p>{d.errors} with an error{d.lastError ? <> · last: <span className="text-[#b91c1c]">{d.lastError}</span></> : null}</p>}
+              {d.aiRestore && Object.keys(d.aiRestore).length > 0 && (() => {
+                const r = d.aiRestore;
+                const ok = (r.ok ?? 0) + (r.ok_no_shutoff_seen ?? 0);
+                const bad = (r.failed ?? 0) + (r.never_finished ?? 0);
+                return (
+                  <p>
+                    AI back on after the text: {n(ok)}
+                    {r.artist_took_over ? <> · left off (artist texted): {n(r.artist_took_over)}</> : null}
+                    {r.replied_during_restore ? <> · <span className="text-[#b45309]">replied while switching: {n(r.replied_during_restore)}</span></> : null}
+                    {bad ? <> · <span className="text-[#b91c1c]">AI still off: {n(bad)}</span></> : null}
+                  </p>
+                );
+              })()}
               <p className="text-[10px] text-[#8595a8]">
-                Only quiet pickers count: no message from the lead on any channel since she picked, not paid, texts not turned off, a phone
+                Only quiet pickers count: no message from the lead on any channel in the 30 days before she picked or since, on the V3 AI
+                setup with the AI not already off (an artist&apos;s takeover is never undone), not paid, texts not turned off, a phone
                 on file, and the picked time 3+ hours away. Both sides go through the same checks at the same moment (daytime for the
                 lead, 9 AM–8 PM); the no-text side is only recorded. One text per person, ever. Paid = paid within 7 days of picking a
                 time, counted among people not yet paid when the text went. Left out: people who had already paid on an earlier visit
-                ({s.earlier + h.earlier}). The % shows only once {n(g.minPerSide)} people per side are 7+ days past their pick and there
+                ({s.earlier + h.earlier + (s.skipped.paid_earlier ?? 0) + (h.skipped.paid_earlier ?? 0)}). The % shows only once {n(g.minPerSide)} people per side are 7+ days past their pick and there
                 are {g.minPaid}+ payments between them. Opens can include phones that build a link preview.
               </p>
             </div>
