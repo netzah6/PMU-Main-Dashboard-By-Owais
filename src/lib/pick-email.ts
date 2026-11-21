@@ -220,7 +220,8 @@ async function eligibleFunnels(svc: Svc): Promise<Map<string, Funnel>> {
   const out = new Map<string, Funnel>();
   for (const f of (data ?? []) as Funnel[]) {
     const x = f.extras ?? {};
-    if (f.status !== "live" || x.template === "b2b" || x.freeBooking) continue;
+    // extras.noPickEmail: the artist asked for no deposit email (Beauty Marked PMU, 11/21/2026).
+    if (f.status !== "live" || x.template === "b2b" || x.freeBooking || x.noPickEmail) continue;
     out.set(f.slug, f);
   }
   return out;
