@@ -146,7 +146,7 @@ export async function pushLeadToGhl(inp: GhlPushInput): Promise<GhlPushResult> {
             `Seriousness: ${a.seriousness}`,
             `Aftercare kit: ${a.shortq2 === "b" ? "not asked (short-survey test)" : a.aftercare_kit}`,
             ...Object.entries(a)
-              .filter(([k, v]) => v && !["area", "had_pmu", "age", "commutable", "seriousness", "aftercare_kit", "email", "disqualified", "deprow", "ghl_error"].includes(k))
+              .filter(([k, v]) => v && !["area", "had_pmu", "age", "commutable", "seriousness", "aftercare_kit", "email", "disqualified", "deprow", "ghl_error", "repeatRestart"].includes(k))
               .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`),
             ...(emailNote ? [emailNote] : []),
           ].join("\n");

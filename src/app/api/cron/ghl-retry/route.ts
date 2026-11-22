@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { bookAppointmentForLead, pushLeadToGhl } from "@/lib/ghl-push";
+import { runRepeatRestartForLead } from "@/lib/repeat-restart";
 import { addOneboxBookedTag, ensureContactOwner } from "@/lib/artist-notify";
 import { filePaidNotBookedAlert, paidCardOnBoard, resolvePaidNotBookedAlert } from "@/lib/alerts";
 import { getAppLocationToken } from "@/lib/ghl-app";
@@ -83,6 +84,10 @@ export async function GET(req: NextRequest) {
         .from("onebox_leads")
         .update({ ghl_contact_id: push.contactId, ...(paid ? {} : { ghl_status: "created" }) })
         .eq("id", lead.id);
+      // A repeat lead whose live push failed: the tag re-add above starts nothing for her either.
+      if (withTag && !isB2B && !disqualified) {
+        await runRepeatRestartForLead(svc, { locationId: client.location_id as string, contactId: push.contactId, newLeadId: Number(lead.id), surveyTag: "onebox-survey" });
+      }
     } else {
       failed++;
       const key = (push.error ?? "unknown").slice(0, 80);

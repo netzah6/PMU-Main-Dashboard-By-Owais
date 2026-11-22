@@ -5,9 +5,13 @@ import { capiTokens, sendCapiWithTokens, recordCapi, pickFbc, fbclidOf } from "@
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { pushLeadToGhl, cleanTz } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
+import { runRepeatRestartForLead } from "@/lib/repeat-restart";
+import { waitUntil } from "@vercel/functions";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
+// The repeat-sign-up restart runs after the reply (waitUntil) and may take ~10-20 s.
+export const maxDuration = 60;
 
 // Public endpoint: a one-box funnel's completed survey lands here. We
 // upsert the contact into the client's GHL sub-account via the
@@ -340,6 +344,14 @@ export async function POST(req: NextRequest) {
         error: !pixelId ? "no pixel on funnel" : !token ? "no META_CAPI_TOKEN" : "no event id from browser",
       });
     }
+  }
+
+  /* Repeat sign-up (owner, 11/22/2026): she already has the survey tag from
+     an earlier form, so adding it again started nothing and she got no text.
+     Restart the survey (rules + switch in lib/repeat-restart). Off the
+     lead's clock and after everything above: it reads GHL a few times. */
+  if (leadRow?.id && contactId && !isB2B && !disqualified) {
+    waitUntil(runRepeatRestartForLead(svc, { locationId, contactId, newLeadId: leadRow.id, surveyTag }).then(() => {}, () => {}));
   }
 
   return NextResponse.json({ ok: true, ghl: ghlStatus });
