@@ -5,6 +5,7 @@ import { capiTokens, sendCapiWithTokens, recordCapi, pickFbc, fbclidOf } from "@
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { pushLeadToGhl, cleanTz } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
+import { restartSurveyForRepeat } from "@/lib/repeat-restart";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
@@ -280,6 +281,22 @@ export async function POST(req: NextRequest) {
         ...(push.error ? { answers: { ...answers, email, ...(disqualified ? { disqualified: true } : {}), ghl_error: push.error } } : {}),
       })
       .eq("id", leadRow.id);
+  }
+
+  /* Repeat sign-up (owner, 11/22/2026): she already has the survey tag from
+     an earlier form, so adding it again started nothing and she got no text.
+     Take it off and back on so the survey starts again (rules + switch in
+     lib/repeat-restart). Kept on the lead row so it can be counted. */
+  if (leadRow?.id && contactId && !isB2B && !disqualified) {
+    const rr = await restartSurveyForRepeat(svc, { locationId, contactId, newLeadId: leadRow.id, surveyTag });
+    if (rr.result !== "off" && rr.result !== "not_repeat") {
+      if (rr.result === "failed") console.error("[onebox/submit] repeat restart failed:", rr.reason);
+      await svc
+        .from("onebox_leads")
+        .update({ answers: { ...answers, email, repeatRestart: `${rr.result}${rr.reason ? `:${rr.reason}` : ""}|${new Date().toISOString()}` } })
+        .eq("id", leadRow.id)
+        .then((r) => { if (r.error) console.error("[onebox/submit] repeat restart save failed:", r.error.message); }, () => {});
+    }
   }
 
   // Feed the LEADS pipeline the sheet path never sees. The original GHL
