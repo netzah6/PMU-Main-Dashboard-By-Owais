@@ -410,6 +410,12 @@
     "#onebox-root .results .bavid{position:relative;display:block;cursor:pointer;background:#000}" +
     "#onebox-root .results .bavid img,#onebox-root .results .bavid video{width:100%;aspect-ratio:4/5;object-fit:cover;display:block;pointer-events:none}" +
     "#onebox-root .results .bavid .vplay{width:40px;height:40px;font-size:15px}" +
+    /* Thank-you testimonial videos (extras.tyVideos): two portrait tiles per
+       row on phones, four across on wide screens; tap opens the viewer. */
+    "#onebox-root .tyvids{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}" +
+    "@media (min-width:700px){#onebox-root .tyvids{grid-template-columns:repeat(4,1fr)}}" +
+    "#onebox-root .tyvids .bavid{position:relative;display:block;cursor:pointer;background:#000;border-radius:10px;overflow:hidden}" +
+    "#onebox-root .tyvids .bavid img{width:100%;aspect-ratio:9/16;object-fit:cover;display:block;pointer-events:none}" +
     "#onebox-root .igwrap{margin-top:14px}" +
     "#onebox-root .igself{max-width:640px;margin:0 auto}" +
     /* Profile header laid out like the Instagram app: handle on top, photo
@@ -1571,7 +1577,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "131";
+  var ENGINE_V = "132";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
@@ -1817,6 +1823,19 @@
       });
     }
     var htmlStr = "";
+    /* Client video testimonials (owner, 11/22/2026): only on the thank-you
+       step, at the top — the payer just booked, these reassure her. Posters
+       load with the page; each video streams only after a tap. */
+    var TYV = null;
+    try { TYV = C.tyVideos ? JSON.parse(C.tyVideos) : null; } catch (e) { TYV = null; }
+    if (phase === "done" && TYV && TYV.length) {
+      htmlStr += '<div class="xsec"><h2 class="xhead">What Our Clients Say by Video &#127909;</h2><div class="tyvids">' +
+        TYV.map(function (t) {
+          return '<span class="bavid" data-v="' + esc(t.v) + '" data-p="' + esc(t.p || "") + '">' +
+            (t.p ? '<img src="' + esc(fastImg(t.p, 640)) + '" alt="Client testimonial" loading="lazy">' : "") +
+            '<span class="vplay">&#9654;</span></span>';
+        }).join("") + "</div></div>";
+    }
     /* Template order: the client's own before/after photos (the 9 CV
        slots) first, the live Instagram widget right under them. */
     if (RESULTS.length || SELF) {
