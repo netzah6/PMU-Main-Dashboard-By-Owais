@@ -1105,6 +1105,7 @@ function daytimeHoursSince(sinceMs: number, nowMs: number, tz: string): number {
    a row is reported — as "could not check", never as "no text". */
 export class GhlLookupError extends Error {}
 const UNCHECKED_KEY = "silent_leads_unchecked";
+const TEXTED_KEY = "silent_leads_texted";
 export async function ghlJson<T>(url: string, headers: Record<string, string>, budget: { retries: number }): Promise<T> {
   let last = "no answer";
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -1169,14 +1170,24 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
   const markUnchecked = (slug: string, l: Lead, err: string) => {
     unchecked[l.ghl_contact_id] = { since: prevUnchecked[l.ghl_contact_id]?.since ?? new Date(now).toISOString(), slug, name: l.full_name, err };
   };
-  for (const [slug, ls] of bySlug) {
+  /* Speed (owner, 11/22/2026: this sweep took 177 s of the cron's 300 s). A
+     lead that already got a text can never become "got NO text", so it is
+     remembered and not looked up again on the next sweeps (kept 30 h, longer
+     than the 26 h window). Accounts are checked 4 at a time. */
+  const { data: textedRow } = await svc.from("app_settings").select("value").eq("key", TEXTED_KEY).maybeSingle();
+  const texted: Record<string, string> = {};
+  for (const [id, at] of Object.entries((textedRow?.value ?? {}) as Record<string, string>)) {
+    if (now - Date.parse(at) < 30 * 3600_000) texted[id] = at;
+  }
+  const remember = (l: Lead) => { texted[l.ghl_contact_id] = l.created_at; };
+  const checkAccount = async ([slug, ls]: [string, Lead[]]) => {
     const c = locBySlug.get(slug)!;
     let tok = await getAppLocationToken(c.location_id as string);
     if (!tok.token) { await new Promise((r) => setTimeout(r, 3000)); tok = await getAppLocationToken(c.location_id as string); }
     if (!tok.token) {
       // No GHL access to the account at all: every lead in it is unchecked (not skipped).
-      for (const l of ls) if (!/test|ignore/i.test(l.full_name)) markUnchecked(slug, l, `no GHL access (${String(tok.error ?? "token").slice(0, 60)})`);
-      continue;
+      for (const l of ls) if (!texted[l.ghl_contact_id] && !/test|ignore/i.test(l.full_name)) markUnchecked(slug, l, `no GHL access (${String(tok.error ?? "token").slice(0, 60)})`);
+      return;
     }
     const H4 = { Authorization: `Bearer ${tok.token}`, Version: "2021-04-15", Accept: "application/json" };
     const H7 = { ...H4, Version: "2021-07-28" };
@@ -1194,6 +1205,7 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
     const silent: string[] = [];
     for (const l of eligible) {
       checked++;
+      if (texted[l.ghl_contact_id]) continue;
       try {
         const conv = await ghlJson<{ conversations?: { id: string }[] }>(`https://services.leadconnectorhq.com/conversations/search?locationId=${c.location_id}&contactId=${l.ghl_contact_id}`, H4, budget);
         const c0 = conv.conversations?.[0];
@@ -1203,6 +1215,7 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
           const list = Array.isArray(msgs.messages) ? msgs.messages : msgs.messages?.messages ?? [];
           out = list.filter((m) => m.direction === "outbound").length;
         }
+        if (out) { remember(l); continue; }
         /* No thread in GHL is not proof of silence: the artist can delete a
            conversation. Basic Beige Brows, 11/07/2026: Carolina Betancourt got
            the texts, the artist wrote "Ignore the automatic response", then
@@ -1213,7 +1226,7 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
           const { data: seen, error: seenErr } = await svc.from("ghl_conversations").select("id")
             .eq("contact_id", l.ghl_contact_id).gte("last_message_date", l.created_at).limit(1);
           if (seenErr) throw new GhlLookupError(`our copy: ${seenErr.message}`.slice(0, 80));
-          if (seen?.length) continue;
+          if (seen?.length) { remember(l); continue; }
         }
         /* Opted out = GHL blocks every text on purpose, not a silent lead
            (owner, 11/22/2026: Basic Beige Brows, Nancy Flores had SMS
@@ -1230,7 +1243,7 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
         if (!/test|ignore/i.test(l.full_name)) markUnchecked(slug, l, e instanceof GhlLookupError ? e.message : String((e as Error).message ?? e).slice(0, 80));
       }
     }
-    if (!silent.length) continue;
+    if (!silent.length) return;
     const key = `silent-leads:${slug}`;
     flagged.add(key);
     const ok = await fileAlert(svc, {
@@ -1243,7 +1256,12 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
       resurfaceAfterDays: 2,
     });
     if (ok) filed++;
-  }
+  };
+  const queue = [...bySlug.entries()];
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
+    for (let job = queue.shift(); job; job = queue.shift()) await checkAccount(job).catch(() => { /* one account must not stop the others */ });
+  }));
+  await svc.from("app_settings").upsert({ key: TEXTED_KEY, value: texted, updated_by: "silent-leads sweep", updated_at: new Date(now).toISOString() });
   /* Unchecked leads: report only those that also failed on an earlier sweep
      (>= 25 min ago), one box per account; it closes itself once a sweep can
      read them again. */
