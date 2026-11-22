@@ -970,6 +970,9 @@ export async function scanOneboxNotifyMissing(svc: Svc): Promise<{ checked: numb
    client_status_since remembers when the scan first saw the current status;
    the alert only fires when a lead is dated 3+ days after that — the ads are
    really still running. It goes to the assigned coach (meta.csm). */
+// Test sign-ups don't count as leads (owner, 11/22/2026: Jacklyn Beauty & Spa
+// was Paused and her only "leads" were 4 "testing" rows from one phone).
+// "test"/"ignore" must start a word: Signorelli and Dartest are real names.
 export async function scanLeadsWhileNotLive(svc: Svc): Promise<{ checked: number; filed: number; resolved: number; error?: string }> {
   const { data: rows, error } = await svc.rpc("ask_ai_query", {
     q: `WITH cm AS (
@@ -981,7 +984,8 @@ export async function scanLeadsWhileNotLive(svc: Svc): Promise<{ checked: number
          l AS (
            SELECT trim(data->>'Business Name') AS biz, to_date(data->>'Date', 'DD/MM/YYYY') AS d
            FROM leads_master
-           WHERE data->>'Date' ~ '^\\d{1,2}/\\d{1,2}/\\d{4}'),
+           WHERE data->>'Date' ~ '^\\d{1,2}/\\d{1,2}/\\d{4}'
+             AND coalesce(data->>'Full Name', '') !~* '(^|[^a-z])(test|ignore)'),
          a AS (
            SELECT biz,
                   count(*) FILTER (WHERE d > current_date - 7)::int AS n7,
