@@ -95,6 +95,8 @@ export type CauseInput = {
   tests: { name: string; running: boolean; from: string }[];
   /* The day the deposit-text test began, when this client's leads are in it. */
   depAskSince: string | null;
+  /** the day the test ended (all leads back on the normal chat), null while it runs */
+  depAskUntil?: string | null;
   /* The same other clients, in the best months and in the last 30 days. */
   others: { clients: number; then: { l: number; d: number }; now: { l: number; d: number } } | null;
 };
@@ -586,7 +588,8 @@ export function fellCauses(x: CauseInput): Cause[] {
     else add("few_chats", "ai", "unknown", `${whole(ai.engagedPct)} of leads moved past "new" (others ${whole(f.fleet.engagedPct)})`, CHATS, `${text} So it can't show how many leads answer the texts.`);
   } else add("few_chats", "ai", "unknown", noSync ? "Leads stuck at \"new\"? Account not synced" : ai ? "Leads stuck at \"new\"? Too few leads to tell" : "Leads stuck at \"new\"? No fresh data", CHATS, noSync ? NO_SYNC : ai ? FEW : NO_CHECKUP);
 
-  if (x.depAskSince) add("dep_ask_test", "ai", tooNew(x.depAskSince) ? "unknown" : "maybe", `AI text test since ${fmtDay(x.depAskSince)}`, "A test changed what the AI says after a lead picks a time", `Since ${fmtDay(x.depAskSince)}, for half of this client's leads who pick a time, the AI's first answer names the time and sends the pay link. The result isn't known yet.`);
+  if (x.depAskSince && x.depAskUntil) add("dep_ask_test", "ai", "maybe", `AI text test ${fmtDay(x.depAskSince)}–${fmtDay(x.depAskUntil)}`, "A test changed what the AI says after a lead picks a time", `From ${fmtDay(x.depAskSince)} to ${fmtDay(x.depAskUntil)}, for half of this client's leads who pick a time, the AI's first answer named the time and sent the pay link. Across all funnels the two ways ended in a tie on deposits; since ${fmtDay(x.depAskUntil)} every lead gets the normal conversation.`);
+  else if (x.depAskSince) add("dep_ask_test", "ai", tooNew(x.depAskSince) ? "unknown" : "maybe", `AI text test since ${fmtDay(x.depAskSince)}`, "A test changed what the AI says after a lead picks a time", `Since ${fmtDay(x.depAskSince)}, for half of this client's leads who pick a time, the AI's first answer names the time and sends the pay link. The result isn't known yet.`);
   add("no_deposit_ask", "ai", "unknown", v23 ? "Deposit asked by text? No AI on V2.3" : "Deposit asked by text? Read 10 chats", "After a lead picks a time, the texts don't ask for the deposit", v23 ? NO_AI : "Only the chats show this. Read 10 chats of leads who picked a time and didn't pay.");
   add("texts_blocked", "ai", "unknown", "Texts not arriving? Check GHL", "Our texts don't reach the leads (number not registered, filter, daily limit)", "I can't see if texts arrive. Look for failed messages in the client's GHL account.");
   add("wrong_price_told", "ai", "unknown", "Wrong price told? Read chats", "Leads ask the price and get no price, or a wrong one", "Only the chats show this.");

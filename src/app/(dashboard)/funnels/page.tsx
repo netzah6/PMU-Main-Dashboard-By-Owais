@@ -813,7 +813,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
   type DepSide = { picked: number; pagePaid: number; reached: number; paid: number };
   type CompSide = { sent: number; replied: number; happy: number; putdown: number; booked: number; paid: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number }; comp?: { a: CompSide; b: CompSide; since: string; fifty?: string; seventy?: string; accounts?: number; checked: number; wrong: number; round1?: { a: CompSide; b: CompSide; since: string; until: string } } } | null>(null);
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number; endedAt?: string | null }; comp?: { a: CompSide; b: CompSide; since: string; fifty?: string; seventy?: string; accounts?: number; checked: number; wrong: number; round1?: { a: CompSide; b: CompSide; since: string; until: string } } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -952,6 +952,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="text-sm font-medium text-[#1c2b3a]">🧪 Deposit ask (AI) — {d.dep.funnels ?? "all"} funnels on the slay flow, 50/50 by phone</span>
             <span className="text-xs text-[#697a91]">since {new Date(d.dep.since).toLocaleDateString("en-US")}</span>
+            {d.dep.endedAt && <span className="text-xs font-medium text-[#475569] bg-[#f1f5f9] rounded px-1.5 py-0.5" title="Owner 11/22/2026: every lead gets the normal conversation (A). Leads already in B keep their chat. The numbers below are the final result (tie).">Ended {new Date(d.dep.endedAt).toLocaleDateString("en-US")} — all leads on A now</span>}
           </div>
           <table className="w-full text-xs">
             <thead><tr className="text-left text-[#697a91]">

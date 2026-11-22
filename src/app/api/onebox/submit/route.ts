@@ -6,6 +6,7 @@ import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { pushLeadToGhl, cleanTz } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
 import { runRepeatRestartForLead } from "@/lib/repeat-restart";
+import { depAskEndedAt } from "@/lib/dep-ask";
 import { waitUntil } from "@vercel/functions";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     if (!slug || !phone) return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
     const slotIso = String(body.slotIso ?? "").slice(0, 40);
     const svcSlot = createServiceClient();
-    const [, { data: slotClient }, { data: slotLead }] = await Promise.all([
+    const [, { data: slotClient }, { data: slotLead }, depEndedAt] = await Promise.all([
       svcSlot
         .from("onebox_leads")
         .update({ picked_time_at: new Date().toISOString(), slot_iso: slotIso })
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest) {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      // A failed read keeps the split off: the normal conversation is the safe side.
+      depAskEndedAt(svcSlot).catch(() => "unknown"),
     ]);
     /* Until now GHL only learned about a slot AFTER the deposit cleared, so
        a lead who picked a time but never paid looked exactly like one who
@@ -99,12 +102,14 @@ export async function POST(req: NextRequest) {
              CloseBot flow; "dep-ask-a" keeps today's conversation. Split on
              the phone's last digit so a re-pick stays on the same side. */
           const depArm = Number(phone.replace(/\D/g, "").slice(-1)) % 2 === 1 ? "b" : "a";
+          // Test ended (lib/dep-ask depAskEndedAt): no split tag, everyone stays on the normal chat.
+          const depOn = !depEndedAt;
           await Promise.all([
             // Additive endpoint — tags in a PUT body replace the whole list.
             fetch(`https://services.leadconnectorhq.com/contacts/${contactId}/tags`, {
-              method: "POST", headers: H, body: JSON.stringify({ tags: ["onebox-picked-time", `dep-ask-${depArm}`] }),
+              method: "POST", headers: H, body: JSON.stringify({ tags: depOn ? ["onebox-picked-time", `dep-ask-${depArm}`] : ["onebox-picked-time"] }),
             }),
-            slotLead?.id
+            depOn && slotLead?.id
               ? svcSlot
                   .from("onebox_leads")
                   // depAskAt = the first pick (the start of the AI's window for the readout).

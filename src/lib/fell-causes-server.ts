@@ -73,6 +73,8 @@ export async function addFellCauses(svc: SupabaseClient, rows: BoardRow[], stats
   const tests = (testRows.data ?? []) as { slug: string; name: string | null; status: string; created_at: string }[];
   const pageStart = new Map(((pageRows.data ?? []) as { slug: string; created_at: string | null }[]).map((p) => [p.slug, p.created_at]));
   const depAskSlugs = ((depAsk.data?.value as { slugs?: string[] } | null)?.slugs) ?? [];
+  const depAskEnd = (depAsk.data?.value as { endedAt?: string } | null)?.endedAt;
+  const depAskUntil = depAskEnd && !Number.isNaN(Date.parse(depAskEnd)) ? pacificDay(new Date(depAskEnd)) : null;
   /* One row per business: a client with two pages has the same numbers on both. */
   const seen = new Set<string>();
   const clients = stats.filter((s) => {
@@ -124,6 +126,7 @@ export async function addFellCauses(svc: SupabaseClient, rows: BoardRow[], stats
       tests: tests.filter((t) => t.slug === r.slug && pacificDay(new Date(t.created_at)) >= addDays(start, -TEST_LOOKBACK_DAYS))
         .map((t) => ({ name: t.name ?? "Split test", running: t.status === "running", from: pacificDay(new Date(t.created_at)) })),
       depAskSince: depAskSlugs.includes(r.slug) ? pacificDay(new Date(DEP_ASK_START)) : null,
+      depAskUntil: depAskSlugs.includes(r.slug) ? depAskUntil : null,
       others: same.length >= 5 ? {
         clients: same.length,
         then: same.reduce((a, s) => ({ l: a.l + s.months[peak.from].l + s.months[peak.to].l, d: a.d + s.months[peak.from].d + s.months[peak.to].d }), { l: 0, d: 0 }),
