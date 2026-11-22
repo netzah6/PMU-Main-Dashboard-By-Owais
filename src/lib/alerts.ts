@@ -870,10 +870,11 @@ export async function scanLiveNoPayDate(svc: Svc): Promise<{ live: number; filed
     const ok = await fileAlert(svc, {
       type: "pay_date",
       severity: "high",
-      title: `${c.owner}${c.business ? ` — ${c.business}` : ""}: LIVE with no expected payment date`,
+      // Owner 11/22/2026: short and to the point.
+      title: `${c.owner}${c.business ? ` — ${c.business}` : ""}: ${row ? "no payment day on the Financing sheet" : "missing on the Financing sheet"}`,
       detail: row
-        ? `The Financing sheet (${row.month ?? "latest month"}) has the row as “${row.client_name}” but DAY OF PAYMENT is ${String(row.pay_day ?? "").trim() ? `“${String(row.pay_day).trim()}”` : "empty"} (Payment Status: ${row.payment_status || "blank"}, Billing: ${row.billing_status || "blank"}). Fill in the payment day — this clears itself once it's there.`
-        : `No row for this client on the Financing sheet's latest month tab. Add the client with the payment day — this clears itself once it's there.`,
+        ? `Row “${row.client_name}” (${row.month ?? "latest month"}) has no DAY OF PAYMENT. Closes once it's filled.`
+        : "Add the client to the latest month tab with the payment day. Closes once it's there.",
       source_key: key,
       meta: { owner: c.owner, business: c.business, sheet_name: row?.client_name ?? null, pay_day: row?.pay_day ?? null, csm: c.assigned || null },
       resurfaceAfterDays: 3,
@@ -1087,7 +1088,33 @@ function daytimeHoursSince(sinceMs: number, nowMs: number, tz: string): number {
   return mins / 60;
 }
 
-export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; filed: number; resolved: number; error?: string }> {
+/* A GHL lookup that failed is NOT "no text" (owner, 11/22/2026: House Of
+   Elegance, Lydia Hogan was texted and replied, but one failed GHL answer
+   made the sweep file "got NO text"). Failed lookups are retried a few
+   seconds later; a lead still unreadable is carried to the next sweep
+   (30 min later) and checked again; only a lead that fails on two sweeps in
+   a row is reported — as "could not check", never as "no text". */
+export class GhlLookupError extends Error {}
+const UNCHECKED_KEY = "silent_leads_unchecked";
+export async function ghlJson<T>(url: string, headers: Record<string, string>, budget: { retries: number }): Promise<T> {
+  let last = "no answer";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) {
+      if (budget.retries <= 0) break; // GHL down for everyone: don't burn the cron's 5 minutes waiting
+      budget.retries--;
+      await new Promise((r) => setTimeout(r, attempt === 1 ? 2000 : 6000));
+    }
+    try {
+      const r = await fetch(url, { headers });
+      if (r.ok) return (await r.json()) as T;
+      last = `GHL ${r.status}`;
+      if (r.status !== 429 && r.status < 500) break; // a 4xx other than "too many requests" won't fix itself in seconds
+    } catch (e) { last = String((e as Error).message ?? e).slice(0, 80); }
+  }
+  throw new GhlLookupError(last);
+}
+
+export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; filed: number; resolved: number; unchecked?: number; error?: string }> {
   const now = Date.now();
   const lo = new Date(now - 26 * 3600_000).toISOString();
   const hi = new Date(now - 2 * 3600_000).toISOString();
@@ -1125,10 +1152,23 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
   }
   let checked = 0, filed = 0, resolved = 0;
   const flagged = new Set<string>();
+  const budget = { retries: 12 };
+  type Unchecked = { since: string; slug: string; name: string; err: string };
+  const { data: prevRow } = await svc.from("app_settings").select("value").eq("key", UNCHECKED_KEY).maybeSingle();
+  const prevUnchecked = ((prevRow?.value ?? {}) as Record<string, Unchecked>);
+  const unchecked: Record<string, Unchecked> = {};
+  const markUnchecked = (slug: string, l: Lead, err: string) => {
+    unchecked[l.ghl_contact_id] = { since: prevUnchecked[l.ghl_contact_id]?.since ?? new Date(now).toISOString(), slug, name: l.full_name, err };
+  };
   for (const [slug, ls] of bySlug) {
     const c = locBySlug.get(slug)!;
-    const tok = await getAppLocationToken(c.location_id as string);
-    if (!tok.token) continue;
+    let tok = await getAppLocationToken(c.location_id as string);
+    if (!tok.token) { await new Promise((r) => setTimeout(r, 3000)); tok = await getAppLocationToken(c.location_id as string); }
+    if (!tok.token) {
+      // No GHL access to the account at all: every lead in it is unchecked (not skipped).
+      for (const l of ls) if (!/test|ignore/i.test(l.full_name)) markUnchecked(slug, l, `no GHL access (${String(tok.error ?? "token").slice(0, 60)})`);
+      continue;
+    }
     const H4 = { Authorization: `Bearer ${tok.token}`, Version: "2021-04-15", Accept: "application/json" };
     const H7 = { ...H4, Version: "2021-07-28" };
     /* America/Los_Angeles fallback is the western-most client timezone, so a
@@ -1146,11 +1186,11 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
     for (const l of eligible) {
       checked++;
       try {
-        const conv = (await (await fetch(`https://services.leadconnectorhq.com/conversations/search?locationId=${c.location_id}&contactId=${l.ghl_contact_id}`, { headers: H4 })).json()) as { conversations?: { id: string }[] };
+        const conv = await ghlJson<{ conversations?: { id: string }[] }>(`https://services.leadconnectorhq.com/conversations/search?locationId=${c.location_id}&contactId=${l.ghl_contact_id}`, H4, budget);
         const c0 = conv.conversations?.[0];
         let out = 0;
         if (c0) {
-          const msgs = (await (await fetch(`https://services.leadconnectorhq.com/conversations/${c0.id}/messages?limit=20`, { headers: H7 })).json()) as { messages?: { messages?: { direction?: string }[] } | { direction?: string }[] };
+          const msgs = await ghlJson<{ messages?: { messages?: { direction?: string }[] } | { direction?: string }[] }>(`https://services.leadconnectorhq.com/conversations/${c0.id}/messages?limit=20`, H7, budget);
           const list = Array.isArray(msgs.messages) ? msgs.messages : msgs.messages?.messages ?? [];
           out = list.filter((m) => m.direction === "outbound").length;
         }
@@ -1161,20 +1201,25 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
            account's 8 "no text" alerts since 10/08 was this. So a missing
            thread counts as texted when our copy saw activity after signup. */
         if (!out && !c0) {
-          const { data: seen } = await svc.from("ghl_conversations").select("id")
+          const { data: seen, error: seenErr } = await svc.from("ghl_conversations").select("id")
             .eq("contact_id", l.ghl_contact_id).gte("last_message_date", l.created_at).limit(1);
+          if (seenErr) throw new GhlLookupError(`our copy: ${seenErr.message}`.slice(0, 80));
           if (seen?.length) continue;
         }
         /* Opted out = GHL blocks every text on purpose, not a silent lead
            (owner, 11/22/2026: Basic Beige Brows, Nancy Flores had SMS
            DND "STOP_KEYWORD", permanent; the workflow ran, texts were blocked). */
         if (!out) {
-          const ct = (await (await fetch(`https://services.leadconnectorhq.com/contacts/${l.ghl_contact_id}`, { headers: H7 })).json()) as { contact?: { dnd?: boolean; dndSettings?: { SMS?: { status?: string } } } };
+          const ct = await ghlJson<{ contact?: { dnd?: boolean; dndSettings?: { SMS?: { status?: string } } } }>(`https://services.leadconnectorhq.com/contacts/${l.ghl_contact_id}`, H7, budget);
+          if (!ct.contact) throw new GhlLookupError("GHL sent no contact");
           const sms = ct.contact?.dndSettings?.SMS?.status;
           if (ct.contact?.dnd || sms === "active" || sms === "permanent") continue;
         }
         if (!out && !/test|ignore/i.test(l.full_name)) silent.push(l.full_name);
-      } catch { /* one flaky lookup must not kill the sweep */ }
+      } catch (e) {
+        // One flaky lookup must not kill the sweep — and must not be skipped either.
+        if (!/test|ignore/i.test(l.full_name)) markUnchecked(slug, l, e instanceof GhlLookupError ? e.message : String((e as Error).message ?? e).slice(0, 80));
+      }
     }
     if (!silent.length) continue;
     const key = `silent-leads:${slug}`;
@@ -1190,13 +1235,41 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
     });
     if (ok) filed++;
   }
-  const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "silent_leads").eq("status", "open");
-  const toClose = (open ?? []).filter((o) => !flagged.has(String(o.source_key))).map((o) => o.id);
-  if (toClose.length) {
-    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (new leads are getting texts again)", resolved_at: new Date().toISOString() }).in("id", toClose);
-    resolved = toClose.length;
+  /* Unchecked leads: report only those that also failed on an earlier sweep
+     (>= 25 min ago), one box per account; it closes itself once a sweep can
+     read them again. */
+  await svc.from("app_settings").upsert({ key: UNCHECKED_KEY, value: unchecked, updated_by: "silent-leads sweep", updated_at: new Date(now).toISOString() });
+  const stuck = new Map<string, Unchecked[]>();
+  for (const u of Object.values(unchecked)) {
+    if (now - Date.parse(u.since) < 25 * 60_000) continue;
+    stuck.set(u.slug, [...(stuck.get(u.slug) ?? []), u]);
   }
-  return { checked, filed, resolved };
+  for (const [slug, us] of stuck) {
+    const c = locBySlug.get(slug)!;
+    const key = `silent-leads-unchecked:${slug}`;
+    flagged.add(key);
+    const ok = await fileAlert(svc, {
+      type: "silent_leads",
+      severity: "medium",
+      title: `${c.client_name}: could not check ${us.length} new lead${us.length === 1 ? "" : "s"} (GHL error)`,
+      detail: `GoHighLevel did not answer correctly for ${us.map((u) => u.name).join(", ")} on two checks in a row (${[...new Set(us.map((u) => u.err))].join("; ")}), so we do NOT know if ${us.length === 1 ? "this lead" : "these leads"} got a text. Open the contact in GHL and look at the conversation. This box closes itself once a check works again.`,
+      source_key: key,
+      meta: { slug, business: c.client_name, unchecked: us.map((u) => u.name), errors: us.map((u) => u.err), since: us.map((u) => u.since) },
+      resurfaceAfterDays: 1,
+    });
+    if (ok) filed++;
+  }
+  const { data: open } = await svc.from("alerts").select("id, source_key").eq("type", "silent_leads").eq("status", "open");
+  const toClose = (open ?? []).filter((o) => !flagged.has(String(o.source_key)));
+  for (const [ids, why] of [
+    [toClose.filter((o) => !String(o.source_key).startsWith("silent-leads-unchecked:")).map((o) => o.id), "system (new leads are getting texts again)"],
+    [toClose.filter((o) => String(o.source_key).startsWith("silent-leads-unchecked:")).map((o) => o.id), "system (GHL answers again — leads checked)"],
+  ] as const) {
+    if (!ids.length) continue;
+    await svc.from("alerts").update({ status: "resolved", resolved_by: why, resolved_at: new Date().toISOString() }).in("id", ids);
+    resolved += ids.length;
+  }
+  return { checked, filed, resolved, unchecked: Object.keys(unchecked).length };
 }
 
 
