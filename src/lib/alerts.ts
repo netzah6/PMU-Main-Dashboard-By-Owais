@@ -805,7 +805,12 @@ export async function scanAgreementMissing(svc: Svc): Promise<{ seeded: number; 
    side is tried before a client counts as missing. */
 function nameAliases(raw: string): string[] {
   const s = String(raw ?? "");
-  const parts = [s.replace(/\([^)]*\)/g, " "), ...Array.from(s.matchAll(/\(([^)]*)\)/g), (m) => m[1])]
+  const outer = s.replace(/\([^)]*\)/g, " ");
+  // Partners share a row: "Hong Tran (Jennifer & Natalie)" = Jennifer Tran and
+  // Natalie Tran too (owner, 11/22/2026). A lone first name takes the row's last name.
+  const last = outer.trim().split(/\s+/).pop() ?? "";
+  const inner = Array.from(s.matchAll(/\(([^)]*)\)/g), (m) => m[1]).flatMap((x) => x.split(/\s*(?:&|\band\b|,)\s*/i));
+  const parts = [outer, ...inner, ...inner.filter((x) => last && x.trim() && !/\s/.test(x.trim())).map((x) => `${x.trim()} ${last}`)]
     .flatMap((x) => x.split("/"));
   return [...new Set(parts.map((x) => normalizeOwnerKey(x.replace(/\d+\s*%/g, " "))).filter(Boolean))];
 }
