@@ -31,6 +31,8 @@ export type OneboxRow = {
     consultMode?: string;
     freeBooking?: boolean;
     bigOffer?: boolean;
+    /* Client video testimonials for the thank-you step: v = mp4, p = poster. */
+    tyVideos?: { v: string; p?: string }[];
     /* "b2b" = the agency's own artist-acquisition funnel: config lives in
        extras.b2b (the CV sync must never overwrite it) and the page runs
        the dedicated onebox-b2b.js engine — no Fanbasis, booking a free
@@ -177,6 +179,7 @@ export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: s
     consultMode: row.extras.consultMode || "",
     freeBooking: row.extras.freeBooking ? "1" : "",
     bigOffer: row.extras.bigOffer ? "1" : "",
+    tyVideos: row.extras.tyVideos?.length ? JSON.stringify(row.extras.tyVideos.map((t) => ({ v: t.v, p: t.p || "" }))) : "",
     pay: isPay ? "1" : "",
   };
   /* Same URL the engine will render (its fastImg proxies media-library
