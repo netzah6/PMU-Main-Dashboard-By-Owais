@@ -5,10 +5,13 @@ import { capiTokens, sendCapiWithTokens, recordCapi, pickFbc, fbclidOf } from "@
 import { getSurveyFieldMap, fmtReservedTime } from "@/lib/onebox";
 import { pushLeadToGhl, cleanTz } from "@/lib/ghl-push";
 import { ingestRow } from "@/lib/direct-ingest";
-import { restartSurveyForRepeat } from "@/lib/repeat-restart";
+import { runRepeatRestartForLead } from "@/lib/repeat-restart";
+import { waitUntil } from "@vercel/functions";
 
 // Never serve cached fetches: Supabase rows and GHL availability must be live.
 export const fetchCache = "force-no-store";
+// The repeat-sign-up restart runs after the reply (waitUntil) and may take ~10-20 s.
+export const maxDuration = 60;
 
 // Public endpoint: a one-box funnel's completed survey lands here. We
 // upsert the contact into the client's GHL sub-account via the
@@ -283,22 +286,6 @@ export async function POST(req: NextRequest) {
       .eq("id", leadRow.id);
   }
 
-  /* Repeat sign-up (owner, 11/22/2026): she already has the survey tag from
-     an earlier form, so adding it again started nothing and she got no text.
-     Take it off and back on so the survey starts again (rules + switch in
-     lib/repeat-restart). Kept on the lead row so it can be counted. */
-  if (leadRow?.id && contactId && !isB2B && !disqualified) {
-    const rr = await restartSurveyForRepeat(svc, { locationId, contactId, newLeadId: leadRow.id, surveyTag });
-    if (rr.result !== "off" && rr.result !== "not_repeat") {
-      if (rr.result === "failed") console.error("[onebox/submit] repeat restart failed:", rr.reason);
-      await svc
-        .from("onebox_leads")
-        .update({ answers: { ...answers, email, repeatRestart: `${rr.result}${rr.reason ? `:${rr.reason}` : ""}|${new Date().toISOString()}` } })
-        .eq("id", leadRow.id)
-        .then((r) => { if (r.error) console.error("[onebox/submit] repeat restart save failed:", r.error.message); }, () => {});
-    }
-  }
-
   // Feed the LEADS pipeline the sheet path never sees. The original GHL
   // funnels write every lead to the leads sheet via the workflow's Make
   // webhook; one-box submissions bypass that entirely, so from a cutover on
@@ -357,6 +344,14 @@ export async function POST(req: NextRequest) {
         error: !pixelId ? "no pixel on funnel" : !token ? "no META_CAPI_TOKEN" : "no event id from browser",
       });
     }
+  }
+
+  /* Repeat sign-up (owner, 11/22/2026): she already has the survey tag from
+     an earlier form, so adding it again started nothing and she got no text.
+     Restart the survey (rules + switch in lib/repeat-restart). Off the
+     lead's clock and after everything above: it reads GHL a few times. */
+  if (leadRow?.id && contactId && !isB2B && !disqualified) {
+    waitUntil(runRepeatRestartForLead(svc, { locationId, contactId, newLeadId: leadRow.id, surveyTag }).then(() => {}, () => {}));
   }
 
   return NextResponse.json({ ok: true, ghl: ghlStatus });
