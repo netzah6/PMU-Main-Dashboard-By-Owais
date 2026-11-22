@@ -1162,7 +1162,7 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
   }
   let checked = 0, filed = 0, resolved = 0;
   const flagged = new Set<string>();
-  const budget = { retries: 12 };
+  const budget = { retries: 6 }; // worst case ~24s of waiting per sweep; the whole alerts cron has 300s
   type Unchecked = { since: string; slug: string; name: string; err: string };
   const { data: prevRow } = await svc.from("app_settings").select("value").eq("key", UNCHECKED_KEY).maybeSingle();
   const prevUnchecked = ((prevRow?.value ?? {}) as Record<string, Unchecked>);
