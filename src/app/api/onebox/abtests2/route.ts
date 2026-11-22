@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
-import { DEP_ASK_START, depAskSlugs } from "@/lib/dep-ask";
+import { DEP_ASK_START, depAskEndedAt, depAskSlugs } from "@/lib/dep-ask";
 import { COMP_AB_START, COMP_AB_ROUND1_START, compAbLocations, compAbFiftyFrom, compAbSeventyFrom, compExpected } from "@/lib/compliment-ab";
 
 export const fetchCache = "force-no-store";
@@ -135,7 +135,7 @@ export async function GET() {
         paid: r.filter((x) => x.reply_at && x.paid).length,
       };
     };
-    const depSlugs = await depAskSlugs(sb);
+    const [depSlugs, depEnded] = await Promise.all([depAskSlugs(sb), depAskEndedAt(sb).catch(() => null)]);
     /* Photo-compliment test (owner, 11/11/2026): one row per slay conversation
        in compliment_ab_results, filled hourly by /api/cron/compliment-ab. The
        side is the text the AI actually sent; "wrong" counts leads whose phone
@@ -181,7 +181,7 @@ export async function GET() {
       shortq: { a: shortA, b: shortB, since: shortSince, until: SHORTQ_END, visitorsPerArm: shortVisitors },
       offer: { a: offerA, b: offerB, c: offerC, since: offerSince ?? undefined, until: OFFER_END, funnels: offerSlugs.length },
       igw: { a: igwA, b: igwB, since: igwSince ?? undefined, until: IGW_END, funnels: igwFunnels },
-      dep: { a: depSide("a"), b: depSide("b"), since: DEP_ASK_START, funnels: depSlugs?.length },
+      dep: { a: depSide("a"), b: depSide("b"), since: DEP_ASK_START, funnels: depSlugs?.length, endedAt: depEnded },
       comp: { a: compSide("old"), b: compSide("new"), since: COMP_AB_START, fifty: fiftyFrom ?? undefined, seventy: seventyFrom ?? undefined, accounts: compAccounts, checked: compChecked.length, wrong: compChecked.filter((x) => x.expected !== x.line).length,
         round1: { a: compSide("old", r1Rows), b: compSide("new", r1Rows), since: COMP_AB_ROUND1_START, until: COMP_AB_START } },
     });

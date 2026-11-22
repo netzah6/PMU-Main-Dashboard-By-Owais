@@ -44,6 +44,18 @@ export async function depAskSlugs(svc: Svc): Promise<string[] | undefined> {
   return (data?.value as { slugs?: string[] } | null)?.slugs;
 }
 
+/* Test ended (owner, 11/22/2026: "all the leads go through A — control …
+   we engage with everyone, and we can come back to this test in the
+   future"). `endedAt` in the same app_settings row stops the split: new
+   pickers get no dep-ask tag, so the slay flow keeps every one of them on
+   the normal conversation. Leads already tagged keep their side. Remove
+   `endedAt` to run the test again. Null = test running. */
+export async function depAskEndedAt(svc: Svc): Promise<string | null> {
+  const { data } = await svc.from("app_settings").select("value").eq("key", DEP_ASK_KEY).maybeSingle();
+  const v = (data?.value as { endedAt?: string } | null)?.endedAt;
+  return v && !Number.isNaN(Date.parse(v)) ? v : null;
+}
+
 export async function checkDepAskReplies(svc: Svc, deadlineMs = 250_000) {
   const started = Date.now();
   const slugs = new Set((await depAskSlugs(svc)) ?? []);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { PERSON_DEDUPE_MS, personKeys } from "@/lib/onebox";
+import { depAskEndedAt } from "@/lib/dep-ask";
 
 export const fetchCache = "force-no-store";
 export const maxDuration = 60;
@@ -100,6 +101,9 @@ export async function GET() {
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const svc = createServiceClient();
+  // After the deposit-ask test ended (11/22/2026) odd phones are on the normal chat again.
+  const depEnd = await depAskEndedAt(svc).catch(() => null);
+  const depEndMs = depEnd ? Date.parse(depEnd) : Infinity;
 
   const leads: Lead[] = [];
   for (let from = 0; ; from += 1000) {
@@ -136,8 +140,8 @@ export async function GET() {
     const keys = personKeys(l.full_name ?? "", String((l.answers ?? {}).email ?? ""), l.phone ?? "").map((k) => `${l.slug}|${k}`);
     let j = keys.map((k) => index.get(k)).find((x) => x && ms - x.first < PERSON_DEDUPE_MS);
     if (!j) { j = { slug: l.slug, first: ms, picked: false, paid: false, inBefore: false, inAfter: false, preWindow: ms < bFrom, oddPhone: false }; journeys.push(j); }
-    // Same split as the onebox submit route: last phone digit odd = dep-ask-b.
-    if (Number((l.phone ?? "").replace(/\D/g, "").slice(-1)) % 2 === 1) j.oddPhone = true;
+    // Same split as the onebox submit route: last phone digit odd = dep-ask-b (only while that test ran).
+    if (ms < depEndMs && Number((l.phone ?? "").replace(/\D/g, "").slice(-1)) % 2 === 1) j.oddPhone = true;
     if (ms >= bFrom && ms < bTo) j.inBefore = true;
     if (ms >= aFrom) j.inAfter = true;
     if (l.picked_time_at || PAID.has(l.ghl_status)) j.picked = true;
