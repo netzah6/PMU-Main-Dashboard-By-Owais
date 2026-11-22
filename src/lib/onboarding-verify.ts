@@ -669,6 +669,11 @@ export async function verifyOnboarding(form: Record<string, unknown>, opts: { lo
     if (wr.status === 200) {
       const wfs = (wr.json.workflows as Array<Record<string, unknown>> | undefined) ?? [];
       const surveyWf = wfs.find((w) => /funnel\s*survey/i.test(String(w.name ?? "")));
+      // Owner 11/22/2026: accounts switched to the one-box on an existing sub-account
+      // never got this workflow from the snapshot, so artists got no booking texts.
+      const notifyWfs = wfs.filter((w) => /one-box booking/i.test(String(w.name ?? "")));
+      if (notifyWfs.some((w) => String(w.status) === "published")) push("wf_notify", "pass", `"${notifyWfs.find((w) => String(w.status) === "published")!.name}" is published`);
+      else push("wf_notify", "fail", notifyWfs.length ? `"${notifyWfs[0].name}" exists but is ${notifyWfs[0].status} — publish it` : `No "CC - One-Box Booking -> Notify Artist" workflow — the artist gets NO text for funnel bookings. Build it (Contact Tag added "onebox-booked" → Internal Notification SMS to Contact owner → Remove tag onebox-booked → Publish).`);
       if (!surveyWf) push("wf_assign", "fail", `"CC- Funnel Survey" workflow not found (${wfs.length} workflows on the account)`);
       else if (String(surveyWf.status) !== "published") push("wf_assign", "fail", `Workflow "${surveyWf.name}" is ${surveyWf.status} — publish it`);
       else {
