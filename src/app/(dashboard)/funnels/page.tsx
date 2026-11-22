@@ -813,7 +813,7 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
   type Pair = { a: Side; b: Side; since?: string; visitorsPerArm?: number };
   type DepSide = { picked: number; pagePaid: number; reached: number; paid: number };
   type CompSide = { sent: number; replied: number; happy: number; putdown: number; booked: number; paid: number };
-  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number; endedAt?: string | null }; comp?: { a: CompSide; b: CompSide; since: string; fifty?: string; seventy?: string; accounts?: number; checked: number; wrong: number; round1?: { a: CompSide; b: CompSide; since: string; until: string } } } | null>(null);
+  const [d, setD] = useState<{ since: string; started: boolean; visitorsPerArm?: number; scar?: Pair; shortq?: Pair & { until?: string }; offer?: Pair & { c?: Side; funnels?: number; until?: string }; igw?: Pair & { funnels?: number; until?: string }; dep?: { a: DepSide; b: DepSide; since: string; funnels?: number; endedAt?: string | null }; comp?: { a: CompSide; b: CompSide; since: string; fifty?: string; seventy?: string; fiftyAgain?: string; accounts?: number; checked: number; wrong: number; round1?: { a: CompSide; b: CompSide; since: string; until: string } } } | null>(null);
   useEffect(() => {
     fetch("/api/onebox/abtests2").then(async (r) => { const j = await r.json(); if (r.ok) setD(j); }).catch(() => {});
   }, []);
@@ -972,9 +972,11 @@ function Ab2TestCards({ show = "active" }: { show?: "active" | "ended" } = {}) {
     {d.comp && (d.comp.a.sent + d.comp.b.sent > 0
       ? <div className="mb-4 border border-[#e4ebf2] rounded-xl bg-white px-4 py-2.5">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="text-sm font-medium text-[#1c2b3a]" title={d.comp.seventy
+            <span className="text-sm font-medium text-[#1c2b3a]" title={d.comp.fiftyAgain
+              ? `From ${new Date(d.comp.since).toLocaleDateString("en-US")} 40% got the new line (phone ends 0–3)${d.comp.fifty ? `, from ${new Date(d.comp.fifty).toLocaleDateString("en-US")} 50% (0–4)` : ""}${d.comp.seventy ? `, from ${new Date(d.comp.seventy).toLocaleDateString("en-US")} 70% (0–6)` : ""}, now 50% again (phone ends 0–4).`
+              : d.comp.seventy
               ? `From ${new Date(d.comp.since).toLocaleDateString("en-US")} 40% got the new line (phone ends 0–3)${d.comp.fifty ? `, from ${new Date(d.comp.fifty).toLocaleDateString("en-US")} 50% (0–4)` : ""}, now 70% (phone ends 0–6).`
-              : d.comp.fifty ? "Until then 40% got the new line (phone ends 0–3); now phone ends 0–4." : undefined}>🧪 Photo compliment (AI) — {d.comp.accounts ?? ""} slay accounts, {d.comp.seventy ? `70/30 by phone since ${new Date(d.comp.seventy).toLocaleDateString("en-US")} (phone ends 0–6 get the new line)` : d.comp.fifty ? `50/50 by phone since ${new Date(d.comp.fifty).toLocaleDateString("en-US")}` : "phone ends 0–3 get the new line"}</span>
+              : d.comp.fifty ? "Until then 40% got the new line (phone ends 0–3); now phone ends 0–4." : undefined}>🧪 Photo compliment (AI) — {d.comp.accounts ?? ""} slay accounts, {d.comp.fiftyAgain ? `50/50 by phone since ${new Date(d.comp.fiftyAgain).toLocaleDateString("en-US")} (phone ends 0–4 get the new line)` : d.comp.seventy ? `70/30 by phone since ${new Date(d.comp.seventy).toLocaleDateString("en-US")} (phone ends 0–6 get the new line)` : d.comp.fifty ? `50/50 by phone since ${new Date(d.comp.fifty).toLocaleDateString("en-US")}` : "phone ends 0–3 get the new line"}</span>
             <span className="text-xs text-[#697a91]">since {new Date(d.comp.since).toLocaleDateString("en-US")}</span>
             <span className={`text-[11px] font-semibold rounded-full border px-2 py-0.5 ${d.comp.wrong ? "border-[#f5c2c7] bg-[#fdecee] text-[#b42318]" : "border-[#bfe3cd] bg-[#e7f6ec] text-[#15803d]"}`}
               title="The side each lead got (the AI's actual text) checked against her phone's last digit">

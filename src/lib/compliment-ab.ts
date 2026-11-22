@@ -57,13 +57,21 @@ type Svc = ReturnType<typeof createServiceClient>;
    Same idea: the moment that CloseBot version went live is kept in
    app_settings `compliment_ab_7030_start` ({ at: ISO }); until it exists the
    rule stays 0-4. A firm answer takes a few days longer at 70/30 (the old
-   side fills more slowly). */
+   side fills more slowly).
+
+   50/50 again (owner, 11/22/2026: "let's get it to 50/50, I want the answer
+   faster"): the deposit-ask test ended the same day, so the phone digit no
+   longer collides with another test for new leads. Phones ending 5 and 6 go
+   back to the OLD line (0-4 new, 5-9 old) from the moment slay 0.0.252a went
+   live, kept in app_settings `compliment_ab_5050b_start` ({ at: ISO }); until
+   it exists the rule stays 0-6. */
 
 export const COMP_AB_ROUND1_START = "2026-11-11T21:25:00Z";
 export const COMP_AB_START = "2026-11-13T15:46:00Z";
 export const COMP_AB_LOCATIONS_KEY = "compliment_ab_locations"; // { locations: string[] } read off the slay agent's Sources
 export const COMP_AB_5050_KEY = "compliment_ab_5050_start"; // { at: ISO } — when phones ending 4 moved to the NEW line
 export const COMP_AB_7030_KEY = "compliment_ab_7030_start"; // { at: ISO } — when phones ending 5 and 6 moved to the NEW line
+export const COMP_AB_5050B_KEY = "compliment_ab_5050b_start"; // { at: ISO } — when phones ending 5 and 6 went back to the OLD line
 const CURSOR_KEY = "compliment_ab_cursor";
 const DEMO_LOCATION = "asaIf2fxizaCNJ71iywk";
 const REPLY_MS = 86400_000;
@@ -108,14 +116,19 @@ export async function compAbSeventyFrom(svc: Svc): Promise<string | null> {
   return splitStart(svc, COMP_AB_7030_KEY);
 }
 
+/** When the split went back to 50/50 (0-4 new) in CloseBot (null = still 70/30). */
+export async function compAbFiftyAgainFrom(svc: Svc): Promise<string | null> {
+  return splitStart(svc, COMP_AB_5050B_KEY);
+}
+
 /** The side the CloseBot switch should pick for this phone at this moment (null = no phone digit, so no check). */
-export function compExpected(phoneLast: string | null, sentAt: string | number, fiftyFrom: string | null, seventyFrom: string | null = null): "old" | "new" | null {
+export function compExpected(phoneLast: string | null, sentAt: string | number, fiftyFrom: string | null, seventyFrom: string | null = null, fiftyAgainFrom: string | null = null): "old" | "new" | null {
   if (phoneLast == null || phoneLast === "") return null;
   const t = new Date(sentAt).getTime();
   const since = (at: string | null) => !!at && t >= Date.parse(at);
   if (/[0-3]/.test(phoneLast)) return "new";
   if (phoneLast === "4" && (since(fiftyFrom) || since(seventyFrom))) return "new";
-  if (/[56]/.test(phoneLast) && since(seventyFrom)) return "new";
+  if (/[56]/.test(phoneLast) && since(seventyFrom) && !since(fiftyAgainFrom)) return "new";
   return "old";
 }
 
@@ -142,6 +155,7 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
   const locations = await compAbLocations(svc);
   const fiftyFrom = await compAbFiftyFrom(svc);
   const seventyFrom = await compAbSeventyFrom(svc);
+  const fiftyAgainFrom = await compAbFiftyAgainFrom(svc);
   const { data: cur } = await svc.from("app_settings").select("value").eq("key", CURSOR_KEY).maybeSingle();
   const scannedTo = Date.parse(((cur?.value as { scannedTo?: string } | null)?.scannedTo) ?? COMP_AB_START);
   const scanFrom = Math.max(startMs, scannedTo - 2 * 3600_000); // overlap so a slow hour is never skipped
@@ -316,7 +330,7 @@ export async function checkCompliments(svc: Svc, deadlineMs = 250_000) {
           const digits = String(contact.phone ?? "").replace(/\D/g, "");
           phoneLast = digits ? digits.slice(-1) : null;
         }
-        const expected = compExpected(phoneLast, compT, fiftyFrom, seventyFrom);
+        const expected = compExpected(phoneLast, compT, fiftyFrom, seventyFrom, fiftyAgainFrom);
         /* Replied = any message back within a day (a photo counts); the kind
            comes from her first message WITH text, so a second photo landing
            after the compliment never hides her "thank you" / "excuse my bags". */
