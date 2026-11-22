@@ -99,7 +99,7 @@ export async function knownLogins(svc: SupabaseClient, q: { contactId?: string; 
    Torres). The "Went live" workflow calls this first, waits, and texts only if
    all three fields are filled. Nothing here sends a text. Missing logins = no
    texts and an alert for the team. */
-export async function prepareFirstCycle(svc: SupabaseClient, contactId: string): Promise<{ ok: boolean; skipped?: string; missing?: string[] }> {
+export async function prepareFirstCycle(svc: SupabaseClient, contactId: string): Promise<{ ok: boolean; skipped?: string; missing?: string[]; sentByHand?: string }> {
   const a = await agencyHeaders();
   if ("error" in a) throw new Error(a.error);
   const H = a.H;
@@ -129,6 +129,12 @@ export async function prepareFirstCycle(svc: SupabaseClient, contactId: string):
     await saveLoginFieldsRaw(want, contactId, H);
   }
   const missing = [!want.email && "login email", !want.password && "password", !want.funnelUrl && "funnel link"].filter(Boolean) as string[];
+  // Owner 11/22/2026: a teammate may text the logins by hand (Diana Sanchez
+  // 11/21). Logins already sent in the 5 days before the move = no alert.
+  if (missing.length) {
+    const sent = await loginsSentAt(H, contactId, want.email || String(contact.email ?? ""), Date.now() - LOGINS_WINDOW_MS).catch(() => null);
+    if (sent) return { ok: false, missing, sentByHand: sent }; // still ok:false: nothing auto-sent
+  }
   if (missing.length) {
     const who = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.companyName || contactId;
     await fileAlert(svc, {
@@ -136,8 +142,58 @@ export async function prepareFirstCycle(svc: SupabaseClient, contactId: string):
       title: `${who} moved to First Cycle: welcome texts NOT sent`,
       detail: `The dashboard has no ${missing.join(", ")} for this client, so nothing went out. Fill the CC - Login fields on the agency contact, then move the deal out of First Cycle and back to send the texts.`,
       // csm puts the box in the assigned coach's pop-up, not only on the admin Alerts tab.
-      meta: { csm: run.coach || null, contact_id: contactId, contact_name: who, link: `https://app.gohighlevel.com/v2/location/${MAIN_LOC}/contacts/detail/${contactId}` },
+      meta: { csm: run.coach || null, contact_id: contactId, contact_name: who, login_email: want.email || String(contact.email ?? ""), moved_at: new Date().toISOString(), link: `https://app.gohighlevel.com/v2/location/${MAIN_LOC}/contacts/detail/${contactId}` },
     });
   }
   return { ok: missing.length === 0, missing };
+}
+
+/* ── Logins sent by hand (owner, 11/22/2026) ────────────────────────────────
+   "As long as the client got their logins in the last 5 days from the moment
+   they moved to First Cycle it's ok." Proof = an outbound text or email on
+   the agency contact that holds her login email AND a "Pass"/"Password"
+   label, sent from 5 days before the move onward. */
+const LOGINS_WINDOW_MS = 5 * 86400_000;
+
+export async function loginsSentAt(H: Record<string, string>, contactId: string, loginEmail: string, sinceMs: number): Promise<string | null> {
+  const email = loginEmail.trim().toLowerCase();
+  if (!email) return null;
+  const s = (await fetch(`${GHL}/conversations/search?locationId=${MAIN_LOC}&contactId=${encodeURIComponent(contactId)}`, { headers: H }).then((r) => r.json())) as { conversations?: Array<{ id: string }> };
+  for (const conv of s.conversations ?? []) {
+    const m = (await fetch(`${GHL}/conversations/${conv.id}/messages?limit=100`, { headers: H }).then((r) => r.json())) as { messages?: { messages?: Array<{ direction?: string; messageType?: string; body?: string; dateAdded?: string; status?: string }> } };
+    for (const x of m.messages?.messages ?? []) {
+      if (x.direction !== "outbound" || !/SMS|EMAIL/i.test(String(x.messageType)) || /fail|undeliver/i.test(String(x.status))) continue;
+      if (!x.dateAdded || Date.parse(x.dateAdded) < sinceMs) continue;
+      const body = String(x.body ?? "").toLowerCase();
+      if (body.includes(email) && /\bpass(word)?\b/.test(body)) return x.dateAdded;
+    }
+  }
+  return null;
+}
+
+/* Every 30 min (alerts-scan): an open "welcome texts NOT sent" alert closes
+   by itself once the logins were texted by hand (5 days before the move or
+   any time after). */
+export async function scanFirstCycleLogins(svc: SupabaseClient): Promise<{ open: number; resolved: number; error?: string }> {
+  const { data } = await svc.from("alerts").select("id, source_key, created_at, meta")
+    .eq("type", "onboarding").eq("status", "open").like("source_key", "first_cycle_blank:%");
+  const rows = (data ?? []) as Array<{ id: string; source_key: string; created_at: string; meta: { login_email?: string; moved_at?: string } | null }>;
+  if (!rows.length) return { open: 0, resolved: 0 };
+  const a = await agencyHeaders();
+  if ("error" in a) return { open: rows.length, resolved: 0, error: a.error };
+  let resolved = 0;
+  for (const r of rows) {
+    const contactId = r.source_key.slice("first_cycle_blank:".length);
+    let email = String(r.meta?.login_email ?? "").trim();
+    if (!email) {
+      const c = (await fetch(`${GHL}/contacts/${encodeURIComponent(contactId)}`, { headers: a.H }).then((x) => x.json()).catch(() => null)) as { contact?: { email?: string } } | null;
+      email = String(c?.contact?.email ?? "").trim();
+    }
+    const movedAt = Date.parse(r.meta?.moved_at ?? r.created_at);
+    const sent = await loginsSentAt(a.H, contactId, email, movedAt - LOGINS_WINDOW_MS).catch(() => null);
+    if (!sent) continue;
+    const { error } = await svc.from("alerts").update({ status: "resolved", resolved_by: `system (logins texted by hand ${new Date(sent).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" })})`, resolved_at: new Date().toISOString() }).eq("id", r.id).eq("status", "open");
+    if (!error) resolved++;
+  }
+  return { open: rows.length, resolved };
 }
