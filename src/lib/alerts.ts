@@ -1165,6 +1165,14 @@ export async function scanSilentLeads(svc: Svc): Promise<{ checked: number; file
             .eq("contact_id", l.ghl_contact_id).gte("last_message_date", l.created_at).limit(1);
           if (seen?.length) continue;
         }
+        /* Opted out = GHL blocks every text on purpose, not a silent lead
+           (owner, 11/22/2026: Basic Beige Brows, Nancy Flores had SMS
+           DND "STOP_KEYWORD", permanent; the workflow ran, texts were blocked). */
+        if (!out) {
+          const ct = (await (await fetch(`https://services.leadconnectorhq.com/contacts/${l.ghl_contact_id}`, { headers: H7 })).json()) as { contact?: { dnd?: boolean; dndSettings?: { SMS?: { status?: string } } } };
+          const sms = ct.contact?.dndSettings?.SMS?.status;
+          if (ct.contact?.dnd || sms === "active" || sms === "permanent") continue;
+        }
         if (!out && !/test|ignore/i.test(l.full_name)) silent.push(l.full_name);
       } catch { /* one flaky lookup must not kill the sweep */ }
     }
