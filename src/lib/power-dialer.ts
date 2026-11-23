@@ -277,7 +277,7 @@ export async function dialerSmsOf(contactId: string): Promise<string> {
 }
 
 // ── No-answer text ──────────────────────────────────────────────────────────
-// Owner 11/14/2026: call → no answer → wait 10 s → call again → still no
+// Owner 11/14/2026: call → no answer → wait (3 s since 11/23) → call again → still no
 // answer → text. The text is written per lead into the contact field
 // "Dialer SMS" just before enrolling; the workflow's Manual SMS step sends
 // {{contact.dialer_sms}} with one click. Any missing survey answer drops out

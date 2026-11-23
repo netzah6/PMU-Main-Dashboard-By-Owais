@@ -166,7 +166,7 @@ export default function PowerDialer() {
         <div className="mt-2 rounded-xl border border-[#e4ebf2] bg-white px-4 py-2 text-xs text-[#697a91] flex items-center gap-2 flex-wrap">
           <a ref={apRef} onClick={(e) => { e.preventDefault(); alert("Drag this button to your bookmarks bar. Then open GHL → Manual Actions and click it there."); }}
             className="px-2.5 py-1 rounded-full bg-[#111827] text-white font-semibold cursor-grab whitespace-nowrap" draggable>📞 Autopilot</a>
-          <span>One-time setup: drag this button to your bookmarks bar. In GHL → Manual Actions, click it once. It calls each lead, waits 10 sec, calls again, then sends the text.</span>
+          <span>One-time setup: drag this button to your bookmarks bar. In GHL → Manual Actions, click it once. It calls each lead, waits 3 sec if no answer, calls again, then sends the text.</span>
         </div>
       )}
 

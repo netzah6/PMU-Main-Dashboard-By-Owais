@@ -1,7 +1,7 @@
 /* PMU Power Dialer — Autopilot for GHL Manual Actions.
  * Loaded by a bookmark while the rep is on GHL. It only presses GHL's own buttons:
  *   - "Let's Start" on the Manual Actions list
- *   - "Next" 10 s after a call that never connected (0 seconds)
+ *   - moves on 3 s after a call that never connected (0 seconds)
  *   - "Send" on a text task, ONLY when the text box holds exactly the no-answer
  *     text the dashboard wrote for that lead (asked from the dashboard each time)
  * A call that connected (1 s or more) pauses the run and asks the rep:
@@ -31,7 +31,7 @@
   if (!ME) { alert("Autopilot key is missing. Copy the Autopilot button again from the dashboard (Sales → Dialer)."); return; }
   var keepWf = "";                                // a workflow filter the rep had when pressing Start
   var FILTER_WAIT_MS = 3500;                      // after re-filtering, let GHL reload the list first
-  var GAP_MS = 10000;          // wait after a no-answer call before moving on
+  var GAP_MS = 3000;           // wait after a no-answer call before moving on (owner 11/23/2026: 10 s → 3 s, more calls per hour)
   var IDLE_STOP_MS = 180000;   // list empty this long → finished
   var REFRESH_MS = 8000;       // how often to reload an empty list
   var on = false, run = 0, busy = false, ask = null, st = {}, lastNext = null;
