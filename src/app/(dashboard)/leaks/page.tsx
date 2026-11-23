@@ -13,8 +13,9 @@ type Status = "new" | "owner" | "progress" | "batch" | "live" | "todo" | "done";
 type Leak = {
   id: string; order: number; status: Status; area: string; title: string; short: string;
   problem?: string; change?: string; checked?: string; examples?: string; next?: string; where?: string;
-  updated: string; found_by?: string;
+  updated: string; found_by?: string; seen?: string;
 };
+type Scan = { day: string; at: string; chats: number; read: number; paid: number; errors: number; normal: number; fine: number; known: Record<string, { chats: number; accounts: number }>; other: number; new_leaks: string[] };
 
 const GROUPS: { key: Status; label: string; cls: string; collapsed?: boolean }[] = [
   { key: "new", label: "🆕 New — found by the nightly check", cls: "bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]" },
@@ -40,6 +41,7 @@ function Row({ l, busy, onStatus }: { l: Leak; busy: boolean; onStatus: (l: Leak
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-[#1c2b3a]">{l.title}</div>
           <div className="text-xs text-[#4a5a6e] mt-0.5">{l.short}</div>
+          {l.seen && !l.seen.includes("not seen") && <div className="text-[11px] text-[#b45309] mt-1">{l.seen}</div>}
           <div className="text-[10px] text-[#8595a8] mt-1">{l.area} · updated {l.updated}{l.found_by ? ` · found by ${l.found_by}` : ""}</div>
         </div>
         <ChevronDown size={14} className={cn("shrink-0 mt-1 text-[#697a91] transition-transform", open && "rotate-180")} />
@@ -84,6 +86,7 @@ function Group({ g, leaks, busy, onStatus }: { g: (typeof GROUPS)[number]; leaks
 export default function LeaksPage() {
   const { role, loading: roleLoading } = useUser();
   const [leaks, setLeaks] = useState<Leak[] | null>(null);
+  const [scan, setScan] = useState<Scan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -92,6 +95,7 @@ export default function LeaksPage() {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error ?? "Couldn't load");
     setLeaks(j.leaks ?? []);
+    setScan(j.scan ?? null);
   }, []);
   useEffect(() => { if (role === "admin") load().catch((e) => setError(e.message)); }, [role, load]);
 
@@ -124,6 +128,18 @@ export default function LeaksPage() {
       <div className="flex flex-wrap items-baseline gap-2 mb-4">
         <h1 className="text-lg font-bold text-[#1f3559]">🩹 Leaks</h1>
         <span className="text-xs text-[#8595a8]">where leads slip away before paying · {open} open · click a leak for the detail</span>
+      </div>
+      <div className="mb-4 rounded-xl border border-[#e4ebf2] bg-[#fafcfd] px-3 py-2.5 text-xs text-[#34568a]">
+        {scan ? (
+          <>
+            <span className="font-semibold text-[#1f3559]">🌙 Nightly check, {new Date(`${scan.day}T12:00:00Z`).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", timeZone: "UTC" })}:</span>{" "}
+            read {scan.read} chats in your live V3 accounts ({scan.paid} already paid).{" "}
+            {Object.values(scan.known).reduce((a, k) => a + k.chats, 0)} matched known leaks · {scan.other} new kind of problem
+            {scan.new_leaks.length ? <> · <strong className="text-[#1d4ed8]">{scan.new_leaks.length} new leak{scan.new_leaks.length === 1 ? "" : "s"} added</strong></> : " · no new leak"}.
+          </>
+        ) : (
+          <span>🌙 The nightly check reads every chat in your live V3 accounts each night and adds new leaks here. First results after tonight.</span>
+        )}
       </div>
       {error && <div className="mb-3 text-sm bg-[#fef2f2] border border-[#fecaca] text-[#b91c1c] rounded-lg px-3 py-2">{error}</div>}
       {!leaks ? (
