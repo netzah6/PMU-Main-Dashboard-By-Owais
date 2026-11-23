@@ -319,6 +319,48 @@ async function inboundSince(tok: string, locationId: string, contactId: string, 
   return { ok: true, inbound: null };
 }
 
+/* A person has taken her over — never send our automated text then:
+   - an artist text or call since `sinceMs`. GHL's own export marks every
+     app's message with its app name (CloseBot, our dashboard), so an
+     outbound text with NO app name that no automation sent was typed by a
+     person; an outbound call is always a person;
+   - her opportunity sits in a stage where the artist stopped the follow-ups
+     (Call Later, Declining, Deposit Collected, Session Done, 5 Stars).
+   Never throws; "can't tell" means try again later, never "send". */
+const STOP_STAGE = /call later|declin|deposit collected|session done|5 stars/i;
+export async function takenOver(tok: string, locationId: string, contactId: string, sinceMs: number): Promise<{ ok: true; by: "artist_text" | "artist_call" | "stop_stage" | null } | { ok: false; why: string }> {
+  const H = { Authorization: `Bearer ${tok}`, Version: "2021-04-15", Accept: "application/json" };
+  try {
+    const er = await fetch(`${GHL}/conversations/messages/export?locationId=${encodeURIComponent(locationId)}&contactId=${encodeURIComponent(contactId)}&limit=100`, { headers: H, signal: AbortSignal.timeout(20_000) });
+    if (!er.ok) return { ok: false, why: `message export HTTP ${er.status}` };
+    const msgs = (((await er.json()) as { messages?: Record<string, unknown>[] }).messages ?? []);
+    const at = (m: Record<string, unknown>) => Date.parse(String(m.dateAdded ?? ""));
+    if (msgs.length >= 100 && Math.min(...msgs.map(at).filter(Number.isFinite)) > sinceMs) return { ok: false, why: "her message history is too long to read back to the visit" };
+    for (const m of msgs) {
+      if (String(m.direction ?? "").toLowerCase() !== "outbound" || !(at(m) >= sinceMs)) continue;
+      const type = String(m.messageType ?? "");
+      if (/ACTIVITY|EMAIL/i.test(type)) continue;
+      if (/CALL/i.test(type)) return { ok: true, by: "artist_call" };
+      const appName = String(((m.meta as { marketplace?: { appName?: string } } | undefined)?.marketplace?.appName) ?? "");
+      const source = String(m.source ?? "").toLowerCase();
+      if (!appName && !AUTOMATED_SOURCES.includes(source)) return { ok: true, by: "artist_text" };
+    }
+    const or = await fetch(`${GHL}/opportunities/search?location_id=${encodeURIComponent(locationId)}&contact_id=${encodeURIComponent(contactId)}`, { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(20_000) });
+    if (!or.ok) return { ok: false, why: `opportunities HTTP ${or.status}` };
+    const opps = (((await or.json()) as { opportunities?: { pipelineStageId?: string; status?: string }[] }).opportunities ?? []).filter((o) => o.pipelineStageId);
+    if (opps.length) {
+      const pr = await fetch(`${GHL}/opportunities/pipelines?locationId=${encodeURIComponent(locationId)}`, { headers: { ...H, Version: "2021-07-28" }, signal: AbortSignal.timeout(20_000) });
+      if (!pr.ok) return { ok: false, why: `pipelines HTTP ${pr.status}` };
+      const names = new Map<string, string>();
+      for (const pl of (((await pr.json()) as { pipelines?: { stages?: { id: string; name: string }[] }[] }).pipelines ?? [])) for (const s of pl.stages ?? []) names.set(s.id, s.name);
+      if (opps.some((o) => STOP_STAGE.test(names.get(String(o.pipelineStageId)) ?? ""))) return { ok: true, by: "stop_stage" };
+    }
+    return { ok: true, by: null };
+  } catch (e) {
+    return { ok: false, why: `takeover check: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
 // ─── The run ────────────────────────────────────────────────────────────────
 type Arm = "sms" | "hold";
 type SmsPerson = {
@@ -350,7 +392,11 @@ export type PickSmsRun = {
    then decide what's due: every check, for both sides, at the same moment —
    text side → send, hold side → "held". dryRun: nothing is written or sent —
    returns what WOULD happen (sinceIso stands in for the switch-on moment). */
-export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: string; now?: Date; budgetMs?: number; limit?: number } = {}): Promise<PickSmsRun> {
+/* Test runs only (scripts, never the cron): `extraSlugs` adds internal funnels
+   such as the Demo one, and `onlyContacts` limits BOTH enrolment and decisions
+   to the named contacts — a test with a made-up `now` can never touch a real
+   lead's row. */
+export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: string; now?: Date; budgetMs?: number; limit?: number; extraSlugs?: string[]; onlyContacts?: string[] } = {}): Promise<PickSmsRun> {
   const started = Date.now();
   const budget = opts.budgetMs ?? 90_000;
   const limit = opts.limit ?? MAX_PER_RUN;
@@ -365,6 +411,11 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
   const startAt = dryRun ? (opts.sinceIso ?? settings.startAt) : settings.enabled ? settings.startAt : null;
   if (!startAt) return res;
   const funnels = await eligibleFunnels(svc, ["noPickEmail", "noPickSms"]);
+  if (opts.extraSlugs?.length) {
+    const { data: extra } = await svc.from("onebox_clients").select("slug, location_id, client_name, status, config, extras").in("slug", opts.extraSlugs);
+    for (const f of (extra ?? []) as Parameters<typeof funnels.set>[1][]) funnels.set(f.slug, f);
+  }
+  const only = opts.onlyContacts?.length ? new Set(opts.onlyContacts) : null;
 
   // 1. Enrol: contacts who picked a time since the switch-on (and in the last day).
   const since = new Date(Math.max(Date.parse(startAt), now.getTime() - ENROLL_LOOKBACK_MS)).toISOString();
@@ -379,7 +430,7 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
   }
   const queue: SmsPerson[] = [];
   for (const [contactId, rows] of byContact) {
-    if (known.has(contactId)) continue;
+    if (known.has(contactId) || (only && !only.has(contactId))) continue;
     const latest = newestRow(rows);
     const pickedAt = pickMoment(rows, startAt);
     const arm = pickSmsArm(latest.phone ?? "");
@@ -400,11 +451,12 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
     res.notDueYet = queue.length - due.length;
     res.wouldSend = []; res.wouldHold = 0; res.skippedList = []; res.repliedBy = {}; res.tzDiffers = 0;
   } else {
-    const { data, error } = await svc.from(TABLE).select(PERSON_COLS)
-      .eq("status", "pending").lte("due_at", now.toISOString()).gte("picked_at", startAt)
-      .order("due_at").limit(limit);
+    let q = svc.from(TABLE).select(PERSON_COLS)
+      .eq("status", "pending").lte("due_at", now.toISOString()).gte("picked_at", startAt);
+    if (only) q = q.in("contact_id", [...only]);
+    const { data, error } = await q.order("due_at").limit(limit);
     if (error) throw new Error(error.message);
-    due = (data ?? []) as SmsPerson[];
+    due = ((data ?? []) as SmsPerson[]).filter((p) => !only || only.has(p.contact_id));
   }
 
   const toks = new Map<string, string | null>();
@@ -475,12 +527,17 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
       // dndSettings.SMS only — the contact-level `dnd` flag is unreliable (owner, 11/21/2026).
       const smsDnd = String(((c.dndSettings ?? {}) as Record<string, { status?: string } | undefined>).SMS?.status ?? "").toLowerCase();
       if (smsDnd === "active" || smsDnd === "permanent") { await skip(p, "sms_dnd"); continue; }
-      /* The AI can only take over her reply on the V3 setup ("(v3)" tag), and
-         "ai off" before our text means the artist (or a handoff) already took
-         over — never undo that. Both sides skip, so the split stays fair. */
+      /* The AI can only take over her reply on the V3 setup ("(v3)" tag).
+         "ai off" alone is NOT a takeover: the survey puts "ai off" on every
+         new lead and only her first reply turns the AI on, so a quiet picker
+         always has it (11/23/2026: 14 of the first 20 "ai off" skips never
+         replied, got no artist text and no call — the text never went to
+         anyone). A real takeover — an artist text or call, a stop stage, the
+         "stop nurturing" tag — is checked right before the decision below.
+         Both sides skip the same way, so the split stays fair. */
       const tags0 = lowerTags(c);
       if (!tags0.includes("(v3)")) { await skip(p, "not_v3"); continue; }
-      if (tags0.includes("ai off")) { await skip(p, "ai_off"); continue; }
+      if (tags0.includes("stop nurturing")) { await skip(p, "stop_nurturing"); continue; }
 
       const cfg = funnel.config ?? {};
       const co = await paidOnCheckout(svc, String(c.email ?? "").trim(), String(cfg.fanbasisProductId ?? "").trim(), p.picked_at);
@@ -518,11 +575,16 @@ export async function runPickSms(svc: Svc, opts: { dryRun?: boolean; sinceIso?: 
         continue;
       }
 
+      // Has a person taken her over? (an artist text or call since the visit began, or a stop stage)
+      const to = await takenOver(tok, p.location_id, p.contact_id, visitStart);
+      if (!to.ok) { await later(p, to.why); continue; }
+      if (to.by) { await skip(p, to.by); continue; }
+
       // Tags again, right before the decision (the checks above take a while; an artist may have just taken over).
       const tags1 = await tagsNow(tok, p.contact_id);
       if (!tags1) { await later(p, "couldn't re-read her tags"); continue; }
-      if (tags1.includes("ai off")) { await skip(p, "ai_off"); continue; }
       if (!tags1.includes("(v3)")) { await skip(p, "not_v3"); continue; }
+      if (tags1.includes("stop nurturing")) { await skip(p, "stop_nurturing"); continue; }
 
       const text = pickSmsText({
         first: firstName(String(c.firstName ?? ""), newestRow(rows).full_name),
