@@ -28,7 +28,7 @@ import { listLeaks, saveLeak, mmdd, type Leak } from "@/lib/leak-tracker";
 type Svc = SupabaseClient;
 const RUN_KEY = "leakscan:run";
 const LAST_KEY = "leakscan:last";
-const READ_MODEL = process.env.LEAKSCAN_READ_MODEL || "claude-haiku-5-5";
+const READ_MODEL = process.env.LEAKSCAN_READ_MODEL || "claude-sonnet-5-5"; // 11/23: the small model missed a clear busy-later goodbye
 const GROUP_MODEL = process.env.LEAKSCAN_GROUP_MODEL || "claude-opus-5-5";
 const PAID_TAG = "fanbasis buyer";
 const PER_RUN = 30;
@@ -37,7 +37,7 @@ const PARALLEL = 6;
 type Item = { conv: string; loc: string; contact: string; biz: string };
 type Label = {
   conv: string; loc: string; biz: string;
-  paid?: boolean; error?: string;
+  paid?: boolean; gone?: boolean; error?: string;
   kind?: "known" | "normal" | "other" | "fine";
   leak?: string;          // known leak id
   why?: string;           // short, plain English
@@ -46,7 +46,7 @@ type Label = {
 };
 type Run = { day: string; built_at: string; items: Item[]; next: number; labels: Label[]; summarized_at?: string };
 export type ScanSummary = {
-  day: string; at: string; chats: number; read: number; paid: number; errors: number;
+  day: string; at: string; chats: number; read: number; paid: number; errors: number; gone?: number;
   normal: number; fine: number; known: Record<string, { chats: number; accounts: number }>;
   other: number; new_leaks: string[];
 };
@@ -96,7 +96,7 @@ export async function buildQueue(svc: Svc, now = new Date()): Promise<Run> {
 
 type Msg = { body?: string; direction?: string; source?: string; messageType?: string; dateAdded?: string };
 
-export async function readChat(it: Item): Promise<{ tags: string[]; transcript: string } | { error: string }> {
+export async function readChat(it: Item): Promise<{ tags: string[]; transcript: string } | { error: string } | { gone: true }> {
   const tok = await getAppLocationToken(it.loc);
   if (!tok.token) return { error: tok.error ?? "no token" };
   const h = { Authorization: `Bearer ${tok.token}`, Accept: "application/json" };
@@ -104,6 +104,8 @@ export async function readChat(it: Item): Promise<{ tags: string[]; transcript: 
     fetch(`https://services.leadconnectorhq.com/contacts/${it.contact}`, { headers: { ...h, Version: "2021-07-28" } }),
     fetch(`https://services.leadconnectorhq.com/conversations/${it.conv}/messages?limit=60`, { headers: { ...h, Version: "2021-04-15" } }),
   ]);
+  // Deleted in GoHighLevel since the sync: nothing to read, not an error.
+  if (m.status === 400 || m.status === 404 || c.status === 404) return { gone: true };
   if (!c.ok || !m.ok) return { error: `GoHighLevel ${c.status}/${m.status}` };
   const contact = ((await c.json()) as { contact?: { tags?: string[]; dndSettings?: { SMS?: { status?: string } } } }).contact;
   const msgs = (((await m.json()) as { messages?: { messages?: Msg[] } }).messages?.messages ?? []).slice().reverse();
@@ -129,12 +131,14 @@ function readPrompt(known: Leak[]): string {
     "Answer by calling the label_chat tool once.",
     "kind rules:",
     "- \"fine\": the chat is still going normally (last message under ~24h ago and someone is expected to answer), or a deposit/booking is clearly in progress.",
-    "- \"normal\": the lead said no / not interested / stop, opted out or texts are blocked (DND), wrong number, spam, test, not a real lead, asked about a service the artist doesn't do, or a price objection the AI handled correctly.",
+    "- \"normal\": the LEAD ended it: said no / not interested / stop / too expensive after a good answer, opted out or texts are blocked (DND), wrong number, spam, test, not a real lead, or asked for a service the artist doesn't do.",
+    "- NOT normal: the lead gave a reason to wait (busy, at work, driving, payday, after the holidays, \"I'll reach out when I'm ready\", \"let me think\") and the business side then said goodbye, closed the chat, or stopped following up. That is the busy-later leak if it is on the list.",
+    "- NOT normal: the lead asked a question or replied and nobody (AI or team) answered it.",
     "- \"known\": the chat CLEARLY shows one of the known leaks below (give its id). If it only looks a bit like one, or you are not sure, use \"other\" and say why.",
     "- A lead who simply never answered the first texts is \"normal\" unless the business clearly did something wrong.",
     "- \"other\": the business side dropped the ball in a new way (the AI went silent, gave wrong info, never sent the link, a broken link, an automation contradicting the AI, etc.).",
     "Known leaks:",
-    ...known.filter((l) => l.status !== "done").map((l) => `- ${l.id}: ${l.title} — ${l.short}`),
+    ...known.filter((l) => l.status !== "done").map((l) => `- ${l.id}: ${l.title} — ${l.short}${l.problem ? ` (${l.problem.replace(/\s+/g, " ").slice(0, 280)})` : ""}`),
   ].join("\n");
 }
 
@@ -180,6 +184,7 @@ async function labelOne(ai: Anthropic, system: string, it: Item, known: Set<stri
   const base: Label = { conv: it.conv, loc: it.loc, biz: it.biz };
   try {
     const r = await readChat(it);
+    if ("gone" in r) return { ...base, gone: true };
     if ("error" in r) return { ...base, error: r.error };
     if (r.tags.some((t) => t.toLowerCase() === PAID_TAG)) return { ...base, paid: true };
     if (!r.transcript) return { ...base, kind: "fine", why: "no messages" };
@@ -300,8 +305,8 @@ async function summarize(svc: Svc, run: Run, leaks: Leak[], budgetMs: number): P
   }
 
   const summary: ScanSummary = {
-    day: run.day, at: new Date().toISOString(), chats: run.items.length, read: L.filter((x) => !x.error).length,
-    paid: L.filter((x) => x.paid).length, errors: L.filter((x) => x.error).length,
+    day: run.day, at: new Date().toISOString(), chats: run.items.length, read: L.filter((x) => !x.error && !x.gone).length,
+    paid: L.filter((x) => x.paid).length, errors: L.filter((x) => x.error).length, gone: L.filter((x) => x.gone).length,
     normal: L.filter((x) => x.kind === "normal").length, fine: L.filter((x) => x.kind === "fine").length,
     known, other: others.length, new_leaks: created,
   };
@@ -314,12 +319,18 @@ export async function lastScan(svc: Svc): Promise<ScanSummary | null> {
 }
 
 /* Test: label a few of tonight's chats without saving anything. */
-export async function leakScanSample(svc: Svc, n: number): Promise<Label[]> {
+export async function leakScanSample(svc: Svc, n: number, convIds: string[] = []): Promise<Label[]> {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
   const run = await buildQueue(svc);
   const leaks = await listLeaks(svc);
   const ai = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 60_000 });
-  const pick = run.items.filter((_, i) => i % Math.max(1, Math.floor(run.items.length / n)) === 0).slice(0, n);
+  // Named chats first (to re-test a known case), then an even spread of tonight's list.
+  const named: Item[] = [];
+  if (convIds.length) {
+    const { data } = await svc.from("ghl_conversations").select("id, location_id, contact_id, owner_key").in("id", convIds.slice(0, 10));
+    for (const c of (data ?? []) as { id: string; location_id: string; contact_id: string; owner_key: string }[]) named.push({ conv: c.id, loc: c.location_id, contact: c.contact_id, biz: c.owner_key });
+  }
+  const pick = [...named, ...run.items.filter((_, i) => i % Math.max(1, Math.floor(run.items.length / n)) === 0).slice(0, n)];
   const out: Label[] = [];
   for (let i = 0; i < pick.length; i += PARALLEL) {
     out.push(...(await Promise.all(pick.slice(i, i + PARALLEL).map((it) => labelOne(ai, readPrompt(leaks), it, new Set(leaks.map((l) => l.id)))))));
