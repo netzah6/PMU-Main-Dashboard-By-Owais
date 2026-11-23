@@ -11,6 +11,15 @@
  * GHL facts this relies on (seen live 11/16/2026): buttons .redial-call-btn,
  * .next-call-btn, .pause-call-btn in the Call Summary; #conv-send-button-simple;
  * input[id^=composer-input-]; #manual-actions-let-start-button; ?manualId= in the URL.
+ * OWN LEADS ONLY (11/23/2026): an admin's Manual Actions list shows EVERY rep's
+ * tasks, and after the last task GHL drops the list filter. A test then dialed a
+ * real lead of another rep. Now the list is always filtered to the rep whose key
+ * this is (assignee = the GHL user id in the key) before "Let's Start" is pressed,
+ * and a task that opens without that filter stops the helper at once.
+ * GHL's own "Next" button can ALSO jump to a task outside the filter (seen
+ * 11/23/2026: Next after a test call opened another rep's lead). So the helper
+ * never presses GHL's Next: after a call it goes back to the rep's own filtered
+ * list and presses "Let's Start" there (that one keeps the filter — checked live).
  */
 (function () {
   if (window.__pmuAutopilot) { window.__pmuAutopilot.show(); return; }
@@ -18,11 +27,15 @@
   try { delete window.__pmuAutopilotCfg; } catch (e) { window.__pmuAutopilotCfg = undefined; }
   if (!/\/v2\/location\//.test(location.pathname)) { alert("Open GHL first (Conversations → Manual Actions), then click Autopilot."); return; }
   var API = cfg.api || "", KEY = cfg.key || "";
+  var ME = (/^([A-Za-z0-9]{10,40})\./.exec(KEY) || [])[1] || "";   // GHL user id the key was made for
+  if (!ME) { alert("Autopilot key is missing. Copy the Autopilot button again from the dashboard (Sales → Dialer)."); return; }
+  var keepWf = "";                                // a workflow filter the rep had when pressing Start
+  var FILTER_WAIT_MS = 3500;                      // after re-filtering, let GHL reload the list first
   var GAP_MS = 10000;          // wait after a no-answer call before moving on
   var IDLE_STOP_MS = 180000;   // list empty this long → finished
   var REFRESH_MS = 8000;       // how often to reload an empty list
   var on = false, run = 0, busy = false, ask = null, st = {}, lastNext = null;
-  var stats = { calls: 0, texts: 0, talked: 0 }, emptySince = 0, lastStart = 0, lastRefresh = 0, offListSince = 0, timers = [];
+  var stats = { calls: 0, texts: 0, talked: 0 }, emptySince = 0, lastStart = 0, lastRefresh = 0, offListSince = 0, lastFilter = 0, timers = [];
 
   var vis = function (e) { return !!(e && e.offsetParent !== null); };
   var txt = function (e) { return ((e && e.innerText) || "").replace(/\s+/g, " ").trim(); };
@@ -53,7 +66,20 @@
     return { send: send, text: norm(input.value), ready: /^Send Message/.test(norm(send.getAttribute("aria-label"))) };  // "Sending message" = busy
   }
   function startBtn() { var b = document.getElementById("manual-actions-let-start-button"); return vis(b) && !b.disabled ? b : null; }
-  function listLink() { return q("a").filter(function (a) { return vis(a) && /\/conversations\/manual_actions/.test(a.getAttribute("href") || ""); })[0] || null; }
+  function param(k) { return new URLSearchParams(location.search).get(k) || ""; }
+  function mineOnly() { return param("assignee") === ME && (!keepWf || param("workflow") === keepWf); }
+  function router() { var a = document.querySelector("#app, .app"); var v = a && a.__vue_app__; return v && v.config.globalProperties.$router; }
+  function forceMine() {                          // filter the list to this rep's own tasks (no reload)
+    var R = router(); if (!R) return false;
+    var cr = R.currentRoute.value, qy = Object.assign({}, cr.query, { type: "workflow", assignee: ME });
+    if (keepWf) qy.workflow = keepWf;
+    R.replace({ path: cr.path, query: qy }); return true;
+  }
+  function hangUp() {                             // best effort: end a call that should not be happening
+    q("button, [role=button]").filter(vis).filter(function (b) {
+      return /end-call|hang-?up|call-end|disconnect/i.test(b.className + " " + (b.id || "")) || /^(end call|hang ?up)$/i.test(norm(b.getAttribute("aria-label") || b.title || ""));
+    }).forEach(function (b) { try { b.click(); } catch (e) {} });
+  }
 
   // ---- dashboard ----------------------------------------------------------
   function call(op, cid) {
@@ -76,6 +102,8 @@
     }
     if (id) {
       emptySince = 0; offListSince = 0;
+      if (!st[id] && param("assignee") && param("assignee") !== ME) { hangUp(); halt("⚠ This task is not yours — stopped. If a call started, hang up."); return; }
+      if (!st[id] && !param("assignee") && !param("campaignId")) { hangUp(); halt("⚠ This task was opened without your own-leads filter — stopped. If a call started, hang up."); return; }
       if (!st[id]) st[id] = { seen: now, clear: false };
       var s = st[id], sum = summary();
       if (!sum) s.clear = true;
@@ -108,11 +136,16 @@
       if (!s.want || c.text !== s.want) { s.blocked = true; say("⚠ This text is not the one we wrote for this lead — NOT sent. Check it, then send or click Next yourself."); return; }
       if (!c.ready) return;
       if (!s.textAt) { s.textAt = now; say("Text ready · sending in 2s"); return; }
-      if (now - s.textAt >= 2000) { s.sent = true; stats.texts++; c.send.click(); say("Text sent → next lead"); }
+      if (now - s.textAt >= 2000) { s.sent = true; stats.texts++; c.send.click(); say("Text sent → next lead"); later(function () { if (manualId() === id) toMyList(); }, 3000); }
       return;
     }
     if (onList()) {
       offListSince = 0;
+      if (!mineOnly()) {                            // never press Let's Start on someone else's list
+        if (now - lastFilter > FILTER_WAIT_MS) { lastFilter = now; if (!forceMine()) { halt("⚠ Could not filter to your own leads. Pick your name in \"Select Assignee\", then press Start."); return; } }
+        say("Showing only your leads…"); return;
+      }
+      if (now - lastFilter < FILTER_WAIT_MS) return;
       var b = startBtn();
       if (b) { if (now - lastStart > 4000) { lastStart = now; emptySince = 0; b.click(); say("Starting…"); } return; }
       if (now - lastStart < 6000) return;           // the task we just started is still opening
@@ -124,22 +157,28 @@
     }
     // ON but neither on a task nor on the list (e.g. a refresh that did not come back)
     if (!offListSince) offListSince = now;
-    if (now - offListSince > 6000) { offListSince = now; var l = listLink(); if (l) l.click(); else say("Open Conversations → Manual Actions to continue"); }
+    if (now - offListSince > 6000) { offListSince = now; if (!toMyList()) say("Open Conversations → Manual Actions to continue"); }
   }
-  function pressNext(id, sum, m) {
+  function pressNext(id, sum, m) {    // NOT GHL's Next (it can leave the filter): back to own list → Let's Start
     var s = st[id] || (st[id] = { seen: Date.now(), clear: true, call: true });
-    s.nexted = true; s.nextAt = Date.now(); lastNext = sum.next; sum.next.click(); say(m);
+    s.nexted = true; s.nextAt = Date.now(); lastNext = sum.next; say(m);
+    if (!toMyList()) halt("⚠ Could not go back to your list. Open Manual Actions, then press Start.");
+  }
+  function toMyList() {
+    var R = router(); if (!R) return false;
+    var loc = (location.pathname.match(/^\/v2\/location\/[^/]+/) || [])[0]; if (!loc) return false;
+    var qy = { type: "workflow", workflow: keepWf || "", campaign: "", assignee: ME };
+    lastFilter = Date.now(); lastStart = Date.now();   // let the list load before Let's Start
+    R.push({ path: loc + "/conversations/manual_actions", query: qy }); return true;
   }
   function refreshList() {            // GHL's list does not update by itself: leave the tab and come back
     var tab = q("a").filter(function (a) { return vis(a) && txt(a) === "Conversations" && /conversations\/conversations/.test(a.getAttribute("href") || ""); })[0];
     lastRefresh = Date.now();
     if (!tab || manualId()) return;
     busy = true; tab.click();
-    var tries = 0, back = function () {
+    var back = function () {
       if (manualId()) { busy = false; return; }
-      var l = listLink();
-      if (l) { l.click(); later(function () { busy = false; }, 2500); }
-      else if (tries++ < 16) later(back, 500);
+      if (toMyList()) { later(function () { busy = false; }, 2500); }   // back to OWN list, never the full one
       else busy = false;
     };
     later(back, 1500);
@@ -166,8 +205,9 @@
     else bar.appendChild(btn("▶ Start", "#16a34a", start));
   }
   function start() {
+    if (onList() && param("assignee") === ME) keepWf = param("workflow");   // keep a workflow filter the rep chose
     on = true; run++; emptySince = 0; offListSince = 0; lastStart = 0; say("Running"); render();
-    if (!onList() && !manualId()) { var l = listLink(); if (l) l.click(); else { on = false; say("Open Conversations → Manual Actions, then press Start"); render(); } }
+    if (!onList() && !manualId()) { if (!toMyList()) { on = false; say("Open Conversations → Manual Actions, then press Start"); render(); } }
   }
   function answer(talked) {
     var a = ask, r = run;
