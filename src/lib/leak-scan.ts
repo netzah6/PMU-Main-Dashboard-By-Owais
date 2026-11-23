@@ -93,7 +93,7 @@ export async function buildQueue(svc: Svc, now = new Date()): Promise<Run> {
 
 type Msg = { body?: string; direction?: string; source?: string; messageType?: string; dateAdded?: string };
 
-async function readChat(it: Item): Promise<{ tags: string[]; transcript: string } | { error: string }> {
+export async function readChat(it: Item): Promise<{ tags: string[]; transcript: string } | { error: string }> {
   const tok = await getAppLocationToken(it.loc);
   if (!tok.token) return { error: tok.error ?? "no token" };
   const h = { Authorization: `Bearer ${tok.token}`, Accept: "application/json" };
