@@ -4,6 +4,7 @@ import { resolveClientLocation } from "@/lib/agent-exec";
 import { fileOrAppendAlert, filePaidNotBookedAlert, ghlContactUrl, paidCardOnBoard, resolvePaidNotBookedAlert } from "@/lib/alerts";
 import { REMOVED_TAG, removedHoldTime } from "@/lib/ai-hold-cleanup";
 import { everBookedSincePick, lookBeforePaidBooking } from "@/lib/paid-booking";
+import { locationTimezone, wallToIso } from "@/lib/onebox";
 
 // ── Paid-deposit safety net (owner, 2026-10-11) ──────────────────────────────
 // A Fanbasis payment reaches the client's GHL through the "FanBasis to GHL
@@ -47,10 +48,12 @@ export async function findPaidTarget(H: Record<string, string>, loc: string, ema
     if (!r.ok) throw new Error(`search HTTP ${r.status}`);
     return ((await r.json()) as { contacts?: GContact[] }).contacts ?? [];
   };
-  const byEmail = (await search({ filters: [{ field: "email", operator: "eq", value: email }] })).filter((c) => c.phone);
+  const emailHits = await search({ filters: [{ field: "email", operator: "eq", value: email }] });
+  const byEmail = emailHits.filter((c) => c.phone);
   if (byEmail.length) { const paid = byEmail.find(isPaid); return { kind: paid ? "ok" : "tag", contact: paid ?? byEmail[0], byName: false }; }
   const want = normName(name);
-  if (!want || !want.includes(" ")) return { kind: "none" };
+  const byConfirm = () => findConfirmedAtPayment(H, loc, emailHits, want, search);
+  if (!want || !want.includes(" ")) return (await byConfirm()) ?? { kind: "none" };
   const named = (await search({ query: name })).filter((c) => c.phone && normName(c.contactName ?? `${c.firstName ?? ""} ${c.lastName ?? ""}`) === want);
   // Recent leads first (60 days). An older lead counts only when she is the
   // ONE lead with that name in the last year (owner 10/30/2026: Jennifer
@@ -58,11 +61,55 @@ export async function findPaidTarget(H: Record<string, string>, loc: string, ema
   const recent = named.filter((c) => Date.parse(c.dateAdded ?? "") >= Date.now() - 60 * 86_400_000);
   const yearOld = named.filter((c) => Date.parse(c.dateAdded ?? "") >= Date.now() - 365 * 86_400_000);
   const same = recent.length ? recent : yearOld.length === 1 ? yearOld : [];
-  if (!same.length) return { kind: yearOld.length > 1 ? "ambiguous" : "none", ...(yearOld.length > 1 ? { candidates: yearOld } : {}) } as { kind: "none" } | { kind: "ambiguous"; candidates: GContact[] };
+  if (!same.length) {
+    if (yearOld.length > 1) return { kind: "ambiguous", candidates: yearOld };
+    return (await byConfirm()) ?? { kind: "none" };
+  }
   const paid = same.find(isPaid);
   if (paid) return { kind: "ok", contact: paid, byName: true };
   if (same.length > 1) return { kind: "ambiguous", candidates: same };
   return { kind: "tag", contact: same[0], byName: true };
+}
+
+/* Paid through a link, under another name and email (owner 11/23/2026:
+   Destiney "To" paid Archery Brow Bar; her lead is "Destiney Snaer", phone
+   only. Sherrie Marnoff at VSB the same week). The payment confirmed her
+   appointment right away, but GHL filed the payment on a new email-only
+   contact, so neither the email nor the full name led to her lead and a
+   false "can't be found" alert went up.
+   Proof used here: the email-only contact GHL made for the payment tells WHEN
+   she paid. Her lead is the ONE contact with a phone, the same first name,
+   and an appointment that turned confirmed within 20 minutes of that. No tag
+   is added: the appointment is already confirmed, so the paid flow ran, and
+   a second "fanbasis buyer" could send her a second confirmation text. */
+const CONFIRM_WINDOW_MS = 20 * 60_000;
+async function findConfirmedAtPayment(H: Record<string, string>, loc: string, emailHits: GContact[], want: string,
+  search: (body: Record<string, unknown>) => Promise<GContact[]>): Promise<{ kind: "ok"; contact: GContact; byName: boolean } | null> {
+  const payer = emailHits.filter((c) => !c.phone && c.dateAdded).sort((a, b) => Date.parse(b.dateAdded!) - Date.parse(a.dateAdded!))[0];
+  const first = want.split(" ")[0];
+  if (!payer || !first || first.length < 3) return null;
+  const paidMs = Date.parse(payer.dateAdded!);
+  if (!Number.isFinite(paidMs)) return null;
+  const firstOf = (c: GContact) => normName(c.firstName || c.contactName || "").split(" ")[0];
+  const candidates = (await search({ query: first })).filter((c) => c.phone && c.id !== payer.id && firstOf(c) === first).slice(0, 10);
+  if (!candidates.length) return null;
+  const tz = await locationTimezone(loc, H.Authorization.replace(/^Bearer /, ""));
+  if (!tz) return null;
+  const hits: GContact[] = [];
+  for (const c of candidates) {
+    const ar = await fetch(`${GHL}/contacts/${encodeURIComponent(c.id)}/appointments`, { headers: H });
+    if (!ar.ok) return null; // a failed read never guesses
+    const events = ((await ar.json()) as { events?: Array<Record<string, unknown>> }).events ?? [];
+    const near = events.some((e) => {
+      if (e.deleted === true) return false;
+      if (!["confirmed", "showed"].includes(String(e.appointmentStatus ?? e.appoinmentStatus ?? "").toLowerCase())) return false;
+      // Appointment times come back as the studio's wall clock.
+      const at = Date.parse(wallToIso(String(e.dateUpdated ?? ""), tz));
+      return Number.isFinite(at) && Math.abs(at - paidMs) <= CONFIRM_WINDOW_MS;
+    });
+    if (near) hits.push(c);
+  }
+  return hits.length === 1 ? { kind: "ok", contact: hits[0], byName: true } : null;
 }
 
 /* Close a paid-deposit box once the work is visibly done (owner 11/05/2026:
