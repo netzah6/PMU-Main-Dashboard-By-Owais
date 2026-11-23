@@ -72,14 +72,17 @@ export async function buildQueue(svc: Svc, now = new Date()): Promise<Run> {
     const o = String(r.owner_name ?? "").trim().toLowerCase();
     if (o) owners.set(o, String(r.business_name ?? "").trim());
   }
-  const since = new Date(now.getTime() - 24 * 3600_000).toISOString();
+  /* Chats whose last message was 24–48 hours ago: a day old, so the outcome
+     shows (the 11/23 test called 5-hour-old chats "leaks" — too early). */
+  const since = new Date(now.getTime() - 48 * 3600_000).toISOString();
+  const until = new Date(now.getTime() - 24 * 3600_000).toISOString();
   const items: Item[] = [];
   const keys = [...owners.keys()];
   for (let i = 0; i < keys.length; i += 50) {
     let from = 0;
     for (;;) {
       const { data, error } = await svc.from("ghl_conversations").select("id, location_id, contact_id, owner_key")
-        .in("owner_key", keys.slice(i, i + 50)).gte("last_message_date", since).range(from, from + 999);
+        .in("owner_key", keys.slice(i, i + 50)).gte("last_message_date", since).lt("last_message_date", until).range(from, from + 999);
       if (error) throw new Error(error.message);
       for (const c of (data ?? []) as { id: string; location_id: string; contact_id: string; owner_key: string }[]) {
         if (c.contact_id) items.push({ conv: c.id, loc: c.location_id, contact: c.contact_id, biz: owners.get(c.owner_key) || c.owner_key });
@@ -88,7 +91,7 @@ export async function buildQueue(svc: Svc, now = new Date()): Promise<Run> {
       from += 1000;
     }
   }
-  return { day: ptDay(new Date(now.getTime() - 12 * 3600_000)), built_at: now.toISOString(), items, next: 0, labels: [] };
+  return { day: ptDay(new Date(now.getTime() - 36 * 3600_000)), built_at: now.toISOString(), items, next: 0, labels: [] };
 }
 
 type Msg = { body?: string; direction?: string; source?: string; messageType?: string; dateAdded?: string };
@@ -127,7 +130,8 @@ function readPrompt(known: Leak[]): string {
     "kind rules:",
     "- \"fine\": the chat is still going normally (last message under ~24h ago and someone is expected to answer), or a deposit/booking is clearly in progress.",
     "- \"normal\": the lead said no / not interested / stop, opted out or texts are blocked (DND), wrong number, spam, test, not a real lead, asked about a service the artist doesn't do, or a price objection the AI handled correctly.",
-    "- \"known\": it matches one of the known leaks below (give its id).",
+    "- \"known\": the chat CLEARLY shows one of the known leaks below (give its id). If it only looks a bit like one, or you are not sure, use \"other\" and say why.",
+    "- A lead who simply never answered the first texts is \"normal\" unless the business clearly did something wrong.",
     "- \"other\": the business side dropped the ball in a new way (the AI went silent, gave wrong info, never sent the link, a broken link, an automation contradicting the AI, etc.).",
     "Known leaks:",
     ...known.filter((l) => l.status !== "done").map((l) => `- ${l.id}: ${l.title} — ${l.short}`),
@@ -205,7 +209,7 @@ export async function leakScanTick(svc: Svc, opts: { now?: Date; budgetMs?: numb
   const budget = opts.budgetMs ?? 240_000;
   if (!process.env.ANTHROPIC_API_KEY) return { skipped: "ANTHROPIC_API_KEY not set" };
   let run = await getSetting<Run>(svc, RUN_KEY);
-  const today = ptDay(new Date(now.getTime() - 12 * 3600_000));
+  const today = ptDay(new Date(now.getTime() - 36 * 3600_000)); // same day label as buildQueue
   if (!run || (run.day !== today && run.summarized_at) || (run.day !== today && Date.now() - Date.parse(run.built_at) > 20 * 3600_000)) {
     run = await buildQueue(svc, now);
     await putSetting(svc, RUN_KEY, run);
