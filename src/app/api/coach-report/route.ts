@@ -123,6 +123,34 @@ export async function GET(req: NextRequest) {
       finMonth = (pay as PayRow[]).find((p) => p.month)?.month ?? null;
     }
   }
+  /* PPS per-show fees charged in each report's month (owner, 11/23/2026): the
+     Financing sheet shows $0 for most PPS clients, the money is billed per
+     show. Same rule as the CEO tab: charged, has a charge date, not excluded;
+     month = the charge date's UTC month. Kept apart from the sheet total so
+     nothing is counted twice. */
+  const ppsBy = new Map<string, (owner: string, biz: string) => { client_name: string; usd: number; n: number } | null>();
+  if (auth.role === "admin" && (subs ?? []).length) {
+    const months = [...new Set((subs ?? []).map((s) => String(s.report_month).slice(0, 7)))].sort();
+    const totals = new Map<string, Map<string, { usd: number; n: number }>>();
+    for (let off = 0; ; off += 1000) {
+      const { data, error } = await svc.from("ppa_charges").select("amount, charged_at, owner_key")
+        .eq("charged", true).not("charged_at", "is", null).or("excluded.is.null,excluded.eq.false")
+        .gte("charged_at", `${months[0]}-01`).order("charged_at").range(off, off + 999);
+      if (error) break;
+      for (const r of (data ?? []) as Array<{ amount: number | null; charged_at: string; owner_key: string | null }>) {
+        if (!r.owner_key) continue;
+        const ym = r.charged_at.slice(0, 7);
+        const m = totals.get(ym) ?? new Map<string, { usd: number; n: number }>();
+        const t = m.get(r.owner_key) ?? { usd: 0, n: 0 };
+        t.usd += Number(r.amount ?? 0); t.n++;
+        m.set(r.owner_key, t); totals.set(ym, m);
+      }
+      if (!data || data.length < 1000) break;
+    }
+    for (const [ym, m] of totals) {
+      ppsBy.set(ym, makeFinancingMatcher([...m].map(([k, t]) => ({ client_name: k, ...t }))));
+    }
+  }
   const submissions = (subs ?? []).map((s) => {
     const live = s.snapshot_date ? liveBy.get(`${s.snapshot_date}|${String(s.coach).toLowerCase()}`) ?? 0 : null;
     const payments = findPay
@@ -131,7 +159,14 @@ export async function GET(req: NextRequest) {
           return [`${e.owner}|${e.biz}`, p ? { sheet_name: p.client_name, usd: p.usd, status: p.payment_status ?? "", billing: p.billing_status ?? "", plan: p.notes ?? "" } : null];
         }))
       : undefined;
-    return { ...s, snapshot_live: live, salary: live === null ? null : 400 + 30 * live, payments, fin_month: finMonth };
+    const findPps = ppsBy.get(String(s.report_month).slice(0, 7));
+    const pps = auth.role === "admin"
+      ? Object.fromEntries(((s.entries ?? []) as { owner: string; biz: string }[]).flatMap((e) => {
+          const t = findPps?.(e.owner, e.biz);
+          return t ? [[`${e.owner}|${e.biz}`, { usd: t.usd, n: t.n, key: t.client_name }]] : [];
+        }))
+      : undefined;
+    return { ...s, snapshot_live: live, salary: live === null ? null : 400 + 30 * live, payments, fin_month: finMonth, pps };
   });
 
   return NextResponse.json({ coach, coaches: auth.role === "admin" ? coaches : [], roster, submissions });

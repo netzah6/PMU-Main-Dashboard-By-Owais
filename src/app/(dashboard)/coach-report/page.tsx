@@ -19,15 +19,18 @@ type Entry = { owner: string; biz: string; reported: Reported };
 type AdminEdit = { at: string; by: string; changes: string[] };
 // Admin-only Financing sheet note per client (null = not on the sheet).
 type Pay = { sheet_name: string; usd: number | null; status: string; billing: string; plan: string } | null;
-type Submission = { payments?: Record<string, Pay>; fin_month?: string | null; id: number; coach: string; report_month: string; snapshot_date: string | null; snapshot_live: number | null; salary: number | null; entries: Entry[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string; admin_edits?: AdminEdit[] };
+type Pps = { usd: number; n: number; key: string };
+type Submission = { pps?: Record<string, Pps>; payments?: Record<string, Pay>; fin_month?: string | null; id: number; coach: string; report_month: string; snapshot_date: string | null; snapshot_live: number | null; salary: number | null; entries: Entry[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string; admin_edits?: AdminEdit[] };
 // Each referral the coach brings in is a $100 bonus (owner, 2026-09-22).
 const REFERRAL_BONUS = 100;
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
 /* What the Financing sheet says this client pays (admin only). Red when the
    client is not on the sheet at all; green when money came in this month. */
-function PayNote({ p, month }: { p: Pay | undefined; month: string }) {
-  if (p === undefined) return null;
+function PayNote({ p, month, pps }: { p: Pay | undefined; month: string; pps?: Pps }): React.ReactNode {
+  const extra = pps ? <span className="ml-1 text-[10px] font-semibold text-[#15803d]" title={`${pps.n} per-show fee${pps.n === 1 ? "" : "s"} charged this month (PPS Billing)`}>+{money(pps.usd)} PPS</span> : null;
+  if (p === undefined) return extra;
+  if (extra) return <>{PayNote({ p, month })}{extra}</>;
   if (p === null) return <span className="ml-1 text-[10px] font-semibold text-[#b91c1c]" title={`No row for this client on the Financing sheet (${month})`}>⚠ not on {month}</span>;
   const usd = p.usd ?? 0;
   const label = usd > 0 ? `${money(usd)}${p.status ? ` · ${p.status}` : ""}` : p.status || "$0";
@@ -324,10 +327,14 @@ export default function CoachReportPage() {
                         const paying = ps.filter((p) => (p?.usd ?? 0) > 0).length;
                         const upfront = ps.filter((p) => p && !(p.usd ?? 0) && /upfront/i.test(p.status)).length;
                         const missing = ps.filter((p) => p === null).length;
+                        // Each PPS account counted once, like the sheet rows.
+                        const ppsRows = Array.from(new Map(Object.values(s.pps ?? {}).map((x) => [x.key, x])).values());
+                        const ppsTotal = ppsRows.reduce((t, x) => t + x.usd, 0);
                         return (
                           <p className="text-[#1c2b3a]">
                             💵 Revenue on the Financing sheet ({s.fin_month ?? "latest month"}): <b>{money(total)}</b> from {paying} of {s.entries.length} clients
                             {upfront ? <> · {upfront} paid upfront earlier</> : null}
+                            {ppsRows.length ? <> · plus <b>{money(ppsTotal)}</b> PPS fees charged in {monthLabel} ({ppsRows.length} clients) = <b>{money(total + ppsTotal)}</b></> : null}
                             {missing ? <> · <b className="text-[#b91c1c]">{missing} not on the sheet</b></> : null}. <span className="text-[#697a91]">Hover a client&apos;s amount for the plan note.</span>
                           </p>
                         );
@@ -401,7 +408,7 @@ export default function CoachReportPage() {
                               <p className={cn("inline-block border rounded-md px-1.5 py-0.5 font-semibold mb-1", c.on)}>{c.label} · {n(c.k)}</p>
                               <ul className="grid gap-0.5 text-[#1c2b3a]">
                                 {s.entries.filter((e) => e.reported === c.k).sort((a, b) => a.owner.localeCompare(b.owner)).map((e) => (
-                                  <li key={`${e.owner}|${e.biz}`}>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span>{isAdmin && s.payments ? <PayNote p={s.payments[`${e.owner}|${e.biz}`]} month={s.fin_month ?? "the sheet"} /> : null}</li>
+                                  <li key={`${e.owner}|${e.biz}`}>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span>{isAdmin && s.payments ? <PayNote p={s.payments[`${e.owner}|${e.biz}`]} month={s.fin_month ?? "the sheet"} pps={s.pps?.[`${e.owner}|${e.biz}`]} /> : null}</li>
                                 ))}
                               </ul>
                             </div>
