@@ -17,9 +17,23 @@ type RosterRow = { owner: string; biz: string; status: string };
 type Referral = { referred_name: string; referred_by: string; note: string };
 type Entry = { owner: string; biz: string; reported: Reported };
 type AdminEdit = { at: string; by: string; changes: string[] };
-type Submission = { id: number; coach: string; report_month: string; snapshot_date: string | null; snapshot_live: number | null; salary: number | null; entries: Entry[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string; admin_edits?: AdminEdit[] };
+// Admin-only Financing sheet note per client (null = not on the sheet).
+type Pay = { sheet_name: string; usd: number | null; status: string; billing: string; plan: string } | null;
+type Submission = { payments?: Record<string, Pay>; fin_month?: string | null; id: number; coach: string; report_month: string; snapshot_date: string | null; snapshot_live: number | null; salary: number | null; entries: Entry[]; referrals?: Referral[]; mismatches: string[]; extra: string; created_at: string; admin_edits?: AdminEdit[] };
 // Each referral the coach brings in is a $100 bonus (owner, 2026-09-22).
 const REFERRAL_BONUS = 100;
+const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+
+/* What the Financing sheet says this client pays (admin only). Red when the
+   client is not on the sheet at all; green when money came in this month. */
+function PayNote({ p, month }: { p: Pay | undefined; month: string }) {
+  if (p === undefined) return null;
+  if (p === null) return <span className="ml-1 text-[10px] font-semibold text-[#b91c1c]" title={`No row for this client on the Financing sheet (${month})`}>⚠ not on {month}</span>;
+  const usd = p.usd ?? 0;
+  const label = usd > 0 ? `${money(usd)}${p.status ? ` · ${p.status}` : ""}` : p.status || "$0";
+  const tone = usd > 0 ? "text-[#15803d]" : /upfront|pps|ppa/i.test(p.status) ? "text-[#34568a]" : "text-[#c2410c]";
+  return <span className={cn("ml-1 text-[10px] font-semibold", tone)} title={[`Sheet: ${p.sheet_name}`, p.plan, p.billing].filter(Boolean).join(" · ")}>{label}</span>;
+}
 
 const CHOICES: { k: Reported; label: string; on: string }[] = [
   { k: "active", label: "Active ✅", on: "bg-[#e7f6ec] text-[#15803d] border-[#15803d]" },
@@ -302,6 +316,22 @@ export default function CoachReportPage() {
                           ? (() => { const refs = s.referrals?.length ?? 0; const bonus = refs * REFERRAL_BONUS; return <>Pay check: the {new Date(s.snapshot_date + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC" })} snapshot has <b>{s.snapshot_live}</b> live for {s.coach} → salary <b>${s.salary}</b>{refs > 0 ? <> + <b>${bonus}</b> referral bonus ({refs} × ${REFERRAL_BONUS}) = <b>${(s.salary ?? 0) + bonus}</b> to pay</> : null}. Coach reports {n("active")} active.</>; })()
                           : <>No {monthLabel} snapshot yet (taken on the 20th) — pay line will use it once taken.</>}
                       </p>
+                      {isAdmin && s.payments && (() => {
+                        const ps = s.entries.map((e) => s.payments![`${e.owner}|${e.biz}`]);
+                        // Partners share one sheet row ("Hong Tran (Jennifer & Natalie)") — count its money once.
+                        const rows = Array.from(new Map(ps.filter((p): p is NonNullable<Pay> => !!p).map((p) => [p.sheet_name, p])).values());
+                        const total = rows.reduce((t, p) => t + (p.usd ?? 0), 0);
+                        const paying = ps.filter((p) => (p?.usd ?? 0) > 0).length;
+                        const upfront = ps.filter((p) => p && !(p.usd ?? 0) && /upfront/i.test(p.status)).length;
+                        const missing = ps.filter((p) => p === null).length;
+                        return (
+                          <p className="text-[#1c2b3a]">
+                            💵 Revenue on the Financing sheet ({s.fin_month ?? "latest month"}): <b>{money(total)}</b> from {paying} of {s.entries.length} clients
+                            {upfront ? <> · {upfront} paid upfront earlier</> : null}
+                            {missing ? <> · <b className="text-[#b91c1c]">{missing} not on the sheet</b></> : null}. <span className="text-[#697a91]">Hover a client&apos;s amount for the plan note.</span>
+                          </p>
+                        );
+                      })()}
                       {isAdmin && (
                         <div className="flex items-center gap-2 flex-wrap">
                           {editId === s.id ? (
@@ -371,7 +401,7 @@ export default function CoachReportPage() {
                               <p className={cn("inline-block border rounded-md px-1.5 py-0.5 font-semibold mb-1", c.on)}>{c.label} · {n(c.k)}</p>
                               <ul className="grid gap-0.5 text-[#1c2b3a]">
                                 {s.entries.filter((e) => e.reported === c.k).sort((a, b) => a.owner.localeCompare(b.owner)).map((e) => (
-                                  <li key={`${e.owner}|${e.biz}`}>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span></li>
+                                  <li key={`${e.owner}|${e.biz}`}>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span>{isAdmin && s.payments ? <PayNote p={s.payments[`${e.owner}|${e.biz}`]} month={s.fin_month ?? "the sheet"} /> : null}</li>
                                 ))}
                               </ul>
                             </div>

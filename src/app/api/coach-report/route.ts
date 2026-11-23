@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { getCoachScope } from "@/lib/coach";
+import { makeFinancingMatcher } from "@/lib/financing-match";
 
 export const fetchCache = "force-no-store";
 
@@ -30,6 +31,7 @@ const REFERRAL_BONUS = 100;
 type Referral = { referred_name: string; referred_by: string; note: string };
 
 type RosterRow = { owner: string; biz: string; status: string };
+type PayRow = { client_name: string; usd: number | null; payment_status: string | null; billing_status: string | null; notes: string | null; month: string | null };
 
 /* The coach's book straight from Clients Master: live + paused clients whose
    "Assigned" matches. Offboarded clients are not theirs to report. */
@@ -106,9 +108,30 @@ export async function GET(req: NextRequest) {
       liveBy.set(k, (liveBy.get(k) ?? 0) + 1);
     }
   }
+  /* Admin only (owner, 11/23/2026): next to every client on a report, what
+     the Financing sheet's latest month tab says they pay, or that they are
+     missing from it — so the admin sees each client really pays and how much
+     revenue the coach's book brings. Matched with the same name rules as the
+     pay-date alert. The sheet holds only the latest month, so an older
+     report shows today's sheet (the month is named on the page). */
+  let findPay: ((owner: string, biz: string) => PayRow | null) | null = null;
+  let finMonth: string | null = null;
+  if (auth.role === "admin" && (subs ?? []).length) {
+    const { data: pay } = await svc.from("client_payments").select("client_name, usd, payment_status, billing_status, notes, month");
+    if (pay?.length) {
+      findPay = makeFinancingMatcher(pay as PayRow[]);
+      finMonth = (pay as PayRow[]).find((p) => p.month)?.month ?? null;
+    }
+  }
   const submissions = (subs ?? []).map((s) => {
     const live = s.snapshot_date ? liveBy.get(`${s.snapshot_date}|${String(s.coach).toLowerCase()}`) ?? 0 : null;
-    return { ...s, snapshot_live: live, salary: live === null ? null : 400 + 30 * live };
+    const payments = findPay
+      ? Object.fromEntries(((s.entries ?? []) as { owner: string; biz: string }[]).map((e) => {
+          const p = findPay!(e.owner, e.biz);
+          return [`${e.owner}|${e.biz}`, p ? { sheet_name: p.client_name, usd: p.usd, status: p.payment_status ?? "", billing: p.billing_status ?? "", plan: p.notes ?? "" } : null];
+        }))
+      : undefined;
+    return { ...s, snapshot_live: live, salary: live === null ? null : 400 + 30 * live, payments, fin_month: finMonth };
   });
 
   return NextResponse.json({ coach, coaches: auth.role === "admin" ? coaches : [], roster, submissions });
