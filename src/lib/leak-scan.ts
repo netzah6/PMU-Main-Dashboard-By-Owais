@@ -128,7 +128,7 @@ function readPrompt(known: Leak[]): string {
   return [
     "You check one lead's text chat for a permanent-makeup artist (a V3 client: an AI texts leads and asks for a $50 deposit to book). The goal is more paid deposits.",
     "The lead did NOT pay yet. Decide why the chat stopped short of a deposit.",
-    "Answer by calling the label_chat tool once.",
+    "Answer with the JSON object only.",
     "kind rules:",
     "- \"fine\": the chat is still going normally (last message under ~24h ago and someone is expected to answer), or a deposit/booking is clearly in progress.",
     "- \"normal\": the LEAD ended it: said no / not interested / stop / too expensive after a good answer, opted out or texts are blocked (DND), wrong number, spam, test, not a real lead, or asked for a service the artist doesn't do.",
@@ -154,7 +154,8 @@ const LABEL_TOOL = {
       why: { type: "string", description: "One short plain sentence" },
       quote: { type: "string", description: "The one line that shows it, max 20 words, no names or numbers" },
     },
-    required: ["kind", "stage", "why"],
+    required: ["kind", "leak", "stage", "why", "quote"],
+    additionalProperties: false,
   },
 };
 
@@ -173,12 +174,24 @@ const GROUP_TOOL = {
             chats: { type: "array", items: { type: "integer" } },
           },
           required: ["title", "short", "problem", "change", "chats"],
+          additionalProperties: false,
         },
       },
     },
     required: ["leaks"],
+    additionalProperties: false,
   },
 };
+
+/* Structured output (11/23): the current Sonnet / Opus models refuse a
+   forced tool call, so the answer is pinned with output_config.format
+   instead. The installed SDK predates the field in its types, so it is
+   passed through as-is. */
+const jsonFormat = (schema: object) => ({ output_config: { format: { type: "json_schema", schema } } }) as Record<string, unknown>;
+function readJson<T>(res: Anthropic.Message): T | null {
+  const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
+  try { return JSON.parse(text) as T; } catch { return null; }
+}
 
 async function labelOne(ai: Anthropic, system: string, it: Item, known: Set<string>): Promise<Label> {
   const base: Label = { conv: it.conv, loc: it.loc, biz: it.biz };
@@ -191,12 +204,11 @@ async function labelOne(ai: Anthropic, system: string, it: Item, known: Set<stri
     /* A forced tool call gives a clean object every time (plain-text JSON
        came back cut off or wrapped in prose for 11 of 12 test chats, 11/23). */
     const res = await ai.messages.create({
-      model: READ_MODEL, max_tokens: 800, system,
-      tools: [LABEL_TOOL], tool_choice: { type: "tool", name: LABEL_TOOL.name },
+      model: READ_MODEL, max_tokens: 4000, system, // room for the model's own thinking
+      ...jsonFormat(LABEL_TOOL.input_schema),
       messages: [{ role: "user", content: `Tags: ${r.tags.join(", ") || "none"}\nNow: ${new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" })} PT\n\nChat:\n${r.transcript}` }],
     });
-    const use = res.content.find((b) => b.type === "tool_use");
-    const j = (use && use.type === "tool_use" ? use.input : null) as { kind?: string; leak?: string; stage?: string; why?: string; quote?: string } | null;
+    const j = readJson<{ kind?: string; leak?: string; stage?: string; why?: string; quote?: string }>(res);
     if (!j) return { ...base, error: `no answer (${res.stop_reason})` };
     const kind = (["known", "normal", "other", "fine"].includes(String(j.kind)) ? j.kind : "other") as Label["kind"];
     const leak = kind === "known" && j.leak && known.has(j.leak) ? j.leak : undefined;
@@ -270,20 +282,19 @@ async function summarize(svc: Svc, run: Run, leaks: Leak[], budgetMs: number): P
     const ai = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: Math.min(budgetMs - 10_000, 180_000) });
     const list = others.map((o, i) => `${i}. [${o.biz}] stopped at: ${o.stage ?? "?"} — ${o.why ?? ""}${o.quote ? ` — "${o.quote}"` : ""}`).join("\n");
     const res = await ai.messages.create({
-      model: GROUP_MODEL, max_tokens: 6000,
-      tools: [GROUP_TOOL], tool_choice: { type: "tool", name: GROUP_TOOL.name },
+      model: GROUP_MODEL, max_tokens: 16000,
+      ...jsonFormat(GROUP_TOOL.input_schema),
       system: [
         "You review last night's unpaid lead chats for permanent-makeup artists (V3 clients: an AI texts leads and asks for a $50 deposit). Each line is one chat where the business side seemed to drop the ball in a way that is not on the known list.",
         "Group them into patterns. Keep ONLY patterns that show up in at least 3 different businesses and at least 5 chats, and that are NOT one of the known leaks below.",
         "For each pattern write, in very simple English (the owner's first language is not English; no tech words): title (max 8 words), short (one line), problem (2-3 sentences: what happens and why it costs deposits), change (one sentence: a fix idea to test). List the chat numbers.",
-        "Answer by calling the new_leaks tool once (an empty list if nothing qualifies).",
+        "Answer with the JSON object only (an empty list if nothing qualifies).",
         "Known leaks:",
         ...leaks.map((l) => `- ${l.title} — ${l.short}`),
       ].join("\n"),
       messages: [{ role: "user", content: list }],
     });
-    const use = res.content.find((b) => b.type === "tool_use");
-    const found = ((use && use.type === "tool_use" ? use.input : {}) as { leaks?: NewLeak[] }).leaks ?? [];
+    const found = readJson<{ leaks?: NewLeak[] }>(res)?.leaks ?? [];
     let order = Math.max(0, ...leaks.map((l) => l.order ?? 0));
     for (const n of found) {
       const chats = (n.chats ?? []).map((i) => others[i]).filter(Boolean);
