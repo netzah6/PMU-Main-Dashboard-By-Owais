@@ -48,6 +48,13 @@ export async function POST(req: NextRequest) {
         .update({ picked_time_at: new Date().toISOString(), slot_iso: slotIso })
         .eq("slug", slug)
         .eq("phone", phone)
+        /* Never on a row she already PAID for (owner, 11/23/2026, Raini
+           Dreier): she paid + was booked for 11:00, came back and only
+           looked at 12:00 without paying. Writing 12:00 onto the paid row
+           made the paid-booking net say "paid for 12:00, booked at another
+           time". A new paid time is booked by /api/onebox/book itself. */
+        .is("paid_at", null)
+        .or("ghl_status.is.null,ghl_status.not.in.(booked,paid,paid-not-booked,paid-followup)")
         .then((r) => r),
       svcSlot.from("onebox_clients").select("location_id, status, extras").eq("slug", slug).single(),
       svcSlot
