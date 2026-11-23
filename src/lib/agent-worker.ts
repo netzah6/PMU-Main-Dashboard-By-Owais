@@ -7,6 +7,7 @@ import { onSnapshotProposalClosed, parseSnapshotConvId } from "@/lib/pool-snapsh
 import { onA2pProposalClosed, parseA2pConvId } from "@/lib/pool-a2p";
 import { onCnamProposalClosed, parseCnamConvId } from "@/lib/pool-cnam";
 import { parseCbOffConvId } from "@/lib/pool-closebot";
+import { parseCbConnectConvId } from "@/lib/closebot-connect";
 import { onIgPostsClosed, parseIgPostsConvId } from "@/lib/ig-posts-check";
 import { isCloseBotCheck, onCloseBotCheckClosed } from "@/lib/closebot-coverage";
 import { isIgEngageTask, onIgEngageClosed } from "@/lib/ig-engage";
@@ -118,7 +119,7 @@ export async function claimNext(svc: Svc, host: string, recover = false): Promis
   let business: string | null = null;
   // Setup-run and pool-snapshot cards carry their location; "Clean New
   // Account N" is not a client and has no Clients Master row to resolve.
-  const setupRef = parseSetupConvId(p.conversation_id) ?? parseSnapshotConvId(p.conversation_id) ?? parseA2pConvId(p.conversation_id) ?? parseCnamConvId(p.conversation_id) ?? parseCbOffConvId(p.conversation_id);
+  const setupRef = parseSetupConvId(p.conversation_id) ?? parseSnapshotConvId(p.conversation_id) ?? parseA2pConvId(p.conversation_id) ?? parseCnamConvId(p.conversation_id) ?? parseCbOffConvId(p.conversation_id) ?? parseCbConnectConvId(p.conversation_id);
   const loc = setupRef || isCloseBotCheck(p.conversation_id) || parseIgPostsConvId(p.conversation_id) || isIgEngageTask(p.conversation_id) ? null : await resolveClientLocation(svc, p.contact_id, p.contact_name).catch(() => null);
   if (loc) { locationId = locationId || loc.locationId; business = loc.businessName || null; }
   if (!locationId) {
