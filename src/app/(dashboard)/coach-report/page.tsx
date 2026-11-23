@@ -151,7 +151,7 @@ export default function CoachReportPage() {
   if (userLoading) return <div className="p-6"><Loader2 className="w-5 h-5 animate-spin text-[#697a91]" /></div>;
 
   return (
-    <div className="p-3 md:p-6 max-w-[880px] mx-auto">
+    <div className="p-3 md:p-6 max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between gap-2 mb-1">
         <h1 className="text-base sm:text-lg font-semibold text-[#1c2b3a]">📋 Coach Report</h1>
         <button onClick={() => void load(isAdmin ? coach : undefined)} title="Refresh"
@@ -404,11 +404,17 @@ export default function CoachReportPage() {
                       ) : (
                         <div className="grid gap-2 sm:grid-cols-3">
                           {CHOICES.map((c) => (
-                            <div key={c.k}>
+                            <div key={c.k} className="min-w-0">
                               <p className={cn("inline-block border rounded-md px-1.5 py-0.5 font-semibold mb-1", c.on)}>{c.label} · {n(c.k)}</p>
                               <ul className="grid gap-0.5 text-[#1c2b3a]">
                                 {s.entries.filter((e) => e.reported === c.k).sort((a, b) => a.owner.localeCompare(b.owner)).map((e) => (
-                                  <li key={`${e.owner}|${e.biz}`}>{e.owner}<span className="text-[#8595a8]"> · {e.biz}</span>{isAdmin && s.payments ? <PayNote p={s.payments[`${e.owner}|${e.biz}`]} month={s.fin_month ?? "the sheet"} pps={s.pps?.[`${e.owner}|${e.biz}`]} /> : null}</li>
+                                  <li key={`${e.owner}|${e.biz}`} className="flex items-baseline whitespace-nowrap min-w-0">
+                                    {/* Owner 11/23/2026: one line per client. The business name
+                                        gives way (… with the full name on hover); name + payment stay whole. */}
+                                    <span className="shrink-0">{e.owner}</span>
+                                    <span className="text-[#8595a8] truncate min-w-0" title={e.biz}>&nbsp;· {e.biz}</span>
+                                    {isAdmin && s.payments ? <span className="shrink-0"><PayNote p={s.payments[`${e.owner}|${e.biz}`]} month={s.fin_month ?? "the sheet"} pps={s.pps?.[`${e.owner}|${e.biz}`]} /></span> : null}
+                                  </li>
                                 ))}
                               </ul>
                             </div>
