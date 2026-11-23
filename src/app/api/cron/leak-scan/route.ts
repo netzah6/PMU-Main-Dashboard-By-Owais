@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
   try {
     // ?sample=N: label N chats and save nothing (testing).
     const sample = Number(req.nextUrl.searchParams.get("sample") ?? 0);
-    if (sample > 0) return NextResponse.json({ sample: await leakScanSample(createServiceClient(), Math.min(sample, 40)) });
+    const convs = (req.nextUrl.searchParams.get("conv") ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+    if (sample > 0 || convs.length) return NextResponse.json({ sample: await leakScanSample(createServiceClient(), Math.min(sample, 40), convs) });
     return NextResponse.json(await leakScanTick(createServiceClient(), { budgetMs: 240_000 }));
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
