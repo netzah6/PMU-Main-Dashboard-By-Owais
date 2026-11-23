@@ -5,9 +5,11 @@ import { toast } from "sonner";
 
 /* "CloseBot" box on the client profile (owner, 11/11/2026): connected to an
    agent's job flow or not, from the daily CloseBot check. One word on the
-   chip; the detail (agent, tags, why not, when checked) behind a click. */
+   chip; the detail (agent, tags, why not, when checked) behind a click.
+   11/23/2026: not connected → "Connect to CloseBot"; connected → "Disconnect
+   from CloseBot" (asks first). Both send the Mac Mini a task. */
 type State = "on" | "off" | "no_flow" | "disconnected" | "no_source" | "no_account";
-type Task = { id: string; status: string; result: string | null; at: string };
+type Task = { id: string; status: string; result: string | null; at: string; kind?: "connect" | "disconnect" };
 type Info = { at: string | null; client: { state: State; source: string | null; agents: string[]; tags: string[]; located?: boolean } | null; task?: Task | null };
 
 const WHY: Record<State, string> = {
@@ -52,16 +54,18 @@ export function CloseBotBadge({ owner, business, version, status }: { owner: str
     return () => clearInterval(t);
   }, [busy]);
 
-  const connect = async () => {
+  const send = async (action: "connect" | "disconnect") => {
+    if (action === "disconnect" && !window.confirm(`Disconnect ${business || owner} from CloseBot?\n\nThe AI will stop answering their leads until you connect it again.`)) return;
     setSending(true);
     try {
       const r = await fetch("/api/closebot/connect", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ owner, business, ownerName: owner, businessName: business, version }),
+        body: JSON.stringify({ owner, business, ownerName: owner, businessName: business, version, action }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "Could not send");
-      toast.success(j.reused ? "Already sent to the Mac Mini" : "Sent to the Mac Mini — it will connect CloseBot");
+      toast.success(j.reused ? "Already sent to the Mac Mini"
+        : action === "disconnect" ? "Sent to the Mac Mini — it will disconnect CloseBot" : "Sent to the Mac Mini — it will connect CloseBot");
       setTick((n) => n + 1);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not send");
@@ -81,27 +85,33 @@ export function CloseBotBadge({ owner, business, version, status }: { owner: str
   const v3 = version.toLowerCase().replace(/[^a-z0-9.]/g, "") === "v3";
   const live = status.trim().toLowerCase() === "live";
   const c = info?.client ?? null;
-  const on = c?.state === "on";
+  const task = info?.task ?? null;
+  // A task newer than the last daily check is the latest word on this client.
+  const fresh = task && (!info?.at || Date.parse(task.at) > Date.parse(info.at));
+  const kind = task?.kind ?? "connect";
+  const doneNow = fresh && task?.status === "done" ? kind : null;   // finished, not yet seen by the daily check
+  const on = doneNow ? doneNow === "connect" : c?.state === "on";
   const unknown = c?.state === "no_account";
   const label = !c ? "Not checked" : on ? "Connected" : unknown ? "Unknown" : "Not connected";
   // Red only where it matters: a Live V3 client with no bot. On for a non-V3 client = yellow.
   const tone = !c ? "gray" : on ? (v3 ? "green" : "yellow") : v3 && live ? (unknown ? "yellow" : "red") : "gray";
   const old = info?.at ? Date.now() - Date.parse(info.at) > 2 * 86_400_000 : false;
-  const task = info?.task ?? null;
-  // A task newer than the last daily check is the latest word on this client.
-  const fresh = task && (!info?.at || Date.parse(task.at) > Date.parse(info.at));
   const canConnect = v3 && !!c && !on && !unknown && c.located !== false;
+  const canDisconnect = !!c && on && c.located !== false;
   const stuck = task?.result?.match(/CLOSEBOT: STUCK — ([^\n]*)/)?.[1];
+  const verb = kind === "disconnect" ? "disconnecting" : "connecting";
   const taskLine = !task || !fresh ? null
-    : busy ? (task.status === "running" ? "The Mac Mini is connecting CloseBot now…" : "Waiting for the Mac Mini…")
-    : task.status === "done" ? "The Mac Mini finished connecting. It turns green after the next daily check."
+    : busy ? (task.status === "running" ? `The Mac Mini is ${verb} CloseBot now…` : "Waiting for the Mac Mini…")
+    : task.status === "done" ? (kind === "disconnect"
+      ? (/CLOSEBOT: NONE/.test(task.result ?? "") ? "The Mac Mini found no agent with this client — the AI was already off." : "The Mac Mini disconnected CloseBot. The AI is off for this client.")
+      : "The Mac Mini finished connecting CloseBot.")
     : `The Mac Mini could not finish${stuck ? `: ${stuck}` : ""}.`;
 
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen((o) => !o)}
         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border transition-colors cursor-pointer ${STYLE[tone]}`}>
-        CloseBot: <strong className="ml-1">{fresh && busy ? "Connecting…" : label}</strong>
+        CloseBot: <strong className="ml-1">{fresh && busy ? (kind === "disconnect" ? "Disconnecting…" : "Connecting…") : label}</strong>
         <ChevronDown size={12} className={`ml-1 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -111,24 +121,31 @@ export function CloseBotBadge({ owner, business, version, status }: { owner: str
             <p>{info?.at ? "This client was not in the last CloseBot check." : "The CloseBot check has not run yet."}</p>
           ) : on ? (
             <>
-              <p><span className="text-[#697a91]">Agent:</span> {c.agents.join(", ")}</p>
+              {c.agents.length > 0 && <p><span className="text-[#697a91]">Agent:</span> {c.agents.join(", ")}</p>}
               {c.tags.length > 0 && <p><span className="text-[#697a91]">Tags:</span> {c.tags.join(", ")}</p>}
               {c.source && <p><span className="text-[#697a91]">Source:</span> {c.source}</p>}
               {!v3 && <p className="text-[#d97706]">Not a V3 client, but the AI is on.</p>}
             </>
           ) : (
             <>
-              <p>{WHY[c.state]}.</p>
+              <p>{c.state === "on" ? "The AI is off for this client (disconnected)" : WHY[c.state]}.</p>
               {c.source && <p><span className="text-[#697a91]">Source:</span> {c.source}</p>}
               {!v3 && c.state === "no_source" && <p className="text-[#697a91]">Normal for a client who is not V3.</p>}
             </>
           )}
           {taskLine && <p className={`font-medium ${busy || task?.status === "done" ? "text-[#0e8f88]" : "text-[#e11d48]"}`}>{taskLine}</p>}
-          {canConnect && !(fresh && (busy || task?.status === "done")) && (
-            <button type="button" onClick={connect} disabled={sending}
+          {canConnect && !(fresh && busy) && !(doneNow === "connect") && (
+            <button type="button" onClick={() => send("connect")} disabled={sending}
               className="w-full mt-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#0e8f88] hover:bg-[#0b7570] disabled:opacity-60 text-white font-medium px-3 py-1.5">
               {sending && <Loader2 size={12} className="animate-spin" />}
-              {sending ? "Sending…" : fresh ? "Try again" : "Connect to CloseBot"}
+              {sending ? "Sending…" : fresh && kind === "connect" ? "Try again" : "Connect to CloseBot"}
+            </button>
+          )}
+          {canDisconnect && !(fresh && busy) && (
+            <button type="button" onClick={() => send("disconnect")} disabled={sending}
+              className="w-full mt-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#f5c2cf] bg-white hover:bg-[#fde8ee] disabled:opacity-60 text-[#e11d48] font-medium px-3 py-1.5">
+              {sending && <Loader2 size={12} className="animate-spin" />}
+              {sending ? "Sending…" : fresh && kind === "disconnect" && task?.status !== "done" ? "Try disconnecting again" : "Disconnect from CloseBot"}
             </button>
           )}
           {info?.at && (

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CLOSEBOT_SIGN_IN } from "@/lib/closebot-signin";
 import type { CbClientState } from "@/lib/closebot-coverage";
+import { cbOffProbe } from "@/lib/pool-closebot";
 
 /* ── "Connect to CloseBot" button on the client profile (owner, 11/23/2026) ──
    The CloseBot box on a client's profile says "Not connected" when the daily
@@ -13,6 +14,16 @@ import type { CbClientState } from "@/lib/closebot-coverage";
    The box shows the task's progress; the next daily check turns it green.
    The report's LAST line must be one of:
      "CLOSEBOT: CONNECTED"
+     "CLOSEBOT: STUCK — <why>"
+
+   "Disconnect from CloseBot" (owner, 11/23/2026): once connected, the same box
+   offers the way back. Task conversation_id = 'closebot:<location id>:disconnect'.
+   The Mac Mini removes THIS account's source from every agent it is on and
+   publishes (the cleaned-account recipe, matched by location id). The source
+   itself stays in CloseBot, so connecting again later is quick.
+   The report's LAST line must be one of:
+     "CLOSEBOT: DISCONNECTED — <agent names>"
+     "CLOSEBOT: NONE"                     no agent had this account
      "CLOSEBOT: STUCK — <why>"            */
 
 type Svc = SupabaseClient;
@@ -21,11 +32,13 @@ const usDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { mont
 
 export const CB_CONNECT_PREFIX = "closebot:";
 export const CB_CONNECT_KEY = "connect";
-export const cbConnectConvId = (locationId: string) => `${CB_CONNECT_PREFIX}${locationId}:${CB_CONNECT_KEY}`;
+export const CB_DISCONNECT_KEY = "disconnect";
+export type CbTaskKind = "connect" | "disconnect";
+export const cbConnectConvId = (locationId: string, kind: CbTaskKind = "connect") => `${CB_CONNECT_PREFIX}${locationId}:${kind === "disconnect" ? CB_DISCONNECT_KEY : CB_CONNECT_KEY}`;
 export function parseCbConnectConvId(conversationId: string | null | undefined): { locationId: string } | null {
   if (!conversationId?.startsWith(CB_CONNECT_PREFIX)) return null;
   const [, locationId, key] = conversationId.split(":");
-  return locationId && key === CB_CONNECT_KEY ? { locationId } : null;
+  return locationId && (key === CB_CONNECT_KEY || key === CB_DISCONNECT_KEY) ? { locationId } : null;
 }
 
 const SLAY = "slay (bot_OMQ35MOH48F6T4Z1)";
@@ -52,20 +65,73 @@ export function cbConnectPlan(a: { locationId: string; business: string; firstNa
   ];
 }
 
-export type CbConnectTask = { id: string; status: string; result: string | null; at: string };
+export function cbDisconnectPlan(a: { locationId: string; business: string; source: string | null }): string[] {
+  const { locationId: L, business: biz } = a;
+  const named = a.source ? ` CloseBot may call its source "${a.source}".` : "";
+  return [
+    `First open https://app.gohighlevel.com/v2/location/${L}/dashboard and read the sub-account name at the top left. It should be "${biz}". If it is another name, change nothing anywhere and end with "CLOSEBOT: STUCK — account is named <name>".`,
+    `This task turns the CloseBot AI OFF for one client only: ${biz}, GoHighLevel location ${L}. Remove this account's source from every CloseBot agent it is on, then publish. Do NOT delete the source itself from CloseBot Settings → Sources, and change nothing else — no other source, no agent prompt, no settings.${named} ${CLOSEBOT_SIGN_IN}`,
+    `Open https://app.closebot.com/bots and note every agent listed (also inside folders). For EACH agent: open it, wait for the canvas to load, click the rocket icon in the right toolbar (the Sources panel), then run this with browser_evaluate:\n${cbOffProbe(L)}\nIt returns {"total": N, "match": [names]}. "match" lists the sources of THIS account in that agent (matched by location id, not by name). If "match" is empty, this agent is fine — go to the next one.`,
+    `When "match" has a name: type that exact name in the panel's "Filter sources..." box, click the × at the end of that row, then click the red "Really?" that appears (the row disappears). Run the same browser_evaluate again: "match" must now be empty and "total" one lower. Only then click the green "Publish" button at the top right once and wait until it says "Published". Screenshot the panel ("after-1.png", "after-2.png", … one per agent changed). Do not send any message to anyone.`,
+    `If a probe returns "panel not open", open the rocket icon again and retry once. If "match" still lists the name after removing, or Publish fails, stop and end with "CLOSEBOT: STUCK — <what happened>". Never click × on a row whose name is not in "match".`,
+    `End your report with exactly one line: "CLOSEBOT: DISCONNECTED — <the agents you changed>", or "CLOSEBOT: NONE" if no agent had this account.`,
+  ];
+}
 
+export type CbConnectTask = { id: string; status: string; result: string | null; at: string; kind: CbTaskKind };
+
+// The newest connect OR disconnect task the profile box sent for this account.
 export async function latestCbConnect(svc: Svc, locationId: string): Promise<CbConnectTask | null> {
-  const { data } = await svc.from("agent_proposals").select("id, status, result, created_at")
-    .eq("conversation_id", cbConnectConvId(locationId)).order("created_at", { ascending: false }).limit(1).maybeSingle();
-  const r = data as { id: string; status: string; result: string | null; created_at: string } | null;
-  return r ? { id: r.id, status: r.status, result: r.result, at: r.created_at } : null;
+  const { data } = await svc.from("agent_proposals").select("id, status, result, created_at, conversation_id")
+    .in("conversation_id", [cbConnectConvId(locationId, "connect"), cbConnectConvId(locationId, "disconnect")])
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const r = data as { id: string; status: string; result: string | null; created_at: string; conversation_id: string } | null;
+  return r ? { id: r.id, status: r.status, result: r.result, at: r.created_at, kind: r.conversation_id.endsWith(`:${CB_DISCONNECT_KEY}`) ? "disconnect" : "connect" } : null;
+}
+
+// One task at a time per account: a connect and a disconnect never run together.
+async function openCbTask(svc: Svc, locationId: string): Promise<{ id: string; kind: CbTaskKind } | null> {
+  const { data } = await svc.from("agent_proposals").select("id, conversation_id")
+    .in("conversation_id", [cbConnectConvId(locationId, "connect"), cbConnectConvId(locationId, "disconnect")])
+    .in("status", ["queued_browser", "running"]).limit(1).maybeSingle();
+  const r = data as { id: string; conversation_id: string } | null;
+  return r ? { id: r.id, kind: r.conversation_id.endsWith(`:${CB_DISCONNECT_KEY}`) ? "disconnect" : "connect" } : null;
+}
+
+export async function queueCloseBotDisconnect(svc: Svc, a: { locationId: string; business: string; source: string | null; by: string }): Promise<{ taskId: string; reused: boolean }> {
+  const open = await openCbTask(svc, a.locationId);
+  if (open?.kind === "disconnect") return { taskId: open.id, reused: true };
+  if (open) throw new Error("The Mac Mini is still connecting this client. Wait for it to finish, then disconnect.");
+  const conversationId = cbConnectConvId(a.locationId, "disconnect");
+  const { count } = await svc.from("agent_proposals").select("id", { count: "exact", head: true }).eq("conversation_id", conversationId);
+  const { data: ins, error } = await svc.from("agent_proposals").insert({
+    conversation_id: conversationId,
+    message_id: `${CB_DISCONNECT_KEY}#${(count ?? 0) + 1}`,
+    contact_id: null,
+    contact_name: a.business,
+    channel: null,
+    client_message: `Disconnect ${a.business} from CloseBot (AI off: remove its source from every agent + publish). Clicked on the client profile by ${a.by} on ${usDate(now())}.`,
+    summary: `CloseBot: disconnect ${a.business} (AI off)`.slice(0, 500),
+    action_type: "account_change",
+    proposed_reply: null,
+    action_detail: `In CloseBot, remove the source of location ${a.locationId} (${a.business}) from every agent it is attached to and publish each changed agent. Match by location id only. Keep the source itself. Change nothing else.`.slice(0, 1500),
+    action_plan: cbDisconnectPlan(a).map((what) => ({ type: "manual", what })),
+    location_id: a.locationId,
+    status: "queued_browser",
+    decided_by: `${a.by} (CloseBot disconnect)`,
+    decided_at: now(),
+    executed_at: now(),
+    result: "⏳ Waiting for the AI Agent (CloseBot disconnect)",
+  }).select("id").maybeSingle();
+  if (error || !ins) throw new Error(`could not queue the CloseBot task: ${error?.message ?? "insert failed"}`);
+  return { taskId: (ins as { id: string }).id, reused: false };
 }
 
 export async function queueCloseBotConnect(svc: Svc, a: { locationId: string; business: string; ownerName: string; state: CbClientState; source: string | null; by: string }): Promise<{ taskId: string; reused: boolean }> {
   const conversationId = cbConnectConvId(a.locationId);
-  const { data: open } = await svc.from("agent_proposals").select("id")
-    .eq("conversation_id", conversationId).in("status", ["queued_browser", "running"]).limit(1).maybeSingle();
-  if (open) return { taskId: (open as { id: string }).id, reused: true };
+  const open = await openCbTask(svc, a.locationId);
+  if (open?.kind === "connect") return { taskId: open.id, reused: true };
+  if (open) throw new Error("The Mac Mini is still disconnecting this client. Wait for it to finish, then connect.");
   const { count } = await svc.from("agent_proposals").select("id", { count: "exact", head: true }).eq("conversation_id", conversationId);
   const firstName = a.ownerName.trim().split(/\s+/)[0] || a.business;
   const { data: ins, error } = await svc.from("agent_proposals").insert({
