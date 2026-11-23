@@ -30,6 +30,8 @@ const TABS: Tab[] = [
   { label: "📈 Performance", href: "/performance" },
   // Hidden from the menu (page still exists at /client-health) — owner request 2026-10-08.
   { label: "🚨 Alerts", href: "/alerts", adminOnly: true }, // CEO notification center — user request 2026-08-28
+  // Lead-leak checklist, moved in from the separate tracker page so the nightly check can add leaks (owner, 11/23/2026).
+  { label: "🩹 Leaks", href: "/leaks", adminOnly: true },
   // Coach-facing feed (client filled their info-request form, …). Hidden from the menu
   // (page still exists at /notifications) — owner request 2026-10-15.
   { label: "💰 CPD", href: "/cost-per-deposit", adminOnly: true }, // CEO only — user request 2026-08-27; renamed from "Cost / Deposit" 2026-09-22
