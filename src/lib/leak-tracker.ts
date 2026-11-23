@@ -26,6 +26,7 @@ export type Leak = {
   where?: string;
   updated: string;        // MM/DD
   found_by?: string;      // "Claude" (by hand) or "nightly check"
+  seen?: string;          // the nightly check's count, e.g. "Last night (11/23): 4 unpaid chats in 3 accounts …"
   updated_at?: string;    // ISO, set on every write
 };
 

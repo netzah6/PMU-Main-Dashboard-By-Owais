@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { LEAK_STATUSES, listLeaks, mmdd, saveLeak, type LeakStatus } from "@/lib/leak-tracker";
+import { lastScan } from "@/lib/leak-scan";
 
 export const fetchCache = "force-no-store";
 
@@ -16,7 +17,9 @@ async function admin() {
 export async function GET() {
   if (!(await admin())) return NextResponse.json({ error: "Admins only" }, { status: 403 });
   try {
-    return NextResponse.json({ leaks: await listLeaks(createServiceClient()) }, { headers: { "Cache-Control": "no-store" } });
+    const svc = createServiceClient();
+    const [leaks, scan] = await Promise.all([listLeaks(svc), lastScan(svc)]);
+    return NextResponse.json({ leaks, scan }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
   }
