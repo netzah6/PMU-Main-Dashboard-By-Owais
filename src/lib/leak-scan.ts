@@ -123,7 +123,7 @@ function readPrompt(known: Leak[]): string {
   return [
     "You check one lead's text chat for a permanent-makeup artist (a V3 client: an AI texts leads and asks for a $50 deposit to book). The goal is more paid deposits.",
     "The lead did NOT pay yet. Decide why the chat stopped short of a deposit.",
-    "Answer with ONE JSON object only: {\"kind\": \"known\"|\"normal\"|\"other\"|\"fine\", \"leak\": \"<known leak id or empty>\", \"stage\": \"<where it stopped, 3-6 words>\", \"why\": \"<one short plain sentence>\", \"quote\": \"<the one line that shows it, max 20 words, no names or numbers>\"}",
+    "Answer by calling the label_chat tool once.",
     "kind rules:",
     "- \"fine\": the chat is still going normally (last message under ~24h ago and someone is expected to answer), or a deposit/booking is clearly in progress.",
     "- \"normal\": the lead said no / not interested / stop, opted out or texts are blocked (DND), wrong number, spam, test, not a real lead, asked about a service the artist doesn't do, or a price objection the AI handled correctly.",
@@ -134,10 +134,42 @@ function readPrompt(known: Leak[]): string {
   ].join("\n");
 }
 
-const parseJson = <T,>(s: string): T | null => {
-  const m = s.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  try { return JSON.parse(m[0]) as T; } catch { return null; }
+const LABEL_TOOL = {
+  name: "label_chat",
+  description: "Record why this unpaid lead chat stopped short of a deposit.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      kind: { type: "string", enum: ["known", "normal", "other", "fine"] },
+      leak: { type: "string", description: "Known leak id when kind is known, else empty" },
+      stage: { type: "string", description: "Where it stopped, 3-6 words" },
+      why: { type: "string", description: "One short plain sentence" },
+      quote: { type: "string", description: "The one line that shows it, max 20 words, no names or numbers" },
+    },
+    required: ["kind", "stage", "why"],
+  },
+};
+
+const GROUP_TOOL = {
+  name: "new_leaks",
+  description: "Record the new leak patterns found in last night's chats.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      leaks: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" }, short: { type: "string" }, problem: { type: "string" }, change: { type: "string" },
+            chats: { type: "array", items: { type: "integer" } },
+          },
+          required: ["title", "short", "problem", "change", "chats"],
+        },
+      },
+    },
+    required: ["leaks"],
+  },
 };
 
 async function labelOne(ai: Anthropic, system: string, it: Item, known: Set<string>): Promise<Label> {
@@ -147,13 +179,16 @@ async function labelOne(ai: Anthropic, system: string, it: Item, known: Set<stri
     if ("error" in r) return { ...base, error: r.error };
     if (r.tags.some((t) => t.toLowerCase() === PAID_TAG)) return { ...base, paid: true };
     if (!r.transcript) return { ...base, kind: "fine", why: "no messages" };
+    /* A forced tool call gives a clean object every time (plain-text JSON
+       came back cut off or wrapped in prose for 11 of 12 test chats, 11/23). */
     const res = await ai.messages.create({
-      model: READ_MODEL, max_tokens: 300, system,
+      model: READ_MODEL, max_tokens: 800, system,
+      tools: [LABEL_TOOL], tool_choice: { type: "tool", name: LABEL_TOOL.name },
       messages: [{ role: "user", content: `Tags: ${r.tags.join(", ") || "none"}\nNow: ${new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" })} PT\n\nChat:\n${r.transcript}` }],
     });
-    const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
-    const j = parseJson<{ kind?: string; leak?: string; stage?: string; why?: string; quote?: string }>(text);
-    if (!j) return { ...base, error: "unreadable answer" };
+    const use = res.content.find((b) => b.type === "tool_use");
+    const j = (use && use.type === "tool_use" ? use.input : null) as { kind?: string; leak?: string; stage?: string; why?: string; quote?: string } | null;
+    if (!j) return { ...base, error: `no answer (${res.stop_reason})` };
     const kind = (["known", "normal", "other", "fine"].includes(String(j.kind)) ? j.kind : "other") as Label["kind"];
     const leak = kind === "known" && j.leak && known.has(j.leak) ? j.leak : undefined;
     return { ...base, kind: kind === "known" && !leak ? "other" : kind, leak, stage: j.stage?.slice(0, 60), why: j.why?.slice(0, 200), quote: j.quote?.slice(0, 160) };
@@ -226,19 +261,20 @@ async function summarize(svc: Svc, run: Run, leaks: Leak[], budgetMs: number): P
     const ai = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: Math.min(budgetMs - 10_000, 180_000) });
     const list = others.map((o, i) => `${i}. [${o.biz}] stopped at: ${o.stage ?? "?"} — ${o.why ?? ""}${o.quote ? ` — "${o.quote}"` : ""}`).join("\n");
     const res = await ai.messages.create({
-      model: GROUP_MODEL, max_tokens: 3000,
+      model: GROUP_MODEL, max_tokens: 6000,
+      tools: [GROUP_TOOL], tool_choice: { type: "tool", name: GROUP_TOOL.name },
       system: [
         "You review last night's unpaid lead chats for permanent-makeup artists (V3 clients: an AI texts leads and asks for a $50 deposit). Each line is one chat where the business side seemed to drop the ball in a way that is not on the known list.",
         "Group them into patterns. Keep ONLY patterns that show up in at least 3 different businesses and at least 5 chats, and that are NOT one of the known leaks below.",
         "For each pattern write, in very simple English (the owner's first language is not English; no tech words): title (max 8 words), short (one line), problem (2-3 sentences: what happens and why it costs deposits), change (one sentence: a fix idea to test). List the chat numbers.",
-        "Answer with JSON only: {\"leaks\": [{\"title\": \"\", \"short\": \"\", \"problem\": \"\", \"change\": \"\", \"chats\": [0, 1]}]}. Empty list if nothing qualifies.",
+        "Answer by calling the new_leaks tool once (an empty list if nothing qualifies).",
         "Known leaks:",
         ...leaks.map((l) => `- ${l.title} — ${l.short}`),
       ].join("\n"),
       messages: [{ role: "user", content: list }],
     });
-    const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
-    const found = parseJson<{ leaks?: NewLeak[] }>(text)?.leaks ?? [];
+    const use = res.content.find((b) => b.type === "tool_use");
+    const found = ((use && use.type === "tool_use" ? use.input : {}) as { leaks?: NewLeak[] }).leaks ?? [];
     let order = Math.max(0, ...leaks.map((l) => l.order ?? 0));
     for (const n of found) {
       const chats = (n.chats ?? []).map((i) => others[i]).filter(Boolean);
