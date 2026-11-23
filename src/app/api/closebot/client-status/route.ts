@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { CLIENTS_KEY, normBiz, type CbClients } from "@/lib/closebot-coverage";
+import { latestCbConnect } from "@/lib/closebot-connect";
 
 export const fetchCache = "force-no-store";
 
@@ -13,7 +14,8 @@ export async function GET(req: NextRequest) {
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const owner = (req.nextUrl.searchParams.get("owner") ?? "").trim().toLowerCase();
   const business = normBiz(req.nextUrl.searchParams.get("business") ?? "");
-  const { data } = await createServiceClient().from("app_settings").select("value").eq("key", CLIENTS_KEY).maybeSingle();
+  const svc = createServiceClient();
+  const { data } = await svc.from("app_settings").select("value").eq("key", CLIENTS_KEY).maybeSingle();
   const box = (data?.value ?? null) as CbClients | null;
   if (!box?.clients) return NextResponse.json({ at: null, client: null });
   // Business first: one owner can run two businesses (two sub-accounts).
@@ -21,5 +23,7 @@ export async function GET(req: NextRequest) {
     || (business && box.clients.find((c) => c.b === business))
     || (owner && box.clients.find((c) => c.o === owner))
     || null;
-  return NextResponse.json({ at: box.at, client: hit ? { state: hit.s, source: hit.src, agents: hit.a, tags: hit.t, located: !!hit.loc } : null });
+  // The last "Connect to CloseBot" task the profile button sent, if any.
+  const task = hit?.loc ? await latestCbConnect(svc, hit.loc).catch(() => null) : null;
+  return NextResponse.json({ at: box.at, client: hit ? { state: hit.s, source: hit.src, agents: hit.a, tags: hit.t, located: !!hit.loc } : null, task });
 }
