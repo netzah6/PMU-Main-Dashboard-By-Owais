@@ -4,6 +4,7 @@ import { getV3Accounts, type V3Account } from "@/lib/ghl-ingest";
 import { getAppLocationToken } from "@/lib/ghl-app";
 import { getThread } from "@/lib/ghl-conversations";
 import { normalizeOwnerKey } from "@/lib/normalizers";
+import { makeFinancingMatcher } from "@/lib/financing-match";
 
 // ── Alerts center ────────────────────────────────────────────────────────────
 // High-signal problems the CEO wants pushed at him instead of hunted for:
@@ -800,20 +801,7 @@ export async function scanAgreementMissing(svc: Svc): Promise<{ seeded: number; 
    clients pay per show, so they never need one; "Need More Bookings" clients
    aren't charged until they get more bookings. One alert per client; it
    clears itself once a date is filled in or the client stops being Live.
-   Names differ between the two sheets ("Ah Ra Cho (Estee Cho)", "Erin
-   Heidecke 30%", "Martin Aba / Alise Herrera"), so every alias on either
-   side is tried before a client counts as missing. */
-function nameAliases(raw: string): string[] {
-  const s = String(raw ?? "");
-  const outer = s.replace(/\([^)]*\)/g, " ");
-  // Partners share a row: "Hong Tran (Jennifer & Natalie)" = Jennifer Tran and
-  // Natalie Tran too (owner, 11/22/2026). A lone first name takes the row's last name.
-  const last = outer.trim().split(/\s+/).pop() ?? "";
-  const inner = Array.from(s.matchAll(/\(([^)]*)\)/g), (m) => m[1]).flatMap((x) => x.split(/\s*(?:&|\band\b|,)\s*/i));
-  const parts = [outer, ...inner, ...inner.filter((x) => last && x.trim() && !/\s/.test(x.trim())).map((x) => `${x.trim()} ${last}`)]
-    .flatMap((x) => x.split("/"));
-  return [...new Set(parts.map((x) => normalizeOwnerKey(x.replace(/\d+\s*%/g, " "))).filter(Boolean))];
-}
+   Name matching lives in financing-match.ts (shared with the Coach Report). */
 // A real expected date: a day of month (1–31), a sheet date serial, or a month name.
 // "0", "HOLD", "Didn't start yet" and blanks are not.
 function hasPayDate(v: string | null): boolean {
@@ -831,27 +819,8 @@ export async function scanLiveNoPayDate(svc: Svc): Promise<{ live: number; filed
   // An empty read means the sync failed, not that nobody has a date.
   if (!cm?.length || !pay?.length) return { live: 0, filed: 0, resolved: 0, error: "clients or financing rows empty — skipped" };
 
-  type Fin = { client_name: string; payment_status: string | null; billing_status: string | null; pay_day: string | null; month: string | null; aliases: string[] };
-  const fins: Fin[] = (pay as Omit<Fin, "aliases">[]).map((f) => ({ ...f, aliases: nameAliases(f.client_name) }));
-  const tok = (k: string) => k.split(" ").filter((t) => t.length >= 2);
-  const findRow = (owner: string, business: string): Fin | null => {
-    const mine = nameAliases(owner);
-    const exact = fins.find((f) => f.aliases.some((a) => mine.includes(a)));
-    if (exact) return exact;
-    // Two shared words with one alias, or every word of a sheet alias found
-    // among all the owner's names ("Xuan Luong" ↔ "Annie Luong (Xuan)").
-    const ownerWords = new Set(mine.flatMap(tok));
-    const two = fins.filter((f) => f.aliases.some((a) => {
-      const at = tok(a);
-      if (at.length >= 2 && at.every((t) => ownerWords.has(t))) return true;
-      return mine.some((m) => { const mt = tok(m); return Math.min(at.length, mt.length) >= 2 && at.filter((t) => mt.includes(t)).length >= 2; });
-    }));
-    if (two.length === 1) return two[0];
-    // One-word sheet names ("Lei") match the owner's or business's words, if unambiguous.
-    const words = new Set([...ownerWords, ...tok(normalizeOwnerKey(business))]);
-    const one = fins.filter((f) => f.aliases.some((a) => tok(a).length === 1 && words.has(a)));
-    return one.length === 1 ? one[0] : null;
-  };
+  type Fin = { client_name: string; payment_status: string | null; billing_status: string | null; pay_day: string | null; month: string | null };
+  const findRow = makeFinancingMatcher(pay as Fin[]);
 
   const live = (cm as Array<{ data: Record<string, unknown> }>)
     .map((r) => ({
