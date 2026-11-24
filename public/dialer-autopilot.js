@@ -1,7 +1,7 @@
 /* PMU Power Dialer — Autopilot for GHL Manual Actions.
  * Loaded by a bookmark while the rep is on GHL. It only presses GHL's own buttons:
  *   - "Let's Start" on the Manual Actions list
- *   - moves on 3 s after a call that never connected (0 seconds)
+ *   - moves on 3 s after a call nobody picked up
  *   - "Send" on a text task, ONLY when the text box holds exactly the no-answer
  *     text the dashboard wrote for that lead (asked from the dashboard each time)
  * A call that connected (1 s or more) pauses the run and asks the rep:
@@ -20,6 +20,26 @@
  * 11/23/2026: Next after a test call opened another rep's lead). So the helper
  * never presses GHL's Next: after a call it goes back to the rep's own filtered
  * list and presses "Let's Start" there (that one keeps the filter — checked live).
+ * LISTENS TO THE CALL (owner, 11/24/2026: "hang up at the voicemail, call the
+ * maximum amount of leads, never wait"). GHL's screen cannot tell ringing from
+ * picked up: its timer and the "00 Min 44 Sec" in the summary both count the
+ * ringing too (checked live on the owner's phone: summary 44 s, GHL log 12 s).
+ * The sound can: while the phone rings the line carries the ring tone (440+480 Hz,
+ * 2 s on / 4 s off — over 95% of the sound sits on those two notes), and any
+ * other sound means somebody or something picked up. So the helper listens to
+ * the lead's side of the call (never records, never sends it anywhere) and:
+ *   - ring tone still SOUNDING after ~18 s     → hangs up (during the 4th ring), next lead in 3 s
+ *   - ring tone stopped (7 s without it)       → somebody picked up, even if silent
+ *   - picked up + talks ~6 s without a break
+ *     while the rep says nothing (= voicemail?) → shows "Sounds like voicemail": ONE click on
+ *     "Voicemail — next lead" hangs up. Not automatic: a person with a long greeting or a TV on
+ *     sounds the same, and the owner's hard rule is never to hang up on a person (cfg.vmAuto = test switch)
+ *   - a person picked up                       → NEVER hangs up
+ *   - call over and the rep never spoke        → no answer, next lead in 3 s
+ *   - both sides spoke                         → asks "Did you talk to them?"
+ * If it cannot listen (no sound seen for a call) it behaves as before.
+ * Softphone buttons seen live 11/24/2026: big panel "End Call" = button.end-call-button;
+ * small top bar = div.cursor-pointer around svg.text-error-500; "Done" = button.end-call-btn.
  */
 (function () {
   if (window.__pmuAutopilot) { window.__pmuAutopilot.show(); return; }
@@ -32,6 +52,9 @@
   var keepWf = "";                                // a workflow filter the rep had when pressing Start
   var FILTER_WAIT_MS = 3500;                      // after re-filtering, let GHL reload the list first
   var GAP_MS = 3000;           // wait after a no-answer call before moving on (owner 11/23/2026: 10 s → 3 s, more calls per hour)
+  var RING_MAX_MS = cfg.ringMax || 17000;   // after this, the next ring burst ends the call: in practice the 4th ring, about 18-20 s (before most voicemails start)
+  var RING_GAP_MS = 7000;                   // the ring tone comes back every 6 s; longer silence = it stopped (picked up)
+  var VM_MS = cfg.vmMs || 6000;             // other side talks this long without a break, rep silent → voicemail
   var IDLE_STOP_MS = 180000;   // list empty this long → finished
   var REFRESH_MS = 8000;       // how often to reload an empty list
   var on = false, run = 0, busy = false, ask = null, st = {}, lastNext = null;
@@ -75,11 +98,84 @@
     if (keepWf) qy.workflow = keepWf;
     R.replace({ path: cr.path, query: qy }); return true;
   }
-  function hangUp() {                             // best effort: end a call that should not be happening
-    q("button, [role=button]").filter(vis).filter(function (b) {
-      return /end-call|hang-?up|call-end|disconnect/i.test(b.className + " " + (b.id || "")) || /^(end call|hang ?up)$/i.test(norm(b.getAttribute("aria-label") || b.title || ""));
-    }).forEach(function (b) { try { b.click(); } catch (e) {} });
+  function hangUp() {                             // press the softphone's own hang-up; true if a button was found
+    var b = q("button.end-call-button").filter(vis)[0];
+    if (!b) {                                     // small top bar: red phone icon next to the call timer
+      var sv = q("svg.text-error-500").filter(function (e) { return e.getBoundingClientRect().width > 0 && e.closest("div.cursor-pointer"); })[0];
+      b = sv ? sv.closest("div.cursor-pointer") : null;
+    }
+    if (!b) b = q("button, [role=button]").filter(vis).filter(function (x) {
+      if (/end-call-btn|next-call-btn|redial-call-btn|pause-call-btn/.test(x.className)) return false;
+      return /end-call|hang-?up|call-end|disconnect/i.test(x.className + " " + (x.id || "")) || /^(end call|hang ?up)$/i.test(norm(x.getAttribute("aria-label") || x.title || ""));
+    })[0];
+    if (!b) return false;
+    try { b.click(); } catch (e) { return false; }
+    return true;
   }
+
+  // ---- listening to the call ----------------------------------------------
+  // One "ear" per call. Sound is only measured (loudness + how much of it is ring tone).
+  var ear = null;
+  function listen(pc, track) {
+    var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    var ctx = window.__pmuActx || (window.__pmuActx = new AC());
+    try { ctx.resume(); } catch (e) {}
+    var e = { t0: Date.now(), mid: manualId(), cid: contactId(), rings: 0, lastTone: 0, pickAt: 0, voiceAt: 0, runStart: 0, lastVoice: 0, vN: 0, micMs: 0, micAll: 0, lastMic: 0, micSeen: false, replaced: false, heard: false, ended: false };
+    ear = e;
+    var tap = function (tr) {                     // Chrome only feeds a call's sound to an analyser if a media element plays it too
+      var ms = new MediaStream([tr]), el = new Audio(); el.muted = true; el.srcObject = ms; var pl = el.play(); if (pl && pl.catch) pl.catch(function () {});
+      var an = ctx.createAnalyser(); an.fftSize = 4096; an.smoothingTimeConstant = 0; var src = ctx.createMediaStreamSource(ms); src.connect(an);
+      return { an: an, src: src, td: new Float32Array(an.fftSize), f: new Float32Array(an.frequencyBinCount), el: el };
+    };
+    var them = tap(track), me = null, hz = ctx.sampleRate / 4096;
+    var rms = function (t) { t.an.getFloatTimeDomainData(t.td); var r = 0; for (var i = 0; i < t.td.length; i++) r += t.td[i] * t.td[i]; return Math.sqrt(r / t.td.length); };
+    var iv = setInterval(function () {
+      if (track.readyState === "ended" || ear !== e) {
+        if (track.readyState !== "ended") e.replaced = true;   // another call's sound took over: do not judge this call by what we heard
+        e.ended = true; clearInterval(iv);
+        [them, me].forEach(function (t) { if (!t) return; try { t.src.disconnect(); } catch (x) {} try { t.el.pause(); t.el.srcObject = null; } catch (x) {} });
+        return;
+      }
+      var now = Date.now(), r = rms(them);
+      if (!me) { try { var sn = pc.getSenders().filter(function (x) { return x.track && x.track.kind === "audio"; })[0]; if (sn) me = tap(sn.track); } catch (x) {} }
+      if (r > 0.0005) e.heard = true;
+      if (r >= 0.003) {
+        them.an.getFloatFrequencyData(them.f);
+        var tot = 0, tone = 0;
+        for (var k = Math.round(200 / hz); k < Math.round(3400 / hz); k++) { var p = Math.pow(10, them.f[k] / 10), fr = k * hz; tot += p; if (Math.abs(fr - 440) < 18 || Math.abs(fr - 480) < 18) tone += p; }
+        if (tot > 0 && tone / tot > 0.6) { if (now - e.lastTone > 1500) e.rings++; e.lastTone = now; e.vN = 0; }
+        else if (r > 0.01) {
+          e.vN++;
+          if (e.vN >= 2) {                        // two samples in a row: not a click on the line
+            if (!e.voiceAt) { e.voiceAt = now; e.runStart = now; }
+            else if (now - e.lastVoice > 900) e.runStart = now;   // a real pause: the unbroken talk starts over
+            e.lastVoice = now;
+          }
+        } else e.vN = 0;
+      } else e.vN = 0;
+      // The ring tone stopped but the call is still on: somebody picked up, even if they say nothing yet
+      // (live test 11/24/2026: the owner picked up and stayed quiet — that must never count as "still ringing").
+      if (!e.pickAt && (e.voiceAt || (e.rings > 0 && now - e.lastTone > RING_GAP_MS))) e.pickAt = now;
+      if (me) { var mr = rms(me); if (mr > 0.0002) e.micSeen = true; if (mr > 0.02) { e.micAll += 200; e.lastMic = now; if (e.pickAt) e.micMs += 200; } }   // micSeen: we really do hear the rep's side
+    }, 200);
+  }
+  function earVoicemail(e, now) {                 // talks from the pickup on, no break, rep silent
+    return e.rings > 0 && !(e.lastMic > e.lastTone) && !!e.voiceAt && e.runStart - e.voiceAt < 1200 && now - e.lastVoice < 900 && now - e.runStart >= VM_MS && e.micSeen && e.micMs < 600;
+  }
+  if (!window.__pmuPcHook && window.RTCPeerConnection) {      // once per page; later helper loads reuse it
+    window.__pmuPcHook = true;
+    var RealPC = window.RTCPeerConnection;
+    var PC = function (a, b) {
+      var pc = new RealPC(a, b);
+      pc.addEventListener("track", function (ev) { try { if (ev.track && ev.track.kind === "audio" && window.__pmuOnTrack) window.__pmuOnTrack(pc, ev.track); } catch (x) {} });
+      return pc;
+    };
+    PC.prototype = RealPC.prototype;
+    Object.getOwnPropertyNames(RealPC).forEach(function (k) { try { if (!(k in PC)) PC[k] = RealPC[k]; } catch (x) {} });
+    window.RTCPeerConnection = PC;
+    if (window.webkitRTCPeerConnection) window.webkitRTCPeerConnection = PC;
+  }
+  window.__pmuOnTrack = function (pc, track) { try { listen(pc, track); } catch (x) {} };
 
   // ---- dashboard ----------------------------------------------------------
   function call(op, cid) {
@@ -114,13 +210,46 @@
           if (sum.pause) sum.pause.click();         // we do the timing, not GHL's 40 s countdown
         }
         if (s.nexted) { if (now - s.nextAt > 20000) say("Waiting for GHL… (if stuck, click Next)"); return; }
-        if (!sum.noAnswer || cfg.askAll) {         // connected (or unreadable) → never guess (askAll = test switch)
+        if (s.quiet === undefined) {               // what the ear heard, decided once per call
+          var e = s.ear;
+          // nobody picked up (ring only), or something picked up and the rep never said a word (voicemail she hung up on)
+          // (only trusted when we could hear the rep's microphone and the other side spoke for under 30 s)
+          if (s.auto && s.sumAt - s.hungAt > 12000) s.auto = null;   // our hang-up did not end the call: judge by what we heard
+          // "rep never spoke" counts her microphone over the WHOLE call (she may speak before we notice the pickup)
+          s.quiet = !!s.auto || (!!e && !e.replaced && e.heard && e.micAll < 1000 && (!e.pickAt || (e.micSeen && (e.lastVoice || e.pickAt) - e.pickAt < 30000)));
+        }
+        if ((!sum.noAnswer && !s.quiet) || cfg.askAll) {   // both sides spoke (or we could not listen) → never guess (askAll = test switch)
           ask = { id: id, cid: contactId(), secs: sum.secs };
           say(sum.secs > 0 ? "Call was " + sum.secs + "s. Did you talk to them?" : "Did you talk to them?"); render();
           return;
         }
         var left = GAP_MS - (now - s.sumAt);
-        if (left <= 0) pressNext(id, sum, "No answer → next lead"); else say("No answer · next in " + Math.ceil(left / 1000) + "s");
+        var why = s.auto === "vm" ? "Voicemail" : "No answer";
+        if (left <= 0) pressNext(id, sum, why + " → next lead"); else say(why + " · next in " + Math.ceil(left / 1000) + "s");
+        return;
+      }
+      if (!s.ear && ear && !ear.ended && ear.t0 >= s.seen - 1000) s.ear = ear;   // this task's call
+      if (s.ear && !s.ear.ended && !s.call) {       // call in progress: ringing / picked up
+        var e2 = s.ear;
+        if (s.hungAt) {                              // we pressed hang-up: wait for the summary
+          if (now - s.hungAt > 5000 && !s.hung2) { s.hung2 = true; hangUp(); }
+          if (now - s.hungAt > 10000) say("⚠ Could not hang up — please hang up yourself.");
+          return;
+        }
+        // Past the limit, hang up only WHILE a ring burst is sounding (heard in the last 0.7 s): a person who
+        // picked up in the quiet 4 s between two rings makes no ring tone, so they can never be cut off here.
+        if (!e2.pickAt && e2.rings > 0 && now - e2.lastTone < 700 && now - e2.t0 > RING_MAX_MS) {
+          if (hangUp()) { s.auto = "ring"; s.hungAt = now; say("No answer after " + Math.round((now - e2.t0) / 1000) + "s → hanging up"); }
+          return;
+        }
+        if (earVoicemail(e2, now)) {                // a guess, so by default only a hint: the rep presses the button
+          if (cfg.vmAuto) { if (hangUp()) { s.auto = "vm"; s.hungAt = now; say("Voicemail → hanging up"); } return; }
+          if (s.live !== "vm") { s.live = "vm"; say("Sounds like voicemail — press Voicemail to skip"); render(); }
+          return;
+        }
+        var live = e2.pickAt ? "picked" : "ring";
+        if (s.live === "vm") return;
+        if (s.live !== live) { s.live = live; say(e2.pickAt ? "Someone picked up" : "Ringing…"); render(); }
         return;
       }
       if (s.call || s.sent || s.blocked) return;    // call task (ringing / talking), or text already handled
@@ -201,7 +330,13 @@
       bar.appendChild(btn("✅ We talked — stop calling", "#16a34a", function () { answer(true); }));
       bar.appendChild(btn("No answer — keep going", "#4b5563", function () { answer(false); }));
     } else if (ask) { /* saving: no buttons */ }
-    else if (on) bar.appendChild(btn("■ Stop", "#dc2626", function () { halt("Stopped"); }));
+    else if (on) {
+      var cs = st[manualId()];
+      if (cs && cs.ear && !cs.ear.ended && cs.ear.pickAt && !cs.hungAt && !cs.call) bar.appendChild(btn("📵 Voicemail — next lead", "#b45309", function () {
+        if (hangUp()) { cs.auto = "vm"; cs.hungAt = Date.now(); say("Voicemail → hanging up"); }
+      }));
+      bar.appendChild(btn("■ Stop", "#dc2626", function () { halt("Stopped"); }));
+    }
     else bar.appendChild(btn("▶ Start", "#16a34a", start));
   }
   function start() {
@@ -232,7 +367,7 @@
   window.__pmuAutopilot = {
     show: function () { bar.style.display = "flex"; },
     stop: function () { on = false; run++; clearInterval(timer); timers.forEach(clearTimeout); bar.remove(); delete window.__pmuAutopilot; },
-    state: function () { return { on: on, msg: msg, stats: stats, ask: ask, log: log }; }
+    state: function () { return { on: on, msg: msg, stats: stats, ask: ask, log: log, ear: ear }; }
   };
   if (cfg.autostart) start();
 })();
