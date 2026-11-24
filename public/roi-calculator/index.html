@@ -84,10 +84,12 @@ h1{
 .cell.fill{background:var(--teal-soft);color:var(--ink);position:relative;padding:0 42px;overflow:hidden}
 .cell.fill:focus-within{outline:3px solid var(--teal-bright);outline-offset:2px}
 .cell input{
-  width:6.5ch;min-width:0;border:0;background:transparent;color:inherit;font:inherit;
-  font-variant-numeric:tabular-nums;text-align:center;padding:6px 0;outline:none;
+  width:4ch;min-width:0;border:0;background:transparent;color:inherit;font:inherit;
+  font-variant-numeric:tabular-nums;text-align:left;padding:6px 0;outline:none;
   -moz-appearance:textfield;appearance:textfield;
 }
+/* the number hugs its sign: "$350" starts at the left edge, "20%" ends at the right edge */
+.cell input.pct{text-align:right}
 .cell input::-webkit-outer-spin-button,.cell input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .st{
   position:absolute;top:0;bottom:0;width:40px;border:0;padding:0;cursor:pointer;
@@ -184,7 +186,7 @@ h1{
 
     <!-- step 4 -->
     <label class="lab" for="book" data-s="3" hidden>Booking Rate <small>leads who book</small></label>
-    <div class="cell fill" data-s="3" hidden><button type="button" class="st minus" data-for="book" data-d="-1" aria-label="Lower booking rate">−</button><input id="book" type="number" inputmode="decimal" value="20" data-step="3"><span>%</span><button type="button" class="st plus" data-for="book" data-d="1" aria-label="Raise booking rate">+</button></div>
+    <div class="cell fill" data-s="3" hidden><button type="button" class="st minus" data-for="book" data-d="-1" aria-label="Lower booking rate">−</button><input id="book" class="pct" type="number" inputmode="decimal" value="20" data-step="3"><span>%</span><button type="button" class="st plus" data-for="book" data-d="1" aria-label="Raise booking rate">+</button></div>
     <div class="nextrow" data-next="3" hidden><span class="stepno">Step 4 of 6</span><button type="button" class="next">Next</button></div>
 
     <!-- step 5 -->
@@ -260,7 +262,12 @@ h1{
     if (!isFinite(v)) return null;
     return Math.min(Math.max(v, 0), f.max);
   }
-  function write(id, v){ $(id).value = FIELDS[id].k ? fmtK(v) : String(v); }
+  /* keep each box only as wide as its number, so "$" and "%" sit right next to it */
+  function fit(id){
+    var el = $(id);
+    el.style.width = (Math.max(String(el.value).length, 1) + 0.3) + "ch";
+  }
+  function write(id, v){ $(id).value = FIELDS[id].k ? fmtK(v) : String(v); fit(id); }
 
   function calc(){
     var goal = read("goal") || 0;
@@ -319,7 +326,7 @@ h1{
 
   Object.keys(FIELDS).forEach(function(id){
     var el = $(id);
-    el.addEventListener("input", calc);
+    el.addEventListener("input", function(){ fit(id); calc(); });
     /* Enter on the line being answered works like Next */
     el.addEventListener("keydown", function(e){
       if (e.key === "Enter" && +el.dataset.step === STAGE) { e.preventDefault(); advance(); }
