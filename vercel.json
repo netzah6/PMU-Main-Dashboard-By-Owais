@@ -235,6 +235,10 @@
     {
       "source": "/deck",
       "destination": "/deck/index.html"
+    },
+    {
+      "source": "/roi-calculator",
+      "destination": "/roi-calculator/index.html"
     }
   ]
 }
