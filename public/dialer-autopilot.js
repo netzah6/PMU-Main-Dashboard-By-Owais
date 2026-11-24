@@ -28,10 +28,12 @@
  * 2 s on / 4 s off — over 95% of the sound sits on those two notes), and any
  * other sound means somebody or something picked up. So the helper listens to
  * the lead's side of the call (never records, never sends it anywhere) and:
- *   - ring tone still coming after 20 s        → hangs up, next lead in 3 s
+ *   - ring tone still SOUNDING after ~18 s     → hangs up (during the 4th ring), next lead in 3 s
  *   - ring tone stopped (7 s without it)       → somebody picked up, even if silent
  *   - picked up + talks ~6 s without a break
- *     while the rep says nothing (= voicemail) → hangs up, next lead in 3 s
+ *     while the rep says nothing (= voicemail?) → shows "Sounds like voicemail": ONE click on
+ *     "Voicemail — next lead" hangs up. Not automatic: a person with a long greeting or a TV on
+ *     sounds the same, and the owner's hard rule is never to hang up on a person (cfg.vmAuto = test switch)
  *   - a person picked up                       → NEVER hangs up
  *   - call over and the rep never spoke        → no answer, next lead in 3 s
  *   - both sides spoke                         → asks "Did you talk to them?"
@@ -50,7 +52,7 @@
   var keepWf = "";                                // a workflow filter the rep had when pressing Start
   var FILTER_WAIT_MS = 3500;                      // after re-filtering, let GHL reload the list first
   var GAP_MS = 3000;           // wait after a no-answer call before moving on (owner 11/23/2026: 10 s → 3 s, more calls per hour)
-  var RING_MAX_MS = cfg.ringMax || 20000;   // only ringing this long → hang up (before most voicemails start)
+  var RING_MAX_MS = cfg.ringMax || 17000;   // after this, the next ring burst ends the call: in practice the 4th ring, about 18-20 s (before most voicemails start)
   var RING_GAP_MS = 7000;                   // the ring tone comes back every 6 s; longer silence = it stopped (picked up)
   var VM_MS = cfg.vmMs || 6000;             // other side talks this long without a break, rep silent → voicemail
   var IDLE_STOP_MS = 180000;   // list empty this long → finished
@@ -118,17 +120,22 @@
     var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     var ctx = window.__pmuActx || (window.__pmuActx = new AC());
     try { ctx.resume(); } catch (e) {}
-    var e = { t0: Date.now(), mid: manualId(), cid: contactId(), rings: 0, lastTone: 0, pickAt: 0, voiceAt: 0, runStart: 0, lastVoice: 0, vN: 0, micMs: 0, micSeen: false, heard: false, ended: false };
+    var e = { t0: Date.now(), mid: manualId(), cid: contactId(), rings: 0, lastTone: 0, pickAt: 0, voiceAt: 0, runStart: 0, lastVoice: 0, vN: 0, micMs: 0, micAll: 0, lastMic: 0, micSeen: false, replaced: false, heard: false, ended: false };
     ear = e;
     var tap = function (tr) {                     // Chrome only feeds a call's sound to an analyser if a media element plays it too
       var ms = new MediaStream([tr]), el = new Audio(); el.muted = true; el.srcObject = ms; var pl = el.play(); if (pl && pl.catch) pl.catch(function () {});
-      var an = ctx.createAnalyser(); an.fftSize = 4096; an.smoothingTimeConstant = 0; ctx.createMediaStreamSource(ms).connect(an);
-      return { an: an, td: new Float32Array(an.fftSize), f: new Float32Array(an.frequencyBinCount), el: el };
+      var an = ctx.createAnalyser(); an.fftSize = 4096; an.smoothingTimeConstant = 0; var src = ctx.createMediaStreamSource(ms); src.connect(an);
+      return { an: an, src: src, td: new Float32Array(an.fftSize), f: new Float32Array(an.frequencyBinCount), el: el };
     };
     var them = tap(track), me = null, hz = ctx.sampleRate / 4096;
     var rms = function (t) { t.an.getFloatTimeDomainData(t.td); var r = 0; for (var i = 0; i < t.td.length; i++) r += t.td[i] * t.td[i]; return Math.sqrt(r / t.td.length); };
     var iv = setInterval(function () {
-      if (track.readyState === "ended" || ear !== e) { e.ended = true; clearInterval(iv); try { them.el.srcObject = null; if (me) me.el.srcObject = null; } catch (x) {} return; }
+      if (track.readyState === "ended" || ear !== e) {
+        if (track.readyState !== "ended") e.replaced = true;   // another call's sound took over: do not judge this call by what we heard
+        e.ended = true; clearInterval(iv);
+        [them, me].forEach(function (t) { if (!t) return; try { t.src.disconnect(); } catch (x) {} try { t.el.pause(); t.el.srcObject = null; } catch (x) {} });
+        return;
+      }
       var now = Date.now(), r = rms(them);
       if (!me) { try { var sn = pc.getSenders().filter(function (x) { return x.track && x.track.kind === "audio"; })[0]; if (sn) me = tap(sn.track); } catch (x) {} }
       if (r > 0.0005) e.heard = true;
@@ -149,11 +156,11 @@
       // The ring tone stopped but the call is still on: somebody picked up, even if they say nothing yet
       // (live test 11/24/2026: the owner picked up and stayed quiet — that must never count as "still ringing").
       if (!e.pickAt && (e.voiceAt || (e.rings > 0 && now - e.lastTone > RING_GAP_MS))) e.pickAt = now;
-      if (me) { var mr = rms(me); if (mr > 0.0002) e.micSeen = true; if (e.pickAt && mr > 0.02) e.micMs += 200; }   // micSeen: we really do hear the rep's side
+      if (me) { var mr = rms(me); if (mr > 0.0002) e.micSeen = true; if (mr > 0.02) { e.micAll += 200; e.lastMic = now; if (e.pickAt) e.micMs += 200; } }   // micSeen: we really do hear the rep's side
     }, 200);
   }
   function earVoicemail(e, now) {                 // talks from the pickup on, no break, rep silent
-    return !!e.voiceAt && e.runStart - e.voiceAt < 1200 && now - e.lastVoice < 900 && now - e.runStart >= VM_MS && e.micSeen && e.micMs < 600;
+    return e.rings > 0 && !(e.lastMic > e.lastTone) && !!e.voiceAt && e.runStart - e.voiceAt < 1200 && now - e.lastVoice < 900 && now - e.runStart >= VM_MS && e.micSeen && e.micMs < 600;
   }
   if (!window.__pmuPcHook && window.RTCPeerConnection) {      // once per page; later helper loads reuse it
     window.__pmuPcHook = true;
@@ -207,7 +214,9 @@
           var e = s.ear;
           // nobody picked up (ring only), or something picked up and the rep never said a word (voicemail she hung up on)
           // (only trusted when we could hear the rep's microphone and the other side spoke for under 30 s)
-          s.quiet = !!s.auto || (!!e && e.heard && (!e.pickAt || (e.micSeen && e.micMs < 1000 && (e.lastVoice || e.pickAt) - e.pickAt < 30000)));
+          if (s.auto && s.sumAt - s.hungAt > 12000) s.auto = null;   // our hang-up did not end the call: judge by what we heard
+          // "rep never spoke" counts her microphone over the WHOLE call (she may speak before we notice the pickup)
+          s.quiet = !!s.auto || (!!e && !e.replaced && e.heard && e.micAll < 1000 && (!e.pickAt || (e.micSeen && (e.lastVoice || e.pickAt) - e.pickAt < 30000)));
         }
         if ((!sum.noAnswer && !s.quiet) || cfg.askAll) {   // both sides spoke (or we could not listen) → never guess (askAll = test switch)
           ask = { id: id, cid: contactId(), secs: sum.secs };
@@ -227,15 +236,19 @@
           if (now - s.hungAt > 10000) say("⚠ Could not hang up — please hang up yourself.");
           return;
         }
-        if (!e2.pickAt && e2.rings > 0 && now - e2.lastTone < RING_GAP_MS && now - e2.t0 > RING_MAX_MS) {   // still ringing right now
-          if (hangUp()) { s.auto = "ring"; s.hungAt = now; say("No answer after " + Math.round(RING_MAX_MS / 1000) + "s → hanging up"); }
+        // Past the limit, hang up only WHILE a ring burst is sounding (heard in the last 0.7 s): a person who
+        // picked up in the quiet 4 s between two rings makes no ring tone, so they can never be cut off here.
+        if (!e2.pickAt && e2.rings > 0 && now - e2.lastTone < 700 && now - e2.t0 > RING_MAX_MS) {
+          if (hangUp()) { s.auto = "ring"; s.hungAt = now; say("No answer after " + Math.round((now - e2.t0) / 1000) + "s → hanging up"); }
           return;
         }
-        if (earVoicemail(e2, now)) {
-          if (hangUp()) { s.auto = "vm"; s.hungAt = now; say("Voicemail → hanging up"); }
+        if (earVoicemail(e2, now)) {                // a guess, so by default only a hint: the rep presses the button
+          if (cfg.vmAuto) { if (hangUp()) { s.auto = "vm"; s.hungAt = now; say("Voicemail → hanging up"); } return; }
+          if (s.live !== "vm") { s.live = "vm"; say("Sounds like voicemail — press Voicemail to skip"); render(); }
           return;
         }
         var live = e2.pickAt ? "picked" : "ring";
+        if (s.live === "vm") return;
         if (s.live !== live) { s.live = live; say(e2.pickAt ? "Someone picked up" : "Ringing…"); render(); }
         return;
       }
