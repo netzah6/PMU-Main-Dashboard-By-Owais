@@ -2,6 +2,7 @@ import { parseFaqs, buildFanbasisBlock } from "@/lib/onebox";
 import { signLogoUrl } from "@/lib/logo-sign";
 import { arrangeFeed, type IgFeed, type IgPicks } from "@/lib/ig-arrange";
 import type { GReviews } from "@/lib/g-reviews";
+import { tyExtraForPage, type TyExtra } from "@/lib/ty-extra";
 
 // What a one-box funnel page is made of: the config the engine reads, the FAQs,
 // the checkout block, the title. Built here for the funnel route (every visit)
@@ -33,6 +34,8 @@ export type OneboxRow = {
     bigOffer?: boolean;
     /* Client video testimonials for the thank-you step: v = mp4, p = poster. */
     tyVideos?: { v: string; p?: string }[];
+    /* The team's own thank-you touch (note, website button, picture, video): lib/ty-extra.ts. */
+    tyExtra?: TyExtra;
     /* "b2b" = the agency's own artist-acquisition funnel: config lives in
        extras.b2b (the CV sync must never overwrite it) and the page runs
        the dedicated onebox-b2b.js engine — no Fanbasis, booking a free
@@ -180,6 +183,7 @@ export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: s
     freeBooking: row.extras.freeBooking ? "1" : "",
     bigOffer: row.extras.bigOffer ? "1" : "",
     tyVideos: row.extras.tyVideos?.length ? JSON.stringify(row.extras.tyVideos.map((t) => ({ v: t.v, p: t.p || "" }))) : "",
+    tyExtra: tyExtraForPage(row.extras.tyExtra),
     pay: isPay ? "1" : "",
   };
   /* Same URL the engine will render (its fastImg proxies media-library
@@ -226,6 +230,8 @@ const LIVE_KEYS = new Set([
   "slug", "locationId", "submitUrl", "experimentId", "variantKey", "fanbasisSelector", "pay", "flow",
   "calendarId", "deposit", "freeBooking", "consultMode", "phone", "address", "metaPixelId",
   "fanbasisProductId", "fanbasisCode", "fanbasisHookUrl", "thankYouPath", "depositFunnelUrl",
+  /* After payment only, so it can't change a test result: the team's edit reaches a frozen page too. */
+  "tyExtra",
 ]);
 
 /* The values someone can still edit for a frozen client. Changing one doesn't

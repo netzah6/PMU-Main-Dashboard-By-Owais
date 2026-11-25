@@ -7,6 +7,8 @@ import { WidgetSwitchCard } from "@/components/onboarding/WidgetSwitchCard";
 import { IgSliderCard } from "@/components/onboarding/IgSliderCard";
 import { DepositEmailCard } from "@/components/onboarding/DepositEmailCard";
 import { PickSmsCard } from "@/components/onboarding/PickSmsCard";
+import { TyExtraEditor } from "@/components/funnels/TyExtraEditor";
+import type { TyExtra } from "@/lib/ty-extra";
 import { cn } from "@/lib/utils";
 import { versionStyle } from "@/lib/version-style";
 import type { StatsWindow } from "@/lib/onebox-insights";
@@ -64,6 +66,7 @@ type Funnel = {
   paid: number; booked: number; lastLeadAt: string | null;
   abStatus: string | null;
   template: string;
+  tyExtra?: TyExtra | null;
   /* B2B funnels only (null on client funnels): the settings the B2B page
      actually runs on, from extras.b2b — see the admin API's b2bSummary. */
   b2b: {
@@ -1566,6 +1569,8 @@ export default function FunnelsPage() {
      on a paused one the weights only take effect once the test is resumed,
      so both happen in one click — and a resume the server refuses (the
      original URL redirecting back to us) surfaces its reason as the toast. */
+  /* ✏️ Thank-you extras editor (owner, 11/25/2026): one funnel open at a time. */
+  const [tyFor, setTyFor] = useState<string | null>(null);
   const [trafficFor, setTrafficFor] = useState<string | null>(null);
   const [trafficW, setTrafficW] = useState<Record<string, number>>({});
   const [trafficBusy, setTrafficBusy] = useState(false);
@@ -2265,6 +2270,14 @@ export default function FunnelsPage() {
                         🎉 Thank-you page
                       </a>
                     )}
+                    {/* Coaches add the artist's note / website / picture / video themselves (owner, 11/25/2026). */}
+                    {canEdit && f.template !== "b2b" && (
+                      <button onClick={() => setTyFor(tyFor === f.slug ? null : f.slug)} title="Add a note, a website button, a picture or a video to this client's thank-you page"
+                        className={cn("text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1",
+                          tyFor === f.slug ? "bg-[#0e9c9c] text-white border-[#0e9c9c]" : "bg-white text-[#34568a] border-[#cbd5e1] hover:bg-[#f1f5f9]")}>
+                        ✏️ Edit thank-you{f.tyExtra ? " ✓" : ""}
+                      </button>
+                    )}
                     {f.frozenAt && (
                       <span title={`This funnel's page is locked: edits reach GHL and the AI but not the page, except the calendar, checkout, deposit, phone, address and Meta pixel, which stay live.${isAdmin ? " Take new values or undo on the Freeze screen." : ""}`} className="text-[11px] font-semibold rounded-full px-2 py-0.5 border inline-flex items-center gap-1 bg-[#eef6ff] text-[#1d4ed8] border-[#bfdbfe]">
                         🧊 Frozen since {new Date(f.frozenAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric", timeZone: "America/Los_Angeles" })}
@@ -2281,6 +2294,10 @@ export default function FunnelsPage() {
                       <span className="text-[#0e9c9c]">{f.url}</span>
                       {f.redirectVerifiedAt && <span className="text-[#15803d]"> ✓ verified {ago(f.redirectVerifiedAt)}</span>}
                     </div>
+                  )}
+                  {tyFor === f.slug && (
+                    <TyExtraEditor slug={f.slug} url={f.url} initial={f.tyExtra ?? null} onClose={() => setTyFor(null)}
+                      onSaved={(t) => setFunnels((prev) => prev.map((x) => (x.slug === f.slug ? { ...x, tyExtra: t } : x)))} />
                   )}
                 </div>
                 <div className="flex-1" />

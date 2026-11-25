@@ -416,6 +416,11 @@
     "@media (min-width:700px){#onebox-root .tyvids{grid-template-columns:repeat(4,1fr)}}" +
     "#onebox-root .tyvids .bavid{position:relative;display:block;cursor:pointer;background:#000;border-radius:10px;overflow:hidden}" +
     "#onebox-root .tyvids .bavid img{width:100%;aspect-ratio:9/16;object-fit:cover;display:block;pointer-events:none}" +
+    /* The team's own thank-you touch (extras.tyExtra, owner 11/25/2026). */
+    "#onebox-root .tyx{margin:14px 0 0;text-align:center}" +
+    "#onebox-root .tyx .tynote{margin:0 0 12px;font-family:var(--content);font-size:14.5px;line-height:1.6;color:var(--ink-soft);white-space:pre-line}" +
+    "#onebox-root .tyx img,#onebox-root .tyx video{display:block;width:100%;max-width:520px;margin:0 auto 12px;border-radius:12px;background:#000}" +
+    "#onebox-root .tyx .tylink{display:inline-block;padding:12px 22px;border-radius:12px;background:var(--teal-deep);color:#fff;font-family:var(--form);font-weight:700;font-size:14.5px;text-decoration:none}" +
     "#onebox-root .igwrap{margin-top:14px}" +
     "#onebox-root .igself{max-width:640px;margin:0 auto}" +
     /* Profile header laid out like the Instagram app: handle on top, photo
@@ -1362,6 +1367,21 @@
     }
     return '<div class="confetti" aria-hidden="true">' + out + "</div>";
   }
+  /* The team's own thank-you touch (owner, 11/25/2026): a note, a picture,
+     a video and a website button, set per client in the dashboard's Funnels
+     tab (extras.tyExtra). Shown under the confirmed card on every program. */
+  var TYX = null;
+  try { TYX = C.tyExtra ? JSON.parse(C.tyExtra) : null; } catch (e) { TYX = null; }
+  function tyExtraHtml() {
+    if (!TYX) return "";
+    var safe = function (u) { return /^https?:\/\//i.test(String(u || "")) ? String(u) : ""; };
+    var out = "";
+    if (TYX.note) out += '<p class="tynote">' + esc(TYX.note) + "</p>";
+    if (safe(TYX.img)) out += '<img src="' + esc(fastImg(TYX.img, 1080)) + '" alt="" loading="lazy">';
+    if (safe(TYX.video)) out += '<video src="' + esc(TYX.video) + '#t=0.1" controls playsinline preload="metadata"></video>';
+    if (safe(TYX.linkUrl)) out += '<a class="tylink" href="' + esc(TYX.linkUrl) + '" target="_blank" rel="noopener">' + esc(TYX.linkLabel || "Visit our website") + "</a>";
+    return out ? '<div class="tyx">' + out + "</div>" : "";
+  }
   function slideDone() {
     var first = (state.answers.full_name || "").split(/\s+/)[0] || "";
     if (FLOW_V1) {
@@ -1376,6 +1396,7 @@
           (ADDR ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
           "<p>We&rsquo;ll text you shortly to lock in your appointment time. Keep an eye on your phone! &#128241;</p>" +
         "</div>" +
+        tyExtraHtml() +
         ((C.igWidget || C.elfsightId || C.igFrozenImgs || C.igFeed) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
           "&#128248; Follow us on Instagram for daily results</a>" : "");
     }
@@ -1390,6 +1411,7 @@
         (ADDR && !VIDEO ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
         (FREE ? "" : "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service" + (VIDEO ? "" : " at your visit") + ".</p>") +
       "</div>" +
+      tyExtraHtml() +
       ((C.igWidget || C.elfsightId || C.igFrozenImgs || C.igFeed) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
         "&#128248; Follow us on Instagram for daily results</a>" : "") +
       '<p class="donenote">' + (FREE && VIDEO ? "We&rsquo;ll text you the details for your video consultation before the call. Keep an eye on your phone! &#128241;" : "We&rsquo;ll be in touch shortly to prepare everything for your visit. Keep an eye on your phone! &#128241;") + "</p>";
