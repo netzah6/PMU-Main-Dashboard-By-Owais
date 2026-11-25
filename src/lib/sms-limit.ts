@@ -131,7 +131,7 @@ export async function checkAccount(locationId: string, budget: { retries: number
     for (const x of ms) {
       if (x.direction !== "outbound" || x.messageType !== "TYPE_SMS") continue;
       const at = Date.parse(String(x.dateAdded ?? ""));
-      if (!Number.isFinite(at) || now - at > LOOKBACK_MS) continue;
+      if (!Number.isFinite(at) || at > now || now - at > LOOKBACK_MS) continue;
       if (String(x.status ?? "") === "failed") {
         const p = parseLimitError(x.error);
         if (!p) continue;
@@ -147,7 +147,8 @@ export async function checkAccount(locationId: string, budget: { retries: number
   // out fine since (a raised limit lets texts through before the reset time).
   // The reset time GHL states wins; only without one is a day assumed
   // (the "daily message limit" wording gives none).
-  if (fail) fail = { limit: fail.limit ?? limit, resumeAt: realResume ?? fail.resumeAt, failedAt: fail.failedAt };
+  // A stated time at or before the newest failure belongs to an older block.
+  if (fail) fail = { limit: fail.limit ?? limit, resumeAt: realResume != null && realResume > fail.failedAt ? realResume : fail.resumeAt, failedAt: fail.failedAt };
   if (fail && fail.resumeAt > now && !(goodAt != null && goodAt > fail.failedAt)) return { state: "blocked", ...fail };
   return { state: "clear", goodAfter: goodAt };
 }
@@ -162,7 +163,7 @@ const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ({
    "permanent makeup…") and picked a DIFFERENT client's coach for about 1 in
    4 accounts in the 11/25/2026 review. Order: exact owner name → exact
    business name (GHL account name, then the funnel's client name) → loose. */
-async function loadCoachFinder(svc: Svc) {
+export async function loadCoachFinder(svc: Svc) {
   const byOwner = new Map<string, string>(), byBiz = new Map<string, string>();
   const { data: cm } = await svc.from("clients_master").select("data");
   // Live rows win over old/offboarded twins of the same client.
@@ -177,9 +178,12 @@ async function loadCoachFinder(svc: Svc) {
   }
   const loose = await loadTeamLookup(svc);
   return (owner: string, ...bizNames: string[]): string | null => {
+    // The live GHL account name first: the owner can come from an old sync
+    // row of a recycled sub-account (Ruby's account still lists a former,
+    // offboarded client → the wrong coach, 11/25 review).
+    for (const n of bizNames) { const b = normalizeOwnerKey(n); if (b && byBiz.has(b)) return byBiz.get(b)!; }
     const o = normalizeOwnerKey(owner);
     if (o && byOwner.has(o)) return byOwner.get(o)!;
-    for (const n of bizNames) { const b = normalizeOwnerKey(n); if (b && byBiz.has(b)) return byBiz.get(b)!; }
     return loose(owner)?.assigned ?? bizNames.map((n) => loose(n)?.assigned).find(Boolean) ?? null;
   };
 }
@@ -197,9 +201,14 @@ export async function scanSmsLimit(svc: Svc, opts: { dryRun?: boolean; only?: st
   };
   // FIRST, needing only the clock: close boxes whose reset time has passed, so
   // a failed or slow run below can never leave a solved box on the tab.
-  const { data: open0 } = await svc.from("alerts").select("id, created_at, source_key, meta").eq("type", "sms_limit").eq("status", "open");
+  const { data: open0, error: openErr } = await svc.from("alerts").select("id, created_at, source_key, meta").eq("type", "sms_limit").eq("status", "open");
+  // Without a reliable view of the open boxes a run could file a second box for the same block.
+  if (openErr) return { accounts: 0, blocked: [], filed: 0, updated: 0, resolved: 0, unknown: 0, error: openErr.message };
   const reset = ((open0 ?? []) as OpenRow[]).filter((o) => { const t = Date.parse(String(o.meta?.resume_at ?? "")); return Number.isFinite(t) && t <= now; });
   let resolved = await closeIds(reset.map((o) => o.id));
+  const { data: recentRows } = await svc.from("alerts").select("id, meta, muted, resolved_by, resolved_at").eq("type", "sms_limit").neq("status", "open")
+    .gte("created_at", new Date(now - 3 * 86400_000).toISOString());
+  const recent = (recentRows ?? []) as Array<{ id: string; meta: Record<string, unknown> | null; muted: boolean | null; resolved_by: string | null; resolved_at: string | null }>;
   const stillOpen = ((open0 ?? []) as OpenRow[]).filter((o) => !reset.includes(o));
 
   /* Which accounts to check. Every texting account, not only the ones whose
@@ -216,7 +225,7 @@ export async function scanSmsLimit(svc: Svc, opts: { dryRun?: boolean; only?: st
     });
     if (error) return { accounts: 0, blocked: [], filed: 0, updated: 0, resolved, unknown: 0, error: error.message };
     for (const r of (data ?? []) as Array<{ location_id: string; owner_key: string | null }>) owners.set(r.location_id, r.owner_key ?? "");
-    const { data: sync } = await svc.from("ghl_sync_status").select("location_id, owner_key");
+    const { data: sync } = await svc.from("ghl_sync_status").select("location_id, owner_key, last_attempt_at").order("last_attempt_at", { ascending: false, nullsFirst: false });
     for (const r of (sync ?? []) as Array<{ location_id: string | null; owner_key: string | null }>) {
       if (r.location_id && !owners.get(r.location_id)) owners.set(r.location_id, r.owner_key ?? owners.get(r.location_id) ?? "");
     }
@@ -264,25 +273,33 @@ export async function scanSmsLimit(svc: Svc, opts: { dryRun?: boolean; only?: st
         link: messagingLimitsUrl(loc),
       };
       if (opts.dryRun) { names[names.length - 1] = `${label} → coach ${csm ?? "none"}`; continue; }
-      // One open box per account: a later failure only refreshes the reset time.
-      const twin = stillOpen.find((o) => String(o.meta?.location_id ?? "") === loc);
-      if (twin) {
-        await svc.from("alerts").update({ meta: { ...(twin.meta ?? {}), resume_at: meta.resume_at, failed_at: meta.failed_at, limit: meta.limit ?? twin.meta?.limit ?? null } }).eq("id", twin.id);
-        updated++;
-        continue;
-      }
       const { count } = await svc.from("alerts").select("id", { count: "exact", head: true })
         .eq("type", "sms_limit").like("source_key", `sms-limit:${loc}:%`).gte("created_at", new Date(now - 30 * 86400_000).toISOString());
-      const n = (count ?? 0) + 1;
-      const ok = await fileAlert(svc, {
-        type: "sms_limit",
-        severity: "high",
+      const twin = stillOpen.find((o) => String(o.meta?.location_id ?? "") === loc);
+      const text = (n: number) => ({
         title: `${label}: daily text limit reached${r.limit ? ` (${r.limit} texts)` : ""}`,
         detail:
           `This account can't send any texts right now — no AI replies, follow-ups, reminders or staff texts — until about ${fmtResume(r.resumeAt)}. ` +
           `To fix it now: in GHL open Settings → Phone System → Messaging → Messaging limits and raise the daily limit (most client accounts are at 400). ` +
           (n > 1 ? `This is the ${ordinal(n)} time in 30 days. ` : "") +
           `Closes by itself when texts go out again.`,
+      });
+      // One open box per account: later failures refresh its time, limit and coach.
+      if (twin) {
+        await svc.from("alerts").update({ ...text(count ?? 1), meta: { ...(twin.meta ?? {}), ...meta } }).eq("id", twin.id);
+        updated++;
+        continue;
+      }
+      /* The same block must not come back once its box was closed: by hand
+         (Resolve / Don't show again) until its reset time; after "texts went
+         out again" only when a NEW failure came after that good text. */
+      const handled = recent.filter((o) => String(o.meta?.location_id ?? "") === loc && Date.parse(String(o.meta?.resume_at ?? "")) > now);
+      if (handled.some((o) => o.muted || !String(o.resolved_by ?? "").startsWith("system")
+        || r.failedAt <= Date.parse(String(o.meta?.good_at ?? o.resolved_at ?? "")))) continue;
+      const ok = await fileAlert(svc, {
+        type: "sms_limit",
+        severity: "high",
+        ...text((count ?? 0) + 1),
         // Keyed by the failure that opened it: a new block after this one closes is a new box.
         source_key: `sms-limit:${loc}:${new Date(r.failedAt).toISOString().slice(0, 16)}`,
         meta,
@@ -291,12 +308,15 @@ export async function scanSmsLimit(svc: Svc, opts: { dryRun?: boolean; only?: st
     }
   }
 
-  // A text went out fine after the box opened (limit raised) → close it.
-  const textedAgain = stillOpen.filter((o) => {
+  // A text went out fine after the box opened (limit raised) → close it, and
+  // remember when, so the same block is not filed again (see `handled`).
+  for (const o of stillOpen) {
     const r = results.get(String(o.meta?.location_id ?? ""));
     const failedAt = Date.parse(String(o.meta?.failed_at ?? o.created_at));
-    return r?.state === "clear" && r.goodAfter != null && r.goodAfter > failedAt;
-  });
-  resolved += await closeIds(textedAgain.map((o) => o.id));
+    if (opts.dryRun || r?.state !== "clear" || r.goodAfter == null || r.goodAfter <= failedAt) continue;
+    const at = new Date().toISOString();
+    const { error } = await svc.from("alerts").update({ status: "resolved", resolved_by: "system (texts going out again)", resolved_at: at, meta: { ...(o.meta ?? {}), good_at: new Date(r.goodAfter).toISOString() } }).eq("id", o.id);
+    if (!error) resolved++;
+  }
   return { accounts: accounts.length, blocked: names, filed, updated, resolved, unknown };
 }
