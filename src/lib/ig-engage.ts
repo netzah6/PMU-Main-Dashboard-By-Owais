@@ -353,8 +353,8 @@ export async function queueRun(svc: Svc, by: string): Promise<QueueOutcome> {
       : posts.length
         ? null
         : s.approveComments
-          ? "write ONE comment idea for their newest post (do NOT post it) — it goes to the owner for approval"
-          : `write and POST ONE short comment on their newest post — only ONE comment on this whole account today${done.length ? `; NEVER comment on a post we already commented on (${done.slice(-5).join(", ")}) — if their newest post is one of these, do not comment` : ""}`;
+          ? "write ONE comment idea for their newest post (do NOT post it) — it goes to the owner for approval. NAME RULE (owner 11/25/2026): never write any name in the comment: no business name, no nickname, no person name, no city or place name (a client read 'Vegas brows' as us calling her the wrong studio). Talk only about the work in the post."
+          : `write and POST ONE short comment on their newest post — only ONE comment on this whole account today${done.length ? `; NEVER comment on a post we already commented on (${done.slice(-5).join(", ")}) — if their newest post is one of these, do not comment` : ""}. NAME RULE (owner 11/25/2026): never write any name in the comment: no business name, no nickname, no person name, no city or place name (a client read "Vegas brows" as us calling her the wrong studio). Talk only about the work in the post.`;
     const todo = [
       c.followed_at ? "we already follow them (check; follow if not)" : "FOLLOW them (we don't yet)",
       "watch their stories if they have any (let each play a few seconds) and tap the heart on one",
