@@ -31,7 +31,9 @@ function Kpi({ label, value, bg }: { label: string; value: string; bg: string })
   );
 }
 
-interface ClientLtv { name: string; signed: string; ltv: number }
+interface ClientLtv { name: string; signed: string; ltv: number; dep?: Dep }
+// Lead deposits we took for this client, minus refunds (owner, 11/25/2026) — /api/ltv/deposits.
+type Dep = { deposits: number; refunds: number; count: number; businesses: string[] };
 
 export default function LtvPage() {
   const [activeTab, setActiveTab] = useState<"payments" | "summary">("payments");
@@ -43,6 +45,11 @@ export default function LtvPage() {
   }, [roleLoading, role, router]);
   const { data: payments, loading: lp, error: ep } = useTableData<Record<string, unknown>>({ table: "ltv_sheet1" });
   const { data: summary, loading: ls, error: es } = useTableData<Record<string, unknown>>({ table: "ltv_sheet2" });
+  const [deps, setDeps] = useState<Record<string, Dep>>({});
+  useEffect(() => {
+    if (role !== "admin") return;
+    fetch("/api/ltv/deposits").then((r) => r.json()).then((j) => setDeps(j.byName ?? {})).catch(() => {});
+  }, [role]);
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("All");
 
@@ -110,10 +117,11 @@ export default function LtvPage() {
         name: String(r["(Name On Payment)"] ?? "").trim(),
         signed: String(r["(Name on Signed Up)"] ?? "").trim(),
         ltv: numv(r["Lifetime Value"]) ?? NaN,
+        dep: deps[String(r["(Name On Payment)"] ?? "").trim()],
       }))
       .filter((c) => c.name && !isNaN(c.ltv))
       .sort((a, b) => b.ltv - a.ltv);
-  }, [summary]);
+  }, [summary, deps]);
 
   const filteredClients = useMemo(() => {
     if (!search) return clients;
@@ -126,7 +134,21 @@ export default function LtvPage() {
   const clientCols = useMemo<Column<Record<string, unknown>>[]>(() => [
     { key: "name", header: "Name (On Payment)", render: (r) => <span className="font-medium text-[#1f3559]">{String(r.name)}</span> },
     { key: "signed", header: "Name (Signed Up)", render: (r) => (r.signed ? String(r.signed) : <span className="text-[#a6b3c4]">—</span>) },
-    { key: "ltv", header: "Lifetime Value", render: (r) => <span className="font-semibold text-[#0e8f88]">{formatCurrency(Number(r.ltv))}</span> },
+    { key: "ltv", header: "Lifetime Value + Deposits", render: (r) => {
+      const d = r.dep as Dep | undefined;
+      const net = d ? Math.max(0, d.deposits - d.refunds) : 0;
+      return (
+        <span className="whitespace-nowrap">
+          <span className="font-semibold text-[#0e8f88]">{formatCurrency(Number(r.ltv))}</span>
+          {d && net > 0 && (
+            <span className="text-[#6d28d9] font-semibold cursor-help"
+              title={`${d.count} lead deposits ${formatCurrency(d.deposits)}${d.refunds ? ` − refunds ${formatCurrency(d.refunds)}` : ""} = ${formatCurrency(net)}\n${d.businesses.join(", ")}`}>
+              {" + "}{formatCurrency(net)}
+            </span>
+          )}
+        </span>
+      );
+    } },
   ], []);
 
   // Hold rendering until the role resolves; non-admins are redirected above.
