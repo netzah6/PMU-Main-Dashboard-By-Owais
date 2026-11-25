@@ -8,6 +8,7 @@ import { findClientProgram, fetchProgramRows, type ProgramRow } from "@/lib/clie
 import { warmFunnel } from "@/lib/onebox-warm";
 import { startFunnelFill } from "@/lib/onebox-fill";
 import { patchExtras } from "@/lib/ig-fetch";
+import { cleanTyExtra, type TyExtra } from "@/lib/ty-extra";
 import { frozenDrift, type OneboxRow } from "@/lib/onebox-page";
 import { listCheckoutTransactions } from "@/lib/fanbasis";
 import { isValidHookUrlForLocation, clientHookUrl, buildReplayPayload, replayToClientHook } from "@/lib/payment-router";
@@ -58,6 +59,8 @@ type Extras = {
      funnel route serves extras.b2b as the page config (f/[slug]) and never
      reads GHL custom values for them. */
   b2b?: { variant?: string; tag?: string; calendarId?: string; metaPixelId?: string; fieldMap?: Record<string, string> };
+  /* The team's own thank-you touch (lib/ty-extra.ts). */
+  tyExtra?: TyExtra;
 };
 
 /* What the B2B page sends on a completed application — mirrors
@@ -276,6 +279,7 @@ export async function GET(req: NextRequest) {
       adRedirect: extras.adRedirect ?? "",
       redirectVerifiedAt: extras.redirectVerifiedAt ?? null,
       template: extras.template ?? "",
+      tyExtra: extras.tyExtra ?? null,
       cv: Object.fromEntries(Object.keys(ONEBOX_EDITABLE_CVS).map((k) => [k, config[k] ?? ""])),
       visitors: hitCounts[r.slug] ?? 0,
       leads: counts[r.slug]?.leads ?? 0,
@@ -317,7 +321,9 @@ export async function POST(req: NextRequest) {
      that moves traffic or money stays admin-only. */
   // "status" = the Go live / Pause button: coaches publish their own
   // onboardings without waiting on an admin (Netzah, 2026-09-16).
-const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "verifyRedirect", "intakeLink"]);
+// "thankyou" = the note / website / picture / video on the thank-you step:
+  // coaches do it for their artists without the owner (owner, 11/25/2026).
+const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "verifyRedirect", "intakeLink", "thankyou"]);
   /* The media buyer updates funnel OFFERS (owner, 2026-09-25) and META
      PIXELS (owner, 2026-10-02): "cvs" restricted to the offer field, and
      "extras" restricted to metaPixelId — both enforced in the handlers
@@ -460,6 +466,19 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        authorizes, and old /intake/<token> links keep working. */
     const url = `${FUNNEL_ORIGIN}/intake/${slug}/${intakeToken}`;
     return NextResponse.json({ ok: true, url, missing: missing.map((m) => m.label) });
+  }
+
+  if (action === "thankyou") {
+    if (isB2BRow) return NextResponse.json({ error: "B2B funnels have no thank-you step" }, { status: 400 });
+    const r = cleanTyExtra(body);
+    if ("error" in r) return NextResponse.json({ error: r.error }, { status: 400 });
+    const extras = { ...(row.extras as Extras) };
+    if (r.value) extras.tyExtra = { ...r.value, by: auth.email ?? auth.role ?? "team", at: new Date().toISOString() };
+    else delete extras.tyExtra;
+    const { error } = await svc.from("onebox_clients").update({ extras, updated_at: new Date().toISOString() }).eq("slug", slug);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    warmFunnel(slug);
+    return NextResponse.json({ ok: true, tyExtra: extras.tyExtra ?? null });
   }
 
   if (action === "extras") {
