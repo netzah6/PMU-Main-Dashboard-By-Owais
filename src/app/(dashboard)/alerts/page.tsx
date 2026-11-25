@@ -91,7 +91,7 @@ function AlertCard({ a, onAction, busy }: { a: AlertRow; onAction: (id: string, 
               {link && (
                 <a href={link} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[#e6f7f5] text-[#0e8f88] border-[#a7e3df] hover:bg-[#d5f0ee]">
-                  {contact ? `Open ${contact} in GHL` : "Open contact in GHL"} ↗
+                  {a.type === "sms_limit" ? "Open text limit settings in GHL" : contact ? `Open ${contact} in GHL` : "Open contact in GHL"} ↗
                 </a>
               )}
             </div>

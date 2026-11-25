@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAppLocationToken } from "@/lib/ghl-app";
-import { fileAlert, ghlJson, loadTeamLookup } from "@/lib/alerts";
+import { fileAlert, loadTeamLookup } from "@/lib/alerts";
+import { normalizeOwnerKey } from "@/lib/normalizers";
 
 /* ── Daily text limit reached ─────────────────────────────────────────────
    Every GHL sub-account has a daily SMS cap (Settings → Phone System →
@@ -27,7 +28,7 @@ type Svc = ReturnType<typeof createServiceClient>;
 
 const G = "https://services.leadconnectorhq.com";
 const LIMIT_RE = /SMS sending limit of\s*(\d+)/i;
-const AFTER_RE = /after\s+(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::\d{2})?\s+([A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+)*)/i;
+const AFTER_RE = /after\s+(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)?\s+([A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+)*)/i;
 const GOOD = new Set(["sent", "delivered", "read"]);
 const LOOKBACK_MS = 26 * 3600_000; // a cap resets within a day; older failures are history
 const CONVS_PER_ACCOUNT = 3;
@@ -58,17 +59,42 @@ export type LimitError = { limit: number | null; resumeAt: number | null };
 /* Reads GHL's limit error; null when the text is not a daily-limit failure. */
 export function parseLimitError(err: unknown): LimitError | null {
   const s = String(err ?? "");
-  if (!/sending limit/i.test(s) || !/for the day/i.test(s)) return null;
+  /* Two wordings seen (Annie Eyelash, 11/24/2026): "…SMS sending limit of 250
+     for the day. You can start sending message after <date time zone>." and,
+     on the first blocked text, "This location has reached its daily message
+     limit. Please try again tomorrow." (no reset time → a day is assumed). */
+  if (!(/sending limit/i.test(s) && /for the day/i.test(s)) && !/daily message limit/i.test(s)) return null;
   const lim = s.match(LIMIT_RE);
   const a = s.match(AFTER_RE);
   let resumeAt: number | null = null;
   if (a) {
     try {
-      new Intl.DateTimeFormat("en-US", { timeZone: a[6] }); // throws on a junk zone
-      resumeAt = zonedToUtc(+a[1], +a[2], +a[3], +a[4], +a[5], a[6]);
+      new Intl.DateTimeFormat("en-US", { timeZone: a[7] }); // throws on a junk zone
+      let h = +a[4];
+      if (a[6]) h = (h % 12) + (/pm/i.test(a[6]) ? 12 : 0);
+      resumeAt = zonedToUtc(+a[1], +a[2], +a[3], h, +a[5], a[7]);
     } catch { resumeAt = null; }
   }
   return { limit: lim ? Number(lim[1]) : null, resumeAt };
+}
+
+/* GET with a 20 s timeout; retries 429/5xx from a shared budget. */
+async function getJson<T>(url: string, headers: Record<string, string>, budget: { retries: number }): Promise<T> {
+  let last = "no answer";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) {
+      if (budget.retries <= 0) break;
+      budget.retries--;
+      await new Promise((r) => setTimeout(r, attempt === 1 ? 2000 : 6000));
+    }
+    try {
+      const r = await fetch(url, { headers, signal: AbortSignal.timeout(20_000), cache: "no-store" });
+      if (r.ok) return (await r.json()) as T;
+      last = `GHL ${r.status}`;
+      if (r.status !== 429 && r.status < 500) break;
+    } catch (e) { last = String((e as Error).message ?? e).slice(0, 80); }
+  }
+  throw new Error(last);
 }
 
 type Msg = { id: string; direction?: string; status?: string; messageType?: string; dateAdded?: string; error?: unknown };
@@ -87,7 +113,7 @@ export async function checkAccount(locationId: string, budget: { retries: number
   const H = { Authorization: `Bearer ${tok.token}`, Version: "2021-04-15", Accept: "application/json" };
   let convs: Conv[];
   try {
-    const s = await ghlJson<{ conversations?: Conv[] }>(`${G}/conversations/search?locationId=${locationId}&limit=10&sort=desc&sortBy=last_message_date`, H, budget);
+    const s = await getJson<{ conversations?: Conv[] }>(`${G}/conversations/search?locationId=${locationId}&limit=10&sort=desc&sortBy=last_message_date`, H, budget);
     convs = (s.conversations ?? [])
       .filter((c) => now - Number(c.lastMessageDate ?? 0) < LOOKBACK_MS)
       .sort((a, b) => Number(b.lastMessageDate ?? 0) - Number(a.lastMessageDate ?? 0))
@@ -95,10 +121,11 @@ export async function checkAccount(locationId: string, budget: { retries: number
   } catch (e) { return { state: "unknown", why: String((e as Error).message ?? e).slice(0, 80) }; }
   let fail: { limit: number | null; resumeAt: number; failedAt: number } | null = null;
   let goodAt: number | null = null;
+  let realResume: number | null = null, limit: number | null = null;
   for (const c of convs) {
     let ms: Msg[];
     try {
-      const m = await ghlJson<{ messages?: { messages?: Msg[] } }>(`${G}/conversations/${c.id}/messages?limit=8`, H, budget);
+      const m = await getJson<{ messages?: { messages?: Msg[] } }>(`${G}/conversations/${c.id}/messages?limit=8`, H, budget);
       ms = m.messages?.messages ?? [];
     } catch { continue; }
     for (const x of ms) {
@@ -108,9 +135,9 @@ export async function checkAccount(locationId: string, budget: { retries: number
       if (String(x.status ?? "") === "failed") {
         const p = parseLimitError(x.error);
         if (!p) continue;
-        // No reset time in the error: GHL's cap is per day, so assume a day.
-        const resumeAt = p.resumeAt ?? at + 24 * 3600_000;
-        if (!fail || at > fail.failedAt) fail = { limit: p.limit, resumeAt, failedAt: at };
+        if (p.resumeAt != null && (realResume == null || p.resumeAt > realResume)) realResume = p.resumeAt;
+        if (p.limit != null) limit = p.limit;
+        if (!fail || at > fail.failedAt) fail = { limit: p.limit, resumeAt: at + 24 * 3600_000, failedAt: at };
       } else if (GOOD.has(String(x.status ?? ""))) {
         if (goodAt == null || at > goodAt) goodAt = at;
       }
@@ -118,6 +145,9 @@ export async function checkAccount(locationId: string, budget: { retries: number
   }
   // Blocked = a limit failure whose reset is still ahead, and no text has gone
   // out fine since (a raised limit lets texts through before the reset time).
+  // The reset time GHL states wins; only without one is a day assumed
+  // (the "daily message limit" wording gives none).
+  if (fail) fail = { limit: fail.limit ?? limit, resumeAt: realResume ?? fail.resumeAt, failedAt: fail.failedAt };
   if (fail && fail.resumeAt > now && !(goodAt != null && goodAt > fail.failedAt)) return { state: "blocked", ...fail };
   return { state: "clear", goodAfter: goodAt };
 }
@@ -125,58 +155,125 @@ export async function checkAccount(locationId: string, budget: { retries: number
 const fmtResume = (ms: number) =>
   new Date(ms).toLocaleString("en-US", { timeZone: "America/New_York", month: "2-digit", day: "2-digit", hour: "numeric", minute: "2-digit" }) + " ET";
 
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th"}`;
+
+/* Who takes care of the client. Exact matches first — the loose
+   loadTeamLookup matcher needs only 2 shared words ("brows by…",
+   "permanent makeup…") and picked a DIFFERENT client's coach for about 1 in
+   4 accounts in the 11/25/2026 review. Order: exact owner name → exact
+   business name (GHL account name, then the funnel's client name) → loose. */
+async function loadCoachFinder(svc: Svc) {
+  const byOwner = new Map<string, string>(), byBiz = new Map<string, string>();
+  const { data: cm } = await svc.from("clients_master").select("data");
+  // Live rows win over old/offboarded twins of the same client.
+  const rows = ((cm ?? []) as Array<{ data: Record<string, unknown> }>).map((r) => r.data ?? {})
+    .sort((a, b) => Number(String(b["col_1"] ?? "") === "Live") - Number(String(a["col_1"] ?? "") === "Live"));
+  for (const d of rows) {
+    const coach = String(d["Assigned"] ?? "").trim();
+    if (!coach) continue;
+    const o = normalizeOwnerKey(d["Owner Full Name"]), b = normalizeOwnerKey(d["Business Name"]);
+    if (o && !byOwner.has(o)) byOwner.set(o, coach);
+    if (b && !byBiz.has(b)) byBiz.set(b, coach);
+  }
+  const loose = await loadTeamLookup(svc);
+  return (owner: string, ...bizNames: string[]): string | null => {
+    const o = normalizeOwnerKey(owner);
+    if (o && byOwner.has(o)) return byOwner.get(o)!;
+    for (const n of bizNames) { const b = normalizeOwnerKey(n); if (b && byBiz.has(b)) return byBiz.get(b)!; }
+    return loose(owner)?.assigned ?? bizNames.map((n) => loose(n)?.assigned).find(Boolean) ?? null;
+  };
+}
+
+type OpenRow = { id: string; created_at: string; source_key: string; meta: Record<string, unknown> | null };
+
 export async function scanSmsLimit(svc: Svc, opts: { dryRun?: boolean; only?: string[] } = {}): Promise<{
-  accounts: number; blocked: string[]; filed: number; resolved: number; unknown: number; error?: string;
+  accounts: number; blocked: string[]; filed: number; updated: number; resolved: number; unknown: number; error?: string;
 }> {
   const now = Date.now();
-  // Accounts that texted or got texts in the last 3 days (synced copy; only used to pick who to check).
-  let accounts: Array<{ location_id: string; owner_key: string | null }>;
-  if (opts.only?.length) accounts = opts.only.map((id) => ({ location_id: id, owner_key: null }));
+  const closeIds = async (ids: string[]) => {
+    if (!ids.length || opts.dryRun) return 0;
+    await svc.from("alerts").update({ status: "resolved", resolved_by: "system (texts going out again)", resolved_at: new Date().toISOString() }).in("id", ids);
+    return ids.length;
+  };
+  // FIRST, needing only the clock: close boxes whose reset time has passed, so
+  // a failed or slow run below can never leave a solved box on the tab.
+  const { data: open0 } = await svc.from("alerts").select("id, created_at, source_key, meta").eq("type", "sms_limit").eq("status", "open");
+  const reset = ((open0 ?? []) as OpenRow[]).filter((o) => { const t = Date.parse(String(o.meta?.resume_at ?? "")); return Number.isFinite(t) && t <= now; });
+  let resolved = await closeIds(reset.map((o) => o.id));
+  const stillOpen = ((open0 ?? []) as OpenRow[]).filter((o) => !reset.includes(o));
+
+  /* Which accounts to check. Every texting account, not only the ones whose
+     synced copy is fresh (Permanent Make Up By Yeni's copy stopped 06/25 but
+     she texts every day; the agency's own account is never synced):
+     recent synced conversations ∪ every account the sync knows ∪ the agency. */
+  const owners = new Map<string, string>();
+  if (opts.only?.length) for (const id of opts.only) owners.set(id, "");
   else {
     const { data, error } = await svc.rpc("ask_ai_query", {
       q: `SELECT location_id, max(owner_key) AS owner_key FROM ghl_conversations
           WHERE last_message_date > now() - interval '3 days' AND location_id IS NOT NULL
           GROUP BY location_id`,
     });
-    if (error) return { accounts: 0, blocked: [], filed: 0, resolved: 0, unknown: 0, error: error.message };
-    accounts = (data ?? []) as typeof accounts;
+    if (error) return { accounts: 0, blocked: [], filed: 0, updated: 0, resolved, unknown: 0, error: error.message };
+    for (const r of (data ?? []) as Array<{ location_id: string; owner_key: string | null }>) owners.set(r.location_id, r.owner_key ?? "");
+    const { data: sync } = await svc.from("ghl_sync_status").select("location_id, owner_key");
+    for (const r of (sync ?? []) as Array<{ location_id: string | null; owner_key: string | null }>) {
+      if (r.location_id && !owners.get(r.location_id)) owners.set(r.location_id, r.owner_key ?? owners.get(r.location_id) ?? "");
+    }
+    const agency = process.env.GHL_LOCATION_ID;
+    if (agency && !owners.has(agency)) owners.set(agency, "");
   }
+  const accounts = [...owners.keys()];
+
   const budget = { retries: 8 };
   const results = new Map<string, AccountCheck>();
   let i = 0;
   const worker = async () => {
     while (i < accounts.length) {
-      const a = accounts[i++];
-      try { results.set(a.location_id, await checkAccount(a.location_id, budget, now)); }
-      catch (e) { results.set(a.location_id, { state: "unknown", why: String(e).slice(0, 80) }); }
+      const loc = accounts[i++];
+      try { results.set(loc, await checkAccount(loc, budget, now)); }
+      catch (e) { results.set(loc, { state: "unknown", why: String(e).slice(0, 80) }); }
     }
   };
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
   const blocked = [...results].filter(([, r]) => r.state === "blocked") as Array<[string, Extract<AccountCheck, { state: "blocked" }>]>;
   const unknown = [...results.values()].filter((r) => r.state === "unknown").length;
-  let filed = 0;
+  let filed = 0, updated = 0;
   const names: string[] = [];
   if (blocked.length) {
-    const team = await loadTeamLookup(svc);
-    const ownerKey = new Map(accounts.map((a) => [a.location_id, a.owner_key]));
+    const coachOf = await loadCoachFinder(svc);
+    const { data: funnels } = await svc.from("onebox_clients").select("location_id, client_name");
+    const funnelName = new Map(((funnels ?? []) as Array<{ location_id: string | null; client_name: string | null }>).map((f) => [f.location_id ?? "", f.client_name ?? ""]));
     for (const [loc, r] of blocked) {
       // Account name from GHL itself (the synced copy only has the owner).
       let name = "";
       try {
         const tok = await getAppLocationToken(loc);
-        const j = (await (await fetch(`${G}/locations/${loc}`, { headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" } })).json()) as { location?: { name?: string } };
+        const j = (await (await fetch(`${G}/locations/${loc}`, { headers: { Authorization: `Bearer ${tok.token}`, Version: "2021-07-28", Accept: "application/json" }, signal: AbortSignal.timeout(20_000) })).json()) as { location?: { name?: string } };
         name = String(j.location?.name ?? "").trim();
       } catch { /* fall back to the owner */ }
-      const owner = ownerKey.get(loc) ?? "";
-      const who = team(name) ?? team(owner);
-      const label = name || owner || loc;
+      const owner = owners.get(loc) ?? "";
+      const isAgency = loc === process.env.GHL_LOCATION_ID;
+      const csm = isAgency ? null : coachOf(owner, name, funnelName.get(loc) ?? "");
+      const label = name || funnelName.get(loc) || owner || loc;
       names.push(label);
-      const day = new Date(r.resumeAt).toISOString().slice(0, 10);
+      const meta = {
+        location_id: loc, business: label, owner: owner || null, csm,
+        limit: r.limit, resume_at: new Date(r.resumeAt).toISOString(), failed_at: new Date(r.failedAt).toISOString(),
+        link: messagingLimitsUrl(loc),
+      };
+      if (opts.dryRun) { names[names.length - 1] = `${label} → coach ${csm ?? "none"}`; continue; }
+      // One open box per account: a later failure only refreshes the reset time.
+      const twin = stillOpen.find((o) => String(o.meta?.location_id ?? "") === loc);
+      if (twin) {
+        await svc.from("alerts").update({ meta: { ...(twin.meta ?? {}), resume_at: meta.resume_at, failed_at: meta.failed_at, limit: meta.limit ?? twin.meta?.limit ?? null } }).eq("id", twin.id);
+        updated++;
+        continue;
+      }
       const { count } = await svc.from("alerts").select("id", { count: "exact", head: true })
         .eq("type", "sms_limit").like("source_key", `sms-limit:${loc}:%`).gte("created_at", new Date(now - 30 * 86400_000).toISOString());
-      const before = count ?? 0;
-      if (opts.dryRun) continue;
+      const n = (count ?? 0) + 1;
       const ok = await fileAlert(svc, {
         type: "sms_limit",
         severity: "high",
@@ -184,37 +281,22 @@ export async function scanSmsLimit(svc: Svc, opts: { dryRun?: boolean; only?: st
         detail:
           `This account can't send any texts right now — no AI replies, follow-ups, reminders or staff texts — until about ${fmtResume(r.resumeAt)}. ` +
           `To fix it now: in GHL open Settings → Phone System → Messaging → Messaging limits and raise the daily limit (most client accounts are at 400). ` +
-          (before ? `This is the ${before + 1}${before + 1 === 2 ? "nd" : before + 1 === 3 ? "rd" : "th"} time in 30 days. ` : "") +
+          (n > 1 ? `This is the ${ordinal(n)} time in 30 days. ` : "") +
           `Closes by itself when texts go out again.`,
-        source_key: `sms-limit:${loc}:${day}`,
-        meta: {
-          location_id: loc, business: label, owner: owner || null, csm: who?.assigned ?? null,
-          limit: r.limit, resume_at: new Date(r.resumeAt).toISOString(), failed_at: new Date(r.failedAt).toISOString(),
-          link: messagingLimitsUrl(loc),
-        },
+        // Keyed by the failure that opened it: a new block after this one closes is a new box.
+        source_key: `sms-limit:${loc}:${new Date(r.failedAt).toISOString().slice(0, 16)}`,
+        meta,
       });
       if (ok) filed++;
     }
   }
 
-  // Close boxes whose account can text again: reset time passed, or a text
-  // went out fine after the alert was filed (limit raised).
-  let resolved = 0;
-  if (!opts.dryRun) {
-    const { data: open } = await svc.from("alerts").select("id, created_at, meta").eq("type", "sms_limit").eq("status", "open");
-    const toClose: string[] = [];
-    for (const o of (open ?? []) as Array<{ id: string; created_at: string; meta: Record<string, unknown> | null }>) {
-      const m = o.meta ?? {};
-      const resume = Date.parse(String(m.resume_at ?? ""));
-      const failedAt = Date.parse(String(m.failed_at ?? o.created_at));
-      const r = results.get(String(m.location_id ?? ""));
-      const textedSince = r?.state === "clear" && r.goodAfter != null && r.goodAfter > failedAt;
-      if ((Number.isFinite(resume) && resume <= now) || textedSince) toClose.push(o.id);
-    }
-    if (toClose.length) {
-      await svc.from("alerts").update({ status: "resolved", resolved_by: "system (texts going out again)", resolved_at: new Date().toISOString() }).in("id", toClose);
-      resolved = toClose.length;
-    }
-  }
-  return { accounts: accounts.length, blocked: names, filed, resolved, unknown };
+  // A text went out fine after the box opened (limit raised) → close it.
+  const textedAgain = stillOpen.filter((o) => {
+    const r = results.get(String(o.meta?.location_id ?? ""));
+    const failedAt = Date.parse(String(o.meta?.failed_at ?? o.created_at));
+    return r?.state === "clear" && r.goodAfter != null && r.goodAfter > failedAt;
+  });
+  resolved += await closeIds(textedAgain.map((o) => o.id));
+  return { accounts: accounts.length, blocked: names, filed, updated, resolved, unknown };
 }
