@@ -29,6 +29,10 @@
       "schedule": "*/10 * * * *"
     },
     {
+      "path": "/api/cron/sms-limit",
+      "schedule": "15,45 * * * *"
+    },
+    {
       "path": "/api/cron/alerts-scan",
       "schedule": "*/30 * * * *"
     },

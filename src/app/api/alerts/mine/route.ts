@@ -9,7 +9,9 @@ import { getAuth } from "@/lib/ppa";
    only on the admin Alerts tab, so the coach never saw them. Same rows, same
    self-closing rules; this only shows a coach the ones for HER clients
    (alert meta.csm = the "Assigned" coach name, matched to the login's email
-   name, e.g. "Viridiana" ↔ viridiana@…). Admins get every open one. */
+   name, e.g. "Viridiana" ↔ viridiana@…). Admins get every open one.
+   11/25/2026 owner: also "📵 daily text limit reached" — the client's
+   account can't text anyone until the limit is raised or resets. */
 
 export type CoachAlert = { id: string; type: string; title: string; detail: string | null; created_at: string; csm: string | null; link: string | null };
 
@@ -19,11 +21,11 @@ export async function GET() {
   if (auth.role !== "admin" && auth.role !== "editor") return NextResponse.json({ alerts: [] });
   const svc = createServiceClient();
   const { data, error } = await svc.from("alerts").select("id, type, title, detail, created_at, source_key, meta")
-    .eq("status", "open").in("type", ["status", "onboarding"]).order("created_at", { ascending: false }).limit(200);
+    .eq("status", "open").in("type", ["status", "onboarding", "sms_limit"]).order("created_at", { ascending: false }).limit(200);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const me = (auth.email ?? "").split("@")[0].toLowerCase().replace(/[^a-z]/g, "");
   const alerts: CoachAlert[] = (data ?? [])
-    .filter((a) => a.type === "status" || String(a.source_key).startsWith("first_cycle_blank:"))
+    .filter((a) => a.type === "status" || a.type === "sms_limit" || String(a.source_key).startsWith("first_cycle_blank:"))
     .map((a) => {
       const m = (a.meta ?? {}) as Record<string, unknown>;
       return { id: a.id, type: a.type, title: a.title, detail: a.detail, created_at: a.created_at, csm: typeof m.csm === "string" ? m.csm : null, link: typeof m.link === "string" ? m.link : null };

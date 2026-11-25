@@ -156,7 +156,7 @@ export function TaskPopup() {
         <ul className="max-h-[30vh] overflow-y-auto divide-y divide-[#fdecc8] bg-[#fffaf0] border-b border-[#f6e3b8]">
           {alerts.slice(0, SHOW_MAX).map((a) => (
             <li key={a.id} className="flex items-start gap-2 px-4 py-2">
-              <span className="shrink-0 mt-0.5">{a.type === "status" ? "🚦" : "🚀"}</span>
+              <span className="shrink-0 mt-0.5">{a.type === "status" ? "🚦" : a.type === "sms_limit" ? "📵" : "🚀"}</span>
               <p className="flex-1 min-w-0 text-[13px] font-semibold text-[#1f3559] break-words">{a.title}</p>
               {a.link && (
                 <a href={a.link} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[11px] font-semibold text-[#0e8f88] hover:underline mt-0.5">GHL ↗</a>
