@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RoadTo100k } from "@/components/ceo/RoadTo100k";
 import { Scorecard } from "@/components/ceo/Scorecard";
+import { StrategyMap } from "@/components/ceo/StrategyMap";
 
 // CEO view, rebuilt natively.
 //
@@ -122,6 +123,8 @@ export default function CeoPage() {
         </div>
       )}
 
+      {/* ── The plan as a picture: Road to $225K (owner, 11/25/2026) ── */}
+      <StrategyMap />
       {/* ── This month's plan, then the tracker behind it (owner, 2026-10-04) ── */}
       <Scorecard />
       {/* ── Road to $100k/mo profit (owner, 2026-10-03) ─────────────── */}
