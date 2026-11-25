@@ -79,13 +79,6 @@ function spendTone(spent: unknown, dailyBudget: unknown, days: number): Vivid | 
   return null; // in range — no color
 }
 
-// Booking %: green intensity scale (higher % = darker green), like the sheet
-const bookingFill = (p: number | null): Vivid => {
-  if (p == null) return { bg: "transparent", fg: "#a6b3c4" };
-  const t = Math.max(0, Math.min(1, p / 20)); // cap at 20%
-  return { bg: `hsl(135, 42%, ${96 - t * 44}%)`, fg: "#0f3320" };
-};
-
 // ── campaign status ──────────────────────────────────────────────────────────
 function shortStatus(s: string | null): string {
   const u = (s ?? "").toUpperCase();
@@ -209,7 +202,7 @@ function FbTrackCell({ status, name }: { status?: FbTrack; name?: string }) {
   return <span className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border cursor-default", t.cls)} title={t.tip}>{t.label}</span>;
 }
 
-const HEADERS = ["Owner Name", "Business Name", "Version", "Daily Budget", "Assigned", "Media Buyer", "1-Box", "FB Data", "PMU Services", "Status", "Booking %", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Campaigns"];
+const HEADERS = ["Owner Name", "Business Name", "Version", "Daily Budget", "Assigned", "Media Buyer", "1-Box", "FB Data", "PMU Services", "Status", "L 30", "L 14", "L 7", "L 3", "CPL 30", "CPL 14", "CPL 7", "Spent 14", "Spent 7", "Spent (All)", "Campaigns"];
 
 /* UNSETTLED ad account → one click texts the client, from PMU Bookings On
    Demand (the teammate's own number there when they have one), to ask their
@@ -243,7 +236,7 @@ function AdSpendNudge({ sheetRow, lastAskedAt, onSent }: { sheetRow: number; las
     } finally { setBusy(false); }
   };
   return (
-    <span className="ml-1 inline-flex items-center gap-1 align-middle">
+    <span className="inline-flex flex-col items-start gap-0.5">
       <button onClick={() => void go()} disabled={busy}
         title="Text the client to ask their bank to approve the Facebook ad spend"
         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-[#f5c2cf] bg-white text-[10px] font-semibold text-[#e11d48] hover:bg-[#fde8ee] disabled:opacity-60">
@@ -381,7 +374,7 @@ export default function PerformancePage() {
             <thead>
               <tr>
                 {HEADERS.map((h, idx) => {
-                  const divider = idx === 10 || idx === 14 || idx === 17; // after Booking %, L 3, CPL 7 (+1 for Version, 1-Box, FB Data)
+                  const divider = idx === 9 || idx === 13 || idx === 16; // after Status, L 3, CPL 7
                   return (
                     <th
                       key={h}
@@ -404,8 +397,6 @@ export default function PerformancePage() {
             </thead>
             <tbody>
               {filtered.map((r, i) => {
-                const booking = num(r.booking_pct);
-                const bookingPctVal = booking == null ? null : (booking < 1 ? booking * 100 : booking);
                 const cpl30 = num(r.cpl30), cpl14 = num(r.cpl14), cpl7 = num(r.cpl7);
                 const sp14 = spendTone(r.spent14, r.daily_budget, 14);
                 const sp7 = spendTone(r.spent7, r.daily_budget, 7);
@@ -457,7 +448,8 @@ export default function PerformancePage() {
                       {(() => { const slug = oneboxMap?.get((r.owner_name ?? "").toLowerCase().trim())?.slug; return <FbTrackCell status={slug ? fbTrack[slug] : undefined} name={slug ? fbName[slug] : undefined} />; })()}
                     </td>
                     <td className="px-2 sm:px-3 py-1 align-top"><PmuServicesCell value={r.pmu_services} /></td>
-                    <td className="px-2 sm:px-3 py-1 whitespace-nowrap">
+                    <td className="px-2 py-1 whitespace-nowrap border-r-2 border-[#cbd5e1]">
+                      <div className="flex flex-col items-start gap-0.5">
                       <span className={cn("inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border", statusTone(r.campaign_status))}>
                         {shortStatus(r.campaign_status)}
                       </span>
@@ -466,15 +458,12 @@ export default function PerformancePage() {
                           onSent={(at) => setNudged((m) => ({ ...m, [(r.owner_name ?? "").trim().toLowerCase()]: at }))} />
                       )}
                       {r.campaign_paused && (
-                        <span className="ml-1 inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
+                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase border bg-[#fff7ec] text-[#d97706] border-[#fcd9a8]"
                           title="All tracked campaigns for this account are paused">
                           Paused
                         </span>
                       )}
-                    </td>
-                    <td className="px-2 sm:px-3 py-1 text-center font-semibold whitespace-nowrap border-r-2 border-[#cbd5e1]"
-                      style={bookingPctVal == null ? undefined : { background: bookingFill(bookingPctVal).bg, color: bookingFill(bookingPctVal).fg }}>
-                      {bookingPctVal == null ? <span className="text-[#a6b3c4]">—</span> : `${bookingPctVal.toFixed(2)}%`}
+                      </div>
                     </td>
                     <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l30, 86, 65, paused).bg, color: leadCellTone(r.l30, 86, 65, paused).fg }}>{r.l30}</td>
                     <td className="px-2 sm:px-3 py-1 text-center font-bold" style={{ background: leadCellTone(r.l14, 43, 33, paused).bg, color: leadCellTone(r.l14, 43, 33, paused).fg }}>{r.l14}</td>
