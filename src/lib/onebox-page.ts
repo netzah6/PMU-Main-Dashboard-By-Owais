@@ -36,6 +36,13 @@ export type OneboxRow = {
     tyVideos?: { v: string; p?: string }[];
     /* The team's own thank-you touch (note, website button, picture, video): lib/ty-extra.ts. */
     tyExtra?: TyExtra;
+    /* Meet-your-artist card, thank-you headline and per-service photo sets
+       (owner 11/25/2026, Fine Arts first). Set by the team; see public/onebox.js. */
+    tyArtist?: {
+      head?: string; sub?: string; galleriesHead?: string;
+      artist?: { img?: string; name?: string; label?: string; title?: string; bio?: string; callLabel?: string };
+      galleries?: { title?: string; sub?: string; imgs?: string[] }[];
+    };
     /* "b2b" = the agency's own artist-acquisition funnel: config lives in
        extras.b2b (the CV sync must never overwrite it) and the page runs
        the dedicated onebox-b2b.js engine — no Fanbasis, booking a free
@@ -184,6 +191,10 @@ export function buildFunnelPage(row: OneboxRow, req: { expId: string; expVkey: s
     bigOffer: row.extras.bigOffer ? "1" : "",
     tyVideos: row.extras.tyVideos?.length ? JSON.stringify(row.extras.tyVideos.map((t) => ({ v: t.v, p: t.p || "" }))) : "",
     tyExtra: tyExtraForPage(row.extras.tyExtra),
+    tyArtist: row.extras.tyArtist ? JSON.stringify({
+      head: row.extras.tyArtist.head || "", sub: row.extras.tyArtist.sub || "", galleriesHead: row.extras.tyArtist.galleriesHead || "",
+      artist: row.extras.tyArtist.artist || null, galleries: row.extras.tyArtist.galleries || [],
+    }) : "",
     pay: isPay ? "1" : "",
   };
   /* Same URL the engine will render (its fastImg proxies media-library
@@ -231,7 +242,7 @@ const LIVE_KEYS = new Set([
   "calendarId", "deposit", "freeBooking", "consultMode", "phone", "address", "metaPixelId",
   "fanbasisProductId", "fanbasisCode", "fanbasisHookUrl", "thankYouPath", "depositFunnelUrl",
   /* After payment only, so it can't change a test result: the team's edit reaches a frozen page too. */
-  "tyExtra",
+  "tyExtra", "tyArtist",
 ]);
 
 /* The values someone can still edit for a frozen client. Changing one doesn't

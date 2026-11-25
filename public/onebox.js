@@ -421,6 +421,20 @@
     "#onebox-root .tyx .tynote{margin:0 0 12px;font-family:var(--content);font-size:14.5px;line-height:1.6;color:var(--ink-soft);white-space:pre-line}" +
     "#onebox-root .tyx img,#onebox-root .tyx video{display:block;width:100%;max-width:520px;margin:0 auto 12px;border-radius:12px;background:#000}" +
     "#onebox-root .tyx .tylink{display:inline-block;padding:12px 22px;border-radius:12px;background:var(--teal-deep);color:#fff;font-family:var(--form);font-weight:700;font-size:14.5px;text-decoration:none}" +
+    /* Meet-your-artist card + per-service photo sets on the thank-you step
+       (extras.tyArtist, owner 11/25/2026 — Fine Arts asked for her website's
+       thank-you look inside our brand). */
+    "#onebox-root .tyart{margin:18px 0 0;padding:20px 18px;border:1px solid var(--line);border-radius:14px;text-align:center;background:#fff;box-shadow:0 8px 20px -14px rgba(17,19,21,.25)}" +
+    "#onebox-root .tyart .tyartpic{width:112px;height:112px;border-radius:50%;object-fit:cover;display:block;margin:0 auto 12px;border:3px solid #fff;box-shadow:0 0 0 2px var(--teal)}" +
+    "#onebox-root .tyart .tyartlbl{margin:0 0 4px;font-family:var(--form);font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--teal-deep)}" +
+    "#onebox-root .tyart h3{margin:0 0 10px;font-family:var(--headline);font-size:20px;font-weight:700;color:#000;text-wrap:balance}" +
+    "#onebox-root .tyart p.tyartbio{margin:0 0 10px;font-family:var(--content);font-size:14.5px;line-height:1.6;color:var(--ink-soft);white-space:pre-line;text-align:left}" +
+    "#onebox-root .tyart .tylink{display:inline-block;margin-top:4px;padding:12px 22px;border-radius:12px;background:var(--teal-deep);color:#fff;font-family:var(--form);font-weight:700;font-size:14.5px;text-decoration:none}" +
+    "#onebox-root .tygal{max-width:640px;margin:0 auto}" +
+    "#onebox-root .tygal + .tygal{margin-top:26px}" +
+    "#onebox-root .tygal h3{margin:0 0 2px;font-family:var(--headline);font-size:17px;font-weight:700;text-align:center;color:#000}" +
+    "#onebox-root .tygal .tygsub{margin:0 0 10px;font-family:var(--content);font-size:13px;text-align:center;color:var(--muted)}" +
+    "#onebox-root .tygal .results{border-radius:12px;overflow:hidden}" +
     "#onebox-root .igwrap{margin-top:14px}" +
     "#onebox-root .igself{max-width:640px;margin:0 auto}" +
     /* Profile header laid out like the Instagram app: handle on top, photo
@@ -1382,6 +1396,35 @@
     if (safe(TYX.linkUrl)) out += '<a class="tylink" href="' + esc(TYX.linkUrl) + '" target="_blank" rel="noopener">' + esc(TYX.linkLabel || "Visit our website") + "</a>";
     return out ? '<div class="tyx">' + out + "</div>" : "";
   }
+  /* Meet-your-artist card, custom thank-you headline and per-service photo
+     sets (extras.tyArtist, owner 11/25/2026). All optional, per client. */
+  var TYA = null;
+  try { TYA = C.tyArtist ? JSON.parse(C.tyArtist) : null; } catch (e) { TYA = null; }
+  function tyArtistHtml() {
+    var a = TYA && TYA.artist;
+    if (!a || !(a.title || a.bio)) return "";
+    var pic = /^https?:\/\//i.test(String(a.img || "")) ? '<img class="tyartpic" src="' + esc(fastImg(a.img, 400)) + '" alt="' + esc(a.name || "Your artist") + '" loading="lazy">' : "";
+    var tel = String(PHONE || "").replace(/[^\d+]/g, "");
+    return '<div class="tyart">' + pic +
+      (a.label ? '<p class="tyartlbl">' + esc(a.label) + "</p>" : "") +
+      (a.title ? "<h3>" + esc(a.title) + "</h3>" : "") +
+      String(a.bio || "").split(/\n\s*\n/).filter(Boolean).map(function (para) { return '<p class="tyartbio">' + esc(para.trim()) + "</p>"; }).join("") +
+      (a.callLabel && tel ? '<a class="tylink" href="tel:' + esc(tel) + '">&#128222; ' + esc(a.callLabel) + "</a>" : "") +
+      "</div>";
+  }
+  function tyGalleriesHtml() {
+    var g = TYA && Array.isArray(TYA.galleries) ? TYA.galleries : [];
+    var out = g.map(function (x) {
+      var imgs = (Array.isArray(x.imgs) ? x.imgs : []).filter(function (u) { return /^https?:\/\//i.test(String(u || "")); });
+      if (!imgs.length) return "";
+      return '<div class="tygal">' + (x.title ? "<h3>" + esc(x.title) + "</h3>" : "") +
+        (x.sub ? '<p class="tygsub">' + esc(x.sub) + "</p>" : "") +
+        '<div class="results">' + imgs.map(function (u) {
+          return '<img src="' + esc(fastImg(u, 640)) + '" alt="' + esc(x.title || "Client result") + '" loading="lazy">';
+        }).join("") + "</div></div>";
+    }).join("");
+    return out ? '<div class="xsec"><h2 class="xhead">' + esc((TYA && TYA.galleriesHead) || "Real Client Results") + " &#128071;</h2>" + out + "</div>" : "";
+  }
   function slideDone() {
     var first = (state.answers.full_name || "").split(/\s+/)[0] || "";
     if (FLOW_V1) {
@@ -1396,14 +1439,16 @@
           (ADDR ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
           "<p>We&rsquo;ll text you shortly to lock in your appointment time. Keep an eye on your phone! &#128241;</p>" +
         "</div>" +
-        tyExtraHtml() +
+        tyArtistHtml() + tyExtraHtml() +
         ((C.igWidget || C.elfsightId || C.igFrozenImgs || C.igFeed) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
           "&#128248; Follow us on Instagram for daily results</a>" : "");
     }
     return confettiHtml() +
       '<div class="doneburst">&#127881;</div>' +
+      (TYA && TYA.head ? '<h2 class="phead donehead">' + esc(TYA.head.replace(/\{name\}/g, first || "").replace(/,\s*!/, "!").replace(/\s+!/, "!")) + "</h2>" +
+        (TYA.sub ? '<p class="donesub">' + esc(TYA.sub) + "</p>" : "") :
       '<h2 class="phead donehead">' + (first ? esc(first) + ", you" : "You") + "&rsquo;re booked!</h2>" +
-      '<p class="donesub">' + (FREE ? "Get excited &mdash; your " + APPT + " is officially on the calendar." : "Get excited &mdash; your transformation is officially on the calendar.") + "</p>" +
+      '<p class="donesub">' + (FREE ? "Get excited &mdash; your " + APPT + " is officially on the calendar." : "Get excited &mdash; your transformation is officially on the calendar.") + "</p>") +
       '<div class="confcard donecard">' +
         "<h3>&#10004; Your " + APPT + " is confirmed</h3>" +
         (state.slotIso ? '<p class="confwhen">' + esc(fmtWhen(state.slotIso)) + "</p>" +
@@ -1411,7 +1456,7 @@
         (ADDR && !VIDEO ? '<p class="confaddr">&#128205; ' + esc(ADDR) + "</p>" : "") +
         (FREE ? "" : "<p>Your " + esc(DEPOSIT) + " reservation fee is fully refundable &mdash; we&rsquo;ll apply it to your service" + (VIDEO ? "" : " at your visit") + ".</p>") +
       "</div>" +
-      tyExtraHtml() +
+      tyArtistHtml() + tyExtraHtml() +
       ((C.igWidget || C.elfsightId || C.igFrozenImgs || C.igFeed) && IGLINK ? '<a class="donefollow" href="' + esc(IGLINK) + '" target="_blank" rel="noopener">' +
         "&#128248; Follow us on Instagram for daily results</a>" : "") +
       '<p class="donenote">' + (FREE && VIDEO ? "We&rsquo;ll text you the details for your video consultation before the call. Keep an eye on your phone! &#128241;" : "We&rsquo;ll be in touch shortly to prepare everything for your visit. Keep an eye on your phone! &#128241;") + "</p>";
@@ -1599,7 +1644,7 @@
      error while drawing them, goes to /api/onebox/render — the funnel-health
      cron turns it into Alerts. Never in ?preview, never more than once per
      page per kind, and nothing here can break the page. */
-  var ENGINE_V = "132";
+  var ENGINE_V = "133";
   var obReported = {};
   function obReport(kind, data, once) {
     try {
@@ -1858,6 +1903,7 @@
             '<span class="vplay">&#9654;</span></span>';
         }).join("") + "</div></div>";
     }
+    if (phase === "done") htmlStr += tyGalleriesHtml();
     /* Template order: the client's own before/after photos (the 9 CV
        slots) first, the live Instagram widget right under them. */
     if (RESULTS.length || SELF) {
