@@ -27,7 +27,8 @@ for line in ['orig(2,"Today…");\n', 'orig(3,"Meet the average PMU artist");\n'
     sub(line, "")
 # map (13), Setting Expectations (14) and the call script (15) sit together
 # In their place: a real AI conversation, taken from the Launch Call presentation
-# (slide 11 there). The lead's photos are NOT copied; two neutral tiles stand in.
+# (slide 11 there). The lead's own photos are NOT copied; two brow close-ups from
+# our own before/after content stand in (public/deck/assets/ai-brow1.jpg, ai-brow2.jpg).
 AI = r'''/* ---- quick start: the AI in action (conversation from the Launch Call deck) ---- */
 live(23,"The AI in action",
 HEAD_NEW(8,true)+
@@ -44,7 +45,7 @@ HEAD_NEW(8,true)+
   '<div class="ios-body" id="ai-body"></div>'+
   '<div class="ios-foot"><span class="plus">+</span><span class="inp">Text Message · SMS</span><span>&#9835;</span></div>'+
 '</div></div></div></div>');
-SLIDES[SLIDES.length-1].th="t-qs-ai";
+SLIDES[SLIDES.length-1].th="t-qs-ai2";
 
 '''
 cut('live(13,"Area Exclusivity",', 'live(16,"Bonus #2 — Educate Your Clients",', repl=AI)
@@ -85,15 +86,16 @@ SLIDES[SLIDES.length-1].th="t-qs-included2";
 live(22,"Let&rsquo;s get you started",
 HEAD_NEW(12)+
 '<div class="row"><div class="col-copy">'+
-  '<h1 class="title">Let&rsquo;s Get You<br>Started</h1>'+
+  '<h1 class="title" style="margin-bottom:18px">Let&rsquo;s Get You<br>Started <span class="rocket-in">🚀</span></h1>'+
   '<p class="lede">Two quick things today.<br>Then <b>we take it from here</b>.</p>'+
+  '<div class="liftoff rv" style="animation-delay:.5s"><span class="rocket">🚀</span><span>Next stop: <b>you go live</b></span></div>'+
 '</div><div class="col-visual"><div class="panel steps" style="width:100%">'+
-  '<div class="num rv" style="animation-delay:.2s"><b>01</b><span><em>Today</em>Connect your Facebook so we can run your ads</span></div>'+
-  '<div class="num rv" style="animation-delay:.32s"><b>02</b><span><em>Today</em>Fill out your onboarding form</span></div>'+
-  '<div class="num rv" style="animation-delay:.44s"><b>03</b><span><em>Next</em>We build everything for you</span></div>'+
-  '<div class="num rv" style="animation-delay:.56s"><b>04</b><span><em>Then</em>Launch Call &mdash; you go live</span></div>'+
+  '<div class="num rv" style="animation-delay:.2s"><b>01</b><span><em>Today</em>🔗 Connect your Facebook so we can run your ads</span></div>'+
+  '<div class="num rv" style="animation-delay:.32s"><b>02</b><span><em>Today</em>📝 Fill out your onboarding form</span></div>'+
+  '<div class="num rv" style="animation-delay:.44s"><b>03</b><span><em>Next</em>🛠️ We build everything for you</span></div>'+
+  '<div class="num go rv" style="animation-delay:.6s"><b>04</b><span><em>Then</em>🚀 Launch Call &mdash; you go live!</span></div>'+
 '</div></div></div>');
-SLIDES[SLIDES.length-1].th="t-qs-start";
+SLIDES[SLIDES.length-1].th="t-qs-start2";
 
 '''
 cut("/* ---- 18: guarantee ---- */", "/* ============ render ============ */", repl=NEW)
@@ -119,7 +121,9 @@ sub('<span style="font-weight:500">Bonus #3:</span><br>PMU Success Society', '<s
 
 # --- the AI conversation plays when its slide opens
 AIJS = r'''/* ---- quick start: the AI conversation ---- */
-var CAM='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.4"/></svg>';
+/* the two photos are close-ups cut from the BEFORE half of one of our own
+   before/after pictures; loaded up front so they do not pop in late */
+["ai-brow1","ai-brow2"].forEach(function(n){var im=new Image();im.src="/deck/assets/"+n+".jpg";});
 var AICHAT=[
   {o:1,t:"Hi, this is Megan \ud83d\udc85"},
   {o:1,t:"I just got a request from that number for permanent makeup eyebrows, is it Vikki?"},
@@ -144,7 +148,7 @@ function runAi(){
     aiT.push(setTimeout(function(){
       var t=document.getElementById("ai-typing");if(t)t.remove();
       var d=document.createElement("div");d.className=cls;
-      d.innerHTML=m.pics?'<div class="ai-pics"><i>'+CAM+'</i><i>'+CAM+'</i></div>':'<div class="ios-bub">'+m.t+'</div>';
+      d.innerHTML=m.pics?'<div class="ai-pics"><img src="/deck/assets/ai-brow1.jpg" alt=""><img src="/deck/assets/ai-brow2.jpg" alt=""></div>':'<div class="ios-bub">'+m.t+'</div>';
       aiBody.appendChild(d);aiTrim();
     },at+wait));
     at+=wait+((m.t||"").length>90?2800:1500);   // long messages stay on screen longer
@@ -192,9 +196,20 @@ CSS = '''
   background:var(--teal-soft);border-radius:999px;padding:2px 9px}
 .ai-chip i{width:6px;height:6px;border-radius:50%;background:var(--teal);animation:blink 1.4s infinite}
 .ai-pics{display:flex;gap:6px}
-.ai-pics i{width:104px;height:104px;border-radius:14px;background:linear-gradient(140deg,#eadbd0,#cdaa95);display:grid;place-items:center;color:#fff}
-.ai-pics i svg{width:34px;height:34px;opacity:.9}
+.ai-pics img{width:108px;height:108px;border-radius:14px;object-fit:cover;display:block;background:#eee}
 .panel.steps .num{margin-bottom:26px}
+.panel.steps .num.go{background:#fff;color:var(--ink);border-radius:18px;padding:14px 18px;margin:0 -18px;
+  box-shadow:0 14px 30px -14px rgba(0,0,0,.35)}
+.panel.steps .num.go b{background:var(--teal);color:#fff}
+.panel.steps .num.go span em{color:var(--teal-dark);opacity:1}
+.liftoff{display:inline-flex;align-items:center;gap:16px;margin-top:6px;background:var(--teal-soft);border:2px solid var(--teal);
+  border-radius:18px;padding:14px 26px 14px 18px;font-family:Poppins,sans-serif;font-size:26px;color:#2b3340}
+.liftoff b{font-weight:700;color:var(--teal-dark)}
+.liftoff .rocket{font-size:46px;line-height:1;display:inline-block;animation:lift 2.6s ease-in-out infinite}
+@keyframes lift{0%,100%{transform:translate(0,0) rotate(0)}50%{transform:translate(5px,-9px) rotate(-6deg)}}
+.rocket-in{display:inline-block}
+.slide.on .rocket-in{animation:fly .9s cubic-bezier(.2,.8,.3,1) .25s both}
+@keyframes fly{from{opacity:0;transform:translate(-70px,60px) scale(.5)}to{opacity:1;transform:none}}
 .panel.steps .num span em{display:block;font-style:normal;font-size:15px;font-weight:700;letter-spacing:.14em;
   text-transform:uppercase;opacity:.85;margin-bottom:2px}
 </style>'''
