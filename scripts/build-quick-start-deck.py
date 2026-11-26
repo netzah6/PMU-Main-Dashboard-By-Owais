@@ -33,8 +33,8 @@ AI = r'''/* ---- quick start: the AI in action (conversation from the Launch Cal
 live(23,"The AI in action",
 HEAD_NEW(8,true)+
 '<div class="row"><div class="col-copy">'+
-  '<h1 class="title">See The AI<br>In Action</h1>'+
-  '<p class="lede">A real conversation with a new lead. <b>The AI wrote every teal message.</b></p>'+
+  '<h1 class="title" style="white-space:nowrap">See The AI In Action</h1>'+
+  '<p class="lede">Watch it chat with a new lead. <b>The AI wrote every teal message.</b></p>'+
   bullets(["Based on thousands of successful conversations","Built to turn leads into booked appointments with a deposit"])+
 '</div><div class="col-visual"><div class="phone ph-sms"><div class="notch"></div><div class="screen">'+
   '<div class="statusbar"><span>6:06</span><span>&#9679;&#9679;&#9679;&#9679; 5G</span></div>'+
@@ -45,7 +45,7 @@ HEAD_NEW(8,true)+
   '<div class="ios-body" id="ai-body"></div>'+
   '<div class="ios-foot"><span class="plus">+</span><span class="inp">Text Message · SMS</span><span>&#9835;</span></div>'+
 '</div></div></div></div>');
-SLIDES[SLIDES.length-1].th="t-qs-ai2";
+SLIDES[SLIDES.length-1].th="t-qs-ai3";
 
 '''
 cut('live(13,"Area Exclusivity",', 'live(16,"Bonus #2 — Educate Your Clients",', repl=AI)
@@ -72,23 +72,35 @@ live(21,"Everything you get",(function(){
             ["Smart AI PMU Assistant","Replies in 2 minutes and warms them up for you",997]],
       BONUS=[["Client education videos","Clients learn about PMU before they speak to you",497],
              ["PMU Success Society","Our private group for PMU artists",497]],
+      /* what the artist pays (owner, 11/26/2026): [emoji, headline, line under it] */
+      PAY=[["💵","$50 deposit","Paid by each new client when she books. It goes to PMU Bookings On Demand."],
+           ["🤝","$80 per appointment","Only after you get paid."],
+           ["💯","2nd treatments + referrals","100% yours."],
+           ["📣","$20 a day on ads","Your ad budget, paid to Facebook."]],
       tot=0;
   function usd(n){return "$"+n.toLocaleString("en-US");}
   function row(base){return function(r,k){tot+=r[2];
-    return '<li class="rx" style="animation-delay:'+(base+k*0.085)+'s"><i>'+CK+'</i><div><b>'+r[0]+'</b><span>'+r[1]+'</span></div>'+
+    return '<li class="rx" style="animation-delay:'+(base+k*0.07)+'s"><i>'+CK+'</i><div><b>'+r[0]+'</b><span>'+r[1]+'</span></div>'+
       '<em class="val">'+usd(r[2])+'<small>value</small></em></li>';};}
-  var main=MAIN.map(row(0.24)).join(''), bonus=BONUS.map(row(0.5)).join('');
+  var main=MAIN.map(row(0.2)).join(''), bonus=BONUS.map(row(0.56)).join('');
+  var pay=PAY.map(function(r,k){
+    return '<li class="rx" style="animation-delay:'+(1.0+k*0.1)+'s"><i>'+r[0]+'</i><div><b>'+r[1]+'</b><span>'+r[2]+'</span></div></li>';}).join('');
   return HEAD_NEW(11)+
-'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:18px">Everything You Get With Us</h1>'+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:16px">Everything You Get With Us</h1>'+
 '<div class="incl">'+
-  '<div class="incl-card main rv" style="animation-delay:.14s"><h3>Your Deposit-First Booking System</h3><ul>'+main+'</ul></div>'+
-  '<div class="incl-col">'+
-    '<div class="incl-card side rv" style="animation-delay:.22s"><h3>Bonuses</h3><ul>'+bonus+'</ul></div>'+
-    '<div class="incl-total rv" style="animation-delay:.7s"><span>Total value</span><b id="incl-total" data-n="'+tot+'">'+usd(tot)+'</b></div>'+
+  '<div class="incl-card main rv" style="animation-delay:.14s">'+
+    '<h3>Your Deposit-First Booking System</h3><ul>'+main+'</ul>'+
+    '<h3 class="bon">+ Bonuses</h3><ul>'+bonus+'</ul>'+
+    '<div class="incl-total"><span>Total value</span><b id="incl-total" data-n="'+tot+'">'+usd(tot)+'</b></div>'+
+  '</div>'+
+  '<div class="incl-card pay rv" style="animation-delay:.8s">'+
+    '<h3>What you pay</h3>'+
+    '<div class="pay-zero"><b>$0</b><span>today</span></div>'+
+    '<ul>'+pay+'</ul>'+
   '</div>'+
 '</div>';
 })());
-SLIDES[SLIDES.length-1].th="t-qs-included3";
+SLIDES[SLIDES.length-1].th="t-qs-included4";
 
 /* ---- quick start: next steps ---- */
 live(22,"Let&rsquo;s get you started",
@@ -135,10 +147,10 @@ AIJS = r'''/* ---- quick start: the AI conversation ---- */
 var AICHAT=[
   {o:1,t:"Hi, this is Megan"},
   {o:1,t:"I just got a request from that number for permanent makeup eyebrows, is it Vikki?"},
-  {o:0,t:"Yes"},
+  {o:0,t:"Yes! \ud83d\ude0a"},
   {o:1,t:"Great! I\u2019d love to see how we can help. We customise our services based on your goals. Can you let me know what made you reach out? That way, I can see if we\u2019re a good fit. :)"},
   {o:1,t:"If you could also send me some pictures of your eyebrows, that would be really helpful!"},
-  {o:0,t:"My eyebrows are thinning. I\u2019ve always had full brows but this year noticeably thinning. I don\u2019t want to have to pencil in daily for sure. I\u2019m 54"},
+  {o:0,t:"My eyebrows are thinning. I\u2019ve always had full brows but this year noticeably thinning. I don\u2019t want to have to pencil in daily for sure. I\u2019m 54 \ud83d\ude4c"},
   {o:0,pics:2}
 ];
 /* "Everything you get": the total counts up from $0 each time the slide opens */
@@ -191,20 +203,29 @@ CSS = '''
 .incl{position:relative;z-index:2;flex:1;min-height:0;display:flex;gap:26px;align-items:stretch;padding-bottom:26px}
 .incl-card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px 34px;
   box-shadow:0 18px 40px -26px rgba(20,25,35,.45);display:flex;flex-direction:column}
-.incl-card.main{flex:1.38}
-.incl-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:20px}
-.incl-col .incl-card.side{flex:1}
+.incl-card.main{flex:1.32;padding:22px 30px 22px}
+.incl-card.main ul{flex:none;gap:11px}
+.incl-card.main h3{margin-bottom:12px}
+.incl-card.main h3.bon{margin:16px 0 12px;padding-top:14px;border-top:1px dashed #cfd6de}
+.incl-card.main li i{width:30px;height:30px;margin-top:3px}
+.incl-card.main li b{font-size:24px}
+.incl-card.main li span{font-size:18px;margin-top:1px}
 .incl-card li>div{min-width:0}
 .incl-card li .val{margin-left:auto;padding-left:18px;flex:none;text-align:right;font-style:normal;white-space:nowrap;
-  font-family:Poppins,sans-serif;font-weight:700;font-size:29px;line-height:1.2;color:var(--teal-dark)}
-.incl-card li .val small{display:block;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8a94a0}
-.incl-card.side li b{font-size:25px}
-.incl-card.side li span{font-size:20px}
-.incl-total{flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--teal);color:#fff;
-  border-radius:18px;padding:20px 30px;box-shadow:0 22px 50px -24px rgba(46,196,198,.9)}
-.incl-total span{font-family:Poppins,sans-serif;font-weight:700;font-size:20px;letter-spacing:.14em;text-transform:uppercase}
-.incl-total b{font-family:Poppins,sans-serif;font-weight:800;font-size:66px;line-height:1;font-variant-numeric:tabular-nums}
-.incl-card.side{flex:1;border-color:var(--teal);background:var(--teal-soft)}
+  font-family:Poppins,sans-serif;font-weight:700;font-size:26px;line-height:1.15;color:var(--teal-dark)}
+.incl-card li .val small{display:block;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8a94a0}
+.incl-total{margin-top:auto;flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--teal);color:#fff;
+  border-radius:14px;padding:13px 24px;box-shadow:0 18px 40px -22px rgba(46,196,198,.9)}
+.incl-total span{font-family:Poppins,sans-serif;font-weight:700;font-size:18px;letter-spacing:.14em;text-transform:uppercase}
+.incl-total b{font-family:Poppins,sans-serif;font-weight:800;font-size:50px;line-height:1;font-variant-numeric:tabular-nums}
+.incl-card.pay{flex:1;border:2px solid var(--teal);background:var(--teal-soft);padding:26px 30px}
+.incl-card.pay ul{gap:20px;justify-content:flex-start}
+.pay-zero{display:flex;align-items:baseline;gap:14px;margin:2px 0 22px;padding-bottom:20px;border-bottom:1px dashed #9fdcdc}
+.pay-zero b{font-family:Poppins,sans-serif;font-weight:800;font-size:112px;line-height:.9;color:var(--teal-dark)}
+.pay-zero span{font-family:Poppins,sans-serif;font-weight:700;font-size:40px;color:var(--ink)}
+.incl-card.pay li i{background:#fff;font-style:normal;font-size:21px;width:42px;height:42px;margin-top:0;box-shadow:0 2px 8px rgba(20,25,35,.12)}
+.incl-card.pay li b{font-size:26px}
+.incl-card.pay li span{font-size:19px}
 .incl-card h3{margin:0 0 20px;font-family:Poppins,sans-serif;font-size:18px;font-weight:700;letter-spacing:.14em;
   text-transform:uppercase;color:var(--teal-dark)}
 .incl-card ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:20px;flex:1;justify-content:center}
