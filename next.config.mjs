@@ -10,8 +10,10 @@ const nextConfig = {
       "/api/onebox/ig-widget": ["./node_modules/ffmpeg-static/ffmpeg"],
       "/api/onboarding/[id]/setup": ["./node_modules/ffmpeg-static/ffmpeg"],
       "/api/agent/worker/finish": ["./node_modules/ffmpeg-static/ffmpeg"],
-      /* The signed agreement PDF embeds the logo, read from disk. */
-      "/api/sign/[token]": ["./public/brand-logo.png"],
+      /* The signed agreement PDF embeds the logo, read from disk; pdfkit
+         loads its standard fonts (Helvetica.cjs…) by dynamic require, which
+         the tracer misses — ship the whole package (found live 11/26). */
+      "/api/sign/[token]": ["./public/brand-logo.png", "./node_modules/pdfkit/**/*"],
     },
     /* @react-pdf builds the signed agreement on the server (e-sign,
        11/26/2026) — loaded from node_modules, not bundled. */
