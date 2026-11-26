@@ -12,7 +12,8 @@ import type { UserRole } from "@/lib/types";
 // `alsoRoles` opens an adminOnly tab to specific other roles — the page itself
 // decides what those roles actually see (PPS Billing shows a coach only their
 // own clients and none of the pending money).
-type Tab = { label: string; href: string; adminOnly?: boolean; collapsed?: boolean; alsoRoles?: NonNullable<UserRole>[] };
+// `hidden` tabs never show on the bar but still gate their page (who may open it).
+type Tab = { label: string; href: string; adminOnly?: boolean; collapsed?: boolean; hidden?: boolean; alsoRoles?: NonNullable<UserRole>[] };
 
 const TABS: Tab[] = [
   // Order set by the user (2026-10-05): AI, Clients, CEO, then the rest as before.
@@ -42,10 +43,13 @@ const TABS: Tab[] = [
   // Build a partner agreement from the standard Scope of Service, edit it in
   // plain English, download it as a PDF (user request 2026-09-11). Sits right
   // after Calls (user request 2026-09-14).
-  { label: "📝 Agreement", href: "/agreement", adminOnly: true },
-  // Send an agreement for e-signature: sales changes only the numbers, the
-  // client signs on /sign/<token> (owner, 11/26/2026).
-  { label: "✍️ E-Sign", href: "/esign", adminOnly: true, alsoRoles: ["sales", "closer", "setter"] },
+  // One "Agreements" tab (owner, 11/26/2026): opens on "Send for signature"
+  // (E-Sign — sales changes only the numbers, the client signs on
+  // /sign/<token>), with "Signed agreements" next to it for the whole team.
+  { label: "📝 Agreements", href: "/esign", adminOnly: true, alsoRoles: ["sales", "closer", "setter"] },
+  // The old builder: off the bar (a button inside Agreements opens it),
+  // still admins only.
+  { label: "📝 Agreement builder", href: "/agreement", adminOnly: true, hidden: true },
   // Hidden from the menu (page still exists at /reply): AI Replies — merged into the AI chat
   // Hidden from the menu (page still exists at /agreements) — user request 2026-08-21
   // Hidden from the menu (pages still exist): CPL 7 Days, CPL 14 Days, Budget
@@ -130,7 +134,7 @@ export function TabNav() {
   const { role } = useUser();
   const allow = role ? ALLOWLISTS[role] : undefined;
   const tabs = TABS.filter((t) =>
-    allow ? allow.has(t.href) : pathAllowedFor(role, t.href)
+    !t.hidden && (allow ? allow.has(t.href) : pathAllowedFor(role, t.href))
   )
     // An allowlist role's bar is short — show every tab directly instead of
     // hiding some (e.g. Leads) behind "⋯ More".

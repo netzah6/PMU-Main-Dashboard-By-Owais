@@ -10,11 +10,12 @@ const TEAL = "#2EC4C6";
 const INK = "#171717";
 
 const s = StyleSheet.create({
-  page: { paddingTop: 92, paddingBottom: 64, paddingHorizontal: 54, fontFamily: "Helvetica", fontSize: 9.5, color: INK, lineHeight: 1.45 },
+  page: { paddingTop: 102, paddingBottom: 64, paddingHorizontal: 54, fontFamily: "Helvetica", fontSize: 9.5, color: INK, lineHeight: 1.45 },
   bar: { position: "absolute", top: 34, left: 0, right: 0, height: 24, backgroundColor: TEAL },
-  logoBox: { position: "absolute", top: 14, left: 54, width: 110, height: 68, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
-  logo: { width: 60, height: 44, objectFit: "contain" },
-  wordmark: { fontFamily: "Helvetica-Bold", fontSize: 6.5, marginTop: 2 },
+  // Logo made bigger 11/26/2026 (owner: "look like a professional agreement").
+  logoBox: { position: "absolute", top: 8, left: 50, width: 132, height: 86, backgroundColor: "#ffffff", alignItems: "center", justifyContent: "center" },
+  logo: { width: 82, height: 64, objectFit: "contain" },
+  wordmark: { fontFamily: "Helvetica-Bold", fontSize: 7.5, marginTop: 3 },
   title: { fontFamily: "Helvetica-Bold", fontSize: 11, marginBottom: 10 },
   heading: { fontFamily: "Helvetica-Bold", fontSize: 10, marginTop: 12, marginBottom: 5 },
   para: { marginBottom: 7 },
@@ -180,10 +181,10 @@ export function AgreementPdf({ agreement, partnerName, logoSrc, signature, docRe
             </View>
           </View>
           <Text style={s.heading}>Document</Text>
-          <CertRow label="Fingerprint (SHA-256 of the agreement text)" value={certificate.fingerprint} mono />
+          <CertRow label="Fingerprint (SHA-256 of the document text)" value={certificate.fingerprint} mono />
           <CertRow label="Consent" value={`"${certificate.consent}" (ticked by the signer before signing)`} />
           <Text style={s.certDone}>{`Document completed by all parties on ${certificate.completedOn} (UTC)`}</Text>
-          <Text style={s.certNote}>{"Signed electronically on PMU Bookings On Demand's own signing page. The fingerprint above is taken over the full agreement text frozen when the signing link was created; any change to that text gives a different fingerprint."}</Text>
+          <Text style={s.certNote}>{"Signed electronically on PMU Bookings On Demand's own signing page. The fingerprint above is taken over the full document text frozen when the signing link was created; any change to that text gives a different fingerprint."}</Text>
           <Chrome footer={agreement.footer} docRef={docRef} />
         </Page>
       )}

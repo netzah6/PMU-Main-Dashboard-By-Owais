@@ -17,7 +17,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     headers: {
       ...noStoreHeaders(),
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="PMU-Bookings-On-Demand-Agreement-signed.pdf"`,
+      "Content-Disposition": `attachment; filename="PMU-Bookings-On-Demand-Scope-of-Service-signed.pdf"`,
     },
   });
 }

@@ -233,13 +233,19 @@ export async function buildDialerData(force = false): Promise<DialerData> {
 
 /** Enroll contacts into a GHL workflow (the person's Power Dialer workflow).
  *  One at a time with a small gap — GHL rate-limits bursts. */
-export async function enrollInWorkflow(workflowId: string, contactIds: string[]): Promise<{ ok: string[]; failed: Array<{ id: string; error: string }> }> {
+export async function enrollInWorkflow(
+  workflowId: string, contactIds: string[], opts: { timeoutMs?: number; tries?: number } = {},
+): Promise<{ ok: string[]; failed: Array<{ id: string; error: string }> }> {
   const H = await token();
   const ok: string[] = [], failed: Array<{ id: string; error: string }> = [];
+  const tries = opts.tries ?? 3;
   for (const id of contactIds) {
     let done = false;
-    for (let i = 0; i < 3 && !done; i++) {
-      const r = await fetch(`${BASE}/contacts/${id}/workflow/${workflowId}`, { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: "{}" });
+    for (let i = 0; i < tries && !done; i++) {
+      const r = await fetch(`${BASE}/contacts/${id}/workflow/${workflowId}`, {
+        method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: "{}",
+        ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+      });
       if (r.status === 429) { await new Promise((x) => setTimeout(x, 1500 * (i + 1))); continue; }
       if (r.ok) ok.push(id); else failed.push({ id, error: `${r.status} ${(await r.text()).slice(0, 120)}` });
       done = true;

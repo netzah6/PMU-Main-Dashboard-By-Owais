@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
+import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import { parseAgreement } from "@/lib/agreement";
 import { CONSENT_TEXT, TEMPLATE_LABELS, type EsignTemplateId } from "@/lib/esign";
 import {
   TOKEN_RE, rateLimited, clientIp, clientLocation, userAgent, contentHash, sha256, parseSignaturePng, cleanText, EMAIL_RE,
-  putPrivate, noStoreHeaders, addGhlNote,
+  putPrivate, noStoreHeaders, ghlAfterSigning,
 } from "@/lib/esign-server";
 import { buildSignedPdf } from "@/lib/esign-pdf";
 
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   const svc = createServiceClient();
   const { data: row } = await svc.from("agreement_signatures").select(ROW).eq("token", params.token).maybeSingle();
   if (!row) return deny("This link is not valid", 404);
-  if (row.status === "void") return deny("This agreement was cancelled. Please ask your PMU Bookings On Demand contact for a new link.", 410);
+  if (row.status === "void") return deny("This Scope of Service was cancelled. Please ask your PMU Bookings On Demand contact for a new link.", 410);
 
   // First open by the client → viewed. A team member checking the link
   // while logged in to the dashboard is not counted.
@@ -83,12 +84,12 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const svc = createServiceClient();
   const { data: row } = await svc.from("agreement_signatures").select(ROW).eq("token", params.token).maybeSingle();
   if (!row) return deny("This link is not valid", 404);
-  if (row.status === "void") return deny("This agreement was cancelled", 410);
+  if (row.status === "void") return deny("This Scope of Service was cancelled", 410);
   if (row.status === "signed") return NextResponse.json(publicView(row), { status: 409, headers: noStoreHeaders() });
 
   // The text must be exactly what was sent.
   const content = parseAgreement(row.content);
-  if (!content || contentHash(content) !== row.content_sha256) return deny("This agreement could not be checked. Please ask for a new link.", 409);
+  if (!content || contentHash(content) !== row.content_sha256) return deny("This Scope of Service could not be checked. Please ask for a new link.", 409);
 
   const now = new Date().toISOString();
   const viewedAt = row.viewed_at ?? now;
@@ -135,11 +136,29 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json(cur ? publicView(cur) : { error: "Already handled" }, { status: 409, headers: noStoreHeaders() });
   }
 
-  // Go High Level note — never blocks or fails the signing.
-  try {
-    const r = await addGhlNote({ id: row.id, template: row.template, partner_email: row.partner_email, partner_phone: row.partner_phone, signed_at: now });
-    await svc.from("agreement_signatures").update({ ghl_contact_id: r.contactId, ghl_note: r.note }).eq("id", row.id);
-  } catch { /* ignore */ }
+  // Go High Level: note on the contact + the "Agreement signed -> Slack
+  // Channel" workflow (Slack line for the sales team). Runs only after the
+  // row is saved as signed, AFTER the reply (waitUntil, off the client's
+  // clock), capped at 30 s so it ends well inside maxDuration. Never blocks
+  // or fails the signing.
+  const GHL_CAP_MS = 30_000;
+  waitUntil((async () => {
+    try {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const capped = new Promise<{ contactId: string | null; note: string }>((res) => {
+        timer = setTimeout(() => res({ contactId: null, note: "GHL timed out (30 s) - check the Slack channel" }), GHL_CAP_MS);
+      });
+      const r = await Promise.race([
+        ghlAfterSigning({
+          id: row.id, template: row.template, partner_name: row.partner_name, partner_email: row.partner_email, partner_phone: row.partner_phone,
+          signer_name: signerName, signer_email: signerEmail, signed_at: now,
+        }),
+        capped,
+      ]);
+      clearTimeout(timer);
+      await svc.from("agreement_signatures").update({ ghl_contact_id: r.contactId, ghl_note: r.note }).eq("id", row.id);
+    } catch { /* ignore */ }
+  })());
 
   return NextResponse.json(publicView(signed), { headers: noStoreHeaders() });
 }
