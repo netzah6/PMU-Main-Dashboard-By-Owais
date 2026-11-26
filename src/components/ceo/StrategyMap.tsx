@@ -15,10 +15,11 @@ const GOAL = 225_000;
 const DEPOSIT = 50; // kept from each lead's deposit
 const FEE = 80; // paid by the artist per appointment
 const PER_BOOKING = DEPOSIT + FEE;
-// Paid bookings a month for one artist. 4 and 12 are what we saw in the last
-// 30 days (11/25/2026 study: average at $20 a day, and the best artists).
+// Paid bookings a month for one artist. 5 and 12 are what we saw in the last
+// 30 days (11/26/2026 check: 24 V3 clients with brows under $400 and about
+// $20 a day on ads average 4.9; the best artists get 12).
 const ROWS: Array<{ n: number; label: string; color: string }> = [
-  { n: 4, label: "Average today", color: "#8595a8" },
+  { n: 5, label: "Average today", color: "#8595a8" },
   { n: 6, label: "Plan", color: "#B4236C" },
   { n: 7, label: "Plan", color: "#B4236C" },
   { n: 12, label: "Best artists today", color: "#0f8f88" },
