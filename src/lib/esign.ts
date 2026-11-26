@@ -78,10 +78,15 @@ export const TEMPLATE_FIELDS: Record<EsignTemplateId, FieldDef[]> = {
     { key: "strikes", label: "Strikes before guarantee is void", type: "number", default: 5, min: 1, max: 50 },
   ],
   ppa: [
-    // Owner 11/26/2026: defaults $80 per booking and $600 ad spend (a range like 300-600 still works).
+    // Owner 11/26/2026: $80 per booking + $50 deposit, ad spend $20 a day
+    // (a monthly amount or a range like 300-600 still works).
     { key: "fee", label: "Our fee per booking", type: "money", default: 80, min: 1, max: 1000 },
     { key: "deposit", label: "Client deposit", type: "money", default: 50, min: 1, max: 1000 },
-    { key: "ad_spend", label: "Ad spend per month ($)", type: "range", default: "600", hint: "Like 600, or 300-600", min: 1, max: 20000 },
+    { key: "ad_spend", label: "Ad spend ($)", type: "range", default: "20", hint: "Like 20, or 300-600", min: 1, max: 20000 },
+    {
+      key: "ad_spend_unit", label: "Ad spend is per", type: "choice", default: "day",
+      options: [{ value: "day", label: "Day" }, { value: "month", label: "Month" }],
+    },
   ],
 };
 
@@ -170,14 +175,14 @@ export const DEFAULT_TEMPLATES: Record<EsignTemplateId, Agreement> = {
       // Was: "The program is a 90 days program where PMU Bookings On Demand will create, …"
       { type: "paragraph", text: "In this program, PMU Bookings On Demand will create, optimize, manage, and scale your paid traffic (Facebook & Instagram) permanent makeup campaign." },
       ...AFTER_INTRO,
-      { type: "paragraph", text: "The partner will pay {{fee}} service fee to PMU Bookings On Demand for each client that PMU Bookings On Demand book for the partner on the calendar with a deposit + {{deposit}} deposit directly from the clients on the partner behalf (total of {{total}}) and {{ad_spend}}/mo which will be allocated to the ad spend." },
+      { type: "paragraph", text: "The partner will pay {{fee}} service fee to PMU Bookings On Demand for each client that PMU Bookings On Demand book for the partner on the calendar with a deposit + {{deposit}} deposit directly from the clients on the partner behalf (total of {{total}}) and {{ad_spend}} which will be allocated to the ad spend." },
       { type: "paragraph", text: "“Booking” Definition: A booking is a person who completes the entire social media booking process, including submitting their full name, email address, and phone number, and successfully booking an appointment.\nA booking is considered valid only if the client completes the scheduled session. If a client books an appointment but does not show up, it will not be counted as a booking, and PMU Bookings On Demand will not charge the {{fee}} service fee." },
       { type: "paragraph", text: "If the partner wish to cancel please inform us 72 hours in advance. Please note that a mandatory 30-minute exit interview is required to process the cancellation.\nThe partner may also decide to increase their ad-spend in the future." },
       CHARGEBACK,
       { type: "heading", text: "Contingencies" },
       { type: "numbered", items: [
         "The partner is not allowed to modify or change the ads.\nAny modifications asked or made by the partner will void both the bookings guarantee.",
-        "The partner must allocate at least {{ad_spend}}/month for the ad spent. If the partner disagrees to invest for the ad spend, PMU Bookings On Demand cannot guarantee results.",
+        "The partner must allocate at least {{ad_spend}} for the ad spent. If the partner disagrees to invest for the ad spend, PMU Bookings On Demand cannot guarantee results.",
         "PMU Bookings On Demand will be able to document the partner’s growth process from A-Z through videos and photos",
         AD_COST,
       ] },
@@ -260,6 +265,12 @@ export function validateFields(t: EsignTemplateId, raw: Record<string, unknown>)
       values[f.key] = s;
     }
   }
+  // PPA ad spend per DAY (owner 11/26/2026: $20/day). A big number per day is
+  // almost surely a monthly amount typed with the wrong unit.
+  if (t === "ppa" && !errors.ad_spend && values.ad_spend_unit === "day" &&
+      String(values.ad_spend).split("-").some((x) => Number(x) > 300)) {
+    errors.ad_spend = "That is per day. Pick Month if you mean a monthly amount.";
+  }
   return { values, errors };
 }
 
@@ -271,7 +282,10 @@ export function placeholderValues(t: EsignTemplateId, v: FieldValues): Record<st
   };
   if (t === "ppa") {
     const fee = Number(v.fee), dep = Number(v.deposit);
-    return { fee: money(fee), deposit: money(dep), total: money(Math.round((fee + dep) * 100) / 100), ad_spend: range(v.ad_spend) };
+    // The PPA text says "{{ad_spend}}" with the unit inside: "$20/day" or "$600/month".
+    // Rows made before 11/26 have no unit and meant per month.
+    const unit = v.ad_spend_unit === "day" ? "/day" : "/month";
+    return { fee: money(fee), deposit: money(dep), total: money(Math.round((fee + dep) * 100) / 100), ad_spend: range(v.ad_spend) + unit };
   }
   const total = Number(v.price);
   const price = money(total);
