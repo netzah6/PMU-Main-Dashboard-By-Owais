@@ -2070,6 +2070,14 @@
       /* Never leave the cover up if anything stalls. */
       setTimeout(payReveal, 6000);
       Promise.resolve(pf).then(function (j) {
+        /* Her lead came through the account's other studio funnel: open
+           that one, so she sees her own studio's address. */
+        if (j && j.ok && j.goSlug && j.goSlug !== C.slug && /^[a-z0-9-]+$/.test(j.goSlug)) {
+          location.replace(/^\/f\//.test(location.pathname)
+            ? "/f/" + j.goSlug + "?pay=1&t=" + encodeURIComponent(PAY_T)
+            : "/" + j.goSlug + "/" + encodeURIComponent(PAY_T) + "/confirm");
+          return;
+        }
         if (!j || !j.ok || !j.phone) { pixelStart(); PAY_T = ""; show("survey"); payReveal(); return; }
         state.answers.full_name = j.name || state.answers.full_name || "";
         state.answers.phone = j.phone;
