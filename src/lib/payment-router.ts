@@ -153,7 +153,10 @@ export async function resolvePaymentClient(productId: string): Promise<
   if (error) return { dbError: error.message };
   const rows = (data ?? []) as ClientRow[];
   if (!rows.length) return null;
-  const live = rows.filter((r) => r.status === "live");
+  /* A second studio's funnel on the same account (extras.twinOf) shares the
+     first funnel's checkout and its "FanBasis to GHL workflow": one payment
+     route, not a conflict. */
+  const live = rows.filter((r) => r.status === "live" && !(r.extras as { twinOf?: string } | null)?.twinOf);
   if (!live.length) return { pausedOnly: rows.map((r) => r.slug).join(", ") };
   if (live.length > 1) {
     return { conflict: `product ${pid} matches ${live.length} live clients: ${live.map((r) => r.slug).join(", ")}` };
