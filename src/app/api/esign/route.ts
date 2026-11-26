@@ -5,7 +5,7 @@ import {
   TEMPLATE_IDS, TEMPLATE_FIELDS, TEMPLATE_LABELS, DEFAULT_TEMPLATES, validateFields, renderAgreement, checkTemplate, settingsKey,
   type EsignTemplateId,
 } from "@/lib/esign";
-import { ESIGN_ROLES, SELECT_LIST, loadTemplate, newToken, contentHash, cleanText, EMAIL_RE, requestOrigin } from "@/lib/esign-server";
+import { ESIGN_ROLES, SELECT_LIST, SIGNED_LIST, loadTemplate, newToken, contentHash, cleanText, EMAIL_RE, linkOrigin } from "@/lib/esign-server";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +23,21 @@ function isTemplate(v: unknown): v is EsignTemplateId {
   return typeof v === "string" && (TEMPLATE_IDS as string[]).includes(v);
 }
 
-export async function GET() {
+/** Older signed agreements: rows synced from the "Signed Agreements" sheet
+ *  (filled by the Go High Level workflow). Only name + date. */
+async function olderSigned(svc: ReturnType<typeof createServiceClient>): Promise<Array<{ name: string; date: string }>> {
+  const { data } = await svc.from("signed_agreements").select("data").limit(2000);
+  const out: Array<{ name: string; date: string }> = [];
+  for (const r of (data ?? []) as Array<{ data: Record<string, unknown> | null }>) {
+    const d = r.data ?? {};
+    const name = String(d["Full Name"] ?? d["Name"] ?? d["name"] ?? "").trim();
+    const date = String(d["Signed Date"] ?? d["Date"] ?? d["date"] ?? "").trim();
+    if (name || date) out.push({ name, date });
+  }
+  return out;
+}
+
+export async function GET(req: NextRequest) {
   const auth = await who();
   if (!auth) return NextResponse.json({ error: "Not allowed" }, { status: 403 });
   const svc = createServiceClient();
@@ -31,10 +45,17 @@ export async function GET() {
   let q = svc.from("agreement_signatures").select(SELECT_LIST).order("created_at", { ascending: false }).limit(200);
   // Admins see every agreement; a salesperson sees the ones they created.
   if (!isAdmin) q = q.eq("created_by", auth.email ?? "-");
-  const [std, ppa, { data: rows, error }] = await Promise.all([loadTemplate(svc, "standard"), loadTemplate(svc, "ppa"), q]);
+  // SIGNED agreements are visible to the whole sales team (owner, 11/26/2026).
+  const signedQ = svc.from("agreement_signatures").select(SIGNED_LIST).eq("status", "signed").order("signed_at", { ascending: false }).limit(500);
+  const [std, ppa, { data: rows, error }, { data: signed }, older, origin] = await Promise.all([
+    loadTemplate(svc, "standard"), loadTemplate(svc, "ppa"), q, signedQ, olderSigned(svc).catch(() => []), linkOrigin(svc, req),
+  ]);
   return NextResponse.json({
     role: auth.role,
     email: auth.email,
+    linkOrigin: origin,
+    signed: signed ?? [],
+    older,
     templates: {
       standard: { label: TEMPLATE_LABELS.standard, fields: TEMPLATE_FIELDS.standard, template: std.template, overridden: std.overridden },
       ppa: { label: TEMPLATE_LABELS.ppa, fields: TEMPLATE_FIELDS.ppa, template: ppa.template, overridden: ppa.overridden },
@@ -72,7 +93,7 @@ export async function POST(req: NextRequest) {
       created_by: auth.email, status: "sent",
     }).select(SELECT_LIST).single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ success: true, row: data, link: `${requestOrigin(req)}/sign/${token}` });
+    return NextResponse.json({ success: true, row: data, link: `${await linkOrigin(svc, req)}/sign/${token}` });
   }
 
   if (action === "void") {

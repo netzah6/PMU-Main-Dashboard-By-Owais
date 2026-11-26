@@ -78,9 +78,10 @@ export const TEMPLATE_FIELDS: Record<EsignTemplateId, FieldDef[]> = {
     { key: "strikes", label: "Strikes before guarantee is void", type: "number", default: 5, min: 1, max: 50 },
   ],
   ppa: [
-    { key: "fee", label: "Our fee per booking", type: "money", default: 65, min: 1, max: 1000 },
+    // Owner 11/26/2026: defaults $80 per booking and $600 ad spend (a range like 300-600 still works).
+    { key: "fee", label: "Our fee per booking", type: "money", default: 80, min: 1, max: 1000 },
     { key: "deposit", label: "Client deposit", type: "money", default: 50, min: 1, max: 1000 },
-    { key: "ad_spend", label: "Ad spend per month ($)", type: "range", default: "300-600", hint: "Like 300-600", min: 1, max: 20000 },
+    { key: "ad_spend", label: "Ad spend per month ($)", type: "range", default: "600", hint: "Like 600, or 300-600", min: 1, max: 20000 },
   ],
 };
 

@@ -6,7 +6,7 @@ import { parseAgreement } from "@/lib/agreement";
 import { CONSENT_TEXT, TEMPLATE_LABELS, type EsignTemplateId } from "@/lib/esign";
 import {
   TOKEN_RE, rateLimited, clientIp, clientLocation, userAgent, contentHash, sha256, parseSignaturePng, cleanText, EMAIL_RE,
-  putPrivate, noStoreHeaders, addGhlNote,
+  putPrivate, noStoreHeaders, ghlAfterSigning,
 } from "@/lib/esign-server";
 import { buildSignedPdf } from "@/lib/esign-pdf";
 
@@ -135,9 +135,14 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json(cur ? publicView(cur) : { error: "Already handled" }, { status: 409, headers: noStoreHeaders() });
   }
 
-  // Go High Level note — never blocks or fails the signing.
+  // Go High Level: note on the contact + the "Agreement signed -> Slack
+  // Channel" workflow (Slack line for the sales team). Runs only after the
+  // row is saved as signed, and never blocks or fails the signing.
   try {
-    const r = await addGhlNote({ id: row.id, template: row.template, partner_email: row.partner_email, partner_phone: row.partner_phone, signed_at: now });
+    const r = await ghlAfterSigning({
+      id: row.id, template: row.template, partner_name: row.partner_name, partner_email: row.partner_email, partner_phone: row.partner_phone,
+      signer_name: signerName, signer_email: signerEmail, signed_at: now,
+    });
     await svc.from("agreement_signatures").update({ ghl_contact_id: r.contactId, ghl_note: r.note }).eq("id", row.id);
   } catch { /* ignore */ }
 

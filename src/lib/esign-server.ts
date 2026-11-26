@@ -7,7 +7,7 @@ import type { NextRequest } from "next/server";
 import type { createServiceClient } from "@/lib/supabase/server";
 import { type Agreement } from "@/lib/agreement";
 import { DEFAULT_TEMPLATES, checkTemplate, settingsKey, fingerprintText, type EsignTemplateId, TEMPLATE_LABELS, usDate } from "@/lib/esign";
-import { token as ghlToken, BASE, LOC } from "@/lib/power-dialer";
+import { token as ghlToken, BASE, LOC, enrollInWorkflow } from "@/lib/power-dialer";
 import { dashboardUrl } from "@/lib/agent-notify";
 
 type Svc = ReturnType<typeof createServiceClient>;
@@ -15,6 +15,10 @@ type Svc = ReturnType<typeof createServiceClient>;
 export const BUCKET = "agreement-signatures";
 export const SELECT_LIST =
   "id, token, template, fields, partner_name, partner_email, partner_phone, created_by, created_at, status, viewed_at, signed_at, signer_name, signed_pdf_path, voided_at, voided_by, ghl_note";
+
+/** Signed rows for the whole sales team: no token, no phone. */
+export const SIGNED_LIST =
+  "id, template, fields, partner_name, partner_email, created_by, created_at, status, signed_at, signer_name, signed_pdf_path";
 
 export const ESIGN_ROLES = new Set(["admin", "sales", "closer", "setter"]);
 
@@ -63,6 +67,33 @@ export function requestOrigin(req: NextRequest): string {
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "";
   const proto = req.headers.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
   return host ? `${proto}://${host}` : dashboardUrl();
+}
+
+/** Branded link domain (owner, 11/26/2026): app_settings "esign_link_origin"
+ *  — e.g. "https://book.pmubookingsondemand.com" — when set, every signing
+ *  link uses it. The value may be the string itself or { origin: "…" }. */
+export const LINK_ORIGIN_KEY = "esign_link_origin";
+
+/** A bare https origin ("https://host[:port]", no path/query), or null. */
+export function cleanOrigin(v: unknown): string | null {
+  const raw = typeof v === "string" ? v : v && typeof v === "object" && typeof (v as { origin?: unknown }).origin === "string" ? (v as { origin: string }).origin : "";
+  const s = raw.trim().replace(/\/+$/, "");
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "https:" || u.username || u.password || u.origin !== s) return null;
+    return u.origin;
+  } catch { return null; }
+}
+
+/** The origin for signing links: the setting when valid, else the request's host. */
+export async function linkOrigin(svc: Svc, req: NextRequest): Promise<string> {
+  try {
+    const { data } = await svc.from("app_settings").select("value").eq("key", LINK_ORIGIN_KEY).maybeSingle();
+    const o = cleanOrigin(data?.value);
+    if (o) return o;
+  } catch { /* fall back */ }
+  return requestOrigin(req);
 }
 
 // Light per-instance rate limit (serverless instances each keep their own
@@ -118,10 +149,29 @@ export function noStoreHeaders(): Record<string, string> {
   return { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
 }
 
-/** After signing: a note on the matching contact in the agency location.
- *  Searched by email, then phone. Never throws; returns what happened (kept
- *  on the row). Never texts or emails the client. */
-export async function addGhlNote(row: { id: string; template: string; partner_email: string; partner_phone: string | null; signed_at: string }): Promise<{ contactId: string | null; note: string }> {
+/** Go High Level workflow "Agreement signed -> Slack Channel" (agency
+ *  location, published, allows re-entry). It posts "<name> just signed the
+ *  agreement!" to Slack #agreements-signed, adds a row to the "Signed
+ *  Agreements" sheet and tags the contact "signed". It sends nothing to the
+ *  client. */
+export const SIGNED_SLACK_WORKFLOW_ID = "6504035d-832a-4924-857c-59f3bc2e4d32";
+
+function e164(phone: string | null | undefined): string {
+  const d = String(phone ?? "").replace(/\D/g, "");
+  return d.length === 10 ? `+1${d}` : d.length === 11 && d.startsWith("1") ? `+${d}` : d.length >= 8 && d.length <= 15 ? `+${d}` : "";
+}
+
+/** After signing, in the agency location: find the client's contact (email,
+ *  then phone) or create it, add a note, and start the "Agreement signed ->
+ *  Slack Channel" workflow so the sales team sees the signing in Slack.
+ *  Never throws; returns what happened (kept on the row). Never texts or
+ *  emails the client. */
+export async function ghlAfterSigning(row: {
+  id: string; template: string; partner_name: string; partner_email: string; partner_phone: string | null;
+  signer_name: string; signer_email: string; signed_at: string;
+}): Promise<{ contactId: string | null; note: string }> {
+  const steps: string[] = [];
+  let contactId: string | null = null;
   try {
     const H = await ghlToken();
     const find = async (key: "email" | "number", val: string): Promise<string | null> => {
@@ -130,23 +180,52 @@ export async function addGhlNote(row: { id: string; template: string; partner_em
       const j = (await r.json().catch(() => ({}))) as { contact?: { id?: string } | null };
       return j.contact?.id ?? null;
     };
-    let contactId = row.partner_email ? await find("email", row.partner_email.toLowerCase()) : null;
-    if (!contactId && row.partner_phone) {
-      const d = row.partner_phone.replace(/\D/g, "");
-      const e164 = d.length === 10 ? `+1${d}` : d.length === 11 && d.startsWith("1") ? `+${d}` : d.length >= 8 ? `+${d}` : "";
-      if (e164) contactId = await find("number", e164);
+    const emails = Array.from(new Set([row.partner_email, row.signer_email].map((e) => (e || "").trim().toLowerCase()).filter(Boolean)));
+    for (const e of emails) { if (!contactId) contactId = await find("email", e); }
+    const phone = e164(row.partner_phone);
+    if (!contactId && phone) contactId = await find("number", phone);
+
+    // No contact yet: create one so the Slack line still fires.
+    if (!contactId) {
+      const full = (row.signer_name || row.partner_name || "").trim();
+      const [firstName, ...rest] = full.split(/\s+/);
+      const r = await fetch(`${BASE}/contacts/upsert`, {
+        method: "POST",
+        headers: { ...H, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          locationId: LOC, firstName: firstName || full, lastName: rest.join(" ") || undefined, name: full || undefined,
+          email: emails[0] || undefined, phone: phone || undefined, source: "E-Sign agreement",
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const j = (await r.json().catch(() => ({}))) as { contact?: { id?: string } };
+      contactId = j.contact?.id ?? null;
+      steps.push(contactId ? "Contact created" : `Contact create failed (${r.status})`);
     }
-    if (!contactId) return { contactId: null, note: "No GHL contact found by email or phone — note skipped" };
-    const label = TEMPLATE_LABELS[row.template as EsignTemplateId] ?? row.template;
-    const body = `Signed ${label} agreement on ${usDate(row.signed_at, "America/Los_Angeles")} - ${dashboardUrl()}/esign?id=${row.id}`;
-    const r = await fetch(`${BASE}/contacts/${encodeURIComponent(contactId)}/notes`, {
-      method: "POST",
-      headers: { ...H, "Content-Type": "application/json" },
-      body: JSON.stringify({ body }),
-      signal: AbortSignal.timeout(8000),
-    });
-    return { contactId, note: r.ok ? "Note added in GHL" : `GHL note failed (${r.status})` };
+    if (!contactId) return { contactId: null, note: steps.join(" · ") || "No GHL contact" };
+
+    // Note on the contact.
+    try {
+      const label = TEMPLATE_LABELS[row.template as EsignTemplateId] ?? row.template;
+      const body = `Signed ${label} agreement on ${usDate(row.signed_at, "America/Los_Angeles")} - ${dashboardUrl()}/esign?id=${row.id}`;
+      const r = await fetch(`${BASE}/contacts/${encodeURIComponent(contactId)}/notes`, {
+        method: "POST",
+        headers: { ...H, "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+        signal: AbortSignal.timeout(8000),
+      });
+      steps.push(r.ok ? "Note added" : `Note failed (${r.status})`);
+    } catch (e) { steps.push(`Note failed: ${String(e instanceof Error ? e.message : e).slice(0, 80)}`); }
+
+    // Slack line + sheet row + "signed" tag, via the existing workflow.
+    try {
+      const w = await enrollInWorkflow(SIGNED_SLACK_WORKFLOW_ID, [contactId]);
+      steps.push(w.ok.length ? "Slack workflow started" : `Slack workflow failed (${w.failed[0]?.error ?? "unknown"})`);
+    } catch (e) { steps.push(`Slack workflow failed: ${String(e instanceof Error ? e.message : e).slice(0, 80)}`); }
+
+    return { contactId, note: steps.join(" · ").slice(0, 400) };
   } catch (e) {
-    return { contactId: null, note: `GHL note failed: ${String(e instanceof Error ? e.message : e).slice(0, 160)}` };
+    steps.push(`GHL failed: ${String(e instanceof Error ? e.message : e).slice(0, 160)}`);
+    return { contactId, note: steps.join(" · ").slice(0, 400) };
   }
 }
