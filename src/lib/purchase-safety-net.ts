@@ -35,7 +35,7 @@ function depositDay(v: unknown): number {
 /* ilike with the value taken literally (emails often contain "_"). */
 const lit = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`);
 
-type Funnel = { slug: string; config: Record<string, string> | null; extras: { metaPixelId?: string; capiToken?: string; template?: string; fanbasisProductId?: string } | null };
+type Funnel = { slug: string; config: Record<string, string> | null; extras: { metaPixelId?: string; capiToken?: string; template?: string; fanbasisProductId?: string; twinOf?: string } | null };
 type Lead = { phone: string | null; visitor_id: string | null; click?: Record<string, string> | null; created_at: string };
 type Logged = { slug: string; event_id: string | null; lead_phone: string | null; created_at: string };
 
@@ -62,8 +62,15 @@ export async function sendMissedPurchases(svc: SupabaseClient, opts: { now?: num
      say which one was paid → left alone. */
   const { data: fRows } = await svc.from("onebox_clients").select("slug, config, extras").neq("status", "draft");
   const byPid = new Map<string, Funnel | null>();
+  /* A second studio's funnel (extras.twinOf) shares the first one's checkout:
+     the payment belongs to the first funnel, and her lead may be on either. */
+  const twinSlugs = new Map<string, string[]>();
   for (const f of (fRows ?? []) as Funnel[]) {
-    if (f.extras?.template === "b2b" || /demo/i.test(f.slug)) continue;
+    const parent = String(f.extras?.twinOf ?? "").trim();
+    if (parent) twinSlugs.set(parent, [...(twinSlugs.get(parent) ?? []), f.slug]);
+  }
+  for (const f of (fRows ?? []) as Funnel[]) {
+    if (f.extras?.template === "b2b" || /demo/i.test(f.slug) || f.extras?.twinOf) continue;
     const pid = String(f.config?.fanbasisProductId || f.extras?.fanbasisProductId || f.config?.fanbasisCode || "").trim();
     if (pid) byPid.set(pid, byPid.has(pid) ? null : f);
   }
@@ -90,26 +97,27 @@ export async function sendMissedPurchases(svc: SupabaseClient, opts: { now?: num
     const eventId = `dep-${sha(`${email}|${pid}|${d.data["Date"]}`).slice(0, 32)}`;
     if (logged.some((l) => l.event_id === eventId)) continue; // this payment was handled already
     checked++;
+    const fSlugs = [f.slug, ...(twinSlugs.get(f.slug) ?? [])];
     try {
       /* Her lead rows on this funnel: by email, else by exact full name. */
       const pick = "phone, visitor_id, click, created_at";
-      const byEmail = await svc.from("onebox_leads").select(pick).eq("slug", f.slug).ilike("answers->>email", lit(email))
+      const byEmail = await svc.from("onebox_leads").select(pick).in("slug", fSlugs).ilike("answers->>email", lit(email))
         .order("created_at", { ascending: false }).limit(5);
       if (byEmail.error) throw new Error(byEmail.error.message);
       let leads = (byEmail.data ?? []) as Lead[];
       if (!leads.length && name.includes(" ")) {
-        const byName = await svc.from("onebox_leads").select(pick).eq("slug", f.slug).ilike("full_name", lit(name))
+        const byName = await svc.from("onebox_leads").select(pick).in("slug", fSlugs).ilike("full_name", lit(name))
           .order("created_at", { ascending: false }).limit(5);
         leads = (byName.data ?? []) as Lead[];
       }
       const phones = new Set(leads.map((l) => last10(l.phone)).filter((p) => p.length === 10));
       const payDay = depositDay(d.data["Date"]);
       const synced = Date.parse(d.synced_at);
-      const browserSent = withId.some((l) => l.slug === f.slug && phones.has(last10(l.lead_phone)) && Date.parse(l.created_at) >= payDay - 2 * DAY);
+      const browserSent = withId.some((l) => fSlugs.includes(l.slug) && phones.has(last10(l.lead_phone)) && Date.parse(l.created_at) >= payDay - 2 * DAY);
       /* A browser Purchase (not one of ours) on this funnel shortly before
          the payment synced may be hers under another phone. */
       const nearSent = withId.some((l) => {
-        if (l.slug !== f.slug || String(l.event_id).startsWith("dep-")) return false;
+        if (!fSlugs.includes(l.slug) || String(l.event_id).startsWith("dep-")) return false;
         const t = Date.parse(l.created_at);
         return t >= synced - NEAR_MS && t <= synced + GRACE_MS;
       });

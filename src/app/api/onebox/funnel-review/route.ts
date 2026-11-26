@@ -24,6 +24,9 @@ export async function GET(req: NextRequest) {
     .select("slug, client_name, status, config, extras, created_at, frozen_engine")
     .eq("location_id", locationId)
     .eq("status", "live")
+    /* An account with two studios has two live funnels: review the first. */
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!client) return NextResponse.json({ found: false });
