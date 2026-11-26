@@ -537,7 +537,10 @@ ul.bullets.one-line li{white-space:nowrap;font-size:23px}
 .incl-total{margin-top:auto;flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--teal);color:#fff;
   border-radius:14px;padding:13px 24px;box-shadow:0 18px 40px -22px rgba(46,196,198,.9)}
 .incl-total span{font-family:Poppins,sans-serif;font-weight:700;font-size:18px;letter-spacing:.14em;text-transform:uppercase}
-.incl-total b{font-family:Poppins,sans-serif;font-weight:800;font-size:50px;line-height:1;font-variant-numeric:tabular-nums}
+.incl-total b{position:relative;font-family:Poppins,sans-serif;font-weight:800;font-size:50px;line-height:1;font-variant-numeric:tabular-nums}
+.incl-total b::after{content:"";position:absolute;left:-10px;right:-10px;top:50%;height:7px;margin-top:-4px;background:#ff3b30;border-radius:4px;
+  box-shadow:0 1px 5px rgba(0,0,0,.28);transform:rotate(-7deg) scaleX(0);transform-origin:left center;transition:transform .5s cubic-bezier(.2,.8,.3,1)}
+.incl-total b.cut::after{transform:rotate(-7deg) scaleX(1)}
 .incl-card.pay{flex:1;border:2px solid var(--teal);background:var(--teal-soft);padding:26px 30px}
 .incl-card.pay ul{gap:20px;justify-content:flex-start}
 .pay-zero{display:flex;align-items:baseline;gap:14px;margin:2px 0 22px;padding-bottom:20px;border-bottom:1px dashed #9fdcdc}
@@ -812,7 +815,7 @@ live(21,"Everything you get",(function(){
       /* what the artist pays (owner, 11/26/2026): [emoji, headline, line under it] */
       PAY=[["💵","$50 deposit","Paid by each new client when she books. It goes to PMU Bookings On Demand."],
            ["🤝","$80 per appointment","Only after you get paid."],
-           ["💯","2nd treatments + referrals","100% yours."],
+           ["✅","2nd treatments + upsells","100% yours."],
            ["📣","$20 a day on ads","Your ad budget, paid to Facebook."]],
       tot=0;
   function usd(n){return "$"+n.toLocaleString("en-US");}
@@ -837,7 +840,7 @@ live(21,"Everything you get",(function(){
   '</div>'+
 '</div>';
 })());
-SLIDES[SLIDES.length-1].th="t-qs-included4";
+SLIDES[SLIDES.length-1].th="t-qs-included5";
 
 /* ---- quick start: next steps ---- */
 live(22,"Let&rsquo;s get you started",
@@ -1068,13 +1071,15 @@ var totEl=document.getElementById("incl-total"),totT=[];
 function runTotal(){
   totT.forEach(clearTimeout);totT=[];
   var n=+totEl.dataset.n,steps=36;
-  totEl.textContent="$0";
+  totEl.textContent="$0";totEl.classList.remove("cut");
   for(var k=1;k<=steps;k++)(function(k){
     totT.push(setTimeout(function(){
       var e=1-Math.pow(1-k/steps,3);   // ease out
       totEl.textContent="$"+Math.round(n*e).toLocaleString("en-US");
     },1100+k*34));
   })(k);
+  /* then cross it out in red: they pay $0 today */
+  totT.push(setTimeout(function(){totEl.classList.add("cut");},1100+steps*34+450));
 }
 var aiBody=document.getElementById("ai-body"),aiT=[];
 function aiTrim(){while(aiBody.scrollHeight>aiBody.clientHeight&&aiBody.children.length>1) aiBody.removeChild(aiBody.children[0]);}
