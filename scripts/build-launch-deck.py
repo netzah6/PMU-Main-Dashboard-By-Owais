@@ -89,10 +89,10 @@ LINKS = {   # the buttons of the original deck (shape links there)
 AD_LINKS = ("https://drive.google.com/drive/folders/1X1AwWRcrkdDVv4Fi5_mqlG3FUauKNLd8",
             "https://drive.google.com/drive/folders/1GINuSxypSSio_gIZvvR4W34kvLrDG9Kt")
 
+TEAM_EMAIL = "success@pmu-bookings.com"     # shown until the deck knows which coach presents (same as the last slide)
+
 def clean_href(href, text):
     from urllib.parse import urlparse, parse_qs
-    if href.startswith("mailto:"):                      # the old deck pointed one address at another mailbox
-        return "mailto:" + text.strip() if "@" in text else href
     u = urlparse(href)
     if u.netloc.endswith("google.com") and u.path == "/url":
         q = parse_qs(u.query).get("q")
@@ -123,7 +123,9 @@ def block_html(b, delay):
         if r.get("i"): st.append("font-style:italic")
         if r.get("u"): st.append("text-decoration:underline")
         if r.get("bg"): st.append("background:%s" % hexcol(r["bg"]))
-        if r.get("href"):
+        if r.get("href", "").startswith("mailto:"):
+            t = '<a data-coach-email href="mailto:%s">%s</a>' % (TEAM_EMAIL, TEAM_EMAIL)
+        elif r.get("href"):
             t = '<a href="%s" target="_blank" rel="noopener">%s</a>' % (H.escape(clean_href(r["href"], r["t"]), quote=True), t)
         out.append('<span style="%s">%s</span>' % (";".join(st), t) if st else t)
     inner = "".join(out)
@@ -174,8 +176,11 @@ def chips(n, ppa):
     if not out: return ""
     return '<div class="chips rv" style="animation-delay:.05s;%s">%s</div>' % (CHIP_POS.get(n, ""), out)
 
+ART = {2: "a02b"}           # 02b = the intro slide without the photo that was baked into it
 SKIP = {17: ("DISCLAIMER",)}
-EXTRA = {17: '<div class="disc rv" style="animation-delay:.15s"><span class="warn">&#9888;&#65039;</span>'
+EXTRA = {2: '<div class="coachpic" id="coach-box"><img id="coach-pic" alt=""><span class="ph"><img src="/deck/assets/brand-logo.png" alt=""></span>'
+            '<b id="coach-name"></b></div>',
+         17: '<div class="disc rv" style="animation-delay:.15s"><span class="warn">&#9888;&#65039;</span>'
              '<div><h2>DISCLAIMER</h2><p>If this is not done it will impact your results</p></div></div>'}
 
 # ------------------------------------------------------------------ new live slides (JS expressions)
@@ -324,6 +329,16 @@ body.shot #nav,body.shot .hint,body.shot #bar{display:none!important}
 .disc .warn{font-size:92px;line-height:1}
 .disc h2{margin:0 0 6px;font-family:Inter,sans-serif;font-size:58px;font-weight:800;color:#e02424;letter-spacing:.02em}
 .disc p{margin:0;font-family:Poppins,sans-serif;font-size:34px;font-weight:600;color:#17181c}
+/* the coach presenting (intro slide): picture from the Presentations tab, via ?coach= */
+.coachpic{position:absolute;z-index:2;left:171.5px;top:236px;width:428px;height:428px;overflow:hidden;background:#eef2f5}
+.coachpic #coach-pic{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+.coachpic.has #coach-pic{display:block;animation:artin .6s ease both}
+.coachpic .ph{position:absolute;inset:0;display:grid;place-items:center}
+.coachpic .ph img{width:46%;opacity:.55}
+.coachpic.has .ph{display:none}
+.coachpic b{position:absolute;left:14px;bottom:14px;display:none;background:rgba(255,255,255,.94);color:#17181c;border-radius:999px;
+  padding:7px 18px;font-family:Poppins,sans-serif;font-size:21px;font-weight:600;box-shadow:0 6px 18px -8px rgba(13,15,18,.5)}
+.coachpic.named b{display:block}
 .tx a.btnlink{text-decoration:none;cursor:pointer}
 .tx a.btnlink:hover{text-decoration:underline}
 .adlinks{display:flex;gap:12px;margin-top:26px}
@@ -395,6 +410,19 @@ var PAUSE=[
   {o:1,me:1,cls:"me",who:"You",t:"Hi Vikki, it’s Megan — I’m here with you now 😊",wait:1500,hold:500},
   {fn:function(){psSet(true);},gap:400}
 ];
+/* who presents: the Presentations tab opens the deck with ?coach=<name>; her picture, first name and
+   email come from her profile there. Without it the slides stay neutral (logo, team address). */
+(function(){
+  var c=((location.search.match(/[?&]coach=([^&#]*)/)||[])[1]||"").toLowerCase().replace(/[^a-z]/g,"");
+  if(!c) return;
+  fetch("/api/deck/coach?c="+c).then(function(r){return r.ok?r.json():null;}).then(function(p){
+    if(!p) return;
+    var box=document.getElementById("coach-box"),im=document.getElementById("coach-pic"),nm=document.getElementById("coach-name");
+    if(box&&im&&p.photo){im.onload=function(){box.classList.add("has");};im.src=p.photo;}
+    if(box&&nm&&p.name){nm.textContent=p.name;box.classList.add("named");}
+    if(p.email){[].forEach.call(document.querySelectorAll("a[data-coach-email]"),function(a){a.textContent=p.email;a.href="mailto:"+p.email;});}
+  }).catch(function(){});
+})();
 function runPause(){psSet(false);chatPlay(document.getElementById("ps-body"),PAUSE,psT,"<b>Today</b> 6:06 PM");}
 '''
 
@@ -411,11 +439,12 @@ def build(variant):
     js = [HELPERS]
     def th(n):
         changed = ppa and (n in CALLING or n in (6, 24, 25, 99))
+        if n in (2, 30): return "t-lc-%02db" % n          # redone 11/26: no coach photo / team email
         return ("t-lcp-%02d" if changed else "t-lc-%02d") % n
     def meta(n, nn):
         return 'SLIDES[SLIDES.length-1].n=%d;SLIDES[SLIDES.length-1].t=%s;SLIDES[SLIDES.length-1].th=%s;' % (nn, J(H.escape(TITLES[n], quote=False)), J(th(n)))
     def art(n):
-        html = '<img class="art" src="/deck/assets/launch/a%02d.webp" alt="" decoding="async">' % n + boxes_html(data, n, SKIP.get(n, ())) + EXTRA.get(n, "") + chips(n, ppa)
+        html = '<img class="art" src="/deck/assets/launch/%s.webp" alt="" decoding="async">' % ART.get(n, "a%02d" % n) + boxes_html(data, n, SKIP.get(n, ())) + EXTRA.get(n, "") + chips(n, ppa)
         js.append("SLIDES.push({n:%d,t:%s,th:%s,html:%s});" % (100 + n, J(H.escape(TITLES[n], quote=False)), J(th(n)), J(html)))
     def live(n, expr):
         js.append("live(%d,%s,%s);" % (100 + n, J(H.escape(TITLES[n], quote=False)), expr))

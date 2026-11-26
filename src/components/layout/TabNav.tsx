@@ -61,6 +61,9 @@ const TABS: Tab[] = [
   // Monthly Managed Accounts Accountability Report — replaces the GHL form
   // (user request 2026-09-21). Coaches file it; admin reviews it in Alerts.
   { label: "📋 Coach Report", href: "/coach-report", adminOnly: true, alsoRoles: ["editor"] },
+  // Every deck and tool a coach shows on a client call + her profile picture
+  // for the Launch Call decks (owner, 11/26/2026). Admins + coaches.
+  { label: "🎬 Presentations", href: "/presentations", adminOnly: true, alsoRoles: ["editor"] },
   { label: "🚀 Onboarding", href: "/onboarding" }, // setup checklist + Check Setup — whole team runs their own checks
   { label: "🧪 Funnels", href: "/funnels", adminOnly: true, alsoRoles: ["editor"] }, // one-box funnels — coaches see the client funnels read-only (user request 2026-09-14)
   // Our Instagram follows + engages with every client via the Mac Mini (owner 2026-10-30).
