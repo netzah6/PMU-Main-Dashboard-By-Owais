@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Launch Call — PMU Bookings On Demand</title>
+<link rel="icon" type="image/png" href="/deck/assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --teal:#2EC4C6; --teal-dark:#1FA6A8; --teal-soft:#E8F9F9;
+  --ink:#171717; --muted:#5b6470; --line:#e6e9ee;
+  /* the iPhone system stack — what a real Messages screenshot looks like */
+  --ios:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#0d1114;color:var(--ink);font-family:Inter,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+/* Slide 7 sets the house style: Inter bold for headings, Poppins for body. */
+h1,h2,h3,.disp{font-family:Inter,sans-serif;letter-spacing:-.02em}
+
+/* ---------- fixed 1600x900 stage, scaled to fit ---------- */
+#fit{position:fixed;inset:0;overflow:hidden}
+/* Absolute + translate, not grid centering: a grid clamps an oversized
+   child to the start edge, which pushes the scaled stage off to the right. */
+#stage{width:1600px;height:900px;position:absolute;left:50%;top:50%;
+  transform-origin:center center;background:#fff;box-shadow:0 0 60px -10px rgba(0,0,0,.6)}
+.slide{position:absolute;inset:0;display:none;background:#fff}
+.slide.on{display:block}
+.slide > .inner{position:absolute;inset:0;padding:52px 70px;display:flex;flex-direction:column}
+img.full{width:100%;height:100%;object-fit:cover;display:block}
+
+.brush{position:absolute;top:-34px;left:-64px;width:390px;pointer-events:none;z-index:0}
+.logo{position:absolute;top:30px;right:40px;height:52px;z-index:4;opacity:.95}
+.slide-no{position:absolute;bottom:20px;left:70px;font-size:11px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:#aab3bd;z-index:6}
+.slide-no .lv{color:#ff4d4f}
+.slide.dark .slide-no{color:#6d7a84}
+
+.row{position:relative;z-index:2;flex:1;display:flex;gap:56px;align-items:center;min-height:0}
+.col-copy{flex:1 1 44%;min-width:0}
+.col-visual{flex:1 1 56%;min-width:0;height:100%;display:flex;align-items:center;justify-content:center;gap:30px}
+
+h1.title{font-family:Inter,sans-serif;font-size:55px;line-height:1.1;font-weight:700;margin:0 0 24px}
+p.lede{font-family:Poppins,sans-serif;font-size:29px;line-height:1.42;color:#2b3340;margin:0 0 26px;max-width:24em}
+p.lede b{font-weight:700}
+ul.bullets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:15px}
+ul.bullets li{display:flex;align-items:center;gap:15px;font-family:Poppins,sans-serif;font-size:29px;font-weight:400;line-height:1.42}
+ul.bullets.one-line li{white-space:nowrap;font-size:23px}
+.chev{flex:none;width:30px;height:30px;border-radius:50%;background:var(--teal);display:grid;place-items:center;
+  color:#fff;box-shadow:0 2px 8px rgba(46,196,198,.35)}
+.chev svg{width:52%;height:52%}
+.rv{opacity:0;transform:translateY(12px)}
+.slide.on .rv{animation:rise .55s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes rise{to{opacity:1;transform:none}}
+.rx{opacity:0;transform:translateX(-14px)}
+.slide.on .rx{animation:sx .5s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes sx{to{opacity:1;transform:none}}
+
+/* ---------- phones ---------- */
+.phone{position:relative;background:#0d0f12;border-radius:36px;padding:9px;flex:none;
+  box-shadow:0 26px 60px -18px rgba(13,15,18,.55),0 0 0 1px rgba(0,0,0,.06)}
+.phone .screen{position:relative;background:#fff;border-radius:28px;overflow:hidden;width:100%;height:100%;
+  display:flex;flex-direction:column}
+.notch{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:33%;height:20px;background:#0d0f12;
+  border-radius:0 0 13px 13px;z-index:8}
+.statusbar{flex:none;display:flex;justify-content:space-between;align-items:center;padding:8px 15px 3px;
+  font-size:10px;font-weight:700;color:#111}
+.live{position:absolute;z-index:9;top:12px;left:12px;display:flex;align-items:center;gap:6px;
+  background:rgba(17,17,17,.72);color:#fff;border-radius:999px;padding:4px 9px 4px 7px;font-size:9px;
+  font-weight:700;letter-spacing:.1em;backdrop-filter:blur(4px)}
+.live i{width:6px;height:6px;border-radius:50%;background:#ff4d4f;animation:blink 1.4s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* --- facebook --- */
+.ph-fb{width:330px;height:620px}
+.fb-chrome{flex:none;padding:0 13px 8px;border-bottom:1px solid #e9ebee}
+.fb-top{display:flex;align-items:center;justify-content:space-between}
+.fb-word{font-family:Poppins;font-weight:800;color:#0866FF;font-size:18px;letter-spacing:-.03em}
+.fb-ic{width:20px;height:20px;border-radius:50%;background:#eef0f3;display:inline-grid;place-items:center;margin-left:6px}
+.fb-ic svg{width:58%;height:58%}
+.fb-search{margin-top:7px;background:#eef0f3;border-radius:999px;padding:5px 12px;font-size:10px;color:#8a8d91}
+.fb-tabs{display:flex;justify-content:space-between;padding:7px 6px 0;color:#8a8d91}
+.fb-tabs svg{width:19px;height:19px}
+.fb-tabs .act{color:#0866FF}
+.post{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.post-head{display:flex;align-items:center;gap:8px;padding:10px 13px 7px}
+.avatar{flex:none;width:30px;height:30px;border-radius:50%;overflow:hidden;background:#f2f2f4;display:grid;place-items:center}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.post-who{min-width:0;flex:1}
+.post-name{font-size:12px;font-weight:700;color:#050505;line-height:1.2}
+.post-meta{font-size:10px;color:#65676b;display:flex;align-items:center;gap:4px}
+.post-more{color:#65676b;font-weight:700;letter-spacing:1px;font-size:13px}
+.post-copy{padding:0 13px 8px;font-size:11.5px;line-height:1.38;color:#050505}
+.post-copy .more{color:#65676b}
+.media{position:relative;flex:1 1 auto;min-height:46%;background:#000}
+.media video{width:100%;height:100%;object-fit:cover;display:block}
+.fly-wrap{position:absolute;right:10px;bottom:8px;width:64px;height:78%;pointer-events:none;z-index:6}
+.fly{position:absolute;right:6px;bottom:4px;width:27px;height:27px;color:#F3425F;opacity:1}
+.fly svg{width:100%;height:100%;display:block;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
+.cta-bar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:7px;background:#f0f2f5;padding:9px 11px}
+/* must stay on one line inside the phone */
+.cta-bar .hl{display:block;font-size:14px;font-weight:800;color:#050505;line-height:1.25;white-space:nowrap}
+.cta-bar .sb{display:block;font-size:10.5px;color:#65676b;margin-top:1px}
+.cta-btn{flex:none;background:#e4e6eb;border-radius:6px;font-weight:700;color:#050505;padding:6px 10px;font-size:10px;white-space:nowrap}
+.stats{flex:none;display:flex;align-items:center;justify-content:space-between;padding:8px 13px 6px;
+  font-size:12px;color:#65676b;border-bottom:1px solid #e9ebee}
+.reacts{display:flex;align-items:center;gap:0}
+.rbubble{width:19px;height:19px;border-radius:50%;display:grid;place-items:center;border:2px solid #fff;flex:none}
+.rbubble svg{width:11px;height:11px;color:#fff}
+.rbubble.like{background:linear-gradient(180deg,#3b8cff,#0866FF);z-index:2}
+.rbubble.love{background:linear-gradient(180deg,#ff5f7a,#F3425F);margin-left:-6px;z-index:1}
+.rcount{margin-left:7px;color:#65676b}
+.actions{flex:none;display:flex;justify-content:space-around;padding:7px 0 10px;font-size:11.5px;font-weight:600;color:#65676b}
+.actions span{display:flex;align-items:center;gap:5px}
+.actions svg{width:14px;height:14px}
+.bump{display:inline-block;animation:bump .45s ease-out}
+@keyframes bump{0%{transform:translateY(0)}40%{transform:translateY(-3px)}100%{transform:translateY(0)}}
+
+/* --- instagram reel --- */
+.ph-ig{width:282px;height:560px;margin-top:40px}
+.ig-screen{background:#000}
+.ig-reel{position:relative;flex:1;min-height:0;overflow:hidden}
+.ig-reel video{width:100%;height:100%;object-fit:cover;display:block}
+.ig-shade{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(0,0,0,.55) 0,rgba(0,0,0,0) 20%,rgba(0,0,0,0) 46%,rgba(0,0,0,.78) 100%)}
+.ig-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;
+  padding:30px 13px 0;color:#fff;z-index:3}
+.ig-top .ttl{font-family:Poppins;font-weight:700;font-size:15px}
+.ig-top svg{width:18px;height:18px}
+.ig-side{position:absolute;right:9px;bottom:88px;z-index:3;display:flex;flex-direction:column;align-items:center;gap:15px;color:#fff}
+.ig-side .it{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;font-weight:600;
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
+.ig-side svg{width:22px;height:22px}
+.ig-disc{width:24px;height:24px;border-radius:6px;overflow:hidden;border:1.5px solid #fff;animation:spin 6s linear infinite}
+.ig-disc img{width:100%;height:100%;object-fit:cover}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ig-bot{position:absolute;left:0;right:52px;bottom:0;z-index:3;color:#fff;padding:0 13px 11px;
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.55))}
+.ig-user{display:flex;align-items:center;gap:7px;margin-bottom:5px}
+.ig-ring{width:26px;height:26px;border-radius:50%;padding:1.5px;
+  background:conic-gradient(from 20deg,#f9ce34,#ee2a7b,#6228d7,#f9ce34);flex:none}
+.ig-ring i{display:block;width:100%;height:100%;border-radius:50%;overflow:hidden;border:1.5px solid #000;background:#fff}
+.ig-ring img{width:100%;height:100%;object-fit:cover;display:block}
+.ig-user .n{font-size:12px;font-weight:700}
+.ig-follow{border:1px solid rgba(255,255,255,.9);border-radius:6px;padding:2px 9px;font-size:10px;font-weight:600}
+.ig-cap{font-size:11.5px;line-height:1.35}
+.ig-spon{font-size:9.5px;opacity:.92;margin-top:3px;font-weight:600}
+.ig-audio{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:9.5px;font-weight:500;overflow:hidden;white-space:nowrap}
+.ig-audio svg{width:11px;height:11px;flex:none}
+.ig-audio span{display:inline-block;animation:marq 11s linear infinite}
+@keyframes marq{0%{transform:translateX(0)}100%{transform:translateX(-52%)}}
+.ig-cta{margin-top:8px;background:rgba(255,255,255,.95);color:#111;border-radius:9px;padding:9px;text-align:center;
+  font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:6px}
+.ig-cta svg{width:12px;height:12px}
+.ig-heart{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:#fff;opacity:0;z-index:4}
+.ig-heart svg{width:32%;height:32%;filter:drop-shadow(0 4px 14px rgba(0,0,0,.45))}
+.ig-heart.pop{animation:hp 1.1s ease-out}
+@keyframes hp{0%{opacity:0;transform:scale(.4)}22%{opacity:1;transform:scale(1.12)}40%{transform:scale(1)}100%{opacity:0;transform:scale(1)}}
+.ig-prog{position:absolute;left:0;bottom:0;height:2px;background:#fff;z-index:5;width:0;opacity:.9}
+/* keep the badge clear of the "Reels" title row */
+.ph-ig .live{top:58px}
+
+/* ---------- slide 9: the real funnel survey ---------- */
+.ph-survey{width:392px;height:790px}
+.ph-survey .notch{display:none}
+.fnl{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;font-family:Inter,sans-serif}
+.fnl-bar{flex:none;background:var(--teal);color:#fff;text-align:center;font-size:12.5px;font-weight:500;padding:7px}
+.fnl-tel{flex:none;text-align:center;font-size:15px;font-weight:700;color:#111;padding:6px;border-bottom:1px solid #eef0f2}
+.fnl-brand{flex:none;text-align:center;padding:8px 0 4px}
+.fnl-brand img{width:58px;height:58px;border-radius:50%;object-fit:cover;display:inline-block}
+.fnl-trust{font-size:12px;color:#6b747f;margin-top:3px}
+.fnl-stars{color:#f5a623;font-size:13.5px;letter-spacing:1.5px}
+.fnl-cong{flex:none;text-align:center;font-size:15px;color:#111;line-height:1.35;padding:4px 22px 0}
+.fnl-h{flex:none;text-align:center;font-family:Poppins;font-weight:700;font-size:23px;line-height:1.2;padding:6px 20px 0}
+.fnl-sec{flex:none;text-align:center;font-size:13.5px;color:#6b747f;padding:2px 0 7px}
+/* hugs its content, like the real page — not stretched to the phone height */
+.fnl-card{flex:0 0 auto;margin:0 16px 16px;background:#fff;border-radius:12px;
+  box-shadow:0 3px 18px rgba(20,25,35,.14);padding:18px 16px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+/* One question at a time, like the real funnel — so it can breathe. */
+.fq .fl{font-size:17.5px;font-weight:600;color:#2b3340;margin-bottom:11px;line-height:1.3}
+.fq .fl i{color:#e05252;font-style:normal}
+.fopts{display:flex;flex-direction:column;gap:8px}
+.fopt{display:flex;align-items:center;gap:10px;border:1px solid #e7eaee;background:#fbfcfd;border-radius:9px;
+  padding:13px 15px;font-size:16px;color:#3a434f;cursor:pointer;font-family:inherit;text-align:left;transition:.12s;line-height:1.2}
+.fopt:hover{border-color:var(--teal)}
+.fopt i{flex:none;width:16px;height:16px;border-radius:50%;border:1.5px solid #c3cad2;background:#fff;display:block}
+.fopt.on{border-color:var(--teal);background:var(--teal-soft);color:#12706f;font-weight:600}
+.fopt.on i{border-color:var(--teal);background:var(--teal);box-shadow:inset 0 0 0 3px #fff}
+.finput{border:1px solid #e7eaee;background:#fbfcfd;border-radius:9px;padding:14px 15px;font:inherit;font-size:16px;width:100%;color:#111}
+.finput:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 2px rgba(46,196,198,.16)}
+.fnext{margin-top:auto;background:#111;color:#fff;border:0;border-radius:9px;cursor:pointer;padding:14px;
+  font:inherit;font-family:Poppins;font-weight:700;font-size:17px;letter-spacing:.02em}
+.fprog{flex:none;display:flex;align-items:center;gap:9px;padding:0 16px 8px;font-size:12.5px;color:#8b949e;font-weight:600}
+.fprog .track{flex:1;height:4px;background:#e9edf1;border-radius:999px;overflow:hidden}
+.fprog .track i{display:block;height:100%;background:var(--teal);border-radius:999px;transition:width .3s ease}
+.fback{background:none;border:0;color:#8b949e;font:inherit;font-size:12px;cursor:pointer;padding:0;text-align:left}
+.fdone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;gap:11px}
+.fdone .big{font-size:46px;line-height:1}
+.fdone h4{font-family:Poppins;font-weight:700;font-size:17px;margin:0}
+.fdone p{margin:0;font-size:11px;color:var(--muted);line-height:1.45}
+.frecap{width:100%;text-align:left;background:#f7fafb;border:1px solid #e4edee;border-radius:10px;padding:11px;
+  font-size:10.5px;line-height:1.6;color:#33404b}
+.frecap b{color:#111}
+.fsand{display:inline-flex;align-items:center;gap:6px;background:#fff6e0;border:1px solid #ffe2a8;color:#8a6100;
+  border-radius:999px;padding:5px 12px;font-size:10px;font-weight:700}
+.sandbox-pill{display:inline-flex;align-items:center;gap:8px;background:#fff6e0;border:1px solid #ffe2a8;color:#8a6100;
+  border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;margin-top:20px}
+.sandbox-pill svg{width:15px;height:15px;flex:none}
+
+/* ---------- slide 9: desktop browser view of the same funnel ---------- */
+/* The artist's leads mostly arrive on mobile, but for a demo the desktop
+   layout reads far better on a shared screen: one wide card, big type. */
+.row-dtp{gap:42px;align-items:center}
+.row-dtp .col-copy{flex:0 0 430px}
+.row-dtp .col-visual{flex:1 1 auto;justify-content:flex-end}
+.row-dtp ul.bullets li{font-size:24px;align-items:flex-start;line-height:1.35}
+.row-dtp ul.bullets .chev{margin-top:2px}
+
+/* macOS Safari window: light toolbar, traffic lights, centred address field */
+.dtp{width:980px;height:712px;flex:none;background:#fff;border-radius:12px;overflow:hidden;
+  display:flex;flex-direction:column;
+  box-shadow:0 44px 88px -30px rgba(13,15,18,.5),0 4px 14px rgba(13,15,18,.12),0 0 0 1px rgba(0,0,0,.1)}
+.dtp-bar{position:relative;flex:none;height:52px;display:flex;align-items:center;gap:8px;padding:0 17px;
+  background:linear-gradient(#f8f8f9,#eaeaec);border-bottom:1px solid #d5d5d8}
+.dtp-dot{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.14)}
+.dtp-ico{display:flex;align-items:center;gap:19px;color:#9b9ba1}
+.dtp-ico.l{margin-left:20px}
+.dtp-ico.r{margin-left:auto}
+.dtp-ico svg{width:17px;height:17px;display:block}
+.dtp-url{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:400px;height:30px;background:#e2e2e5;color:#3b3b40;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;gap:7px;font-size:13.5px;font-family:Inter,sans-serif}
+.dtp-url svg{width:11px;height:11px;flex:none;opacity:.65}
+.dtp-vp{flex:1;min-height:0;background:#fff;overflow:hidden;position:relative}
+/* the page itself — translated up instead of scrolled, so long questions stay in view */
+.dtp-doc{position:absolute;left:0;right:0;top:0;transition:transform .45s cubic-bezier(.2,.7,.3,1)}
+
+.dtp .fnl{display:block;background:#fff;font-family:Inter,sans-serif}
+.dtp .fnl-bar{font-size:14.5px;padding:8px}
+.dtp .fnl-tel{font-size:18px;padding:9px}
+.dtp .fnl-brand{padding:10px 0 0}
+.dtp .fnl-brand img{width:58px;height:58px}
+.dtp .fnl-trust{font-size:16px;margin-top:7px}
+.dtp .fnl-stars{font-size:18px;letter-spacing:2px}
+.dtp .fnl-cong{font-size:18.5px;padding:8px 40px 0;line-height:1.32}
+.dtp .fnl-h{font-size:27px;padding:7px 30px 0;line-height:1.2;white-space:nowrap}
+.dtp .fnl-sec{font-size:18px;padding:2px 0 10px}
+.dtp .fprog{max-width:700px;margin:0 auto;padding:0 0 11px;font-size:14px}
+.dtp .fnl-card{max-width:700px;margin:0 auto 18px;padding:22px 26px;border-radius:12px;
+  border:1px solid #e4e7e9;box-shadow:0 24px 48px -20px rgba(17,19,21,.28);gap:14px}
+.dtp .fq .fl{font-size:20px;margin-bottom:16px}
+.dtp .fopts{gap:9px}
+.dtp .fopt{font-size:17px;padding:15px 18px;border-radius:10px;border:1.5px solid #cdeeed;background:#f4fbfb;gap:12px}
+.dtp .fopt i{width:18px;height:18px}
+/* the .dtp overrides above outrank .fopt.on, so restate the selected state */
+.dtp .fopt.on{border-color:var(--teal);background:var(--teal-soft);color:#12706f;font-weight:600}
+.dtp .fopt.on i{border-color:var(--teal);background:var(--teal);box-shadow:inset 0 0 0 4px #fff}
+.dtp .finput{font-size:18px;padding:16px 18px}
+.dtp .fnext{font-size:19px;padding:16px}
+.dtp .fback{font-size:14px}
+.dtp .fdone{display:flex;padding:46px 40px;gap:14px}
+.dtp .fdone .big{font-size:64px}
+.dtp .fdone h4{font-size:25px}
+.dtp .fdone p{font-size:16px;max-width:36em}
+.dtp .frecap{font-size:15px;max-width:560px;padding:16px 18px}
+
+/* ---------- slide 10: iMessage ---------- */
+.ph-sms{width:352px;height:700px}
+.ios-head{flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:9px 0;
+  background:rgba(247,247,248,.95);border-bottom:.5px solid #d6d6da;position:relative;font-family:var(--ios)}
+.ios-back{position:absolute;left:12px;top:50%;transform:translateY(-30%);color:#0a84ff;display:flex;align-items:center;gap:2px;font-size:12px}
+.ios-back svg{width:13px;height:13px}
+.ios-badge{background:#ff3b30;color:#fff;border-radius:999px;padding:0 6px;font-size:10px;font-weight:700}
+.ios-av{width:42px;height:42px;border-radius:50%;background:#fff;border:1px solid #e3e6ea;display:grid;
+  place-items:center;overflow:hidden}
+/* contain, not cover — the logo is wide and was being cropped to a blur */
+.ios-av img{width:76%;height:76%;object-fit:contain}
+.ios-name{font-size:12px;font-weight:500;color:#111;display:flex;align-items:center;gap:3px}
+.ios-name svg{width:9px;height:9px;color:#9a9aa0}
+.ios-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;gap:7px;
+  padding:12px 12px;background:#fff;font-family:var(--ios)}
+.ios-stamp{text-align:center;font-size:10.5px;color:#8e8e93;margin:4px 0;font-weight:400}
+.ios-stamp b{font-weight:600;color:#8e8e93}
+.ios-row{display:flex;flex-direction:column;align-items:flex-start;opacity:0;transform:translateY(12px) scale(.97)}
+.ios-row.in{animation:bin .42s cubic-bezier(.2,.8,.3,1) forwards}
+@keyframes bin{to{opacity:1;transform:none}}
+.ios-bub{position:relative;max-width:86%;background:#e9e9eb;color:#000;border-radius:19px;padding:10px 15px;
+  font-size:16px;line-height:1.34;white-space:pre-line;font-family:var(--ios);letter-spacing:-.01em}
+.ios-bub::before{content:"";position:absolute;left:-5px;bottom:0;width:15px;height:17px;background:#e9e9eb;
+  border-bottom-right-radius:17px;z-index:-1}
+.ios-bub::after{content:"";position:absolute;left:-10px;bottom:0;width:11px;height:17px;background:#fff;border-bottom-right-radius:13px}
+.ios-bub .hd{font-weight:600}
+.ios-read{font-size:10px;color:#8e8e93;margin:2px 0 0 6px}
+.typing{display:flex;gap:4px;align-items:center;background:#e9e9eb;border-radius:18px;padding:11px 15px;width:fit-content}
+.typing i{width:7px;height:7px;border-radius:50%;background:#a3a3a8;animation:td 1.3s infinite}
+.typing i:nth-child(2){animation-delay:.18s}
+.typing i:nth-child(3){animation-delay:.36s}
+@keyframes td{0%,60%,100%{opacity:.35;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+.ios-foot{flex:none;display:flex;align-items:center;gap:8px;padding:9px 12px;border-top:.5px solid #d6d6da;
+  background:rgba(247,247,248,.95);color:#a8a8ae;font-size:13px;font-family:var(--ios)}
+.ios-foot .plus{width:22px;height:22px;border-radius:50%;background:#e4e4e8;display:grid;place-items:center;color:#7b7b80;flex:none}
+.ios-foot .inp{flex:1;background:#fff;border:.5px solid #d6d6da;border-radius:999px;padding:6px 12px}
+
+/* ---------- slide 11: CRM ---------- */
+.crm{width:100%;height:100%;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);
+  border-radius:14px;overflow:hidden;box-shadow:0 20px 46px -22px rgba(20,25,35,.35)}
+.crm-top{flex:none;display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:15px;color:#5b6470}
+.crm-top .pill{background:var(--teal-soft);color:var(--teal-dark);font-weight:700;border-radius:999px;padding:3px 11px}
+.crm-cols{flex:1;min-height:0;display:flex;gap:9px;padding:10px;background:#f7f9fb}
+.crm-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;border-radius:9px;padding:4px;transition:.15s}
+.crm-col.over{background:var(--teal-soft);outline:2px dashed var(--teal)}
+.crm-h{font-size:22px;font-weight:700;color:#1b2228;display:flex;justify-content:space-between;align-items:center;
+  gap:6px;padding:4px 4px 9px;border-bottom:2px solid var(--teal);white-space:nowrap}
+.crm-h em{font-style:normal;color:#98a1ab;font-weight:600;font-size:16px}
+.crm-card{background:#fff;border:1px solid #e8ecf1;border-radius:10px;padding:11px 12px;box-shadow:0 1px 2px rgba(20,25,35,.05);cursor:grab}
+.crm-card.drag{opacity:.4}
+.crm-card b{display:block;color:#111;font-weight:600;font-size:17px;line-height:1.3}
+.crm-acts{display:flex;gap:4px;margin-top:7px}
+.crm-acts button{flex:1;border:1px solid #e3e8ee;background:#fff;border-radius:7px;padding:5px 0;cursor:pointer;
+  display:grid;place-items:center;color:#5b6470;transition:.12s}
+.crm-acts button:hover{background:var(--teal);border-color:var(--teal);color:#fff}
+.crm-acts svg{width:15px;height:15px}
+.toast{position:absolute;left:50%;bottom:26px;transform:translate(-50%,14px);background:#111;color:#fff;
+  border-radius:999px;padding:9px 20px;font-size:13px;font-weight:600;opacity:0;pointer-events:none;
+  transition:.28s;z-index:20;box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.hintline{position:absolute;right:70px;top:104px;font-size:12px;color:#98a1ab;z-index:5}
+
+/* ---------- slide 12: the assistant ---------- */
+.aitag{display:inline-block;border:2px solid var(--teal);border-radius:14px;padding:16px 26px;
+  font-weight:600;font-size:23px;line-height:1.3;margin-bottom:24px;white-space:nowrap}
+.robot{display:block;width:520px;margin:0 auto;height:auto;animation:float 4.5s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-11px)}}
+.panel{background:var(--teal);color:#fff;border-radius:20px;padding:40px 36px;
+  box-shadow:0 22px 50px -24px rgba(46,196,198,.85)}
+.panel .num{display:flex;align-items:center;gap:22px;margin-bottom:30px}
+.panel .num:last-child{margin-bottom:0}
+.panel .num b{flex:none;width:64px;height:64px;border-radius:50%;background:#fff;color:var(--ink);
+  display:grid;place-items:center;font-family:Poppins,sans-serif;font-weight:700;font-size:23px}
+.panel .num span{font-weight:600;font-size:25px;line-height:1.32}
+
+/* ---------- slide 16: educate-your-clients FAQ ---------- */
+.faqbar{background:var(--teal);color:#fff;text-align:center;font-family:Poppins,sans-serif;font-weight:700;
+  font-size:19px;border-radius:9px;padding:9px;margin-bottom:14px}
+.faqgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;align-items:start}
+/* hairline gradient border (teal -> soft gold -> teal) over a white card, lifted on a deep shadow */
+.faqc{position:relative;border-radius:16px;background:#fff;cursor:pointer;
+  border:1.5px solid transparent;
+  background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,#2EC4C6 0%,#d9c07a 55%,#2EC4C6 100%) border-box;
+  box-shadow:0 18px 40px -22px rgba(20,25,35,.55),0 2px 6px rgba(20,25,35,.06);transition:transform .18s,box-shadow .18s}
+.faqc:hover{transform:translateY(-3px);box-shadow:0 26px 48px -22px rgba(20,25,35,.6),0 2px 6px rgba(20,25,35,.06)}
+.faqc .qh{display:flex;align-items:center;gap:9px;padding:13px 16px 11px;
+  font-family:Poppins,sans-serif;font-weight:600;font-size:16px;line-height:1.28;color:#1b2228}
+.faqc .qh .cr{margin-left:auto;flex:none;color:var(--teal);transition:transform .22s}
+.faqc.open .qh .cr{transform:rotate(180deg)}
+.faqc .qh svg{width:15px;height:15px}
+.faqc .ans{max-height:0;overflow:hidden;transition:max-height .28s ease;
+  font-family:Poppins,sans-serif;font-size:14.5px;line-height:1.5;color:#4a5560;padding:0 16px}
+.faqc.open .ans{max-height:210px;padding-bottom:12px}
+/* the video sits in its own dark inset frame, like a screening-room monitor */
+.faqvid{position:relative;margin:0 12px 12px;height:216px;border-radius:12px;overflow:hidden;cursor:pointer;
+  background:#0d1114;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 10px 24px -14px rgba(0,0,0,.7)}
+.faqvid video{width:100%;height:100%;object-fit:contain;display:block}
+.faqvid .pl{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .2s;
+  background:linear-gradient(180deg,rgba(0,0,0,0) 55%,rgba(0,0,0,.35) 100%)}
+.faqvid.playing .pl{opacity:0;pointer-events:none}
+.faqvid .pl i{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(255,255,255,.14);border:1.5px solid rgba(255,255,255,.85);backdrop-filter:blur(3px);
+  box-shadow:0 0 0 8px rgba(255,255,255,.08),0 6px 18px rgba(0,0,0,.45);transition:transform .15s}
+.faqvid:hover .pl i{transform:scale(1.06)}
+.faqvid .pl svg{width:40%;height:40%;color:#fff;margin-left:3px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+.faqvid .dur{position:absolute;right:10px;bottom:9px;background:rgba(0,0,0,.62);color:#fff;border-radius:6px;
+  padding:3px 8px;font-size:11.5px;font-weight:600;letter-spacing:.03em;font-variant-numeric:tabular-nums;
+  backdrop-filter:blur(3px)}
+.faqvid .tag{position:absolute;left:10px;top:9px;display:flex;align-items:center;gap:6px;color:#fff;
+  background:rgba(0,0,0,.5);border-radius:6px;padding:3px 8px;font-size:10.5px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;backdrop-filter:blur(3px)}
+.faqvid .tag i{width:6px;height:6px;border-radius:50%;background:#d9c07a}
+
+/* ---------- slide 13: area exclusivity ---------- */
+.mapwrap{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.mapimg{position:relative;width:min(100%,1120px)}
+.mapimg img{width:100%;display:block}
+.pin{position:absolute;width:26px;height:34px;transform:translate(-50%,-100%);color:var(--teal);
+  opacity:0;filter:drop-shadow(0 2px 3px rgba(20,25,35,.28))}
+.pin svg{width:100%;height:100%;display:block}
+.slide.on .pin{animation:pindrop .42s cubic-bezier(.2,1.5,.4,1) forwards}
+@keyframes pindrop{from{opacity:0;transform:translate(-50%,-135%) scale(.6)}to{opacity:1;transform:translate(-50%,-100%) scale(1)}}
+.statcard{position:absolute;left:0;bottom:12%;background:#fff;border:1px solid var(--line);border-radius:14px;
+  padding:20px 26px;box-shadow:0 18px 40px -20px rgba(20,25,35,.4);text-align:center}
+.statcard .k{font-family:Poppins,sans-serif;font-weight:700;color:var(--teal-dark);font-size:34px}
+.statcard .v{font-family:Poppins,sans-serif;font-size:24px;font-weight:600;color:#2b3340;margin-top:9px}
+
+/* ---------- slide 14: setting expectations ---------- */
+.expect{display:flex;gap:44px;align-items:center;width:100%}
+.expect .txt{flex:1}
+.expect .lead{font-family:Poppins,sans-serif;font-weight:700;font-size:31px;line-height:1.4;margin:0 0 24px}
+.expect ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:15px}
+.expect li{font-family:Poppins,sans-serif;font-size:27px;line-height:1.4;color:#2b3340}
+.expect .pic{flex:none;width:470px;border-radius:16px;overflow:hidden;box-shadow:0 18px 40px -22px rgba(20,25,35,.55)}
+.expect .pic img{width:100%;display:block}
+
+/* ---------- slide 20: plans ---------- */
+.plans{display:flex;gap:22px;width:100%;align-items:stretch}
+.plan{flex:1;background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px 26px;position:relative;
+  display:flex;flex-direction:column;gap:10px;box-shadow:0 16px 38px -24px rgba(20,25,35,.5)}
+.plan.pop{border-color:var(--teal);box-shadow:0 20px 44px -20px rgba(46,196,198,.65);transform:translateY(-8px)}
+.plan .badge{position:absolute;top:-13px;right:16px;background:var(--teal);color:#fff;border-radius:999px;
+  padding:6px 16px;font-family:Poppins,sans-serif;font-size:14px;font-weight:700;letter-spacing:.05em}
+.plan h3{margin:0;text-align:center;font-family:Poppins,sans-serif;font-size:30px;font-weight:700;letter-spacing:.01em}
+.plan .kind{text-align:center;font-family:Poppins,sans-serif;font-size:21px;color:var(--muted)}
+.plan .price{text-align:center;font-family:Poppins,sans-serif;font-weight:800;font-size:56px;margin:4px 0}
+.plan .price em{font-style:normal;font-size:.44em;font-weight:600;color:var(--muted)}
+.plan .save{background:var(--teal-soft);color:var(--teal-dark);border-radius:10px;text-align:center;
+  font-family:Poppins,sans-serif;font-weight:700;padding:11px;font-size:23px;line-height:1.3}
+.plan ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.plan li{display:flex;gap:10px;align-items:flex-start;font-family:Poppins,sans-serif;font-size:21px;color:#3a434f;line-height:1.35}
+.plan li svg{width:19px;flex:none;color:var(--teal);margin-top:2px}
+.plan .guar{margin-top:auto;padding-top:14px;font-family:Poppins,sans-serif;font-size:20px;color:var(--teal-dark);
+  font-weight:700;text-align:center;line-height:1.35}
+.specialbar{margin-top:20px;background:var(--teal);color:#fff;border-radius:13px;text-align:center;padding:16px;
+  font-family:Poppins,sans-serif;font-size:23px;font-weight:600}
+.specialbar b{font-weight:800}
+
+/* ---------- slide 17: FB group ---------- */
+.fbg{width:100%;max-width:640px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  box-shadow:0 18px 44px -24px rgba(20,25,35,.5)}
+.fbg .cover{height:210px;position:relative;background:#eef1f4;overflow:hidden}
+.fbg .cover img{width:100%;height:100%;object-fit:cover;display:block}
+.fbg .cover .mark{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-family:Poppins;
+  font-weight:800;font-size:26px;letter-spacing:-.02em;text-shadow:0 2px 12px rgba(0,0,0,.25)}
+.fbg .bd{padding:18px 22px 20px}
+.fbg h4{margin:0 0 5px;font-family:Poppins;font-size:23px}
+.fbg .meta{font-size:15px;color:var(--muted);display:flex;align-items:center;gap:7px}
+.fbg .meta svg{width:15px;height:15px}
+.fbg .mem{display:flex;align-items:center;margin-top:12px}
+.fbg .mem i{width:44px;height:44px;border-radius:50%;border:2px solid #fff;margin-left:-11px;
+  background-size:cover;background-position:center;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.fbg .mem i:first-child{margin-left:0}
+.fbg .mem span{margin-left:12px;font-size:14px;color:var(--muted);font-weight:600}
+.fbg .btns{display:flex;gap:9px;margin-top:14px}
+.fbg .btns b{flex:1;text-align:center;background:#1877F2;color:#fff;border-radius:7px;padding:10px;font-size:15px;font-weight:600}
+.fbg .btns u{flex:none;text-decoration:none;background:#e4e6eb;color:#050505;border-radius:7px;padding:10px 22px;font-size:15px;font-weight:600}
+
+/* ---------- slide 19: ROI calculator ---------- */
+.calcwrap{width:100%;display:flex;justify-content:center}
+.calcdev{width:1060px;background:linear-gradient(180deg,#1e262c,#151b20);border-radius:22px;padding:22px 26px;
+  box-shadow:0 26px 58px -24px rgba(0,0,0,.75),inset 0 1px 0 rgba(255,255,255,.08);
+  display:flex;flex-direction:column;gap:12px}
+/* each step stays hidden until the one above it is answered */
+.cstep{background:#232c33;border-radius:14px;padding:15px 20px;display:flex;align-items:center;gap:20px}
+.cstep.locked{display:none}
+.cstep.reveal{animation:stepin .4s cubic-bezier(.2,.7,.3,1) both}
+@keyframes stepin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+.cstep .no{flex:none;width:38px;height:38px;border-radius:50%;background:var(--teal);color:#0f1519;
+  display:grid;place-items:center;font-family:Poppins,sans-serif;font-weight:800;font-size:18px}
+.cstep .lbl{flex:1;font-family:Poppins,sans-serif;font-size:22px;font-weight:700;color:#e7edf1}
+.stepper{flex:none;display:flex;align-items:center;gap:12px}
+.stepper button{width:42px;height:42px;border-radius:11px;border:1px solid #3a464f;background:#2c363e;color:#e7edf1;
+  font-size:24px;line-height:1;cursor:pointer;display:grid;place-items:center;font-family:inherit;transition:.13s}
+.stepper button:hover:not(:disabled){background:var(--teal);border-color:var(--teal);color:#0f1519}
+.stepper button:disabled{opacity:.3;cursor:not-allowed}
+.stepper .amt{min-width:132px;text-align:center;font-family:"SF Mono",ui-monospace,Menlo,monospace;
+  font-weight:700;font-size:30px;color:#4fe0d6;font-variant-numeric:tabular-nums}
+.stepper .amt em{font-style:normal;font-size:17px;color:#9fb0bb;font-family:Poppins,sans-serif;font-weight:600}
+.permo{font-family:Poppins,sans-serif;font-size:16px;font-weight:600;color:#8496a2;margin-left:-4px;min-width:88px}
+.slide-ctl{flex:none;display:flex;align-items:center;gap:16px}
+.slide-ctl input[type=range]{width:300px;accent-color:var(--teal);height:26px;margin:0}
+.slide-ctl .amt{min-width:86px;text-align:right;font-family:"SF Mono",ui-monospace,Menlo,monospace;
+  font-weight:700;font-size:30px;color:#4fe0d6;font-variant-numeric:tabular-nums}
+.cnext{flex:none;background:var(--teal);color:#0f1519;border:0;border-radius:11px;padding:11px 22px;cursor:pointer;
+  font-family:Poppins,sans-serif;font-weight:700;font-size:17px;transition:.13s}
+.cnext:hover{filter:brightness(1.08)}
+.cout{display:flex;align-items:center;gap:16px;padding:1px 8px}
+.cout.locked{display:none}
+.cout.reveal{animation:stepin .4s cubic-bezier(.2,.7,.3,1) both}
+.cout .arrow{color:#4a5760;flex:none}
+.cout .arrow svg{width:22px;height:22px;display:block}
+.cout .cell{display:flex;align-items:baseline;gap:10px}
+.cout .cell .k{font-size:16px;color:#9fb0bb;font-weight:600}
+.cout .cell .v{font-family:Poppins,sans-serif;font-weight:800;font-size:30px;color:#fff;line-height:1}
+.cout .plus,.cout .eq{color:#6b7a85;font-size:22px;font-weight:700}
+.cout .note{margin-left:auto;font-size:14px;color:#8496a2}
+.cout .cell.total .v{color:#4fe0d6;font-size:34px}
+.ctotal{background:var(--teal);color:#fff;border-radius:14px;padding:17px 24px;display:flex;align-items:center;
+  justify-content:space-between;box-shadow:0 16px 34px -18px rgba(46,196,198,.8)}
+.ctotal.locked{display:none}
+.ctotal.reveal{animation:stepin .45s cubic-bezier(.2,.7,.3,1) both}
+.ctotal .k{font-size:15px;font-weight:700;opacity:.92;text-transform:uppercase;letter-spacing:.07em}
+.ctotal .v{font-family:Poppins,sans-serif;font-weight:800;font-size:54px;line-height:1.05}
+.ctotal .r{text-align:right;font-size:15px;font-weight:600;opacity:.95;line-height:1.35}
+.ctotal .r b{display:block;font-size:44px;line-height:1.08;font-family:Poppins,sans-serif}
+.creset.locked{display:none}
+.creset{align-self:center;background:none;border:0;color:#7d8c97;font:inherit;font-size:14px;cursor:pointer;padding:2px}
+.creset:hover{color:#b9c6cf}
+
+/* ---------- nav / grid ---------- */
+#nav{position:fixed;bottom:14px;right:16px;z-index:80;display:flex;align-items:center;gap:7px;
+  background:rgba(255,255,255,.93);border:1px solid var(--line);border-radius:999px;padding:5px 7px;
+  box-shadow:0 6px 22px -8px rgba(0,0,0,.5);backdrop-filter:blur(6px)}
+#nav button{width:30px;height:30px;border-radius:50%;border:0;background:#f1f4f7;color:#3a434f;font-size:15px;
+  cursor:pointer;display:grid;place-items:center;transition:.15s}
+#nav button:hover{background:var(--teal);color:#fff}
+#nav .pos{font-size:12px;font-weight:700;color:#6b747f;padding:0 5px;font-variant-numeric:tabular-nums;cursor:pointer;user-select:none}
+.hint{position:fixed;bottom:19px;left:50%;transform:translateX(-50%);z-index:80;font-size:11px;color:#6b747f;pointer-events:none}
+#bar{position:fixed;top:0;left:0;height:3px;background:var(--teal);z-index:90;transition:width .3s ease}
+#grid{position:fixed;inset:0;z-index:95;background:rgba(255,255,255,.97);backdrop-filter:blur(8px);display:none;padding:30px;overflow:auto}
+#grid.on{display:block}
+#grid h3{margin:0 0 15px;font-size:14px;color:#6b747f;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+.gg{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.gcard{border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;background:#fff;transition:.15s}
+.gcard:hover{border-color:var(--teal);box-shadow:0 8px 20px -12px rgba(46,196,198,.7);transform:translateY(-2px)}
+.gcard.cur{border-color:var(--teal);box-shadow:0 0 0 2px var(--teal)}
+.gcard img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:#eef1f4}
+.gcard .cap{padding:7px 9px;font-size:11.5px;font-weight:600;display:flex;justify-content:space-between;gap:6px}
+.gcard .cap em{font-style:normal;color:#aab3bd;font-weight:700}
+.gcard .cap .lv{color:#ff4d4f;font-weight:700;font-size:10px}
+
+/* ---------- quick start deck: what's included + next steps ---------- */
+.incl{position:relative;z-index:2;flex:1;min-height:0;display:flex;gap:26px;align-items:stretch;padding-bottom:26px}
+.incl-card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px 34px;
+  box-shadow:0 18px 40px -26px rgba(20,25,35,.45);display:flex;flex-direction:column}
+.incl-card.main{flex:1.32;padding:22px 30px 22px}
+.incl-card.main ul{flex:none;gap:11px}
+.incl-card.main h3{margin-bottom:12px}
+.incl-card.main h3.bon{margin:16px 0 12px;padding-top:14px;border-top:1px dashed #cfd6de}
+.incl-card.main li i{width:30px;height:30px;margin-top:3px}
+.incl-card.main li b{font-size:24px}
+.incl-card.main li span{font-size:18px;margin-top:1px}
+.incl-card li>div{min-width:0}
+.incl-card li .val{margin-left:auto;padding-left:18px;flex:none;text-align:right;font-style:normal;white-space:nowrap;
+  font-family:Poppins,sans-serif;font-weight:700;font-size:26px;line-height:1.15;color:var(--teal-dark)}
+.incl-card li .val small{display:block;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8a94a0}
+.incl-total{margin-top:auto;flex:none;display:flex;align-items:center;justify-content:space-between;gap:18px;background:var(--teal);color:#fff;
+  border-radius:14px;padding:13px 24px;box-shadow:0 18px 40px -22px rgba(46,196,198,.9)}
+.incl-total span{font-family:Poppins,sans-serif;font-weight:700;font-size:18px;letter-spacing:.14em;text-transform:uppercase}
+.incl-total b{position:relative;font-family:Poppins,sans-serif;font-weight:800;font-size:50px;line-height:1;font-variant-numeric:tabular-nums}
+.incl-total b::after{content:"";position:absolute;left:-10px;right:-10px;top:50%;height:7px;margin-top:-2px;background:#ff3b30;border-radius:4px;
+  box-shadow:0 1px 5px rgba(0,0,0,.28);transform-origin:center;
+  /* tilted around the MIDDLE of the number (so it sits on the digits), drawn in from its left end */
+  transform:rotate(-7deg) translateX(-50%) scaleX(0) translateX(50%);transition:transform .5s cubic-bezier(.2,.8,.3,1)}
+.incl-total b.cut::after{transform:rotate(-7deg) translateX(-50%) scaleX(1) translateX(50%)}
+.incl-card.pay{flex:1;border:2px solid var(--teal);background:var(--teal-soft);padding:26px 30px}
+.incl-card.pay ul{gap:20px;justify-content:flex-start}
+.pay-zero{display:flex;align-items:baseline;gap:14px;margin:2px 0 22px;padding-bottom:20px;border-bottom:1px dashed #9fdcdc}
+.pay-zero b{font-family:Poppins,sans-serif;font-weight:800;font-size:112px;line-height:.9;color:var(--teal-dark)}
+.pay-zero span{font-family:Poppins,sans-serif;font-weight:700;font-size:40px;color:var(--ink)}
+.incl-card.pay li i{background:#fff;font-style:normal;font-size:21px;width:42px;height:42px;margin-top:0;box-shadow:0 2px 8px rgba(20,25,35,.12)}
+.incl-card.pay li b{font-size:26px}
+.incl-card.pay li span{font-size:19px}
+.incl-card h3{margin:0 0 20px;font-family:Poppins,sans-serif;font-size:18px;font-weight:700;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--teal-dark)}
+.incl-card ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:20px;flex:1;justify-content:center}
+.incl-card li{display:flex;gap:18px;align-items:flex-start}
+.incl-card li i{flex:none;width:36px;height:36px;border-radius:50%;background:var(--teal);color:#fff;
+  display:grid;place-items:center;margin-top:2px;box-shadow:0 2px 8px rgba(46,196,198,.35)}
+.incl-card li i svg{width:54%;height:54%}
+.incl-card li b{display:block;font-family:Poppins,sans-serif;font-weight:600;font-size:28px;line-height:1.25;color:var(--ink)}
+.incl-card li span{display:block;font-family:Poppins,sans-serif;font-size:22px;line-height:1.35;color:var(--muted);margin-top:3px}
+.namewrap{position:relative;z-index:2;flex:1;display:flex;align-items:center;justify-content:center;gap:22px;padding-bottom:30px}
+.namewrap .chev{width:62px;height:62px}
+.namebox{border:2px solid var(--teal);border-radius:22px;padding:30px 70px;background:#fff;white-space:nowrap;
+  font-family:Poppins,sans-serif;font-weight:600;font-size:62px;line-height:1.15;color:#111}
+.ios-row.out{align-items:flex-end}
+.ios-row.out .ios-bub{background:var(--teal);color:#fff}
+.ios-row.out .ios-bub::before{left:auto;right:-5px;background:var(--teal);border-bottom-right-radius:0;border-bottom-left-radius:17px}
+.ios-row.out .ios-bub::after{left:auto;right:-10px;border-bottom-right-radius:0;border-bottom-left-radius:13px}
+.ios-row.out .typing{background:var(--teal)}
+.ios-row.out .typing i{background:#fff}
+.ai-av{font-family:var(--ios);font-weight:600;font-size:18px;color:#fff;background:linear-gradient(160deg,#b9bcc6,#8d9099);border:0}
+.ai-chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--ios);font-size:10.5px;font-weight:600;color:var(--teal-dark);
+  background:var(--teal-soft);border-radius:999px;padding:2px 9px}
+.ai-chip i{width:6px;height:6px;border-radius:50%;background:var(--teal);animation:blink 1.4s infinite}
+.ai-pics{display:flex;gap:6px}
+.ai-pics img{width:108px;height:108px;border-radius:14px;object-fit:cover;display:block;background:#eee}
+.panel.steps .num{margin-bottom:26px}
+.panel.steps .num.go{background:#fff;color:var(--ink);border-radius:18px;padding:14px 18px;margin:0 -18px;
+  box-shadow:0 14px 30px -14px rgba(0,0,0,.35)}
+.panel.steps .num.go b{background:var(--teal);color:#fff}
+.panel.steps .num.go span em{color:var(--teal-dark);opacity:1}
+.liftoff{display:inline-flex;align-items:center;gap:16px;margin-top:6px;background:var(--teal-soft);border:2px solid var(--teal);
+  border-radius:18px;padding:14px 26px 14px 18px;font-family:Poppins,sans-serif;font-size:26px;color:#2b3340}
+.liftoff b{font-weight:700;color:var(--teal-dark)}
+.liftoff .rocket{font-size:46px;line-height:1;display:inline-block;animation:lift 2.6s ease-in-out infinite}
+@keyframes lift{0%,100%{transform:translate(0,0) rotate(0)}50%{transform:translate(5px,-9px) rotate(-6deg)}}
+.rocket-in{display:inline-block}
+.slide.on .rocket-in{animation:fly .9s cubic-bezier(.2,.8,.3,1) .25s both}
+@keyframes fly{from{opacity:0;transform:translate(-70px,60px) scale(.5)}to{opacity:1;transform:none}}
+.panel.steps .num span em{display:block;font-style:normal;font-size:15px;font-weight:700;letter-spacing:.14em;
+  text-transform:uppercase;opacity:.85;margin-bottom:2px}
+
+/* ---------- launch call deck ---------- */
+.slide .art{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0}
+.slide.on .art{animation:artin .7s ease both}
+@keyframes artin{from{opacity:0;transform:scale(1.014)}to{opacity:1;transform:none}}
+.tx{position:absolute;z-index:2;counter-reset:li}
+.tx p{margin:0;white-space:pre-wrap;overflow-wrap:break-word}
+.tx a{color:inherit}
+.tx p.li{position:relative;padding-left:1.5em}
+.tx p.li::before{position:absolute;left:.32em;top:0;font-weight:400}
+.tx p.ul::before{content:"\2022"}
+.tx p.ol{counter-increment:li}
+.tx p.ol::before{content:counter(li)".";left:0}
+body.shot #nav,body.shot .hint,body.shot #bar{display:none!important}
+/* step x of 7 + "optional" */
+.chips{position:absolute;left:56px;bottom:34px;z-index:6;display:flex;gap:12px;align-items:center}
+.stepchip{display:flex;align-items:center;gap:9px;background:#fff;border-radius:999px;padding:12px 24px;
+  box-shadow:0 10px 28px -12px rgba(13,15,18,.4),0 0 0 1px rgba(13,15,18,.07);font-family:Poppins,sans-serif;font-size:20px;
+  font-weight:700;letter-spacing:.09em;color:var(--teal-dark);text-transform:uppercase;white-space:nowrap}
+.stepchip em{font-style:normal;font-weight:600;color:#8a94a0}
+.stepchip .dots{display:flex;gap:6px;margin-left:8px}
+.stepchip .dots i{width:11px;height:11px;border-radius:50%;background:#dfe5ea}
+.stepchip .dots i.on{background:var(--teal)}
+.stepchip .dots i.cur{background:var(--teal);box-shadow:0 0 0 4px rgba(46,196,198,.28)}
+.optchip{background:#fff6dc;border:2px solid #f5b301;color:#7a5200;border-radius:999px;padding:10px 24px;font-family:Poppins,sans-serif;
+  font-size:20px;font-weight:500;white-space:nowrap;box-shadow:0 10px 28px -14px rgba(122,82,0,.45)}
+.optchip b{font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.eyebrow{display:block;font-family:Poppins,sans-serif;font-size:19px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--teal-dark);margin-bottom:8px}
+/* the client journey: where we are */
+.jrny{display:flex;flex-direction:column;gap:11px;margin-top:6px}
+.jst{display:flex;align-items:center;gap:16px;font-family:Poppins,sans-serif;font-size:25px;color:#98a1ab}
+.jst b{flex:none;width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#eef2f5;color:#98a1ab;font-size:18px;font-weight:700}
+.jst.done{color:#5b6470}
+.jst.done b{background:var(--teal-soft);color:var(--teal-dark)}
+.jst.cur{color:var(--ink);font-weight:600}
+.jst.cur b{background:var(--teal);color:#fff;box-shadow:0 0 0 6px rgba(46,196,198,.2)}
+/* V3 / V2.3 markers the coach uses */
+.vtags{position:absolute;left:18px;top:14px;z-index:7;display:flex;gap:8px}
+.vtag{font:700 12px/1 Inter,sans-serif;padding:4px 30px;border-radius:999px;border:2px solid #111;color:#111}
+.vtag.v3{background:#4a5cff}
+.vtag.v23{background:#dba4ea}
+/* big numbered lines */
+.bigsteps{display:flex;flex-direction:column;gap:20px;margin-top:8px}
+.bs{display:flex;align-items:center;gap:20px;font-family:Poppins,sans-serif;font-size:29px;line-height:1.38}
+.bs b{flex:none;width:54px;height:54px;border-radius:14px;background:var(--teal);color:#fff;display:grid;place-items:center;font-size:26px;font-weight:700}
+.bs strong{color:var(--teal-dark)}
+.ios-row.book .ios-bub{background:#e7f8ee;box-shadow:0 0 0 2.5px #34c759;animation:bookpulse 1.6s ease-in-out 2}
+.ios-row.book .ios-bub::before{background:#e7f8ee}
+@keyframes bookpulse{0%,100%{box-shadow:0 0 0 2.5px #34c759}50%{box-shadow:0 0 0 2.5px #34c759,0 0 0 11px rgba(52,199,89,.22)}}
+/* pause the AI */
+.ios-row.me{align-items:flex-end}
+.ios-row.me .ios-bub{background:#0a84ff;color:#fff}
+.ios-row.me .ios-bub::before{left:auto;right:-5px;background:#0a84ff;border-bottom-right-radius:0;border-bottom-left-radius:17px}
+.ios-row.me .ios-bub::after{left:auto;right:-10px;border-bottom-right-radius:0;border-bottom-left-radius:13px}
+.ios-row.me .who{font-size:10px;color:#8e8e93;margin:0 6px 2px 0;font-family:var(--ios)}
+.ios-note{align-self:center;font-family:var(--ios);font-size:11px;font-weight:600;color:#1f9d55;background:#e7f8ee;border-radius:999px;
+  padding:5px 12px;opacity:0;animation:bin .42s cubic-bezier(.2,.8,.3,1) forwards}
+.ai-chip.paused{color:#b45309;background:#fff3d6}
+.ai-chip.paused i{background:#f59e0b;animation:none}
+.pausebox{display:inline-flex;align-items:center;gap:16px;background:var(--teal-soft);border:2px solid var(--teal);border-radius:18px;
+  padding:16px 26px;font-family:Poppins,sans-serif;font-size:25px;color:#17313a}
+.pausebox .pb-ico{font-size:34px;line-height:1}
+.disc{position:absolute;z-index:3;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:30px;
+  background:#fff;border:4px solid #e02424;border-radius:28px;padding:38px 54px;box-shadow:0 30px 70px -24px rgba(13,15,18,.45);width:max-content;max-width:1200px}
+.slide.on .disc.rv{animation:discin .6s cubic-bezier(.2,.9,.3,1.2) forwards}
+@keyframes discin{from{opacity:0;transform:translate(-50%,-44%) scale(.94)}to{opacity:1;transform:translate(-50%,-50%)}}
+.disc .warn{font-size:92px;line-height:1}
+.disc h2{margin:0 0 6px;font-family:Inter,sans-serif;font-size:58px;font-weight:800;color:#e02424;letter-spacing:.02em}
+.disc p{margin:0;font-family:Poppins,sans-serif;font-size:34px;font-weight:600;color:#17181c}
+.tx a.btnlink{text-decoration:none;cursor:pointer}
+.tx a.btnlink:hover{text-decoration:underline}
+.adlinks{display:flex;gap:12px;margin-top:26px}
+.adlinks a{display:inline-flex;align-items:center;gap:8px;background:#fff;border:2px solid var(--line);border-radius:12px;padding:9px 18px;
+  font-family:Poppins,sans-serif;font-size:18px;font-weight:600;color:#17181c;text-decoration:none}
+.adlinks a:hover{border-color:var(--teal);color:var(--teal-dark)}
+/* phishing examples */
+.phish-top{position:relative;z-index:2;display:flex;align-items:center;gap:26px;margin:46px 120px 26px 150px}
+.phish-top .warn{font-size:78px;line-height:1;flex:none}
+.phish-top .lede{font-size:29px}
+.scams{position:relative;z-index:2;flex:1;min-height:0;display:flex;gap:26px;align-items:stretch;margin:0 10px 30px}
+.scam{position:relative;flex:1;background:#f1f2f6;border-radius:26px;padding:30px 32px;font-family:var(--ios);font-size:23px;line-height:1.42;color:#2a2f37;overflow:hidden}
+.scam b{display:block;font-size:25px;margin-bottom:10px;color:#111}
+.scam p{margin:0 0 10px}
+.scam .lnk{color:#1a56db;text-decoration:underline;word-break:break-word}
+.scam .stamp{position:absolute;right:22px;bottom:22px;border:5px solid #e02424;color:#e02424;border-radius:12px;padding:4px 16px;
+  font-family:Inter,sans-serif;font-weight:800;font-size:34px;letter-spacing:.08em;transform:rotate(-12deg) scale(2.4);opacity:0;background:rgba(255,255,255,.75)}
+.slide.on .scam .stamp{animation:stampin .38s cubic-bezier(.2,1.4,.4,1) forwards}
+@keyframes stampin{to{opacity:1;transform:rotate(-12deg) scale(1)}}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="fit"><div id="stage"></div></div>
+<div id="grid"><h3>All slides — click to jump</h3><div class="gg" id="gg"></div></div>
+<div id="nav"><button id="prev" title="Previous (←)">&#8249;</button>
+  <span class="pos" id="pos" title="All slides (O)">1 / 12</span>
+  <button id="next" title="Next (→)">&#8250;</button></div>
+<div class="hint">← → move · O all slides · F fullscreen</div>
+
+<script>
+(function(){
+"use strict";
+
+var BRUSH='<svg class="brush" viewBox="0 0 420 260" fill="none"><path d="M-20 150C40 60 170 0 340 18c26 3 28 56 2 54C190 58 96 104 34 176c-20 24-68 10-54-26Z" fill="#2EC4C6"/><path d="M-16 92C46 26 150-14 268-8c18 1 20 28 2 28C168 16 78 50 20 108 6 122-26 106-16 92Z" fill="#2EC4C6" opacity=".5"/></svg>';
+var LOGO='<img class="logo" src="/deck/assets/brand-logo.png" alt="">';
+var THUMB='<span class="rbubble like"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 21H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h4zm2-11 3.2-6.4A2 2 0 0 1 18 4.5L16.8 10H20a2 2 0 0 1 2 2.4l-1.3 6.2A2 2 0 0 1 18.7 21H11z"/></svg></span>';
+var HEART='<span class="rbubble love"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg></span>';
+var CK='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13l6 6L20 5"/></svg>';
+var PINSVG='<svg viewBox="0 0 24 32" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20c0-6.6-5.4-12-12-12Zm0 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z"/></svg>';
+var PINS=[[35.7,64.9],[75.4,49.4],[80.8,45.5],[71.7,71.8],[47.6,24.4],[63.7,56.6],[44.7,58.6],[24.3,60.3],[42.7,75.6],[43.8,68.8],[79.7,70.9],[80.9,60.1],[60.2,62.0],[41.3,15.8],[21.1,37.3],[13.8,22.8],[46.7,37.6],[72.2,34.1],[63.1,75.8],[96.1,15.9],[15.8,8.3],[67.6,40.2],[18.6,79.0],[58.7,39.8],[71.7,43.3],[17.9,47.5],[17.7,26.0],[27.6,24.2],[28.1,47.1],[71.7,62.7],[53.7,29.7],[50.7,41.6],[50.4,65.6],[21.3,18.3],[84.9,49.8],[66.2,62.9],[41.8,32.5],[83.5,35.9],[66.0,29.7],[69.7,52.5],[34.2,53.3],[88.4,36.8],[49.5,15.0],[57.7,16.0],[19.9,59.7],[43.3,50.6],[12.0,41.6],[34.5,20.9],[20.8,7.1],[32.4,34.6],[52.7,76.8],[58.6,47.6],[53.6,59.6],[89.0,24.0],[29.7,12.7],[74.1,25.7],[36.0,13.0],[12.2,50.5],[78.7,38.2],[82.3,78.2],[12.4,31.0],[54.5,45.8],[32.1,44.8],[57.3,71.4],[93.0,29.4],[18.3,53.9],[87.1,34.9],[72.5,51.6],[25.1,47.3],[53.6,64.4],[73.7,69.0],[28.1,55.5],[15.0,42.1],[90.9,30.7],[71.7,27.5],[19.7,56.4],[75.4,76.2],[76.5,66.6],[51.5,56.1],[95.5,24.0],[18.4,17.2],[16.5,38.7],[20.3,11.1],[43.2,35.1]];
+var ARROW='<span class="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></span>';
+var CHEV='<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></span>';
+/* Safari toolbar glyphs, drawn to match SF Symbols' weight */
+var SF=function(p,f){return '<svg viewBox="0 0 24 24" fill="'+(f||'none')+'" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';};
+var SFI={
+  side : SF('<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M9.5 4.5v15"/>'),
+  back : SF('<path d="M14.5 5.5 8 12l6.5 6.5"/>'),
+  fwd  : SF('<path d="M9.5 5.5 16 12l-6.5 6.5"/>'),
+  share: SF('<path d="M12 3.5v11"/><path d="M8.5 7 12 3.5 15.5 7"/><path d="M6 11.5H4.5v9h15v-9H18"/>'),
+  plus : SF('<path d="M12 5.5v13M5.5 12h13"/>'),
+  tabs : SF('<rect x="3" y="6.5" width="13" height="11" rx="2"/><path d="M8 6.5V5a1.5 1.5 0 0 1 1.5-1.5H19A1.5 1.5 0 0 1 20.5 5v9.5A1.5 1.5 0 0 1 19 16h-1.5"/>')
+};
+var LOCKICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">'+
+  '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
+function bullets(a){return '<ul class="bullets">'+a.map(function(t,k){return '<li class="rx" style="animation-delay:'+(0.12+k*0.085)+'s">'+CHEV+t+'</li>';}).join("")+'</ul>';}
+function head(no,live){return BRUSH+LOGO+'<div class="slide-no">Slide '+no+(live?' · <span class="lv">● LIVE</span>':'')+'</div>';}
+function pad(n){return (n<10?"0":"")+n;}
+
+/* Every slide keeps its exact original render; the live ones replace it. */
+var SLIDES=[];
+function orig(n,t){SLIDES.push({n:n,t:t,img:true});}
+function live(n,t,html){SLIDES.push({n:n,t:t,html:'<div class="inner">'+html+'</div>'});}
+
+
+/* ---- launch call deck ---- */
+function head(no,live){return BRUSH+LOGO+(live?'<div class="slide-no"><span class="lv">● LIVE</span></div>':'');}
+function journey(k){var S=["Your ads","Your booking page","We filter the leads","You get the alert","The AI starts the chat"];
+  return '<div class="jrny">'+S.map(function(t,i){return '<div class="jst rx'+(i+1===k?' cur':(i+1<k?' done':''))+'" style="animation-delay:'+(0.22+i*0.09)+'s"><b>'+(i+1)+'</b><span>'+t+'</span></div>';}).join("")+'</div>';}
+
+SLIDES.push({n:101,t:"Welcome",th:"t-lc-01",html:"<img class=\"art\" src=\"/deck/assets/launch/a01.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:196.2px;top:375px;width:371.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 40px/normal Inter;color:#000000\">Welcome to The</p></div><div class=\"tx\" style=\"left:193.8px;top:438.8px;width:610px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">PMU Bookings On Demand Family</p></div>"});
+SLIDES.push({n:102,t:"Quick Introduction",th:"t-lc-02",html:"<img class=\"art\" src=\"/deck/assets/launch/a02.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:931.2px;top:278.8px;width:505px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 66.7px/normal Inter;color:#000000\">Quick Introduction</p></div><div class=\"tx\" style=\"left:820px;top:481.2px;width:726.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 30px/normal Poppins;color:#000000\">Meet me… your dedicated client success coach!</p></div><div class=\"tx\" style=\"left:970px;top:608.8px;width:217.5px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:600 20px/normal Poppins;color:#ffffff;text-align:center\">A little bit about us…</p></div>"});
+SLIDES.push({n:103,t:"A little about us",th:"t-lc-03",html:"<img class=\"art\" src=\"/deck/assets/launch/a03.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:150px;top:141.2px;width:611.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 66.7px/normal Inter;color:#000000\">A little about us…</p></div><div class=\"tx\" style=\"left:857.5px;top:326.2px;width:711.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 26.7px/normal Poppins;color:#000000\">We work with over 300 PMU artists nationwide. </p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 26.7px/normal Poppins;color:#000000\">Unlike other agencies that simply run ads, we assist you in converting leads into paying clients</p></div><div class=\"tx\" style=\"left:857.5px;top:538.8px;width:722.5px\"><p class=\"rv\" style=\"animation-delay:0.48s;font:400 26.7px/normal Poppins;color:#000000\">We are your long-term partner. We’ll help you with new bookings, help with reactivation, gain reputation by get more Google reviews and followers on social media.</p></div>"});
+SLIDES.push({n:104,t:"Our Mission",th:"t-lc-04",html:"<img class=\"art\" src=\"/deck/assets/launch/a04.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:175px;top:161.2px;width:611.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 66.7px/normal Inter;color:#000000\">Our Mission</p></div><div class=\"tx\" style=\"left:856.2px;top:446.2px;width:706.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 26.7px/normal Poppins;color:#ffffff;text-align:center\">Partner together to build your dream PMU business, never have to worry about new bookings again.</p></div>"});
+SLIDES.push({n:105,t:"Our 2027 Vision",th:"t-lc-05",html:"<img class=\"art\" src=\"/deck/assets/launch/a05.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:165px;top:255px;width:611.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 66.7px/normal Inter;color:#000000\">Our 2027 Vision</p></div><div class=\"tx\" style=\"left:111.2px;top:445px;width:747.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 26.7px/normal Poppins;color:#000000\">By December 2027, we will have helped over 500 PMU artists build their dream businesses, serve more clients, and make a positive impact on their communities</p></div>"});
+SLIDES.push({n:106,t:"Today we’ll go over",th:"t-lc-06",html:"<img class=\"art\" src=\"/deck/assets/launch/a06.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:156.2px;top:137.5px;width:700px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 66.7px/normal Inter;color:#000000\">Today We’ll Go Over:</p></div><div class=\"tx\" style=\"left:911.2px;top:243.8px;width:653.8px\"><p class=\"rv li ul\" style=\"animation-delay:0.24s;font:400 25.8px/normal Poppins;color:#000000\">The Client Journey</p><p class=\"rv li ul\" style=\"animation-delay:0.36s;font:400 25.8px/normal Poppins;color:#000000\">The 7-Step Success Formula</p><p class=\"rv li ul\" style=\"animation-delay:0.48s;font:400 25.8px/normal Poppins;color:#000000\">Setting Expectations</p><p class=\"rv li ul\" style=\"animation-delay:0.60s;font:400 25.8px/normal Poppins;color:#000000\">The Facebook Group &amp; Referral Program</p><p class=\"rv li ul\" style=\"animation-delay:0.72s;font:400 25.8px/normal Poppins;color:#000000\">Q&amp;A &amp; Go Live! 🎉</p></div><div class=\"tx\" style=\"left:913.8px;top:516.2px;width:281.2px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:600 28.3px/normal Poppins;color:#ffffff;text-align:center\">GO LIVE! </p></div>"});
+/* ---- 8: ads ---- */
+live(8,"Premium FB &amp; IG Ad System",
+head(3,true)+
+'<div class="row"><div class="col-copy">'+
+  '<h1 class="title">The Client Journey</h1>'+
+  '<p class="lede">It starts with <b>your ads</b> on Facebook &amp; Instagram.</p>'+
+  journey(1)+'<div class="adlinks rv" style="animation-delay:.75s"><a href="https://drive.google.com/drive/folders/1X1AwWRcrkdDVv4Fi5_mqlG3FUauKNLd8" target="_blank" rel="noopener">&#128279; Link 01</a><a href="https://drive.google.com/drive/folders/1GINuSxypSSio_gIZvvR4W34kvLrDG9Kt" target="_blank" rel="noopener">&#128279; Link 02</a></div>'+
+'</div><div class="col-visual">'+
+  '<div class="phone ph-fb"><div class="notch"></div><div class="screen">'+
+    '<div class="statusbar"><span>10:34</span><span>&#9679;&#9679;&#9679;&#9679; &#9679;</span></div>'+
+    '<div class="fb-chrome"><div class="fb-top"><span class="fb-word">facebook</span><span>'+
+      '<span class="fb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#050505" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>'+
+      '<span class="fb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#050505" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>'+
+      '<span class="fb-ic"><svg viewBox="0 0 24 24" fill="none" stroke="#050505" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>'+
+    '</span></div><div class="fb-search">What\'s on your mind?</div>'+
+    '<div class="fb-tabs">'+
+      '<span class="act"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 12h3v9h6v-6h2v6h6v-9h3z"/></svg></span>'+
+      '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/></svg></span>'+
+      '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 9 5 3-5 3z"/></svg></span>'+
+      '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></span>'+
+    '</div></div>'+
+    '<div class="post"><div class="post-head">'+
+      '<span class="avatar"><img src="/deck/assets/blossom-logo.png" alt=""></span>'+
+      '<span class="post-who"><span class="post-name">Blossom Beauty</span>'+
+      '<span class="post-meta">Sponsored · <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="#65676b" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18"/></svg></span></span>'+
+      '<span class="post-more">···</span></div>'+
+      '<div class="post-copy">Hello Gainesville Ladies! 👋<br>Tired of filling in your eyebrows every single day? 😩<br>We have JUST the solution for you 💕 <span class="more">See More</span></div>'+
+      '<div class="media"><span class="live"><i></i>LIVE AD</span><video src="/deck/assets/ad-facebook.mp4" autoplay muted loop playsinline preload="auto"></video><span class="fly-wrap" id="fb-fly"></span></div>'+
+      '<div class="cta-bar"><span class="hl">🎉 YOUR OFFER HERE!</span><span class="cta-btn">Book Now</span></div>'+
+      '<div class="stats"><span class="reacts">'+THUMB+HEART+'<span class="rcount" id="fb-likes">5.8K</span></span>'+
+        '<span><span id="fb-comments">461</span> comments · 1K shares</span></div>'+
+      '<div class="actions">'+
+        '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10v11H4a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zM7 10l4-7a2.5 2.5 0 0 1 2.5 3L13 10h5.5a2 2 0 0 1 2 2.4l-1.4 7A2 2 0 0 1 17 21H7"/></svg>Like</span>'+
+        '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5Z"/></svg>Comment</span>'+
+        '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg>Send</span>'+
+        '<span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M12 3v13M7 8l5-5 5 5"/></svg>Share</span>'+
+      '</div></div></div></div>'+
+  '<div class="phone ph-ig"><div class="notch"></div><div class="screen ig-screen"><div class="ig-reel">'+
+    '<video src="/deck/assets/ad-instagram.mp4" autoplay muted loop playsinline preload="auto"></video><div class="ig-shade"></div>'+
+    '<span class="live"><i></i>LIVE AD</span>'+
+    '<div class="ig-top"><span class="ttl">Reels</span><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="3.6"/><circle cx="17.2" cy="6.8" r="1.1" fill="#fff"/></svg></div>'+
+    '<div class="ig-side">'+
+      '<span class="it"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M20.8 6.6a5 5 0 0 0-8.8-2 5 5 0 0 0-8.8 2c-1 3.4 1.6 6.6 8.8 12 7.2-5.4 9.8-8.6 8.8-12Z"/></svg><em style="font-style:normal" id="ig-likes">1,431</em></span>'+
+      '<span class="it"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5Z"/></svg><em style="font-style:normal">208</em></span>'+
+      '<span class="it"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="m22 2-7 20-4-9-9-4z"/></svg><em style="font-style:normal">94</em></span>'+
+      '<span class="it"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg></span>'+
+      '<span class="ig-disc"><img src="/deck/assets/blossom-logo.png" alt=""></span>'+
+    '</div>'+
+    '<div class="ig-bot">'+
+      '<div class="ig-user"><span class="ig-ring"><i><img src="/deck/assets/blossom-logo.png" alt=""></i></span>'+
+        '<span class="n">blossombeautyva</span><span class="ig-follow">Follow</span></div>'+
+      '<div class="ig-cap">Wake up with perfect brows — every single day ✨</div>'+
+      '<div class="ig-spon">Sponsored</div>'+
+      '<div class="ig-audio"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 18V6l10-2v12"/><circle cx="7" cy="18" r="2.5"/><circle cx="17" cy="16" r="2.5"/></svg>'+
+        '<span>blossombeautyva · Original audio · blossombeautyva · Original audio · </span></div>'+
+      '<div class="ig-cta">🎉 Claim YOUR OFFER <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></div>'+
+    '</div>'+
+    '<span class="ig-heart" id="ig-heart"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg></span>'+
+    '<span class="ig-prog" id="ig-prog"></span>'+
+  '</div></div></div>'+
+'</div></div>');
+
+SLIDES[SLIDES.length-1].n=8;SLIDES[SLIDES.length-1].t="Client Journey — your ads";SLIDES[SLIDES.length-1].th="t-lc-07";
+/* ---- 9: real funnel survey ---- */
+live(9,"Lead Qualification Process",
+head(4,true)+
+'<h1 class="title" style="white-space:nowrap;margin-bottom:20px">The Client Journey</h1>'+
+'<div class="row row-dtp"><div class="col-copy">'+
+  '<p class="lede rv" style="animation-delay:.1s;margin-bottom:16px;font-size:27px"><b>How we qualify leads?</b></p>'+bullets(["Collecting Lead Information","Building the Know, Like &amp; Trust Factor","Branding &amp; Social Proof","Service Education","Information Submission","Qualified Lead Questions"])+
+'</div><div class="col-visual">'+
+  '<div class="dtp"><div class="dtp-bar">'+
+    '<span class="dtp-dot" style="background:#ff5f57"></span>'+
+    '<span class="dtp-dot" style="background:#febc2e"></span>'+
+    '<span class="dtp-dot" style="background:#28c840"></span>'+
+    '<span class="dtp-ico l">'+SFI.side+SFI.back+SFI.fwd+'</span>'+
+    '<span class="dtp-url">'+LOCKICON+'book.pmu-care.com/blossom-beauty</span>'+
+    '<span class="dtp-ico r">'+SFI.share+SFI.plus+SFI.tabs+'</span>'+
+  '</div><div class="dtp-vp" id="fnl-vp"><div class="dtp-doc" id="fnl-doc">'+
+    '<div class="fnl" id="fnl"></div>'+
+  '</div></div></div>'+
+'</div></div>');
+
+SLIDES[SLIDES.length-1].n=9;SLIDES[SLIDES.length-1].t="Client Journey — how we qualify";SLIDES[SLIDES.length-1].th="t-lc-08";SLIDES[SLIDES.length-1].th="t-09";
+SLIDES.push({n:109,t:"Client Journey — filter out",th:"t-lc-09",html:"<img class=\"art\" src=\"/deck/assets/launch/a09.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:65px;top:128.8px;width:640px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 55px/normal Inter;color:#000000\">The Client Journey</p></div><div class=\"tx\" style=\"left:33.8px;top:221.2px;width:545px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 35px/normal Inter;color:#000000;text-align:center\">How we qualify leads?</p></div><div class=\"tx\" style=\"left:52px;top:302.5px;width:1226.2px\"><p class=\"rv li ul\" style=\"animation-delay:0.36s;font:400 28.3px/normal Poppins;color:#000000\">Collecting Lead Information</p><p class=\"rv li ul\" style=\"animation-delay:0.48s;font:400 28.3px/normal Poppins;color:#000000\">Building the Know, Like &amp; Trust Factor</p><p class=\"rv li ul\" style=\"animation-delay:0.60s;font:400 28.3px/normal Poppins;color:#000000\">Branding &amp; Social Proof</p><p class=\"rv li ul\" style=\"animation-delay:0.72s;font:400 28.3px/normal Poppins;color:#000000\">Service Education</p><p class=\"rv li ul\" style=\"animation-delay:0.84s;font:400 28.3px/normal Poppins;color:#000000\">Information Submission</p><p class=\"rv li ul\" style=\"animation-delay:0.96s;font:400 28.3px/normal Poppins;color:#000000\">Qualified Lead Questions</p></div><div class=\"tx\" style=\"left:1222.5px;top:351.2px;width:293.8px\"><p class=\"rv\" style=\"animation-delay:1.08s;font:700 20.8px/normal Poppins;color:#28c4bc\">❌ -&gt;&gt;&gt; Filter Out</p></div><div class=\"tx\" style=\"left:723.8px;top:696.2px;width:355px\"><p class=\"rv\" style=\"animation-delay:1.20s;font:700 20.8px/normal Poppins;color:#28c4bc\">❌ -&gt;&gt;&gt; Filter Out</p></div>"});
+/* ---- 10: iMessage ---- */
+live(10,"Notification Process",
+head(5,true)+
+'<div class="row"><div class="col-copy">'+
+  '<h1 class="title" style="white-space:nowrap">The Client Journey</h1>'+
+  '<p class="lede">Every qualified lead lands on your phone the second they finish — <b>name, treatment, age, how serious they are</b>.</p>'+journey(4)+
+'</div><div class="col-visual"><div class="phone ph-sms"><div class="notch"></div><div class="screen">'+
+  '<div class="statusbar"><span>9:41</span><span>&#9679;&#9679;&#9679;&#9679; 5G</span></div>'+
+  '<div class="ios-head"><span class="ios-back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg><span class="ios-badge">3</span></span>'+
+    '<span class="ios-av"><img src="/deck/assets/brand-logo.png" alt=""></span>'+
+    '<span class="ios-name">PMU Bookings <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></span></div>'+
+  '<div class="ios-body" id="sms-body"></div>'+
+  '<div class="ios-foot"><span class="plus">+</span><span class="inp">Text Message · SMS</span><span>&#9835;</span></div>'+
+'</div></div></div></div>');
+
+SLIDES[SLIDES.length-1].n=10;SLIDES[SLIDES.length-1].t="Client Journey — lead alerts";SLIDES[SLIDES.length-1].th="t-lc-10";
+/* ---- quick start: the AI in action (conversation from the Launch Call deck) ---- */
+live(23,"The AI in action",
+head(8,true)+
+'<div class="row"><div class="col-copy">'+
+  '<h1 class="title" style="white-space:nowrap">See The AI In Action</h1>'+
+  '<p class="lede">Watch it chat with a new lead. <b>The AI wrote every teal message.</b></p>'+
+  bullets(["Based on thousands of successful conversations","Built to turn leads into booked appointments with a deposit"])+
+'</div><div class="col-visual"><div class="phone ph-sms"><div class="notch"></div><div class="screen">'+
+  '<div class="statusbar"><span>6:06</span><span>&#9679;&#9679;&#9679;&#9679; 5G</span></div>'+
+  '<div class="ios-head"><span class="ios-back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg></span>'+
+    '<span class="ios-av ai-av">V</span>'+
+    '<span class="ios-name">Vikki <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></span>'+
+    '<span class="ai-chip"><i></i>AI is replying</span></div>'+
+  '<div class="ios-body" id="ai-body"></div>'+
+  '<div class="ios-foot"><span class="plus">+</span><span class="inp">Text Message · SMS</span><span>&#9835;</span></div>'+
+'</div></div></div></div>');
+SLIDES[SLIDES.length-1].n=23;SLIDES[SLIDES.length-1].t="Client Journey — the AI chat";SLIDES[SLIDES.length-1].th="t-lc-11";
+SLIDES.push({n:112,t:"Step 1 — Call the same day",th:"t-lc-12",html:"<img class=\"art\" src=\"/deck/assets/launch/a12.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:178.8px;top:217.5px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:175px;top:273.8px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:52px;top:422.5px;width:840px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:700 28.3px/normal Poppins;color:#000000\">Call the leads same day <span style=\"font-weight:400\">(Highest answer rate 5-7 PM)</span></p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 1 <em>of 7</em><span class=\"dots\"><i class=\"cur\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i></span></div></div>"});
+SLIDES.push({n:113,t:"Step 2 — Call back-to-back",th:"t-lc-13",html:"<img class=\"art\" src=\"/deck/assets/launch/a13.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:951.2px;top:160px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:947.5px;top:215px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:910px;top:388.8px;width:597.5px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:600 33.3px/normal Poppins;color:#000000\">Call back-to-back </p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 28.3px/normal Poppins;color:#000000\">(From the CRM system X2 times in a row)</p></div><div class=\"tx\" style=\"left:60px;top:543.8px;width:711.2px\"><p class=\"rv\" style=\"animation-delay:0.60s;font:600 28.3px/normal Poppins;color:#000000;text-align:center\">The client responded on the second attempt</p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 2 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"cur\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i></span></div></div>"});
+SLIDES.push({n:114,t:"Step 3 — Call AND text, 3 days",th:"t-lc-14",html:"<img class=\"art\" src=\"/deck/assets/launch/a14.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:172.5px;top:245px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:170px;top:300px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:76.2px;top:436.2px;width:700px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:600 28.3px/normal Poppins;color:#000000\">Call AND Text in <span style=\"color:#01c9bf\">3 different days </span>before giving up on a lead.</p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 3 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"cur\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i></span></div></div>"});
+SLIDES.push({n:115,t:"Step 4 — Update the dashboard",th:"t-lc-15",html:"<img class=\"art\" src=\"/deck/assets/launch/a15.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:236.2px;top:197.5px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:232.5px;top:252.5px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:222.5px;top:388.8px;width:581.2px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 30px/normal Poppins;color:#000000\">Update the dashboard <span style=\"color:#01c9bf\">daily.</span></p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 4 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"cur\"></i><i class=\"\"></i><i class=\"\"></i><i class=\"\"></i></span></div></div>"});
+/* ---- 11: CRM ---- */
+live(11,"Introducing the CRM",
+head(6,true)+
+'<h1 class="title rv" style="animation-delay:.06s;position:relative;z-index:2;margin-bottom:14px"><span class="eyebrow">Our Simple 7 Steps Success Formula &middot; Step 4</span>Update The Dashboard Daily</h1>'+
+'<div style="position:relative;z-index:2;flex:1;min-height:0"><div class="crm">'+
+  '<div class="crm-top"><b style="font-family:Poppins;color:#111">Opportunities</b>'+
+    '<span class="pill" id="crm-count">1,260 opportunities</span><span style="margin-left:auto">Booking pipeline</span></div>'+
+  '<div class="crm-cols" id="crm-cols"></div></div></div>'+
+'<div class="toast" id="crm-toast"></div>');
+
+SLIDES[SLIDES.length-1].n=11;SLIDES[SLIDES.length-1].t="Step 4 — The dashboard";SLIDES[SLIDES.length-1].th="t-lc-16";
+SLIDES.push({n:117,t:"Disclaimer",th:"t-lc-17",html:"<img class=\"art\" src=\"/deck/assets/launch/a17.webp\" alt=\"\" decoding=\"async\"><div class=\"disc rv\" style=\"animation-delay:.15s\"><span class=\"warn\">&#9888;&#65039;</span><div><h2>DISCLAIMER</h2><p>If this is not done it will impact your results</p></div></div>"});
+SLIDES.push({n:118,t:"Step 5 — The Diamond script",th:"t-lc-18",html:"<img class=\"art\" src=\"/deck/assets/launch/a18.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:157.5px;top:147.5px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:155px;top:202.5px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:130px;top:338.8px;width:621.2px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:700 28.3px/normal Poppins;color:#000000\">Print &amp; practice<span style=\"font-weight:400\"> the Diamond script at least 10 times until it </span><span style=\"font-weight:600;color:#01c9bf\">sounds natural!</span></p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:700 28.3px/normal Poppins;color:#000000\">Do you have the script?</p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 5 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"cur\"></i><i class=\"\"></i><i class=\"\"></i></span></div></div>"});
+SLIDES.push({n:119,t:"Step 5 — Which artist?",th:"t-lc-19",html:"<img class=\"art\" src=\"/deck/assets/launch/a19.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:183.8px;top:122.5px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#ffffff\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:180px;top:177.5px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#ffffff\">Success Formula</p></div><div class=\"tx\" style=\"left:183.8px;top:320px;width:1205px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:700 28.3px/normal Poppins;color:#000000\">With which PMU artist would you feel more comfortable?</p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 36.7px/normal Poppins;color:#000000\">👉<span style=\"font-size:28.3px\"> Artist who talk to you for 20 seconds and asks you to book an appointment?</span></p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 36.7px/normal Poppins;color:#000000\">👉<span style=\"font-size:28.3px\"> Artist who asks questions, </span><span style=\"font-size:28.3px\">genuinely </span><span style=\"font-size:28.3px\">cares, understand the situation and only then offers her help if it make sense?</span></p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.72s;font:400 28.3px/normal Poppins;color:#000000\">The goal of the script: Build trust, establish an expert/doctor frame, collect a deposit.</p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 5 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"cur\"></i><i class=\"\"></i><i class=\"\"></i></span></div></div>"});
+SLIDES.push({n:120,t:"Step 6 — Price at the right time",th:"t-lc-20",html:"<img class=\"art\" src=\"/deck/assets/launch/a20.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:158.8px;top:111.2px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:155px;top:167.5px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:158.8px;top:293.8px;width:646.2px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 28.3px/normal Poppins;color:#000000\">Talk about the price only at the <span style=\"color:#01c9bf\">right time.</span></p></div><div class=\"tx\" style=\"left:1175px;top:447.5px;width:170px\"><p class=\"rv\" style=\"animation-delay:0.48s;font:600 26.7px/normal Poppins;color:#ffffff;text-align:center\">3 Scenarios</p></div><div class=\"tx\" style=\"left:1062.5px;top:513.8px;width:453.8px\"><p class=\"rv\" style=\"animation-delay:0.60s;font:400 25px/normal Poppins;color:#000000\">Talk about the price when they come (The best).</p></div><div class=\"tx\" style=\"left:1062.5px;top:605px;width:453.8px\"><p class=\"rv\" style=\"animation-delay:0.72s;font:400 25px/normal Poppins;color:#000000\">They ask for the price 1 time, and we do objection handling.</p></div><div class=\"tx\" style=\"left:1062.5px;top:696.2px;width:453.8px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:400 25px/normal Poppins;color:#000000\">Insist to know a price.</p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 6 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"cur\"></i><i class=\"\"></i></span></div></div>"});
+SLIDES.push({n:121,t:"Step 6 — Price at the end",th:"t-lc-21",html:"<img class=\"art\" src=\"/deck/assets/launch/a21.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:158.8px;top:97.5px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:155px;top:153.8px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:158.8px;top:280px;width:646.2px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 28.3px/normal Poppins;color:#000000\">Talk about the price only at the <span style=\"color:#01c9bf\">right time.</span></p></div><div class=\"tx\" style=\"left:1070px;top:523.8px;width:386.2px\"><p class=\"rv\" style=\"animation-delay:0.48s;font:600 26.7px/normal Poppins;color:#ffffff;text-align:center\">IF we talk about the price</p></div><div class=\"tx\" style=\"left:982.5px;top:593.8px;width:573.8px\"><p class=\"rv\" style=\"animation-delay:0.60s;font:700 25px/normal Poppins;color:#000000;text-align:center\">It will be only at the end of the conversation.</p></div><div class=\"tx\" style=\"left:18.8px;top:631.2px;width:440px\"><p class=\"rv\" style=\"animation-delay:0.72s;font:700 26.7px/normal Poppins;color:#000000;text-align:center\">Long paragraphs don’t convert.</p></div><div class=\"chips rv\" style=\"animation-delay:.05s;left:auto;right:150px;bottom:auto;top:34px\"><div class=\"stepchip\">Step 6 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"cur\"></i><i class=\"\"></i></span></div></div>"});
+SLIDES.push({n:122,t:"Step 7 — Always collect a deposit",th:"t-lc-22",html:"<img class=\"art\" src=\"/deck/assets/launch/a22.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:158.8px;top:97.5px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:155px;top:153.8px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:155px;top:267.5px;width:621.2px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:700 28.3px/normal Poppins;color:#000000\">ALWAYS <span style=\"color:#28c4bc\">collect a deposit!</span></p></div><div class=\"tx\" style=\"left:76.2px;top:330px;width:936.2px\"><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 28.3px/normal Poppins;color:#000000\">Increases show-up rates, people show up for what they’ve invested in.</p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 28.3px/normal Poppins;color:#000000\">Shows professionalism and building trust.</p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.72s;font:400 28.3px/normal Poppins;color:#000000\">Respects the artist’s valuable time — ensures booking seriousness.</p></div><div class=\"tx\" style=\"left:1076.2px;top:316.2px;width:386.2px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:600 26.7px/normal Poppins;color:#ffffff;text-align:center\">ALWAYS Collect a Deposit</p></div><div class=\"tx\" style=\"left:1208.8px;top:377.5px;width:111.2px\"><p class=\"rv\" style=\"animation-delay:0.96s;font:400 126.7px/normal Arial;color:#000000\">💰</p></div><div class=\"tx\" style=\"left:982.5px;top:542.5px;width:573.8px\"><p class=\"rv\" style=\"animation-delay:1.08s;font:700 25px/normal Poppins;color:#000000;text-align:center\">$25-$50 will work perfectly</p><p class=\"rv\" style=\"animation-delay:1.20s;font:700 25px/normal Poppins;color:#000000;text-align:center\">Your time is valuable!</p></div><div class=\"tx\" style=\"left:76.2px;top:665px;width:1076.2px\"><p class=\"rv\" style=\"animation-delay:1.32s;font:700 43.3px/normal Poppins;color:#000000\">💡<span style=\"font-size:28.3px\"> Collect a deposit isn’t pressure.</span></p><p class=\"rv\" style=\"animation-delay:1.44s;font:700 28.3px/normal Poppins;color:#000000\">  It’s reassurance, commitment, and a win-win for both client and artist.</p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 7 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"cur\"></i></span></div></div>"});
+SLIDES.push({n:123,t:"Step 7 — Deposit for free consults",th:"t-lc-23",html:"<img class=\"art\" src=\"/deck/assets/launch/a23.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:158.8px;top:97.5px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:155px;top:153.8px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:90px;top:267.5px;width:891.2px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:700 30px/normal Poppins;color:#000000\">Collect a deposit <span style=\"text-decoration:underline\">Even For In-Person Free Consultation</span> </p></div><div class=\"tx\" style=\"left:76.2px;top:330px;width:936.2px\"><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 28.3px/normal Poppins;color:#000000\">We require a deposit to secure your time. </p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 28.3px/normal Poppins;color:#000000\">If you attend the consultation and decide not to move forward, the deposit can be refunded. </p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.72s;font:400 28.3px/normal Poppins;color:#000000\">This ensures commitment and respects everyone’s time.</p></div><div class=\"tx\" style=\"left:1076.2px;top:316.2px;width:386.2px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:600 26.7px/normal Poppins;color:#ffffff;text-align:center\">ALWAYS Collect a Deposit</p></div><div class=\"tx\" style=\"left:1208.8px;top:377.5px;width:111.2px\"><p class=\"rv\" style=\"animation-delay:0.96s;font:400 126.7px/normal Arial;color:#000000\">💰</p></div><div class=\"tx\" style=\"left:982.5px;top:542.5px;width:573.8px\"><p class=\"rv\" style=\"animation-delay:1.08s;font:700 25px/normal Poppins;color:#000000;text-align:center\">$25-$50 will work perfectly</p><p class=\"rv\" style=\"animation-delay:1.20s;font:700 25px/normal Poppins;color:#000000;text-align:center\">Your time is valuable!</p></div><div class=\"tx\" style=\"left:76.2px;top:665px;width:1076.2px\"><p class=\"rv\" style=\"animation-delay:1.32s;font:700 43.3px/normal Poppins;color:#000000\">Your time is valuable!</p></div><div class=\"chips rv\" style=\"animation-delay:.05s;\"><div class=\"stepchip\">Step 7 <em>of 7</em><span class=\"dots\"><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"on\"></i><i class=\"cur\"></i></span></div></div>"});
+SLIDES.push({n:124,t:"The 7 steps",th:"t-lc-24",html:"<img class=\"art\" src=\"/deck/assets/launch/a24.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:128.8px;top:90px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:125px;top:146.2px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:86.2px;top:260px;width:1226.2px\"><p class=\"rv li ol\" style=\"animation-delay:0.36s;font:700 28.3px/normal Poppins;color:#000000\">Call the same day <span style=\"font-weight:400\">(Highest answer rate: 5-7 PM)</span></p><p class=\"rv li ol\" style=\"animation-delay:0.48s;font:700 28.3px/normal Poppins;color:#000000\">Call back-to-back<span style=\"font-weight:400\"> </span><span style=\"font-weight:400\">(from the system X2 times in a row)</span></p><p class=\"rv li ol\" style=\"animation-delay:0.60s;font:700 28.3px/normal Poppins;color:#000000\">Call AND Text in<span style=\"font-weight:400\"> </span><span style=\"color:#01c9bf\">3 different days</span><span style=\"font-weight:400;color:#01c9bf\"> </span><span style=\"font-weight:400\">before giving up on a lead.</span></p><p class=\"rv li ol\" style=\"animation-delay:0.72s;font:700 28.3px/normal Poppins;color:#000000\">Update dashboard<span style=\"font-weight:400\"> </span><span style=\"color:#01c9bf\">daily</span><span style=\"font-weight:400;color:#01c9bf\">.</span></p><p class=\"rv li ol\" style=\"animation-delay:0.84s;font:700 28.3px/normal Poppins;color:#000000\">Print &amp; practice the Diamond script<span style=\"font-weight:400\"> at least 10 times until it </span><span style=\"color:#01c9bf\">sounds natural!</span></p><p class=\"rv li ol\" style=\"animation-delay:0.96s;font:700 28.3px/normal Poppins;color:#000000\">Talk about price ONLY at the<span style=\"font-weight:400\"> </span><span style=\"color:#01c9bf\">right time.</span></p><p class=\"rv li ol\" style=\"animation-delay:1.08s;font:400 28.3px/normal Poppins;color:#000000\">Collect a <span style=\"font-weight:700;color:#28c4bc\">deposit</span> ($25-$50).</p></div><div class=\"tx\" style=\"left:95px;top:728.8px;width:1005px\"><p class=\"rv\" style=\"animation-delay:1.20s;font:700 30px/normal Poppins;color:#ff0000\">You will FAIL to book appointments if you won’t follow those steps</p></div>"});
+SLIDES.push({n:125,t:"The 7 steps — commitment",th:"t-lc-25",html:"<img class=\"art\" src=\"/deck/assets/launch/a25.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:128.8px;top:90px;width:338.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 33.3px/normal Inter;color:#000000\">Our Simple 7 Steps </p></div><div class=\"tx\" style=\"left:125px;top:146.2px;width:522.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 60px/normal Inter;color:#000000\">Success Formula</p></div><div class=\"tx\" style=\"left:86.2px;top:260px;width:1226.2px\"><p class=\"rv li ul\" style=\"animation-delay:0.36s;font:700 28.3px/normal Poppins;color:#000000\">Call the same day <span style=\"font-weight:400\">(Highest answer rate: 5-7 PM)</span></p><p class=\"rv li ul\" style=\"animation-delay:0.48s;font:700 28.3px/normal Poppins;color:#000000\">Call back-to-back<span style=\"font-weight:400\"> </span><span style=\"font-weight:400\">(from the system X2 times in a row)</span></p><p class=\"rv li ul\" style=\"animation-delay:0.60s;font:700 28.3px/normal Poppins;color:#000000\">Call AND Text in<span style=\"font-weight:400\"> </span><span style=\"color:#01c9bf\">3 different days</span><span style=\"font-weight:400;color:#01c9bf\"> </span><span style=\"font-weight:400\">before giving up on a lead.</span></p><p class=\"rv li ul\" style=\"animation-delay:0.72s;font:700 28.3px/normal Poppins;color:#000000\">Update dashboard<span style=\"font-weight:400\"> </span><span style=\"color:#01c9bf\">daily</span><span style=\"font-weight:400;color:#01c9bf\">.</span></p><p class=\"rv li ul\" style=\"animation-delay:0.84s;font:700 28.3px/normal Poppins;color:#000000\">Print &amp; practice the Diamond script<span style=\"font-weight:400\"> at least 10 times until it </span><span style=\"color:#01c9bf\">sounds natural!</span></p><p class=\"rv li ul\" style=\"animation-delay:0.96s;font:700 28.3px/normal Poppins;color:#000000\">Talk about price ONLY at the<span style=\"font-weight:400\"> </span><span style=\"color:#01c9bf\">right time.</span></p><p class=\"rv li ul\" style=\"animation-delay:1.08s;font:400 28.3px/normal Poppins;color:#000000\">Collect a <span style=\"font-weight:700;color:#28c4bc\">deposit</span> ($25-$50).</p></div><div class=\"tx\" style=\"left:91.2px;top:718.8px;width:1005px\"><p class=\"rv\" style=\"animation-delay:1.20s;font:700 26.7px/normal Poppins;color:#6aa84f\">Can we get 100% confirmation you’re committed to those this for the sake us helping you hit your revenue goals?</p></div>"});
+SLIDES.push({n:126,t:"Referrals vs. online ads",th:"t-lc-26",html:"<img class=\"art\" src=\"/deck/assets/launch/a26.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:312.5px;top:155px;width:993.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 60px/normal Inter;color:#000000\">Referrals Vs. Online Advertising</p></div><div class=\"tx\" style=\"left:217.5px;top:351.2px;width:1216.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 28.3px/normal Poppins;color:#000000\">Switching from referrals to online ads can feel like lead quality is lower, but it’s not—they’re just at a different stage in the buying process. </p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 28.3px/normal Poppins;color:#000000\">While referrals already trust you and are ready to book, online leads need more nurturing and education to build that trust.</p></div>"});
+SLIDES.push({n:127,t:"Online marketing vs. referrals",th:"t-lc-27",html:"<img class=\"art\" src=\"/deck/assets/launch/a27.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:122.5px;top:108.8px;width:556.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 60px/normal Inter;color:#000000\">Online Marketing</p></div><div class=\"tx\" style=\"left:1047.5px;top:260px;width:431.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 26.7px/normal Poppins;color:#000000;text-align:center\">Finally…After learning about PMU and meet you, things “clicked” and they signed up!</p></div><div class=\"tx\" style=\"left:122.5px;top:306.2px;width:165px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 26.7px/normal Poppins;color:#000000;text-align:center\">Just saw<br>your ad…</p></div><div class=\"tx\" style=\"left:362.5px;top:306.2px;width:317.5px\"><p class=\"rv\" style=\"animation-delay:0.48s;font:400 26.7px/normal Poppins;color:#000000;text-align:center\">Signed up but are a little skeptical…</p></div><div class=\"tx\" style=\"left:753.8px;top:302.5px;width:278.8px\"><p class=\"rv\" style=\"animation-delay:0.60s;font:400 26.7px/normal Poppins;color:#000000;text-align:center\">Came in and are still a little skeptical…</p></div><div class=\"tx\" style=\"left:122.5px;top:685px;width:300px\"><p class=\"rv\" style=\"animation-delay:0.72s;font:700 60px/normal Inter;color:#000000\">Referrals</p></div><div class=\"tx\" style=\"left:690px;top:728.8px;width:406.2px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:400 26.7px/normal Poppins;color:#000000;text-align:center\">Came in excited after hearing AMAZING things about you</p></div><div class=\"tx\" style=\"left:1100px;top:730px;width:292.5px\"><p class=\"rv\" style=\"animation-delay:0.96s;font:400 26.7px/normal Poppins;color:#000000;text-align:center\">Signed up without hesitation</p></div>"});
+SLIDES.push({n:128,t:"The hidden gems",th:"t-lc-28",html:"<img class=\"art\" src=\"/deck/assets/launch/a28.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:176.2px;top:132.5px;width:571.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 60px/normal Inter;color:#000000\">Referrals Vs. Online Advertising</p></div><div class=\"tx\" style=\"left:783.8px;top:161.2px;width:793.8px\"><p class=\"rv li ul\" style=\"animation-delay:0.24s;font:400 28.3px/normal Poppins;color:#ffffff\">Unlike referrals, we’re not trying to convert everyone!</p><p class=\"rv li ul\" style=\"animation-delay:0.36s;font:400 28.3px/normal Poppins;color:#ffffff\">Out of 50–100 leads per month, we’re targeting the hidden gems (2–3 out of 10). </p><p class=\"rv li ul\" style=\"animation-delay:0.48s;font:400 28.3px/normal Poppins;color:#ffffff\">The power of online ads lies in their consistency and predictability, giving you reliable results every month.</p><p class=\"rv li ul\" style=\"animation-delay:0.60s;font:400 28.3px/normal Poppins;color:#ffffff\"> Once mastered, you’ll have a proven system to scale and grow at your own pace.</p></div>"});
+SLIDES.push({n:129,t:"90 Days Transformation",th:"t-lc-29",html:"<img class=\"art\" src=\"/deck/assets/launch/a29.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:52px;top:-42.5px;width:1691.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 398.3px/normal Inter;color:#fafafa\">90 Days</p></div><div class=\"tx\" style=\"left:148.8px;top:127.5px;width:941.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 60px/normal Inter;color:#000000\">90 Days <span style=\"font-weight:700\">Transformation</span></p></div><div class=\"tx\" style=\"left:353.8px;top:285px;width:941.2px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:700 60px/normal Inter;color:#ff0000;text-align:center\">REMEMBER</p></div><div class=\"tx\" style=\"left:93.8px;top:421.2px;width:1460px\"><p class=\"rv\" style=\"animation-delay:0.48s;font:400 26.7px/normal Poppins;color:#000000\">Like anything new, it can be amazing right away — but sometimes, it takes time to work out the kinks.</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 26.7px/normal Poppins;color:#000000\">We’ve had PMU partners who almost gave up, but after committing for 90 days, ended up having record-breaking months and booked more clients than ever before.</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.72s;font:700 26.7px/normal Poppins;color:#000000\">Our data shows that the best results come from those who commit to 90 days and focus on making it work for their business.</p></div><div class=\"tx\" style=\"left:93.8px;top:743.8px;width:1412.5px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:700 31.7px/normal Poppins;color:#6aa84f;text-align:center\">Just remember - you are in good hands. Anytime you tell us something you have our promise that we will find a solution as quickly as possible</p></div>"});
+SLIDES.push({n:130,t:"Open Communication",th:"t-lc-30",html:"<img class=\"art\" src=\"/deck/assets/launch/a30.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:133.8px;top:137.5px;width:796.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Open<span style=\"font-weight:700\"> </span><span style=\"font-weight:700;font-size:73.3px\">Communication</span></p></div><div class=\"tx\" style=\"left:52px;top:308.8px;width:821.2px\"><p style=\"font-size:30px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.24s;font:700 30px/normal Poppins;color:#000000\">Phone: <span style=\"font-weight:400\">(206) 429-4626</span></p><p class=\"rv\" style=\"animation-delay:0.36s;font:700 30px/normal Poppins;color:#000000\">Email: <span style=\"font-weight:400;color:#467886;text-decoration:underline\"><a href=\"mailto:viridiana@pmu-bookings.com\" target=\"_blank\" rel=\"noopener\">viridiana@pmu-bookings.com</a></span></p><p style=\"font-size:30px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:700 30px/normal Arial;color:#000000\">Response Times<span style=\"font-weight:400\">: We’ll get back to you between 9am-6pm Eastern, Monday-Friday</span></p><p style=\"font-size:30px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.60s;font:700 30px/normal Arial;color:#000000\">Strategy Calls Schedule: <span style=\"font-weight:400\">We’ll invite you for a according to your needs. (You can always reach out to book)</span></p></div>"});
+SLIDES.push({n:131,t:"Open Communication — strategy calls",th:"t-lc-31",html:"<img class=\"art\" src=\"/deck/assets/launch/a31.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:173.8px;top:127.5px;width:638.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Open<span style=\"font-weight:700\"> </span><span style=\"font-weight:700;font-size:73.3px\">Communication</span></p></div><div class=\"tx\" style=\"left:663.8px;top:381.2px;width:923.8px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 26.7px/normal Poppins;color:#000000\">We believe in being straightforward, honest, and real. Expect constructive feedback from us—being coachable and open-minded is key to achieving the best results.</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 26.7px/normal Poppins;color:#000000\">Throughout the process, we’ll invite you to strategy calls to share valuable insights and tips for increasing booking rate.</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:700 26.7px/normal Poppins;color:#000000\">It’s essential for your success, </p><p class=\"rv\" style=\"animation-delay:0.60s;font:700 26.7px/normal Poppins;color:#000000\">book these strategy calls as soon as possible!</p></div>"});
+SLIDES.push({n:132,t:"Open Communication — tell us",th:"t-lc-32",html:"<img class=\"art\" src=\"/deck/assets/launch/a32.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:133.8px;top:137.5px;width:638.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Open<span style=\"font-weight:700\"> </span><span style=\"font-weight:700;font-size:73.3px\">Communication</span></p></div><div class=\"tx\" style=\"left:82.5px;top:387.5px;width:927.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 26.7px/normal Poppins;color:#000000\">We can solve challenges together when we’re aware of them.</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 26.7px/normal Poppins;color:#000000\">We want you to feel confident and satisfied throughout the process.</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 26.7px/normal Poppins;color:#000000\">Keep us informed so we can address any issues right away and ensure the best results.</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 26.7px/normal Poppins;color:#000000\">Clear communication is key to our success</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p style=\"font-size:26.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.72s;font:400 26.7px/normal Poppins;color:#000000\">I’m not a psychic yet, but I’m certainly working on it…</p></div>"});
+SLIDES.push({n:133,t:"Last few things — lead pace",th:"t-lc-33",html:"<img class=\"art\" src=\"/deck/assets/launch/a33.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:865px;top:157.5px;width:540px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Last<span style=\"font-weight:700\"> </span></p><p class=\"rv\" style=\"animation-delay:0.24s;font:700 73.3px/normal Inter;color:#000000\">few things!</p></div><div class=\"tx\" style=\"left:758.8px;top:370px;width:828.8px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 28.3px/normal Poppins;color:#000000\">If leads slow down, that’s totally normal—</p><p class=\"rv\" style=\"animation-delay:0.48s;font:700 28.3px/normal Poppins;color:#000000\">results are evaluated on a 2-week cycle.</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 28.3px/normal Poppins;color:#000000\">If you’re overwhelmed with leads, please let us know so we can adjust to your pace.</p><p class=\"rv\" style=\"animation-delay:0.72s;font:400 28.3px/normal Poppins;color:#000000\">Feel stuck? start by watching the videos.</p><p class=\"rv\" style=\"animation-delay:0.84s;font:400 28.3px/normal Poppins;color:#000000\">Still stuck? We’ll help by connecting you with a successful PMU artist.</p><p class=\"rv\" style=\"animation-delay:0.96s;font:400 28.3px/normal Poppins;color:#000000\">We’ll handle growing your business while you focus on serving your clients.</p></div>"});
+SLIDES.push({n:134,t:"Last few things — Facebook ID check",th:"t-lc-34",html:"<img class=\"art\" src=\"/deck/assets/launch/a34.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:143.8px;top:130px;width:540px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Last<span style=\"font-weight:700\"> </span></p><p class=\"rv\" style=\"animation-delay:0.24s;font:700 73.3px/normal Inter;color:#000000\">few things!</p></div><div class=\"tx\" style=\"left:52px;top:351.2px;width:798.8px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 26.7px/normal Poppins;color:#000000\">If we’re using a new ad account, <span style=\"font-weight:700\">Facebook may ask you to verify your identity.</span></p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 26.7px/normal Poppins;color:#000000\">You’ll receive an email stating that your account has been temporarily disabled. Simply submit a photo of your ID, and they will reactivate the account within 24–72 hours.</p></div>"});
+SLIDES.push({n:135,t:"Last few things — Facebook charges",th:"t-lc-35",html:"<img class=\"art\" src=\"/deck/assets/launch/a35.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:143.8px;top:130px;width:540px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Last<span style=\"font-weight:700\"> </span></p><p class=\"rv\" style=\"animation-delay:0.24s;font:700 73.3px/normal Inter;color:#000000\">few things!</p></div><div class=\"tx\" style=\"left:52px;top:351.2px;width:798.8px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 26.7px/normal Poppins;color:#000000\">Over time, Facebook will increase our trust score and spending threshold. You may see different charge amounts, but they will <span style=\"font-weight:700\">always align with the daily budget we set.</span></p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 26.7px/normal Poppins;color:#000000\">For example, if our Facebook daily spend is $20/day, the threshold may increase to $60 after two weeks, resulting in charges every three days at $20/day.</p></div>"});
+SLIDES.push({n:136,t:"Last few things — payment policy",th:"t-lc-36",html:"<img class=\"art\" src=\"/deck/assets/launch/a36.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:823.8px;top:103.8px;width:525px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Last<span style=\"font-weight:700\"> </span></p><p class=\"rv\" style=\"animation-delay:0.24s;font:700 73.3px/normal Inter;color:#000000\">few things!</p></div><div class=\"tx\" style=\"left:716.2px;top:305px;width:871.2px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:700 28.3px/normal Poppins;color:#000000\">Facebook’s Strict Payment Policy</p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 28.3px/normal Poppins;color:#000000\">“If all of your payment methods fail, we'll stop all the ads you're running until your balance has been paid.” - <span style=\"font-weight:700;color:#0000ff\">Facebook</span></p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 28.3px/normal Poppins;color:#000000\">This affects our ad account and our ability to continue business on it.</p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p style=\"font-size:28.3px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.72s;font:700 31.7px/normal Poppins;color:#6aa84f;text-align:center\">Let your bank know of charges and let us know of any card changes!</p></div><div class=\"tx\" style=\"left:956.2px;top:645px;width:370px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:700 41.7px/normal Poppins;color:#ff0000;text-align:center\">IMPORTANT!</p></div>"});
+live(137,"Phishing links",head(0)+"<div class=\"phish-top\"><span class=\"warn rv\" style=\"animation-delay:.1s\">&#9888;&#65039;</span><div><p class=\"lede rv\" style=\"animation-delay:.18s;margin:0 0 10px;max-width:none\"><b>We follow Facebook and Instagram rules and policies.</b></p><p class=\"lede rv\" style=\"animation-delay:.3s;margin:0;max-width:none\"><b style=\"color:#e02424\">NEVER</b> click on <b>“phishing links”</b>. If you have any doubts, feel free to send us a screenshot.</p></div></div><div class=\"scams\"><div class=\"scam rv\" style=\"animation-delay:0.50s\"><b>Last warning ⚠️</b><p>We haven’t received your response yet. Your page has been warned for copyright infringement and you should contact and confirm your page. If you do not continue to confirm, our system will automatically block your account.</p><p class=\"lnk\">Contact us for help: business-portal-administration.com/…</p><span class=\"stamp\" style=\"animation-delay:1.50s\">SCAM</span></div><div class=\"scam rv\" style=\"animation-delay:0.72s\"><b>Dear admin!</b><p>Important notification: your Facebook page is scheduled to be permanently deleted due to a post that violated our trademark rights. If you believe this is a misunderstanding, submit an appeal before we remove it.</p><p class=\"lnk\">Please submit your request here: …</p><span class=\"stamp\" style=\"animation-delay:1.95s\">SCAM</span></div><div class=\"scam rv\" style=\"animation-delay:0.94s\"><b>*Page limit notification ⚠️!</b><p>Hello admin, some features of your page have been limited. The period is limited to 30 days. If you would like to request a review of this decision, please visit the link and provide specific information.</p><p class=\"lnk\">Verification time is 24–48 hours</p><span class=\"stamp\" style=\"animation-delay:2.40s\">SCAM</span></div></div>");
+SLIDES[SLIDES.length-1].th="t-lc-37";
+SLIDES.push({n:138,t:"The Private FB Group",th:"t-lc-38",html:"<img class=\"art\" src=\"/deck/assets/launch/a38.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:151.2px;top:155px;width:876.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 73.3px/normal Inter;color:#000000\">The Private FB Group</p></div><div class=\"tx\" style=\"left:127.5px;top:335px;width:946.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 33.3px/normal Poppins;color:#000000\">🎉 <span style=\"text-decoration:underline\">The 10 Paying Clients Challenge!</span><span style=\"font-weight:400\"> 🎉</span></p><p style=\"font-size:30px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 30px/normal Poppins;color:#000000\">Ready to take your business to the next level?</p><p style=\"font-size:30px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 30px/normal Poppins;color:#000000\">✅ Get 10 paying clients through our system.</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 30px/normal Poppins;color:#000000\">✅ Post your wins in the Facebook group as you go!</p><p class=\"rv\" style=\"animation-delay:0.72s;font:400 30px/normal Poppins;color:#000000\">✅ Earn a FREE month of service when you hit 10 paying clients!</p></div>"});
+SLIDES.push({n:139,t:"Group rules",th:"t-lc-39",html:"<img class=\"art\" src=\"/deck/assets/launch/a39.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:151.2px;top:155px;width:876.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 73.3px/normal Inter;color:#000000\">The Private FB Group</p></div><div class=\"tx\" style=\"left:123.8px;top:332.5px;width:895px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 33.3px/normal Poppins;color:#000000\">✨<span style=\"font-weight:700\"> </span><span style=\"font-weight:700;text-decoration:underline\">Group Rules:</span></p><p style=\"font-size:30px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 30px/normal Poppins;color:#000000\">1️⃣ Only share wins, tips, and value.</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 30px/normal Poppins;color:#000000\">2️⃣ For support or questions, please contact us directly.</p></div>"});
+SLIDES.push({n:140,t:"Earn your free month",th:"t-lc-40",html:"<img class=\"art\" src=\"/deck/assets/launch/a40.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:151.2px;top:155px;width:876.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 73.3px/normal Inter;color:#000000\">The Private FB Group</p></div><div class=\"tx\" style=\"left:106.2px;top:316.2px;width:942.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 30px/normal Poppins;color:#000000\">How to earn your free month?</p><p style=\"font-size:30px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 30px/normal Poppins;color:#000000\">1️⃣ After posting 10 successful appointments, you’ll earn a FREE month of service!</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 30px/normal Poppins;color:#000000\">2️⃣ Your service fee is on us — just keep covering your ad spend.</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 30px/normal Poppins;color:#000000\">3️⃣ Business has its ups and downs, so remember to share and celebrate every milestone with your #wins.<br></p></div><div class=\"tx\" style=\"left:52px;top:773.8px;width:996.2px\"><p class=\"rv\" style=\"animation-delay:0.72s;font:700 43.3px/normal Arial;color:#000000\">👉 <span style=\"font-size:28.3px\"> </span><span style=\"color:#0000ff;font-size:41.7px;font-family:Poppins;text-decoration:underline\"><a href=\"https://www.facebook.com/groups/210036038753730\" target=\"_blank\" rel=\"noopener\">Did you </a></span><span style=\"color:#0000ff;font-size:41.7px;font-family:Poppins;text-decoration:underline\"><a href=\"https://www.facebook.com/groups/210036038753730\" target=\"_blank\" rel=\"noopener\">Join The Private Group</a></span><span style=\"color:#0000ff;font-size:45px;text-decoration:underline\"> already?</span></p></div>"});
+SLIDES.push({n:141,t:"Referral Program",th:"t-lc-41",html:"<img class=\"art\" src=\"/deck/assets/launch/a41.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:151.2px;top:155px;width:1102.5px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 73.3px/normal Inter;color:#000000\">Referral Program 🎉</p></div><div class=\"tx\" style=\"left:106.2px;top:316.2px;width:963.8px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 30px/normal Poppins;color:#000000\">Every PMU artist you bring us you get paid $400 if they decide to partner up with us.<br><br>Some PMU artists literally make a full time income alone from referring us to other PMU artists<br><br><span style=\"font-weight:700;text-decoration:underline\">Who comes to mind?</span></p></div>"});
+SLIDES.push({n:142,t:"Automatic Extra Appointments",th:"t-lc-42",html:"<img class=\"art\" src=\"/deck/assets/launch/a42.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:155px;width:1400px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 58.3px/normal Inter;color:#000000\">New Beta: Automatic Extra Appointments 🚀 </p></div><div class=\"tx\" style=\"left:106.2px;top:282.5px;width:942.5px\"><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">✅ Less back-and-forth required</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">✅ Helps reduce no-shows</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">✅ No setup fee</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 31.7px/normal Poppins;color:#000000\">✅ Brings you additional bookings automatically</p></div>"});
+SLIDES.push({n:143,t:"Automatic Extra Appointments — cost",th:"t-lc-43",html:"<img class=\"art\" src=\"/deck/assets/launch/a43.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:155px;width:1400px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 58.3px/normal Inter;color:#000000\">New Beta: Automatic Extra Appointments 🚀 </p></div><div class=\"tx\" style=\"left:106.2px;top:330px;width:942.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">The only cost is $50 deposit per client that we automatically book, and that goes to PMU Bookings On Demand.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">If we don’t auto-book a client for you, there is no charge.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">Would you like us to activate this so you can receive extra appointments automatically?</p></div>"});
+SLIDES.push({n:144,t:"Any questions?",th:"t-lc-44",html:"<img class=\"art\" src=\"/deck/assets/launch/a44.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:760px;top:362.5px;width:713.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 95px/normal Inter;color:#ffffff\">ANY QUESTIONS?</p></div>"});
+SLIDES.push({n:145,t:"Share logins",th:"t-lc-45",html:"<img class=\"art\" src=\"/deck/assets/launch/a45.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:282.5px;top:403.8px;width:512.5px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Share<span style=\"font-weight:700\"> </span></p><p class=\"rv\" style=\"animation-delay:0.24s;font:700 90px/normal Inter;color:#000000\">Logins<span style=\"font-size:73.3px\"> </span></p></div>"});
+SLIDES.push({n:146,t:"The $50 Deposit",th:"t-lc-46",html:"<img class=\"art\" src=\"/deck/assets/launch/a46.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:153.8px;width:632.5px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 71.7px/normal Inter;color:#000000\">The $50 Deposit</p></div><div class=\"tx\" style=\"left:105px;top:330px;width:1000px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">✅ We collect a deposit from every client we book on your calendar through PMU Bookings On Demand.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">✅ The deposit confirms the client is serious and will show up.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">✅ Protects your time and reduces no-shows.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.60s;font:400 31.7px/normal Poppins;color:#000000\">✅ Will be deducted from the first initial service </p><p class=\"rv\" style=\"animation-delay:0.72s;font:400 31.7px/normal Poppins;color:#000000\">(You can add $50 on touch-up).</p></div>"});
+SLIDES.push({n:147,t:"Deposit Policies",th:"t-lc-47",html:"<img class=\"art\" src=\"/deck/assets/launch/a47.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:150px;width:632.5px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 70px/normal Inter;color:#000000\">Deposit Policies</p></div><div class=\"tx\" style=\"left:107.5px;top:326.2px;width:1026.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">✅ To maximize the results we frame the deposit as 100% refundable - if the client shows up but decides not to move forward after the consultation.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">❌ If the client doesn’t show up, the deposit is non-refundable.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">💬 Need to issue a refund to a client? Just shoot me a message and we’ll take care of it for you.</p></div>"});
+SLIDES.push({n:148,t:"How the booking works",th:"t-lc-48",html:"<img class=\"art\" src=\"/deck/assets/launch/a48.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:153.8px;width:981.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 70px/normal Inter;color:#000000\">How The Booking Works?</p></div><div class=\"tx\" style=\"left:106.2px;top:328.8px;width:1150px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">1️⃣  The client picks a date &amp; time 📆 → a new appointment is created.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">2️⃣  They have 10 minutes to place the deposit 💰</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">3️⃣  No deposit within 10 minutes → the slot becomes free again.</p></div>"});
+SLIDES.push({n:149,t:"Need to block time off?",th:"t-lc-49",html:"<img class=\"art\" src=\"/deck/assets/launch/a49.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:158.8px;top:152.5px;width:983.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 70px/normal Inter;color:#111214\">Need To Block Time Off?</p></div><div class=\"tx\" style=\"left:1132.5px;top:300px;width:215px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 20px/normal Inter;color:#111214\">Your Calendar</p></div><div class=\"tx\" style=\"left:1351.2px;top:301.2px;width:198.8px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 15px/normal Poppins;color:#8a949c;text-align:right\">Example hours</p></div><div class=\"tx\" style=\"left:95px;top:316.2px;width:1011.2px\"><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#111214\">✅  Example: your hours are set to <span style=\"font-weight:700\">Mon–Fri, 9:00 AM to 6:00 PM</span>.</p></div><div class=\"tx\" style=\"left:1132.5px;top:347.5px;width:73.8px\"><p class=\"rv\" style=\"animation-delay:0.60s;font:700 15px/normal Poppins;color:#8a949c;text-align:center\">MON</p></div><div class=\"tx\" style=\"left:1215px;top:347.5px;width:73.8px\"><p class=\"rv\" style=\"animation-delay:0.72s;font:700 15px/normal Poppins;color:#c0392b;text-align:center\">TUE</p></div><div class=\"tx\" style=\"left:1298.8px;top:347.5px;width:73.8px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:700 15px/normal Poppins;color:#8a949c;text-align:center\">WED</p></div><div class=\"tx\" style=\"left:1382.5px;top:347.5px;width:73.8px\"><p class=\"rv\" style=\"animation-delay:0.96s;font:700 15px/normal Poppins;color:#8a949c;text-align:center\">THU</p></div><div class=\"tx\" style=\"left:1466.2px;top:347.5px;width:73.8px\"><p class=\"rv\" style=\"animation-delay:1.08s;font:700 15px/normal Poppins;color:#8a949c;text-align:center\">FRI</p></div><div class=\"tx\" style=\"left:91.2px;top:400px;width:947.5px\"><p class=\"rv\" style=\"animation-delay:1.20s;font:400 31.7px/normal Poppins;color:#111214\">🔒  <span style=\"font-weight:700\">Schedule changed?</span> Click <span style=\"font-weight:700\">“</span><span style=\"font-weight:700\">Block”</span>, for a few hours or the  whole day.</p></div><div class=\"tx\" style=\"left:1217.5px;top:488.8px;width:70px\"><p class=\"rv\" style=\"animation-delay:1.32s;font:700 15px/normal Poppins;color:#c0392b;text-align:center\">Blocked</p></div><div class=\"tx\" style=\"left:92.5px;top:536.2px;width:1016.2px\"><p class=\"rv\" style=\"animation-delay:1.44s;font:400 31.7px/normal Poppins;color:#111214\">🔄  It syncs to us instantly, so that time stops being bookable.</p></div><div class=\"tx\" style=\"left:1117.5px;top:626.2px;width:440px\"><p class=\"rv\" style=\"animation-delay:1.56s;font:700 21.7px/normal Inter;color:#ffffff;text-align:center\">You block → We see it → Nobody books</p></div><div class=\"tx\" style=\"left:93.8px;top:742.5px;width:1057.5px\"><p class=\"rv\" style=\"animation-delay:1.68s;font:400 31.7px/normal Poppins;color:#111214\">❌  <span style=\"font-weight:700;color:#d93a3a\">Don't text us to block time.</span><span style=\"font-weight:700\"> Just do it in the system. It's instant.</span></p></div>"});
+SLIDES.push({n:150,t:"Cancel or reschedule?",th:"t-lc-50",html:"<img class=\"art\" src=\"/deck/assets/launch/a50.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:158.8px;top:152.5px;width:983.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 70px/normal Inter;color:#111214\">Cancel Or Reschedule?</p></div><div class=\"tx\" style=\"left:1007.5px;top:270px;width:27.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 15px/normal Inter;color:#7a4f6d;text-align:center\">KS</p></div><div class=\"tx\" style=\"left:1050px;top:267.5px;width:287.5px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:700 20px/normal Inter;color:#111214\">Karen Stanley</p></div><div class=\"tx\" style=\"left:93.8px;top:311.2px;width:840px\"><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#111214\">1️⃣  Open the <span style=\"font-weight:700\">contact</span>, then click <span style=\"font-weight:700\">Appointments</span>.</p></div><div class=\"tx\" style=\"left:1050px;top:290px;width:287.5px\"><p class=\"rv\" style=\"animation-delay:0.59s;font:400 15px/normal Poppins;color:#8a949c\">(703) 555-0142</p></div><div class=\"tx\" style=\"left:1001.2px;top:328.8px;width:143.8px\"><p class=\"rv\" style=\"animation-delay:0.71s;font:400 16.7px/normal Poppins;color:#8a949c\">Activity</p></div><div class=\"tx\" style=\"left:1085px;top:328.8px;width:143.8px\"><p class=\"rv\" style=\"animation-delay:0.83s;font:700 16.7px/normal Poppins;color:#111214\">Appointments</p></div><div class=\"tx\" style=\"left:1228.8px;top:328.8px;width:143.8px\"><p class=\"rv\" style=\"animation-delay:0.95s;font:400 16.7px/normal Poppins;color:#8a949c\">Notes</p></div><div class=\"tx\" style=\"left:1016.2px;top:377.5px;width:298.8px\"><p class=\"rv\" style=\"animation-delay:1.07s;font:700 18.3px/normal Inter;color:#111214\">Eyebrows — Consultation</p></div><div class=\"tx\" style=\"left:1016.2px;top:398.8px;width:298.8px\"><p class=\"rv\" style=\"animation-delay:1.19s;font:400 15px/normal Poppins;color:#8a949c\">Sat, Oct 4 · 11:00 AM</p></div><div class=\"tx\" style=\"left:1386.2px;top:377.5px;width:18.8px\"><p class=\"rv\" style=\"animation-delay:1.31s;font:400 18.3px/normal Poppins;color:#d93a3a;text-align:center\">🗑</p></div><div class=\"tx\" style=\"left:1435px;top:377.5px;width:18.8px\"><p class=\"rv\" style=\"animation-delay:1.43s;font:400 23.3px/normal Poppins;color:#d93a3a;text-align:center\">⋮</p></div><div class=\"tx\" style=\"left:93.8px;top:421.2px;width:956.2px\"><p class=\"rv\" style=\"animation-delay:1.54s;font:400 31.7px/normal Poppins;color:#111214\">2️⃣  Click the <span style=\"font-weight:700\">trash icon</span> /<span style=\"font-weight:700\">three dots</span> on the appointment.</p></div><div class=\"tx\" style=\"left:93.8px;top:532.5px;width:990px\"><p class=\"rv\" style=\"animation-delay:1.66s;font:400 31.7px/normal Poppins;color:#111214\">3️⃣  Cancel it. Confirmations and reminders <span style=\"font-weight:700\">stop right away</span>.</p></div><div class=\"tx\" style=\"left:991.2px;top:661.2px;width:481.2px\"><p class=\"rv\" style=\"animation-delay:1.78s;font:700 21.7px/normal Inter;color:#ffffff;text-align:center\">Cancelled → reminders stop</p></div><div class=\"tx\" style=\"left:93.8px;top:678.8px;width:825px\"><p class=\"rv\" style=\"animation-delay:1.90s;font:400 31.7px/normal Poppins;color:#111214\">💡  <span style=\"font-weight:700;color:#01c9bf\">You're in control.</span> Change it anytime from the contact, day or night.</p></div>"});
+SLIDES.push({n:151,t:"More consults, more procedures",th:"t-lc-51",html:"<img class=\"art\" src=\"/deck/assets/launch/a51.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:158.8px;top:155px;width:1103.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 53.3px/normal Inter;color:#111214\">More Consults, More Procedures</p></div><div class=\"tx\" style=\"left:1040px;top:256.2px;width:287.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 15px/normal Inter;color:#8a949c\">WHAT SHE BOOKS</p></div><div class=\"tx\" style=\"left:93.8px;top:311.2px;width:907.5px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#111214\">1️⃣  Every lead books a <span style=\"font-weight:700\">30-minute consultation</span> — the easiest yes.</p></div><div class=\"tx\" style=\"left:1053.8px;top:302.5px;width:287.5px\"><p class=\"rv\" style=\"animation-delay:0.48s;font:700 18.3px/normal Inter;color:#111214\">Eyebrows — Consultation</p></div><div class=\"tx\" style=\"left:1360px;top:313.8px;width:85px\"><p class=\"rv\" style=\"animation-delay:0.60s;font:700 13.3px/normal Inter;color:#068e87;text-align:center\">Books fast</p></div><div class=\"tx\" style=\"left:1053.8px;top:326.2px;width:287.5px\"><p class=\"rv\" style=\"animation-delay:0.72s;font:400 14.2px/normal Poppins;color:#8a949c\">30 minutes · Sat, Oct 4 · 11:00 AM</p></div><div class=\"tx\" style=\"left:1220px;top:392.5px;width:60px\"><p class=\"rv\" style=\"animation-delay:0.84s;font:700 40px/normal Inter;color:#c7ced4;text-align:center\">↓</p></div><div class=\"tx\" style=\"left:93.8px;top:437.5px;width:857.5px\"><p class=\"rv\" style=\"animation-delay:0.96s;font:400 31.7px/normal Poppins;color:#111214\">2️⃣  More yeses means <span style=\"font-weight:700\">a fuller calendar</span> every week.</p></div><div class=\"tx\" style=\"left:1042.5px;top:477.5px;width:407.5px\"><p class=\"rv\" style=\"animation-delay:1.08s;font:700 18.3px/normal Inter;color:#111214\">📞  Your call after the text</p></div><div class=\"tx\" style=\"left:1042.5px;top:507.5px;width:413.8px\"><p class=\"rv\" style=\"animation-delay:1.20s;font:400 15px/normal Poppins;color:#5b6670\">“Would you like to do the full procedure that day, or start with the consultation?”</p></div><div class=\"tx\" style=\"left:93.8px;top:532.5px;width:857.5px\"><p class=\"rv\" style=\"animation-delay:1.32s;font:400 31.7px/normal Poppins;color:#111214\">3️⃣  Call after the confirmation text — <span style=\"font-weight:700\">many book the full procedure</span>.</p></div><div class=\"tx\" style=\"left:1025px;top:661.2px;width:447.5px\"><p class=\"rv\" style=\"animation-delay:1.44s;font:700 21.7px/normal Inter;color:#ffffff;text-align:center\">Book more → earn more</p></div><div class=\"tx\" style=\"left:93.8px;top:678.8px;width:850px\"><p class=\"rv\" style=\"animation-delay:1.56s;font:400 31.7px/normal Poppins;color:#111214\">💡  <span style=\"font-weight:700;color:#01c9bf\">More consults, more procedures.</span> You decide together on the call.</p></div>"});
+live(152,"How to know about new bookings",head(0,true)+"<div class=\"vtags\"><span class=\"vtag v3\">V3</span><span class=\"vtag v23\">V2.3</span></div><div class=\"row\"><div class=\"col-copy\"><h1 class=\"title\">How To Know About New Bookings?</h1><div class=\"bigsteps\"><div class=\"bs rv\" style=\"animation-delay:.2s\"><b>1</b><span>Deposit placed → the appointment is <strong>CONFIRMED</strong>.</span></div><div class=\"bs rv\" style=\"animation-delay:.34s\"><b>2</b><span>We’ll text you their confirmed date &amp; time.</span></div></div></div><div class=\"col-visual\"><div class=\"phone ph-sms\"><div class=\"notch\"></div><div class=\"screen\"><div class=\"statusbar\"><span>9:41</span><span>&#9679;&#9679;&#9679;&#9679; 5G</span></div><div class=\"ios-head\"><span class=\"ios-back\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><path d=\"m15 18-6-6 6-6\"/></svg><span class=\"ios-badge\">2</span></span><span class=\"ios-av\"><img src=\"/deck/assets/brand-logo.png\" alt=\"\"></span><span class=\"ios-name\">PMU Bookings <svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><path d=\"m9 18 6-6-6-6\"/></svg></span></div><div class=\"ios-body\" id=\"bk-body\"></div><div class=\"ios-foot\"><span class=\"plus\">+</span><span class=\"inp\">Text Message &middot; SMS</span><span>&#9835;</span></div></div></div></div></div>");
+SLIDES[SLIDES.length-1].th="t-lc-52";
+SLIDES.push({n:153,t:"We book – you confirm",th:"t-lc-53",html:"<img class=\"art\" src=\"/deck/assets/launch/a53.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:158.8px;width:1045px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 70px/normal Inter;color:#000000\">We Book – You Confirm</p></div><div class=\"tx\" style=\"left:106.2px;top:306.2px;width:991.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">🚀 Call the client to confirm over the phone → increases the show-up rate by 85%.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">✅ Keep an eye on the chats so no appointment is missed.</p></div>"});
+SLIDES.push({n:154,t:"Let’s sync your calendar",th:"t-lc-54",html:"<img class=\"art\" src=\"/deck/assets/launch/a54.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:160px;width:961.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 73.3px/normal Inter;color:#000000\">Let’s Sync Your Calendar</p></div><div class=\"tx\" style=\"left:106.2px;top:306.2px;width:901.2px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">❓ What is your availability?</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">❓ What are your business hours?</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">❓ Do you currently use any other booking system?</p></div>"});
+SLIDES.push({n:155,t:"Don’t forget to call them too",th:"t-lc-55",html:"<img class=\"art\" src=\"/deck/assets/launch/a55.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:162.5px;width:1075px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 70px/normal Inter;color:#000000\">Don’t Forget to Call Them Too</p></div><div class=\"tx\" style=\"left:106.2px;top:301.2px;width:973.8px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">1️⃣ We reach out to every client by text first.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">2️⃣ If they don’t answer, give them a call to maximize our results.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">✅ Some clients respond best by chat, others prefer a phone</p></div>"});
+SLIDES.push({n:156,t:"Jump in or pause the AI",th:"t-lc-56",html:"<img class=\"art\" src=\"/deck/assets/launch/a56.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:160px;width:1223.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 70px/normal Inter;color:#000000\">Need to Jump In or Pause the AI?</p></div><div class=\"tx\" style=\"left:106.2px;top:306.2px;width:1053.8px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">✅ The AI can be stopped after the second batch of messages.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">✅ All you have to do is send a message and the AI will stop.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">✅ Simple, fast, and fully in your control.</p></div>"});
+SLIDES.push({n:157,t:"The AI proven script",th:"t-lc-57",html:"<img class=\"art\" src=\"/deck/assets/launch/a57.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:156.2px;top:150px;width:862.5px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 73.3px/normal Inter;color:#000000\">The AI Proven Script</p></div><div class=\"tx\" style=\"left:106.2px;top:328.8px;width:897.5px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">✅ Based on thousands of successful conversations and cannot be changed — “one script that fits all.”</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">✅ Built and tested to turn leads into booked appointments with a deposit.</p></div>"});
+live(158,"Pause the AI — example",head(0,true)+"<div class=\"vtags\"><span class=\"vtag v3\">V3</span></div><div class=\"row\"><div class=\"col-copy\"><h1 class=\"title\">Need to Jump In or Pause the AI?</h1><p class=\"lede\">After the <b>second batch</b> of messages, just <b>send a message</b> — the AI stops.</p><div class=\"pausebox rv\" style=\"animation-delay:.3s\"><span class=\"pb-ico\">⏸</span><span>Simple, fast, and fully in your control.</span></div></div><div class=\"col-visual\"><div class=\"phone ph-sms\"><div class=\"notch\"></div><div class=\"screen\"><div class=\"statusbar\"><span>6:09</span><span>&#9679;&#9679;&#9679;&#9679; 5G</span></div><div class=\"ios-head\"><span class=\"ios-back\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><path d=\"m15 18-6-6 6-6\"/></svg></span><span class=\"ios-av ai-av\">V</span><span class=\"ios-name\">Vikki <svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><path d=\"m9 18 6-6-6-6\"/></svg></span><span class=\"ai-chip\" id=\"ps-chip\"><i></i><span>AI is replying</span></span></div><div class=\"ios-body\" id=\"ps-body\"></div><div class=\"ios-foot\"><span class=\"plus\">+</span><span class=\"inp\">Text Message &middot; SMS</span><span>&#9835;</span></div></div></div></div></div>");
+SLIDES[SLIDES.length-1].th="t-lc-58";
+SLIDES.push({n:159,t:"AI isn’t perfect",th:"t-lc-59",html:"<img class=\"art\" src=\"/deck/assets/launch/a59.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:153.8px;top:162.5px;width:1213.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 70px/normal Inter;color:#000000\">AI Isn’t Perfect — Spot an Issue?</p></div><div class=\"tx\" style=\"left:105px;top:306.2px;width:970px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 31.7px/normal Poppins;color:#000000\">🧠 AI is like a brain — we’re always feeding it new data.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 31.7px/normal Poppins;color:#000000\">📸 If something needs our attention, send us a screenshot.</p><p style=\"font-size:31.7px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.48s;font:400 31.7px/normal Poppins;color:#000000\">✅ We’ll review it and fix it quickly.</p></div>"});
+SLIDES.push({n:160,t:"Integrations",th:"t-lc-60",html:"<img class=\"art\" src=\"/deck/assets/launch/a60.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:881.2px;top:390px;width:601.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 100px/normal Inter;color:#000000\">Integrations<span style=\"font-size:60px\"> </span></p></div>"});
+SLIDES.push({n:161,t:"Payment links",th:"t-lc-61",html:"<img class=\"art\" src=\"/deck/assets/launch/a61.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:178.8px;top:328.8px;width:576.2px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 66.7px/normal Inter;color:#000000\">Payment Links To Charge Clients On The Spot?</p></div>"});
+SLIDES.push({n:162,t:"Daily 20–30 minute follow up",th:"t-lc-62",html:"<img class=\"art\" src=\"/deck/assets/launch/a62.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:168.8px;top:323.8px;width:680px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 60px/normal Inter;color:#000000\">Set up daily </p><p class=\"rv\" style=\"animation-delay:0.24s;font:700 90px/normal Inter;color:#01c9bf\">20-30 minute </p><p class=\"rv\" style=\"animation-delay:0.36s;font:700 60px/normal Inter;color:#000000\">Follow up</p></div>"});
+SLIDES.push({n:163,t:"Scope of Service",th:"t-lc-63",html:"<img class=\"art\" src=\"/deck/assets/launch/a63.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:846.2px;top:362.5px;width:652.5px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 90px/normal Inter;color:#ffffff\">Scope Service</p></div><div class=\"tx\" style=\"left:846.2px;top:505px;width:318.8px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:600 33.3px/normal Poppins;color:#ffffff;text-align:center\"><a class=\"btnlink\" href=\"https://www.pmu-bookings.com/onboarding-2-9403\" target=\"_blank\" rel=\"noopener\">Scope Service Link</a></p></div>"});
+SLIDES.push({n:164,t:"Last few things — Facebook rules",th:"t-lc-64",html:"<img class=\"art\" src=\"/deck/assets/launch/a64.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:626.2px;top:116.2px;width:942.5px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 30px/normal Poppins;color:#000000\">We always follow Facebook and Instagram rules and policies.</p><p style=\"font-size:30px;line-height:normal\">&nbsp;</p><p class=\"rv\" style=\"animation-delay:0.24s;font:400 30px/normal Poppins;color:#000000\">Never click on “phishing links”, if you have any doubts feel free to send us a screenshot.</p></div><div class=\"tx\" style=\"left:143.8px;top:171.2px;width:540px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 60px/normal Inter;color:#000000\">Last<span style=\"font-weight:700\"> </span></p><p class=\"rv\" style=\"animation-delay:0.48s;font:700 73.3px/normal Inter;color:#000000\">few things!</p></div>"});
+SLIDES.push({n:165,t:"Diamond Script + roleplay",th:"t-lc-65",html:"<img class=\"art\" src=\"/deck/assets/launch/a65.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:215px;top:156.2px;width:1168.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 83.3px/normal Inter;color:#000000;text-align:center\">Go Over The Diamond Script<br>+ Roleplay</p></div><div class=\"tx\" style=\"left:593.8px;top:676.2px;width:410px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:700 40px/normal Poppins;color:#000000;text-align:center\"><a class=\"btnlink\" href=\"https://docs.google.com/document/d/18sIOPYEnUZJ6MIcSrj_f8eT3CnhWLTbd2rBBiDRF6A4/edit\" target=\"_blank\" rel=\"noopener\">Diamond Script Link</a></p></div>"});
+SLIDES.push({n:167,t:"Remember: a partnership",th:"t-lc-67",html:"<img class=\"art\" src=\"/deck/assets/launch/a67.webp\" alt=\"\" decoding=\"async\">"});
+SLIDES.push({n:168,t:"Disclaimer",th:"t-lc-68",html:"<img class=\"art\" src=\"/deck/assets/launch/a68.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:113.8px;top:43.8px;width:1318.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:700 41.7px/normal Arial;color:#ff0000;text-align:center\">DISCLAIMER: If this is not done it will impact your results</p></div><div class=\"tx\" style=\"left:52px;top:118.8px;width:1508.8px\"><p class=\"rv\" style=\"animation-delay:0.24s;font:400 26.7px/normal Poppins;color:#000000\">We <span style=\"font-weight:700\">do not know</span> what’s going on in your business <span style=\"font-weight:700\">if you do not notify us.</span></p><p class=\"rv\" style=\"animation-delay:0.36s;font:400 26.7px/normal Poppins;color:#000000\">This is important because if you come to us 30,60,90 days in saying ‘’show rate is terrible’’ and we don't have the stats to back it up - this is an issue we could have ironed out Immediately if we had the stats to support you and pull all the levers we can on the marketing side of things.</p></div>"});
+SLIDES.push({n:169,t:"Last few things — phone number",th:"t-lc-69",html:"<img class=\"art\" src=\"/deck/assets/launch/a69.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:920px;top:257.5px;width:533.8px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:400 60px/normal Inter;color:#000000\">Last<span style=\"font-weight:700\"> </span></p><p class=\"rv\" style=\"animation-delay:0.24s;font:700 73.3px/normal Inter;color:#000000\">few things!</p></div><div class=\"tx\" style=\"left:800px;top:508.8px;width:770px\"><p class=\"rv\" style=\"animation-delay:0.36s;font:400 28.3px/normal Poppins;color:#000000\">We will generate a local phone number through the CRM system or we can connect your personal number, which do you prefer?</p></div>"});
+SLIDES.push({n:170,t:"Our contact info",th:"t-lc-70",html:"<img class=\"art\" src=\"/deck/assets/launch/a70.webp\" alt=\"\" decoding=\"async\"><div class=\"tx\" style=\"left:88.8px;top:235px;width:762.5px\"><p class=\"rv\" style=\"animation-delay:0.12s;font:600 56.7px/normal Poppins;color:#ffffff\">Our Contact Info:<span style=\"font-size:53.3px\"><br></span></p><p class=\"rv\" style=\"animation-delay:0.24s;font:600 40px/normal Poppins;color:#ffffff\">Business Phone: (206) 429-4626</p><p class=\"rv\" style=\"animation-delay:0.36s;font:600 40px/normal Poppins;color:#ffffff\">Email: Success@pmu-bookings.com</p></div>"});
+
+var stage=document.getElementById("stage");
+stage.innerHTML=SLIDES.map(function(s,k){
+  return '<section class="slide" data-i="'+k+'">'+
+    (s.img ? '<img class="full" src="/deck/assets/slides/s-'+pad(s.n)+'.jpg" alt="">' : s.html)+'</section>';
+}).join("");
+var nodes=[].slice.call(stage.children);
+
+document.getElementById("gg").innerHTML=SLIDES.map(function(s,k){
+  return '<div class="gcard" data-i="'+k+'"><img src="/deck/assets/thumbs/'+(s.th||('t-'+pad(s.n)))+'.jpg" alt="" loading="lazy">'+
+    '<div class="cap"><span>'+s.t+'</span>'+'<em>'+(k+1)+'</em>'+'</div></div>';
+}).join("");
+
+/* scale the 1600x900 stage to whatever screen it is shown on */
+function fit(){
+  var s=Math.min(window.innerWidth/1600, window.innerHeight/900);
+  stage.style.transform="translate(-50%,-50%) scale("+s+")";
+}
+window.addEventListener("resize",fit); fit();
+
+var pos=document.getElementById("pos"),bar=document.getElementById("bar"),grid=document.getElementById("grid"),i=0;
+function show(n){
+  i=Math.max(0,Math.min(nodes.length-1,n));
+  nodes.forEach(function(s,k){s.classList.toggle("on",k===i);});
+  pos.textContent=(i+1)+" / "+nodes.length;
+  bar.style.width=((i+1)/nodes.length*100)+"%";
+  [].forEach.call(grid.querySelectorAll(".gcard"),function(c,k){c.classList.toggle("cur",k===i);});
+  restagger(nodes[i]);
+  nodes[i].querySelectorAll("video[autoplay]").forEach(function(v){v.play().catch(function(){});});
+  var num=SLIDES[i].n;
+  try{history.replaceState(null,"",location.pathname+location.search+"#"+(i+1));}catch(e){}
+  if(num===152) runBook();
+  if(num===158) runPause();
+  if(num===9 && window.fFit) fFit();   // viewport has no height until the slide is shown
+  if(num===10) runSms();
+  if(num!==16) stopFaqs();
+  if(num===11) runCrm();
+  if(num===23) runAi();
+  if(num===21) runTotal();
+}
+function restagger(sl){
+  sl.querySelectorAll(".rv,.rx").forEach(function(el){
+    var d=el.style.animationDelay; el.style.animation="none"; void el.offsetWidth; el.style.animation=""; el.style.animationDelay=d;
+  });
+}
+document.getElementById("prev").onclick=function(){show(i-1);};
+document.getElementById("next").onclick=function(){show(i+1);};
+pos.onclick=function(){grid.classList.toggle("on");};
+/* Click anywhere on the slide to advance — but never swallow a click meant
+   for the live demos (phone survey, CRM board, calculator sliders, nav). */
+document.getElementById("fit").addEventListener("click",function(e){
+  if(e.target.closest("button,input,select,textarea,a,.phone,.crm,.calcdev,.faqgrid,#nav,#grid")) return;
+  if(SLIDES[i].n===19) return;   // calculator slide: arrow key or the nav button only
+  show(i+1);
+});
+grid.onclick=function(e){var c=e.target.closest(".gcard"); if(c){grid.classList.remove("on");show(+c.dataset.i);} else if(e.target===grid) grid.classList.remove("on");};
+window.addEventListener("keydown",function(e){
+  var t=e.target; if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.isContentEditable)) return;
+  var k=e.key;
+  if(k==="ArrowRight"||k==="Right"||k==="PageDown"||k===" "){show(i+1);e.preventDefault();}
+  else if(k==="ArrowLeft"||k==="Left"||k==="PageUp") show(i-1);
+  else if(k==="o"||k==="O") grid.classList.toggle("on");
+  else if(k==="Escape") grid.classList.remove("on");
+  else if(k==="f"||k==="F"){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+});
+
+/* ---- slide 8 life ---- */
+function tick(el,step,fmt){
+  if(!el)return; var n=parseFloat(el.dataset.n||"0");
+  setInterval(function(){n+=step;el.dataset.n=n;el.textContent=fmt(n);
+    el.classList.remove("bump");void el.offsetWidth;el.classList.add("bump");},3200+Math.floor(Math.random()*2600));
+}
+var fbL=document.getElementById("fb-likes");fbL.dataset.n="5834";tick(fbL,3,function(n){return (n/1000).toFixed(1)+"K";});
+var fbC=document.getElementById("fb-comments");fbC.dataset.n="461";tick(fbC,1,function(n){return String(Math.round(n));});
+var igL=document.getElementById("ig-likes");igL.dataset.n="1431";tick(igL,2,function(n){return Math.round(n).toLocaleString();});
+/* One still red heart sits on the Facebook ad. It used to drift up on a loop,
+   but the motion pulled the room's eye off the creative during a demo. */
+var HEARTSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-8.5-5.6-10.3-11A5.6 5.6 0 0 1 12 6.2 5.6 5.6 0 0 1 22.3 10C20.5 15.4 12 21 12 21Z"/></svg>';
+var flyWrap=document.getElementById("fb-fly");
+if(flyWrap) flyWrap.innerHTML='<span class="fly">'+HEARTSVG+'</span>';
+
+var heart=document.getElementById("ig-heart");
+setInterval(function(){heart.classList.remove("pop");void heart.offsetWidth;heart.classList.add("pop");},7400);
+var igVid=document.querySelector(".ig-reel video"),igProg=document.getElementById("ig-prog");
+if(igVid) igVid.addEventListener("timeupdate",function(){if(igVid.duration) igProg.style.width=(igVid.currentTime/igVid.duration*100)+"%";});
+
+/* ---- slide 9: the funnel survey, rebuilt to match the live page ---- */
+var ADDR="Gainesville, Virginia",TEL="(703) 963-0321";
+var QS=[
+  {k:"area",q:"Which Area(s) Would You Like Treated?",o:["Lips","Eyebrows"],c:"c2"},
+  {k:"had_pmu",q:"Have You Ever Had Permanent Makeup Before?",o:["Yes","No"],c:"c2"},
+  {k:"age",q:"What Age Group Are You In?",o:["18-24","24-30","30-36","36-42","42-54","54-65","65+"],c:"c4"},
+  {k:"commute",q:"Our Address is "+ADDR+". Is This commutable for you?",o:["Yes","No"],c:"c2"},
+  {k:"serious",q:"On A Scale From 1-10 How Serious Are You About Getting This Treatment?",o:["0-2","3-6","7-9","10 I Want This!"],c:"c4"},
+  {k:"aftercare",q:"Would you like a FREE Aftercare Kit?",o:["Yes","No"],c:"c2"}
+];
+/* The three contact fields are questions 7-9 of the same one-at-a-time flow. */
+var FIELDS=[{k:"full_name",q:"Full Name",ph:"Full Name"},{k:"phone",q:"Phone Number",ph:"Phone Number",im:"tel"},{k:"email",q:"Email Address",ph:"Email Address",im:"email"}];
+var TOTALQ=QS.length+FIELDS.length;
+var A={},qi=0,fnl=document.getElementById("fnl");
+/* The desktop window is a fixed viewport; long questions (the 7 age bands)
+   are taller than it, so slide the page up instead of showing a scrollbar. */
+var fnlVp=document.getElementById("fnl-vp"),fnlDoc=document.getElementById("fnl-doc");
+window.fFit=function fFit(){
+  if(!fnlVp||!fnlDoc) return;
+  var over=fnlDoc.offsetHeight-fnlVp.clientHeight;
+  fnlDoc.style.transform=over>6?"translateY(-"+over+"px)":"none";
+};
+
+function fHeader(){
+  return '<div class="fnl-bar">📍 '+ADDR+'</div>'+
+    '<div class="fnl-tel">Call Us Today: '+TEL+'</div>'+
+    '<div class="fnl-brand"><img src="/deck/assets/blossom-logo.png" alt="">'+
+      '<div class="fnl-trust">Trusted by 5,600+ Happy Clients</div><div class="fnl-stars">★★★★★</div></div>'+
+    '<div class="fnl-cong">Congrats on claiming YOUR OFFER for NEW clients<br>All Permanent Makeup Packages!</div>'+
+    '<div class="fnl-h">Fill Out Our Quiz To See If You Qualify</div>'+
+    '<div class="fnl-sec">(30 Seconds)</div>';
+}
+function fRender(){
+  if(qi>=TOTALQ) return fDone();
+  var body,isOpt=qi<QS.length;
+  if(isOpt){
+    var Q=QS[qi];
+    body='<div class="fq"><div class="fl">'+Q.q+' <i>*</i></div><div class="fopts">'+
+      Q.o.map(function(o){return '<button class="fopt'+(A[Q.k]===o?" on":"")+'" data-v="'+o+'"><i></i>'+o+'</button>';}).join("")+
+      '</div></div>';
+  }else{
+    var F=FIELDS[qi-QS.length];
+    body='<div class="fq"><div class="fl">'+F.q+' <i>*</i></div>'+
+      '<input class="finput" id="f-in" placeholder="'+F.ph+'"'+(F.im?' inputmode="'+F.im+'"':'')+' value="'+(A[F.k]||"")+'"></div>'+
+      '<button class="fnext" id="f-next">'+(qi===TOTALQ-1?"SEE IF I QUALIFY →":"NEXT →")+'</button>';
+  }
+  fnl.innerHTML=fHeader()+
+    '<div class="fprog"><span>'+(qi+1)+' of '+TOTALQ+'</span><span class="track"><i style="width:'+((qi)/TOTALQ*100)+'%"></i></span></div>'+
+    '<div class="fnl-card">'+body+(qi>0?'<button class="fback" id="f-back">← Back</button>':'')+'</div>';
+  fFit();
+
+  fnl.querySelectorAll(".fopt").forEach(function(b){
+    b.onclick=function(){
+      A[QS[qi].k]=b.dataset.v;
+      b.classList.add("on");
+      setTimeout(function(){qi++;fRender();},280);   // let the selection register visually
+    };
+  });
+  var inp=fnl.querySelector("#f-in");
+  if(inp){
+    inp.oninput=function(){A[FIELDS[qi-QS.length].k]=inp.value;};
+    inp.onkeydown=function(e){if(e.key==="Enter"){qi++;fRender();}};
+    document.getElementById("f-next").onclick=function(){qi++;fRender();};
+  }
+  var bk=document.getElementById("f-back");
+  if(bk) bk.onclick=function(){qi--;fRender();};
+}
+/* Mirrors the real funnel's two disqualify rules — decided here, in the page. */
+function fDone(){
+  var dq=A.commute==="No"||A.serious==="0-2", nm=(A.full_name||"").trim()||"Your lead";
+  fnl.innerHTML='<div class="fdone"><div class="big">'+(dq?"🚫":"✅")+'</div>'+
+    '<h4>'+(dq?"Disqualified — never reaches you":"Qualified — sent to your phone")+'</h4>'+
+    '<p>'+(dq?"Not commutable, or a 0–2 on seriousness. They are still stored, but never get the survey tag — so none of your workflows fire."
+             :"In the real funnel this is where they pick a real time on your calendar and put down a $50 deposit.")+'</p>'+
+    '<div class="frecap"><b>'+nm+'</b><br>Area: <b>'+(A.area||"—")+'</b><br>Had PMU: <b>'+(A.had_pmu||"—")+'</b><br>'+
+      'Age: <b>'+(A.age||"—")+'</b><br>Commutable: <b>'+(A.commute||"—")+'</b><br>Seriousness: <b>'+(A.serious||"—")+'</b><br>'+
+      'Aftercare kit: <b>'+(A.aftercare||"—")+'</b><br>Phone: <b>'+(A.phone||"—")+'</b></div>'+
+    '<button class="fnext" style="width:100%;margin-top:4px" id="f-again">Start over</button></div>';
+  document.getElementById("f-again").onclick=function(){A={};qi=0;fRender();};
+  fFit();
+}
+fRender();
+
+/* ---- slide 10 ---- */
+var LEADS=[
+  {name:"Karen Stanley",area:"Eyebrows",had:"No",age:"54-65",serious:"7-9",tel:"(703) 555-0142"},
+  {name:"Lynet Parker",area:"Eyebrows",had:"No",age:"42-54",serious:"10 — I want this!",tel:"(571) 555-0198"},
+  {name:"Latha Shashi",area:"Lips",had:"No",age:"42-54",serious:"10 — I want this!",tel:"(703) 555-0177"},
+  {name:"Denise Ruiz",area:"Eyeliner",had:"Yes",age:"36-42",serious:"8-9",tel:"(540) 555-0163"}
+];
+var smsBody=document.getElementById("sms-body"),smsT=[];
+function runSms(){
+  smsT.forEach(clearTimeout);smsT=[];
+  smsBody.innerHTML='<div class="ios-stamp"><b>Today</b> 9:41 AM</div>';
+  LEADS.forEach(function(L,k){
+    var base=700+k*6800;   // ~7s apart, so each alert can be talked through
+    smsT.push(setTimeout(function(){
+      var t=document.createElement("div");t.className="ios-row in";t.id="typing";
+      t.innerHTML='<div class="typing"><i></i><i></i><i></i></div>';smsBody.appendChild(t);trim();
+    },base));
+    smsT.push(setTimeout(function(){
+      var t=document.getElementById("typing");if(t)t.remove();
+      var d=document.createElement("div");d.className="ios-row in";
+      /* One field per line, and no phone number — the real alert does not carry it. */
+      d.innerHTML='<div class="ios-bub"><span class="hd">🔥 New lead — contact ASAP</span>\n'+
+        L.name+'\n'+L.area+'\nHad PMU: '+L.had+'\nAge: '+L.age+'\nSerious: '+L.serious+'</div>'+
+        (k===LEADS.length-1?'<div class="ios-read">Delivered</div>':'');
+      smsBody.appendChild(d);trim();
+    },base+1250));
+  });
+}
+function trim(){while(smsBody.scrollHeight>smsBody.clientHeight&&smsBody.children.length>1) smsBody.removeChild(smsBody.children[0]);}
+
+/* ---- quick start: the AI conversation ---- */
+/* the two photos are close-ups cut from the BEFORE half of one of our own
+   before/after pictures; loaded up front so they do not pop in late */
+["ai-brow1","ai-brow2"].forEach(function(n){var im=new Image();im.src="/deck/assets/"+n+".jpg";});
+var AICHAT=[
+  {o:1,t:"Hi, this is Megan"},
+  {o:1,t:"I just got a request from that number for permanent makeup eyebrows, is it Vikki?"},
+  {o:0,t:"Yes! \ud83d\ude0a"},
+  {o:1,t:"Great! I\u2019d love to see how we can help. We customise our services based on your goals. Can you let me know what made you reach out? That way, I can see if we\u2019re a good fit. :)"},
+  {o:1,t:"If you could also send me some pictures of your eyebrows, that would be really helpful!"},
+  {o:0,t:"My eyebrows are thinning. I\u2019ve always had full brows but this year noticeably thinning. I don\u2019t want to have to pencil in daily for sure. I\u2019m 54 \ud83d\ude4c"},
+  {o:0,pics:2}
+];
+/* "Everything you get": the total counts up from $0 each time the slide opens */
+var totEl=document.getElementById("incl-total"),totT=[];
+function runTotal(){
+  totT.forEach(clearTimeout);totT=[];
+  var n=+totEl.dataset.n,steps=36;
+  totEl.textContent="$0";totEl.classList.remove("cut");
+  for(var k=1;k<=steps;k++)(function(k){
+    totT.push(setTimeout(function(){
+      var e=1-Math.pow(1-k/steps,3);   // ease out
+      totEl.textContent="$"+Math.round(n*e).toLocaleString("en-US");
+    },1100+k*34));
+  })(k);
+  /* then cross it out in red: they pay $0 today */
+  totT.push(setTimeout(function(){totEl.classList.add("cut");},1100+steps*34+450));
+}
+var aiBody=document.getElementById("ai-body"),aiT=[];
+function aiTrim(){while(aiBody.scrollHeight>aiBody.clientHeight&&aiBody.children.length>1) aiBody.removeChild(aiBody.children[0]);}
+function runAi(){
+  aiT.forEach(clearTimeout);aiT=[];
+  aiBody.innerHTML='<div class="ios-stamp"><b>Today</b> 6:06 PM</div>';
+  var at=600;
+  AICHAT.forEach(function(m){
+    var cls="ios-row in"+(m.o?" out":""), wait=m.o?1300:1000;
+    aiT.push(setTimeout(function(){
+      var t=document.createElement("div");t.className=cls;t.id="ai-typing";
+      t.innerHTML='<div class="typing"><i></i><i></i><i></i></div>';aiBody.appendChild(t);aiTrim();
+    },at));
+    aiT.push(setTimeout(function(){
+      var t=document.getElementById("ai-typing");if(t)t.remove();
+      var d=document.createElement("div");d.className=cls;
+      d.innerHTML=m.pics?'<div class="ai-pics"><img src="/deck/assets/ai-brow1.jpg" alt=""><img src="/deck/assets/ai-brow2.jpg" alt=""></div>':'<div class="ios-bub">'+m.t+'</div>';
+      aiBody.appendChild(d);aiTrim();
+    },at+wait));
+    at+=wait+((m.t||"").length>90?2800:1500);   // long messages stay on screen longer
+  });
+}
+
+/* ---- slide 11: draggable pipeline ---- */
+var COLS=[
+  {h:"🔥 New Leads",n:6,names:["Anna Leyva","Blanca Robles","Leticia Leon","Rosa Guerra","Marisol Vega"]},
+  {h:"📞 Call Later",n:132,names:["Caroline Reyes","Claire Downey","Veronica Davis","Priya Nair","Amy Whitfield"]},
+  {h:"💰 Deposit Paid",n:18,names:["Anabella Fonseca","Candy Lopez","Suleima Ortiz","Nia Robertson","Kim Tran"]},
+  {h:"🤔 Deciding",n:347,names:["Belen De Los Santos","Mimi Carter","Jessica Duarte","Hannah Boyd","Tara Nguyen"]},
+  {h:"✅ Session Done",n:3,names:["Lisa Cortel","Nichole Ochoa","Olivia Vasquez","Grace Adeyemi","Renee Park"]},
+  {h:"⭐ 5-Star Review",n:12,names:["Daya Soriano","Jocelyn Bovian","Esmeralda Prieto","Farah Aziz","Iris Chen"]}
+];
+var IC={
+  call:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></svg>',
+  text:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.7L3 21l1.8-5.8A8.5 8.5 0 1 1 21 11.5Z"/></svg>',
+  book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>'
+};
+var crmT=[],toast=document.getElementById("crm-toast"),toastT;
+function say(msg){toast.textContent=msg;toast.classList.add("on");clearTimeout(toastT);toastT=setTimeout(function(){toast.classList.remove("on");},1900);}
+function card(name){
+  return '<div class="crm-card" draggable="true"><b>'+name+'</b>'+
+    '<div class="crm-acts"><button data-a="Calling" title="Call">'+IC.call+'</button>'+
+    '<button data-a="Texting" title="Text">'+IC.text+'</button>'+
+    '<button data-a="Booking" title="Book">'+IC.book+'</button></div></div>';
+}
+function runCrm(){
+  crmT.forEach(clearTimeout);crmT=[];
+  var wrap=document.getElementById("crm-cols");
+  wrap.innerHTML=COLS.map(function(c){
+    return '<div class="crm-col"><div class="crm-h"><span>'+c.h+'</span><em>'+c.n+'</em></div>'+c.names.map(card).join("")+'</div>';
+  }).join("");
+  var cards=wrap.querySelectorAll(".crm-card");
+  cards.forEach(function(c,k){c.style.opacity="0";crmT.push(setTimeout(function(){c.style.transition="opacity .35s";c.style.opacity="1";},80+k*40));});
+
+  var dragged=null;
+  wrap.querySelectorAll(".crm-card").forEach(function(c){
+    c.addEventListener("dragstart",function(){dragged=c;c.classList.add("drag");});
+    c.addEventListener("dragend",function(){c.classList.remove("drag");dragged=null;
+      wrap.querySelectorAll(".crm-col").forEach(function(x){x.classList.remove("over");});});
+  });
+  wrap.querySelectorAll(".crm-col").forEach(function(col){
+    col.addEventListener("dragover",function(e){e.preventDefault();col.classList.add("over");});
+    col.addEventListener("dragleave",function(){col.classList.remove("over");});
+    col.addEventListener("drop",function(e){
+      e.preventDefault();col.classList.remove("over");
+      if(!dragged)return;
+      col.appendChild(dragged);
+      say("Moved " + dragged.querySelector("b").textContent + " → " + col.querySelector(".crm-h span").textContent);
+    });
+  });
+  wrap.onclick=function(e){
+    var b=e.target.closest("button[data-a]");if(!b)return;
+    say(b.dataset.a+" "+b.closest(".crm-card").querySelector("b").textContent+"…");
+  };
+}
+
+/* ---- slide 12: AI conversation ---- */
+function stopFaqs(){}
+
+/* ---- launch call: a small chat player for the two extra phones ---- */
+function chatPlay(body,script,timers,stamp){
+  timers.forEach(clearTimeout);timers.length=0;
+  body.innerHTML='<div class="ios-stamp">'+stamp+'</div>';
+  function trim(){while(body.scrollHeight>body.clientHeight&&body.children.length>1) body.removeChild(body.children[0]);}
+  var at=700;
+  script.forEach(function(m){
+    if(m.fn){timers.push(setTimeout(function(){m.fn(body);trim();},at));at+=(m.gap||900);return;}
+    var wait=m.wait||(m.o?1250:950);
+    timers.push(setTimeout(function(){
+      var t=document.createElement("div");t.className="ios-row in"+(m.o?" out":"")+(m.me?" me":"");t.setAttribute("data-typing","1");
+      t.innerHTML='<div class="typing"><i></i><i></i><i></i></div>';body.appendChild(t);trim();
+    },at));
+    timers.push(setTimeout(function(){
+      var t=body.querySelector("[data-typing]");if(t)t.remove();
+      var d=document.createElement("div");d.className="ios-row in"+(m.o?" out":"")+(m.cls?" "+m.cls:"");
+      d.innerHTML=(m.who?'<span class="who">'+m.who+'</span>':'')+'<div class="ios-bub">'+m.t+'</div>';body.appendChild(d);trim();
+    },at+wait));
+    at+=wait+(m.hold||(m.t.length>90?2700:1500));
+  });
+}
+/* new bookings: lead alerts and "appointment secured" texts (sample names) */
+var bkT=[],BOOKS=[
+  {t:'<span class="hd">New Opportunity! Please Contact Them Asap 🔥</span>\n\nKaren Stanley\nEyebrows\nHad PMU? No\nAge: 54-65\nSerious: 7-9',hold:1700},
+  {t:'<span class="hd">New Eyebrows appointment secured! 🎉</span>\n\nLynet P at Monday, June 22, 2026 2:30 PM.\n\nPlease call to confirm!',cls:"book",hold:3600},
+  {t:'<span class="hd">New Opportunity! Please Contact Them Asap 🔥</span>\n\nLatha Shashi\nEyebrows\nHad PMU? No\nAge: 42-54\nSerious: 10 I Want This Treatment!',hold:1700},
+  {t:'<span class="hd">New Eyebrows appointment secured! 🎉</span>\n\nDenise R at Tuesday, June 23, 2026 4:00 PM.\n\nPlease call to confirm!',cls:"book",hold:3000}
+];
+function runBook(){chatPlay(document.getElementById("bk-body"),BOOKS,bkT,"<b>Today</b> 9:41 AM");}
+/* pause the AI: after the second batch the artist sends one message and the AI stops */
+var psT=[],psChip=document.getElementById("ps-chip");
+function psSet(paused){if(!psChip)return;psChip.classList.toggle("paused",paused);psChip.lastChild.textContent=paused?"AI paused":"AI is replying";}
+var PAUSE=[
+  {o:1,t:"Hi, this is Megan"},
+  {o:1,t:"I just got a request from that number for permanent makeup eyebrows, is it Vikki?"},
+  {o:0,t:"Yes! 😊"},
+  {o:1,t:"Great! I’d love to see how we can help. We customise our services based on your goals. Can you let me know what made you reach out? That way, I can see if we’re a good fit. :)",hold:1900},
+  {o:1,t:"If you could also send me some pictures of your eyebrows, that would be really helpful!",hold:1500},
+  {fn:function(b){var d=document.createElement("div");d.className="ios-note";d.textContent="✓ Second batch sent — you can jump in now";b.appendChild(d);},gap:1900},
+  {o:1,me:1,cls:"me",who:"You",t:"Hi Vikki, it’s Megan — I’m here with you now 😊",wait:1500,hold:500},
+  {fn:function(){psSet(true);},gap:400}
+];
+function runPause(){psSet(false);chatPlay(document.getElementById("ps-body"),PAUSE,psT,"<b>Today</b> 6:06 PM");}
+
+if(/[?&]shot\b/.test(location.search)) document.body.classList.add("shot");
+window.addEventListener("hashchange",function(){var k=(parseInt(location.hash.slice(1),10)||1)-1;if(k!==i)show(k);});
+show((parseInt(location.hash.slice(1),10)||1)-1); window.focus();
+})();
+</script>
+</body>
+</html>
