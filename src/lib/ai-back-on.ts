@@ -272,7 +272,8 @@ Decide if that check-in makes sense now. Answer send=false if there is ANY sign 
 - the thread is confusing, or the check-in would sound strange or repetitive after the last messages.
 Answer send=true only when she is a prospective client, the artist or AI asked or offered something, and she simply went quiet.
 When unsure → send=false.
-Reply with JSON only: {"send": true|false, "why": "<at most 12 plain words>"}`;
+Also say whether the LEAD writes in English ("english": false when her own messages are mostly in another language, e.g. Spanish) — the check-in is English only.
+Reply with JSON only: {"send": true|false, "english": true|false, "why": "<at most 12 plain words>"}`;
 
 function threadText(msgs: Msg[]): string {
   return [...msgs].reverse().slice(-40).map((m) => {
@@ -285,7 +286,7 @@ function threadText(msgs: Msg[]): string {
   }).join("\n");
 }
 
-async function modelSays(client: Anthropic, msgs: Msg[]): Promise<{ send: boolean; why: string } | null> {
+async function modelSays(client: Anthropic, msgs: Msg[]): Promise<{ send: boolean; why: string; english?: boolean } | null> {
   try {
     const res = await client.beta.messages.create({
       model: MODEL,
@@ -299,9 +300,10 @@ async function modelSays(client: Anthropic, msgs: Msg[]): Promise<{ send: boolea
     const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) return null;
-    const j = JSON.parse(m[0]) as { send?: unknown; why?: unknown };
+    const j = JSON.parse(m[0]) as { send?: unknown; why?: unknown; english?: unknown };
     if (typeof j.send !== "boolean") return null;
-    return { send: j.send, why: String(j.why ?? "").slice(0, 120) };
+    // The check-in is English only (owner-approved words): a lead who writes in another language is skipped for now.
+    return { send: j.send, why: String(j.why ?? "").slice(0, 120), english: j.english !== false };
   } catch {
     return null;
   }
@@ -314,7 +316,7 @@ export type Decision =
   | { kind: "later"; why: string; at?: string }
   | { kind: "error"; why: string };
 
-type Judge = (msgs: Msg[]) => Promise<{ send: boolean; why: string } | null>;
+type Judge = (msgs: Msg[]) => Promise<{ send: boolean; why: string; english?: boolean } | null>;
 type Ctx = { tok: string; locTz: string; pipes: Pipes; fields: FieldIds; client: Anthropic | null; judge?: Judge; now: number; quietMs: number; maxAgeMs: number; modelNo: Map<string, string>; guardSince?: number; anyHour?: boolean };
 
 export async function decide(ctx: Ctx, locationId: string, contactId: string): Promise<Decision> {
@@ -384,6 +386,7 @@ export async function decide(ctx: Ctx, locationId: string, contactId: string): P
   if (!ctx.judge && !ctx.client) return { kind: "error", why: "no model key" };
   const v = ctx.judge ? await ctx.judge(msgs) : await modelSays(ctx.client!, msgs);
   if (!v) return { kind: "error", why: "model gave no answer" };
+  if (v.english === false) return { kind: "skip", why: "she writes in another language (check-in is English only)", lastMessageId, modelNo: true };
   if (!v.send) return { kind: "skip", why: `model: ${v.why || "no"}`, lastMessageId, modelNo: true };
 
   const fieldId = await areaFieldId(tok, locationId, ctx.fields);
