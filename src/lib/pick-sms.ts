@@ -144,7 +144,7 @@ export function pickSmsArm(phone: string): "sms" | "hold" {
 }
 
 /** POST one SMS from the sub-account. GHL answers with the new message's id. */
-async function postSms(tok: string, contactId: string, message: string): Promise<{ ok: boolean; status: number; messageId: string | null; error: string | null }> {
+export async function postSms(tok: string, contactId: string, message: string): Promise<{ ok: boolean; status: number; messageId: string | null; error: string | null }> {
   const r = await fetch(`${GHL}/conversations/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${tok}`, Version: "2021-04-15", "Content-Type": "application/json", Accept: "application/json" },
@@ -218,7 +218,7 @@ async function recentThread(tok: string, locationId: string, contactId: string):
 }
 /* GHL's clock and ours differ by up to a minute (seen 11/21), so every
    thread comparison uses GHL's own time of OUR message as the zero point. */
-const AUTOMATED_SOURCES = ["workflow", "campaign", "bulk_actions", "trigger", "automation"];
+export const AUTOMATED_SOURCES = ["workflow", "campaign", "bulk_actions", "trigger", "automation"];
 
 export type AiRestore = {
   result: "ok" | "ok_no_shutoff_seen" | "artist_took_over" | "replied_during_restore" | "failed";

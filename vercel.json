@@ -65,6 +65,10 @@
       "schedule": "5 8 * * *"
     },
     {
+      "path": "/api/cron/ai-back-on",
+      "schedule": "35 * * * *"
+    },
+    {
       "path": "/api/cron/dep-ask",
       "schedule": "25 * * * *"
     },
