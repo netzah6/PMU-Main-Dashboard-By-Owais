@@ -3,13 +3,14 @@ import { randomUUID } from "crypto";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAuth } from "@/lib/ppa";
 import {
-  COACH_PHOTO_BUCKET, COACH_PHOTO_PREFIX, coachSlug, nameFromSlug, profileKey, readProfile, type CoachProfile,
+  COACH_PHOTO_BUCKET, COACH_PHOTO_PREFIX, coachSlug, crmBusinessLines, nameFromSlug, profileKey, readProfile, type CoachProfile,
 } from "@/lib/coach-profile";
 
 export const maxDuration = 30;
 
 /* 🎬 Presentations tab — the coach's own profile picture.
-   GET  → my profile (+ every coach's, for an admin).
+   GET  → my profile (+ every coach's, for an admin); also keeps each coach's
+          saved email + business phone in step with her login and the CRM.
    POST → a new picture (multipart "file"; an admin may add "slug" to set a
           coach's picture for her). The page crops it to a square JPEG first. */
 
@@ -35,7 +36,24 @@ async function profileFor(svc: Svc, email: string, teamName?: string | null): Pr
     name: (teamName ?? "").trim().split(/\s+/)[0] || saved?.name || nameFromSlug(slug),
     email: email.toLowerCase(),
     photo: saved?.photo ?? null,
+    phone: saved?.phone ?? null,
   };
+}
+
+/* A coach's contact details reach the decks without her doing anything: the
+   email is her login, the phone is her business line in the CRM. Opening the
+   tab keeps her saved profile in step with both (and creates it for a new
+   coach, so her email shows on the slides even before she adds a picture). */
+async function inStep(svc: Svc, p: CoachProfile, lines: Map<string, string> | null, by: string | null): Promise<CoachProfile> {
+  if (!p.slug) return p;
+  const phone = lines && lines.has(p.email) ? lines.get(p.email) || null : p.phone ?? null;
+  const saved = await readProfile(svc, p.slug);
+  const next: CoachProfile = { ...p, phone };
+  if (saved && saved.email === next.email && saved.name === next.name && (saved.phone ?? null) === phone) return next;
+  const { error } = await svc.from("app_settings").upsert({
+    key: profileKey(p.slug), value: next, updated_by: by, updated_at: new Date().toISOString(),
+  });
+  return error ? p : next;
 }
 
 export async function GET() {
@@ -43,9 +61,10 @@ export async function GET() {
   if (!auth || !allowed(auth.role)) return NextResponse.json({ error: "Admins and coaches only" }, { status: 403 });
   const svc = createServiceClient();
   const me = await profileFor(svc, auth.email ?? "");
-  if (auth.role !== "admin") return NextResponse.json({ me, coaches: [] });
+  const lines = await crmBusinessLines();
+  if (auth.role !== "admin") return NextResponse.json({ me: await inStep(svc, me, lines, auth.email ?? null), coaches: [] });
   const seats = await coachSeats(svc);
-  const coaches = await Promise.all(seats.map((s) => profileFor(svc, s.email, s.team_name)));
+  const coaches = await Promise.all(seats.map(async (s) => inStep(svc, await profileFor(svc, s.email, s.team_name), lines, auth.email ?? null)));
   return NextResponse.json({ me, coaches });
 }
 

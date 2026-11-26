@@ -11,7 +11,7 @@ import { PhotoCropper } from "@/components/presentations/PhotoCropper";
    Launch Call decks read that picture (and her email) when they are opened
    from here, through the ?coach=<name> on each link. */
 
-type Profile = { slug: string; name: string; email: string; photo: string | null };
+type Profile = { slug: string; name: string; email: string; photo: string | null; phone?: string | null };
 
 // The decks live on the public booking domain so the link works on any screen.
 const BASE = "https://book.pmu-care.com";
@@ -55,6 +55,7 @@ export default function PresentationsPage() {
   const [copied, setCopied] = useState("");
   const [pick, setPick] = useState<{ file: File; who: Profile } | null>(null);
   const [showCoaches, setShowCoaches] = useState(false);
+  const [openAs, setOpenAs] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const target = useRef<Profile | null>(null);
 
@@ -83,7 +84,13 @@ export default function PresentationsPage() {
     await load();
   };
 
-  const linkFor = (d: (typeof DECKS)[number]) => `${BASE}${d.path}${d.personal && me?.slug ? `?coach=${me.slug}` : ""}`;
+  /* Whose picture, email and phone the Launch Call shows. A coach always opens
+     her own. Someone who is not a coach (the owner) has no picture of their own
+     there, so they pick which coach to open it as — the first one by default.
+     (11/26/2026: the owner opened his own link and saw no picture.) */
+  const presenters = coaches.length ? [...coaches, ...(me?.photo ? [me] : [])] : [];
+  const presenter = presenters.find((c) => c.slug === openAs) ?? presenters[0] ?? me;
+  const linkFor = (d: (typeof DECKS)[number]) => `${BASE}${d.path}${d.personal && presenter?.slug ? `?coach=${presenter.slug}` : ""}`;
   const copy = async (url: string) => {
     try { await navigator.clipboard.writeText(url); setCopied(url); setTimeout(() => setCopied(""), 1800); } catch { /* clipboard blocked: the Open button still works */ }
   };
@@ -113,10 +120,26 @@ export default function PresentationsPage() {
                 <div className="mt-0.5 text-xs text-[#4a5a6e]">
                   {me.photo ? "Clients see it on the intro slide of your Launch Call." : "Add one — clients see it on the intro slide of your Launch Call."}
                 </div>
+                {role === "editor" && coaches.length === 0 && (
+                  <div className="mt-0.5 truncate text-xs text-[#8595a8]">Your contact slide: {me.email}{me.phone ? ` · ${me.phone}` : ""}</div>
+                )}
               </div>
               <button onClick={() => choose(me)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#15B7AE] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#0e8f88]">
                 <Camera className="h-3.5 w-3.5" />{me.photo ? "Change" : "Upload"}
               </button>
+            </div>
+          )}
+
+          {presenters.length > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-[#4a5a6e]">Open the Launch Call as:</span>
+              {presenters.map((c) => (
+                <button key={c.slug} onClick={() => setOpenAs(c.slug)}
+                  className={cn("inline-flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-3 text-sm font-semibold",
+                    presenter?.slug === c.slug ? "border-[#15B7AE] bg-[#effaf9] text-[#0e8f88]" : "border-[#e4ebf2] bg-white text-[#4a5a6e] hover:bg-[#f4f7fa]")}>
+                  <Avatar p={c} size={26} />{c.slug === me?.slug ? "Me" : c.name}
+                </button>
+              ))}
             </div>
           )}
 
@@ -153,7 +176,7 @@ export default function PresentationsPage() {
                   <Avatar p={c} size={44} />
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-[#1c2b3a]">{c.name}</div>
-                    <div className="truncate text-xs text-[#8595a8]">{c.email}</div>
+                    <div className="truncate text-xs text-[#8595a8]">{c.email}{c.phone ? ` · ${c.phone}` : ""}</div>
                   </div>
                   <button onClick={() => choose(c)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#e4ebf2] px-2.5 py-1 text-xs font-semibold text-[#0e8f88] hover:bg-[#effaf9]">
                     <Camera className="h-3 w-3" />{c.photo ? "Change" : "Upload"}
