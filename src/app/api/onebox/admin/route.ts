@@ -61,6 +61,11 @@ type Extras = {
   b2b?: { variant?: string; tag?: string; calendarId?: string; metaPixelId?: string; fieldMap?: Record<string, string> };
   /* The team's own thank-you touch (lib/ty-extra.ts). */
   tyExtra?: TyExtra;
+  /* A second studio on the same GHL account: the first funnel's slug. Its own
+     address + lead tag live in extras.address / extras.leadTag (onebox-page). */
+  twinOf?: string;
+  address?: string;
+  leadTag?: string;
 };
 
 /* What the B2B page sends on a completed application — mirrors
@@ -428,7 +433,10 @@ const COACH_ACTIONS = new Set(["add", "cvs", "extras", "status", "health", "veri
        GHL funnel (owner rule, 2026-09-23). Never blocks the status flip. */
     let depositUrlNote: string | undefined;
     const isB2BStatus = ((row.extras ?? {}) as Extras).template === "b2b";
-    if (status === "live" && !isB2BStatus) {
+    /* A second studio's funnel (extras.twinOf) never takes the account's pay
+       link: it stays on the first funnel, which sends her on (paylead goSlug). */
+    const isTwin = !!((row.extras ?? {}) as Extras).twinOf;
+    if (status === "live" && !isB2BStatus && !isTwin) {
       const url = funnelUrl(req, slug);
       const res = await setDepositFunnelUrl(row.location_id as string, url);
       if (res.ok) {
