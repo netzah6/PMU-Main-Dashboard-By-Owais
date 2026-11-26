@@ -184,30 +184,15 @@ export async function ghlAfterSigning(row: {
     // email the client types on the public page is never searched: it could
     // match someone else's contact (wrong "signed" tag + Slack line).
     const partnerEmail = (row.partner_email || "").trim().toLowerCase();
-    const signerEmail = (row.signer_email || "").trim().toLowerCase();
     if (partnerEmail) contactId = await find("email", partnerEmail);
     const phone = e164(row.partner_phone);
     if (!contactId && phone) contactId = await find("number", phone);
 
-    // No contact yet: create one so the Slack line still fires.
-    if (!contactId) {
-      const full = (row.signer_name || row.partner_name || "").trim();
-      const [firstName, ...rest] = full.split(/\s+/);
-      const r = await fetch(`${BASE}/contacts/upsert`, {
-        method: "POST",
-        headers: { ...H, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          locationId: LOC, firstName: firstName || full, lastName: rest.join(" ") || undefined, name: full || undefined,
-          email: partnerEmail || signerEmail || undefined, phone: phone || undefined, source: "E-Sign agreement",
-        }),
-        signal: AbortSignal.timeout(8000),
-      });
-      // Upsert can return an existing contact (same email/phone): `new` says which.
-      const j = (await r.json().catch(() => ({}))) as { contact?: { id?: string }; new?: boolean };
-      contactId = j.contact?.id ?? null;
-      steps.push(contactId ? (j.new === false ? "Contact matched" : "Contact created") : `Contact create failed (${r.status})`);
-    }
-    if (!contactId) return { contactId: null, note: steps.join(" · ") || "No GHL contact" };
+    /* No contact: do NOT create one. A brand-new contact (or the "signed"
+       tag on it) could start other agency automations that text the client,
+       and those were not checked (owner rule: no client messages without
+       approval). The team sees this note and can add the contact by hand. */
+    if (!contactId) return { contactId: null, note: "No GHL contact with this email/phone - Slack line not sent" };
 
     // Note on the contact.
     try {
