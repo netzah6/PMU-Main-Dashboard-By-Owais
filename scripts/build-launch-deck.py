@@ -38,13 +38,13 @@ ADS = part("/* ---- 8: ads ---- */", "/* ---- 9: real funnel survey ---- */")
 FUNNEL = part("/* ---- 9: real funnel survey ---- */", "/* ---- 10: iMessage ---- */")
 SMS = part("/* ---- 10: iMessage ---- */", "/* ---- 11: CRM ---- */")
 CRM = part("/* ---- 11: CRM ---- */", "/* ---- 12: AI ---- */")
-AI = part("/* ---- quick start: the AI in action (conversation from the Launch Call deck) ---- */",
+AI = part("/* ---- quick start: the AI in action (conversation from the Launch Call deck) ---- */",   # no longer shown (see ORDER)
           'SLIDES[SLIDES.length-1].th="t-qs-ai3";')
 
 TITLES = {
  1:"Welcome", 2:"Quick Introduction", 3:"A little about us", 4:"Our Mission", 5:"Our 2027 Vision", 6:"Today we’ll go over",
- 7:"Client Journey — your ads", 8:"Client Journey — how we qualify", 9:"Client Journey — filter out",
- 10:"Client Journey — lead alerts", 11:"Client Journey — the AI chat",
+ 7:"Client Journey — 1 · your ads", 8:"Client Journey — 2 · booking page + questions",
+ 10:"Client Journey — 3 · lead alerts",
  12:"Step 1 — Call the same day", 13:"Step 2 — Call back-to-back", 14:"Step 3 — Call AND text, 3 days",
  15:"Step 4 — Update the dashboard", 16:"Step 4 — The dashboard", 17:"Disclaimer",
  18:"Step 5 — The Diamond script", 19:"Step 5 — Which artist?", 20:"Step 6 — Price at the right time",
@@ -64,7 +64,9 @@ TITLES = {
  68:"Disclaimer", 69:"Last few things — phone number", 70:"Our contact info",
  99:"Calling is optional",
 }
-ORDER = [n for n in range(1, 71) if n != 66]      # 66 is a page of spare illustrations, not a slide
+# 66 is a page of spare illustrations, not a slide. Owner 11/26/2026: the journey is 3 steps — the "filter out"
+# picture (9) is now part of the booking-page slide (8), and the AI chat (11) left because the AI block later shows it.
+ORDER = [n for n in range(1, 71) if n not in (9, 11, 66)]
 STEP = {12:1, 13:2, 14:3, 15:4, 18:5, 19:5, 20:6, 21:6, 22:7, 23:7}       # which of the 7 steps a slide is
 CALLING = (12, 13, 14, 18, 19, 20, 21, 55, 62, 65)                           # the "calling part"
 CHIP_POS = {21: "left:auto;right:150px;bottom:auto;top:34px", 55: "bottom:44px", 62: "bottom:44px", 65: "bottom:44px"}
@@ -89,6 +91,7 @@ LINKS = {   # the buttons of the original deck (shape links there)
 AD_LINKS = ("https://drive.google.com/drive/folders/1X1AwWRcrkdDVv4Fi5_mqlG3FUauKNLd8",
             "https://drive.google.com/drive/folders/1GINuSxypSSio_gIZvvR4W34kvLrDG9Kt")
 
+TEAM_PHONE = "(206) 429-4626"                # the main business line, shown until the coach's own line is known
 TEAM_EMAIL = "success@pmu-bookings.com"     # shown until the deck knows which coach presents (same as the last slide)
 
 def clean_href(href, text):
@@ -123,6 +126,8 @@ def block_html(b, delay):
         if r.get("i"): st.append("font-style:italic")
         if r.get("u"): st.append("text-decoration:underline")
         if r.get("bg"): st.append("background:%s" % hexcol(r["bg"]))
+        if TEAM_PHONE in r["t"] and plain(b).startswith("Phone:"):      # slide 30: the coach's own line, when she has one
+            t = t.replace(TEAM_PHONE, '<span data-coach-phone>%s</span>' % TEAM_PHONE)
         if r.get("href", "").startswith("mailto:"):
             t = '<a data-coach-email href="mailto:%s">%s</a>' % (TEAM_EMAIL, TEAM_EMAIL)
         elif r.get("href"):
@@ -253,6 +258,9 @@ def slide_optional():
         '<h1 class="title">Want Even More Bookings?</h1>'
         '<p class="lede">Our AI texts every lead, books the appointment and collects the deposit <b>for you</b>.</p>'
         '<p class="lede">Calling your leads is <b>optional</b>. It is how our top artists <b>maximize their results</b>.</p>'
+        '<p class="askq">Do you want to call your leads too?</p>'
+        '<div class="askbtns"><button type="button" class="ask yes" data-go="next">&#9742;&#65039; Yes &mdash; show me the 7 steps</button>'
+        '<button type="button" class="ask no" data-go="126">No calls &mdash; skip the 7 steps &#9197;</button></div>'
         '</div><div class="col-visual"><div class="panel steps" style="width:100%">'
         '<div class="num rv" style="animation-delay:.2s"><b>✅</b><span>Done for you: the AI books and collects the deposit</span></div>'
         '<div class="num rv" style="animation-delay:.34s"><b>☎️</b><span>Optional: call your leads with our 7 steps</span></div>'
@@ -263,8 +271,12 @@ def slide_optional():
 CSS = r'''
 /* ---------- launch call deck ---------- */
 .slide .art{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0}
-.slide.on .art{animation:artin .7s ease both}
-@keyframes artin{from{opacity:0;transform:scale(1.014)}to{opacity:1;transform:none}}
+/* Calm slides (owner 11/26/2026: "a lot of effects ... annoying"). The text is simply there; a slide
+   only fades in softly, once. The live phones and chats still play — they are the content. */
+.rv,.rx{opacity:1;transform:none}
+.slide.on .rv,.slide.on .rx{animation:none}
+.slide.on{animation:calm .3s ease both}
+@keyframes calm{from{opacity:0}to{opacity:1}}
 .tx{position:absolute;z-index:2;counter-reset:li}
 .tx p{margin:0;white-space:pre-wrap;overflow-wrap:break-word}
 .tx a{color:inherit}
@@ -324,15 +336,13 @@ body.shot #nav,body.shot .hint,body.shot #bar{display:none!important}
 .pausebox .pb-ico{font-size:34px;line-height:1}
 .disc{position:absolute;z-index:3;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:30px;
   background:#fff;border:4px solid #e02424;border-radius:28px;padding:38px 54px;box-shadow:0 30px 70px -24px rgba(13,15,18,.45);width:max-content;max-width:1200px}
-.slide.on .disc.rv{animation:discin .6s cubic-bezier(.2,.9,.3,1.2) forwards}
-@keyframes discin{from{opacity:0;transform:translate(-50%,-44%) scale(.94)}to{opacity:1;transform:translate(-50%,-50%)}}
 .disc .warn{font-size:92px;line-height:1}
 .disc h2{margin:0 0 6px;font-family:Inter,sans-serif;font-size:58px;font-weight:800;color:#e02424;letter-spacing:.02em}
 .disc p{margin:0;font-family:Poppins,sans-serif;font-size:34px;font-weight:600;color:#17181c}
 /* the coach presenting (intro slide): picture from the Presentations tab, via ?coach= */
 .coachpic{position:absolute;z-index:2;left:171.5px;top:236px;width:428px;height:428px;overflow:hidden;background:#eef2f5}
 .coachpic #coach-pic{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
-.coachpic.has #coach-pic{display:block;animation:artin .6s ease both}
+.coachpic.has #coach-pic{display:block;animation:calm .4s ease both}
 .coachpic .ph{position:absolute;inset:0;display:grid;place-items:center}
 .coachpic .ph img{width:46%;opacity:.55}
 .coachpic.has .ph{display:none}
@@ -355,16 +365,27 @@ body.shot #nav,body.shot .hint,body.shot #bar{display:none!important}
 .scam p{margin:0 0 10px}
 .scam .lnk{color:#1a56db;text-decoration:underline;word-break:break-word}
 .scam .stamp{position:absolute;right:22px;bottom:22px;border:5px solid #e02424;color:#e02424;border-radius:12px;padding:4px 16px;
-  font-family:Inter,sans-serif;font-weight:800;font-size:34px;letter-spacing:.08em;transform:rotate(-12deg) scale(2.4);opacity:0;background:rgba(255,255,255,.75)}
-.slide.on .scam .stamp{animation:stampin .38s cubic-bezier(.2,1.4,.4,1) forwards}
-@keyframes stampin{to{opacity:1;transform:rotate(-12deg) scale(1)}}
+  font-family:Inter,sans-serif;font-weight:800;font-size:34px;letter-spacing:.08em;transform:rotate(-12deg);background:rgba(255,255,255,.75)}
+/* the booking-page slide: who gets filtered out */
+.fout{display:flex;flex-wrap:wrap;gap:10px;margin-top:24px;font-family:Poppins,sans-serif}
+.fout span{background:#fff1f1;border:2px solid #f3b4b4;color:#b42318;border-radius:999px;padding:7px 16px;font-size:19px;font-weight:600;white-space:nowrap}
+.fout em{flex-basis:100%;font-style:normal;font-size:19px;color:#5b6470}
+/* pay per appointment: call your leads too? */
+.askq{font-family:Poppins,sans-serif;font-size:27px;font-weight:700;color:var(--ink);margin:30px 0 14px}
+.askbtns{display:flex;gap:14px;flex-wrap:wrap}
+.ask{font-family:Poppins,sans-serif;font-size:22px;font-weight:600;border-radius:14px;padding:16px 26px;cursor:pointer;border:2px solid var(--teal);white-space:nowrap}
+.ask.yes{background:var(--teal);color:#fff}
+.ask.yes:hover{background:var(--teal-dark);border-color:var(--teal-dark)}
+.ask.no{background:#fff;color:var(--teal-dark)}
+.ask.no:hover{background:var(--teal-soft)}
 </style>'''
 
 HELPERS = r'''
 /* ---- launch call deck ---- */
 function head(no,live){return BRUSH+LOGO+(live?'<div class="slide-no"><span class="lv">● LIVE</span></div>':'');}
-function journey(k){var S=["Your ads","Your booking page","We filter the leads","You get the alert","The AI starts the chat"];
-  return '<div class="jrny">'+S.map(function(t,i){return '<div class="jst rx'+(i+1===k?' cur':(i+1<k?' done':''))+'" style="animation-delay:'+(0.22+i*0.09)+'s"><b>'+(i+1)+'</b><span>'+t+'</span></div>';}).join("")+'</div>';}
+function journey(k){var S=["Your ads","Booking page + questions","You get the alert"];
+  return '<div class="jrny">'+S.map(function(t,i){return '<div class="jst'+(i+1===k?' cur':(i+1<k?' done':''))+'"><b>'+(i+1<k?'&#10003;':(i+1))+'</b><span>'+t+'</span></div>';}).join("")+'</div>';}
+
 '''
 
 RUNNERS = r'''
@@ -421,8 +442,16 @@ var PAUSE=[
     if(box&&im&&p.photo){im.onload=function(){box.classList.add("has");};im.src=p.photo;}
     if(box&&nm&&p.name){nm.textContent=p.name;box.classList.add("named");}
     if(p.email){[].forEach.call(document.querySelectorAll("a[data-coach-email]"),function(a){a.textContent=p.email;a.href="mailto:"+p.email;});}
+    if(p.phone){[].forEach.call(document.querySelectorAll("[data-coach-phone]"),function(a){a.textContent=p.phone;});}
   }).catch(function(){});
 })();
+/* pay per appointment: "call your leads too?" — Yes goes on, No jumps past the 7 steps */
+document.getElementById("stage").addEventListener("click",function(e){
+  var b=e.target.closest("[data-go]");if(!b)return;
+  var g=b.getAttribute("data-go");
+  if(g==="next"){show(i+1);return;}
+  for(var k=0;k<SLIDES.length;k++){if(SLIDES[k].n===+g){show(k);return;}}
+});
 function runPause(){psSet(false);chatPlay(document.getElementById("ps-body"),PAUSE,psT,"<b>Today</b> 6:06 PM");}
 '''
 
@@ -440,6 +469,8 @@ def build(variant):
     def th(n):
         changed = ppa and (n in CALLING or n in (6, 24, 25, 99))
         if n in (2, 30): return "t-lc-%02db" % n          # redone 11/26: no coach photo / team email
+        if n in (7, 8, 10): return "t-lc-%02dc" % n       # redone 11/26: the 3-step journey
+        if n == 99: return "t-lcp-99c"                    # redone 11/26: the two buttons
         return ("t-lcp-%02d" if changed else "t-lc-%02d") % n
     def meta(n, nn):
         return 'SLIDES[SLIDES.length-1].n=%d;SLIDES[SLIDES.length-1].t=%s;SLIDES[SLIDES.length-1].th=%s;' % (nn, J(H.escape(TITLES[n], quote=False)), J(th(n)))
@@ -459,15 +490,13 @@ def build(variant):
         elif n == 8:
             a = sub(FUNNEL, ">Lead Qualification Process</h1>'+", ">The Client Journey</h1>'+")
             a = sub(a, 'bullets(["Every answer lands in your CRM","Not commutable? Auto-disqualified","Serious 0–2? Never reaches you","Only real buyers hit your phone"])+',
-                    "'<p class=\"lede rv\" style=\"animation-delay:.1s;margin-bottom:16px;font-size:27px\"><b>How we qualify leads?</b></p>'+"
-                    'bullets(["Collecting Lead Information","Building the Know, Like &amp; Trust Factor","Branding &amp; Social Proof","Service Education","Information Submission","Qualified Lead Questions"])+')
-            js.append(a + meta(n, 9) + 'SLIDES[SLIDES.length-1].th="t-09";')
+                    "'<p class=\"lede\" style=\"margin-bottom:22px\">They land on <b>your booking page</b> and answer a few <b>quick questions</b>.</p>'+journey(2)+"
+                    "'<div class=\"fout\"><span>&#10060; Too far to drive</span><span>&#10060; Not serious (0&ndash;2)</span><em>Filtered out &mdash; they never reach you</em></div>'+")
+            js.append(a + meta(n, 9))
         elif n == 10:
             a = sub(SMS, ">Notification Process</h1>'+", ">The Client Journey</h1>'+")
-            a = sub(a, "how serious they are</b>.</p>'+", "how serious they are</b>.</p>'+journey(4)+")
+            a = sub(a, "how serious they are</b>.</p>'+", "how serious they are</b>.</p>'+journey(3)+")
             js.append(a + meta(n, 10))
-        elif n == 11:
-            js.append(AI + meta(n, 23))
         elif n == 16:
             a = sub(CRM, ">Introducing the CRM</h1>'+", "><span class=\"eyebrow\">Our Simple 7 Steps Success Formula &middot; Step 4</span>Update The Dashboard Daily</h1>'+")
             js.append(a + meta(n, 11))
